@@ -1,0 +1,18 @@
+[package]
+name = "kairos-db"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bb8 = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+diesel = { workspace = true }
+diesel-async = { workspace = true }
+diesel_migrations = { workspace = true }
+kairos-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }

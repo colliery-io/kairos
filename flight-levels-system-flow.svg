@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 920" font-family="Inter, -apple-system, Segoe UI, sans-serif">
+  <defs>
+    <marker id="arrow-down" markerWidth="10" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#2563eb"/>
+    </marker>
+    <marker id="arrow-up" markerWidth="10" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-right" markerWidth="8" markerHeight="6" refX="4" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-in" markerWidth="10" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="920" fill="#fafafa" rx="8"/>
+
+  <!-- Title -->
+  <text x="550" y="40" text-anchor="middle" font-size="22" font-weight="700" fill="#1e293b">Flight Levels — System Flow</text>
+  <text x="550" y="62" text-anchor="middle" font-size="13" fill="#64748b">Direction flows down · Information flows up · Work enters at each level</text>
+
+  <!-- ════════════════ STRATEGY LEVEL ════════════════ -->
+  <rect x="40" y="90" width="1020" height="180" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="60" y="118" font-size="16" font-weight="700" fill="#1e40af">STRATEGY</text>
+  <text x="185" y="118" font-size="12" fill="#64748b">Owned by leadership · One board</text>
+
+  <!-- Vision callout -->
+  <rect x="60" y="130" width="200" height="50" rx="6" fill="#fff" stroke="#c7d2fe" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="160" y="150" text-anchor="middle" font-size="11" font-weight="600" fill="#6366f1">Visions / Charters</text>
+  <text x="160" y="165" text-anchor="middle" font-size="10" fill="#64748b">North stars — inform, don't live on board</text>
+
+  <!-- Strategy board columns -->
+  <rect x="300" y="130" width="120" height="44" rx="5" fill="#fff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="360" y="156" text-anchor="middle" font-size="12" font-weight="600" fill="#1e40af">Draft</text>
+
+  <line x1="425" y1="152" x2="448" y2="152" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="455" y="130" width="120" height="44" rx="5" fill="#fff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="515" y="156" text-anchor="middle" font-size="12" font-weight="600" fill="#1e40af">Review</text>
+
+  <line x1="580" y1="152" x2="603" y2="152" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="610" y="130" width="120" height="44" rx="5" fill="#fff" stroke="#93c5fd" stroke-width="1"/>
+  <text x="670" y="156" text-anchor="middle" font-size="12" font-weight="600" fill="#1e40af">Active</text>
+
+  <line x1="735" y1="152" x2="758" y2="152" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="765" y="130" width="120" height="44" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1"/>
+  <text x="825" y="156" text-anchor="middle" font-size="12" font-weight="600" fill="#92400e">Monitoring</text>
+
+  <line x1="890" y1="152" x2="913" y2="152" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="920" y="130" width="120" height="44" rx="5" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+  <text x="980" y="156" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Completed</text>
+
+  <!-- Strategy hypothesis note -->
+  <text x="670" y="198" text-anchor="middle" font-size="11" fill="#475569">Each strategy is a hypothesis: "doing X because we believe Y"</text>
+  <text x="825" y="215" text-anchor="middle" font-size="10" fill="#92400e">↑ Track whether Y occurred</text>
+
+  <!-- Intake arrow for Strategy -->
+  <line x1="300" y1="100" x2="300" y2="127" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-in)"/>
+  <text x="285" y="97" font-size="10" font-weight="600" fill="#9333ea">INTAKE</text>
+  <text x="300" y="246" text-anchor="middle" font-size="10" fill="#7c3aed">Proposals from leadership</text>
+  <text x="300" y="258" text-anchor="middle" font-size="10" fill="#7c3aed">or escalated from initiative level</text>
+
+  <!-- ════════════════ GAP: STRATEGY → INITIATIVE ════════════════ -->
+
+  <!-- Direction down — left side -->
+  <line x1="370" y1="275" x2="370" y2="355" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-down)"/>
+  <text x="355" y="305" font-size="11" font-weight="600" fill="#2563eb" text-anchor="end">Direction ↓</text>
+  <text x="355" y="320" font-size="10" fill="#64748b" text-anchor="end">Strategies define</text>
+  <text x="355" y="332" font-size="10" fill="#64748b" text-anchor="end">what to build toward</text>
+
+  <!-- Info up — right side -->
+  <line x1="730" y1="355" x2="730" y2="275" stroke="#16a34a" stroke-width="2.5" marker-end="url(#arrow-up)"/>
+  <text x="745" y="305" font-size="11" font-weight="600" fill="#16a34a">Information ↑</text>
+  <text x="745" y="320" font-size="10" fill="#64748b">Progress, blockers,</text>
+  <text x="745" y="332" font-size="10" fill="#64748b">proposals</text>
+
+  <!-- ════════════════ INITIATIVE LEVEL ════════════════ -->
+  <rect x="40" y="365" width="1020" height="200" rx="8" fill="#faf5ff" stroke="#e9d5ff" stroke-width="1.5"/>
+  <text x="60" y="393" font-size="16" font-weight="700" fill="#7e22ce">INITIATIVE</text>
+  <text x="205" y="393" font-size="12" fill="#64748b">Owned by coordinator · One board · Epics only</text>
+
+  <!-- Initiative board columns -->
+  <rect x="60" y="405" width="100" height="44" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1"/>
+  <text x="110" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#7e22ce">Discovery</text>
+
+  <line x1="164" y1="427" x2="180" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="187" y="405" width="100" height="44" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1"/>
+  <text x="237" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#7e22ce">Design</text>
+
+  <line x1="291" y1="427" x2="307" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="314" y="405" width="100" height="44" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1"/>
+  <text x="364" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#7e22ce">Ready</text>
+
+  <line x1="418" y1="427" x2="434" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="441" y="405" width="115" height="44" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1"/>
+  <text x="498" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#7e22ce">Decompose</text>
+
+  <line x1="560" y1="427" x2="576" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="583" y="405" width="100" height="44" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1"/>
+  <text x="633" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#7e22ce">Active</text>
+
+  <line x1="687" y1="427" x2="703" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="710" y="405" width="115" height="44" rx="5" fill="#fef3c7" stroke="#fbbf24" stroke-width="1"/>
+  <text x="767" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#92400e">Monitoring</text>
+
+  <line x1="829" y1="427" x2="845" y2="427" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="852" y="405" width="110" height="44" rx="5" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+  <text x="907" y="431" text-anchor="middle" font-size="11" font-weight="600" fill="#166534">Completed</text>
+
+  <!-- JIT + Monitoring notes -->
+  <text x="498" y="467" text-anchor="middle" font-size="10" fill="#7e22ce">↑ Pull from Ready JIT</text>
+  <text x="767" y="467" text-anchor="middle" font-size="10" fill="#92400e">↑ Post-delivery support</text>
+  <text x="767" y="479" text-anchor="middle" font-size="10" fill="#92400e">through high-activity season</text>
+
+  <!-- Bucket initiatives -->
+  <rect x="60" y="493" width="902" height="40" rx="5" fill="#fff" stroke="#d8b4fe" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="70" y="513" font-size="11" font-weight="600" fill="#7e22ce">Buckets (quarterly):</text>
+  <text x="210" y="513" font-size="11" fill="#475569">Tech Debt  ·  Bugs  ·  Ad-Hoc / Service Requests — standing initiatives for ongoing capacity tracking</text>
+
+  <!-- Intake arrow for Initiative -->
+  <line x1="60" y1="375" x2="60" y2="402" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-in)"/>
+  <text x="45" y="372" font-size="10" font-weight="600" fill="#9333ea">INTAKE</text>
+  <text x="80" y="552" font-size="10" fill="#7c3aed">Initiatives created to implement active strategies</text>
+
+  <!-- ════════════════ GAP: INITIATIVE → DELIVERY ════════════════ -->
+
+  <!-- Direction down — left side -->
+  <line x1="370" y1="570" x2="370" y2="650" stroke="#2563eb" stroke-width="2.5" marker-end="url(#arrow-down)"/>
+  <text x="355" y="600" font-size="11" font-weight="600" fill="#2563eb" text-anchor="end">Direction ↓</text>
+  <text x="355" y="615" font-size="10" fill="#64748b" text-anchor="end">Decomposed tasks</text>
+  <text x="355" y="627" font-size="10" fill="#64748b" text-anchor="end">assigned to teams</text>
+
+  <!-- Info up — right side -->
+  <line x1="730" y1="650" x2="730" y2="570" stroke="#16a34a" stroke-width="2.5" marker-end="url(#arrow-up)"/>
+  <text x="745" y="600" font-size="11" font-weight="600" fill="#16a34a">Information ↑</text>
+  <text x="745" y="615" font-size="10" fill="#64748b">Progress, cross-team</text>
+  <text x="745" y="627" font-size="10" fill="#64748b">blockers</text>
+
+  <!-- ════════════════ DELIVERY LEVEL ════════════════ -->
+  <rect x="40" y="660" width="1020" height="190" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="60" y="688" font-size="16" font-weight="700" fill="#166534">DELIVERY</text>
+  <text x="168" y="688" font-size="12" fill="#64748b">Owned by team lead · One board per team · Work however fits your team</text>
+
+  <!-- Delivery board columns -->
+  <rect x="160" y="705" width="130" height="44" rx="5" fill="#fff" stroke="#86efac" stroke-width="1"/>
+  <text x="225" y="731" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Backlog</text>
+
+  <line x1="295" y1="727" x2="318" y2="727" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="325" y="705" width="130" height="44" rx="5" fill="#fff" stroke="#86efac" stroke-width="1"/>
+  <text x="390" y="731" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Todo</text>
+
+  <line x1="460" y1="727" x2="483" y2="727" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="490" y="705" width="130" height="44" rx="5" fill="#fef2f2" stroke="#fca5a5" stroke-width="1"/>
+  <text x="555" y="731" text-anchor="middle" font-size="12" font-weight="600" fill="#991b1b">Blocked</text>
+
+  <line x1="625" y1="727" x2="648" y2="727" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="655" y="705" width="130" height="44" rx="5" fill="#fff" stroke="#86efac" stroke-width="1"/>
+  <text x="720" y="731" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Active</text>
+
+  <line x1="790" y1="727" x2="813" y2="727" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrow-right)"/>
+
+  <rect x="820" y="705" width="130" height="44" rx="5" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+  <text x="885" y="731" text-anchor="middle" font-size="12" font-weight="600" fill="#166534">Completed</text>
+
+  <!-- Item types -->
+  <text x="225" y="770" text-anchor="middle" font-size="11" fill="#475569">Tasks · Bugs · Tech Debt</text>
+  <text x="555" y="770" text-anchor="middle" font-size="10" fill="#991b1b">↑ Cross-team blockers escalated</text>
+  <text x="555" y="782" text-anchor="middle" font-size="10" fill="#991b1b">to Initiative Board Review</text>
+
+  <!-- Intake arrows for Delivery -->
+  <line x1="160" y1="675" x2="160" y2="702" stroke="#9333ea" stroke-width="2" marker-end="url(#arrow-in)"/>
+  <text x="145" y="672" font-size="10" font-weight="600" fill="#9333ea">INTAKE</text>
+  <text x="160" y="815" text-anchor="middle" font-size="10" fill="#7c3aed">Two sources: upstream tasks from</text>
+  <text x="160" y="827" text-anchor="middle" font-size="10" fill="#7c3aed">initiatives + team-internal (bugs, tech debt)</text>
+
+  <!-- Requirement callout -->
+  <text x="720" y="815" text-anchor="middle" font-size="11" font-weight="600" fill="#166534">Only requirement: trackable work, linked to initiatives, flow visible across levels</text>
+
+  <!-- Legend -->
+  <rect x="40" y="880" width="1020" height="30" rx="4" fill="#f8fafc"/>
+  <line x1="60" y1="895" x2="90" y2="895" stroke="#2563eb" stroke-width="2.5"/>
+  <text x="95" y="899" font-size="11" fill="#475569">Direction down</text>
+  <line x1="210" y1="895" x2="240" y2="895" stroke="#16a34a" stroke-width="2.5"/>
+  <text x="245" y="899" font-size="11" fill="#475569">Information up</text>
+  <line x1="380" y1="895" x2="410" y2="895" stroke="#9333ea" stroke-width="2.5"/>
+  <text x="415" y="899" font-size="11" fill="#475569">Work intake</text>
+  <rect x="540" y="888" width="40" height="14" rx="3" fill="#fff" stroke="#d8b4fe" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="585" y="899" font-size="11" fill="#475569">Context / standing items (not active flow)</text>
+</svg>

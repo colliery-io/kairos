@@ -1,0 +1,18 @@
+[package]
+name = "kairos-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+utoipa = { workspace = true }
+# The HTTP client (KAIROS-A-0015: shared by the CLI, integration tests, and
+# skills verification). rustls via the workspace reqwest configuration.
+reqwest = { workspace = true }
+# The /ws/events helper (KAIROS-A-0005 §5): same versions the server's
+# axum `ws` feature / dev-dependencies already pull into the lockfile.
+tokio = { workspace = true }
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.31"

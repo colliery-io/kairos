@@ -1,0 +1,16 @@
+{
+  "name": "kairos",
+  "description": "Marketplace for the kairos plugin: Kairos's agentic workflow layer for Claude Code.",
+  "owner": {
+    "name": "Dylan Storey",
+    "email": "dylan.storey@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "kairos",
+      "source": "./",
+      "description": "Kairos's agentic workflow layer: Claude Code skills, hooks, and MCP wiring that operate on Kairos boards.",
+      "version": "0.1.0"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "kairos",
+  "version": "0.1.0",
+  "description": "Kairos's agentic workflow layer: Claude Code skills, hooks, and MCP wiring that operate on Kairos boards.",
+  "author": {
+    "name": "Dylan Storey",
+    "email": "dylan.storey@gmail.com"
+  },
+  "hooks": "./plugin/hooks/hooks.json",
+  "skills": [
+    "./plugin/skills/engineering/code-review",
+    "./plugin/skills/engineering/codebase-design",
+    "./plugin/skills/engineering/diagnosing-bugs",
+    "./plugin/skills/engineering/domain-modeling",
+    "./plugin/skills/engineering/grill-with-docs",
+    "./plugin/skills/engineering/prototype",
+    "./plugin/skills/engineering/research",
+    "./plugin/skills/engineering/tdd",
+    "./plugin/skills/meta/bootstrap",
+    "./plugin/skills/meta/grill-me",
+    "./plugin/skills/meta/grilling",
+    "./plugin/skills/meta/handoff",
+    "./plugin/skills/meta/kairos",
+    "./plugin/skills/meta/writing-great-skills",
+    "./plugin/skills/review/architecture-review",
+    "./plugin/skills/review/diataxis-review",
+    "./plugin/skills/workflow/decompose",
+    "./plugin/skills/workflow/implement",
+    "./plugin/skills/workflow/to-initiative",
+    "./plugin/skills/workflow/triage"
+  ]
+}

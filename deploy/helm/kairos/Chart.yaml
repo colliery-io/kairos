@@ -1,0 +1,34 @@
+apiVersion: v2
+name: kairos
+description: >-
+  Kairos — Flight Levels work management. A single stateless OCI image serving
+  the GUI, REST API, MCP, and SCIM from one process (KAIROS-A-0015), backed by
+  an external PostgreSQL and an external OIDC issuer (KAIROS-A-0016). This chart
+  bundles neither a database nor an identity provider — both are the operator's.
+type: application
+
+# Chart version — bump on any change to the chart itself.
+version: 0.1.0
+
+# The Kairos release this chart deploys by default. image.tag defaults to this
+# via the "kairos.image" helper, so the chart never pins `latest`
+# (KAIROS-A-0013: reference deployments use versioned tags only).
+appVersion: "0.1.0"
+
+# Ingress uses networking.k8s.io/v1 and (optionally) the monitoring.coreos.com
+# ServiceMonitor CRD; 1.23 is the floor where Ingress v1 + probes here are GA.
+kubeVersion: ">=1.23.0-0"
+
+home: https://github.com/colliery-io/kairos
+sources:
+  - https://github.com/colliery-io/kairos
+
+keywords:
+  - kairos
+  - flight-levels
+  - work-management
+  - kanban
+
+maintainers:
+  - name: Colliery
+    url: https://github.com/colliery-io

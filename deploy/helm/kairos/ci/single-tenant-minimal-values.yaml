@@ -1,0 +1,10 @@
+# (a) Single-tenant minimal: inline DB Secret, single tenant, no ingress.
+database:
+  url: "postgres://kairos:change-me@my-postgres:5432/kairos"
+config:
+  oidc:
+    issuerUrl: "https://idp.example.com/"
+    audience: "kairos"
+  tenancy:
+    singleTenant: "acme"
+  deploymentAdmins: "oidc-sub-abc123"

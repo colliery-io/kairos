@@ -1,0 +1,107 @@
+# Kairos CI — runs the KAIROS-A-0012 verification gates via angreal so that
+# CI and the agent completion gate are the exact same commands.
+#
+# Gates (sequential by design, single job):
+#   1. cargo fmt --check
+#   2. cargo clippy --workspace --all-targets -- -D warnings
+#   3. angreal test unit          (tier 1: pure cargo, no services)
+#   4. angreal test integration   (tiers 2+3: task drives compose up/down itself)
+#
+# NOTE: this repo has no GitHub remote yet. Activation steps are documented
+# in README.md ("CI" section): create the remote, push, and enable branch
+# protection requiring the `ci` check.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        # rustup (>= 1.28, preinstalled on ubuntu-latest) reads
+        # rust-toolchain.toml and installs the pinned channel + components
+        # (rustfmt, clippy) when invoked with no arguments.
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify Docker is available
+        # `angreal test integration` drives docker compose itself
+        # (up --wait / down -v); this step just fails fast if the
+        # runner image ever loses docker.
+        run: |
+          docker version
+          docker compose version
+
+      - name: Install libpq (diesel postgres backend links against it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpq-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install angreal
+        run: |
+          pip install "angreal==2.8.8"
+          angreal --version
+
+      - name: Gate 1 — cargo fmt
+        run: cargo fmt --check
+
+      - name: Gate 2 — cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Gate 3 — angreal test unit
+        run: angreal test unit
+
+      - name: Gate 4 — angreal test integration
+        run: angreal test integration
+
+      # KAIROS-T-0023 (A-0005 §6): the OpenAPI document is a CI artifact
+      # per run, enabling client SDK generation without a running server.
+      # `write_spec_artifact` is a pure test (no services) that writes the
+      # aggregated spec to target/openapi.json.
+      - name: Generate OpenAPI artifact
+        run: cargo test -p kairos-server --test openapi write_spec_artifact
+
+      - name: Upload OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi.json
+          path: target/openapi.json
+          if-no-files-found: error
+
+      # KAIROS-T-0039 (A-0015): the GUI must keep compiling to wasm and
+      # keep the token rule clean. `angreal web build` provisions the
+      # wasm32 target (rustup) and trunk itself (pinned cargo install
+      # into target/tools/, warmed by the rust-cache step) — CI runs the
+      # exact same entry point developers do. `angreal web lint` is the
+      # docs/gui-conventions.md conventions grep (no hardcoded colors).
+      - name: Gate 5 — GUI conventions grep
+        run: angreal web lint
+
+      - name: Gate 6 — GUI wasm build
+        run: angreal web build --release

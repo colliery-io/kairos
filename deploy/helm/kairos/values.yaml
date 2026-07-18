@@ -1,0 +1,286 @@
+# Default values for the Kairos Helm chart.
+# This is a YAML-formatted file. Override any of these with `-f my-values.yaml`
+# or `--set key=value` on `helm install` / `helm upgrade`.
+#
+# Kairos is ONE stateless binary that serves the GUI (/), REST API (/api), MCP
+# (/mcp), SCIM (/scim/v2), and the ops endpoints (/healthz, /readyz, /metrics)
+# from a single container (KAIROS-A-0015). It requires two things this chart does
+# NOT provide (KAIROS-A-0016): an external PostgreSQL and an external OIDC issuer.
+
+# -- Number of server replicas. The server is stateless (all state is in
+# Postgres, KAIROS-A-0013), so it scales horizontally. Ignored when
+# autoscaling.enabled is true.
+replicaCount: 2
+
+image:
+  # -- Image repository. The release image published by CI (KAIROS-T-0047).
+  repository: ghcr.io/colliery-io/kairos
+  # -- Image tag. LEAVE EMPTY to track the chart's appVersion (recommended —
+  # the chart never pins `latest`, per KAIROS-A-0013). Set explicitly to run a
+  # specific published release, e.g. "0.1.0".
+  tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+
+# -- Secrets for pulling from a private registry, e.g. [{name: ghcr-creds}].
+imagePullSecrets: []
+
+# -- Override the chart name used in resource names.
+nameOverride: ""
+# -- Override the fully-qualified release name used in resource names.
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a dedicated ServiceAccount for the pods.
+  create: true
+  # -- Name of the ServiceAccount. Empty uses the generated fullname (when
+  # create is true) or "default" (when create is false).
+  name: ""
+  # -- Annotations for the ServiceAccount (e.g. IRSA / Workload Identity roles).
+  annotations: {}
+  # -- Auto-mount the SA token. Kairos does not call the Kubernetes API; leave
+  # false unless a sidecar or admission integration needs it.
+  automountServiceAccountToken: false
+
+# -- Extra annotations for the pods (e.g. checksum triggers, mesh config).
+podAnnotations: {}
+# -- Extra labels for the pods.
+podLabels: {}
+
+# -- Pod-level security context. Runs as an unprivileged, non-root user with a
+# fixed fsGroup and a seccomp profile.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+# -- Container-level security context. Drops all capabilities, disallows
+# privilege escalation, and mounts the root filesystem read-only (the server
+# writes no local files — Postgres is the sole state, KAIROS-A-0013). If your
+# KAIROS_ARCHIVE_TARGET is a local filesystem path, mount a writable volume via
+# extraVolumes/extraVolumeMounts and it can coexist with a read-only rootfs.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- CPU/memory requests and limits. Sane starting point for a single-node-ish
+# workload; tune with observed usage. No memory limit surprises: request==floor.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+service:
+  # -- Service type. ClusterIP + an Ingress is the intended topology.
+  type: ClusterIP
+  # -- Service port (what the Service exposes in-cluster).
+  port: 80
+  # -- Annotations for the Service.
+  annotations: {}
+
+# -- The container's listen port. The chart sets KAIROS_BIND_ADDR to
+# 0.0.0.0:<containerPort> so the server listens on all interfaces inside the
+# pod (its own default is 127.0.0.1:8080). Also the Service targetPort.
+containerPort: 8080
+
+ingress:
+  # -- Create an Ingress. Disable to front Kairos with your own gateway.
+  enabled: false
+  # -- IngressClass (e.g. "nginx", "traefik"). Empty uses the cluster default.
+  className: ""
+  # -- Ingress annotations. For cert-manager TLS, set e.g.
+  # cert-manager.io/cluster-issuer: letsencrypt-prod
+  annotations: {}
+  # -- Tenancy mode drives the host rule:
+  #   "wildcard": routes *.<config.tenancy.baseDomain> AND the apex to Kairos
+  #               (subdomain tenancy, KAIROS-A-0005 §2). Needs wildcard DNS + a
+  #               wildcard TLS cert (DNS-01 with cert-manager, or a provided
+  #               secret).
+  #   "single":   routes a single host (below) to Kairos (single-tenant mode).
+  tenancyMode: wildcard
+  # -- Host to route in "single" tenancyMode. In "wildcard" mode the host is
+  # derived from config.tenancy.baseDomain (apex + *.apex).
+  host: kairos.example.com
+  # -- HTTP path prefix (Kairos serves everything from /).
+  path: /
+  pathType: Prefix
+  tls:
+    # -- Enable a TLS block on the Ingress.
+    enabled: false
+    # -- Name of the TLS Secret. With cert-manager this is where the issued
+    # cert lands (referenced by the annotation above); or point at a Secret you
+    # created. Empty lets the ingress controller's default cert apply.
+    secretName: ""
+
+autoscaling:
+  # -- Enable a HorizontalPodAutoscaler. When true, replicaCount is ignored.
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  # -- Target average CPU utilization (percentage of the request).
+  targetCPUUtilizationPercentage: 70
+  # -- Optional target average memory utilization; null disables the metric.
+  targetMemoryUtilizationPercentage: null
+
+metrics:
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor scraping /metrics
+    # (KAIROS-A-0013, KAIROS-T-0049). Requires the monitoring.coreos.com CRDs.
+    enabled: false
+    # -- Scrape interval.
+    interval: 30s
+    # -- Scrape timeout.
+    scrapeTimeout: 10s
+    # -- Extra labels on the ServiceMonitor (e.g. to match your Prometheus'
+    # serviceMonitorSelector, {release: kube-prometheus-stack}).
+    labels: {}
+
+# Non-secret application configuration. These become a ConfigMap that the
+# Deployment loads via envFrom. Every value maps to an env var the server reads
+# (KAIROS-A-0013 config surface). DATABASE_URL is NOT here — it is a secret, see
+# `database` below.
+config:
+  oidc:
+    # -- OIDC_ISSUER_URL — your external issuer (KAIROS-A-0016). REQUIRED.
+    # e.g. https://idp.example.com/ (Okta, Entra ID, Auth0, Keycloak, Dex, …).
+    issuerUrl: ""
+    # -- OIDC_AUDIENCE — the `aud` tokens must carry (the API audience / client
+    # id). REQUIRED.
+    audience: ""
+  # -- KAIROS_WEB_CLIENT_ID — the public OAuth client id the GUI uses for PKCE.
+  webClientId: kairos-web
+  # -- KAIROS_API_BEARER — which OIDC token the GUI/CLI send as the API bearer
+  # (KAIROS-T-0054): "access_token" (default; Dex, Keycloak, and any issuer that
+  # mints JWT access tokens) or "id_token" (issuers whose access token is opaque
+  # and cannot be validated by local JWKS — notably Google / Google Workspace).
+  apiBearer: access_token
+  # -- KAIROS_WEB_CLIENT_SECRET — OAuth client secret for a CONFIDENTIAL GUI
+  # client (KAIROS-T-0056). A SECRET. Leave empty for public clients
+  # (Dex/Keycloak). REQUIRED for Google Workspace, whose "Web application" OAuth
+  # clients reject the token exchange without it even under PKCE. The server-side
+  # token relay presents it; it never reaches the browser. Provide it EITHER
+  # inline here (the chart renders a Secret) OR via webClientSecretExistingSecret
+  # (recommended for production — keep it out of values/release history).
+  webClientSecret: ""
+  # -- Name of a pre-existing Secret holding KAIROS_WEB_CLIENT_SECRET. When set,
+  # the chart does NOT render one and reads from this instead.
+  webClientSecretExistingSecret: ""
+  # -- Key within webClientSecretExistingSecret that holds the secret value.
+  webClientSecretExistingSecretKey: KAIROS_WEB_CLIENT_SECRET
+
+  tenancy:
+    # -- KAIROS_BASE_DOMAIN — wildcard subdomain tenancy: acme.<baseDomain>
+    # resolves to tenant "acme" (KAIROS-A-0005 §2). Set EXACTLY ONE of this or
+    # singleTenant. Leave empty when using singleTenant.
+    baseDomain: ""
+    # -- KAIROS_SINGLE_TENANT — pin one tenant slug and skip subdomain
+    # resolution (evaluation installs, no wildcard DNS). Set EXACTLY ONE of
+    # this or baseDomain. Leave empty when using baseDomain.
+    singleTenant: ""
+
+  # -- KAIROS_DEPLOYMENT_ADMINS — comma-separated OIDC `sub`s allowed to call
+  # the cross-tenant admin routes (POST /api/admin/tenants). Set this to your
+  # own OIDC sub to bootstrap a fresh install (see README).
+  deploymentAdmins: ""
+
+  log:
+    # -- KAIROS_LOG_LEVEL — tracing filter directive.
+    level: info
+    # -- KAIROS_LOG_FORMAT — json (default) or pretty.
+    format: json
+
+  # -- KAIROS_OTEL_ENDPOINT — OpenTelemetry OTLP trace endpoint. Emitted only
+  # when non-empty; off by default (KAIROS-A-0013).
+  otelEndpoint: ""
+
+  # Data retention (KAIROS-A-0004 / KAIROS-A-0013). Defaults match the server's
+  # built-in defaults; only overridden values are emitted into the ConfigMap.
+  retention:
+    # -- KAIROS_HISTORY_HOT_DAYS — hot-window length (server default 90).
+    historyHotDays: null
+    # -- KAIROS_HISTORY_KEEP_LATEST — latest-N version guard (server default 5).
+    historyKeepLatest: null
+    # -- KAIROS_ACTIVITY_RETENTION_DAYS — activity_log window (default 365).
+    activityRetentionDays: null
+    # -- KAIROS_ARCHIVE_TARGET — NDJSON offload target: a filesystem path or an
+    # s3://… URL. Empty means no target (archive mode then prunes nothing).
+    archiveTarget: ""
+    # -- KAIROS_RETENTION_MODE — archive | discard | off (server default
+    # archive: nothing is destroyed without an offload copy).
+    mode: ""
+
+  # -- KAIROS_DEV_UI — mount the Swagger UI at /api/docs. Keep false in
+  # production (KAIROS-A-0005 §6: dev builds only).
+  devUi: false
+
+database:
+  # -- DATABASE_URL for the external Postgres (KAIROS-A-0013: sole state). This
+  # is a SECRET. Provide it EITHER inline here (the chart renders a Secret) OR
+  # via existingSecret (recommended for production — keep secrets out of
+  # values). e.g. postgres://kairos:PASSWORD@my-pg:5432/kairos
+  url: ""
+  # -- Name of a pre-existing Secret holding the DATABASE_URL. When set, the
+  # chart does NOT render a Secret and reads from this one instead.
+  existingSecret: ""
+  # -- Key within existingSecret that holds the connection URL.
+  existingSecretKey: DATABASE_URL
+
+# -- Extra environment variables appended verbatim to the container. Each entry
+# is a standard EnvVar (name/value or name/valueFrom). Use for anything not
+# surfaced above.
+extraEnv: []
+#  - name: RUST_BACKTRACE
+#    value: "1"
+
+# -- Extra volumes for the pod (e.g. a PVC for a filesystem KAIROS_ARCHIVE_TARGET).
+extraVolumes: []
+# -- Extra volume mounts for the container.
+extraVolumeMounts: []
+
+# Probes. Liveness hits /healthz (process-only), readiness hits /readyz (DB +
+# pending-migration check), and an optional startupProbe covers slow first-boot
+# migrations (KAIROS-T-0007) before liveness starts counting.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+startupProbe:
+  # -- Enable a startupProbe (recommended when boot migrations may be slow).
+  enabled: true
+  httpGet:
+    path: /readyz
+    port: http
+  # Allow up to failureThreshold*periodSeconds for the first successful /readyz.
+  periodSeconds: 5
+  failureThreshold: 30
+
+# -- Node selector for pod scheduling.
+nodeSelector: {}
+# -- Tolerations for pod scheduling.
+tolerations: []
+# -- Affinity rules for pod scheduling.
+affinity: {}
+# -- Topology spread constraints (e.g. spread replicas across zones).
+topologySpreadConstraints: []

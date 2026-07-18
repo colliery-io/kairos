@@ -1,0 +1,17 @@
+{
+  "description": "SessionStart board-context injection (KAIROS-A-0014): emits the repo's .claude/kairos.local.md wiring as additionalContext and instructs the agent to pull live board state via the authenticated kairos MCP tools. Hooks hold no credentials (tokens live with the MCP client); offline degrades to a note. Silent no-op when the repo is not bootstrapped.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/session_start.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+# Reference Caddy config for the Kairos deployment (KAIROS-A-0013).
+#
+# KAIROS_SITE_ADDRESS selects the site address:
+#   - a hostname (kairos.example.com) -> automatic HTTPS via Let's Encrypt
+#   - ":80"                           -> local / no-TLS trial
+#
+# Kairos serves the GUI, /api, /mcp, /scim/v2, and /healthz from one process
+# on 8080, so a single reverse_proxy upstream covers the whole surface.
+
+{$KAIROS_SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy kairos:8080
+}
+
+# Wildcard subdomain tenants (acme.kairos.example -> tenant acme,
+# KAIROS-A-0005) need a wildcard certificate, which requires the ACME DNS-01
+# challenge and a Caddy image built with your DNS provider plugin. Replace the
+# block above with something like:
+#
+# *.kairos.example, kairos.example {
+# 	encode zstd gzip
+# 	tls {
+# 		dns <provider> {$DNS_API_TOKEN}
+# 	}
+# 	reverse_proxy kairos:8080
+# }

@@ -1,0 +1,22 @@
+# Trunk build for the Kairos GUI (KAIROS-T-0039, A-0015: Leptos CSR).
+#
+# Build via `angreal web build [--release]` (which ensures the
+# wasm32-unknown-unknown target + trunk itself), or directly:
+#
+#   trunk build [--release]           # from crates/kairos-web/
+#
+# Output lands in crates/kairos-web/dist/ — served by kairos-server either
+# from KAIROS_WEB_DIST (dev) or embedded via the `embed-web` feature
+# (release single-binary, A-0013). See docs/gui-conventions.md.
+
+[build]
+target = "index.html"
+dist = "dist"
+# Served from the root of the kairos-server binary (A-0015).
+public_url = "/"
+
+[serve]
+# `trunk serve` is NOT the dev flow (the SPA needs the same-origin /api);
+# run the server with KAIROS_WEB_DIST instead. Kept only so an accidental
+# `trunk serve` stays on localhost.
+addresses = ["127.0.0.1"]

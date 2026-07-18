@@ -1,0 +1,62 @@
+[package]
+name = "kairos-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kairos-core = { workspace = true }
+kairos-db = { workspace = true }
+kairos-client = { workspace = true }
+# `r2d2` feeds the small sync pool bridging async handlers to the sync
+# kairos-db services (KAIROS-T-0018, see `src/blocking.rs`).
+diesel = { workspace = true, features = ["r2d2"] }
+diesel-async = { workspace = true }
+chrono = { workspace = true }
+utoipa = { workspace = true }
+# `ws` feeds the /ws/events channel (KAIROS-T-0022, A-0005 §5).
+axum = { workspace = true, features = ["ws"] }
+tokio = { workspace = true }
+# The dedicated LISTEN connection behind /ws/events (KAIROS-T-0022);
+# version pinned in the workspace manifest.
+tokio-postgres = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
+# SCIM provisioning (KAIROS-T-0025, A-0016): token secrets are 32 random
+# bytes, stored as SHA-256 hex. Versions match what the lockfile already
+# carries transitively.
+sha2 = "0.10.9"
+rand = "0.9.4"
+# The MCP endpoint at /mcp (KAIROS-A-0011, KAIROS-T-0026): official Rust
+# SDK, streamable-HTTP server transport mounted as a tower service.
+rmcp = { workspace = true, features = [
+    "server",
+    "transport-streamable-http-server",
+] }
+# GUI serving (KAIROS-T-0039, A-0015): content types for the SPA assets;
+# rust-embed only compiles under the `embed-web` feature below.
+mime_guess = { workspace = true }
+rust-embed = { workspace = true, optional = true }
+
+[features]
+# Embed the built GUI (crates/kairos-web/dist) into the binary — the
+# A-0013 single-artifact release path. OFF by default so plain
+# `cargo build` never needs wasm tooling or a prior GUI build. Release
+# recipe: `angreal web build --release`, then
+# `cargo build -p kairos-server --release --features embed-web`.
+embed-web = ["dep:rust-embed"]
+
+[dev-dependencies]
+# In-process router exercise (`Router::oneshot`) + reading response bodies.
+http-body-util = "0.1.3"
+tower = { workspace = true, features = ["util"] }
+# Real WebSocket client for tests/ws_events.rs (KAIROS-T-0022); same
+# version axum's `ws` feature already pulls in, so no duplicate copy.
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.31"

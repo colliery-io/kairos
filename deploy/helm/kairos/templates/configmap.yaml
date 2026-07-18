@@ -1,0 +1,49 @@
+{{- include "kairos.validateTenancy" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kairos.fullname" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+data:
+  # Identity is external (KAIROS-A-0016) — these point at the operator's IdP.
+  OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer)" .Values.config.oidc.issuerUrl | quote }}
+  OIDC_AUDIENCE: {{ required "config.oidc.audience is required (the OAuth client id / API audience)" .Values.config.oidc.audience | quote }}
+  KAIROS_WEB_CLIENT_ID: {{ .Values.config.webClientId | quote }}
+  # Which token the GUI/CLI present as the API bearer (KAIROS-T-0054): set
+  # "id_token" for opaque-access-token issuers such as Google Workspace.
+  KAIROS_API_BEARER: {{ .Values.config.apiBearer | quote }}
+  # The container listens on all interfaces inside the pod (server default is
+  # 127.0.0.1) so kubelet probes and the Service can reach it.
+  KAIROS_BIND_ADDR: {{ printf "0.0.0.0:%d" (int .Values.containerPort) | quote }}
+  # Tenant addressing (KAIROS-A-0005 §2): exactly one is set (guard above).
+  {{- with .Values.config.tenancy.baseDomain }}
+  KAIROS_BASE_DOMAIN: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.tenancy.singleTenant }}
+  KAIROS_SINGLE_TENANT: {{ . | quote }}
+  {{- end }}
+  KAIROS_DEPLOYMENT_ADMINS: {{ .Values.config.deploymentAdmins | quote }}
+  KAIROS_LOG_LEVEL: {{ .Values.config.log.level | quote }}
+  KAIROS_LOG_FORMAT: {{ .Values.config.log.format | quote }}
+  KAIROS_DEV_UI: {{ .Values.config.devUi | quote }}
+  {{- with .Values.config.otelEndpoint }}
+  KAIROS_OTEL_ENDPOINT: {{ . | quote }}
+  {{- end }}
+  # Retention (KAIROS-A-0004): only overrides are emitted; unset keys fall back
+  # to the server's built-in defaults.
+  {{- with .Values.config.retention.historyHotDays }}
+  KAIROS_HISTORY_HOT_DAYS: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.retention.historyKeepLatest }}
+  KAIROS_HISTORY_KEEP_LATEST: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.retention.activityRetentionDays }}
+  KAIROS_ACTIVITY_RETENTION_DAYS: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.retention.archiveTarget }}
+  KAIROS_ARCHIVE_TARGET: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.retention.mode }}
+  KAIROS_RETENTION_MODE: {{ . | quote }}
+  {{- end }}

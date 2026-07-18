@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kairos": {
+      "type": "http",
+      "url": "{{KAIROS_DEPLOYMENT_URL}}/mcp"
+    }
+  }
+}

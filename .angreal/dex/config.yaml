@@ -1,0 +1,130 @@
+# Dex static configuration for the Kairos dev/test stack (KAIROS-A-0010, KAIROS-A-0013).
+#
+# Dex is the dev/test OIDC issuer; Keycloak remains the production reference
+# deployment (arrives with M2/M5). The Kairos server only ever sees
+# OIDC_ISSUER_URL + OIDC_AUDIENCE, so this doubles as a standing proof of the
+# "swappable OIDC provider" constraint.
+#
+# Test credentials (dev only — never use outside local dev/test):
+#   alice@kairos.test / alice-password
+#   bob@kairos.test   / bob-password
+#   carol@kairos.test / carol-password
+#   svc@kairos.test   / svc-password   (identity used by the kairos-svc client)
+#
+# Regenerate a bcrypt hash (container-based; no host tooling installs — Postgres
+# and everything else in the dev workflow is container-only):
+#   docker run --rm httpd:2.4 htpasswd -bnBC 10 "" <password> | tr -d ':\n'
+
+# Port 5558 (not Dex's default 5556) — 5556/5557 collide with other local
+# Dex instances. The port must stay consistent here, in the compose port map,
+# and in every OIDC_ISSUER_URL that points at this stack.
+issuer: http://localhost:5558/dex
+
+# In-memory storage: instant startup, nothing to persist. Signing keys rotate
+# on every container restart, which is fine for dev/test (KAIROS-A-0012 runs
+# against a freshly started stack).
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5558
+
+# Long-lived test tokens per KAIROS-A-0012 (24h so soak/integration runs never
+# hit mid-run expiry). Production TTLs are a Keycloak realm concern, not this file.
+expiry:
+  idTokens: "24h"
+  authRequests: "24h"
+  deviceRequests: "10m"
+  signingKeys: "24h"
+  refreshTokens:
+    validIfNotUsedFor: "168h"
+
+oauth2:
+  # Dex does NOT support the client_credentials grant (it is an identity
+  # broker, not a full authorization server). The closest working grant for
+  # service-style auth is the resource-owner password grant against the
+  # local (static password) connector, using the confidential kairos-svc
+  # client + a dedicated service user. See KAIROS-T-0003 Status Updates.
+  grantTypes:
+    - authorization_code
+    - refresh_token
+    - password
+    - "urn:ietf:params:oauth:grant-type:device_code"
+  responseTypes:
+    - code
+  skipApprovalScreen: true
+  passwordConnector: local
+
+# Serve the static password database below.
+enablePasswordDB: true
+
+staticPasswords:
+  - email: alice@kairos.test
+    username: alice
+    userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
+    # alice-password
+    hash: "$2y$10$aYjgPOoV4C/ny/7LJpk1puwsj0AyT3gf7eNtH16KCQzm3bU4smCAW"
+  - email: bob@kairos.test
+    username: bob
+    userID: 41331323-6f44-45e6-b3b9-2c4b60c02be5
+    # bob-password
+    hash: "$2y$10$pmXljO.JYQVpWG/l48QkT.SDhPHTbkbRXgEeRe7w0ez6yhRQ8r4MG"
+  - email: carol@kairos.test
+    username: carol
+    userID: 7f38a8d0-4c65-4c8d-95a6-2f7f5e2a9c11
+    # carol-password
+    hash: "$2y$10$aTWJY4Jfag1OO7RYvUk3dO7fNTdUAmUcagOoZrbdlsayDSk4Hgjtq"
+  - email: svc@kairos.test
+    username: svc
+    userID: c2a5f6e1-9d3b-4b7a-8e21-6d0c4f3b8a90
+    # svc-password — service-account identity for the kairos-svc client
+    hash: "$2y$10$Tqep7K.5EGyf16/NYZi8P.R9Oad2SJz8WwI.iRmoeLqLt5YNX21Ka"
+
+staticClients:
+  # Leptos GUI: Authorization Code + PKCE (public client, no secret).
+  #
+  # KAIROS-T-0050: register a RANGE of localhost callback ports (8080-8099) so
+  # multiple locally-run kairos-server instances can complete PKCE in parallel
+  # (the concurrent GUI dev/verification wave needed this — one shared port
+  # forced CDP-interception workarounds). Dex exact-matches each registered
+  # redirect URI, so the range must be enumerated. We do NOT drop redirectURIs:
+  # in Dex v2.43.1 a public client with none registered accepts ANY host at
+  # authorize (verified — not loopback-bounded), which is an open-redirect
+  # footgun even in dev. Keep this range loopback-only.
+  - id: kairos-web
+    name: Kairos Web GUI
+    public: true
+    redirectURIs:
+      - http://localhost:8080/callback
+      - http://localhost:8081/callback
+      - http://localhost:8082/callback
+      - http://localhost:8083/callback
+      - http://localhost:8084/callback
+      - http://localhost:8085/callback
+      - http://localhost:8086/callback
+      - http://localhost:8087/callback
+      - http://localhost:8088/callback
+      - http://localhost:8089/callback
+      - http://localhost:8090/callback
+      - http://localhost:8091/callback
+      - http://localhost:8092/callback
+      - http://localhost:8093/callback
+      - http://localhost:8094/callback
+      - http://localhost:8095/callback
+      - http://localhost:8096/callback
+      - http://localhost:8097/callback
+      - http://localhost:8098/callback
+      - http://localhost:8099/callback
+
+  # kairos CLI: Device Authorization Grant (public client).
+  - id: kairos-cli
+    name: Kairos CLI
+    public: true
+    redirectURIs:
+      - /device/callback
+
+  # Service accounts (CI, headless agents): confidential client.
+  # Used with the password grant (see oauth2 note above) + svc@kairos.test.
+  - id: kairos-svc
+    name: Kairos Service Account
+    secret: kairos-svc-secret

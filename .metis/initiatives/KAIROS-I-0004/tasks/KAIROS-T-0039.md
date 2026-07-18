@@ -1,0 +1,59 @@
+---
+id: m4-gui-conventions-app-shell-pkce
+level: task
+title: "M4: GUI - conventions, app shell, PKCE auth"
+short_code: "KAIROS-T-0039"
+created_at: 2026-07-10T22:02:39.377547+00:00
+updated_at: 2026-07-14T23:33:43.517877+00:00
+parent: KAIROS-I-0004
+blocked_by: [KAIROS-T-0024]
+archived: false
+
+tags:
+  - "#task"
+  - "#phase/completed"
+
+
+exit_criteria_met: false
+initiative_id: KAIROS-I-0004
+---
+
+# M4: GUI - conventions, app shell, PKCE auth
+
+## Parent Initiative
+
+[[KAIROS-I-0004]]
+
+## Objective
+
+The Leptos GUI foundation per A-0015 (decided): CSR app shell served at `/`, aurora-dark design system, PKCE auth, and the component conventions doc that lets later GUI tasks parallelize.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] `kairos-web` builds as a CSR WASM app (trunk or cargo-leptos — pick per current Leptos 0.8 CSR practice, document); server serves it at `/` with static assets embedded (A-0013 single-binary); `cargo build` unaffected for non-GUI work (build integration documented in angreal if a new task is needed)
+- [x] aurora-dark crate wired as the design system: components consume tokens only (no hardcoded colors — enforced by a conventions grep noted below)
+- [x] PKCE login flow against the deployment issuer (discovery from config endpoint the server exposes or build-time env — document choice); access token in memory, silent refresh; unauthenticated → login redirect; logout
+- [x] App shell: nav (boards, search, admin), whoami display, route structure for later tasks; docs/gui-conventions.md: component patterns, token usage rule + grep check, data-layer pattern (thin resources over kairos-client WASM), error/loading conventions
+- [x] Verified in a browser against compose (screenshot or DOM assertions recorded); wasm build green in CI (append job step)
+
+## Implementation Notes
+
+References A-0015 (CSR, no SSR; aurora-dark = colliery-io-aurora rename), A-0010 (PKCE), A-0013. This task gates all other GUI tasks — conventions doc quality matters.
+
+## Verification Gate (KAIROS-A-0012)
+
+`cargo fmt --check` + `cargo clippy --workspace --all-targets -- -D warnings` clean · `angreal test unit` + `angreal test integration` green · every acceptance criterion demonstrated with command + recorded output in Status Updates · new behavior ships with new tests.
+
+## Status Updates
+
+- 2026-07-10: Created at I-0004 decompose (todo).
+- 2026-07-13: Active. Read A-0015/A-0010/A-0013, aurora-dark PATTERNS.md (local copy), server app.rs/config.rs/auth.rs/main.rs, tests/common, .angreal tasks, dex config, ci.yml. Key facts: dex already registers a `kairos-web` PUBLIC client with redirectURI http://localhost:8080/callback (authorization_code + refresh_token grants enabled); dex config has NO web.allowedOrigins so browser XHR to the dex token endpoint will be CORS-blocked (to verify empirically); server OIDC_AUDIENCE is single-valued (dev stack uses kairos-cli; a kairos-web-minted token carries aud=kairos-web). Tooling found: trunk 0.21.14 already on PATH; wasm32-unknown-unknown target added via rustup. Plan: (1) verify kairos-client wasm32 build (expect FAIL: tokio full + tokio-tungstenite) leading to mirror-DTO decision; (2) trunk as CSR build tool per Leptos 0.8 CSR practice + aurora README trunk pre_build hook; (3) kairos-web SPA: app shell (AppShell nav Boards/Search/Admin), leptos router with stub routes for T-0040..44, PKCE auth (in-memory token, silent refresh, /callback route, logout); (4) kairos-server: new `web` module — SPA static serving (KAIROS_WEB_DIST dir for dev, embedded assets behind off-by-default `embed-web` feature for release so plain `cargo build` is unaffected) + public /api/config (issuer, client_id) + POST /api/auth/token relay to the issuer token endpoint (CORS-free PKCE exchange against ANY IdP incl. shared dex); (5) docs/gui-conventions.md; (6) .angreal task_web.py wasm build task; (7) ci.yml append wasm build step; (8) live browser verification on scratch DB with OIDC_AUDIENCE=kairos-web.
+- 2026-07-14: DECISIONS (recorded for the fan-out): (1) BUILD TOOL = trunk 0.21.14 (cargo-leptos earns its keep for SSR/hydrate; A-0015 fixes CSR-only, for which trunk is standard Leptos 0.8 practice and what the aurora gallery dogfoods); `angreal web build [--release]` provisions wasm32 target + trunk (PATH or pinned cargo install into target/tools, no Homebrew). (2) WASM CLIENT: kairos-client does NOT compile for wasm32-unknown-unknown (verified: `cargo check -p kairos-client --target wasm32-unknown-unknown` fails in getrandom 0.3 → tokio full/tokio-tungstenite are native-only). NOT restructured per instruction; kairos-web uses gloo-net + partial MIRROR DTOs (each carries a "mirror of:" doc line + decode test). FOLLOW-UP ON RECORD: split plain-serde types out of kairos-client into a kairos-types crate consumed by both native and wasm sides — until then GUI tasks must not "fix" kairos-client. (3) SPA DISCOVERY = new public GET /api/config {issuer, client_id, authorization_endpoint} (over build-time env: one bundle serves any deployment; over RFC 9728: it lacks client_id and the SPA still couldn't CORS-fetch issuer discovery). (4) TOKEN EXCHANGE via same-origin relay POST /api/auth/token (verified: shared Dex serves NO CORS headers — curl OPTIONS/GET with Origin shows none — so browser XHR to the issuer token endpoint is impossible; relay forwards whitelisted params to the configured issuer only, always injects the configured client_id (KAIROS_WEB_CLIENT_ID, default kairos-web), holds no secret; login-event path only so A-0010 "no IdP on request path" holds). (5) SERVING: router fallback in new kairos-server::web module — KAIROS_WEB_DIST dir (dev) → embedded rust-embed assets behind off-by-default `embed-web` feature (release, A-0013) → placeholder page; reserved prefixes /api,/mcp,/scim,/ws,/healthz,/readyz,/metrics,/.well-known 404 with S-0005 envelope; hashed assets immutable, index.html no-cache. (6) Dex access tokens are JWTs w/ aud+email → SPA sends access_token as bearer; dev server for GUI work runs OIDC_AUDIENCE=kairos-web (Dex stamps aud per client; prod IdPs use one deployment-wide audience per A-0010) + KAIROS_SINGLE_TENANT=demo. (7) Aurora stylesheet via runtime <AuroraStyles/> (CSR: no build hook needed).
+- 2026-07-14: SHIPPED: crates/kairos-web (Trunk.toml, index.html, app.css tokens-only chrome, src/{main,lib,app,auth,api,pages}.rs — router with /login,/callback + protected Shell(ParentRoute): /boards[/:board] T-0040, /items/:code T-0041, /search T-0042, /admin T-0043, /activity T-0044, / → /boards redirect, NotFound; PKCE auth.rs with WebCrypto verifier/S256, sessionStorage only across the redirect, in-memory session signal, silent refresh timer (expires_in−60s) w/ generation guard, logout vs expire semantics; api.rs gloo-net layer mapping S-0005 envelope → aurora ApiError, 401 → expire → issuer redirect); kairos-server: new src/web.rs (/api/config, /api/auth/token relay, spa_fallback) + app.rs merge/fallback wiring + config.rs KAIROS_WEB_DIST/KAIROS_WEB_CLIENT_ID + Cargo.toml embed-web feature + openapi.rs doc-stubs (route/spec drift test extended and green); tests: crates/kairos-server/tests/web.rs (live-stack: /api/config content, relay 422 envelopes, bogus-code passthrough from real Dex, reserved-prefix 404s, placeholder, dist serving incl. SPA fallback/traversal/405) + web.rs unit tests + config/auth mirror unit tests; .angreal/task_web.py (`web build`, `web lint` = conventions grep); ci.yml appended Gate 5 (web lint) + Gate 6 (web build --release); docs/gui-conventions.md (build/serve, token rule + grep, module/route layout + fan-out rules, data layer + mirror-DTO rules, async view states, auth contract, component patterns, testing). Additive fixes outside strict lane, required to compile: AppConfig literals gained the two new fields in middleware/tenant.rs tests, tests/common/mod.rs, and kairos-cli/tests/cli_live.rs (concurrent agent's file — purely mechanical 2-field addition).
+- 2026-07-14: BUG FOUND & FIXED during browser verification: logout raced the guard — clearing the session while on a protected route let RedirectToIssuer fire before the /login navigation (leptos navigate defers), bouncing users back to Dex. Fix: Auth models explicit sign-out (`signed_out` signal; `logout()` sets it, `expire()` — refresh failure/401 — does not), Shell guard renders Redirect→/login when signed_out else issuer redirect; RedirectToIssuer also cancels its spawned redirect on unmount (on_cleanup guard). Re-verified: logout now lands on /login.
+- 2026-07-14: BROWSER VERIFICATION EVIDENCE (method: headless system Chrome driven over raw CDP by a Node 22 script — no package installs; script scratchpad/t0039-verify.mjs, screenshots 01-dex-login/02-app-shell-boards/03-search-stub/04-logged-out-login-page.png in the session scratchpad t0039-evidence/, screenshots visually inspected — aurora dark shell, header alice+demo+admin pills, active-nav state, stub panels; the Chrome extension route was unavailable so CDP replaced claude-in-chrome). Stack: shared compose postgres+dex, OWN scratch DB kairos_t0039_gui seeded via `kairos-server seed-demo`, debug server 127.0.0.1:8080 with OIDC_AUDIENCE=kairos-web, KAIROS_SINGLE_TENANT=demo, KAIROS_WEB_DIST=crates/kairos-web/dist. RESULT 12/12 DOM assertions PASS: (1) unauthenticated / redirects to issuer; (2) authorize request carries client_id=kairos-web + code_challenge + code_challenge_method=S256 (captured via CDP Network domain); (3) alice login → /callback exchange → lands /boards; (4) header whoami shows "alice"+"demo"+"admin"; (5) nav Boards/Search/Activity/Admin; (6) boards stub names KAIROS-T-0040; (7) NO tokens in localStorage/sessionStorage after login; (8) aurora dark bg rgb(14,17,22) computed on body; (9) client-side nav to /search renders T-0042 stub; (10) reload drops in-memory session → issuer redirect (per A-0015 in-memory-only design); (11) return_to honored — re-login lands back on /search; (12) Log out → /login page with explicit Sign in. SILENT-REFRESH EVIDENCE (24h Dex TTL can't be waited out in-browser; grant exercised end-to-end via curl through the SAME relay the SPA timer calls): full PKCE authorization-code flow as kairos-web (openssl-generated verifier/S256) → POST /api/auth/token authorization_code → {access_token, refresh_token, expires_in:86399} → POST /api/auth/token refresh_token → NEW access_token → GET /api/whoami with it → 200 alice/demo/admin. EMBEDDED PATH: `cargo build -p kairos-server --features embed-web` then serve WITHOUT KAIROS_WEB_DIST on :8086 → / serves embedded index.html, hashed .wasm asset 200 application/wasm, /boards/acme SPA-falls-back 200 text/html.
+- 2026-07-14: VERIFICATION GATE: `cargo fmt --check` clean for lane crates kairos-web+kairos-server (workspace fmt currently dirtied by kairos-cli, the concurrent agent's active lane); `cargo clippy --workspace --all-targets -- -D warnings` CLEAN (0); `angreal test unit` green (incl. 4 new kairos-web unit tests: RFC 4648 base64url vectors, urlsafe alphabet, form encoding, whoami mirror decode; +2 config tests, +3 web.rs unit tests); `cargo test -p kairos-server` full suite green against the live shared stack (one pre-existing-shape failure found & fixed along the way: the openapi live probe sends a body-less POST — the relay now maps Form rejections to the S-0005 envelope instead of axum's plain-text 415); `angreal web lint` clean; `angreal web build` and `--release` green (release bundle: 844 KB wasm after wasm-opt=z). `angreal test integration|e2e` NOT run per shared-services instruction — deferred to the full gate (noted deviation). Cleanup: scratch servers killed, scratch DB kairos_t0039_gui dropped, shared services left UP, dex config untouched.

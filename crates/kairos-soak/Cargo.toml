@@ -1,0 +1,20 @@
+# kairos-soak — the KAIROS-A-0012 tier-5 workforce soak driver
+# (KAIROS-T-0046). A standalone binary that drives a simulated
+# organization against a RUNNING Kairos deployment (`--url`) through
+# kairos-client, `/mcp` (streamable HTTP), `/ws/events`, and `/metrics`.
+[package]
+name = "kairos-soak"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kairos-client = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+# TOML workforce-profile config files (version already in the lockfile via
+# other tooling; no new major dependency line).
+toml = "0.9"

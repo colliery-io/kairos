@@ -1,0 +1,46 @@
+Kairos {{ .Chart.AppVersion }} has been deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Image: {{ include "kairos.image" . }}
+
+{{- if .Values.config.tenancy.singleTenant }}
+
+Tenancy: SINGLE-TENANT (slug "{{ .Values.config.tenancy.singleTenant }}"). Subdomain
+resolution is skipped — every request maps to this one tenant.
+{{- else }}
+
+Tenancy: WILDCARD SUBDOMAIN on "{{ .Values.config.tenancy.baseDomain }}".
+Tenant "acme" is served at acme.{{ .Values.config.tenancy.baseDomain }}
+(KAIROS-A-0005 §2). This needs wildcard DNS (*.{{ .Values.config.tenancy.baseDomain }})
+and a wildcard TLS certificate.
+{{- end }}
+
+How to reach it:
+{{- if .Values.ingress.enabled }}
+{{- if eq .Values.ingress.tenancyMode "wildcard" }}
+  Ingress is enabled. Point *.{{ .Values.config.tenancy.baseDomain }} and
+  {{ .Values.config.tenancy.baseDomain }} at your ingress controller.
+  URL: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://<tenant>.{{ .Values.config.tenancy.baseDomain }}/
+{{- else }}
+  Ingress is enabled.
+  URL: http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- end }}
+{{- else }}
+  Ingress is disabled. Reach the Service in-cluster, or port-forward:
+
+    kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "kairos.fullname" . }} 8080:{{ .Values.service.port }}
+    # then open http://127.0.0.1:8080/
+{{- end }}
+
+External dependencies (this chart bundles NEITHER — KAIROS-A-0016):
+  * PostgreSQL — via DATABASE_URL {{ if .Values.database.existingSecret }}(from existing Secret "{{ .Values.database.existingSecret }}"){{ else }}(from the chart-rendered Secret){{ end }}.
+    The server applies pending public migrations on boot (KAIROS-T-0007) before
+    it becomes ready — no migration Job is run.
+  * OIDC issuer — OIDC_ISSUER_URL={{ .Values.config.oidc.issuerUrl }} (register Kairos as an OIDC app there).
+
+Bootstrap a fresh install:
+  1. Set config.deploymentAdmins to YOUR OIDC `sub` (currently: "{{ .Values.config.deploymentAdmins }}").
+  2. Log in and POST /api/admin/tenants to create your first tenant.
+  3. Add members (SCIM from your IdP, or POST /api/members by email).
+
+Verify the deployment:
+    helm --namespace {{ .Release.Namespace }} test {{ .Release.Name }}

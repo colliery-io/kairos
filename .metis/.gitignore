@@ -1,0 +1,5 @@
+metis.db
+metis-mcp-server.log
+code-index-hashes.json
+code-index-symbols.json
+.index-dirty

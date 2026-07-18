@@ -1,0 +1,26 @@
+# Build context hygiene for the KAIROS-T-0047 image. Keep only what the
+# multi-stage Dockerfile needs (crates/, Cargo.*, rust-toolchain.toml); the
+# builder recompiles the wasm bundle and the server from source.
+
+# Host build artifacts — never ship host-arch objects into the builder.
+target/
+crates/kairos-web/dist/
+**/*.wasm
+
+# VCS + project management
+.git/
+.gitignore
+.metis/
+.github/
+
+# Docs, tooling, and assets not needed to compile
+docs/
+plugin/
+scripts/
+*.svg
+*.md
+.claude/
+.claude-plugin/
+
+# Local editor / OS noise
+.DS_Store

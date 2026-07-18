@@ -1,0 +1,87 @@
+# Kairos reference deployment (KAIROS-A-0013, amended by KAIROS-A-0016).
+#
+# The production-shaped topology: Caddy (TLS termination + subdomain routing)
+# in front of the single Kairos image, backed by Postgres 16 as the sole
+# state. There is NO bundled identity provider (KAIROS-A-0016): authentication
+# is any spec-compliant OIDC issuer you already run — set OIDC_ISSUER_URL /
+# OIDC_AUDIENCE at YOUR IdP (Okta, Entra ID, Auth0, Keycloak, Dex, ...) and
+# register Kairos there as an OIDC app (+ optional SCIM app).
+#
+# This is the operator-facing counterpart to the dev/test stack in
+# .angreal/docker-compose.yaml (which runs Dex as a fixture and is driven by
+# `angreal services up`). That dev profile is deliberately untouched.
+#
+# Usage:
+#   cp deploy/.env.example deploy/.env      # then edit for your deployment
+#   docker compose -f deploy/docker-compose.yaml --env-file deploy/.env up -d
+#
+# Pin KAIROS_VERSION to a published release tag — never `latest`
+# (KAIROS-A-0013: reference deployments use versioned tags only).
+
+name: kairos
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      # The Caddyfile templates its site address from this (a hostname gets
+      # automatic HTTPS; ":80" is a local no-TLS trial).
+      KAIROS_SITE_ADDRESS: ${KAIROS_SITE_ADDRESS:?set KAIROS_SITE_ADDRESS, e.g. kairos.example.com or :80}
+    depends_on:
+      kairos:
+        condition: service_healthy
+
+  kairos:
+    # Never `latest` (KAIROS-A-0013) — pin to a published release tag.
+    image: ghcr.io/colliery-io/kairos:${KAIROS_VERSION:?pin KAIROS_VERSION to a published release tag, never latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://kairos:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/kairos
+      # Identity is external (KAIROS-A-0016): point these at YOUR IdP.
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL to your IdP issuer}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?set OIDC_AUDIENCE (the OAuth client id / API audience)}
+      KAIROS_WEB_CLIENT_ID: ${KAIROS_WEB_CLIENT_ID:-kairos-web}
+      # Tenant addressing: wildcard subdomains (acme.<base> -> tenant acme),
+      # or pin one tenant for single-tenant installs (leave the other empty).
+      KAIROS_BASE_DOMAIN: ${KAIROS_BASE_DOMAIN:-}
+      KAIROS_SINGLE_TENANT: ${KAIROS_SINGLE_TENANT:-}
+      KAIROS_DEPLOYMENT_ADMINS: ${KAIROS_DEPLOYMENT_ADMINS:-}
+      KAIROS_BIND_ADDR: 0.0.0.0:8080
+      KAIROS_LOG_FORMAT: json
+      KAIROS_LOG_LEVEL: ${KAIROS_LOG_LEVEL:-info}
+    # The image applies pending migrations on boot (KAIROS-T-0007) before it
+    # binds, so no separate migrate step is required. Liveness is the image's
+    # own HEALTHCHECK against /healthz.
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kairos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: kairos
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kairos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

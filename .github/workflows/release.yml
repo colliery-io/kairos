@@ -1,0 +1,201 @@
+# Kairos release — KAIROS-T-0038 (distribution per KAIROS-A-0015, release
+# conventions per KAIROS-A-0013: versioned tags only, never `latest`).
+#
+# Triggered by pushing a version tag (`v*`, e.g. `v0.1.0`). Builds the
+# `kairos` CLI binary natively on each platform:
+#
+#   macos-14         -> aarch64-apple-darwin      (Apple Silicon)
+#   macos-15-intel   -> x86_64-apple-darwin       (Intel; macos-13 was
+#                       retired by GitHub — actionlint 2026 label set)
+#   ubuntu-24.04     -> x86_64-unknown-linux-gnu
+#   ubuntu-24.04-arm -> aarch64-unknown-linux-gnu (GitHub-hosted arm64
+#                       runner — native build, no cross toolchain needed)
+#
+# Each artifact is `kairos-<version>-<target>.tar.gz` containing the binary
+# (plus LICENSE files if the repo grows any — none exist today). All four
+# tarballs are attached to the GitHub release for the tag via
+# softprops/action-gh-release.
+#
+# The CLI links kairos-client (reqwest + rustls); it does NOT link libpq,
+# so no native Postgres packages are installed here (verified in
+# KAIROS-T-0038: `cargo build -p kairos-cli --release` compiles no diesel).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# `contents: write` lets the release job create/update the GitHub release
+# for the tag and upload the tarballs as release assets.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag and check it matches Cargo.toml
+        # Tag `v0.1.0` -> version `0.1.0`. Guard: the workspace version
+        # ([workspace.package] in Cargo.toml) must match the tag, so a
+        # mis-tagged release fails fast instead of shipping a binary whose
+        # `--version` disagrees with its artifact name.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [ "${version}" != "${cargo_version}" ]; then
+            echo "Tag version ${version} != workspace Cargo.toml version ${cargo_version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        # Same convention as ci.yml: rustup (>= 1.28) with no arguments
+        # reads rust-toolchain.toml and installs the pinned channel +
+        # components. Builds are native per runner, so no extra targets.
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Build kairos (release)
+        run: cargo build -p kairos-cli --release
+
+      - name: Verify --version matches the tag
+        run: |
+          actual="$(./target/release/kairos --version)"
+          expected="kairos ${VERSION}"
+          if [ "${actual}" != "${expected}" ]; then
+            echo "kairos --version reported '${actual}', expected '${expected}'" >&2
+            exit 1
+          fi
+
+      - name: Package tarball
+        # kairos-<version>-<target>.tar.gz containing the binary at the
+        # archive root (plus LICENSE* when present — cp is guarded because
+        # the repo has no LICENSE file yet).
+        run: |
+          archive="kairos-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/${archive}"
+          cp target/release/kairos "dist/${archive}/"
+          for f in LICENSE LICENSE-MIT LICENSE-APACHE; do
+            if [ -f "$f" ]; then cp "$f" "dist/${archive}/"; fi
+          done
+          tar -czf "dist/${archive}.tar.gz" -C "dist/${archive}" .
+          # Checksum from inside dist/ so the file names just the tarball
+          # and `shasum -a 256 -c` works next to a downloaded artifact.
+          (cd dist && shasum -a 256 "${archive}.tar.gz" | tee "${archive}.tar.gz.sha256")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kairos-${{ env.VERSION }}-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+
+  release:
+    name: attach binaries to release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release and attach tarballs
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+
+  # ---------------------------------------------------------------------
+  # KAIROS-T-0047: publish the single OCI image (KAIROS-A-0013 "one image,
+  # one binary"). Builds the multi-stage Dockerfile at the repo root — the
+  # Leptos WASM bundle (trunk) plus the release server binary compiled WITH
+  # the `embed-web` feature so the GUI ships inside the binary — and pushes a
+  # VERSIONED tag to GHCR. Never `latest` for reference deployments
+  # (KAIROS-A-0013). Runs in parallel with the binary matrix above; both key
+  # off the same version tag.
+  #
+  # Architecture: linux/amd64 only for v1. GitHub-hosted runners are amd64,
+  # and QEMU-emulated arm64 cross-compilation of the Rust + wasm + trunk
+  # workspace is slow and flaky (a full from-source build under emulation).
+  # To add arm64 later WITHOUT QEMU: build each arch on its native runner
+  # (ubuntu-24.04 + ubuntu-24.04-arm, as the binary matrix already does),
+  # push per-arch digests, and stitch a manifest list with
+  # `docker buildx imagetools create`. Decision recorded in KAIROS-T-0047.
+  image:
+    name: publish server image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # The binary jobs only need `contents: write` (top-level); the image job
+    # additionally needs `packages: write` to push to GHCR.
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag and check it matches Cargo.toml
+        # Same guard as the binary build job: a mis-tagged release fails fast
+        # instead of publishing an image whose version disagrees with its tag.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [ "${version}" != "${cargo_version}" ]; then
+            echo "Tag version ${version} != workspace Cargo.toml version ${cargo_version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the versioned image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          # Versioned tag only — never `latest` (KAIROS-A-0013).
+          tags: ghcr.io/colliery-io/kairos:${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

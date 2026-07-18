@@ -1,0 +1,19 @@
+# (b) Wildcard baseDomain + ingress + cert-manager TLS, existing DB Secret.
+database:
+  existingSecret: kairos-db
+config:
+  oidc:
+    issuerUrl: "https://idp.example.com/"
+    audience: "kairos"
+  tenancy:
+    baseDomain: "kairos.example"
+  deploymentAdmins: "oidc-sub-abc123"
+ingress:
+  enabled: true
+  className: nginx
+  tenancyMode: wildcard
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
+    enabled: true
+    secretName: kairos-tls

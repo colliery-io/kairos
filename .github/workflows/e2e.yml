@@ -1,0 +1,78 @@
+# Kairos E2E smoke — KAIROS-A-0012 tier 4 (`angreal test e2e`), the API + MCP
+# golden path plus the KAIROS-T-0045 GUI Playwright smoke leg.
+#
+# CI decision (KAIROS-A-0012 + KAIROS-T-0045): the e2e tier "gates releases,
+# not every task." It is deliberately NOT in the per-push `ci` gate (ci.yml,
+# gates 1-6) — it cycles the full compose stack, builds the wasm bundle, boots
+# two servers, and drives a real browser, which is far heavier than the
+# per-push feedback loop should carry. Instead it runs:
+#   - locally / in agent completion, on demand: `angreal test e2e`
+#   - here, manually (workflow_dispatch) and on release tags, so a release is
+#     never cut without the GUI critical paths having been exercised.
+#
+# When the server OCI image job lands (KAIROS-T-0047 anchor in release.yml),
+# this job is the natural pre-publish gate to wire as a dependency.
+
+name: e2e
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify Docker is available
+        run: |
+          docker version
+          docker compose version
+
+      - name: Install libpq (diesel postgres backend links against it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpq-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install angreal
+        run: |
+          pip install "angreal==2.8.8"
+          angreal --version
+
+      - name: Set up Node.js
+        # The GUI leg runs Playwright from e2e/ (npx playwright test); the
+        # angreal task installs the npm deps + chromium itself, guarded.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # `angreal test e2e` drives compose up/down, builds the server + wasm
+      # bundle, seeds, boots the servers, runs the API golden path, then the
+      # Playwright GUI smoke leg. Exit code propagates.
+      - name: angreal test e2e
+        run: angreal test e2e

@@ -1,0 +1,36 @@
+[package]
+name = "kairos-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "kairos"
+path = "src/main.rs"
+
+[dependencies]
+kairos-client = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# ListEnvelope<T> carries a `T: ToSchema` bound (kairos-client derives
+# OpenAPI schemas from the shared DTOs), so generic helpers naming it need
+# the trait in scope.
+utoipa = { workspace = true }
+
+[dev-dependencies]
+# tests/cli_live.rs boots the production router in-process against a
+# scratch database (same recipe as kairos-server's integration suite) and
+# drives the built `kairos` binary end-to-end, so it needs the server lib
+# + database crates as DEV-only dependencies.
+kairos-server = { path = "../kairos-server" }
+kairos-db = { workspace = true }
+axum = { workspace = true }
+diesel = { workspace = true }
+uuid = { workspace = true }
+# The headless Dex device-flow approval posts the login form like a
+# browser would; cookies keep any Dex session state across the redirects.
+reqwest = { workspace = true, features = ["cookies"] }
+tempfile = "3.14.0"

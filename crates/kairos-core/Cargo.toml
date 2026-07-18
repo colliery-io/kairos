@@ -1,0 +1,13 @@
+[package]
+name = "kairos-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"] }
+thiserror = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

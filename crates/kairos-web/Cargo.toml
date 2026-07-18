@@ -1,0 +1,52 @@
+[package]
+name = "kairos-web"
+version.workspace = true
+edition.workspace = true
+
+# Two targets (KAIROS-T-0039):
+# - the `kairos-web` bin is what trunk compiles to wasm32-unknown-unknown
+#   (`angreal web build` / Trunk.toml);
+# - the lib carries the whole app so `cargo build/clippy --workspace` on the
+#   host still typechecks every component without any wasm tooling.
+
+[dependencies]
+# The binary selects the renderer (A-0015: CSR, no SSR).
+leptos = { workspace = true, features = ["csr"] }
+leptos_router = { workspace = true }
+# Aurora Dark design system (A-0015): tokens + components only — see
+# docs/gui-conventions.md for the "tokens only, no hardcoded colors" rule.
+aurora-dark = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# wasm-side HTTP. kairos-client does not compile to wasm32 (native tokio /
+# tokio-tungstenite deps), so the data layer is gloo-net over mirror DTOs —
+# decision recorded in docs/gui-conventions.md "Data layer".
+gloo-net = { workspace = true }
+# Client-side text diff between two history snapshots (KAIROS-T-0044) —
+# decision recorded in the task: `similar` over hand-rolled LCS (same
+# algorithm family, battle-tested, wasm-clean).
+similar = { workspace = true }
+# Markdown edit+preview on the item detail page (KAIROS-T-0041); rendered
+# client-side, raw HTML events escaped (see pages/item/markdown.rs).
+pulldown-cmark = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+js-sys = { workspace = true }
+console_error_panic_hook = { workspace = true }
+web-sys = { workspace = true, features = [
+    # window/location/history for redirects and URL parsing (auth.rs)
+    "Window",
+    "Location",
+    "History",
+    "Url",
+    "UrlSearchParams",
+    # sessionStorage carries the PKCE verifier across the IdP redirect
+    "Storage",
+    # WebCrypto: PKCE verifier entropy + S256 challenge
+    "Crypto",
+    "SubtleCrypto",
+    # /ws/events live updates (T-0040): browser WebSocket + its events
+    "WebSocket",
+    "MessageEvent",
+    "CloseEvent",
+] }

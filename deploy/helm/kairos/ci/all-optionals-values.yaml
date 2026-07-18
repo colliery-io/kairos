@@ -1,0 +1,47 @@
+# (c) All optionals on: HPA + ServiceMonitor + otel + custom retention + devUi,
+# single-host ingress, existing DB Secret with a custom key.
+database:
+  existingSecret: kairos-db
+  existingSecretKey: connection-string
+config:
+  oidc:
+    issuerUrl: "https://idp.example.com/"
+    audience: "kairos"
+  tenancy:
+    singleTenant: "acme"
+  deploymentAdmins: "oidc-sub-abc123,oidc-sub-def456"
+  log:
+    level: debug
+    format: pretty
+  otelEndpoint: "http://otel-collector.observability:4317"
+  retention:
+    historyHotDays: 30
+    historyKeepLatest: 10
+    activityRetentionDays: 180
+    archiveTarget: "s3://kairos-archive/prod"
+    mode: archive
+  devUi: true
+ingress:
+  enabled: true
+  className: nginx
+  tenancyMode: single
+  host: kairos.acme.example.com
+  tls:
+    enabled: true
+    secretName: kairos-acme-tls
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetCPUUtilizationPercentage: 65
+  targetMemoryUtilizationPercentage: 80
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s
+    labels:
+      release: kube-prometheus-stack
+extraEnv:
+  - name: RUST_BACKTRACE
+    value: "1"

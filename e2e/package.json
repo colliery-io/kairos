@@ -1,0 +1,14 @@
+{
+  "name": "kairos-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Kairos GUI Playwright smoke suite (KAIROS-A-0012 tier 4, KAIROS-T-0045)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0"
+  }
+}

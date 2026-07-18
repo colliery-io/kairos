@@ -1,0 +1,42 @@
+---
+# Kairos dev/test stack (KAIROS-A-0013 dev profile): Postgres 16 + Dex.
+# Dex replaces Keycloak for dev/test per KAIROS-A-0010; Keycloak returns as
+# the production reference deployment in M2/M5.
+services:
+  postgres:
+    image: postgres:16
+    container_name: kairos-postgres
+    environment:
+      POSTGRES_USER: kairos
+      POSTGRES_PASSWORD: kairos
+      POSTGRES_DB: kairos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kairos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  dex:
+    image: dexidp/dex:v2.43.1
+    container_name: kairos-dex
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      # 5558 everywhere (issuer, listener, host) — Dex's default 5556 (and
+      # 5557) collide with other local Dex instances.
+      - "5558:5558"
+    volumes:
+      - ./dex/config.yaml:/etc/dex/config.yaml:ro
+    healthcheck:
+      # Dex serves healthz under the issuer path (/dex); busybox wget ships in the image.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5558/dex/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    name: kairos_postgres_data

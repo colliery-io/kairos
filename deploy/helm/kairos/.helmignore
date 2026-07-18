@@ -1,0 +1,14 @@
+# Patterns to ignore when packaging the chart (helm package / helm install).
+.DS_Store
+.git/
+.gitignore
+*.tmproj
+.vscode/
+.idea/
+*.swp
+*.bak
+*.orig
+*.tmp
+# CI example value files and local test scaffolding are not part of the chart.
+ci/
+*.local.yaml

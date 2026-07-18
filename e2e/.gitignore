@@ -1,0 +1,7 @@
+# Playwright / e2e tier (KAIROS-T-0045). node_modules is also covered by the
+# repo-root .gitignore; kept here so the e2e dir is self-describing.
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.playwright/

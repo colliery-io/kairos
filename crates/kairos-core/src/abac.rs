@@ -85,6 +85,21 @@ pub const CAPABILITIES: &[&str] = &[
 /// Every sanctioned glob form (trailing-`*` only, per A-0006).
 pub const GLOBS: &[&str] = &[GLOB_ALL, GLOB_MANAGE, GLOB_CONFIGURE, GLOB_TRANSITION];
 
+/// The capabilities IMPLIED by membership of a board's owning team
+/// (KAIROS-T-0072 amendment to A-0006): day-to-day delivery work only.
+/// Deliberately narrow — no `configure_*`, no `manage_members`, and none of
+/// the strategy/initiative/ADR `manage_*` families: those remain explicit
+/// grants (or org-admin).
+pub const TEAM_IMPLIED_CAPABILITIES: &[&str] = &[MANAGE_TASKS, MANAGE_DOCUMENTS, TRANSITION_ITEMS];
+
+/// Does membership of the board's owning team satisfy `required` on its
+/// own (KAIROS-T-0072)? Exact vocabulary membership — implied capabilities
+/// are specific, never globs, so no `capability_matches` translation
+/// applies here.
+pub fn team_implies(required: &str) -> bool {
+    TEAM_IMPLIED_CAPABILITIES.contains(&required)
+}
+
 // ---------------------------------------------------------------------------
 // Tenant-wide configuration policy (A-0006 "items not on boards")
 // ---------------------------------------------------------------------------
@@ -334,5 +349,26 @@ mod tests {
         ] {
             assert!(resource.org_admin_only());
         }
+    }
+
+    /// KAIROS-T-0072: team membership implies exactly the day-to-day
+    /// delivery capabilities — and nothing configuration- or
+    /// membership-shaped.
+    #[test]
+    fn team_implies_only_the_delivery_set() {
+        assert!(team_implies(MANAGE_TASKS));
+        assert!(team_implies(MANAGE_DOCUMENTS));
+        assert!(team_implies(TRANSITION_ITEMS));
+
+        assert!(!team_implies(MANAGE_STRATEGIES));
+        assert!(!team_implies(MANAGE_INITIATIVES));
+        assert!(!team_implies(MANAGE_ADRS));
+        assert!(!team_implies(CONFIGURE_BOARDS));
+        assert!(!team_implies(CONFIGURE_TEMPLATES));
+        assert!(!team_implies(CONFIGURE_METADATA));
+        assert!(!team_implies(MANAGE_MEMBERS));
+        // Globs are grant-side forms, never implied requirements.
+        assert!(!team_implies(GLOB_ALL));
+        assert!(!team_implies(GLOB_MANAGE));
     }
 }

@@ -609,3 +609,130 @@ fn abac_capability_lifecycle() {
         .execute(&mut admin_conn)
         .expect("dropping scratch database after test");
 }
+
+/// KAIROS-T-0072 (A-0006 amendment): membership of a board's owning team
+/// implies the delivery capability set — and ONLY that set, ONLY on that
+/// team's boards. Own scratch database: cargo runs test functions in
+/// parallel threads and the lifecycle test drops/recreates its own.
+#[test]
+fn team_membership_implies_delivery_capabilities() {
+    use kairos_db::models::{BoardLevel, NewBoard, NewTeam, NewTeamMember, TeamType};
+
+    const TEAM_SCRATCH_DB: &str = "kairos_abac_team_test";
+
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!("DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {TEAM_SCRATCH_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+
+    let scratch_url = with_database(&admin_url, TEAM_SCRATCH_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "teamco", "Teamco").expect("provisioning teamco");
+    sql_query("SET search_path TO org_teamco, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+
+    let member = insert_user(&mut conn, "dex|member", "member@teamco.test", "Member");
+    let outsider = insert_user(&mut conn, "dex|outsider", "outsider@teamco.test", "Outsider");
+
+    // A team, its member, and its delivery board.
+    let team_id: Uuid = diesel::insert_into(schema::teams::table)
+        .values(NewTeam {
+            name: "Platform".into(),
+            slug: "platform".into(),
+            team_type: TeamType::Platform,
+        })
+        .returning(schema::teams::id)
+        .get_result(&mut conn)
+        .expect("inserting team");
+    diesel::insert_into(schema::team_members::table)
+        .values(NewTeamMember {
+            team_id,
+            user_id: member,
+        })
+        .execute(&mut conn)
+        .expect("inserting team member");
+    let team_board: Uuid = diesel::insert_into(schema::boards::table)
+        .values(NewBoard {
+            name: "Platform Delivery".into(),
+            slug: "platform-delivery".into(),
+            board_level: BoardLevel::Delivery,
+            team_id: Some(team_id),
+        })
+        .returning(schema::boards::id)
+        .get_result(&mut conn)
+        .expect("inserting team board");
+    // A board no team owns (provisioned default).
+    let orgwide_board = board_id_by_slug(&mut conn, "strategy");
+
+    let check = |conn: &mut PgConnection, board, user, required: &str| {
+        abac::check_capability(conn, board, user, required).expect("check_capability")
+    };
+
+    // The implied set, on the team's own board.
+    for implied in rules::TEAM_IMPLIED_CAPABILITIES {
+        assert!(
+            check(&mut conn, team_board, member, implied),
+            "team member should hold implied {implied:?} on the team board"
+        );
+        assert!(
+            rules::team_implies(implied),
+            "core team_implies must agree for {implied:?}"
+        );
+    }
+
+    // Nothing configuration- or membership-shaped is implied.
+    for withheld in [
+        rules::CONFIGURE_BOARDS,
+        rules::MANAGE_MEMBERS,
+        rules::MANAGE_STRATEGIES,
+        rules::MANAGE_INITIATIVES,
+        rules::MANAGE_ADRS,
+    ] {
+        assert!(
+            !check(&mut conn, team_board, member, withheld),
+            "team membership must NOT imply {withheld:?}"
+        );
+    }
+
+    // Non-members get nothing from the team arm.
+    assert!(
+        !check(&mut conn, team_board, outsider, rules::TRANSITION_ITEMS),
+        "an outsider has no implied capability on the team board"
+    );
+    // Team boards only: no implication on org-wide (teamless) boards.
+    assert!(
+        !check(&mut conn, orgwide_board, member, rules::MANAGE_TASKS),
+        "team membership implies nothing on boards without an owning team"
+    );
+
+    // Explicit grants keep working, independent of teams.
+    abac::grant_capability(
+        &mut conn,
+        team_board,
+        outsider,
+        rules::TRANSITION_ITEMS,
+        member,
+    )
+    .expect("granting explicit capability");
+    assert!(
+        check(&mut conn, team_board, outsider, rules::TRANSITION_ITEMS),
+        "explicit grants still authorize non-members"
+    );
+
+    drop(conn);
+    sql_query(format!("DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database after test");
+}

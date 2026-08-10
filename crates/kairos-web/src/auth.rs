@@ -15,15 +15,21 @@
 //!    not generally serve CORS to SPAs; the server forwards to the real
 //!    token endpoint and adds nothing (the client stays public, PKCE
 //!    intact).
-//! 4. Tokens live **in memory only** (A-0015: no long-lived cookies, no
-//!    localStorage): [`Auth`] holds them in a reactive signal, so a page
-//!    reload drops the session and re-runs the login redirect.
+//! 4. The **access token** lives in memory only (A-0015: no cookies, no
+//!    localStorage): [`Auth`] holds it in a reactive signal. The **refresh
+//!    token** additionally sits in `sessionStorage` (KAIROS-T-0071,
+//!    amending A-0015): per-tab, cleared when the tab closes — so a page
+//!    RELOAD restores the session silently ([`restore_session`], the
+//!    refresh grant run before the guard redirects) instead of bouncing
+//!    through the issuer, which on IdPs without an SSO session (the dev
+//!    Dex password connector) meant the login form on every reload.
 //! 5. Silent refresh: a timer fires [`REFRESH_MARGIN_SECS`] before expiry
 //!    and swaps the session via the `refresh_token` grant on the same
 //!    relay. Refresh failure clears the session — the protected shell
 //!    then redirects to login.
-//! 6. [`Auth::logout`] drops the in-memory session (the IdP session, if
-//!    any, is the IdP's own concern; Kairos keeps no cookies).
+//! 6. [`Auth::logout`] drops the in-memory session AND the stored refresh
+//!    token (a logout must not silently sign back in on reload; the IdP
+//!    session, if any, is the IdP's own concern — Kairos keeps no cookies).
 //!
 //! The bearer sent to `/api` is, by default, the **access token** (the dev
 //! Dex mints JWT access tokens carrying `iss`/`aud`/`exp`/`email` — exactly
@@ -49,11 +55,14 @@ const SCOPES: &str = "openid profile email offline_access";
 /// Refresh the session this many seconds before the access token expires.
 const REFRESH_MARGIN_SECS: f64 = 60.0;
 
-// sessionStorage keys — the only auth state that survives the IdP
-// redirect. Cleared as soon as the callback consumes them.
+// sessionStorage keys. The PKCE trio survives only the IdP redirect and is
+// cleared as soon as the callback consumes it.
 const KEY_VERIFIER: &str = "kairos_pkce_verifier";
 const KEY_STATE: &str = "kairos_pkce_state";
 const KEY_RETURN_TO: &str = "kairos_return_to";
+/// The refresh token (KAIROS-T-0071): per-tab reload survival. Written on
+/// every grant (rotation-safe), removed on logout and on refresh failure.
+const KEY_REFRESH: &str = "kairos_refresh_token";
 
 /// Which token the SPA presents as the `/api` bearer (`api_bearer` in
 /// `/api/config`, KAIROS-T-0054). Defaults to [`ApiBearer::AccessToken`] when
@@ -135,20 +144,51 @@ pub struct Auth {
     /// then lands on `/login` instead of bouncing to the issuer (a fresh
     /// unauthenticated visit keeps the A-0015 issuer redirect).
     signed_out: RwSignal<bool>,
+    /// `true` while a boot-time [`restore_session`] is in flight
+    /// (KAIROS-T-0071): the shell guard shows a loading state instead of
+    /// prematurely redirecting to the issuer.
+    restoring: RwSignal<bool>,
     /// Bumped on every install/clear so stale refresh timers no-op.
     generation: StoredValue<u64>,
 }
 
 /// Create the auth state and put it into context. Call once, in `App`.
+///
+/// If a refresh token survives in `sessionStorage` (same-tab reload,
+/// KAIROS-T-0071), a silent restore starts immediately; the guard waits on
+/// [`Auth::restoring`] before deciding anyone is unauthenticated.
 pub fn provide_auth() -> Auth {
+    let has_stored_refresh = session_storage()
+        .ok()
+        .and_then(|s| s.get_item(KEY_REFRESH).ok().flatten())
+        .is_some();
     let auth = Auth {
         session: RwSignal::new(None),
         config: RwSignal::new(None),
         signed_out: RwSignal::new(false),
+        restoring: RwSignal::new(has_stored_refresh),
         generation: StoredValue::new(0),
     };
     provide_context(auth);
+    if has_stored_refresh {
+        leptos::task::spawn_local(async move { restore_session(auth).await });
+    }
     auth
+}
+
+/// Boot-time session restore (KAIROS-T-0071): run the refresh grant with
+/// the stored refresh token. Success installs a session (landing the user
+/// where the URL says they are); failure removes the dead token and lets
+/// the guard fall through to the normal login redirect. Either way,
+/// `restoring` ends.
+async fn restore_session(auth: Auth) {
+    let stored = session_storage()
+        .ok()
+        .and_then(|s| s.get_item(KEY_REFRESH).ok().flatten());
+    if let Some(refresh_token) = stored {
+        auth.refresh_with(&refresh_token).await;
+    }
+    auth.restoring.set(false);
 }
 
 /// The app-root [`Auth`] (panics outside the app tree — a bug by
@@ -176,20 +216,31 @@ impl Auth {
         self.signed_out.get()
     }
 
-    /// Drop the in-memory session. The protected shell reacts by
-    /// redirecting to `/login` (see [`Self::signed_out`]); scheduled
-    /// refreshes for the old session become no-ops.
+    /// Reactive: is the boot-time session restore (KAIROS-T-0071) still in
+    /// flight? While true the guard must wait, not redirect.
+    pub fn restoring(&self) -> bool {
+        self.restoring.get()
+    }
+
+    /// Drop the in-memory session AND the stored refresh token (a logout
+    /// must not silently sign back in on the next reload). The protected
+    /// shell reacts by redirecting to `/login` (see [`Self::signed_out`]);
+    /// scheduled refreshes for the old session become no-ops.
     pub fn logout(&self) {
         self.generation.update_value(|g| *g += 1);
+        clear_stored_refresh();
         self.signed_out.set(true);
         self.session.set(None);
     }
 
     /// Drop the session WITHOUT marking an explicit sign-out (refresh
     /// failure, a 401 from the API): the shell guard then re-runs the
-    /// issuer redirect — silent re-auth when the IdP holds a session.
+    /// issuer redirect — silent re-auth when the IdP holds a session. The
+    /// stored refresh token goes too: if it were still good the silent
+    /// refresh would have used it, so keeping it only risks a restore loop.
     pub fn expire(&self) {
         self.generation.update_value(|g| *g += 1);
+        clear_stored_refresh();
         self.session.set(None);
     }
 
@@ -207,6 +258,13 @@ impl Auth {
             .config
             .with_untracked(|c| c.as_ref().map(|c| c.api_bearer))
             .unwrap_or_default();
+        // Reload survival (KAIROS-T-0071): stash the refresh token per-tab.
+        // Every grant rewrites it, so issuer-side rotation (Dex rotates on
+        // each refresh) never leaves a stale token behind. Best-effort — a
+        // blocked sessionStorage just means reloads re-login, as before.
+        if let (Some(token), Ok(storage)) = (&refresh_token, session_storage()) {
+            let _ = storage.set_item(KEY_REFRESH, token);
+        }
         self.signed_out.set(false);
         self.session.set(Some(Session {
             access_token: tokens.bearer_for(api_bearer),
@@ -230,8 +288,9 @@ impl Auth {
         );
     }
 
-    /// The silent-refresh grant through the relay. On any failure the
-    /// session is cleared (the shell redirects to login).
+    /// The silent-refresh grant through the relay, from the live session's
+    /// refresh token. On any failure the session is cleared (the shell
+    /// redirects to login).
     async fn refresh(self) {
         let Some(refresh_token) = self
             .session
@@ -239,6 +298,14 @@ impl Auth {
         else {
             return;
         };
+        self.refresh_with(&refresh_token).await;
+    }
+
+    /// One refresh grant with an explicit token — shared by the in-session
+    /// timer path ([`Self::refresh`]) and the boot restore
+    /// ([`restore_session`], KAIROS-T-0071). Success installs; failure
+    /// expires (which also removes the stored refresh token).
+    async fn refresh_with(self, refresh_token: &str) {
         let config = match self.config_cached().await {
             Ok(config) => config,
             Err(_) => {
@@ -248,7 +315,7 @@ impl Auth {
         };
         let body = form_encode(&[
             ("grant_type", "refresh_token"),
-            ("refresh_token", &refresh_token),
+            ("refresh_token", refresh_token),
             ("client_id", &config.client_id),
         ]);
         match post_token(&body).await {
@@ -411,6 +478,13 @@ fn session_storage() -> Result<web_sys::Storage, String> {
         .ok()
         .flatten()
         .ok_or_else(|| "sessionStorage is unavailable".to_string())
+}
+
+/// Remove the stored refresh token (logout / dead token). Best-effort.
+fn clear_stored_refresh() {
+    if let Ok(storage) = session_storage() {
+        let _ = storage.remove_item(KEY_REFRESH);
+    }
 }
 
 fn url_encode(value: &str) -> String {

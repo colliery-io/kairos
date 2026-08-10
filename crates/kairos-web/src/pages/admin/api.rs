@@ -228,32 +228,11 @@ pub async fn remove_board_member(
 }
 
 // ---------------------------------------------------------------------------
-// Teams
+// Teams (reads live in the shared team data layer — KAIROS-T-0067 hoisted
+// them for the user-facing team pages; writes stay admin-only, here)
 // ---------------------------------------------------------------------------
 
-/// mirror of: `kairos_client::types_org::Team` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Team {
-    pub id: String,
-    pub name: String,
-    pub slug: String,
-    pub team_type: String,
-    pub delivery_board_id: Option<String>,
-}
-
-/// mirror of: `kairos_client::types_org::TeamMember` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct TeamMember {
-    pub user_id: String,
-    pub email: String,
-    pub display_name: String,
-}
-
-/// `GET /api/teams`.
-pub async fn list_teams(auth: Auth) -> Result<Vec<Team>, ApiError> {
-    let envelope: ListEnvelope<Team> = get_json(auth, &format!("/api/teams?{PAGE}")).await?;
-    Ok(envelope.items)
-}
+pub use crate::pages::teams::api::{Team, list_teams, team_members};
 
 /// `POST /api/teams` — also creates the team's delivery board
 /// (`{slug}-delivery`); the returned `delivery_board_id` names it.
@@ -292,11 +271,6 @@ pub async fn delete_team(auth: Auth, team_id: &str) -> Result<Value, ApiError> {
     delete_json(auth, &format!("/api/teams/{team_id}")).await
 }
 
-/// `GET /api/teams/{id}/members`.
-pub async fn team_members(auth: Auth, team_id: &str) -> Result<Vec<TeamMember>, ApiError> {
-    get_json(auth, &format!("/api/teams/{team_id}/members")).await
-}
-
 /// `POST /api/teams/{id}/members`.
 pub async fn add_team_member(auth: Auth, team_id: &str, user_id: &str) -> Result<Value, ApiError> {
     post_json(
@@ -317,24 +291,10 @@ pub async fn remove_team_member(
 }
 
 // ---------------------------------------------------------------------------
-// Delivery streams
+// Delivery streams (reads shared with the team pages, same hoist)
 // ---------------------------------------------------------------------------
 
-/// mirror of: `kairos_client::types_org::DeliveryStream` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct DeliveryStream {
-    pub id: String,
-    pub name: String,
-    pub slug: String,
-    pub description: Option<String>,
-}
-
-/// `GET /api/delivery-streams`.
-pub async fn list_streams(auth: Auth) -> Result<Vec<DeliveryStream>, ApiError> {
-    let envelope: ListEnvelope<DeliveryStream> =
-        get_json(auth, &format!("/api/delivery-streams?{PAGE}")).await?;
-    Ok(envelope.items)
-}
+pub use crate::pages::teams::api::{DeliveryStream, list_streams, stream_teams};
 
 /// `POST /api/delivery-streams`.
 pub async fn create_stream(
@@ -370,11 +330,6 @@ pub async fn update_stream(
 /// `DELETE /api/delivery-streams/{id}`.
 pub async fn delete_stream(auth: Auth, stream_id: &str) -> Result<Value, ApiError> {
     delete_json(auth, &format!("/api/delivery-streams/{stream_id}")).await
-}
-
-/// `GET /api/delivery-streams/{id}/teams`.
-pub async fn stream_teams(auth: Auth, stream_id: &str) -> Result<Vec<Team>, ApiError> {
-    get_json(auth, &format!("/api/delivery-streams/{stream_id}/teams")).await
 }
 
 /// `POST /api/delivery-streams/{id}/teams`.
@@ -673,19 +628,8 @@ mod tests {
         assert_eq!(member.capabilities.len(), 2);
     }
 
-    /// `Team` keeps `delivery_board_id` — the "creation surfaces its new
-    /// delivery board" AC reads it.
-    #[test]
-    fn team_mirror_decodes_server_shape() {
-        let body = serde_json::json!({
-            "id": "t1", "name": "Platform", "slug": "platform",
-            "team_type": "platform",
-            "delivery_board_id": "b9",
-            "created_at": "2026-07-14T00:00:00Z", "updated_at": "2026-07-14T00:00:00Z"
-        });
-        let team: Team = serde_json::from_value(body).expect("mirror decodes");
-        assert_eq!(team.delivery_board_id.as_deref(), Some("b9"));
-    }
+    // (the Team mirror's field-name lock moved to `pages::teams::api` with
+    // the type — KAIROS-T-0067 hoist)
 
     /// `MetadataDefinition` decodes enum options in order.
     #[test]

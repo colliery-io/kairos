@@ -227,12 +227,18 @@ Decisions (T-0039), with the full flow documented in `auth.rs`:
   configured client id) and holds no secret. PKCE protects the exchange
   end to end; A-0010's "no IdP on the request path" still holds (this
   is a login-event path only).
-- Tokens live **in memory** (a reactive signal): no cookies, no
-  localStorage (A-0015). Reload = new login redirect (silent for an
-  IdP with a session cookie). The PKCE verifier/state live in
+- The **access token** lives **in memory** (a reactive signal): no
+  cookies, no localStorage (A-0015). The **refresh token** additionally
+  sits in `sessionStorage` (T-0071, amending A-0015): per-tab and
+  cleared on tab close, it lets a page reload restore the session via a
+  silent refresh grant *before* the guard redirects — necessary because
+  IdPs without an SSO session (the dev Dex password connector) turn the
+  "silent" issuer redirect into a login form on every reload. Logout
+  and any failed refresh remove it. The PKCE verifier/state live in
   `sessionStorage` only between redirect-out and callback.
 - **Silent refresh**: timer at `expires_in − 60s` via the relay's
-  refresh grant; failure clears the session.
+  refresh grant; failure clears the session (stored refresh token
+  included).
 - **Guard**: everything under `Shell` requires a session; without one it
   *redirects to the issuer* (A-0015), remembering the path. `/login`
   exists for logout landings and explicit sign-in. A 401 from any API

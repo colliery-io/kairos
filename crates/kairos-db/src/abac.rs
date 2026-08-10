@@ -83,6 +83,14 @@ struct BoolRow {
 /// escaped before the `*` translation, so a hostile grant like `manage%`
 /// matches only the literal string `manage%` — exactly the semantics of
 /// [`kairos_core::abac::capability_matches`] (the pure mirror of this query).
+///
+/// Second arm (KAIROS-T-0072, A-0006 amendment): membership of the board's
+/// OWNING TEAM implies the day-to-day delivery capabilities
+/// ([`kairos_core::abac::TEAM_IMPLIED_CAPABILITIES`]). The implication is
+/// decided in Rust ([`kairos_core::abac::team_implies`], bound as `$4`) so
+/// the vocabulary stays in one place; the membership test joins
+/// `boards.team_id` → `team_members` in the same query. Nothing is stored:
+/// leaving the team is the revocation.
 pub fn check_capability(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -90,18 +98,30 @@ pub fn check_capability(
     required: &str,
 ) -> Result<bool, AbacError> {
     let row: BoolRow = sql_query(
-        r"SELECT EXISTS (
-            SELECT 1 FROM board_member_capabilities
-            WHERE board_id = $1
-              AND user_id = $2
-              AND ($3 LIKE replace(replace(replace(replace(
-                       capability, '\', '\\'), '%', '\%'), '_', '\_'), '*', '%')
-                   OR capability = '*')
+        r"SELECT (
+            EXISTS (
+                SELECT 1 FROM board_member_capabilities
+                WHERE board_id = $1
+                  AND user_id = $2
+                  AND ($3 LIKE replace(replace(replace(replace(
+                           capability, '\', '\\'), '%', '\%'), '_', '\_'), '*', '%')
+                       OR capability = '*')
+            )
+            OR (
+                $4 AND EXISTS (
+                    SELECT 1
+                    FROM boards b
+                    JOIN team_members tm ON tm.team_id = b.team_id
+                    WHERE b.id = $1
+                      AND tm.user_id = $2
+                )
+            )
           ) AS authorized",
     )
     .bind::<SqlUuid, _>(board_id)
     .bind::<SqlUuid, _>(user_id)
     .bind::<Text, _>(required)
+    .bind::<Bool, _>(kairos_core::abac::team_implies(required))
     .get_result(conn)?;
     Ok(row.authorized)
 }

@@ -49,4 +49,7 @@ web-sys = { workspace = true, features = [
     "WebSocket",
     "MessageEvent",
     "CloseEvent",
+    # Drag-and-drop card transitions (KAIROS-T-0064)
+    "DragEvent",
+    "DataTransfer",
 ] }

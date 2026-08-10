@@ -102,6 +102,13 @@ pub use item::ItemPage;
 mod search;
 pub use search::{RelationshipsPage, SearchPage};
 
+// Team pages (KAIROS-T-0067, KAIROS-I-0006): the /teams directory and the
+// /teams/:slug detail (roster, delivery board, streams) — the user-facing
+// team lens. Its `api` submodule is the shared team data layer that
+// `admin::api` re-exports from.
+pub(crate) mod teams;
+pub use teams::{TeamPage, TeamsPage};
+
 // Admin surfaces (KAIROS-T-0043): board configuration + members/capability
 // grants, teams, delivery streams, org members, templates, metadata
 // definitions. Sub-routes under /admin are registered in `app.rs`.

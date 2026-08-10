@@ -38,12 +38,13 @@ use crate::auth::Auth;
 
 /// `GET {path}` with the bearer token; JSON-decode the body.
 pub async fn get_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
+    let token = auth.token();
     let mut request = gloo_net::http::Request::get(path);
-    if let Some(token) = auth.token() {
+    if let Some(token) = &token {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request.send().await.map_err(|_| ApiError::Network)?;
-    decode_response(auth, path, response).await
+    decode_response(auth, token, path, response).await
 }
 
 /// `POST {path}` with a JSON body and the bearer token; JSON-decode the
@@ -53,8 +54,9 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     path: &str,
     body: &B,
 ) -> Result<T, ApiError> {
+    let token = auth.token();
     let mut request = gloo_net::http::Request::post(path);
-    if let Some(token) = auth.token() {
+    if let Some(token) = &token {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request
@@ -63,7 +65,7 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
-    decode_response(auth, path, response).await
+    decode_response(auth, token, path, response).await
 }
 
 /// `PATCH {path}` with a JSON body and the bearer token; JSON-decode the
@@ -73,8 +75,9 @@ pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
     path: &str,
     body: &B,
 ) -> Result<T, ApiError> {
+    let token = auth.token();
     let mut request = gloo_net::http::Request::patch(path);
-    if let Some(token) = auth.token() {
+    if let Some(token) = &token {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request
@@ -83,31 +86,40 @@ pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
-    decode_response(auth, path, response).await
+    decode_response(auth, token, path, response).await
 }
 
 /// `DELETE {path}` with the bearer token; JSON-decode the response body.
 pub async fn delete_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
+    let token = auth.token();
     let mut request = gloo_net::http::Request::delete(path);
-    if let Some(token) = auth.token() {
+    if let Some(token) = &token {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request.send().await.map_err(|_| ApiError::Network)?;
-    decode_response(auth, path, response).await
+    decode_response(auth, token, path, response).await
 }
 
 /// The shared response tail of every `*_json` helper: 401 clears the
 /// session (the protected shell then re-runs the login redirect), non-2xx
 /// maps through the S-0005 envelope, 2xx JSON-decodes.
+///
+/// `sent_token` is the bearer THIS request carried. A 401 only expires the
+/// session when that token is still the current one (KAIROS-T-0071): a 401
+/// from a token-less request (resources fire eagerly while the boot-time
+/// session restore is in flight) or from a token that has since been
+/// replaced proves nothing about the current session — expiring on those
+/// stomped the freshly restored session and bounced reloads to the issuer.
 async fn decode_response<T: DeserializeOwned>(
     auth: Auth,
+    sent_token: Option<String>,
     path: &str,
     response: gloo_net::http::Response,
 ) -> Result<T, ApiError> {
     let status = response.status();
-    if status == 401 {
-        // Convention: expired/invalid token → drop the session; the
-        // protected shell reacts with the issuer redirect (silent
+    if status == 401 && sent_token.is_some() && auth.token() == sent_token {
+        // Convention: expired/invalid CURRENT token → drop the session;
+        // the protected shell reacts with the issuer redirect (silent
         // re-auth when the IdP still holds a session).
         auth.expire();
     }
@@ -190,9 +202,12 @@ pub struct WhoamiOrganization {
     pub role: String,
 }
 
-/// mirror of: `kairos_server::app::WhoamiTeam` (partial).
+/// mirror of: `kairos_server::app::WhoamiTeam` (partial). `id` feeds the
+/// KAIROS-T-0072 client-side capability mirror (team-owned boards carry
+/// `team_id`; matching it against my teams decides the implied powers).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct WhoamiTeam {
+    pub id: String,
     pub slug: String,
     pub name: String,
 }
@@ -227,6 +242,7 @@ mod tests {
         assert_eq!(whoami.user.display_name, "alice");
         assert_eq!(whoami.organization.slug, "demo");
         assert_eq!(whoami.teams[0].slug, "platform");
+        assert_eq!(whoami.teams[0].id, "b1e2…");
         assert_eq!(whoami.capabilities[0].board_slug, "platform-delivery");
         assert_eq!(whoami.capabilities[0].grants.len(), 2);
     }

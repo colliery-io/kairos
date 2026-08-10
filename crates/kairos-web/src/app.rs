@@ -13,6 +13,8 @@
 //! | `/items/:code`  | item detail          | T-0041     |
 //! | `/search`       | unified search       | T-0042     |
 //! | `/search/relationships/:code` | relationships explorer | T-0042 |
+//! | `/teams`        | team directory       | T-0067     |
+//! | `/teams/:slug`  | team detail (roster, board, streams) | T-0067 |
 //! | `/admin`        | admin overview       | T-0043     |
 //! | `/admin/boards` | board list + create/delete | T-0043 |
 //! | `/admin/boards/:board` | board config (columns, transitions, members) | T-0043 |
@@ -30,7 +32,7 @@
 
 use aurora_dark::AuroraStyles;
 use aurora_dark::components::{AppShell, Button, Group, Loading, Pill, Stack, Text};
-use aurora_dark::tokens::token;
+use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::components::{Outlet, ParentRoute, Redirect, Route, Router, Routes};
 use leptos_router::hooks::use_location;
@@ -59,6 +61,8 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("items/:code") view=pages::ItemPage/>
                         <Route path=path!("search") view=pages::SearchPage/>
                         <Route path=path!("search/relationships/:code") view=pages::RelationshipsPage/>
+                        <Route path=path!("teams") view=pages::TeamsPage/>
+                        <Route path=path!("teams/:slug") view=pages::TeamPage/>
                         <ParentRoute path=path!("admin") view=pages::AdminPage>
                             <Route path=path!("") view=pages::admin::AdminHomePage/>
                             <Route path=path!("boards") view=pages::admin::AdminBoardsPage/>
@@ -81,30 +85,44 @@ pub fn App() -> impl IntoView {
 /// The protected shell: aurora `AppShell` with the Kairos header
 /// (brand + whoami + logout) and left nav. Unauthenticated → login
 /// redirect via [`RedirectToIssuer`].
+///
+/// Whoami is fetched ONCE here and shared (`LocalResource` is `Copy`) by
+/// the header badge and the "My teams" nav section (KAIROS-T-0068) — one
+/// identity round-trip per session, not one per consumer.
 #[component]
 fn Shell() -> impl IntoView {
     let auth = use_auth();
+    let whoami = LocalResource::new(move || {
+        // Track the session so a fresh login refetches.
+        let _ = auth.token();
+        api::whoami(auth)
+    });
+    // Pages under the shell consume the same identity (KAIROS-T-0072: the
+    // board view derives its capability mirror from it).
+    provide_context(whoami);
     view! {
         <Show when=move || auth.is_authenticated() fallback=GuardFallback>
             <AppShell
-                header=Box::new(|| view! {
+                header=Box::new(move || view! {
                     <Group justify="between">
                         <Group gap="sm">
                             <BrandMark/>
                             <Text bright=true bold=true>"Kairos"</Text>
                         </Group>
                         <Group gap="sm">
-                            <WhoamiBadge/>
+                            <WhoamiBadge whoami/>
                             <LogoutButton/>
                         </Group>
                     </Group>
                 }.into_any())
-                navbar=Box::new(|| view! {
+                navbar=Box::new(move || view! {
                     <Stack gap="xs">
                         <NavLink href="/boards" label="Boards"/>
+                        <NavLink href="/teams" label="Teams"/>
                         <NavLink href="/search" label="Search"/>
                         <NavLink href="/activity" label="Activity"/>
                         <pages::admin::AdminNavLink/>
+                        <MyTeamsNav whoami/>
                     </Stack>
                 }.into_any())
             >
@@ -114,15 +132,55 @@ fn Shell() -> impl IntoView {
     }
 }
 
-/// The unauthenticated fallback for the protected shell: after an
-/// explicit logout, land on `/login`; otherwise (fresh visit, expired
-/// session) run the A-0015 issuer redirect.
+/// "My teams" (KAIROS-T-0068): the caller's own teams from whoami, each
+/// linking to its `/teams/:slug` page. Hidden entirely (no empty-state)
+/// for users with no team memberships; whoami load/error states render
+/// nothing — the header badge already surfaces those.
+#[component]
+fn MyTeamsNav(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl IntoView {
+    view! {
+        {move || {
+            let teams = match whoami.get() {
+                Some(Ok(me)) => me.teams,
+                _ => Vec::new(),
+            };
+            (!teams.is_empty()).then(|| view! {
+                <div class="kairos-nav__section">
+                    <Text dimmed=true size="xs">"My teams"</Text>
+                    <Stack gap="xs">
+                        {teams.into_iter().map(|team| view! {
+                            <NavLink
+                                href=format!("/teams/{}", team.slug)
+                                label=team.name
+                            />
+                        }).collect_view()}
+                    </Stack>
+                </div>
+            })
+        }}
+    }
+}
+
+/// The unauthenticated fallback for the protected shell: while a boot-time
+/// session restore is in flight (KAIROS-T-0071 — same-tab reload with a
+/// stored refresh token), just wait; after an explicit logout, land on
+/// `/login`; otherwise (fresh visit, expired session) run the A-0015
+/// issuer redirect.
 #[component]
 fn GuardFallback() -> impl IntoView {
     let auth = use_auth();
     view! {
-        <Show when=move || auth.signed_out() fallback=RedirectToIssuer>
-            <Redirect path="/login"/>
+        <Show
+            when=move || !auth.restoring()
+            fallback=|| view! {
+                <div class="kairos-center-screen">
+                    <Loading label="Restoring session…"/>
+                </div>
+            }
+        >
+            <Show when=move || auth.signed_out() fallback=RedirectToIssuer>
+                <Redirect path="/login"/>
+            </Show>
         </Show>
     }
 }
@@ -187,15 +245,10 @@ fn NavLink(#[prop(into)] href: String, #[prop(into)] label: String) -> impl Into
 }
 
 /// Who am I, which org, which role — the A-0015 whoami display. Follows
-/// the async-view convention (loading → error → value).
+/// the async-view convention (loading → error → value). Consumes the
+/// shell's shared whoami resource.
 #[component]
-fn WhoamiBadge() -> impl IntoView {
-    let auth = use_auth();
-    let whoami = LocalResource::new(move || {
-        // Track the session so a fresh login refetches.
-        let _ = auth.token();
-        api::whoami(auth)
-    });
+fn WhoamiBadge(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl IntoView {
     view! {
         {move || match whoami.get() {
             None => view! { <Text dimmed=true size="sm">"…"</Text> }.into_any(),

@@ -123,6 +123,18 @@ For items not on boards:
 
 Users with `role = 'admin'` in `organization_members` have implicit full access to all boards. They don't need explicit `board_member_capabilities` rows. This is the only role that exists outside the board-scoped model.
 
+### Team-Implied Capabilities *(amendment 2026-08-09, KAIROS-T-0072, approved by Dylan)*
+
+Membership of a board's **owning team** (`boards.team_id` → `team_members`) is a second implicit capability source, limited to the day-to-day delivery set:
+
+- `manage_tasks`
+- `manage_documents`
+- `transition_items`
+
+Nothing else is implied — `configure_*`, `manage_members`, and the strategy/initiative/ADR `manage_*` families remain explicit grants (or org admin). Nothing is stored and nothing needs syncing: the implication is evaluated inside the same single-query check (an `OR EXISTS` arm over the team-membership join, gated by `kairos_core::abac::team_implies`), and leaving the team is the revocation.
+
+Motivation: UAT showed a team member could not work their own team's delivery board without an org admin hand-granting capabilities per member per board — "join the team ⇒ work the team's board" is the expected behavior. Rejected alternatives: auto-granting rows on team join (sync/revocation ambiguity once admins customize grants) and keeping the pure whitelist with seeded defaults (leaves the onboarding chore in place). A team-owned board at a non-delivery level grants its team the same narrow set — acceptable: the set contains no configuration or membership powers, and the level's own `manage_<family>` (e.g. `manage_strategies`) is not in it. Explicit grants and their audit story are unchanged; the implied source is derivable (team roster + board ownership) rather than logged per grant.
+
 ## Alternatives Analysis
 
 ### Capability Scoping

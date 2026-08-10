@@ -48,6 +48,7 @@ use serde::Deserialize;
 
 use crate::api;
 use crate::auth::{Auth, use_auth};
+use crate::pages::teams::api as teams_api;
 
 /// Feed page size. Deliberately below the server default (50) so
 /// pagination is exercised on modest datasets.
@@ -353,11 +354,43 @@ pub fn ActivityPage() -> impl IntoView {
     let actor_input = RwSignal::new(ALL.to_string());
     let action_input = RwSignal::new(ALL.to_string());
     let since_input = RwSignal::new(String::new());
+    let team_input = RwSignal::new(ALL.to_string());
     let applied = RwSignal::new(FeedFilters::default());
+
+    // The team lens (KAIROS-T-0069, initiative design decision): the
+    // activity API has no team parameter, so a selected team resolves to
+    // its member set and the FETCHED PAGE filters client-side by actor.
+    // `(team name, team id)` once applied.
+    let applied_team = RwSignal::new(None::<(String, String)>);
 
     let members = LocalResource::new(move || {
         let _ = auth.token();
         fetch_members(auth)
+    });
+    let teams = LocalResource::new(move || {
+        let _ = auth.token();
+        teams_api::list_teams(auth)
+    });
+    // The applied team's member ids (None = lens off). A failed roster
+    // read surfaces through the feed area rather than silently unfiltering.
+    let team_lens = LocalResource::new(move || {
+        let _ = auth.token();
+        let team = applied_team.get();
+        async move {
+            match team {
+                None => Ok(None),
+                Some((_, team_id)) => teams_api::team_members(auth, &team_id)
+                    .await
+                    .map(|members| {
+                        Some(
+                            members
+                                .into_iter()
+                                .map(|member| member.user_id)
+                                .collect::<std::collections::HashSet<_>>(),
+                        )
+                    }),
+            }
+        }
     });
     let directory = LocalResource::new(move || {
         let _ = auth.token();
@@ -397,13 +430,25 @@ pub fn ActivityPage() -> impl IntoView {
             since: since_input.get().trim().to_string(),
             offset: 0,
         });
+        // Team option labels are team names; resolve to the id from the
+        // loaded list (the option only exists once teams have loaded).
+        applied_team.set(match team_input.get() {
+            label if label == ALL => None,
+            label => teams
+                .get()
+                .and_then(|r| r.ok())
+                .and_then(|list| list.into_iter().find(|team| team.name == label))
+                .map(|team| (team.name, team.id)),
+        });
     };
     let clear = move || {
         entity_input.set(String::new());
         actor_input.set(ALL.to_string());
         action_input.set(ALL.to_string());
         since_input.set(String::new());
+        team_input.set(ALL.to_string());
         applied.set(FeedFilters::default());
+        applied_team.set(None);
     };
 
     let retry = Callback::new(move |()| applied.set(applied.get_untracked()));
@@ -428,6 +473,12 @@ pub fn ActivityPage() -> impl IntoView {
                         view! { <Select label="Actor" options=options value=actor_input/> }
                     }}
                     <Select label="Action" options=action_options value=action_input/>
+                    {move || {
+                        let loaded = teams.get().and_then(|r| r.ok()).unwrap_or_default();
+                        let mut options = vec![ALL.to_string()];
+                        options.extend(loaded.into_iter().map(|team| team.name));
+                        view! { <Select label="Team (by members)" options=options value=team_input/> }
+                    }}
                     <TextInput
                         label="Since (RFC 3339)"
                         placeholder="2026-07-14T00:00:00Z"
@@ -454,9 +505,55 @@ pub fn ActivityPage() -> impl IntoView {
                         .map(|m| (m.user_id, m.display_name))
                         .collect::<HashMap<_, _>>();
                     let codes = directory.get().unwrap_or_default();
+                    // The team lens filters THIS PAGE by actor membership
+                    // (client-side — the API has no team parameter; see the
+                    // KAIROS-I-0006 design decision). The pager stays on
+                    // the server page so navigation is unaffected.
+                    let (table_page, lens_note, lens_error) = match team_lens.get() {
+                        Some(Err(error)) => (page.clone(), None, Some(error)),
+                        Some(Ok(Some(member_ids))) => {
+                            let team_name = applied_team
+                                .get()
+                                .map(|(name, _)| name)
+                                .unwrap_or_default();
+                            let mut filtered = page.clone();
+                            filtered
+                                .items
+                                .retain(|entry| member_ids.contains(&entry.actor_id));
+                            let note = format!(
+                                "{} of {} entries on this page are by members of {} \
+                                 (team lens filters the fetched page)",
+                                filtered.items.len(),
+                                page.items.len(),
+                                team_name,
+                            );
+                            (filtered, Some(note), None)
+                        }
+                        _ => (page.clone(), None, None),
+                    };
+                    let table_empty = table_page.items.is_empty();
                     view! {
                         <Panel title="Feed" caption="newest first">
-                            <FeedTable page=page.clone() names=names codes=codes/>
+                            {lens_error.map(|error| view! {
+                                <Banner color=token::BAD icon="✕">
+                                    {format!("Team lens unavailable: {}", match &error {
+                                        ApiError::Http { message, .. } => message.clone(),
+                                        ApiError::Network => "could not reach the server".to_string(),
+                                        ApiError::Unknown(message) => message.clone(),
+                                    })}
+                                </Banner>
+                            })}
+                            {lens_note.map(|note| view! {
+                                <Text dimmed=true size="xs">{note}</Text>
+                            })}
+                            {if table_empty {
+                                view! {
+                                    <Empty message="No entries on this page match the team lens — page through, or clear the team filter."/>
+                                }.into_any()
+                            } else {
+                                view! { <FeedTable page=table_page names=names codes=codes/> }
+                                    .into_any()
+                            }}
                             <FeedPager page=page applied=applied/>
                         </Panel>
                     }.into_any()

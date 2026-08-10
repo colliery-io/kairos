@@ -24,7 +24,7 @@ mod data;
 mod live;
 
 use aurora_dark::components::{
-    ActionIcon, Alert, Button, Empty, ErrorState, Group, Loading, Menu, MenuItem, Modal,
+    ActionIcon, Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Menu, MenuItem, Modal,
     PageHeader, Pill, Select, Stack, Text, TextInput, Textarea,
 };
 use aurora_dark::tokens::{ApiError, token};
@@ -68,11 +68,215 @@ fn kind_color(kind: EntityKind) -> &'static str {
     }
 }
 
+/// The in-flight card drag (KAIROS-T-0064): which card, and the column ids
+/// its CURRENT column's transitions allow as drop targets — so only legal
+/// columns light up and accept the drop (A-0002: invalid moves are never
+/// offered).
+#[derive(Clone, Debug, PartialEq)]
+struct DragData {
+    kind: EntityKind,
+    short_code: String,
+    targets: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Client-side capability mirror (KAIROS-T-0072)
+// ---------------------------------------------------------------------------
+
+/// What the signed-in user may do on THIS board — mirrors the A-0006
+/// decision (org-admin bypass, explicit grants incl. globs, and the
+/// KAIROS-T-0072 team implication) so affordances the server would 403
+/// never render. The server remains the authority; this is UX.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct BoardPowers {
+    /// May move cards (`transition_items`).
+    transition: bool,
+    /// May create this board level's entity (`manage_<family>`).
+    create: bool,
+    /// May create documents (`manage_documents`).
+    documents: bool,
+}
+
+/// The `manage_*` capability that creating this kind requires.
+fn create_capability(kind: EntityKind) -> &'static str {
+    match kind {
+        EntityKind::Strategy => "manage_strategies",
+        EntityKind::Initiative => "manage_initiatives",
+        EntityKind::Task => "manage_tasks",
+        EntityKind::Adr => "manage_adrs",
+    }
+}
+
+/// Does a stored grant cover `required`? Client mirror of the A-0006
+/// matching semantics for the sanctioned grant forms (exact, `*`, and
+/// trailing-`*` globs).
+fn grant_covers(grant: &str, required: &str) -> bool {
+    grant == "*"
+        || grant == required
+        || grant
+            .strip_suffix('*')
+            .is_some_and(|prefix| required.starts_with(prefix))
+}
+
+/// The KAIROS-T-0072 implied set (mirror of
+/// `kairos_core::abac::TEAM_IMPLIED_CAPABILITIES`).
+fn team_implies(required: &str) -> bool {
+    matches!(
+        required,
+        "manage_tasks" | "manage_documents" | "transition_items"
+    )
+}
+
+/// Compute [`BoardPowers`] from the whoami identity. Pure, host-tested.
+fn board_powers(
+    me: &crate::api::Whoami,
+    board_slug: &str,
+    board_team_id: Option<&str>,
+    create_kind: Option<EntityKind>,
+) -> BoardPowers {
+    if me.organization.role == "admin" {
+        return BoardPowers {
+            transition: true,
+            create: create_kind.is_some(),
+            documents: true,
+        };
+    }
+    let team_member =
+        board_team_id.is_some_and(|team| me.teams.iter().any(|mine| mine.id == team));
+    let has = |required: &str| {
+        (team_member && team_implies(required))
+            || me
+                .capabilities
+                .iter()
+                .filter(|board| board.board_slug == board_slug)
+                .flat_map(|board| board.grants.iter())
+                .any(|grant| grant_covers(grant, required))
+    };
+    BoardPowers {
+        transition: has("transition_items"),
+        create: create_kind.is_some_and(|kind| has(create_capability(kind))),
+        documents: has("manage_documents"),
+    }
+}
+
+/// Run one transition and report through the standard board callbacks —
+/// shared by the move menu (accessibility fallback) and the drop handler.
+fn run_transition(
+    auth: crate::auth::Auth,
+    kind: EntityKind,
+    code: String,
+    column_id: String,
+    on_changed: Callback<()>,
+    on_error: Callback<ApiError>,
+) {
+    leptos::task::spawn_local(async move {
+        match data::transition(auth, kind, &code, &column_id).await {
+            Ok(()) => on_changed.run(()),
+            Err(error) => on_error.run(error),
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Board list
 // ---------------------------------------------------------------------------
 
-/// `/boards` — every live board, grouped visually by its level accent.
+/// The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
+/// strategy feeds initiatives feed delivery; ADRs record the decisions).
+const LEVEL_BANDS: &[(&str, &str)] = &[
+    ("strategy", "Strategy"),
+    ("initiative", "Initiatives"),
+    ("delivery", "Delivery"),
+    ("adr", "Decisions"),
+];
+
+/// One rendered board-list band: level heading + its tiles, with the
+/// delivery band grouped by owning team.
+struct BandModel {
+    level: String,
+    label: String,
+    /// `(heading, /teams/:slug href, boards)` — one group per team for the
+    /// delivery band; a single unnamed group for every other level.
+    groups: Vec<(Option<(String, String)>, Vec<data::Board>)>,
+}
+
+/// Bucket boards into level bands (strategy → initiative → delivery →
+/// adr, unknown levels last) and the delivery band by owning team.
+/// Teamless delivery boards keep a group of their own — nothing becomes
+/// unreachable. Pure, host-tested.
+fn band_models(
+    boards: Vec<data::Board>,
+    teams: &[crate::pages::teams::api::Team],
+) -> Vec<BandModel> {
+    let mut bands: Vec<BandModel> = Vec::new();
+    let known: Vec<&str> = LEVEL_BANDS.iter().map(|(level, _)| *level).collect();
+    for (level, label) in LEVEL_BANDS {
+        let of_level: Vec<data::Board> = boards
+            .iter()
+            .filter(|b| b.board_level == *level)
+            .cloned()
+            .collect();
+        if of_level.is_empty() {
+            continue;
+        }
+        let groups = if *level == "delivery" {
+            // One group per team (team order = teams list order), then
+            // teamless boards under their own heading.
+            let mut groups: Vec<(Option<(String, String)>, Vec<data::Board>)> = Vec::new();
+            for team in teams {
+                let of_team: Vec<data::Board> = of_level
+                    .iter()
+                    .filter(|b| b.team_id.as_deref() == Some(team.id.as_str()))
+                    .cloned()
+                    .collect();
+                if !of_team.is_empty() {
+                    groups.push((
+                        Some((team.name.clone(), format!("/teams/{}", team.slug))),
+                        of_team,
+                    ));
+                }
+            }
+            let known_team = |id: &Option<String>| {
+                id.as_deref()
+                    .is_some_and(|id| teams.iter().any(|t| t.id == id))
+            };
+            let orphans: Vec<data::Board> = of_level
+                .iter()
+                .filter(|b| !known_team(&b.team_id))
+                .cloned()
+                .collect();
+            if !orphans.is_empty() {
+                groups.push((Some(("No team".to_string(), String::new())), orphans));
+            }
+            groups
+        } else {
+            vec![(None, of_level)]
+        };
+        bands.push(BandModel {
+            level: level.to_string(),
+            label: label.to_string(),
+            groups,
+        });
+    }
+    // Anything with a level outside the known vocabulary still renders.
+    let unknown: Vec<data::Board> = boards
+        .iter()
+        .filter(|b| !known.contains(&b.board_level.as_str()))
+        .cloned()
+        .collect();
+    if !unknown.is_empty() {
+        bands.push(BandModel {
+            level: "other".to_string(),
+            label: "Other".to_string(),
+            groups: vec![(None, unknown)],
+        });
+    }
+    bands
+}
+
+/// `/boards` — boards in flight-level bands (strategy above initiatives
+/// above delivery, KAIROS-T-0069/T-0063), the delivery band grouped by
+/// owning team with headings linking into `/teams/:slug`.
 #[component]
 pub fn BoardsPage() -> impl IntoView {
     let auth = use_auth();
@@ -80,8 +284,14 @@ pub fn BoardsPage() -> impl IntoView {
         let _ = auth.token();
         data::list_boards(auth)
     });
+    // Team names for the delivery grouping. Optional enhancement data: a
+    // failed teams read degrades to "No team" grouping, never a dead page.
+    let teams = LocalResource::new(move || {
+        let _ = auth.token();
+        crate::pages::teams::api::list_teams(auth)
+    });
     view! {
-        <PageHeader title="Boards" sub="kanban per flight level"/>
+        <PageHeader title="Boards" sub="kanban per flight level — strategy feeds initiatives feed delivery"/>
         {move || match boards.get() {
             None => view! { <Loading label="Loading boards…"/> }.into_any(),
             Some(Err(error)) => view! {
@@ -90,26 +300,57 @@ pub fn BoardsPage() -> impl IntoView {
             Some(Ok(items)) if items.is_empty() => view! {
                 <Empty message="No boards yet — an org admin can create one from Admin."/>
             }.into_any(),
-            Some(Ok(items)) => view! {
-                <div class="kairos-board-grid">
-                    {items.into_iter().map(|board| {
-                        let href = format!("/boards/{}", board.slug);
-                        view! {
-                            <a class="kairos-board-tile" href=href>
-                                <Stack gap="xs">
-                                    <Group justify="between">
-                                        <Text bright=true bold=true>{board.name.clone()}</Text>
-                                        <Pill color=level_color(&board.board_level)>
-                                            {board.board_level.clone()}
-                                        </Pill>
+            Some(Ok(items)) => {
+                let team_list = teams.get().and_then(|r| r.ok()).unwrap_or_default();
+                let bands = band_models(items, &team_list);
+                view! {
+                    <Stack gap="md">
+                        {bands.into_iter().map(|band| {
+                            let BandModel { level, label, groups } = band;
+                            view! {
+                                <section class="kairos-board-band">
+                                    <Group gap="sm">
+                                        <Pill color=level_color(&level)>{label}</Pill>
                                     </Group>
-                                    <Text mono=true dimmed=true size="xs">{board.slug.clone()}</Text>
-                                </Stack>
-                            </a>
-                        }
-                    }).collect_view()}
-                </div>
-            }.into_any(),
+                                    <Stack gap="sm">
+                                        {groups.into_iter().map(|(heading, group_boards)| view! {
+                                            {heading.map(|(team_name, team_href)| {
+                                                if team_href.is_empty() {
+                                                    view! {
+                                                        <Text dimmed=true size="xs">{team_name}</Text>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <Anchor href=team_href>{team_name}</Anchor>
+                                                    }.into_any()
+                                                }
+                                            })}
+                                            <div class="kairos-board-grid">
+                                                {group_boards.into_iter().map(|board| {
+                                                    let href = format!("/boards/{}", board.slug);
+                                                    view! {
+                                                        <a class="kairos-board-tile" href=href>
+                                                            <Stack gap="xs">
+                                                                <Group justify="between">
+                                                                    <Text bright=true bold=true>{board.name.clone()}</Text>
+                                                                    <Pill color=level_color(&board.board_level)>
+                                                                        {board.board_level.clone()}
+                                                                    </Pill>
+                                                                </Group>
+                                                                <Text mono=true dimmed=true size="xs">{board.slug.clone()}</Text>
+                                                            </Stack>
+                                                        </a>
+                                                    }
+                                                }).collect_view()}
+                                            </div>
+                                        }).collect_view()}
+                                    </Stack>
+                                </section>
+                            }
+                        }).collect_view()}
+                    </Stack>
+                }.into_any()
+            }
         }}
     }
 }
@@ -124,6 +365,8 @@ pub fn BoardsPage() -> impl IntoView {
 pub fn BoardPage() -> impl IntoView {
     let auth = use_auth();
     let params = use_params_map();
+    // The shell's shared identity (KAIROS-T-0072): powers derive from it.
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
 
     // Bumped by mutations and /ws/events messages: re-runs the resource
     // (silently — the previous value stays up while the fetch runs).
@@ -169,7 +412,19 @@ pub fn BoardPage() -> impl IntoView {
                 <ErrorState error on_retry=Callback::new(move |_| refetch())/>
             }.into_any(),
             Some(Ok(view)) => {
-                view! { <BoardBody view on_changed on_error/> }.into_any()
+                // Powers re-derive when whoami lands/refreshes, so the
+                // affordances appear without waiting for a board refetch.
+                let board_slug = view.items.board.slug.clone();
+                let team_id = view.items.board.team_id.clone();
+                let kind = EntityKind::for_board_level(&view.items.board.board_level);
+                let powers = Signal::derive(move || {
+                    whoami
+                        .and_then(|resource| resource.get())
+                        .and_then(|result| result.ok())
+                        .map(|me| board_powers(&me, &board_slug, team_id.as_deref(), kind))
+                        .unwrap_or_default()
+                });
+                view! { <BoardBody view powers on_changed on_error/> }.into_any()
             }
         }}
         {move || action_error.get().map(|error| view! {
@@ -192,12 +447,20 @@ pub fn BoardPage() -> impl IntoView {
 #[component]
 fn BoardBody(
     view: data::BoardView,
+    /// What the user may do here (KAIROS-T-0072) — gates every mutating
+    /// affordance; the server stays the authority.
+    powers: Signal<BoardPowers>,
     on_changed: Callback<()>,
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
+    let auth = use_auth();
     let data::BoardView { detail, items } = view;
     let board = items.board.clone();
     let create_kind = EntityKind::for_board_level(&board.board_level);
+
+    // The one in-flight drag (KAIROS-T-0064); columns read it to decide
+    // whether they are legal drop targets.
+    let drag: RwSignal<Option<DragData>> = RwSignal::new(None);
 
     // Create-from-column modal state: the target column, set by a
     // column's "+" (one modal instance for the whole page).
@@ -233,16 +496,14 @@ fn BoardBody(
 
     let sub = format!("{} board · {}", board.board_level, board.slug);
     let header_right: Children = Box::new(move || {
-        if documents_offered {
-            view! {
+        view! {
+            {move || (documents_offered && powers.get().documents).then(|| view! {
                 <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
                     "New document"
                 </Button>
-            }
-            .into_any()
-        } else {
-            ().into_any()
+            })}
         }
+        .into_any()
     });
 
     // Flatten the wire shape into owned view models FIRST: leptos children
@@ -346,26 +607,65 @@ fn BoardBody(
                 let count = cards.len();
                 let head_label = name.clone();
                 let action_title = format!("New item in {name}");
+                // Per-handler copies of this column's id (the drop target).
+                let class_id = id.clone();
+                let over_id = id.clone();
+                let drop_id = id.clone();
                 let column_for_create = (id, name);
                 view! {
-                    <section class="kairos-board__column">
+                    <section
+                        class="kairos-board__column"
+                        class:kairos-board__column--droppable=move || {
+                            drag.with(|d| d.as_ref().is_some_and(|d| d.targets.contains(&class_id)))
+                        }
+                        on:dragover=move |ev: web_sys::DragEvent| {
+                            // preventDefault marks the column as a valid
+                            // drop target — only for legal transitions.
+                            let legal = drag.with_untracked(|d| {
+                                d.as_ref().is_some_and(|d| d.targets.contains(&over_id))
+                            });
+                            if legal {
+                                ev.prevent_default();
+                            }
+                        }
+                        on:drop=move |ev: web_sys::DragEvent| {
+                            ev.prevent_default();
+                            let Some(data) = drag.get_untracked() else { return };
+                            drag.set(None);
+                            if !data.targets.contains(&drop_id) {
+                                return;
+                            }
+                            run_transition(
+                                auth,
+                                data.kind,
+                                data.short_code,
+                                drop_id.clone(),
+                                on_changed,
+                                on_error,
+                            );
+                        }
+                    >
                         <header class="kairos-board__column-head">
                             <Group justify="between">
                                 <Group gap="xs">
                                     <Text bright=true bold=true size="sm">{head_label}</Text>
                                     <Text dimmed=true size="xs">{count.to_string()}</Text>
                                 </Group>
-                                {create_kind.map(|_| view! {
-                                    <ActionIcon
-                                        title=action_title
-                                        on_click=Callback::new(move |_| {
-                                            create_column.set(Some(column_for_create.clone()));
-                                            create_open.set(true);
-                                        })
-                                    >
-                                        "+"
-                                    </ActionIcon>
-                                })}
+                                {
+                                    let column_for_create = StoredValue::new(column_for_create);
+                                    let action_title = StoredValue::new(action_title);
+                                    move || (create_kind.is_some() && powers.get().create).then(|| view! {
+                                        <ActionIcon
+                                            title=action_title.get_value()
+                                            on_click=Callback::new(move |_| {
+                                                create_column.set(Some(column_for_create.get_value()));
+                                                create_open.set(true);
+                                            })
+                                        >
+                                            "+"
+                                        </ActionIcon>
+                                    })
+                                }
                             </Group>
                         </header>
                         <Stack gap="xs">
@@ -378,6 +678,7 @@ fn BoardBody(
                                     <ItemCard
                                         kind short_code title meta
                                         targets=targets.clone()
+                                        drag powers
                                         on_changed on_error
                                     />
                                 }
@@ -407,8 +708,10 @@ fn BoardBody(
 // Cards + click-to-move
 // ---------------------------------------------------------------------------
 
-/// One board card: short code, title, type, key metadata, open link, and
-/// the click-to-move menu (only when the board allows moves from here).
+/// One board card: short code, title, type, key metadata, open link,
+/// drag-and-drop between columns (KAIROS-T-0064 — draggable only when the
+/// board allows moves from here), and the click-to-move menu kept as the
+/// keyboard/accessibility fallback.
 #[component]
 fn ItemCard(
     kind: EntityKind,
@@ -418,6 +721,12 @@ fn ItemCard(
     meta: Vec<(String, &'static str)>,
     /// `(column_id, column_name)` — the valid targets from this column.
     targets: Vec<(String, String)>,
+    /// The board's in-flight drag; this card writes itself here on
+    /// dragstart so legal columns light up and accept the drop.
+    drag: RwSignal<Option<DragData>>,
+    /// The user's powers on this board (KAIROS-T-0072): no transition
+    /// power → no drag, no move menu.
+    powers: Signal<BoardPowers>,
     on_changed: Callback<()>,
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
@@ -425,9 +734,37 @@ fn ItemCard(
     let busy = RwSignal::new(false);
     let href = format!("/items/{short_code}");
     let code_text = short_code.clone();
+    let code_for_drag = short_code.clone();
+    let code_for_class = short_code.clone();
     let code_for_move = short_code;
+    let has_targets = !targets.is_empty();
+    let target_ids: Vec<String> = targets.iter().map(|(id, _)| id.clone()).collect();
+    let movable = move || has_targets && powers.get().transition;
     view! {
-        <article class="kairos-card">
+        <article
+            class="kairos-card"
+            class:kairos-card--dragging=move || {
+                drag.with(|d| d.as_ref().is_some_and(|d| d.short_code == code_for_class))
+            }
+            draggable=move || if movable() { "true" } else { "false" }
+            on:dragstart=move |ev: web_sys::DragEvent| {
+                if !(has_targets && powers.get_untracked().transition) {
+                    return;
+                }
+                // dataTransfer content is required for some engines to
+                // start a drag at all; the real payload is the signal.
+                if let Some(dt) = ev.data_transfer() {
+                    let _ = dt.set_data("text/plain", &code_for_drag);
+                    dt.set_effect_allowed("move");
+                }
+                drag.set(Some(DragData {
+                    kind,
+                    short_code: code_for_drag.clone(),
+                    targets: target_ids.clone(),
+                }));
+            }
+            on:dragend=move |_| drag.set(None)
+        >
             <Group justify="between">
                 <Text mono=true dimmed=true size="xs">{code_text}</Text>
                 <Pill color=kind_color(kind)>{kind.label()}</Pill>
@@ -442,45 +779,53 @@ fn ItemCard(
                     }).collect_view()}
                 </Group>
             })}
-            {(!targets.is_empty()).then(move || {
-                // Each menu entry owns its short code + target column.
-                let entries: Vec<_> = targets
-                    .into_iter()
-                    .map(|(column_id, column_name)| {
-                        (code_for_move.clone(), column_id, column_name)
-                    })
-                    .collect();
-                view! {
+            {
+                // Each menu entry owns its short code + target column;
+                // stored once, re-cloned per reactive render.
+                let entries: StoredValue<Vec<(String, String, String)>> = StoredValue::new(
+                    targets
+                        .into_iter()
+                        .map(|(column_id, column_name)| {
+                            (code_for_move.clone(), column_id, column_name)
+                        })
+                        .collect(),
+                );
+                move || movable().then(|| view! {
                     <div class="kairos-card__actions">
                         {move || busy.get().then(|| view! {
                             <Text dimmed=true size="xs">"Moving…"</Text>
                         })}
                         <Menu label="Move">
-                            {entries.iter().map(|(code, column_id, column_name)| {
-                                let code = code.clone();
-                                let column_id = column_id.clone();
-                                let label = column_name.clone();
+                            {entries.get_value().into_iter().map(|(code, column_id, label)| {
+                                let label_text = label.clone();
                                 view! {
                                     <MenuItem on_click=Callback::new(move |_| {
-                                        let code = code.clone();
-                                        let column_id = column_id.clone();
                                         busy.set(true);
-                                        leptos::task::spawn_local(async move {
-                                            match data::transition(auth, kind, &code, &column_id).await {
-                                                Ok(()) => on_changed.run(()),
-                                                Err(error) => on_error.run(error),
-                                            }
+                                        let done = Callback::new(move |()| {
                                             busy.set(false);
+                                            on_changed.run(());
                                         });
+                                        let fail = Callback::new(move |error| {
+                                            busy.set(false);
+                                            on_error.run(error);
+                                        });
+                                        run_transition(
+                                            auth,
+                                            kind,
+                                            code.clone(),
+                                            column_id.clone(),
+                                            done,
+                                            fail,
+                                        );
                                     })>
-                                        {label}
+                                        {label_text}
                                     </MenuItem>
                                 }
                             }).collect_view()}
                         </Menu>
                     </div>
-                }
-            })}
+                })
+            }
         </article>
     }
 }
@@ -749,5 +1094,136 @@ fn CreateDocumentModal(
                 </Group>
             </Stack>
         </Modal>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pages::teams::api::Team;
+
+    fn board(id: &str, level: &str, team_id: Option<&str>) -> data::Board {
+        data::Board {
+            id: id.to_string(),
+            name: id.to_string(),
+            slug: id.to_string(),
+            board_level: level.to_string(),
+            team_id: team_id.map(str::to_string),
+        }
+    }
+
+    fn team(id: &str, slug: &str) -> Team {
+        Team {
+            id: id.to_string(),
+            name: slug.to_string(),
+            slug: slug.to_string(),
+            team_type: "platform".to_string(),
+            delivery_board_id: None,
+        }
+    }
+
+    /// Bands come out in flight-level order, the delivery band grouped by
+    /// team with teamless boards kept reachable in their own group.
+    #[test]
+    fn band_models_orders_levels_and_groups_delivery_by_team() {
+        let boards = vec![
+            board("adr-board", "adr", None),
+            board("web-delivery", "delivery", Some("t2")),
+            board("main-strategy", "strategy", None),
+            board("platform-delivery", "delivery", Some("t1")),
+            board("initiatives", "initiative", None),
+            board("orphan-delivery", "delivery", None),
+        ];
+        let teams = vec![team("t1", "platform"), team("t2", "web")];
+        let bands = band_models(boards, &teams);
+
+        let levels: Vec<&str> = bands.iter().map(|b| b.level.as_str()).collect();
+        assert_eq!(levels, vec!["strategy", "initiative", "delivery", "adr"]);
+
+        let delivery = &bands[2];
+        let headings: Vec<Option<&str>> = delivery
+            .groups
+            .iter()
+            .map(|(h, _)| h.as_ref().map(|(name, _)| name.as_str()))
+            .collect();
+        assert_eq!(
+            headings,
+            vec![Some("platform"), Some("web"), Some("No team")]
+        );
+        let platform_group = &delivery.groups[0];
+        assert_eq!(
+            platform_group.0.as_ref().map(|(_, href)| href.as_str()),
+            Some("/teams/platform")
+        );
+        assert_eq!(platform_group.1[0].slug, "platform-delivery");
+    }
+
+    fn me(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoami {
+        serde_json::from_value(serde_json::json!({
+            "user": {"display_name": "u", "email": "u@x.test"},
+            "organization": {"slug": "demo", "role": role},
+            "teams": team_ids.iter().map(|id| serde_json::json!({
+                "id": id, "slug": id, "name": id
+            })).collect::<Vec<_>>(),
+            "capabilities": grants.iter().map(|(slug, caps)| serde_json::json!({
+                "board_slug": slug, "grants": caps
+            })).collect::<Vec<_>>(),
+        }))
+        .expect("test whoami")
+    }
+
+    /// KAIROS-T-0072 client mirror: team membership implies the delivery
+    /// set on the team's board — and only there, and only that set.
+    #[test]
+    fn board_powers_mirror_team_implication() {
+        let bob = me("member", &["t1"], &[]);
+        // On the team's delivery board: transition + create tasks + docs.
+        let on_team = board_powers(&bob, "platform-delivery", Some("t1"), Some(EntityKind::Task));
+        assert!(on_team.transition && on_team.create && on_team.documents);
+        // A team-owned STRATEGY board: transition/docs implied, create is
+        // manage_strategies — not implied.
+        let strat = board_powers(&bob, "s", Some("t1"), Some(EntityKind::Strategy));
+        assert!(strat.transition && strat.documents && !strat.create);
+        // Someone else's board: nothing.
+        let other = board_powers(&bob, "web-delivery", Some("t2"), Some(EntityKind::Task));
+        assert_eq!(other, BoardPowers::default());
+        // Org-wide (teamless) board: nothing.
+        let orgwide = board_powers(&bob, "strategy", None, Some(EntityKind::Strategy));
+        assert_eq!(orgwide, BoardPowers::default());
+    }
+
+    /// Explicit grants (incl. globs) and the admin bypass keep working.
+    #[test]
+    fn board_powers_mirror_grants_and_admin() {
+        let admin = me("admin", &[], &[]);
+        let p = board_powers(&admin, "any", None, Some(EntityKind::Adr));
+        assert!(p.transition && p.create && p.documents);
+
+        let granted = me("member", &[], &[("adrs", &["transition_*", "manage_adrs"])]);
+        let p = board_powers(&granted, "adrs", None, Some(EntityKind::Adr));
+        assert!(p.transition && p.create && !p.documents);
+        // Grants are board-scoped: elsewhere they mean nothing.
+        let elsewhere = board_powers(&granted, "strategy", None, Some(EntityKind::Strategy));
+        assert_eq!(elsewhere, BoardPowers::default());
+
+        assert!(grant_covers("*", "manage_tasks"));
+        assert!(grant_covers("manage_*", "manage_tasks"));
+        assert!(!grant_covers("manage_*", "transition_items"));
+        assert!(!grant_covers("manage_tasks", "manage_taskss"));
+    }
+
+    /// A board whose team id names an unknown team lands in "No team"
+    /// (a stale/failed teams read must never hide boards).
+    #[test]
+    fn band_models_keeps_unknown_team_boards_reachable() {
+        let boards = vec![board("d", "delivery", Some("gone"))];
+        let bands = band_models(boards, &[]);
+        assert_eq!(bands.len(), 1);
+        assert_eq!(bands[0].groups.len(), 1);
+        assert_eq!(
+            bands[0].groups[0].0.as_ref().map(|(name, _)| name.as_str()),
+            Some("No team")
+        );
+        assert_eq!(bands[0].groups[0].1.len(), 1);
     }
 }

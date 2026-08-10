@@ -41,6 +41,28 @@ body {
   color: var(--fg-bright);
 }
 
+/* "My teams" nav section (KAIROS-T-0068): separated from the primary
+   entries by a hairline; the label sits above its team links. */
+.kairos-nav__section {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-sm) 0;
+  border-top: 1px solid var(--edge);
+}
+
+/* One flight-level band on /boards (KAIROS-T-0069/T-0063): the level
+   pill heads the band; groups inside stack with their team headings. */
+.kairos-board-band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--edge);
+}
+
+.kairos-board-band:last-child {
+  border-bottom: none;
+}
+
 /* Full-viewport centering for the auth screens (login/callback). */
 .kairos-center-screen {
   min-height: 100vh;
@@ -93,6 +115,22 @@ body {
 
 .kairos-board__column-head {
   margin-bottom: var(--space-sm);
+}
+
+/* Drag-and-drop (KAIROS-T-0064): while a card is dragged, only the
+   columns its transitions allow light up as drop targets. */
+.kairos-board__column--droppable {
+  border-color: var(--ice);
+  background: var(--panel-2);
+}
+
+.kairos-card--dragging {
+  opacity: 0.5;
+}
+
+/* A movable card advertises the interaction. */
+.kairos-card[draggable="true"] {
+  cursor: grab;
 }
 
 /* One item card. */

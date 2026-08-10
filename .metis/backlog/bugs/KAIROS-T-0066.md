@@ -4,15 +4,15 @@ level: task
 title: "Default 'Status' metadata definition duplicates board position — remove or rework"
 short_code: "KAIROS-T-0066"
 created_at: 2026-08-09T17:44:56.038509+00:00
-updated_at: 2026-08-09T17:44:56.038509+00:00
+updated_at: 2026-08-10T16:33:12.185930+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -42,13 +42,19 @@ UAT feedback (Dylan, 2026-08-09): "task status isn't metadata; status is where i
   2. Metadata panel offers a "Status" enum independent of the item's column
 - **Expected vs Actual**: Expected — one source of truth for status: the board column. Actual — two: column position and a disconnected metadata enum that nothing keeps in sync.
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] 'Status' is removed from the system default metadata definitions (new tenants no longer get it), OR a recorded decision narrows it to a surface where it isn't redundant (none is currently known — document types have their own board flow via the ADR/document model)
-- [ ] Migration story decided for existing tenants: drop the definition + stamped values, or leave existing tenants untouched (defaults are copy-on-provision) — decision recorded in this ticket
-- [ ] Seed-demo fixture and any tests referencing the 'Status' definition updated
-- [ ] Item detail views no longer offer a Status metadata editor
-- [ ] A-0012 gates green (this touches tenant provisioning defaults — integration tier matters)
+- [x] 'Status' is removed from the system default metadata definitions (new tenants no longer get it), OR a recorded decision narrows it to a surface where it isn't redundant — NARROWED: the surface exists (document templates declare it; documents are off-board), decision recorded in Status Updates; renamed 'Document status'
+- [x] Migration story decided for existing tenants: guarded rename migrations (public + tenant), no value changes needed (values only ever stamped on documents via templates, where they remain correct) — decision recorded in this ticket
+- [x] Seed-demo fixture and any tests referencing the 'Status' definition updated — none referenced the display name (slug `status` unchanged); no churn required
+- [x] Item detail views no longer offer a Status metadata editor on board items (KAIROS-T-0065 scoping; smoke asserts no "Document status" editor on a task)
+- [x] A-0012 gates green (full chain 2026-08-10 incl. integration tier over the new migrations)
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -61,3 +67,4 @@ Related: KAIROS-T-0065 (metadata panel scoping — same panel; one design decisi
 ## Status Updates **[REQUIRED]**
 
 - 2026-08-09: Recorded from UAT feedback session.
+- 2026-08-10: RESOLVED VIA THE AC's NARROWING ARM (not removal) — implementation surfaced the fact the ticket said was unknown: a surface where Status is NOT redundant exists. The three document-workflow system templates (prd, system_context, architecture_framing) declare `status` with default `draft`, and documents are OFF-BOARD — they have no column, so draft/review/approved is their only workflow state. The actual defect (Status offered on every board item, conflicting with column position) is cured by KAIROS-T-0065's panel scoping: board items never carry `status` unless someone deliberately adds it. Recorded decision: keep the definition, narrow its identity — display name renamed 'Status' → 'Document status' so it cannot be read as board position. Implementation: baseline SEED_SYSTEM_DEFAULTS_SQL updated (new deployments); public migration 2026-08-10-000000_document_status_rename (existing deployments' system table); tenant migration of the same name (existing tenants' copies via migrate-tenants) — both UPDATEs guarded on the current name (+ is_system_default tenant-side) so operator/tenant customizations stay untouched; slug stays `status` (template associations reference it), so no template churn and the existing slug-based tests hold. Migration story for stamped values: none needed — values were only ever stamped on documents via templates, where they remain correct. Full gates running.

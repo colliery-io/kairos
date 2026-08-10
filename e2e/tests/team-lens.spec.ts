@@ -121,8 +121,9 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     const todo = page.locator('section.kairos-board__column', {
       has: page.locator('.kairos-board__column-head', { hasText: 'Todo' }),
     });
-    // Implied manage_tasks: the create affordance renders for bob.
-    await backlog.getByTitle('New item in Backlog').click();
+    // Implied manage_tasks: the global create action renders for bob
+    // (KAIROS-T-0062: creation is intake — lands in Backlog).
+    await page.getByRole('button', { name: 'New task', exact: true }).click();
     const modal = page.locator('.cl-modal');
     await modal.locator('input.cl-input').first().fill(createdTitle);
     await modal.getByRole('button', { name: 'Create' }).click();
@@ -148,7 +149,12 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     await expect(firstCard).toBeVisible();
     await expect(firstCard).toHaveAttribute('draggable', 'false');
     await expect(page.getByRole('button', { name: /Move/ })).toHaveCount(0);
-    await expect(page.getByTitle(/New item in/)).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'New task', exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: 'New document', exact: true }),
+    ).toHaveCount(0);
   });
 
   // 6. /teams directory lists both seeded teams ----------------------------

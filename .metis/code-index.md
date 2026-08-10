@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-08-10T03:39:53Z | 190 files | Python, Rust, TypeScript
+> Generated: 2026-08-10T16:30:15Z | 190 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -3309,20 +3309,20 @@
 -  `LEVEL_BANDS` variable L186-191 — `: &[(&str, &str)]` — The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
 -  `BandModel` struct L195-201 — `{ level: String, label: String, groups: Vec<(Option<(String, String)>, Vec<data:...` — One rendered board-list band: level heading + its tiles, with the
 -  `band_models` function L207-275 — `( boards: Vec<data::Board>, teams: &[crate::pages::teams::api::Team], ) -> Vec<B...` — Bucket boards into level bands (strategy → initiative → delivery →
--  `BoardBody` function L448-705 — `( view: data::BoardView, /// What the user may do here (KAIROS-T-0072) — gates...` — The loaded board: header (+ document create) and the column row.
--  `CardModel` struct L519-524 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — attach to strategies/initiatives/tasks only).
--  `ColumnModel` struct L525-530 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — attach to strategies/initiatives/tasks only).
--  `ItemCard` function L716-831 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code, title, type, key metadata, open link,
--  `CreateItemModal` function L840-963 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — Create-from-column: the board level's entity type with its
--  `CreateDocumentModal` function L969-1098 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
--  `tests` module L1101-1229 — `-` — attach to strategies/initiatives/tasks only).
--  `board` function L1105-1113 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
--  `team` function L1115-1123 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
--  `band_models_orders_levels_and_groups_delivery_by_team` function L1128-1159 — `()` — Bands come out in flight-level order, the delivery band grouped by
--  `me` function L1161-1173 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
--  `board_powers_mirror_team_implication` function L1178-1193 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
--  `board_powers_mirror_grants_and_admin` function L1197-1213 — `()` — Explicit grants (incl.
--  `band_models_keeps_unknown_team_boards_reachable` function L1218-1228 — `()` — A board whose team id names an unknown team lands in "No team"
+-  `BoardBody` function L448-704 — `( view: data::BoardView, /// What the user may do here (KAIROS-T-0072) — gates...` — The loaded board: header (+ document create) and the column row.
+-  `CardModel` struct L537-542 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — attach to strategies/initiatives/tasks only).
+-  `ColumnModel` struct L543-548 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — attach to strategies/initiatives/tasks only).
+-  `ItemCard` function L715-830 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code, title, type, key metadata, open link,
+-  `CreateItemModal` function L841-966 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
+-  `CreateDocumentModal` function L972-1101 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
+-  `tests` module L1104-1232 — `-` — attach to strategies/initiatives/tasks only).
+-  `board` function L1108-1116 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
+-  `team` function L1118-1126 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
+-  `band_models_orders_levels_and_groups_delivery_by_team` function L1131-1162 — `()` — Bands come out in flight-level order, the delivery band grouped by
+-  `me` function L1164-1176 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
+-  `board_powers_mirror_team_implication` function L1181-1196 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
+-  `board_powers_mirror_grants_and_admin` function L1200-1216 — `()` — Explicit grants (incl.
+-  `band_models_keeps_unknown_team_boards_reachable` function L1221-1231 — `()` — A board whose team id names an unknown team lands in "No team"
 
 #### crates/kairos-web/src/pages/item.rs
 
@@ -3658,10 +3658,11 @@
 
 #### crates/kairos-web/src/pages/item/metadata.rs
 
-- pub `MetadataPanel` function L30-66 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The metadata panel: definitions + values fetched together, typed
--  `FieldRow` struct L21-25 — `{ definition: MetadataDefinition, draft: RwSignal<String>, original: String }` — One field's editing state: its definition, the live draft, and the
--  `MetadataForm` function L71-155 — `( family: Family, #[prop(into)] code: String, definitions: Vec<MetadataDefinitio...` — The editors + save button, built fresh per fetch (drafts start at the
--  `FieldEditor` function L159-222 — `(row: FieldRow) -> impl IntoView` — One typed editor row: label + the editor its `field_type` calls for.
+- pub `MetadataPanel` function L34-70 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The metadata panel: definitions + values fetched together, typed
+-  `FieldRow` struct L25-29 — `{ definition: MetadataDefinition, draft: RwSignal<String>, original: String }` — One field's editing state: its definition, the live draft, and the
+-  `ADD_PLACEHOLDER` variable L73 — `: &str` — The "add a field" picker's no-choice option.
+-  `MetadataForm` function L79-209 — `( family: Family, #[prop(into)] code: String, definitions: Vec<MetadataDefinitio...` — The editors + save button, built fresh per fetch (drafts start at the
+-  `FieldEditor` function L213-276 — `(row: FieldRow) -> impl IntoView` — One typed editor row: label + the editor its `field_type` calls for.
 
 ### crates/kairos-web/src/pages/search
 

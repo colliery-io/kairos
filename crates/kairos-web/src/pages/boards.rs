@@ -24,7 +24,7 @@ mod data;
 mod live;
 
 use aurora_dark::components::{
-    ActionIcon, Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Menu, MenuItem, Modal,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Menu, MenuItem, Modal,
     PageHeader, Pill, Select, Stack, Text, TextInput, Textarea,
 };
 use aurora_dark::tokens::{ApiError, token};
@@ -462,10 +462,16 @@ fn BoardBody(
     // whether they are legal drop targets.
     let drag: RwSignal<Option<DragData>> = RwSignal::new(None);
 
-    // Create-from-column modal state: the target column, set by a
-    // column's "+" (one modal instance for the whole page).
+    // Item creation is GLOBAL (KAIROS-T-0062): one header action, and new
+    // items ALWAYS land in the board's entry column (lowest position —
+    // Backlog/Draft/Discovery on the seeded defaults). No per-column
+    // composers: creation is intake, flow happens by transition.
     let create_open = RwSignal::new(false);
-    let create_column = RwSignal::new(None::<(String, String)>);
+    let entry_column: Option<(String, String)> = detail
+        .columns
+        .iter()
+        .min_by_key(|column| column.position)
+        .map(|column| (column.id.clone(), column.name.clone()));
 
     // Document create modal ("New document" in the header) — not offered
     // on ADR boards: documents attach to strategies/initiatives/tasks.
@@ -495,13 +501,25 @@ fn BoardBody(
     let documents_offered = board.board_level != "adr" && !doc_parents.is_empty();
 
     let sub = format!("{} board · {}", board.board_level, board.slug);
+    let create_offered = create_kind.is_some() && entry_column.is_some();
+    let create_label = create_kind
+        .map(|kind| format!("New {}", kind.label()))
+        .unwrap_or_default();
+    let create_label = StoredValue::new(create_label);
     let header_right: Children = Box::new(move || {
         view! {
-            {move || (documents_offered && powers.get().documents).then(|| view! {
-                <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
-                    "New document"
-                </Button>
-            })}
+            <Group gap="xs">
+                {move || (create_offered && powers.get().create).then(|| view! {
+                    <Button size="xs" on_click=Callback::new(move |_| create_open.set(true))>
+                        {create_label.get_value()}
+                    </Button>
+                })}
+                {move || (documents_offered && powers.get().documents).then(|| view! {
+                    <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
+                        "New document"
+                    </Button>
+                })}
+            </Group>
         }
         .into_any()
     });
@@ -605,13 +623,11 @@ fn BoardBody(
             {columns.into_iter().map(|column| {
                 let ColumnModel { id, name, targets, cards } = column;
                 let count = cards.len();
-                let head_label = name.clone();
-                let action_title = format!("New item in {name}");
+                let head_label = name;
                 // Per-handler copies of this column's id (the drop target).
                 let class_id = id.clone();
                 let over_id = id.clone();
-                let drop_id = id.clone();
-                let column_for_create = (id, name);
+                let drop_id = id;
                 view! {
                     <section
                         class="kairos-board__column"
@@ -646,26 +662,9 @@ fn BoardBody(
                         }
                     >
                         <header class="kairos-board__column-head">
-                            <Group justify="between">
-                                <Group gap="xs">
-                                    <Text bright=true bold=true size="sm">{head_label}</Text>
-                                    <Text dimmed=true size="xs">{count.to_string()}</Text>
-                                </Group>
-                                {
-                                    let column_for_create = StoredValue::new(column_for_create);
-                                    let action_title = StoredValue::new(action_title);
-                                    move || (create_kind.is_some() && powers.get().create).then(|| view! {
-                                        <ActionIcon
-                                            title=action_title.get_value()
-                                            on_click=Callback::new(move |_| {
-                                                create_column.set(Some(column_for_create.get_value()));
-                                                create_open.set(true);
-                                            })
-                                        >
-                                            "+"
-                                        </ActionIcon>
-                                    })
-                                }
+                            <Group gap="xs">
+                                <Text bright=true bold=true size="sm">{head_label}</Text>
+                                <Text dimmed=true size="xs">{count.to_string()}</Text>
                             </Group>
                         </header>
                         <Stack gap="xs">
@@ -688,13 +687,13 @@ fn BoardBody(
                 }
             }).collect_view()}
         </div>
-        {create_kind.map(|kind| view! {
+        {create_kind.zip(entry_column).map(|(kind, entry)| view! {
             <CreateItemModal
                 open=create_open
                 kind
                 board_id=board.id.clone()
                 team_id=board.team_id.clone()
-                column=create_column
+                entry
                 on_changed
             />
         })}
@@ -834,8 +833,10 @@ fn ItemCard(
 // Create flows
 // ---------------------------------------------------------------------------
 
-/// Create-from-column: the board level's entity type with its
-/// type-appropriate fields (A-0002 one item family per board level).
+/// The global create flow (KAIROS-T-0062): the board level's entity type
+/// with its type-appropriate fields (A-0002 one item family per board
+/// level). New items ALWAYS land in the board's entry column — creation
+/// is intake; movement happens by transition.
 #[component]
 fn CreateItemModal(
     open: RwSignal<bool>,
@@ -843,8 +844,8 @@ fn CreateItemModal(
     board_id: String,
     /// Delivery boards carry their team; new tasks inherit it.
     team_id: Option<String>,
-    /// `(column_id, column_name)` chosen by the column's "+".
-    column: RwSignal<Option<(String, String)>>,
+    /// `(column_id, column_name)` — the board's entry column.
+    entry: (String, String),
     on_changed: Callback<()>,
 ) -> impl IntoView {
     let auth = use_auth();
@@ -873,14 +874,14 @@ fn CreateItemModal(
         }
     });
 
+    let (entry_id, entry_name) = entry;
+
     // `Callback` is `Copy`: the modal's children (a `Fn` closure) can use
     // it without moving anything out of their environment.
     let submit: Callback<()> = Callback::new({
         let opt = |s: String| (!s.trim().is_empty()).then_some(s);
         move |()| {
-            let Some((column_id, _)) = column.get_untracked() else {
-                return;
-            };
+            let column_id = entry_id.clone();
             let item = data::NewItem {
                 title: title.get_untracked(),
                 content: content.get_untracked(),
@@ -907,13 +908,15 @@ fn CreateItemModal(
         }
     });
 
+    let entry_note = StoredValue::new(format!(
+        "New {}s start in {entry_name} — the board's intake column.",
+        kind.label()
+    ));
     view! {
         <Modal open=open title=format!("New {}", kind.label())>
             <Stack gap="sm">
                 <Text dimmed=true size="xs">
-                    {move || column.get()
-                        .map(|(_, name)| format!("In column: {name}"))
-                        .unwrap_or_default()}
+                    {move || entry_note.get_value()}
                 </Text>
                 <TextInput label="Title" value=title placeholder="What is it?"/>
                 <Textarea label="Content (markdown)" value=content rows=5

@@ -1,14 +1,18 @@
-//! The typed metadata panel (KAIROS-T-0041, per KAIROS-A-0003): every
-//! tenant metadata definition renders with an editor matched to its type —
-//! enum → dropdown of the definition's options, date → a date input,
-//! string → text — with the item's current values filled in. Clearing a
+//! The typed metadata panel (KAIROS-T-0041, per KAIROS-A-0003; scoping per
+//! KAIROS-T-0065): the panel shows editors only for fields the item
+//! ACTUALLY CARRIES — values stamped at creation from its template's
+//! declared fields, or added here explicitly. The full definition catalog
+//! never renders wholesale (that put a "Document Type" editor on every
+//! task); unstamped definitions sit behind an "add a field" picker
+//! instead. Editors match the field type — enum → dropdown of the
+//! definition's options, date → a date input, string → text. Clearing a
 //! field sends `null` (the A-0003 "null clears" contract); saving PATCHes
 //! only the fields that changed. Metadata is not versioned (A-0004):
 //! last-write-wins, no conflict UI here.
 
 use std::collections::BTreeMap;
 
-use aurora_dark::components::{Alert, Empty, ErrorState, Group, Loading, Panel, Pill, Text};
+use aurora_dark::components::{Alert, Empty, ErrorState, Group, Loading, Panel, Pill, Select, Text};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
@@ -65,8 +69,12 @@ pub fn MetadataPanel(family: Family, #[prop(into)] code: String) -> impl IntoVie
     }
 }
 
+/// The "add a field" picker's no-choice option.
+const ADD_PLACEHOLDER: &str = "(add a field…)";
+
 /// The editors + save button, built fresh per fetch (drafts start at the
-/// server's values).
+/// server's values). Only STAMPED fields render editors (KAIROS-T-0065);
+/// the rest of the catalog waits behind the add-a-field picker.
 #[component]
 fn MetadataForm(
     family: Family,
@@ -80,32 +88,60 @@ fn MetadataForm(
     let saving = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
 
-    let rows: Vec<FieldRow> = definitions
+    // Stamped definitions become editor rows; the rest are addable.
+    let (stamped, unstamped): (Vec<MetadataDefinition>, Vec<MetadataDefinition>) = definitions
         .into_iter()
-        .map(|definition| {
-            let original = values
-                .iter()
-                .find(|value| value.slug == definition.slug)
-                .map(|value| value.value.clone())
-                .unwrap_or_default();
-            FieldRow {
-                definition,
-                draft: RwSignal::new(original.clone()),
-                original,
-            }
-        })
-        .collect();
-    let rows = StoredValue::new(rows);
+        .partition(|definition| values.iter().any(|value| value.slug == definition.slug));
+    let rows: RwSignal<Vec<FieldRow>> = RwSignal::new(
+        stamped
+            .into_iter()
+            .map(|definition| {
+                let original = values
+                    .iter()
+                    .find(|value| value.slug == definition.slug)
+                    .map(|value| value.value.clone())
+                    .unwrap_or_default();
+                FieldRow {
+                    definition,
+                    draft: RwSignal::new(original.clone()),
+                    original,
+                }
+            })
+            .collect(),
+    );
+    let available: RwSignal<Vec<MetadataDefinition>> = RwSignal::new(unstamped);
 
-    let dirty =
-        move || rows.with_value(|rows| rows.iter().any(|row| row.draft.get() != row.original));
+    // Choosing a definition in the picker promotes it to an (empty) editor
+    // row immediately; the value only reaches the server on save.
+    let add_choice = RwSignal::new(ADD_PLACEHOLDER.to_string());
+    Effect::new(move |_| {
+        let choice = add_choice.get();
+        if choice == ADD_PLACEHOLDER {
+            return;
+        }
+        available.update(|definitions| {
+            if let Some(index) = definitions.iter().position(|d| d.name == choice) {
+                let definition = definitions.remove(index);
+                rows.update(|rows| {
+                    rows.push(FieldRow {
+                        definition,
+                        draft: RwSignal::new(String::new()),
+                        original: String::new(),
+                    });
+                });
+            }
+        });
+        add_choice.set(ADD_PLACEHOLDER.to_string());
+    });
+
+    let dirty = move || rows.with(|rows| rows.iter().any(|row| row.draft.get() != row.original));
 
     let save = move |_| {
         if saving.get_untracked() {
             return;
         }
         // Changed fields only; "" means clear (A-0003 null-clears).
-        let changed: BTreeMap<String, Option<String>> = rows.with_value(|rows| {
+        let changed: BTreeMap<String, Option<String>> = rows.with_untracked(|rows| {
             rows.iter()
                 .filter(|row| row.draft.get_untracked() != row.original)
                 .map(|row| {
@@ -137,8 +173,26 @@ fn MetadataForm(
                     <Text size="sm" dimmed=true>{message}</Text>
                 </Alert>
             })}
-            {rows.with_value(|rows| {
-                rows.iter().cloned().map(|row| view! { <FieldEditor row/> }).collect_view()
+            {move || {
+                let current = rows.get();
+                if current.is_empty() {
+                    view! {
+                        <Text size="sm" dimmed=true>
+                            "No metadata on this item — its template declared none. Add a field below if one applies."
+                        </Text>
+                    }.into_any()
+                } else {
+                    current
+                        .into_iter()
+                        .map(|row| view! { <FieldEditor row/> })
+                        .collect_view()
+                        .into_any()
+                }
+            }}
+            {move || (!available.get().is_empty()).then(|| {
+                let mut options = vec![ADD_PLACEHOLDER.to_string()];
+                options.extend(available.get().into_iter().map(|d| d.name));
+                view! { <Select label="" options value=add_choice/> }
             })}
             <Group justify="between">
                 <Text size="xs" dimmed=true>"Blank clears a field. Last write wins (not versioned, A-0004)."</Text>

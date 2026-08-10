@@ -146,7 +146,7 @@ ON CONFLICT (board_level) DO NOTHING;
 -- KAIROS-A-0003 default metadata definitions.
 INSERT INTO public.system_metadata_definitions (name, slug, field_type) VALUES
     ('Priority', 'priority', 'enum'),
-    ('Status', 'status', 'enum'),
+    ('Document status', 'status', 'enum'),
     ('Complexity', 'complexity', 'enum'),
     ('Document Type', 'document_type', 'enum')
 ON CONFLICT (slug) DO NOTHING;

@@ -79,26 +79,28 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await expect(cardIn(page, 'Backlog', 'DEMO-T-0006')).toBeVisible();
   });
 
-  // 4. Create a task from the Todo column via the UI -----------------------
-  await test.step('create an item via the UI', async () => {
-    await column(page, 'Todo').getByTitle('New item in Todo').click();
+  // 4. Create a task via the GLOBAL header action (KAIROS-T-0062):
+  //    creation is intake — new items always land in the entry column.
+  await test.step('create an item via the global header action', async () => {
+    await page.getByRole('button', { name: 'New task', exact: true }).click();
     const modal = page.locator('.cl-modal');
     await expect(modal.locator('.cl-modal__title')).toHaveText('New task');
+    await expect(modal.getByText(/start in Backlog/)).toBeVisible();
     await modal.locator('input.cl-input').first().fill(createdTitle);
     await modal.getByRole('button', { name: 'Create' }).click();
     await expect(modal).toBeHidden();
-    await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible();
+    await expect(cardIn(page, 'Backlog', createdTitle)).toBeVisible();
   });
 
   // 5. Transition the new task via the click-to-move menu ------------------
   await test.step('transition via the move menu', async () => {
-    const card = cardIn(page, 'Todo', createdTitle);
+    const card = cardIn(page, 'Backlog', createdTitle);
     await card.getByRole('button', { name: /Move/ }).click();
     await card.locator('.cl-menu__dropdown')
-      .getByRole('button', { name: 'Active', exact: true })
+      .getByRole('button', { name: 'Todo', exact: true })
       .click();
-    await expect(cardIn(page, 'Active', createdTitle)).toBeVisible();
-    await expect(cardIn(page, 'Todo', createdTitle)).toHaveCount(0);
+    await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible();
+    await expect(cardIn(page, 'Backlog', createdTitle)).toHaveCount(0);
   });
 
   // 6. Live WS: a second (API) writer moves another card; the first browser
@@ -131,6 +133,21 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     const editor = page.locator('.kairos-editor');
     const contentArea = editor.locator('textarea.kairos-editor__textarea');
     await expect(contentArea).toBeVisible();
+
+    // KAIROS-T-0065: the metadata panel scopes to fields the item carries —
+    // a task never shows the document-only definitions; the rest of the
+    // catalog sits behind the add-a-field picker.
+    const metadata = page.locator('.kairos-metadata');
+    await expect(metadata).toBeVisible();
+    await expect(
+      metadata.locator('label', { hasText: 'Document Type' }),
+    ).toHaveCount(0);
+    await expect(
+      metadata.locator('label', { hasText: 'Document status' }),
+    ).toHaveCount(0);
+    await expect(
+      metadata.locator('option', { hasText: '(add a field…)' }),
+    ).toHaveCount(1);
 
     // --- a successful edit + save ---
     await contentArea.fill(`Edited by smoke ${Date.now()}`);

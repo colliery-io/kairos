@@ -4,7 +4,7 @@ level: task
 title: "E2E: smoke move-menu click flakes when a WS refetch re-renders the board"
 short_code: "KAIROS-T-0073"
 created_at: 2026-08-11T03:22:18.242669+00:00
-updated_at: 2026-08-11T03:23:39.271336+00:00
+updated_at: 2026-08-11T03:25:47.284653+00:00
 parent: 
 blocked_by: []
 archived: false
@@ -12,7 +12,7 @@ archived: false
 tags:
   - "#task"
   - "#bug"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,12 +47,16 @@ Deflake the smoke spec's "transition via the move menu" step. It failed on the f
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] The open-menu-then-click sequence in smoke step 5 is atomic-with-retry: a mid-sequence board rebuild causes the WHOLE sequence to retry (expect-polling, per the suite's no-arbitrary-sleeps rule), not a doomed click against a detached node
-- [ ] A genuine regression (menu never works) still fails the step — the pattern must converge only when a transition actually succeeds
-- [ ] `angreal test e2e` passes with the smoke spec green on the FIRST attempt
-- [ ] The real-UX cousin (open menus close on WS refetch; fine-grained board rendering) is noted here as a candidate follow-up, not silently absorbed into this deflake
+- [x] The open-menu-then-click sequence in smoke step 5 is atomic-with-retry: a mid-sequence board rebuild causes the WHOLE sequence to retry (expect-polling, per the suite's no-arbitrary-sleeps rule), not a doomed click against a detached node — `toPass` block re-resolves the card each attempt and opens the menu only if a rebuild closed it
+- [x] A genuine regression (menu never works) still fails the step — the transition's success is asserted (card lands in Todo) after the block
+- [x] `angreal test e2e` passes with the smoke spec green on the FIRST attempt (verification run: all 3 specs ✓ first attempt, no flaky line, 4.9s)
+- [x] The real-UX cousin (open menus close on WS refetch; fine-grained board rendering) is recorded in the Impact Assessment as a candidate follow-up
+
+**Completed 2026-08-10** (fix in commit e916311).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 

@@ -94,11 +94,21 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
 
   // 5. Transition the new task via the click-to-move menu ------------------
   await test.step('transition via the move menu', async () => {
-    const card = cardIn(page, 'Backlog', createdTitle);
-    await card.getByRole('button', { name: /Move/ }).click();
-    await card.locator('.cl-menu__dropdown')
-      .getByRole('button', { name: 'Todo', exact: true })
-      .click();
+    // KAIROS-T-0073 deflake: the board rebuilds its whole DOM on every
+    // refetch (the create's on_changed + its WS echo), which destroys an
+    // open menu mid-click. Retry the open+click SEQUENCE atomically
+    // (expect-polling, no sleeps): each attempt re-resolves the card
+    // fresh, opening the menu only if a rebuild closed it.
+    await expect(async () => {
+      const card = cardIn(page, 'Backlog', createdTitle);
+      const dropdown = card.locator('.cl-menu__dropdown');
+      if (!(await dropdown.isVisible())) {
+        await card.getByRole('button', { name: /Move/ }).click({ timeout: 2_000 });
+      }
+      await dropdown
+        .getByRole('button', { name: 'Todo', exact: true })
+        .click({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible();
     await expect(cardIn(page, 'Backlog', createdTitle)).toHaveCount(0);
   });

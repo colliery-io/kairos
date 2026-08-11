@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-08-10T16:30:15Z | 190 files | Python, Rust, TypeScript
+> Generated: 2026-08-10T22:29:27Z | 190 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -2177,20 +2177,20 @@
 - pub `ApiBearer` enum L33-41 — `AccessToken | IdToken` — `KAIROS_API_BEARER` — which OIDC token the browser GUI (and CLI) present
 - pub `as_str` function L46-51 — `(self) -> &'static str` — The wire name, as sent to the SPA in `/api/config` and used as the
 - pub `ConfigError` enum L57-74 — `Missing | Invalid` — A configuration error worth failing startup over.
-- pub `AppConfig` struct L78-128 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: String, oidc_aud...` — Everything the server needs to run, resolved once at startup.
-- pub `from_env` function L133-135 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
-- pub `from_lookup` function L139-227 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
+- pub `AppConfig` struct L78-132 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: String, oidc_aud...` — Everything the server needs to run, resolved once at startup.
+- pub `from_env` function L137-139 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
+- pub `from_lookup` function L143-231 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
 -  `ApiBearer` type L43-52 — `= ApiBearer` — variants directly instead of mutating process environment.
--  `AppConfig` type L130-228 — `= AppConfig` — variants directly instead of mutating process environment.
--  `tests` module L231-344 — `-` — variants directly instead of mutating process environment.
--  `lookup` function L235-241 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
--  `MINIMAL` variable L243-247 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
--  `minimal_config_applies_defaults` function L250-268 — `()` — variants directly instead of mutating process environment.
--  `missing_required_var_names_it` function L271-274 — `()` — variants directly instead of mutating process environment.
--  `empty_value_is_treated_as_unset` function L277-282 — `()` — variants directly instead of mutating process environment.
--  `invalid_bind_addr_and_log_format_are_rejected` function L285-305 — `()` — variants directly instead of mutating process environment.
--  `api_bearer_id_token_is_parsed` function L308-314 — `()` — variants directly instead of mutating process environment.
--  `optional_vars_are_carried_through` function L317-343 — `()` — variants directly instead of mutating process environment.
+-  `AppConfig` type L134-232 — `= AppConfig` — variants directly instead of mutating process environment.
+-  `tests` module L235-348 — `-` — variants directly instead of mutating process environment.
+-  `lookup` function L239-245 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
+-  `MINIMAL` variable L247-251 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
+-  `minimal_config_applies_defaults` function L254-272 — `()` — variants directly instead of mutating process environment.
+-  `missing_required_var_names_it` function L275-278 — `()` — variants directly instead of mutating process environment.
+-  `empty_value_is_treated_as_unset` function L281-286 — `()` — variants directly instead of mutating process environment.
+-  `invalid_bind_addr_and_log_format_are_rejected` function L289-309 — `()` — variants directly instead of mutating process environment.
+-  `api_bearer_id_token_is_parsed` function L312-318 — `()` — variants directly instead of mutating process environment.
+-  `optional_vars_are_carried_through` function L321-347 — `()` — variants directly instead of mutating process environment.
 
 #### crates/kairos-server/src/error.rs
 
@@ -2423,48 +2423,51 @@
 
 #### crates/kairos-server/src/middleware/auth.rs
 
-- pub `AuthContext` struct L45-54 — `{ user_id: Uuid, external_id: String, email: String, display_name: String }` — The authenticated caller, inserted as a request extension for every
-- pub `TokenClaims` struct L59-66 — `{ sub: String, email: Option<String>, name: Option<String> }` — The token claims this crate consumes.
-- pub `DiscoveryError` enum L70-79 — `Discovery` — Why building an [`Authenticator`] failed (startup-time, fail-fast).
-- pub `VerifyError` enum L83-104 — `MissingToken | UnknownKey | Invalid | MissingEmail | KeyFetch` — Why a token was rejected (or could not be checked).
-- pub `Authenticator` struct L135-146 — `{ issuer: String, audience: String, jwks_uri: Option<String>, http: reqwest::Cli...` — Validates bearer tokens against one OIDC issuer: JWKS cache keyed by
-- pub `discover` function L162-196 — `(issuer: &str, audience: &str) -> Result<Self, DiscoveryError>` — Resolve the issuer's discovery document, prime the JWKS cache, and
-- pub `with_static_keys` function L201-214 — `( issuer: &str, audience: &str, keys: impl IntoIterator<Item = (String, Decoding...` — Test constructor: fixed keys, no JWKS endpoint (refresh-on-unknown-
-- pub `verify` function L279-293 — `(&self, token: &str) -> Result<TokenClaims, VerifyError>` — Validate `token` (RS256 signature, `iss`, `aud`, `exp`) and return
-- pub `require_auth` function L365-393 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The auth layer: validate the bearer token, JIT-upsert the user, insert
--  `ApiError` type L106-113 — `= ApiError` — mapper, so all first-party clients share one configured audience there.
--  `from` function L107-112 — `(err: VerifyError) -> Self` — mapper, so all first-party clients share one configured audience there.
--  `DiscoveryDoc` struct L116-118 — `{ jwks_uri: String }` — mapper, so all first-party clients share one configured audience there.
--  `JwksDoc` struct L121-123 — `{ keys: Vec<Jwk> }` — mapper, so all first-party clients share one configured audience there.
--  `Jwk` struct L126-131 — `{ kty: String, kid: Option<String>, n: Option<String>, e: Option<String> }` — mapper, so all first-party clients share one configured audience there.
--  `Authenticator` type L148-156 — `= Authenticator` — mapper, so all first-party clients share one configured audience there.
--  `fmt` function L149-155 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — mapper, so all first-party clients share one configured audience there.
--  `Authenticator` type L158-294 — `= Authenticator` — mapper, so all first-party clients share one configured audience there.
--  `refresh_keys` function L217-256 — `(&self) -> Result<(), VerifyError>` — Fetch the JWKS and replace the cache with its RSA keys.
--  `key_for` function L260-275 — `(&self, kid: &str) -> Result<Option<DecodingKey>, VerifyError>` — The decoding key for `kid`, refreshing the JWKS once (behind the
--  `bearer_token` function L297-305 — `(req: &Request) -> Result<&str, VerifyError>` — `Authorization: Bearer <token>` or [`VerifyError::MissingToken`].
--  `jit_upsert_user` function L313-353 — `(pool: &TenantPool, claims: &TokenClaims) -> Result<User, ApiError>` — JIT user provisioning (A-0010): upsert `public.users` keyed on
--  `tests` module L396-601 — `-` — mapper, so all first-party clients share one configured audience there.
--  `TEST_RSA_PRIVATE_PEM` variable L410-437 — `: &str` — Throwaway RSA keypair for minting test tokens.
--  `TEST_RSA_PUBLIC_PEM` variable L439-447 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `ISSUER` variable L449 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `AUDIENCE` variable L450 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `KID` variable L451 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `authenticator` function L453-456 — `() -> Authenticator` — mapper, so all first-party clients share one configured audience there.
--  `MintClaims` struct L459-466 — `{ iss: &'a str, aud: &'a str, sub: &'a str, exp: i64, email: &'a str, name: &'a ...` — mapper, so all first-party clients share one configured audience there.
--  `mint` function L468-481 — `(iss: &str, aud: &str, exp: i64, kid: Option<&str>) -> String` — mapper, so all first-party clients share one configured audience there.
--  `future_exp` function L483-485 — `() -> i64` — mapper, so all first-party clients share one configured audience there.
--  `chrono_now` function L487-492 — `() -> u64` — mapper, so all first-party clients share one configured audience there.
--  `valid_token_yields_claims` function L495-503 — `()` — mapper, so all first-party clients share one configured audience there.
--  `expired_token_is_rejected` function L506-517 — `()` — mapper, so all first-party clients share one configured audience there.
--  `wrong_audience_is_rejected` function L520-530 — `()` — mapper, so all first-party clients share one configured audience there.
--  `wrong_issuer_is_rejected` function L533-543 — `()` — mapper, so all first-party clients share one configured audience there.
--  `unknown_kid_is_rejected` function L546-552 — `()` — mapper, so all first-party clients share one configured audience there.
--  `garbage_token_is_rejected` function L555-561 — `()` — mapper, so all first-party clients share one configured audience there.
--  `google_shaped_id_token_validates_and_opaque_access_token_is_rejected` function L571-593 — `()` — KAIROS-T-0054: the middleware is issuer/token-kind agnostic — it
--  `GOOGLE_ISSUER` variable L572 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `GOOGLE_CLIENT_ID` variable L573 — `: &str` — mapper, so all first-party clients share one configured audience there.
--  `verify_errors_map_to_401_envelope` function L596-600 — `()` — mapper, so all first-party clients share one configured audience there.
+- pub `AuthContext` struct L53-62 — `{ user_id: Uuid, external_id: String, email: String, display_name: String }` — The authenticated caller, inserted as a request extension for every
+- pub `TokenClaims` struct L67-74 — `{ sub: String, email: Option<String>, name: Option<String> }` — The token claims this crate consumes.
+- pub `DiscoveryError` enum L78-87 — `Discovery` — Why building an [`Authenticator`] failed (startup-time, fail-fast).
+- pub `VerifyError` enum L91-112 — `MissingToken | UnknownKey | Invalid | MissingEmail | KeyFetch` — Why a token was rejected (or could not be checked).
+- pub `Authenticator` struct L143-156 — `{ issuer: String, audiences: Vec<String>, jwks_uri: Option<String>, http: reqwes...` — Validates bearer tokens against one OIDC issuer: JWKS cache keyed by
+- pub `discover` function L183-227 — `(issuer: &str, audience: &str) -> Result<Self, DiscoveryError>` — Resolve the issuer's discovery document, prime the JWKS cache, and
+- pub `with_static_keys` function L232-245 — `( issuer: &str, audience: &str, keys: impl IntoIterator<Item = (String, Decoding...` — Test constructor: fixed keys, no JWKS endpoint (refresh-on-unknown-
+- pub `verify` function L310-325 — `(&self, token: &str) -> Result<TokenClaims, VerifyError>` — Validate `token` (RS256 signature, `iss`, `aud`, `exp`) and return
+- pub `require_auth` function L397-425 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The auth layer: validate the bearer token, JIT-upsert the user, insert
+-  `ApiError` type L114-121 — `= ApiError` — mode, and an effectively-empty value is a startup error.
+-  `from` function L115-120 — `(err: VerifyError) -> Self` — mode, and an effectively-empty value is a startup error.
+-  `DiscoveryDoc` struct L124-126 — `{ jwks_uri: String }` — mode, and an effectively-empty value is a startup error.
+-  `JwksDoc` struct L129-131 — `{ keys: Vec<Jwk> }` — mode, and an effectively-empty value is a startup error.
+-  `Jwk` struct L134-139 — `{ kty: String, kid: Option<String>, n: Option<String>, e: Option<String> }` — mode, and an effectively-empty value is a startup error.
+-  `Authenticator` type L158-166 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `fmt` function L159-165 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — mode, and an effectively-empty value is a startup error.
+-  `parse_audiences` function L171-177 — `(raw: &str) -> Vec<String>` — Parse `OIDC_AUDIENCE`: a comma-separated allow-list (KAIROS-T-0055).
+-  `Authenticator` type L179-326 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `refresh_keys` function L248-287 — `(&self) -> Result<(), VerifyError>` — Fetch the JWKS and replace the cache with its RSA keys.
+-  `key_for` function L291-306 — `(&self, kid: &str) -> Result<Option<DecodingKey>, VerifyError>` — The decoding key for `kid`, refreshing the JWKS once (behind the
+-  `bearer_token` function L329-337 — `(req: &Request) -> Result<&str, VerifyError>` — `Authorization: Bearer <token>` or [`VerifyError::MissingToken`].
+-  `jit_upsert_user` function L345-385 — `(pool: &TenantPool, claims: &TokenClaims) -> Result<User, ApiError>` — JIT user provisioning (A-0010): upsert `public.users` keyed on
+-  `tests` module L428-678 — `-` — mode, and an effectively-empty value is a startup error.
+-  `TEST_RSA_PRIVATE_PEM` variable L442-469 — `: &str` — Throwaway RSA keypair for minting test tokens.
+-  `TEST_RSA_PUBLIC_PEM` variable L471-479 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `ISSUER` variable L481 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `AUDIENCE` variable L482 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `KID` variable L483 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `authenticator` function L485-488 — `() -> Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `MintClaims` struct L491-498 — `{ iss: &'a str, aud: &'a str, sub: &'a str, exp: i64, email: &'a str, name: &'a ...` — mode, and an effectively-empty value is a startup error.
+-  `mint` function L500-513 — `(iss: &str, aud: &str, exp: i64, kid: Option<&str>) -> String` — mode, and an effectively-empty value is a startup error.
+-  `future_exp` function L515-517 — `() -> i64` — mode, and an effectively-empty value is a startup error.
+-  `chrono_now` function L519-524 — `() -> u64` — mode, and an effectively-empty value is a startup error.
+-  `valid_token_yields_claims` function L527-535 — `()` — mode, and an effectively-empty value is a startup error.
+-  `expired_token_is_rejected` function L538-549 — `()` — mode, and an effectively-empty value is a startup error.
+-  `wrong_audience_is_rejected` function L552-562 — `()` — mode, and an effectively-empty value is a startup error.
+-  `any_listed_audience_validates_and_unlisted_is_rejected` function L569-592 — `()` — KAIROS-T-0055: `OIDC_AUDIENCE` as a comma-separated list — a token
+-  `audience_parsing_handles_lists_and_blanks` function L599-607 — `()` — KAIROS-T-0055: single-value backward compat is the default test
+-  `wrong_issuer_is_rejected` function L610-620 — `()` — mode, and an effectively-empty value is a startup error.
+-  `unknown_kid_is_rejected` function L623-629 — `()` — mode, and an effectively-empty value is a startup error.
+-  `garbage_token_is_rejected` function L632-638 — `()` — mode, and an effectively-empty value is a startup error.
+-  `google_shaped_id_token_validates_and_opaque_access_token_is_rejected` function L648-670 — `()` — KAIROS-T-0054: the middleware is issuer/token-kind agnostic — it
+-  `GOOGLE_ISSUER` variable L649 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `GOOGLE_CLIENT_ID` variable L650 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `verify_errors_map_to_401_envelope` function L673-677 — `()` — mode, and an effectively-empty value is a startup error.
 
 #### crates/kairos-server/src/middleware/mod.rs
 

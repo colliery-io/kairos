@@ -176,9 +176,17 @@ you domain restriction and SCIM.
    Kairos's `/scim/v2` endpoint — set that up in the Workspace admin console.
 
 > **Multi-client note:** Google issues a distinct `aud` (the client id) per
-> OAuth client. A single `OIDC_AUDIENCE` covers a GUI-only deployment. Running
-> the GUI **and** CLI **and** service accounts against Google together needs
-> multi-audience validation — tracked under KAIROS-T-0055.
+> OAuth client. A single `OIDC_AUDIENCE` covers a GUI-only deployment. To run
+> the GUI **and** CLI **and** service accounts against Google together, set
+> `OIDC_AUDIENCE` to a **comma-separated allow-list** of the client ids
+> (KAIROS-T-0055) — a token matching any listed audience validates:
+>
+> ```sh
+> OIDC_AUDIENCE=<gui-client-id>,<cli-client-id>
+> ```
+>
+> Helm accepts the same as a YAML list under `config.oidc.audience`. This is a
+> strict allow-list — there is no "any audience" mode.
 
 ## Service accounts & API keys
 

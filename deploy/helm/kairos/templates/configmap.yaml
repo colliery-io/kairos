@@ -8,7 +8,9 @@ metadata:
 data:
   # Identity is external (KAIROS-A-0016) — these point at the operator's IdP.
   OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer)" .Values.config.oidc.issuerUrl | quote }}
-  OIDC_AUDIENCE: {{ required "config.oidc.audience is required (the OAuth client id / API audience)" .Values.config.oidc.audience | quote }}
+  {{- $audience := required "config.oidc.audience is required (the OAuth client id / API audience, or a list of them — KAIROS-T-0055)" .Values.config.oidc.audience }}
+  {{- /* A list renders as the comma-separated form the server parses. */}}
+  OIDC_AUDIENCE: {{ if kindIs "slice" $audience }}{{ join "," $audience | quote }}{{ else }}{{ $audience | quote }}{{ end }}
   KAIROS_WEB_CLIENT_ID: {{ .Values.config.webClientId | quote }}
   # Which token the GUI/CLI present as the API bearer (KAIROS-T-0054): set
   # "id_token" for opaque-access-token issuers such as Google Workspace.

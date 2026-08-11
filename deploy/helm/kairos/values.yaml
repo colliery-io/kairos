@@ -155,7 +155,13 @@ config:
     # e.g. https://idp.example.com/ (Okta, Entra ID, Auth0, Keycloak, Dex, …).
     issuerUrl: ""
     # -- OIDC_AUDIENCE — the `aud` tokens must carry (the API audience / client
-    # id). REQUIRED.
+    # id). REQUIRED. Also accepts a LIST (or a comma-separated string) for IdPs
+    # that mint a distinct `aud` per OAuth client with no shared-audience
+    # mechanism — notably Google Workspace (KAIROS-T-0055); a token matching
+    # ANY listed audience validates:
+    #   audience:
+    #     - gui-id.apps.googleusercontent.com
+    #     - cli-id.apps.googleusercontent.com
     audience: ""
   # -- KAIROS_WEB_CLIENT_ID — the public OAuth client id the GUI uses for PKCE.
   webClientId: kairos-web

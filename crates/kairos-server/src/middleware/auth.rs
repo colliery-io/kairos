@@ -12,13 +12,21 @@
 //! membership is NEVER granted here), and inserts an [`AuthContext`]
 //! request extension. Every failure is a 401 with the S-0005 envelope.
 //!
-//! # Audience note (A-0010)
+//! # Audience note (A-0010, list form per KAIROS-T-0055)
 //!
 //! Dex (the dev/test issuer) sets `aud` to the requesting OAuth client's
 //! id, so a dev deployment configures `OIDC_AUDIENCE` to the client id
 //! whose tokens the API accepts (`kairos-cli` for the compose stack).
 //! Production Keycloak adds a deployment-wide audience via a client-scope
 //! mapper, so all first-party clients share one configured audience there.
+//!
+//! For IdPs that mint a DISTINCT `aud` per OAuth client and offer no
+//! shared-audience mechanism (Google / Google Workspace: GUI, CLI, and
+//! service-account clients each have their own `client_id` = `aud`),
+//! `OIDC_AUDIENCE` accepts a **comma-separated allow-list** — a token
+//! matching ANY listed audience validates. A single value keeps working
+//! unchanged. This is a strict allow-list: there is no "any audience"
+//! mode, and an effectively-empty value is a startup error.
 
 use std::collections::HashMap;
 
@@ -134,7 +142,9 @@ struct Jwk {
 /// `kid`, refreshed on unknown `kid` behind a stampede guard.
 pub struct Authenticator {
     issuer: String,
-    audience: String,
+    /// The `aud` allow-list (KAIROS-T-0055): a token matching ANY entry
+    /// validates. Parsed from the comma-separated `OIDC_AUDIENCE`.
+    audiences: Vec<String>,
     /// `None` for test instances built with [`Self::with_static_keys`]
     /// (no refresh possible).
     jwks_uri: Option<String>,
@@ -149,10 +159,21 @@ impl std::fmt::Debug for Authenticator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Authenticator")
             .field("issuer", &self.issuer)
-            .field("audience", &self.audience)
+            .field("audiences", &self.audiences)
             .field("jwks_uri", &self.jwks_uri)
             .finish_non_exhaustive()
     }
+}
+
+/// Parse `OIDC_AUDIENCE`: a comma-separated allow-list (KAIROS-T-0055).
+/// A single value parses to a one-element list — fully backward
+/// compatible. Blank entries (`"a,,b"`, stray whitespace) are dropped.
+fn parse_audiences(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|audience| !audience.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 impl Authenticator {
@@ -168,6 +189,16 @@ impl Authenticator {
             message,
         };
 
+        // Strict allow-list (KAIROS-T-0055): an effectively-empty audience
+        // value must fail at startup, never validate as "any audience".
+        let audiences = parse_audiences(audience);
+        if audiences.is_empty() {
+            return Err(err(format!(
+                "OIDC_AUDIENCE {audience:?} contains no audiences after parsing \
+                 (expected one client id, or a comma-separated list)"
+            )));
+        }
+
         let doc: DiscoveryDoc = http
             .get(&discovery_url)
             .send()
@@ -180,7 +211,7 @@ impl Authenticator {
 
         let auth = Self {
             issuer,
-            audience: audience.to_string(),
+            audiences,
             jwks_uri: Some(doc.jwks_uri.clone()),
             http,
             keys: RwLock::new(HashMap::new()),
@@ -205,7 +236,7 @@ impl Authenticator {
     ) -> Self {
         Self {
             issuer: issuer.trim_end_matches('/').to_string(),
-            audience: audience.to_string(),
+            audiences: parse_audiences(audience),
             jwks_uri: None,
             http: reqwest::Client::new(),
             keys: RwLock::new(keys.into_iter().collect()),
@@ -286,7 +317,8 @@ impl Authenticator {
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer]);
-        validation.set_audience(&[&self.audience]);
+        // Any listed audience validates (KAIROS-T-0055 allow-list).
+        validation.set_audience(&self.audiences);
         // `exp` is validated by default (with the default leeway).
 
         Ok(decode::<TokenClaims>(token, &key, &validation)?.claims)
@@ -527,6 +559,51 @@ BWKiTzkt91ge2HS8jjYZyPRxuojSqlQMbhlcJWYXEWjfEcHgo1Z8Iw/4TxU7oDzj
             VerifyError::Invalid(ref e)
                 if *e.kind() == jsonwebtoken::errors::ErrorKind::InvalidAudience
         ));
+    }
+
+    /// KAIROS-T-0055: `OIDC_AUDIENCE` as a comma-separated list — a token
+    /// carrying ANY listed audience validates; an unlisted one is rejected
+    /// with the same invalid-audience error as always. Google-style
+    /// per-client audiences (GUI + CLI + service accounts) need this.
+    #[tokio::test]
+    async fn any_listed_audience_validates_and_unlisted_is_rejected() {
+        let key = DecodingKey::from_rsa_pem(TEST_RSA_PUBLIC_PEM.as_bytes()).expect("public pem");
+        let auth = Authenticator::with_static_keys(
+            ISSUER,
+            "kairos-web, kairos-cli,kairos-svc",
+            [(KID.to_string(), key)],
+        );
+
+        for listed in ["kairos-web", "kairos-cli", "kairos-svc"] {
+            auth.verify(&mint(ISSUER, listed, future_exp(), Some(KID)))
+                .await
+                .unwrap_or_else(|e| panic!("listed audience {listed:?} accepted: {e}"));
+        }
+
+        let err = auth
+            .verify(&mint(ISSUER, "some-other-client", future_exp(), Some(KID)))
+            .await
+            .expect_err("unlisted audience rejected");
+        assert!(matches!(
+            err,
+            VerifyError::Invalid(ref e)
+                if *e.kind() == jsonwebtoken::errors::ErrorKind::InvalidAudience
+        ));
+    }
+
+    /// KAIROS-T-0055: single-value backward compat is the default test
+    /// fixture ([`authenticator`] passes one audience); this locks the
+    /// parsing itself — trimming, blank-entry dropping, and the
+    /// effectively-empty case the constructors must treat as fatal.
+    #[test]
+    fn audience_parsing_handles_lists_and_blanks() {
+        assert_eq!(parse_audiences("kairos-cli"), vec!["kairos-cli"]);
+        assert_eq!(
+            parse_audiences(" a ,, b ,"),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        assert!(parse_audiences(" , ,").is_empty());
+        assert!(parse_audiences("").is_empty());
     }
 
     #[tokio::test]

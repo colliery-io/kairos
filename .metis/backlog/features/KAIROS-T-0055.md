@@ -4,15 +4,15 @@ level: task
 title: "Multi-audience token validation (accept an OIDC_AUDIENCE list)"
 short_code: "KAIROS-T-0055"
 created_at: 2026-07-17T02:15:25.071172+00:00
-updated_at: 2026-07-17T02:15:25.071172+00:00
+updated_at: 2026-08-10T22:32:45.279305+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,20 +47,30 @@ Workspace**, where the GUI, CLI, and service-account clients each have their own
 - **Effort Estimate**: S (parse a comma-separated list, pass to
   `jsonwebtoken::Validation::set_audience` which already accepts multiple).
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 ## Acceptance Criteria **[REQUIRED]**
 
-- [ ] `OIDC_AUDIENCE` accepts a comma-separated list (single value still works,
+- [x] `OIDC_AUDIENCE` accepts a comma-separated list (single value still works,
       backward compatible). Parsed into the `Vec`/slice handed to
       `Validation::set_audience` in `crates/kairos-server/src/middleware/auth.rs`.
-- [ ] A token whose `aud` matches **any** configured audience validates; a token
+- [x] A token whose `aud` matches **any** configured audience validates; a token
       whose `aud` matches **none** is rejected with the existing invalid-token error.
-- [ ] Env/config docs updated (deploy `.env.example`, Helm `values.yaml`
+- [x] Env/config docs updated (deploy `.env.example`, Helm `values.yaml`
       `config.oidc.audience`, README) to document the list form and the Google
       multi-client rationale.
-- [ ] Tests: multi-audience accept (each listed `aud`), reject (unlisted `aud`),
+- [x] Tests: multi-audience accept (each listed `aud`), reject (unlisted `aud`),
       and single-value backward-compat.
-- [ ] Helm chart: `config.oidc.audience` renders a list value into the env/ConfigMap
-      correctly (no change to the single-value default behavior).
+- [x] Helm chart: `config.oidc.audience` renders a list value into the env/ConfigMap
+      correctly (no change to the single-value default behavior) — `helm template`
+      verified both forms.
+
+**Completed 2026-08-10**: full gate chain green (unit incl. the two new auth
+tests, integration, e2e — one pre-existing move-menu flake absorbed by retry).
 
 ## Implementation Notes **[CONDITIONAL: Technical Task]**
 
@@ -81,4 +91,4 @@ Workspace**, where the GUI, CLI, and service-account clients each have their own
 
 ## Status Updates **[REQUIRED]**
 
-*To be added during implementation*
+- 2026-08-10: Implemented. `middleware/auth.rs`: `Authenticator.audience: String` → `audiences: Vec<String>` with `parse_audiences()` (split on comma, trim, drop blanks — single value = one-element list, fully backward compatible); both constructors parse; `verify()` hands the list to `Validation::set_audience`. Strict allow-list enforced: `discover()` fails at startup if the parsed list is empty (no "any audience" mode; `with_static_keys` stays permissive, test-only). Module doc + config.rs field doc updated with the Google per-client-audience rationale. Unit tests: `any_listed_audience_validates_and_unlisted_is_rejected` (each of three listed auds accepted, unlisted rejected with InvalidAudience) + `audience_parsing_handles_lists_and_blanks` (single, list-with-blanks, effectively-empty); single-value compat covered by the whole existing fixture suite. Docs: deploy/.env.example (list form + Google example), helm values.yaml (list-or-string doc + example), helm README table row, top-level README multi-client note rewritten from "tracked under T-0055" to the working instructions. Helm configmap renders BOTH forms via `kindIs "slice"` → `join ","` — verified with `helm template` (string → "single"; list → "gui-id,cli-id"). Full `angreal test all` + e2e running.

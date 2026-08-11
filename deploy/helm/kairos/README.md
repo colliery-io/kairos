@@ -127,7 +127,7 @@ Secret loaded via `valueFrom`.
 |-----|---------|---------|-------|
 | `database.url` / `database.existingSecret` (+`existingSecretKey`) | `DATABASE_URL` | — | **Secret.** Set one. |
 | `config.oidc.issuerUrl` | `OIDC_ISSUER_URL` | — | Required (external IdP). |
-| `config.oidc.audience` | `OIDC_AUDIENCE` | — | Required. |
+| `config.oidc.audience` | `OIDC_AUDIENCE` | — | Required. String or list; a list (or comma-separated string) is an `aud` allow-list for per-client-audience IdPs like Google Workspace (KAIROS-T-0055). |
 | `config.webClientId` | `KAIROS_WEB_CLIENT_ID` | `kairos-web` | GUI PKCE client id. |
 | `config.apiBearer` | `KAIROS_API_BEARER` | `access_token` | `access_token` (Dex/Keycloak) or `id_token` (opaque-access-token IdPs, e.g. Google Workspace). |
 | `config.webClientSecret` / `webClientSecretExistingSecret` (+`…Key`) | `KAIROS_WEB_CLIENT_SECRET` | `""` | **Secret.** Confidential GUI client secret; **required for Google Workspace** ("Web application" clients). Empty for public clients. |

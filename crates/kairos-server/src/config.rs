@@ -84,6 +84,10 @@ pub struct AppConfig {
     pub oidc_issuer_url: String,
     /// `OIDC_AUDIENCE` — the `aud` claim tokens must carry (A-0010; for the
     /// Dex dev stack this is the OAuth client id, e.g. `kairos-cli`).
+    /// Accepts a comma-separated allow-list (KAIROS-T-0055) for IdPs that
+    /// mint a distinct `aud` per client (Google Workspace): a token
+    /// matching ANY listed audience validates. Parsed and enforced
+    /// non-empty at `Authenticator::discover` (startup).
     pub oidc_audience: String,
     /// `KAIROS_BASE_DOMAIN` — enables Host-subdomain tenant resolution
     /// (`acme.<base>` → tenant `acme`, A-0005 §2).

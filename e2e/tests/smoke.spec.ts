@@ -120,16 +120,31 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     // proves the update arrived over the live socket, not via navigation.
     await page.evaluate(() => ((window as any).__noReload = 'alive'));
 
+    // KAIROS-T-0074: transient UI state survives live updates — open the
+    // created card's Move menu BEFORE the second writer acts. Fine-grained
+    // rendering must keep this exact DOM (menu included) while the other
+    // card moves; the old whole-board rebuild snapped it shut.
+    const menuCard = cardIn(page, 'Todo', createdTitle);
+    const createdCode = (
+      await menuCard.locator('.cl-mono').first().innerText()
+    ).trim();
+    await menuCard.getByRole('button', { name: /Move/ }).click();
+    await expect(menuCard.locator('.cl-menu__dropdown')).toBeVisible();
+
     const token = await mintToken({ server: GUI });
     // Move some other seeded task (never DEMO-T-0002 — the edit step below
-    // needs it stationary in Active). Dynamic pick keeps this retry-safe.
-    const move = await pickMovableTask(GUI, token, ['DEMO-T-0002']);
+    // needs it stationary in Active — and never the created card whose
+    // menu we are holding open). Dynamic pick keeps this retry-safe.
+    const move = await pickMovableTask(GUI, token, ['DEMO-T-0002', createdCode]);
     await transitionTask(GUI, token, move.code, move.toColumnId);
 
     // WS-driven: expect-polling, no sleeps.
     await expect(cardIn(page, move.toColumnName, move.code)).toBeVisible({
       timeout: 20_000,
     });
+    // The board updated live AND the open menu survived the refetch.
+    await expect(menuCard.locator('.cl-menu__dropdown')).toBeVisible();
+    await menuCard.getByRole('button', { name: /Move/ }).click(); // close it
     expect(await page.evaluate(() => (window as any).__noReload)).toBe('alive');
   });
 

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-08-11T03:23:49Z | 190 files | Python, Rust, TypeScript
+> Generated: 2026-08-11T03:49:21Z | 190 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -3296,7 +3296,7 @@
 #### crates/kairos-web/src/pages/boards.rs
 
 - pub `BoardsPage` function L281-356 — `() -> impl IntoView` — `/boards` — boards in flight-level bands (strategy above initiatives
-- pub `BoardPage` function L365-444 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
+- pub `BoardPage` function L495-608 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
 -  `data` module L23 — `-` — view (`/boards/:board` — slug or id) with live `/ws/events` updates.
 -  `live` module L24 — `-` — attach to strategies/initiatives/tasks only).
 -  `describe` function L40-49 — `(error: &ApiError) -> String` — A short human line for a failed mutation (page-level `Banner`; load
@@ -3312,20 +3312,22 @@
 -  `LEVEL_BANDS` variable L186-191 — `: &[(&str, &str)]` — The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
 -  `BandModel` struct L195-201 — `{ level: String, label: String, groups: Vec<(Option<(String, String)>, Vec<data:...` — One rendered board-list band: level heading + its tiles, with the
 -  `band_models` function L207-275 — `( boards: Vec<data::Board>, teams: &[crate::pages::teams::api::Team], ) -> Vec<B...` — Bucket boards into level bands (strategy → initiative → delivery →
--  `BoardBody` function L448-704 — `( view: data::BoardView, /// What the user may do here (KAIROS-T-0072) — gates...` — The loaded board: header (+ document create) and the column row.
--  `CardModel` struct L537-542 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — attach to strategies/initiatives/tasks only).
--  `ColumnModel` struct L543-548 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — attach to strategies/initiatives/tasks only).
--  `ItemCard` function L715-830 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code, title, type, key metadata, open link,
--  `CreateItemModal` function L841-966 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
--  `CreateDocumentModal` function L972-1101 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
--  `tests` module L1104-1232 — `-` — attach to strategies/initiatives/tasks only).
--  `board` function L1108-1116 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
--  `team` function L1118-1126 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
--  `band_models_orders_levels_and_groups_delivery_by_team` function L1131-1162 — `()` — Bands come out in flight-level order, the delivery band grouped by
--  `me` function L1164-1176 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
--  `board_powers_mirror_team_implication` function L1181-1196 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
--  `board_powers_mirror_grants_and_admin` function L1200-1216 — `()` — Explicit grants (incl.
--  `band_models_keeps_unknown_team_boards_reachable` function L1221-1231 — `()` — A board whose team id names an unknown team lands in "No team"
+-  `CardModel` struct L367-373 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — One card's owned view model with a content-fingerprint `key`
+-  `ColumnModel` struct L379-385 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — One column's owned view model.
+-  `column_models` function L389-463 — `(view: &data::BoardView) -> Vec<ColumnModel>` — Flatten the wire shape into owned, keyed view models (leptos children
+-  `doc_parent_options` function L467-490 — `(view: &data::BoardView) -> Vec<(String, String)>` — `(short_code, title)` of the board's document-parent candidates
+-  `BoardBody` function L619-820 — `( /// The live board view model. ALWAYS `Some` while this component is /// mount...` — The loaded board: header (+ create actions) and the column row.
+-  `ItemCard` function L831-949 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code, title, type, key metadata, open link,
+-  `CreateItemModal` function L960-1085 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
+-  `CreateDocumentModal` function L1091-1216 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
+-  `tests` module L1219-1347 — `-` — attach to strategies/initiatives/tasks only).
+-  `board` function L1223-1231 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
+-  `team` function L1233-1241 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
+-  `band_models_orders_levels_and_groups_delivery_by_team` function L1246-1277 — `()` — Bands come out in flight-level order, the delivery band grouped by
+-  `me` function L1279-1291 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
+-  `board_powers_mirror_team_implication` function L1296-1311 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
+-  `board_powers_mirror_grants_and_admin` function L1315-1331 — `()` — Explicit grants (incl.
+-  `band_models_keeps_unknown_team_boards_reachable` function L1336-1346 — `()` — A board whose team id names an unknown team lands in "No team"
 
 #### crates/kairos-web/src/pages/item.rs
 

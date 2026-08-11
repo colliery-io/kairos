@@ -359,6 +359,136 @@ pub fn BoardsPage() -> impl IntoView {
 // Board view
 // ---------------------------------------------------------------------------
 
+/// One card's owned view model with a content-fingerprint `key`
+/// (KAIROS-T-0074): the card `<For>` diffs on it, so a card whose content
+/// is unchanged keeps its DOM — and any open Move menu — across
+/// refetches; a changed card is rebuilt.
+#[derive(Clone, PartialEq)]
+struct CardModel {
+    kind: EntityKind,
+    short_code: String,
+    title: String,
+    meta: Vec<(String, &'static str)>,
+    key: String,
+}
+
+/// One column's owned view model. Its `key` fingerprints identity + the
+/// transition-derived drop targets (config changes rebuild the column);
+/// the card list is NOT in the key — cards diff independently.
+#[derive(Clone, PartialEq)]
+struct ColumnModel {
+    id: String,
+    name: String,
+    targets: Vec<(String, String)>,
+    cards: Vec<CardModel>,
+    key: String,
+}
+
+/// Flatten the wire shape into owned, keyed view models (leptos children
+/// are `'static` move closures, so views must own their data).
+fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
+    let column_name_of = |id: &str| -> String {
+        view.detail
+            .columns
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.name.clone())
+            .unwrap_or_default()
+    };
+    let card = |kind: EntityKind, short_code: &str, title: &str, meta: Vec<(String, &'static str)>| {
+        CardModel {
+            kind,
+            short_code: short_code.to_string(),
+            title: title.to_string(),
+            key: format!("{short_code}|{title}|{meta:?}"),
+            meta,
+        }
+    };
+    view.items
+        .columns
+        .iter()
+        .map(|group| {
+            // ONLY the targets this board's transitions allow from this
+            // column — invalid moves are never offered (S-0005).
+            let targets: Vec<(String, String)> = view
+                .detail
+                .transitions
+                .iter()
+                .filter(|t| t.from_column_id == group.column.id)
+                .map(|t| (t.to_column_id.clone(), column_name_of(&t.to_column_id)))
+                .collect();
+            let mut cards: Vec<CardModel> = Vec::new();
+            cards.extend(
+                group
+                    .strategies
+                    .iter()
+                    .map(|item| card(EntityKind::Strategy, &item.short_code, &item.title, Vec::new())),
+            );
+            cards.extend(group.initiatives.iter().map(|item| {
+                let mut meta = Vec::new();
+                if let Some(complexity) = &item.complexity {
+                    meta.push((format!("complexity {complexity}"), token::ICE));
+                }
+                if item.is_bucket {
+                    let bucket = item.bucket_type.clone().unwrap_or_default();
+                    meta.push((format!("bucket · {bucket}"), token::GOLD));
+                }
+                card(EntityKind::Initiative, &item.short_code, &item.title, meta)
+            }));
+            cards.extend(group.tasks.iter().map(|item| {
+                let meta = match item.task_type.as_str() {
+                    "bug" => vec![("bug".to_string(), token::BAD)],
+                    "tech_debt" => vec![("tech debt".to_string(), token::GOLD)],
+                    _ => Vec::new(),
+                };
+                card(EntityKind::Task, &item.short_code, &item.title, meta)
+            }));
+            cards.extend(group.adrs.iter().map(|item| {
+                let meta = item
+                    .decision_date
+                    .iter()
+                    .map(|date| (format!("decided {date}"), token::VIOLET))
+                    .collect();
+                card(EntityKind::Adr, &item.short_code, &item.title, meta)
+            }));
+            ColumnModel {
+                id: group.column.id.clone(),
+                name: group.column.name.clone(),
+                key: format!("{}|{}|{:?}", group.column.id, group.column.name, targets),
+                targets,
+                cards,
+            }
+        })
+        .collect()
+}
+
+/// `(short_code, title)` of the board's document-parent candidates
+/// (strategies/initiatives/tasks — documents attach via `supports`).
+fn doc_parent_options(view: &data::BoardView) -> Vec<(String, String)> {
+    view.items
+        .columns
+        .iter()
+        .flat_map(|group| {
+            group
+                .strategies
+                .iter()
+                .map(|s| (s.short_code.clone(), s.title.clone()))
+                .chain(
+                    group
+                        .initiatives
+                        .iter()
+                        .map(|i| (i.short_code.clone(), i.title.clone())),
+                )
+                .chain(
+                    group
+                        .tasks
+                        .iter()
+                        .map(|t| (t.short_code.clone(), t.title.clone())),
+                )
+        })
+        .collect()
+}
+
 /// `/boards/:board` — columns from the board config, items grouped, a
 /// board-filtered live subscription, click-to-move, create-from-column.
 #[component]
@@ -405,28 +535,62 @@ pub fn BoardPage() -> impl IntoView {
     });
     on_cleanup(move || live_guard.set_value(None));
 
+    // The live model behind the fine-grained board (KAIROS-T-0074):
+    // refetches update THIS SIGNAL and the mounted BoardBody diffs against
+    // it through memos + keyed <For>s — the DOM is not rebuilt, so
+    // transient UI state (an open Move menu) survives WS-driven updates.
+    let model: RwSignal<Option<data::BoardView>> = RwSignal::new(None);
+    Effect::new(move |_| {
+        if let Some(Ok(view)) = board.get() {
+            model.set(Some(view));
+        }
+    });
+    // One BoardBody instance per board id — navigating to another board
+    // (or the first load) is the only thing that recreates it.
+    let board_key = Memo::new(move |_| {
+        model.with(|m| m.as_ref().map(|view| view.items.board.id.clone()))
+    });
+    // Powers re-derive when whoami OR the board changes, so affordances
+    // appear as soon as both are known (KAIROS-T-0072). MEMOIZED
+    // (KAIROS-T-0074): a plain Signal::derive notifies consumers on every
+    // model refetch even when the value is identical — which re-rendered
+    // every card's Menu block and closed open menus, exactly what the
+    // fine-grained rendering exists to prevent.
+    let powers: Signal<BoardPowers> = Memo::new(move |_| {
+        let identity = whoami
+            .and_then(|resource| resource.get())
+            .and_then(|result| result.ok());
+        model
+            .with(|m| {
+                m.as_ref().zip(identity.as_ref()).map(|(view, me)| {
+                    let board = &view.items.board;
+                    board_powers(
+                        me,
+                        &board.slug,
+                        board.team_id.as_deref(),
+                        EntityKind::for_board_level(&board.board_level),
+                    )
+                })
+            })
+            .unwrap_or_default()
+    })
+    .into();
+
     view! {
         {move || match board.get() {
-            None => view! { <Loading label="Loading board…"/> }.into_any(),
-            Some(Err(error)) => view! {
+            // A load error renders above the (stale) board rather than
+            // destroying it; retry refetches in place.
+            Some(Err(error)) => Some(view! {
                 <ErrorState error on_retry=Callback::new(move |_| refetch())/>
-            }.into_any(),
-            Some(Ok(view)) => {
-                // Powers re-derive when whoami lands/refreshes, so the
-                // affordances appear without waiting for a board refetch.
-                let board_slug = view.items.board.slug.clone();
-                let team_id = view.items.board.team_id.clone();
-                let kind = EntityKind::for_board_level(&view.items.board.board_level);
-                let powers = Signal::derive(move || {
-                    whoami
-                        .and_then(|resource| resource.get())
-                        .and_then(|result| result.ok())
-                        .map(|me| board_powers(&me, &board_slug, team_id.as_deref(), kind))
-                        .unwrap_or_default()
-                });
-                view! { <BoardBody view powers on_changed on_error/> }.into_any()
-            }
+            }.into_any()),
+            None if model.with_untracked(|m| m.is_none()) => Some(view! {
+                <Loading label="Loading board…"/>
+            }.into_any()),
+            _ => None,
         }}
+        {move || board_key.get().map(|_| view! {
+            <BoardBody model powers on_changed on_error/>
+        })}
         {move || action_error.get().map(|error| view! {
             <div class="kairos-board-notice">
                 <Banner color=token::BAD icon="✕">
@@ -443,10 +607,19 @@ pub fn BoardPage() -> impl IntoView {
     }
 }
 
-/// The loaded board: header (+ document create) and the column row.
+/// The loaded board: header (+ create actions) and the column row.
+///
+/// Fine-grained rendering (KAIROS-T-0074): created once per board (keyed
+/// on board id by [`BoardPage`]) and reads everything through memos over
+/// the shared `model` signal, with keyed `<For>`s over columns and cards.
+/// A refetch updates only what changed — an open Move menu on an
+/// untouched card survives WS-driven updates (the old whole-DOM rebuild
+/// closed it every time).
 #[component]
 fn BoardBody(
-    view: data::BoardView,
+    /// The live board view model. ALWAYS `Some` while this component is
+    /// mounted — [`BoardPage`] keys it on the model's board id.
+    model: RwSignal<Option<data::BoardView>>,
     /// What the user may do here (KAIROS-T-0072) — gates every mutating
     /// affordance; the server stays the authority.
     powers: Signal<BoardPowers>,
@@ -454,251 +627,194 @@ fn BoardBody(
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
     let auth = use_auth();
-    let data::BoardView { detail, items } = view;
-    let board = items.board.clone();
+
+    // Identity fields are stable for this instance's lifetime (a board-id
+    // change recreates the whole component).
+    let board = model.with_untracked(|m| {
+        m.as_ref()
+            .expect("BoardBody mounted without a model")
+            .items
+            .board
+            .clone()
+    });
     let create_kind = EntityKind::for_board_level(&board.board_level);
+    let is_adr = board.board_level == "adr";
+    let board_id = StoredValue::new(board.id.clone());
+    let team_id = StoredValue::new(board.team_id.clone());
 
     // The one in-flight drag (KAIROS-T-0064); columns read it to decide
     // whether they are legal drop targets.
     let drag: RwSignal<Option<DragData>> = RwSignal::new(None);
 
-    // Item creation is GLOBAL (KAIROS-T-0062): one header action, and new
-    // items ALWAYS land in the board's entry column (lowest position —
-    // Backlog/Draft/Discovery on the seeded defaults). No per-column
-    // composers: creation is intake, flow happens by transition.
+    // Modal open-state lives HERE so refetches never reset it.
     let create_open = RwSignal::new(false);
-    let entry_column: Option<(String, String)> = detail
-        .columns
-        .iter()
-        .min_by_key(|column| column.position)
-        .map(|column| (column.id.clone(), column.name.clone()));
-
-    // Document create modal ("New document" in the header) — not offered
-    // on ADR boards: documents attach to strategies/initiatives/tasks.
     let doc_open = RwSignal::new(false);
-    let doc_parents: Vec<(String, String)> = items
-        .columns
-        .iter()
-        .flat_map(|group| {
-            group
-                .strategies
-                .iter()
-                .map(|s| (s.short_code.clone(), s.title.clone()))
-                .chain(
-                    group
-                        .initiatives
-                        .iter()
-                        .map(|i| (i.short_code.clone(), i.title.clone())),
-                )
-                .chain(
-                    group
-                        .tasks
-                        .iter()
-                        .map(|t| (t.short_code.clone(), t.title.clone())),
-                )
-        })
-        .collect();
-    let documents_offered = board.board_level != "adr" && !doc_parents.is_empty();
 
-    let sub = format!("{} board · {}", board.board_level, board.slug);
-    let create_offered = create_kind.is_some() && entry_column.is_some();
-    let create_label = create_kind
-        .map(|kind| format!("New {}", kind.label()))
-        .unwrap_or_default();
-    let create_label = StoredValue::new(create_label);
-    let header_right: Children = Box::new(move || {
-        view! {
-            <Group gap="xs">
-                {move || (create_offered && powers.get().create).then(|| view! {
-                    <Button size="xs" on_click=Callback::new(move |_| create_open.set(true))>
-                        {create_label.get_value()}
-                    </Button>
-                })}
-                {move || (documents_offered && powers.get().documents).then(|| view! {
-                    <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
-                        "New document"
-                    </Button>
-                })}
-            </Group>
-        }
-        .into_any()
-    });
-
-    // Flatten the wire shape into owned view models FIRST: leptos children
-    // are `'static` move closures, so views must own their data (no
-    // borrowing from the response inside `view!`).
-    let column_name_of = |columns: &[data::BoardColumn], id: &str| -> String {
-        columns
-            .iter()
-            .find(|c| c.id == id)
-            .map(|c| c.name.clone())
-            .unwrap_or_default()
-    };
-    struct CardModel {
-        kind: EntityKind,
-        short_code: String,
-        title: String,
-        meta: Vec<(String, &'static str)>,
-    }
-    struct ColumnModel {
-        id: String,
-        name: String,
-        targets: Vec<(String, String)>,
-        cards: Vec<CardModel>,
-    }
-    let columns: Vec<ColumnModel> = items
-        .columns
-        .iter()
-        .map(|group| {
-            // ONLY the targets this board's transitions allow from this
-            // column — invalid moves are never offered (S-0005).
-            let targets: Vec<(String, String)> = detail
-                .transitions
-                .iter()
-                .filter(|t| t.from_column_id == group.column.id)
-                .map(|t| {
+    // ---- memos over the live model (notify only on actual change) --------
+    let header_text = Memo::new(move |_| {
+        model
+            .with(|m| {
+                m.as_ref().map(|view| {
+                    let board = &view.items.board;
                     (
-                        t.to_column_id.clone(),
-                        column_name_of(&detail.columns, &t.to_column_id),
+                        board.name.clone(),
+                        format!("{} board · {}", board.board_level, board.slug),
                     )
                 })
-                .collect();
-            let mut cards: Vec<CardModel> = Vec::new();
-            cards.extend(group.strategies.iter().map(|item| CardModel {
-                kind: EntityKind::Strategy,
-                short_code: item.short_code.clone(),
-                title: item.title.clone(),
-                meta: Vec::new(),
-            }));
-            cards.extend(group.initiatives.iter().map(|item| {
-                let mut meta = Vec::new();
-                if let Some(complexity) = &item.complexity {
-                    meta.push((format!("complexity {complexity}"), token::ICE));
-                }
-                if item.is_bucket {
-                    let bucket = item.bucket_type.clone().unwrap_or_default();
-                    meta.push((format!("bucket · {bucket}"), token::GOLD));
-                }
-                CardModel {
-                    kind: EntityKind::Initiative,
-                    short_code: item.short_code.clone(),
-                    title: item.title.clone(),
-                    meta,
-                }
-            }));
-            cards.extend(group.tasks.iter().map(|item| CardModel {
-                kind: EntityKind::Task,
-                short_code: item.short_code.clone(),
-                title: item.title.clone(),
-                meta: match item.task_type.as_str() {
-                    "bug" => vec![("bug".to_string(), token::BAD)],
-                    "tech_debt" => vec![("tech debt".to_string(), token::GOLD)],
-                    _ => Vec::new(),
-                },
-            }));
-            cards.extend(group.adrs.iter().map(|item| {
-                CardModel {
-                    kind: EntityKind::Adr,
-                    short_code: item.short_code.clone(),
-                    title: item.title.clone(),
-                    meta: item
-                        .decision_date
-                        .iter()
-                        .map(|date| (format!("decided {date}"), token::VIOLET))
-                        .collect(),
-                }
-            }));
-            ColumnModel {
-                id: group.column.id.clone(),
-                name: group.column.name.clone(),
-                targets,
-                cards,
-            }
+            })
+            .unwrap_or_default()
+    });
+    // KAIROS-T-0062: creation is global and always lands in the board's
+    // entry column (lowest position — Backlog/Draft/Discovery on the
+    // seeded defaults). Creation is intake; flow happens by transition.
+    let entry_column = Memo::new(move |_| {
+        model.with(|m| {
+            m.as_ref().and_then(|view| {
+                view.detail
+                    .columns
+                    .iter()
+                    .min_by_key(|column| column.position)
+                    .map(|column| (column.id.clone(), column.name.clone()))
+            })
         })
-        .collect();
+    });
+    // Document create ("New document") — not offered on ADR boards:
+    // documents attach to strategies/initiatives/tasks.
+    let doc_parents = Memo::new(move |_| {
+        model.with(|m| m.as_ref().map(doc_parent_options).unwrap_or_default())
+    });
+    let documents_offered = Memo::new(move |_| !is_adr && !doc_parents.with(Vec::is_empty));
+    let columns = Memo::new(move |_| {
+        model.with(|m| m.as_ref().map(column_models).unwrap_or_default())
+    });
+
+    let create_label = StoredValue::new(
+        create_kind
+            .map(|kind| format!("New {}", kind.label()))
+            .unwrap_or_default(),
+    );
 
     view! {
-        <PageHeader title=board.name.clone() sub=sub right=header_right/>
+        {move || {
+            let (title, sub) = header_text.get();
+            let header_right: Children = Box::new(move || view! {
+                <Group gap="xs">
+                    {move || (create_kind.is_some()
+                        && entry_column.with(Option::is_some)
+                        && powers.get().create)
+                        .then(|| view! {
+                            <Button size="xs" on_click=Callback::new(move |_| create_open.set(true))>
+                                {create_label.get_value()}
+                            </Button>
+                        })}
+                    {move || (documents_offered.get() && powers.get().documents).then(|| view! {
+                        <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
+                            "New document"
+                        </Button>
+                    })}
+                </Group>
+            }.into_any());
+            view! { <PageHeader title sub right=header_right/> }
+        }}
         <div class="kairos-board">
-            {columns.into_iter().map(|column| {
-                let ColumnModel { id, name, targets, cards } = column;
-                let count = cards.len();
-                let head_label = name;
-                // Per-handler copies of this column's id (the drop target).
-                let class_id = id.clone();
-                let over_id = id.clone();
-                let drop_id = id;
-                view! {
-                    <section
-                        class="kairos-board__column"
-                        class:kairos-board__column--droppable=move || {
-                            drag.with(|d| d.as_ref().is_some_and(|d| d.targets.contains(&class_id)))
-                        }
-                        on:dragover=move |ev: web_sys::DragEvent| {
-                            // preventDefault marks the column as a valid
-                            // drop target — only for legal transitions.
-                            let legal = drag.with_untracked(|d| {
-                                d.as_ref().is_some_and(|d| d.targets.contains(&over_id))
-                            });
-                            if legal {
-                                ev.prevent_default();
+            <For
+                each=move || columns.get()
+                key=|column| column.key.clone()
+                children=move |column: ColumnModel| {
+                    let ColumnModel { id, name, targets, key: _, cards: _ } = column;
+                    // This column's live card list: the column node itself
+                    // persists across refetches; only its cards diff.
+                    let cards_column_id = id.clone();
+                    let cards = Memo::new(move |_| {
+                        columns.with(|columns| {
+                            columns
+                                .iter()
+                                .find(|c| c.id == cards_column_id)
+                                .map(|c| c.cards.clone())
+                                .unwrap_or_default()
+                        })
+                    });
+                    // Per-handler copies of this column's id (drop target).
+                    let class_id = id.clone();
+                    let over_id = id.clone();
+                    let drop_id = id;
+                    let targets_for_cards = StoredValue::new(targets);
+                    view! {
+                        <section
+                            class="kairos-board__column"
+                            class:kairos-board__column--droppable=move || {
+                                drag.with(|d| d.as_ref().is_some_and(|d| d.targets.contains(&class_id)))
                             }
-                        }
-                        on:drop=move |ev: web_sys::DragEvent| {
-                            ev.prevent_default();
-                            let Some(data) = drag.get_untracked() else { return };
-                            drag.set(None);
-                            if !data.targets.contains(&drop_id) {
-                                return;
-                            }
-                            run_transition(
-                                auth,
-                                data.kind,
-                                data.short_code,
-                                drop_id.clone(),
-                                on_changed,
-                                on_error,
-                            );
-                        }
-                    >
-                        <header class="kairos-board__column-head">
-                            <Group gap="xs">
-                                <Text bright=true bold=true size="sm">{head_label}</Text>
-                                <Text dimmed=true size="xs">{count.to_string()}</Text>
-                            </Group>
-                        </header>
-                        <Stack gap="xs">
-                            {(count == 0).then(|| view! {
-                                <Text dimmed=true size="xs">"No items in this column."</Text>
-                            })}
-                            {cards.into_iter().map(|card| {
-                                let CardModel { kind, short_code, title, meta } = card;
-                                view! {
-                                    <ItemCard
-                                        kind short_code title meta
-                                        targets=targets.clone()
-                                        drag powers
-                                        on_changed on_error
-                                    />
+                            on:dragover=move |ev: web_sys::DragEvent| {
+                                // preventDefault marks the column as a valid
+                                // drop target — only for legal transitions.
+                                let legal = drag.with_untracked(|d| {
+                                    d.as_ref().is_some_and(|d| d.targets.contains(&over_id))
+                                });
+                                if legal {
+                                    ev.prevent_default();
                                 }
-                            }).collect_view()}
-                        </Stack>
-                    </section>
+                            }
+                            on:drop=move |ev: web_sys::DragEvent| {
+                                ev.prevent_default();
+                                let Some(data) = drag.get_untracked() else { return };
+                                drag.set(None);
+                                if !data.targets.contains(&drop_id) {
+                                    return;
+                                }
+                                run_transition(
+                                    auth,
+                                    data.kind,
+                                    data.short_code,
+                                    drop_id.clone(),
+                                    on_changed,
+                                    on_error,
+                                );
+                            }
+                        >
+                            <header class="kairos-board__column-head">
+                                <Group gap="xs">
+                                    <Text bright=true bold=true size="sm">{name}</Text>
+                                    <Text dimmed=true size="xs">{move || cards.with(Vec::len).to_string()}</Text>
+                                </Group>
+                            </header>
+                            <Stack gap="xs">
+                                {move || cards.with(Vec::is_empty).then(|| view! {
+                                    <Text dimmed=true size="xs">"No items in this column."</Text>
+                                })}
+                                <For
+                                    each=move || cards.get()
+                                    key=|card| card.key.clone()
+                                    children=move |card: CardModel| {
+                                        let CardModel { kind, short_code, title, meta, key: _ } = card;
+                                        view! {
+                                            <ItemCard
+                                                kind short_code title meta
+                                                targets=targets_for_cards.get_value()
+                                                drag powers
+                                                on_changed on_error
+                                            />
+                                        }
+                                    }
+                                />
+                            </Stack>
+                        </section>
+                    }
                 }
-            }).collect_view()}
+            />
         </div>
-        {create_kind.zip(entry_column).map(|(kind, entry)| view! {
+        {move || create_kind.zip(entry_column.get()).map(|(kind, entry)| view! {
             <CreateItemModal
                 open=create_open
                 kind
-                board_id=board.id.clone()
-                team_id=board.team_id.clone()
+                board_id=board_id.get_value()
+                team_id=team_id.get_value()
                 entry
                 on_changed
             />
         })}
-        {documents_offered.then(|| view! {
-            <CreateDocumentModal open=doc_open parents=doc_parents.clone() on_changed/>
+        {move || documents_offered.get().then(|| view! {
+            <CreateDocumentModal open=doc_open parents=doc_parents on_changed/>
         })}
     }
 }
@@ -738,14 +854,17 @@ fn ItemCard(
     let code_for_move = short_code;
     let has_targets = !targets.is_empty();
     let target_ids: Vec<String> = targets.iter().map(|(id, _)| id.clone()).collect();
-    let movable = move || has_targets && powers.get().transition;
+    // Memoized (KAIROS-T-0074): the actions block below re-renders when
+    // this NOTIFIES — a memo notifies only when the decision actually
+    // flips, so refetches can't rebuild an open Menu.
+    let movable = Memo::new(move |_| has_targets && powers.get().transition);
     view! {
         <article
             class="kairos-card"
             class:kairos-card--dragging=move || {
                 drag.with(|d| d.as_ref().is_some_and(|d| d.short_code == code_for_class))
             }
-            draggable=move || if movable() { "true" } else { "false" }
+            draggable=move || if movable.get() { "true" } else { "false" }
             on:dragstart=move |ev: web_sys::DragEvent| {
                 if !(has_targets && powers.get_untracked().transition) {
                     return;
@@ -789,7 +908,7 @@ fn ItemCard(
                         })
                         .collect(),
                 );
-                move || movable().then(|| view! {
+                move || movable.get().then(|| view! {
                     <div class="kairos-card__actions">
                         {move || busy.get().then(|| view! {
                             <Text dimmed=true size="xs">"Moving…"</Text>
@@ -971,19 +1090,16 @@ fn CreateItemModal(
 #[component]
 fn CreateDocumentModal(
     open: RwSignal<bool>,
-    /// `(short_code, title)` of this board's eligible parents.
-    parents: Vec<(String, String)>,
+    /// `(short_code, title)` of this board's eligible parents — LIVE
+    /// (KAIROS-T-0074): the modal instance persists across refetches, so
+    /// the option list must follow the board's current items.
+    parents: Memo<Vec<(String, String)>>,
     on_changed: Callback<()>,
 ) -> impl IntoView {
     let auth = use_auth();
     let title = RwSignal::new(String::new());
     let template = RwSignal::new("(blank)".to_string());
-    let parent = RwSignal::new(
-        parents
-            .first()
-            .map(|(code, _)| code.clone())
-            .unwrap_or_default(),
-    );
+    let parent = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<ApiError>);
 
@@ -1000,28 +1116,21 @@ fn CreateDocumentModal(
         }
     });
 
-    let first_parent = parents
-        .first()
-        .map(|(code, _)| code.clone())
-        .unwrap_or_default();
     Effect::new(move |_| {
         if open.get() {
             title.set(String::new());
             template.set("(blank)".to_string());
-            parent.set(first_parent.clone());
+            parent.set(
+                parents
+                    .get_untracked()
+                    .first()
+                    .map(|(code, _)| code.clone())
+                    .unwrap_or_default(),
+            );
             busy.set(false);
             error.set(None);
         }
     });
-
-    // `StoredValue` (Copy) so the modal's `Fn` children never move the
-    // options vec out of their environment.
-    let parent_options: StoredValue<Vec<String>> = StoredValue::new(
-        parents
-            .iter()
-            .map(|(code, item_title)| format!("{code} · {item_title}"))
-            .collect(),
-    );
 
     let submit: Callback<()> = Callback::new(move |()| {
         let template_name = template.get_untracked();
@@ -1074,8 +1183,14 @@ fn CreateDocumentModal(
                         view! { <Select label="Template" value=template options/> }.into_any()
                     }
                 }}
-                <Select label="Attach to (supports)" value=parent
-                    options=parent_options.get_value()/>
+                {move || {
+                    let options: Vec<String> = parents
+                        .get()
+                        .iter()
+                        .map(|(code, item_title)| format!("{code} · {item_title}"))
+                        .collect();
+                    view! { <Select label="Attach to (supports)" value=parent options/> }
+                }}
                 {move || error.get().map(|e| view! {
                     <Alert title="Could not create" color=token::BAD>
                         <Text size="sm">{describe(&e)}</Text>

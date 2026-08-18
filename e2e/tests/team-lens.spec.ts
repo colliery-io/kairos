@@ -139,7 +139,8 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
   });
 
   // 5c. Not bob's team, no grants: web-delivery shows him NO mutating
-  //     affordances (drag disabled, no move menu, no create "+").
+  //     affordances (drag disabled, no create) — and the item detail's
+  //     move control (the T-0075 keyboard path) is gated the same way.
   await test.step('web-delivery offers bob no mutating affordances', async () => {
     await navbar(page).getByRole('link', { name: 'Boards', exact: true }).click();
     await page.waitForURL(/\/boards$/);
@@ -148,13 +149,24 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     const firstCard = page.locator('article.kairos-card').first();
     await expect(firstCard).toBeVisible();
     await expect(firstCard).toHaveAttribute('draggable', 'false');
-    await expect(page.getByRole('button', { name: /Move/ })).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: 'New task', exact: true }),
     ).toHaveCount(0);
     await expect(
       page.getByRole('button', { name: 'New document', exact: true }),
     ).toHaveCount(0);
+
+    // The keyboard fallback is capability-gated exactly like the drag:
+    // a web-delivery item's detail page offers bob no "Move to" control.
+    // (Navigation via the short code — KAIROS-T-0076.)
+    await firstCard.locator('a.kairos-card__code').click();
+    await page.waitForURL(/\/items\//);
+    const boardPanel = page.locator('.cl-panel', {
+      has: page.locator('.cl-panel__title', { hasText: 'Board' }),
+    });
+    // Placement renders (board name pill) — but no move select for bob.
+    await expect(boardPanel.locator('.cl-pill').first()).toBeVisible();
+    await expect(boardPanel.locator('select')).toHaveCount(0);
   });
 
   // 6. /teams directory lists both seeded teams ----------------------------

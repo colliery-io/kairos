@@ -7,11 +7,14 @@
 //   2. board list renders the seeded boards
 //   3. open platform-delivery → seeded items sit in the right columns
 //   4. create a task from a column via the UI
-//   5. transition it via the click-to-move menu
+//   5. transition it via drag-and-drop (KAIROS-T-0064/T-0075 — the
+//      per-card move menu is gone)
 //   6. LIVE WS: a second writer (API, separate token) transitions another
 //      item and the first browser sees the card move WITHOUT a reload
+//      (and the untouched card keeps its DOM node — KAIROS-T-0074)
 //   7. item detail: edit content + save; then a competing API PATCH forces a
-//      409 and we walk one merge path (take theirs)
+//      409 and we walk one merge path (take theirs); then the detail-page
+//      move control (the T-0075 keyboard path) moves the created card
 //   8. logout
 //
 // Selectors lean on visible text / roles and the crate's stable `.kairos-*`
@@ -41,6 +44,7 @@ const cardIn = (page: Page, columnName: string, needle: string): Locator =>
 
 test('GUI smoke: login → boards → create → move → live WS → edit/409 → logout', async ({
   page,
+  context,
 }) => {
   const createdTitle = `Smoke task ${Date.now()}`;
 
@@ -89,27 +93,33 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await modal.locator('input.cl-input').first().fill(createdTitle);
     await modal.getByRole('button', { name: 'Create' }).click();
     await expect(modal).toBeHidden();
-    await expect(cardIn(page, 'Backlog', createdTitle)).toBeVisible();
+    const created = cardIn(page, 'Backlog', createdTitle);
+    await expect(created).toBeVisible();
+    // KAIROS-T-0076: the identifier is the detail link with a copy-link
+    // button beside it; the title is plain text.
+    await expect(created.locator('a.kairos-card__code')).toBeVisible();
+    await expect(created.locator('a.kairos-card__title')).toHaveCount(0);
+    await expect(
+      created.getByRole('button', { name: 'Copy link' }),
+    ).toBeVisible();
   });
 
-  // 5. Transition the new task via the click-to-move menu ------------------
-  await test.step('transition via the move menu', async () => {
-    // KAIROS-T-0073 deflake: the board rebuilds its whole DOM on every
-    // refetch (the create's on_changed + its WS echo), which destroys an
-    // open menu mid-click. Retry the open+click SEQUENCE atomically
-    // (expect-polling, no sleeps): each attempt re-resolves the card
-    // fresh, opening the menu only if a rebuild closed it.
+  // 5. Transition the new task by drag-and-drop (KAIROS-T-0064/T-0075) -----
+  await test.step('transition via drag-and-drop', async () => {
+    // KAIROS-T-0073 deflake, kept for the drag era: the create's
+    // on_changed + its WS echo can refetch mid-action. Retry the whole
+    // locate+drag sequence atomically (expect-polling, no sleeps): each
+    // attempt re-resolves the card fresh and only drags if it is still
+    // in Backlog.
     await expect(async () => {
       const card = cardIn(page, 'Backlog', createdTitle);
-      const dropdown = card.locator('.cl-menu__dropdown');
-      if (!(await dropdown.isVisible())) {
-        await card.getByRole('button', { name: /Move/ }).click({ timeout: 2_000 });
+      if (await card.isVisible()) {
+        await card.dragTo(column(page, 'Todo'), { timeout: 2_000 });
       }
-      await dropdown
-        .getByRole('button', { name: 'Todo', exact: true })
-        .click({ timeout: 2_000 });
+      await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible({
+        timeout: 5_000,
+      });
     }).toPass({ timeout: 30_000 });
-    await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible();
     await expect(cardIn(page, 'Backlog', createdTitle)).toHaveCount(0);
   });
 
@@ -120,21 +130,20 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     // proves the update arrived over the live socket, not via navigation.
     await page.evaluate(() => ((window as any).__noReload = 'alive'));
 
-    // KAIROS-T-0074: transient UI state survives live updates — open the
-    // created card's Move menu BEFORE the second writer acts. Fine-grained
-    // rendering must keep this exact DOM (menu included) while the other
-    // card moves; the old whole-board rebuild snapped it shut.
-    const menuCard = cardIn(page, 'Todo', createdTitle);
+    // KAIROS-T-0074 (menu-free since T-0075): fine-grained rendering must
+    // keep the untouched card's DOM NODE across the WS refetch. Stamp the
+    // element itself — a whole-board rebuild would replace the node and
+    // drop the stamp; the keyed <For> diff keeps it.
+    const watchedCard = cardIn(page, 'Todo', createdTitle);
     const createdCode = (
-      await menuCard.locator('.cl-mono').first().innerText()
+      await watchedCard.locator('.cl-mono').first().innerText()
     ).trim();
-    await menuCard.getByRole('button', { name: /Move/ }).click();
-    await expect(menuCard.locator('.cl-menu__dropdown')).toBeVisible();
+    await watchedCard.evaluate((el) => ((el as any).__kairosStamp = 'alive'));
 
     const token = await mintToken({ server: GUI });
     // Move some other seeded task (never DEMO-T-0002 — the edit step below
     // needs it stationary in Active — and never the created card whose
-    // menu we are holding open). Dynamic pick keeps this retry-safe.
+    // DOM node we are watching). Dynamic pick keeps this retry-safe.
     const move = await pickMovableTask(GUI, token, ['DEMO-T-0002', createdCode]);
     await transitionTask(GUI, token, move.code, move.toColumnId);
 
@@ -142,17 +151,19 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await expect(cardIn(page, move.toColumnName, move.code)).toBeVisible({
       timeout: 20_000,
     });
-    // The board updated live AND the open menu survived the refetch.
-    await expect(menuCard.locator('.cl-menu__dropdown')).toBeVisible();
-    await menuCard.getByRole('button', { name: /Move/ }).click(); // close it
+    // The board updated live AND the watched card kept its DOM node.
+    expect(
+      await watchedCard.evaluate((el) => (el as any).__kairosStamp),
+    ).toBe('alive');
     expect(await page.evaluate(() => (window as any).__noReload)).toBe('alive');
   });
 
   // 7. Item detail: edit + save, then a competing PATCH forces a 409 -------
   await test.step('item detail edit, save, and 409 merge path', async () => {
-    // Navigate in-app (preserve the in-memory session): click the card title.
+    // Navigate in-app (preserve the in-memory session): click the card's
+    // short code (KAIROS-T-0076 — the identifier is the link).
     await cardIn(page, 'Active', 'DEMO-T-0002')
-      .locator('a.kairos-card__title')
+      .locator('a.kairos-card__code')
       .click();
     await page.waitForURL(/\/items\/DEMO-T-0002/);
     const editor = page.locator('.kairos-editor');
@@ -207,6 +218,44 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await dialog.getByRole('button', { name: 'Take theirs' }).click();
     await expect(dialog).toBeHidden();
     await expect(contentArea).toHaveValue(serverContent);
+  });
+
+  // 7b. The keyboard path (KAIROS-T-0075): the detail-page move control
+  //     transitions the created card Todo → Active.
+  await test.step('detail-page move control transitions the created card', async () => {
+    // In-app navigation back to the board (memory-only token — no goto).
+    await page.locator('.cl-appshell__navbar')
+      .getByRole('link', { name: 'Boards', exact: true })
+      .click();
+    await page.waitForURL(/\/boards$/);
+    await page.locator('.kairos-board-tile', { hasText: 'Platform Delivery' }).click();
+    await page.waitForURL(/\/boards\/platform-delivery/);
+    await cardIn(page, 'Todo', createdTitle)
+      .locator('a.kairos-card__code')
+      .click();
+    await page.waitForURL(/\/items\//);
+
+    const boardPanel = page.locator('.cl-panel', {
+      has: page.locator('.cl-panel__title', { hasText: 'Board' }),
+    });
+    await expect(boardPanel.locator('.cl-pill', { hasText: 'Todo' })).toBeVisible();
+    await boardPanel.locator('select').selectOption({ label: 'Active' });
+    await boardPanel.getByRole('button', { name: 'Move', exact: true }).click();
+    await expect(page.getByText('Moved to Active.')).toBeVisible();
+    // The refetch lands: placement now shows Active.
+    await expect(boardPanel.locator('.cl-pill', { hasText: 'Active' })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // KAIROS-T-0076: the header copy-link puts the ABSOLUTE detail URL on
+    // the clipboard and flashes confirmation.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const copy = page.getByRole('button', { name: 'Copy link' });
+    await copy.click();
+    await expect(copy).toHaveText('✓');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
+      page.url(),
+    );
   });
 
   // 8. Logout --------------------------------------------------------------

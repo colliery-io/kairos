@@ -144,20 +144,38 @@ body {
   padding: var(--space-sm);
 }
 
+/* The title is plain text (KAIROS-T-0076) — the short code below is the
+   card's detail link. */
 .kairos-card__title {
   color: var(--fg-bright);
   font-size: var(--fs-sm);
+}
+
+.kairos-card__code {
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
   text-decoration: none;
 }
 
-.kairos-card__title:hover {
+.kairos-card__code:hover {
   color: var(--ice);
   text-decoration: underline;
 }
 
-.kairos-card__actions {
-  display: flex;
-  justify-content: flex-end;
+/* Copy-link button (KAIROS-T-0076): sits beside a short code on cards
+   and the item detail header. */
+.kairos-copy-link {
+  background: none;
+  border: none;
+  color: var(--fg-2);
+  cursor: pointer;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  padding: 0;
+}
+
+.kairos-copy-link:hover {
+  color: var(--ice);
 }
 
 /* Page-level mutation-error banner (fixed to the viewport bottom so it

@@ -129,12 +129,18 @@ pub struct ItemDetail {
 }
 
 /// mirror of: `kairos_client::types_org::BoardDetail` (partial).
+/// `team_id` + `transitions` feed the move control (KAIROS-T-0075): the
+/// detail page computes powers and legal targets exactly like the board.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct BoardInfo {
     pub name: String,
     pub slug: String,
     #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
     pub columns: Vec<BoardColumnInfo>,
+    #[serde(default)]
+    pub transitions: Vec<BoardTransitionInfo>,
 }
 
 /// mirror of: `kairos_client::types_org::BoardColumn` (partial).
@@ -142,6 +148,13 @@ pub struct BoardInfo {
 pub struct BoardColumnInfo {
     pub id: String,
     pub name: String,
+}
+
+/// mirror of: `kairos_client::types_org::BoardTransition` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct BoardTransitionInfo {
+    pub from_column_id: String,
+    pub to_column_id: String,
 }
 
 /// mirror of: `kairos_client::types::ListEnvelope` (partial — the page
@@ -627,6 +640,33 @@ mod tests {
         assert_eq!(item.task_type.as_deref(), Some("task"));
         assert!(item.board_id.is_some());
         assert!(item.decision_date.is_none());
+    }
+
+    /// The board mirror decodes the `GET /api/boards/{id}` shape the move
+    /// control reads (KAIROS-T-0075) — flattened board fields, columns,
+    /// transitions.
+    #[test]
+    fn board_mirror_decodes_transitions_and_team() {
+        let body = serde_json::json!({
+            "id": "b-1", "name": "Platform Delivery", "slug": "platform-delivery",
+            "board_level": "delivery", "team_id": "t-1",
+            "created_at": "x", "updated_at": "x",
+            "columns": [
+                {"id": "c-1", "board_id": "b-1", "name": "Todo", "position": 1,
+                 "created_at": "x", "updated_at": "x"},
+                {"id": "c-2", "board_id": "b-1", "name": "Active", "position": 2,
+                 "created_at": "x", "updated_at": "x"}
+            ],
+            "transitions": [
+                {"id": "t-1", "board_id": "b-1",
+                 "from_column_id": "c-1", "to_column_id": "c-2"}
+            ]
+        });
+        let board: BoardInfo = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(board.slug, "platform-delivery");
+        assert_eq!(board.team_id.as_deref(), Some("t-1"));
+        assert_eq!(board.transitions[0].from_column_id, "c-1");
+        assert_eq!(board.transitions[0].to_column_id, "c-2");
     }
 
     /// The union mirror decodes a Document body (no board fields at all).

@@ -52,4 +52,8 @@ web-sys = { workspace = true, features = [
     # Drag-and-drop card transitions (KAIROS-T-0064)
     "DragEvent",
     "DataTransfer",
+    # Copy-link buttons (KAIROS-T-0076): async Clipboard API
+    "Navigator",
+    "Clipboard",
+    "MouseEvent",
 ] }

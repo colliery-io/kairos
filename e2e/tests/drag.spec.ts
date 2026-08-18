@@ -5,7 +5,8 @@
 //
 //   1. REAL PKCE login (alice)
 //   2. open Web Delivery → "Welcome-email trigger" sits in Backlog,
-//      draggable, with the move menu still present as the a11y fallback
+//      draggable, with NO per-card move menu (KAIROS-T-0075 — the
+//      keyboard path lives on the item detail page)
 //   3. drag it to Todo (legal: Backlog → Todo) → the card lands
 //   4. drag it to Backlog (ILLEGAL: no Todo → Backlog transition) → the
 //      drop is refused and the card stays in Todo
@@ -38,14 +39,15 @@ test('drag and drop: legal move lands, illegal move is refused', async ({ page }
     });
   });
 
-  // 2. Open the web board; the card is draggable, menu fallback present ------
-  await test.step('open web-delivery; card is draggable with menu fallback', async () => {
+  // 2. Open the web board; the card is draggable and menu-free ---------------
+  await test.step('open web-delivery; card is draggable, menu-free', async () => {
     await page.locator('.kairos-board-tile', { hasText: 'Web Delivery' }).click();
     await page.waitForURL(/\/boards\/web-delivery/);
     const card = cardIn(page, 'Backlog');
     await expect(card).toBeVisible();
     await expect(card).toHaveAttribute('draggable', 'true');
-    await expect(card.getByRole('button', { name: /Move/ })).toBeVisible();
+    // KAIROS-T-0075: no per-card move menu anywhere, for anyone.
+    await expect(card.getByRole('button', { name: /Move/ })).toHaveCount(0);
   });
 
   // 3. Legal drag: Backlog → Todo -------------------------------------------

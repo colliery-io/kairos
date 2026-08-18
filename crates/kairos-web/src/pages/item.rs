@@ -24,13 +24,16 @@ mod markdown;
 mod metadata;
 
 use aurora_dark::components::{
-    Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Stack, Text,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
+    Stack, Text,
 };
-use aurora_dark::tokens::token;
+use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use super::boards;
+use super::copy_link;
 use crate::auth::use_auth;
 use api::{Family, ItemDetail, RelationshipGroup};
 use create_doc::CreateDocumentDialog;
@@ -81,6 +84,12 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
         notice.set(Some(format!("Saved — the item is now at v{version}.")));
         reload.update(|n| *n += 1);
     });
+    // The move control's success path (KAIROS-T-0075): the item's column
+    // changed server-side; refetch and confirm like a save.
+    let on_moved = Callback::new(move |column: String| {
+        notice.set(Some(format!("Moved to {column}.")));
+        reload.update(|n| *n += 1);
+    });
 
     view! {
         {move || notice.get().map(|message| view! {
@@ -99,7 +108,7 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
             None => view! { <Loading label="Loading item…"/> }.into_any(),
             Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
             Some(Ok(item)) => view! {
-                <ItemLoaded item family on_saved/>
+                <ItemLoaded item family on_saved on_moved/>
             }.into_any(),
         }}
     }
@@ -108,7 +117,12 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
 /// The loaded page: header + actions, the editor column, and the facts /
 /// metadata / relationships column.
 #[component]
-fn ItemLoaded(item: ItemDetail, family: Family, on_saved: Callback<i32>) -> impl IntoView {
+fn ItemLoaded(
+    item: ItemDetail,
+    family: Family,
+    on_saved: Callback<i32>,
+    on_moved: Callback<String>,
+) -> impl IntoView {
     let create_open = RwSignal::new(false);
     let delete_open = RwSignal::new(false);
 
@@ -116,7 +130,10 @@ fn ItemLoaded(item: ItemDetail, family: Family, on_saved: Callback<i32>) -> impl
     // `item` itself (it is not Copy).
     let facts = item.clone();
     let header_title = item.title.clone();
-    let header_sub = format!("{} · {}", family.label(), item.short_code);
+    // The short code renders as its own element with a copy-link button
+    // (KAIROS-T-0076), not folded into the subtitle string.
+    let header_code = item.short_code.clone();
+    let copy_code = item.short_code.clone();
     let version_label = format!("v{}", item.version);
     let history_href = format!("/activity/history/{}", item.short_code);
     let code = item.short_code.clone();
@@ -132,9 +149,11 @@ fn ItemLoaded(item: ItemDetail, family: Family, on_saved: Callback<i32>) -> impl
     } = item;
 
     view! {
-        <PageHeader title=header_title sub=header_sub/>
+        <PageHeader title=header_title sub=family.label()/>
         <Group justify="between">
             <Group gap="sm">
+                <Text mono=true dimmed=true size="sm">{header_code}</Text>
+                <copy_link::CopyLinkButton code=copy_code/>
                 <Pill color=token::ICE>{version_label}</Pill>
                 <TypeFacts item=facts/>
             </Group>
@@ -160,7 +179,7 @@ fn ItemLoaded(item: ItemDetail, family: Family, on_saved: Callback<i32>) -> impl
                 on_saved
             />
             <Stack gap="sm">
-                <BoardPanel family board_id column_id/>
+                <BoardPanel family code=short_code.clone() board_id column_id on_moved/>
                 <MetadataPanel family code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
@@ -206,14 +225,19 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
 
 /// Board/column display: documents never sit on boards; ADRs may not; the
 /// rest always do. Board and column ids resolve to names via
-/// `GET /api/boards/{id}`, linked to the T-0040 board view.
+/// `GET /api/boards/{id}`, linked to the T-0040 board view. On-board
+/// items also get the move control here (KAIROS-T-0075) — the
+/// keyboard-accessible transition path since cards are drag-only.
 #[component]
 fn BoardPanel(
     family: Family,
+    #[prop(into)] code: String,
     board_id: Option<String>,
     column_id: Option<String>,
+    on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
+    let code = StoredValue::new(code);
     view! {
         <Panel title="Board" caption="placement">
             {match board_id {
@@ -242,11 +266,22 @@ fn BoardPanel(
                                     .map(|c| c.name.clone())
                                     .unwrap_or_else(|| "unknown column".to_string())
                                 });
+                                let slug = board.slug.clone();
+                                let name = board.name.clone();
                                 view! {
-                                    <Group justify="between">
-                                        <Anchor href=format!("/boards/{}", board.slug)>{board.name.clone()}</Anchor>
-                                        <Pill color=token::ICE>{column}</Pill>
-                                    </Group>
+                                    <Stack gap="sm">
+                                        <Group justify="between">
+                                            <Anchor href=format!("/boards/{slug}")>{name}</Anchor>
+                                            <Pill color=token::ICE>{column}</Pill>
+                                        </Group>
+                                        <MoveControl
+                                            family
+                                            code=code.get_value()
+                                            board
+                                            column_id=column_id.with_value(Clone::clone)
+                                            on_moved
+                                        />
+                                    </Stack>
                                 }.into_any()
                             }
                         }}
@@ -255,6 +290,132 @@ fn BoardPanel(
             }}
         </Panel>
     }
+}
+
+/// The keyboard-accessible transition path (KAIROS-T-0075): cards are
+/// drag-only, so moving an item without a pointer happens here. Renders
+/// only when the board's transitions offer a target from the item's
+/// current column AND the user holds `transition_items` on this board —
+/// the same gate as the drag affordance, via the shared powers mirror.
+#[component]
+fn MoveControl(
+    family: Family,
+    code: String,
+    board: api::BoardInfo,
+    column_id: Option<String>,
+    on_moved: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    // Documents never transition; the other four families map onto the
+    // board-item kinds the transition endpoint serves.
+    let kind = match family {
+        Family::Strategy => Some(boards::data::EntityKind::Strategy),
+        Family::Initiative => Some(boards::data::EntityKind::Initiative),
+        Family::Task => Some(boards::data::EntityKind::Task),
+        Family::Adr => Some(boards::data::EntityKind::Adr),
+        Family::Document => None,
+    };
+    // ONLY the targets this board's transitions allow from the current
+    // column — invalid moves are never offered (A-0002).
+    let targets: Vec<(String, String)> = column_id
+        .as_ref()
+        .map(|from| {
+            board
+                .transitions
+                .iter()
+                .filter(|t| &t.from_column_id == from)
+                .filter_map(|t| {
+                    board
+                        .columns
+                        .iter()
+                        .find(|c| c.id == t.to_column_id)
+                        .map(|c| (c.id.clone(), c.name.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let (Some(kind), false) = (kind, targets.is_empty()) else {
+        return ().into_any();
+    };
+
+    // Same client-side capability mirror as the board (KAIROS-T-0072);
+    // the server remains the authority.
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let slug = StoredValue::new(board.slug.clone());
+    let team_id = StoredValue::new(board.team_id.clone());
+    let can_move = Memo::new(move |_| {
+        whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+            .is_some_and(|me| {
+                slug.with_value(|slug| {
+                    team_id.with_value(|team| {
+                        boards::board_powers(&me, slug, team.as_deref(), None).transition
+                    })
+                })
+            })
+    });
+
+    let option_names = StoredValue::new(
+        targets
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect::<Vec<String>>(),
+    );
+    let targets = StoredValue::new(targets);
+    let target = RwSignal::new(
+        option_names.with_value(|names| names.first().cloned().unwrap_or_default()),
+    );
+    let code = StoredValue::new(code);
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<ApiError>);
+
+    let submit: Callback<()> = Callback::new(move |()| {
+        let name = target.get_untracked();
+        let Some((to_column_id, column_name)) =
+            targets.with_value(|t| t.iter().find(|(_, n)| *n == name).cloned())
+        else {
+            return;
+        };
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match boards::data::transition(auth, kind, &code.get_value(), &to_column_id).await {
+                // Success refetches the whole detail (on_moved bumps the
+                // reload), which drops this instance — no busy reset.
+                Ok(()) => on_moved.run(column_name),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+
+    view! {
+        {move || can_move.get().then(|| view! {
+            <div class="kairos-item__move">
+                <Group gap="sm">
+                    <Select label="Move to" value=target
+                        options=option_names.get_value()/>
+                    {move || {
+                        let disabled = busy.get();
+                        view! {
+                            <Button size="xs" disabled=disabled on_click=submit>
+                                {if busy.get_untracked() { "Moving…" } else { "Move" }}
+                            </Button>
+                        }
+                    }}
+                </Group>
+                {move || error.get().map(|e| view! {
+                    <Alert title="Could not move" color=token::BAD>
+                        <Text size="sm">{api::error_text(&e)}</Text>
+                    </Alert>
+                })}
+            </div>
+        })}
+    }
+    .into_any()
 }
 
 /// Relationships summary: both directions, grouped, every neighbor linked

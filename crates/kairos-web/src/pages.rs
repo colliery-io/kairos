@@ -87,6 +87,10 @@ pub fn CallbackPage() -> impl IntoView {
 
 // ---- feature stubs (T-0040..T-0044 replace these) -------------------------
 
+// Copy-link button (KAIROS-T-0076): shared by the board cards and the
+// item detail header.
+pub(crate) mod copy_link;
+
 // Boards area (KAIROS-T-0040): board list + board view live in their own
 // submodule (the "grew past a screenful" rule); exports stay stable.
 mod boards;

@@ -5,10 +5,11 @@
 //! - columns come from the board's configuration; items arrive grouped by
 //!   column from `GET /api/boards/{id}/items` (all four board entity
 //!   types: strategies, initiatives, tasks, ADRs);
-//! - **transitions are click-to-move** (a per-card "Move" menu offering
-//!   ONLY the targets the board's `transitions` allow from the card's
-//!   current column — drag-and-drop is deferred, decision in the task
-//!   doc); mutation errors surface in a page-level `Banner`;
+//! - **transitions are drag-and-drop** (KAIROS-T-0064/T-0075): a card
+//!   drags only to the columns the board's `transitions` allow from its
+//!   current column (A-0002: invalid moves are never offered); the
+//!   keyboard-accessible path is the item detail page's move control;
+//!   mutation errors surface in a page-level `Banner`;
 //! - live updates: a board-filtered `/ws/events` subscription re-fetches
 //!   the grouped items on every event (server state is the source of
 //!   truth; `LocalResource` keeps the last value while re-fetching, so
@@ -20,18 +21,19 @@
 //!   requires `parent_short_code`), hidden on ADR boards (documents
 //!   attach to strategies/initiatives/tasks only).
 
-mod data;
+pub(crate) mod data;
 mod live;
 
 use aurora_dark::components::{
-    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Menu, MenuItem, Modal,
-    PageHeader, Pill, Select, Stack, Text, TextInput, Textarea,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Modal, PageHeader, Pill, Select,
+    Stack, Text, TextInput, Textarea,
 };
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use super::copy_link;
 use crate::auth::use_auth;
 use data::EntityKind;
 
@@ -88,13 +90,13 @@ struct DragData {
 /// KAIROS-T-0072 team implication) so affordances the server would 403
 /// never render. The server remains the authority; this is UX.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct BoardPowers {
+pub(crate) struct BoardPowers {
     /// May move cards (`transition_items`).
-    transition: bool,
+    pub(crate) transition: bool,
     /// May create this board level's entity (`manage_<family>`).
-    create: bool,
+    pub(crate) create: bool,
     /// May create documents (`manage_documents`).
-    documents: bool,
+    pub(crate) documents: bool,
 }
 
 /// The `manage_*` capability that creating this kind requires.
@@ -128,7 +130,9 @@ fn team_implies(required: &str) -> bool {
 }
 
 /// Compute [`BoardPowers`] from the whoami identity. Pure, host-tested.
-fn board_powers(
+/// Also used by the item detail page's move control (KAIROS-T-0075) —
+/// the same `transition_items` gate as the board's drag affordance.
+pub(crate) fn board_powers(
     me: &crate::api::Whoami,
     board_slug: &str,
     board_team_id: Option<&str>,
@@ -160,7 +164,8 @@ fn board_powers(
 }
 
 /// Run one transition and report through the standard board callbacks —
-/// shared by the move menu (accessibility fallback) and the drop handler.
+/// the drop handler's mutation path (the keyboard-accessible path lives
+/// on the item detail page, KAIROS-T-0075).
 fn run_transition(
     auth: crate::auth::Auth,
     kind: EntityKind,
@@ -361,8 +366,8 @@ pub fn BoardsPage() -> impl IntoView {
 
 /// One card's owned view model with a content-fingerprint `key`
 /// (KAIROS-T-0074): the card `<For>` diffs on it, so a card whose content
-/// is unchanged keeps its DOM — and any open Move menu — across
-/// refetches; a changed card is rebuilt.
+/// is unchanged keeps its DOM node — element identity, focus, transient
+/// state — across refetches; a changed card is rebuilt.
 #[derive(Clone, PartialEq)]
 struct CardModel {
     kind: EntityKind,
@@ -538,7 +543,8 @@ pub fn BoardPage() -> impl IntoView {
     // The live model behind the fine-grained board (KAIROS-T-0074):
     // refetches update THIS SIGNAL and the mounted BoardBody diffs against
     // it through memos + keyed <For>s — the DOM is not rebuilt, so
-    // transient UI state (an open Move menu) survives WS-driven updates.
+    // transient UI state (open modals, element identity) survives
+    // WS-driven updates.
     let model: RwSignal<Option<data::BoardView>> = RwSignal::new(None);
     Effect::new(move |_| {
         if let Some(Ok(view)) = board.get() {
@@ -554,7 +560,7 @@ pub fn BoardPage() -> impl IntoView {
     // appear as soon as both are known (KAIROS-T-0072). MEMOIZED
     // (KAIROS-T-0074): a plain Signal::derive notifies consumers on every
     // model refetch even when the value is identical — which re-rendered
-    // every card's Menu block and closed open menus, exactly what the
+    // every card and destroyed its DOM node, exactly what the
     // fine-grained rendering exists to prevent.
     let powers: Signal<BoardPowers> = Memo::new(move |_| {
         let identity = whoami
@@ -612,9 +618,9 @@ pub fn BoardPage() -> impl IntoView {
 /// Fine-grained rendering (KAIROS-T-0074): created once per board (keyed
 /// on board id by [`BoardPage`]) and reads everything through memos over
 /// the shared `model` signal, with keyed `<For>`s over columns and cards.
-/// A refetch updates only what changed — an open Move menu on an
-/// untouched card survives WS-driven updates (the old whole-DOM rebuild
-/// closed it every time).
+/// A refetch updates only what changed — an untouched card keeps its DOM
+/// node across WS-driven updates (the old whole-DOM rebuild replaced
+/// every element).
 #[component]
 fn BoardBody(
     /// The live board view model. ALWAYS `Some` while this component is
@@ -792,7 +798,6 @@ fn BoardBody(
                                                 kind short_code title meta
                                                 targets=targets_for_cards.get_value()
                                                 drag powers
-                                                on_changed on_error
                                             />
                                         }
                                     }
@@ -820,13 +825,14 @@ fn BoardBody(
 }
 
 // ---------------------------------------------------------------------------
-// Cards + click-to-move
+// Cards
 // ---------------------------------------------------------------------------
 
-/// One board card: short code, title, type, key metadata, open link,
+/// One board card: short code (the detail link, KAIROS-T-0076) with its
+/// copy-link button, plain-text title, type, key metadata, and
 /// drag-and-drop between columns (KAIROS-T-0064 — draggable only when the
-/// board allows moves from here), and the click-to-move menu kept as the
-/// keyboard/accessibility fallback.
+/// board allows moves from here). The keyboard-accessible transition path
+/// is the item detail page's move control (KAIROS-T-0075).
 #[component]
 fn ItemCard(
     kind: EntityKind,
@@ -840,23 +846,18 @@ fn ItemCard(
     /// dragstart so legal columns light up and accept the drop.
     drag: RwSignal<Option<DragData>>,
     /// The user's powers on this board (KAIROS-T-0072): no transition
-    /// power → no drag, no move menu.
+    /// power → no drag.
     powers: Signal<BoardPowers>,
-    on_changed: Callback<()>,
-    on_error: Callback<ApiError>,
 ) -> impl IntoView {
-    let auth = use_auth();
-    let busy = RwSignal::new(false);
     let href = format!("/items/{short_code}");
     let code_text = short_code.clone();
+    let code_for_copy = short_code.clone();
     let code_for_drag = short_code.clone();
-    let code_for_class = short_code.clone();
-    let code_for_move = short_code;
+    let code_for_class = short_code;
     let has_targets = !targets.is_empty();
     let target_ids: Vec<String> = targets.iter().map(|(id, _)| id.clone()).collect();
-    // Memoized (KAIROS-T-0074): the actions block below re-renders when
-    // this NOTIFIES — a memo notifies only when the decision actually
-    // flips, so refetches can't rebuild an open Menu.
+    // Memoized (KAIROS-T-0074): notifies only when the decision actually
+    // flips, so refetches can't needlessly rebuild the card's attributes.
     let movable = Memo::new(move |_| has_targets && powers.get().transition);
     view! {
         <article
@@ -884,12 +885,17 @@ fn ItemCard(
             on:dragend=move |_| drag.set(None)
         >
             <Group justify="between">
-                <Text mono=true dimmed=true size="xs">{code_text}</Text>
+                <Group gap="xs">
+                    // The identifier IS the detail link (KAIROS-T-0076);
+                    // `cl-mono` keeps the code scrapeable and mono-set.
+                    <a class="cl-mono kairos-card__code" href=href>
+                        {code_text}
+                    </a>
+                    <copy_link::CopyLinkButton code=code_for_copy/>
+                </Group>
                 <Pill color=kind_color(kind)>{kind.label()}</Pill>
             </Group>
-            <a class="kairos-card__title" href=href>
-                {title}
-            </a>
+            <span class="kairos-card__title">{title}</span>
             {(!meta.is_empty()).then(|| view! {
                 <Group gap="xs" wrap=true>
                     {meta.into_iter().map(|(label, color)| view! {
@@ -897,53 +903,6 @@ fn ItemCard(
                     }).collect_view()}
                 </Group>
             })}
-            {
-                // Each menu entry owns its short code + target column;
-                // stored once, re-cloned per reactive render.
-                let entries: StoredValue<Vec<(String, String, String)>> = StoredValue::new(
-                    targets
-                        .into_iter()
-                        .map(|(column_id, column_name)| {
-                            (code_for_move.clone(), column_id, column_name)
-                        })
-                        .collect(),
-                );
-                move || movable.get().then(|| view! {
-                    <div class="kairos-card__actions">
-                        {move || busy.get().then(|| view! {
-                            <Text dimmed=true size="xs">"Moving…"</Text>
-                        })}
-                        <Menu label="Move">
-                            {entries.get_value().into_iter().map(|(code, column_id, label)| {
-                                let label_text = label.clone();
-                                view! {
-                                    <MenuItem on_click=Callback::new(move |_| {
-                                        busy.set(true);
-                                        let done = Callback::new(move |()| {
-                                            busy.set(false);
-                                            on_changed.run(());
-                                        });
-                                        let fail = Callback::new(move |error| {
-                                            busy.set(false);
-                                            on_error.run(error);
-                                        });
-                                        run_transition(
-                                            auth,
-                                            kind,
-                                            code.clone(),
-                                            column_id.clone(),
-                                            done,
-                                            fail,
-                                        );
-                                    })>
-                                        {label_text}
-                                    </MenuItem>
-                                }
-                            }).collect_view()}
-                        </Menu>
-                    </div>
-                })
-            }
         </article>
     }
 }

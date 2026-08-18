@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-08-11T03:49:21Z | 190 files | Python, Rust, TypeScript
+> Generated: 2026-08-17T12:25:14Z | 191 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -207,6 +207,7 @@
 │           │   │   ├── data.rs
 │           │   │   └── live.rs
 │           │   ├── boards.rs
+│           │   ├── copy_link.rs
 │           │   ├── item/
 │           │   │   ├── api.rs
 │           │   │   ├── create_doc.rs
@@ -3215,13 +3216,14 @@
 
 - pub `LoginPage` function L26-63 — `() -> impl IntoView` — Explicit sign-in page: logout lands here; a button restarts PKCE.
 - pub `CallbackPage` function L68-86 — `() -> impl IntoView` — PKCE redirect target: exchanges the code (via the server relay), then
-- pub `admin` module L115 — `-` — later tasks should keep.
-- pub `NotFoundPage` function L126-136 — `() -> impl IntoView` — Router fallback.
--  `boards` module L92 — `-` — later tasks should keep.
--  `item` module L97 — `-` — later tasks should keep.
--  `search` module L102 — `-` — later tasks should keep.
--  `teams` module L109 — `-` — later tasks should keep.
--  `activity` module L121 — `-` — later tasks should keep.
+- pub `admin` module L119 — `-` — later tasks should keep.
+- pub `NotFoundPage` function L130-140 — `() -> impl IntoView` — Router fallback.
+-  `copy_link` module L92 — `-` — later tasks should keep.
+-  `boards` module L96 — `-` — later tasks should keep.
+-  `item` module L101 — `-` — later tasks should keep.
+-  `search` module L106 — `-` — later tasks should keep.
+-  `teams` module L113 — `-` — later tasks should keep.
+-  `activity` module L125 — `-` — later tasks should keep.
 
 ### crates/kairos-web/src/pages
 
@@ -3295,55 +3297,62 @@
 
 #### crates/kairos-web/src/pages/boards.rs
 
-- pub `BoardsPage` function L281-356 — `() -> impl IntoView` — `/boards` — boards in flight-level bands (strategy above initiatives
-- pub `BoardPage` function L495-608 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
--  `data` module L23 — `-` — view (`/boards/:board` — slug or id) with live `/ws/events` updates.
--  `live` module L24 — `-` — attach to strategies/initiatives/tasks only).
--  `describe` function L40-49 — `(error: &ApiError) -> String` — A short human line for a failed mutation (page-level `Banner`; load
--  `level_color` function L52-60 — `(level: &str) -> &'static str` — The accent token for a board level / entity kind.
--  `kind_color` function L62-69 — `(kind: EntityKind) -> &'static str` — attach to strategies/initiatives/tasks only).
--  `DragData` struct L76-80 — `{ kind: EntityKind, short_code: String, targets: Vec<String> }` — The in-flight card drag (KAIROS-T-0064): which card, and the column ids
--  `BoardPowers` struct L91-98 — `{ transition: bool, create: bool, documents: bool }` — What the signed-in user may do on THIS board — mirrors the A-0006
--  `create_capability` function L101-108 — `(kind: EntityKind) -> &'static str` — The `manage_*` capability that creating this kind requires.
--  `grant_covers` function L113-119 — `(grant: &str, required: &str) -> bool` — Does a stored grant cover `required`? Client mirror of the A-0006
--  `team_implies` function L123-128 — `(required: &str) -> bool` — The KAIROS-T-0072 implied set (mirror of
--  `board_powers` function L131-160 — `( me: &crate::api::Whoami, board_slug: &str, board_team_id: Option<&str>, create...` — Compute [`BoardPowers`] from the whoami identity.
--  `run_transition` function L164-178 — `( auth: crate::auth::Auth, kind: EntityKind, code: String, column_id: String, on...` — Run one transition and report through the standard board callbacks —
--  `LEVEL_BANDS` variable L186-191 — `: &[(&str, &str)]` — The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
--  `BandModel` struct L195-201 — `{ level: String, label: String, groups: Vec<(Option<(String, String)>, Vec<data:...` — One rendered board-list band: level heading + its tiles, with the
--  `band_models` function L207-275 — `( boards: Vec<data::Board>, teams: &[crate::pages::teams::api::Team], ) -> Vec<B...` — Bucket boards into level bands (strategy → initiative → delivery →
--  `CardModel` struct L367-373 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — One card's owned view model with a content-fingerprint `key`
--  `ColumnModel` struct L379-385 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — One column's owned view model.
--  `column_models` function L389-463 — `(view: &data::BoardView) -> Vec<ColumnModel>` — Flatten the wire shape into owned, keyed view models (leptos children
--  `doc_parent_options` function L467-490 — `(view: &data::BoardView) -> Vec<(String, String)>` — `(short_code, title)` of the board's document-parent candidates
--  `BoardBody` function L619-820 — `( /// The live board view model. ALWAYS `Some` while this component is /// mount...` — The loaded board: header (+ create actions) and the column row.
--  `ItemCard` function L831-949 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code, title, type, key metadata, open link,
--  `CreateItemModal` function L960-1085 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
--  `CreateDocumentModal` function L1091-1216 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
--  `tests` module L1219-1347 — `-` — attach to strategies/initiatives/tasks only).
--  `board` function L1223-1231 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
--  `team` function L1233-1241 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
--  `band_models_orders_levels_and_groups_delivery_by_team` function L1246-1277 — `()` — Bands come out in flight-level order, the delivery band grouped by
--  `me` function L1279-1291 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
--  `board_powers_mirror_team_implication` function L1296-1311 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
--  `board_powers_mirror_grants_and_admin` function L1315-1331 — `()` — Explicit grants (incl.
--  `band_models_keeps_unknown_team_boards_reachable` function L1336-1346 — `()` — A board whose team id names an unknown team lands in "No team"
+- pub `BoardsPage` function L286-361 — `() -> impl IntoView` — `/boards` — boards in flight-level bands (strategy above initiatives
+- pub `BoardPage` function L500-614 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
+-  `data` module L24 — `-` — view (`/boards/:board` — slug or id) with live `/ws/events` updates.
+-  `live` module L25 — `-` — attach to strategies/initiatives/tasks only).
+-  `describe` function L42-51 — `(error: &ApiError) -> String` — A short human line for a failed mutation (page-level `Banner`; load
+-  `level_color` function L54-62 — `(level: &str) -> &'static str` — The accent token for a board level / entity kind.
+-  `kind_color` function L64-71 — `(kind: EntityKind) -> &'static str` — attach to strategies/initiatives/tasks only).
+-  `DragData` struct L78-82 — `{ kind: EntityKind, short_code: String, targets: Vec<String> }` — The in-flight card drag (KAIROS-T-0064): which card, and the column ids
+-  `BoardPowers` struct L93-100 — `{ transition: bool, create: bool, documents: bool }` — What the signed-in user may do on THIS board — mirrors the A-0006
+-  `create_capability` function L103-110 — `(kind: EntityKind) -> &'static str` — The `manage_*` capability that creating this kind requires.
+-  `grant_covers` function L115-121 — `(grant: &str, required: &str) -> bool` — Does a stored grant cover `required`? Client mirror of the A-0006
+-  `team_implies` function L125-130 — `(required: &str) -> bool` — The KAIROS-T-0072 implied set (mirror of
+-  `board_powers` function L135-164 — `( me: &crate::api::Whoami, board_slug: &str, board_team_id: Option<&str>, create...` — Compute [`BoardPowers`] from the whoami identity.
+-  `run_transition` function L169-183 — `( auth: crate::auth::Auth, kind: EntityKind, code: String, column_id: String, on...` — Run one transition and report through the standard board callbacks —
+-  `LEVEL_BANDS` variable L191-196 — `: &[(&str, &str)]` — The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
+-  `BandModel` struct L200-206 — `{ level: String, label: String, groups: Vec<(Option<(String, String)>, Vec<data:...` — One rendered board-list band: level heading + its tiles, with the
+-  `band_models` function L212-280 — `( boards: Vec<data::Board>, teams: &[crate::pages::teams::api::Team], ) -> Vec<B...` — Bucket boards into level bands (strategy → initiative → delivery →
+-  `CardModel` struct L372-378 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — One card's owned view model with a content-fingerprint `key`
+-  `ColumnModel` struct L384-390 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — One column's owned view model.
+-  `column_models` function L394-468 — `(view: &data::BoardView) -> Vec<ColumnModel>` — Flatten the wire shape into owned, keyed view models (leptos children
+-  `doc_parent_options` function L472-495 — `(view: &data::BoardView) -> Vec<(String, String)>` — `(short_code, title)` of the board's document-parent candidates
+-  `BoardBody` function L625-825 — `( /// The live board view model. ALWAYS `Some` while this component is /// mount...` — The loaded board: header (+ create actions) and the column row.
+-  `ItemCard` function L837-908 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code (the detail link, KAIROS-T-0076) with its
+-  `CreateItemModal` function L919-1044 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
+-  `CreateDocumentModal` function L1050-1175 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
+-  `tests` module L1178-1306 — `-` — attach to strategies/initiatives/tasks only).
+-  `board` function L1182-1190 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
+-  `team` function L1192-1200 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
+-  `band_models_orders_levels_and_groups_delivery_by_team` function L1205-1236 — `()` — Bands come out in flight-level order, the delivery band grouped by
+-  `me` function L1238-1250 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
+-  `board_powers_mirror_team_implication` function L1255-1270 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
+-  `board_powers_mirror_grants_and_admin` function L1274-1290 — `()` — Explicit grants (incl.
+-  `band_models_keeps_unknown_team_boards_reachable` function L1295-1305 — `()` — A board whose team id names an unknown team lands in "No team"
+
+#### crates/kairos-web/src/pages/copy_link.rs
+
+-  `item_url` function L12-15 — `(code: &str) -> Option<String>` — The absolute detail URL for an item, from the current origin.
+-  `clipboard` function L19-22 — `() -> Option<web_sys::Clipboard>` — The Clipboard handle — `None` outside secure contexts, where the
+-  `CopyLinkButton` function L27-66 — `(#[prop(into)] code: String) -> impl IntoView` — Copies `/items/{code}` (absolute) to the clipboard; flashes ✓ on
 
 #### crates/kairos-web/src/pages/item.rs
 
-- pub `ItemPage` function L43-61 — `() -> impl IntoView` — `/items/:code` — parse the family from the short code and hand off.
+- pub `ItemPage` function L46-64 — `() -> impl IntoView` — `/items/:code` — parse the family from the short code and hand off.
 -  `api` module L19 — `-` — entity families (the short code's type letter picks the family — see
 -  `create_doc` module L20 — `-` — warning ([`delete`], A-0001).
 -  `delete` module L21 — `-` — warning ([`delete`], A-0001).
 -  `editor` module L22 — `-` — warning ([`delete`], A-0001).
 -  `markdown` module L23 — `-` — warning ([`delete`], A-0001).
 -  `metadata` module L24 — `-` — warning ([`delete`], A-0001).
--  `ItemDetailView` function L66-106 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The detail resource + the four async view states.
--  `ItemLoaded` function L111-171 — `(item: ItemDetail, family: Family, on_saved: Callback<i32>) -> impl IntoView` — The loaded page: header + actions, the editor column, and the facts /
--  `TypeFacts` function L175-205 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
--  `BoardPanel` function L211-258 — `( family: Family, board_id: Option<String>, column_id: Option<String>, ) -> impl...` — Board/column display: documents never sit on boards; ADRs may not; the
--  `RelationshipsPanel` function L263-301 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
--  `RelationshipGroupView` function L305-330 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
+-  `ItemDetailView` function L69-115 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The detail resource + the four async view states.
+-  `ItemLoaded` function L120-190 — `( item: ItemDetail, family: Family, on_saved: Callback<i32>, on_moved: Callback<...` — The loaded page: header + actions, the editor column, and the facts /
+-  `TypeFacts` function L194-224 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
+-  `BoardPanel` function L232-293 — `( family: Family, #[prop(into)] code: String, board_id: Option<String>, column_i...` — Board/column display: documents never sit on boards; ADRs may not; the
+-  `MoveControl` function L301-419 — `( family: Family, code: String, board: api::BoardInfo, column_id: Option<String>...` — The keyboard-accessible transition path (KAIROS-T-0075): cards are
+-  `RelationshipsPanel` function L424-462 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
+-  `RelationshipGroupView` function L466-491 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
 
 #### crates/kairos-web/src/pages/search.rs
 
@@ -3590,53 +3599,55 @@
 - pub `label` function L77-85 — `(self) -> &'static str` — Human label for the page header.
 - pub `is_workflow` function L89-91 — `(self) -> bool` — Workflow items (strategy/initiative/task) can parent a document
 - pub `ItemDetail` struct L102-129 — `{ short_code: String, title: String, content: String, version: i32, board_id: Op...` — mirror of: `kairos_client::types::{Strategy,Initiative,Task,Document,Adr}`
-- pub `BoardInfo` struct L133-138 — `{ name: String, slug: String, columns: Vec<BoardColumnInfo> }` — mirror of: `kairos_client::types_org::BoardDetail` (partial).
-- pub `BoardColumnInfo` struct L142-145 — `{ id: String, name: String }` — mirror of: `kairos_client::types_org::BoardColumn` (partial).
-- pub `Page` struct L150-152 — `{ items: Vec<T> }` — mirror of: `kairos_client::types::ListEnvelope` (partial — the page
-- pub `ItemMetadata` struct L156-158 — `{ values: Vec<MetadataValue> }` — mirror of: `kairos_client::types_meta::ItemMetadataResponse` (partial).
-- pub `MetadataValue` struct L162-165 — `{ slug: String, value: String }` — mirror of: `kairos_client::types_meta::MetadataValue` (partial).
-- pub `MetadataDefinition` struct L169-176 — `{ name: String, slug: String, field_type: String, enum_options: Vec<String> }` — mirror of: `kairos_client::types_meta::MetadataDefinition` (partial).
-- pub `ItemRelationships` struct L181-186 — `{ outgoing: Vec<RelationshipGroup>, incoming: Vec<RelationshipGroup> }` — mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`
-- pub `RelationshipGroup` struct L190-193 — `{ relationship: String, items: Vec<RelatedItem> }` — mirror of: `kairos_client::types_meta::RelationshipGroup` (partial).
-- pub `RelatedItem` struct L197-201 — `{ short_code: String, entity_type: String, title: String }` — mirror of: `kairos_client::types_meta::RelatedItem` (partial).
-- pub `TemplateSummary` struct L205-208 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
-- pub `TemplateDetail` struct L212-218 — `{ id: String, name: String, content: String, metadata: Vec<TemplateField> }` — mirror of: `kairos_client::types_meta::TemplateDetail` (partial).
-- pub `TemplateField` struct L222-232 — `{ slug: String, name: String, field_type: String, enum_options: Vec<String>, def...` — mirror of: `kairos_client::types_meta::TemplateMetadataField` (partial).
-- pub `DeleteOutcome` struct L237-242 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
-- pub `CascadePreview` struct L249-254 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
-- pub `CurrentVersion` struct L263-267 — `{ version: i32, title: String, content: String }` — The server-current entity carried by a 409 in `details.current`
-- pub `SaveError` enum L295-301 — `Conflict | Api` — Outcome of a content save: a version conflict is not a dead end — it
-- pub `fetch_item` function L308-310 — `(auth: Auth, family: Family, code: String) -> Result<ItemDetail, ApiError>` — `GET /api/{family}/{short_code}` → the entity, whichever family.
-- pub `fetch_board` function L314-316 — `(auth: Auth, board_id: String) -> Result<BoardInfo, ApiError>` — `GET /api/boards/{id}` → board name/slug + columns (for the
-- pub `fetch_definitions` function L320-324 — `(auth: Auth) -> Result<Vec<MetadataDefinition>, ApiError>` — `GET /api/metadata-definitions` (all of them — the typed editors render
-- pub `fetch_metadata` function L327-338 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<MetadataValue>, ApiE...` — `GET /api/{family}/{short_code}/metadata` → the item's current values.
-- pub `fetch_relationships` function L342-352 — `( auth: Auth, family: Family, code: String, ) -> Result<ItemRelationships, ApiEr...` — `GET /api/{family}/{short_code}/relationships` → both directions,
-- pub `fetch_cascade_preview` function L358-368 — `( auth: Auth, family: Family, code: String, ) -> Result<CascadePreview, ApiError...` — `GET /api/{family}/{short_code}/cascade-preview` → the AUTHORITATIVE
-- pub `fetch_templates` function L371-374 — `(auth: Auth) -> Result<Vec<TemplateSummary>, ApiError>` — `GET /api/templates` → the picker's list.
-- pub `fetch_template_detail` function L377-379 — `(auth: Auth, id: String) -> Result<TemplateDetail, ApiError>` — `GET /api/templates/{id}` → content preview + declared metadata fields.
-- pub `update_content` function L397-441 — `( auth: Auth, family: Family, code: &str, title: &str, content: &str, version: i...` — `PATCH /api/{family}/{short_code}` — the A-0004 optimistic-concurrency
-- pub `update_metadata` function L445-459 — `( auth: Auth, family: Family, code: &str, values: BTreeMap<String, Option<String...` — `PATCH /api/{family}/{short_code}/metadata`: definition slug → value
-- pub `CreateDocumentBody` struct L465-469 — `{ title: String, template_id: String, parent_short_code: String }` — Body of `POST /api/documents` (mirror of:
-- pub `create_document` function L473-478 — `( auth: Auth, body: &CreateDocumentBody, ) -> Result<ItemDetail, ApiError>` — `POST /api/documents` — create-from-template, attached to a workflow
-- pub `delete_item` function L482-489 — `( auth: Auth, family: Family, code: &str, ) -> Result<DeleteOutcome, ApiError>` — `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
-- pub `error_text` function L493-506 — `(error: &ApiError) -> String` — One-line text for a *write* failure (loads use `<ErrorState/>`; writes
+- pub `BoardInfo` struct L135-144 — `{ name: String, slug: String, team_id: Option<String>, columns: Vec<BoardColumnI...` — mirror of: `kairos_client::types_org::BoardDetail` (partial).
+- pub `BoardColumnInfo` struct L148-151 — `{ id: String, name: String }` — mirror of: `kairos_client::types_org::BoardColumn` (partial).
+- pub `BoardTransitionInfo` struct L155-158 — `{ from_column_id: String, to_column_id: String }` — mirror of: `kairos_client::types_org::BoardTransition` (partial).
+- pub `Page` struct L163-165 — `{ items: Vec<T> }` — mirror of: `kairos_client::types::ListEnvelope` (partial — the page
+- pub `ItemMetadata` struct L169-171 — `{ values: Vec<MetadataValue> }` — mirror of: `kairos_client::types_meta::ItemMetadataResponse` (partial).
+- pub `MetadataValue` struct L175-178 — `{ slug: String, value: String }` — mirror of: `kairos_client::types_meta::MetadataValue` (partial).
+- pub `MetadataDefinition` struct L182-189 — `{ name: String, slug: String, field_type: String, enum_options: Vec<String> }` — mirror of: `kairos_client::types_meta::MetadataDefinition` (partial).
+- pub `ItemRelationships` struct L194-199 — `{ outgoing: Vec<RelationshipGroup>, incoming: Vec<RelationshipGroup> }` — mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`
+- pub `RelationshipGroup` struct L203-206 — `{ relationship: String, items: Vec<RelatedItem> }` — mirror of: `kairos_client::types_meta::RelationshipGroup` (partial).
+- pub `RelatedItem` struct L210-214 — `{ short_code: String, entity_type: String, title: String }` — mirror of: `kairos_client::types_meta::RelatedItem` (partial).
+- pub `TemplateSummary` struct L218-221 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
+- pub `TemplateDetail` struct L225-231 — `{ id: String, name: String, content: String, metadata: Vec<TemplateField> }` — mirror of: `kairos_client::types_meta::TemplateDetail` (partial).
+- pub `TemplateField` struct L235-245 — `{ slug: String, name: String, field_type: String, enum_options: Vec<String>, def...` — mirror of: `kairos_client::types_meta::TemplateMetadataField` (partial).
+- pub `DeleteOutcome` struct L250-255 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
+- pub `CascadePreview` struct L262-267 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
+- pub `CurrentVersion` struct L276-280 — `{ version: i32, title: String, content: String }` — The server-current entity carried by a 409 in `details.current`
+- pub `SaveError` enum L308-314 — `Conflict | Api` — Outcome of a content save: a version conflict is not a dead end — it
+- pub `fetch_item` function L321-323 — `(auth: Auth, family: Family, code: String) -> Result<ItemDetail, ApiError>` — `GET /api/{family}/{short_code}` → the entity, whichever family.
+- pub `fetch_board` function L327-329 — `(auth: Auth, board_id: String) -> Result<BoardInfo, ApiError>` — `GET /api/boards/{id}` → board name/slug + columns (for the
+- pub `fetch_definitions` function L333-337 — `(auth: Auth) -> Result<Vec<MetadataDefinition>, ApiError>` — `GET /api/metadata-definitions` (all of them — the typed editors render
+- pub `fetch_metadata` function L340-351 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<MetadataValue>, ApiE...` — `GET /api/{family}/{short_code}/metadata` → the item's current values.
+- pub `fetch_relationships` function L355-365 — `( auth: Auth, family: Family, code: String, ) -> Result<ItemRelationships, ApiEr...` — `GET /api/{family}/{short_code}/relationships` → both directions,
+- pub `fetch_cascade_preview` function L371-381 — `( auth: Auth, family: Family, code: String, ) -> Result<CascadePreview, ApiError...` — `GET /api/{family}/{short_code}/cascade-preview` → the AUTHORITATIVE
+- pub `fetch_templates` function L384-387 — `(auth: Auth) -> Result<Vec<TemplateSummary>, ApiError>` — `GET /api/templates` → the picker's list.
+- pub `fetch_template_detail` function L390-392 — `(auth: Auth, id: String) -> Result<TemplateDetail, ApiError>` — `GET /api/templates/{id}` → content preview + declared metadata fields.
+- pub `update_content` function L410-454 — `( auth: Auth, family: Family, code: &str, title: &str, content: &str, version: i...` — `PATCH /api/{family}/{short_code}` — the A-0004 optimistic-concurrency
+- pub `update_metadata` function L458-472 — `( auth: Auth, family: Family, code: &str, values: BTreeMap<String, Option<String...` — `PATCH /api/{family}/{short_code}/metadata`: definition slug → value
+- pub `CreateDocumentBody` struct L478-482 — `{ title: String, template_id: String, parent_short_code: String }` — Body of `POST /api/documents` (mirror of:
+- pub `create_document` function L486-491 — `( auth: Auth, body: &CreateDocumentBody, ) -> Result<ItemDetail, ApiError>` — `POST /api/documents` — create-from-template, attached to a workflow
+- pub `delete_item` function L495-502 — `( auth: Auth, family: Family, code: &str, ) -> Result<DeleteOutcome, ApiError>` — `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
+- pub `error_text` function L506-519 — `(error: &ApiError) -> String` — One-line text for a *write* failure (loads use `<ErrorState/>`; writes
 -  `Family` type L42-92 — `= Family` — flattening the conflict into an `ApiError`.
--  `DetailedErrorEnvelope` struct L272-274 — `{ error: DetailedErrorBody }` — mirror of: `kairos_client::types::ErrorEnvelope` — with `details`, which
--  `DetailedErrorBody` struct L278-283 — `{ code: String, message: String, details: ErrorDetails }` — mirror of: `kairos_client::types::ErrorBody` (partial, + details).
--  `ErrorDetails` struct L287-290 — `{ current: Option<CurrentVersion> }` — The structured extras this page understands (`current` on 409).
--  `UpdateContentBody` struct L388-392 — `{ title: &'a str, content: &'a str, version: i32 }` — Body of the content PATCH (mirror of:
--  `Body` struct L452-454 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
--  `Verb` enum L514-517 — `Patch | Delete` — The two verbs the shared `api.rs` does not provide yet.
--  `send` function L520-542 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<gloo_net::ht...` — Build + send one authenticated JSON request; no status handling yet.
--  `send_json` function L546-564 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<T, ApiError>` — One authenticated JSON round-trip with the standard status handling
--  `error_from` function L568-580 — `(status: u16, response: gloo_net::http::Response) -> ApiError` — Non-2xx → `ApiError` via the S-0005 envelope (the `api.rs` mapping,
--  `tests` module L583-706 — `-` — flattening the conflict into an `ApiError`.
--  `family_parses_from_short_codes` function L589-605 — `()` — Short-code → family across all five letters, multi-segment
--  `item_mirror_decodes_task_shape` function L609-630 — `()` — The union mirror decodes a full Task body (field-name lock).
--  `item_mirror_decodes_document_shape` function L634-650 — `()` — The union mirror decodes a Document body (no board fields at all).
--  `conflict_envelope_extracts_current` function L655-689 — `()` — The 409 envelope parse finds `details.current` whether it is the
--  `metadata_body_serializes_null_clears` function L694-705 — `()` — The metadata PATCH body serializes `None` as JSON null (the A-0003
--  `Body` struct L696-698 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
+-  `DetailedErrorEnvelope` struct L285-287 — `{ error: DetailedErrorBody }` — mirror of: `kairos_client::types::ErrorEnvelope` — with `details`, which
+-  `DetailedErrorBody` struct L291-296 — `{ code: String, message: String, details: ErrorDetails }` — mirror of: `kairos_client::types::ErrorBody` (partial, + details).
+-  `ErrorDetails` struct L300-303 — `{ current: Option<CurrentVersion> }` — The structured extras this page understands (`current` on 409).
+-  `UpdateContentBody` struct L401-405 — `{ title: &'a str, content: &'a str, version: i32 }` — Body of the content PATCH (mirror of:
+-  `Body` struct L465-467 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
+-  `Verb` enum L527-530 — `Patch | Delete` — The two verbs the shared `api.rs` does not provide yet.
+-  `send` function L533-555 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<gloo_net::ht...` — Build + send one authenticated JSON request; no status handling yet.
+-  `send_json` function L559-577 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<T, ApiError>` — One authenticated JSON round-trip with the standard status handling
+-  `error_from` function L581-593 — `(status: u16, response: gloo_net::http::Response) -> ApiError` — Non-2xx → `ApiError` via the S-0005 envelope (the `api.rs` mapping,
+-  `tests` module L596-746 — `-` — flattening the conflict into an `ApiError`.
+-  `family_parses_from_short_codes` function L602-618 — `()` — Short-code → family across all five letters, multi-segment
+-  `item_mirror_decodes_task_shape` function L622-643 — `()` — The union mirror decodes a full Task body (field-name lock).
+-  `board_mirror_decodes_transitions_and_team` function L649-670 — `()` — The board mirror decodes the `GET /api/boards/{id}` shape the move
+-  `item_mirror_decodes_document_shape` function L674-690 — `()` — The union mirror decodes a Document body (no board fields at all).
+-  `conflict_envelope_extracts_current` function L695-729 — `()` — The 409 envelope parse finds `details.current` whether it is the
+-  `metadata_body_serializes_null_clears` function L734-745 — `()` — The metadata PATCH body serializes `None` as JSON null (the A-0003
+-  `Body` struct L736-738 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
 
 #### crates/kairos-web/src/pages/item/create_doc.rs
 
@@ -3774,13 +3785,13 @@
 
 #### e2e/tests/drag.spec.ts
 
--  `column` function L20-23 — `const column = (page: Page, name: string): Locator`
--  `cardIn` function L25-26 — `const cardIn = (page: Page, columnName: string): Locator`
+-  `column` function L21-24 — `const column = (page: Page, name: string): Locator`
+-  `cardIn` function L26-27 — `const cardIn = (page: Page, columnName: string): Locator`
 
 #### e2e/tests/smoke.spec.ts
 
--  `column` function L34-37 — `const column = (page: Page, name: string): Locator`
--  `cardIn` function L39-40 — `const cardIn = (page: Page, columnName: string, needle: string): Locator`
+-  `column` function L37-40 — `const column = (page: Page, name: string): Locator`
+-  `cardIn` function L42-43 — `const cardIn = (page: Page, columnName: string, needle: string): Locator`
 
 #### e2e/tests/team-lens.spec.ts
 

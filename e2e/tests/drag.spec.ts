@@ -18,10 +18,14 @@ import { test, expect, type Locator, type Page } from '@playwright/test';
 
 const CARD = 'Welcome-email trigger';
 
+// KAIROS-T-0077: delivery boards render two lanes; scope to the Planned
+// lane (this spec's card is planned work) so drag targets are unique.
 const column = (page: Page, name: string): Locator =>
-  page.locator('section.kairos-board__column', {
-    has: page.locator('.kairos-board__column-head', { hasText: name }),
-  });
+  page
+    .locator('section.kairos-board__lane--planned')
+    .locator('section.kairos-board__column', {
+      has: page.locator('.kairos-board__column-head', { hasText: name }),
+    });
 
 const cardIn = (page: Page, columnName: string): Locator =>
   column(page, columnName).locator('article.kairos-card', { hasText: CARD });

@@ -445,12 +445,13 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `api_keys`,
-    // KAIROS-T-0057): drop that table and its bookkeeping row in widgets only,
-    // then fleet-migrate and expect exactly that one migration to re-apply.
-    sql_query("DROP TABLE org_widgets.api_keys")
+    // that predates the NEWEST tenant migration (currently
+    // `column_is_done`, KAIROS-T-0080): revert its DDL and drop its
+    // bookkeeping row in widgets only, then fleet-migrate and expect
+    // exactly that one migration to re-apply.
+    sql_query("ALTER TABLE org_widgets.board_columns DROP COLUMN is_done")
         .execute(&mut conn)
-        .expect("dropping api_keys in widgets to simulate an old tenant");
+        .expect("dropping is_done in widgets to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -476,6 +477,16 @@ fn tenant_provisioning_lifecycle() {
         count(&mut conn, "SELECT count(*) FROM org_widgets.scim_tokens"),
         0,
         "scim_tokens exists (and is empty) in widgets after the fleet upgrade"
+    );
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'org_widgets' AND table_name = 'board_columns' \
+             AND column_name = 'is_done'"
+        ),
+        1,
+        "is_done is back in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

@@ -64,7 +64,9 @@ use kairos_core::short_code::{self, ItemType};
 
 use crate::events::{self, EventKind};
 
-use crate::models::enums::{ActivityAction, BucketType, Complexity, RelationshipType, TaskType};
+use crate::models::enums::{
+    ActivityAction, BucketType, Complexity, RelationshipType, TaskType, WorkClass,
+};
 use crate::models::graph::{NewActivityLogEntry, NewItemHistory};
 use crate::models::items::{
     Adr, Document, Initiative, NewAdr, NewDocument, NewInitiative, NewStrategy, NewTask, Strategy,
@@ -577,6 +579,8 @@ pub struct CreateTask<'a> {
     pub title: &'a str,
     pub content: &'a str,
     pub task_type: TaskType,
+    /// The Planned/Support lane (KAIROS-T-0077).
+    pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
 }
 
@@ -598,6 +602,7 @@ pub fn create_task(
                 board_id: input.board_id,
                 column_id,
                 task_type: input.task_type,
+                work_class: input.work_class,
                 team_id: input.team_id,
                 created_by: actor,
                 updated_by: actor,
@@ -614,6 +619,58 @@ pub fn create_task(
             &created.content,
         )?;
         Ok(created)
+    })
+}
+
+/// Set a task's Planned/Support lane (KAIROS-T-0077). The lane is
+/// orthogonal to the board rules engine — it never affects transition
+/// legality — so this is an item write, not a board transition: update +
+/// `activity_log` (`work_class` action) + `item_updated` thin event, one
+/// transaction. Setting the value the task already has is a no-op (no
+/// log row, no event).
+pub fn set_task_work_class(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    work_class: WorkClass,
+    actor: Uuid,
+) -> Result<Task, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::tasks::dsl;
+        let current: Task = dsl::tasks
+            .filter(dsl::id.eq(task_id))
+            .filter(dsl::deleted_at.is_null())
+            .select(Task::as_select())
+            .first(conn)
+            .optional()?
+            .ok_or(ItemError::ItemNotFound {
+                entity_type: "task",
+                id: task_id,
+            })?;
+        if current.work_class == work_class {
+            return Ok(current);
+        }
+        let updated: Task = diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
+            .set((
+                dsl::work_class.eq(work_class),
+                dsl::updated_by.eq(actor),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(Task::as_returning())
+            .get_result(conn)?;
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::WorkClass,
+            task_id,
+            "task",
+            format!(
+                "work_class:{}->{}",
+                current.work_class.as_str(),
+                work_class.as_str()
+            ),
+        )?;
+        events::emit_item_event_by_id(conn, EventKind::ItemUpdated, "task", task_id, actor)?;
+        Ok(updated)
     })
 }
 

@@ -28,12 +28,14 @@ use crate::error::Error;
 use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
-    ListEnvelope, Pagination, Strategy, Task, TransitionRequest, UpdateContentRequest,
+    ListEnvelope, Pagination, SetWorkClassRequest, Strategy, Task, TransitionRequest,
+    UpdateContentRequest,
 };
 use crate::types_meta::{
     ActivityEntry, ActivityQuery, CreateMetadataDefinitionRequest, CreateRelationshipRequest,
     CreateTemplateRequest, DeletedResponse, HistoryQuery, HistorySnapshot, HistoryVersion,
-    ItemMetadataResponse, ItemRelationshipsResponse, MetadataDefinition, Relationship, Template,
+    ChildrenProgressResponse, ItemMetadataResponse, ItemRelationshipsResponse, MetadataDefinition,
+    Relationship, Template,
     TemplateDetail, UpdateMetadataDefinitionRequest, UpdateMetadataRequest, UpdateTemplateRequest,
 };
 use crate::types_org::{
@@ -398,6 +400,23 @@ impl KairosClient {
         delete_task
     );
     entity_transition!("tasks", Task, transition_task);
+
+    /// `POST /api/tasks/{short_code}/work-class` — move a task between
+    /// the Planned/Support lanes (KAIROS-T-0077). Orthogonal to column
+    /// transitions; requires `transition_items` on the task's board.
+    pub async fn set_task_work_class(
+        &self,
+        short_code: &str,
+        work_class: &str,
+    ) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/work-class"),
+            &SetWorkClassRequest {
+                work_class: work_class.to_string(),
+            },
+        )
+        .await
+    }
 
     entity_family!(
         "documents",
@@ -829,6 +848,18 @@ impl KairosClient {
         short_code: &str,
     ) -> Result<ItemRelationshipsResponse, Error> {
         self.get(&format!("/api/{kind}/{short_code}/relationships"))
+            .await
+    }
+
+    /// `GET /api/{family}/{short_code}/children-progress` — the direct
+    /// `parent`-edge children grouped by board column, with the
+    /// `(done, total)` summary (KAIROS-T-0080).
+    pub async fn children_progress(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+    ) -> Result<ChildrenProgressResponse, Error> {
+        self.get(&format!("/api/{kind}/{short_code}/children-progress"))
             .await
     }
 

@@ -477,6 +477,10 @@ pub(crate) async fn board_items(
                 .enumerate()
                 .map(|(i, g)| (g.column.id.clone(), i))
                 .collect();
+            // Parent short codes for the children-progress map
+            // (KAIROS-T-0080): collected while bucketing so the rollup
+            // stays ONE grouped query for the whole board.
+            let mut item_codes: Vec<(Uuid, String)> = Vec::new();
 
             let strategy_rows: Vec<Strategy> = strategies::table
                 .filter(strategies::board_id.eq(board_id))
@@ -487,6 +491,7 @@ pub(crate) async fn board_items(
                 .map_err(ApiError::internal)?;
             for row in strategy_rows {
                 if let Some(&i) = index_of.get(&row.column_id.to_string()) {
+                    item_codes.push((row.id, row.short_code.clone()));
                     groups[i].strategies.push(row.into_dto());
                 }
             }
@@ -499,6 +504,7 @@ pub(crate) async fn board_items(
                 .map_err(ApiError::internal)?;
             for row in initiative_rows {
                 if let Some(&i) = index_of.get(&row.column_id.to_string()) {
+                    item_codes.push((row.id, row.short_code.clone()));
                     groups[i].initiatives.push(row.into_dto());
                 }
             }
@@ -511,6 +517,7 @@ pub(crate) async fn board_items(
                 .map_err(ApiError::internal)?;
             for row in task_rows {
                 if let Some(&i) = index_of.get(&row.column_id.to_string()) {
+                    item_codes.push((row.id, row.short_code.clone()));
                     groups[i].tasks.push(row.into_dto());
                 }
             }
@@ -525,13 +532,34 @@ pub(crate) async fn board_items(
                 if let Some(column_id) = row.column_id
                     && let Some(&i) = index_of.get(&column_id.to_string())
                 {
+                    item_codes.push((row.id, row.short_code.clone()));
                     groups[i].adrs.push(row.into_dto());
                 }
             }
 
+            let progress = kairos_db::graph::board_children_progress(conn, board_id)
+                .map_err(ApiError::internal)?;
+            let children_progress: std::collections::BTreeMap<String, dto::ProgressCounts> =
+                item_codes
+                    .into_iter()
+                    .filter_map(|(id, code)| {
+                        progress.get(&id).map(|counts| {
+                            (
+                                code,
+                                dto::ProgressCounts {
+                                    done: counts.done,
+                                    total: counts.total,
+                                    has_done: counts.has_done,
+                                },
+                            )
+                        })
+                    })
+                    .collect();
+
             Ok(dto::BoardItemsResponse {
                 board: board.into_dto(),
                 columns: groups,
+                children_progress,
             })
         })
         .await?;
@@ -637,9 +665,9 @@ pub(crate) async fn update_column(
 ) -> Result<Json<dto::BoardColumn>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let column_id = parse_uuid(&col_id, "col_id")?;
-    if body.name.is_none() && body.position.is_none() {
+    if body.name.is_none() && body.position.is_none() && body.is_done.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, position is required",
+            "at least one of name, position, is_done is required",
         ));
     }
     let user = auth.user_id;
@@ -653,6 +681,10 @@ pub(crate) async fn update_column(
 
             if let Some(name) = &body.name {
                 boards::rename_column(conn, column_id, name, user).map_err(map_config_error)?;
+            }
+            if let Some(is_done) = body.is_done {
+                boards::set_column_done(conn, column_id, is_done, user)
+                    .map_err(map_config_error)?;
             }
             if let Some(position) = body.position {
                 if position < 0 {

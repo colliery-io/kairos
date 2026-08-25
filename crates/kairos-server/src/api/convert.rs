@@ -71,6 +71,7 @@ impl IntoDto<dto::Task> for Task {
             board_id: self.board_id.to_string(),
             column_id: self.column_id.to_string(),
             task_type: self.task_type.to_string(),
+            work_class: self.work_class.to_string(),
             team_id: self.team_id.map(|id| id.to_string()),
             version: self.version,
             created_by: self.created_by.to_string(),

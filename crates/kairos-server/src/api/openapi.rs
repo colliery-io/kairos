@@ -79,6 +79,7 @@ use crate::app::AppState;
         crate::api::tasks::update_task,
         crate::api::tasks::delete_task,
         crate::api::tasks::transition_task,
+        crate::api::tasks::set_work_class,
         crate::api::documents::list_documents,
         crate::api::documents::get_document,
         crate::api::documents::create_document,
@@ -97,6 +98,7 @@ use crate::app::AppState;
         // Relationships / metadata / definitions / templates / history /
         // activity (KAIROS-T-0020).
         crate::api::meta::relationships::get_relationships,
+        crate::api::meta::relationships::get_children_progress,
         crate::api::meta::relationships::create_relationship,
         crate::api::meta::relationships::delete_relationship,
         crate::api::meta::metadata::get_metadata,

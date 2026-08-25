@@ -55,6 +55,40 @@ pub struct ItemRelationshipsResponse {
     pub incoming: Vec<RelationshipGroup>,
 }
 
+/// Response of `GET /api/{entity_type}/{short_code}/children-progress`
+/// (KAIROS-T-0080): the item's direct `parent`-edge children grouped by
+/// their board column. `done` counts children in `is_done` columns; when
+/// NO involved column is flagged, clients must show composition only,
+/// never a done percentage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChildrenProgressResponse {
+    /// The parent item's short code.
+    pub short_code: String,
+    /// Direct live children (soft-deleted excluded; supports/informs
+    /// material never counts).
+    pub total: i64,
+    /// Children sitting in `is_done` columns.
+    pub done: i64,
+    /// False when no board hosting the children has a done-flagged
+    /// column — show composition only, never a done fraction.
+    #[serde(default)]
+    pub has_done_columns: bool,
+    /// Per-column composition, board-then-position order.
+    pub by_column: Vec<ChildColumnProgress>,
+}
+
+/// One column bucket of a children-progress rollup (KAIROS-T-0080).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ChildColumnProgress {
+    /// Column id (UUID).
+    pub column_id: String,
+    pub column_name: String,
+    /// The column's board (children may span boards).
+    pub board_id: String,
+    pub is_done: bool,
+    pub count: i64,
+}
+
 /// Body of `POST /api/relationships` (org admin only, KAIROS-A-0006).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateRelationshipRequest {

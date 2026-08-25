@@ -9,7 +9,7 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use kairos_client::types as dto;
 use kairos_core::short_code::ItemType;
-use kairos_db::models::enums::TaskType;
+use kairos_db::models::enums::{TaskType, WorkClass};
 use kairos_db::models::items::Task;
 use kairos_db::{boards, items};
 use serde_json::json;
@@ -35,6 +35,7 @@ pub fn router() -> Router<AppState> {
             get(get_task).patch(update_task).delete(delete_task),
         )
         .route("/api/tasks/{short_code}/transition", post(transition_task))
+        .route("/api/tasks/{short_code}/work-class", post(set_work_class))
 }
 
 /// Load the live task with this short code, or 404.
@@ -148,6 +149,18 @@ pub(crate) async fn create_task(
         .map(|v| parse_enum(v, "task_type", TaskType::ALL))
         .transpose()?
         .unwrap_or(TaskType::Task);
+    // KAIROS-T-0077: a support-type ticket is born in the Support lane
+    // unless the caller says otherwise; everything else defaults planned.
+    let work_class = body
+        .work_class
+        .as_deref()
+        .map(|v| parse_enum(v, "work_class", WorkClass::ALL))
+        .transpose()?
+        .unwrap_or(if task_type == TaskType::Support {
+            WorkClass::Support
+        } else {
+            WorkClass::Planned
+        });
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
@@ -162,6 +175,7 @@ pub(crate) async fn create_task(
                     title: &body.title,
                     content: &body.content,
                     task_type,
+                    work_class,
                     team_id,
                 },
                 user,
@@ -263,6 +277,45 @@ pub(crate) async fn delete_task(
         })
         .await?;
     Ok(Json(outcome))
+}
+
+/// Move a task between the Planned/Support lanes (KAIROS-T-0077;
+/// requires `transition_items` on the task's board — lane moves are
+/// board moves in UX terms, though the rules engine is never consulted).
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{short_code}/work-class",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    request_body = dto::SetWorkClassRequest,
+    responses(
+        (status = 200, description = "Lane updated", body = dto::Task),
+        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "Bad work_class value", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn set_work_class(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    Json(body): Json<dto::SetWorkClassRequest>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let work_class = parse_enum(&body.work_class, "work_class", WorkClass::ALL)?;
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let updated = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code)?;
+            require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
+            let updated = items::set_task_work_class(conn, task.id, work_class, user)
+                .map_err(map_item_error)?;
+            Ok(updated.into_dto())
+        })
+        .await?;
+    Ok(Json(updated))
 }
 
 /// Move a task to another column (requires `transition_items` on the

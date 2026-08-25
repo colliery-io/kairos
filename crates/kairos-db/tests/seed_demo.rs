@@ -180,12 +180,24 @@ fn seed_demo_fixture_lifecycle() {
             "SELECT COUNT(*) AS count FROM org_demo.initiatives WHERE is_bucket",
             2,
         ),
-        ("tasks", "SELECT COUNT(*) AS count FROM org_demo.tasks", 8),
+        ("tasks", "SELECT COUNT(*) AS count FROM org_demo.tasks", 10),
         (
             "bug + tech-debt tasks",
             "SELECT COUNT(*) AS count FROM org_demo.tasks \
              WHERE task_type IN ('bug', 'tech_debt')",
+            3,
+        ),
+        (
+            "support-lane tasks (KAIROS-T-0077)",
+            "SELECT COUNT(*) AS count FROM org_demo.tasks \
+             WHERE work_class = 'support'",
             2,
+        ),
+        (
+            "the no-bug-lane fixture: an unplanned BUG in the Support lane",
+            "SELECT COUNT(*) AS count FROM org_demo.tasks \
+             WHERE work_class = 'support' AND task_type = 'bug'",
+            1,
         ),
         (
             "documents (PRD)",
@@ -201,10 +213,10 @@ fn seed_demo_fixture_lifecycle() {
         ),
         ("ADRs", "SELECT COUNT(*) AS count FROM org_demo.adrs", 2),
         (
-            "parent edges (strategy->2 initiatives, 8 tasks)",
+            "parent edges (strategy->2 initiatives, 10 tasks)",
             "SELECT COUNT(*) AS count FROM org_demo.item_relationships \
              WHERE relationship = 'parent'",
-            10,
+            12,
         ),
         (
             "blocks edges",
@@ -229,7 +241,7 @@ fn seed_demo_fixture_lifecycle() {
             "SELECT COUNT(*) AS count FROM org_demo.item_metadata im \
              JOIN org_demo.metadata_definitions md ON md.id = im.metadata_definition_id \
              WHERE md.slug = 'priority'",
-            4,
+            6,
         ),
         (
             "tasks landed in several columns",
@@ -281,7 +293,7 @@ fn seed_demo_fixture_lifecycle() {
     );
     assert_eq!(
         count(&mut conn, "SELECT COUNT(*) AS count FROM org_demo.tasks"),
-        8
+        10
     );
     // Users were upserted, not duplicated.
     assert_eq!(

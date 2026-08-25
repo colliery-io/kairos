@@ -70,15 +70,75 @@ fn kind_color(kind: EntityKind) -> &'static str {
     }
 }
 
-/// The in-flight card drag (KAIROS-T-0064): which card, and the column ids
-/// its CURRENT column's transitions allow as drop targets — so only legal
-/// columns light up and accept the drop (A-0002: invalid moves are never
-/// offered).
+/// The in-flight card drag (KAIROS-T-0064): which card, where it started,
+/// and the column ids its CURRENT column's transitions allow as drop
+/// targets — so only legal drop zones light up and accept the drop
+/// (A-0002: invalid moves are never offered). `source_column` and
+/// `work_class` make (column, lane) drops decidable (KAIROS-T-0077).
 #[derive(Clone, Debug, PartialEq)]
 struct DragData {
     kind: EntityKind,
     short_code: String,
     targets: Vec<String>,
+    /// The column the card is dragged FROM.
+    source_column: String,
+    /// The card's current lane — `Some` for tasks, `None` for kinds that
+    /// carry no lane (and therefore cannot lane-move).
+    work_class: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Planned/Support lanes (KAIROS-T-0077)
+// ---------------------------------------------------------------------------
+
+/// The two board lanes: the lane is a projection of `tasks.work_class`.
+const LANE_SUPPORT: &str = "support";
+const LANE_PLANNED: &str = "planned";
+
+/// Which lane a card renders in: tasks follow their `work_class`;
+/// non-task kinds always render in the Planned (default) lane. Pure,
+/// host-tested.
+fn card_lane(work_class: Option<&str>) -> &'static str {
+    match work_class {
+        Some(LANE_SUPPORT) => LANE_SUPPORT,
+        _ => LANE_PLANNED,
+    }
+}
+
+/// What dropping the in-flight drag onto (column, lane) would do.
+/// `None` = illegal or no-op, and the zone neither lights up nor accepts.
+/// Pure, host-tested: same-column cross-lane = lane write only (the rules
+/// engine is never consulted); cross-column same-lane = transition as
+/// before; diagonal = both; lane moves only exist for cards that carry a
+/// lane (tasks).
+#[derive(Clone, Debug, PartialEq)]
+struct DropEffect {
+    transition_to: Option<String>,
+    set_work_class: Option<String>,
+}
+
+fn drop_effect(drag: &DragData, column_id: &str, lane: Option<&str>) -> Option<DropEffect> {
+    let column_change = drag.source_column != column_id;
+    let lane_change = match (lane, drag.work_class.as_deref()) {
+        (Some(lane), Some(current)) => current != lane,
+        _ => false,
+    };
+    match (column_change, lane_change) {
+        (false, false) => None,
+        (false, true) => Some(DropEffect {
+            transition_to: None,
+            set_work_class: lane.map(str::to_string),
+        }),
+        (true, _) if !drag.targets.iter().any(|t| t == column_id) => None,
+        (true, false) => Some(DropEffect {
+            transition_to: Some(column_id.to_string()),
+            set_work_class: None,
+        }),
+        (true, true) => Some(DropEffect {
+            transition_to: Some(column_id.to_string()),
+            set_work_class: lane.map(str::to_string),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -163,22 +223,34 @@ pub(crate) fn board_powers(
     }
 }
 
-/// Run one transition and report through the standard board callbacks —
-/// the drop handler's mutation path (the keyboard-accessible path lives
-/// on the item detail page, KAIROS-T-0075).
-fn run_transition(
+/// Apply one [`DropEffect`] and report through the standard board
+/// callbacks — the drop handler's mutation path (the keyboard-accessible
+/// path lives on the item detail page, KAIROS-T-0075). A diagonal drop is
+/// two sequential writes (transition, then lane); a failure after the
+/// first still refetches nothing stale — `on_error` surfaces it and the
+/// next WS event reconciles.
+fn run_drop(
     auth: crate::auth::Auth,
     kind: EntityKind,
     code: String,
-    column_id: String,
+    effect: DropEffect,
     on_changed: Callback<()>,
     on_error: Callback<ApiError>,
 ) {
     leptos::task::spawn_local(async move {
-        match data::transition(auth, kind, &code, &column_id).await {
-            Ok(()) => on_changed.run(()),
-            Err(error) => on_error.run(error),
+        if let Some(column_id) = effect.transition_to {
+            if let Err(error) = data::transition(auth, kind, &code, &column_id).await {
+                on_error.run(error);
+                return;
+            }
         }
+        if let Some(work_class) = effect.set_work_class {
+            if let Err(error) = data::set_work_class(auth, &code, &work_class).await {
+                on_error.run(error);
+                return;
+            }
+        }
+        on_changed.run(());
     });
 }
 
@@ -374,6 +446,10 @@ struct CardModel {
     short_code: String,
     title: String,
     meta: Vec<(String, &'static str)>,
+    /// `tasks.work_class` — `Some` for tasks only (KAIROS-T-0077).
+    work_class: Option<String>,
+    /// Children rollup — `Some` for parents only (KAIROS-T-0080).
+    progress: Option<data::ProgressCounts>,
     key: String,
 }
 
@@ -400,12 +476,21 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             .map(|c| c.name.clone())
             .unwrap_or_default()
     };
-    let card = |kind: EntityKind, short_code: &str, title: &str, meta: Vec<(String, &'static str)>| {
+    let progress_of =
+        |short_code: &str| view.items.children_progress.get(short_code).copied();
+    let card = |kind: EntityKind,
+                short_code: &str,
+                title: &str,
+                meta: Vec<(String, &'static str)>,
+                work_class: Option<String>| {
+        let progress = progress_of(short_code);
         CardModel {
             kind,
             short_code: short_code.to_string(),
             title: title.to_string(),
-            key: format!("{short_code}|{title}|{meta:?}"),
+            key: format!("{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}"),
+            work_class,
+            progress,
             meta,
         }
     };
@@ -423,12 +508,15 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 .map(|t| (t.to_column_id.clone(), column_name_of(&t.to_column_id)))
                 .collect();
             let mut cards: Vec<CardModel> = Vec::new();
-            cards.extend(
-                group
-                    .strategies
-                    .iter()
-                    .map(|item| card(EntityKind::Strategy, &item.short_code, &item.title, Vec::new())),
-            );
+            cards.extend(group.strategies.iter().map(|item| {
+                card(
+                    EntityKind::Strategy,
+                    &item.short_code,
+                    &item.title,
+                    Vec::new(),
+                    None,
+                )
+            }));
             cards.extend(group.initiatives.iter().map(|item| {
                 let mut meta = Vec::new();
                 if let Some(complexity) = &item.complexity {
@@ -438,15 +526,28 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     let bucket = item.bucket_type.clone().unwrap_or_default();
                     meta.push((format!("bucket · {bucket}"), token::GOLD));
                 }
-                card(EntityKind::Initiative, &item.short_code, &item.title, meta)
+                card(
+                    EntityKind::Initiative,
+                    &item.short_code,
+                    &item.title,
+                    meta,
+                    None,
+                )
             }));
             cards.extend(group.tasks.iter().map(|item| {
                 let meta = match item.task_type.as_str() {
                     "bug" => vec![("bug".to_string(), token::BAD)],
                     "tech_debt" => vec![("tech debt".to_string(), token::GOLD)],
+                    "support" => vec![("support".to_string(), token::GOLD)],
                     _ => Vec::new(),
                 };
-                card(EntityKind::Task, &item.short_code, &item.title, meta)
+                card(
+                    EntityKind::Task,
+                    &item.short_code,
+                    &item.title,
+                    meta,
+                    Some(item.work_class.clone()),
+                )
             }));
             cards.extend(group.adrs.iter().map(|item| {
                 let meta = item
@@ -454,7 +555,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     .iter()
                     .map(|date| (format!("decided {date}"), token::VIOLET))
                     .collect();
-                card(EntityKind::Adr, &item.short_code, &item.title, meta)
+                card(EntityKind::Adr, &item.short_code, &item.title, meta, None)
             }));
             ColumnModel {
                 id: group.column.id.clone(),
@@ -632,8 +733,6 @@ fn BoardBody(
     on_changed: Callback<()>,
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
-    let auth = use_auth();
-
     // Identity fields are stable for this instance's lifetime (a board-id
     // change recreates the whole component).
     let board = model.with_untracked(|m| {
@@ -645,6 +744,7 @@ fn BoardBody(
     });
     let create_kind = EntityKind::for_board_level(&board.board_level);
     let is_adr = board.board_level == "adr";
+    let is_delivery = board.board_level == "delivery";
     let board_id = StoredValue::new(board.id.clone());
     let team_id = StoredValue::new(board.team_id.clone());
 
@@ -722,92 +822,25 @@ fn BoardBody(
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
         }}
-        <div class="kairos-board">
-            <For
-                each=move || columns.get()
-                key=|column| column.key.clone()
-                children=move |column: ColumnModel| {
-                    let ColumnModel { id, name, targets, key: _, cards: _ } = column;
-                    // This column's live card list: the column node itself
-                    // persists across refetches; only its cards diff.
-                    let cards_column_id = id.clone();
-                    let cards = Memo::new(move |_| {
-                        columns.with(|columns| {
-                            columns
-                                .iter()
-                                .find(|c| c.id == cards_column_id)
-                                .map(|c| c.cards.clone())
-                                .unwrap_or_default()
-                        })
-                    });
-                    // Per-handler copies of this column's id (drop target).
-                    let class_id = id.clone();
-                    let over_id = id.clone();
-                    let drop_id = id;
-                    let targets_for_cards = StoredValue::new(targets);
-                    view! {
-                        <section
-                            class="kairos-board__column"
-                            class:kairos-board__column--droppable=move || {
-                                drag.with(|d| d.as_ref().is_some_and(|d| d.targets.contains(&class_id)))
-                            }
-                            on:dragover=move |ev: web_sys::DragEvent| {
-                                // preventDefault marks the column as a valid
-                                // drop target — only for legal transitions.
-                                let legal = drag.with_untracked(|d| {
-                                    d.as_ref().is_some_and(|d| d.targets.contains(&over_id))
-                                });
-                                if legal {
-                                    ev.prevent_default();
-                                }
-                            }
-                            on:drop=move |ev: web_sys::DragEvent| {
-                                ev.prevent_default();
-                                let Some(data) = drag.get_untracked() else { return };
-                                drag.set(None);
-                                if !data.targets.contains(&drop_id) {
-                                    return;
-                                }
-                                run_transition(
-                                    auth,
-                                    data.kind,
-                                    data.short_code,
-                                    drop_id.clone(),
-                                    on_changed,
-                                    on_error,
-                                );
-                            }
-                        >
-                            <header class="kairos-board__column-head">
-                                <Group gap="xs">
-                                    <Text bright=true bold=true size="sm">{name}</Text>
-                                    <Text dimmed=true size="xs">{move || cards.with(Vec::len).to_string()}</Text>
-                                </Group>
-                            </header>
-                            <Stack gap="xs">
-                                {move || cards.with(Vec::is_empty).then(|| view! {
-                                    <Text dimmed=true size="xs">"No items in this column."</Text>
-                                })}
-                                <For
-                                    each=move || cards.get()
-                                    key=|card| card.key.clone()
-                                    children=move |card: CardModel| {
-                                        let CardModel { kind, short_code, title, meta, key: _ } = card;
-                                        view! {
-                                            <ItemCard
-                                                kind short_code title meta
-                                                targets=targets_for_cards.get_value()
-                                                drag powers
-                                            />
-                                        }
-                                    }
-                                />
-                            </Stack>
-                        </section>
-                    }
+        {
+            // KAIROS-T-0077: delivery boards split into Support (on top,
+            // the expedite convention) and Planned lanes — the lane is a
+            // pure projection of tasks.work_class. Other levels keep the
+            // single unlaned row. The level is fixed per BoardBody
+            // instance, so this branch is deliberately non-reactive.
+            if is_delivery {
+                view! {
+                    <LaneSection lane=LANE_SUPPORT label="Support" caption="unplanned intake"
+                        color=token::GOLD columns drag powers on_changed on_error/>
+                    <LaneSection lane=LANE_PLANNED label="Planned" caption="scheduled work"
+                        color=token::TEAL columns drag powers on_changed on_error/>
                 }
-            />
-        </div>
+                .into_any()
+            } else {
+                view! { <LaneColumns lane=None columns drag powers on_changed on_error/> }
+                    .into_any()
+            }
+        }
         {move || create_kind.zip(entry_column.get()).map(|(kind, entry)| view! {
             <CreateItemModal
                 open=create_open
@@ -821,6 +854,173 @@ fn BoardBody(
         {move || documents_offered.get().then(|| view! {
             <CreateDocumentModal open=doc_open parents=doc_parents on_changed/>
         })}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lanes + columns (KAIROS-T-0077)
+// ---------------------------------------------------------------------------
+
+/// One horizontal lane on a delivery board: accent header with a live
+/// card count, then the column row filtered to this lane. An empty
+/// Support lane renders slim (`--empty`) but its columns stay valid drop
+/// targets.
+#[component]
+fn LaneSection(
+    lane: &'static str,
+    label: &'static str,
+    caption: &'static str,
+    color: &'static str,
+    columns: Memo<Vec<ColumnModel>>,
+    drag: RwSignal<Option<DragData>>,
+    powers: Signal<BoardPowers>,
+    on_changed: Callback<()>,
+    on_error: Callback<ApiError>,
+) -> impl IntoView {
+    let count = Memo::new(move |_| {
+        columns.with(|columns| {
+            columns
+                .iter()
+                .flat_map(|column| column.cards.iter())
+                .filter(|card| card_lane(card.work_class.as_deref()) == lane)
+                .count()
+        })
+    });
+    view! {
+        <section
+            class="kairos-board__lane"
+            class:kairos-board__lane--support=(lane == LANE_SUPPORT)
+            class:kairos-board__lane--planned=(lane == LANE_PLANNED)
+            class:kairos-board__lane--empty=move || count.get() == 0
+        >
+            <header class="kairos-board__lane-head">
+                <Group gap="xs">
+                    <Pill color=color>{label}</Pill>
+                    <Text dimmed=true size="xs">{move || count.get().to_string()}</Text>
+                    <Text dimmed=true size="xs">{caption}</Text>
+                </Group>
+            </header>
+            <LaneColumns lane=Some(lane) columns drag powers on_changed on_error/>
+        </section>
+    }
+}
+
+/// The column row (KAIROS-T-0040/T-0074 fine-grained rendering), filtered
+/// to one lane when `lane` is `Some` (KAIROS-T-0077). Drop zones are
+/// (column, lane) pairs decided by [`drop_effect`]; the column node
+/// persists across refetches and only its cards diff.
+#[component]
+fn LaneColumns(
+    lane: Option<&'static str>,
+    columns: Memo<Vec<ColumnModel>>,
+    drag: RwSignal<Option<DragData>>,
+    powers: Signal<BoardPowers>,
+    on_changed: Callback<()>,
+    on_error: Callback<ApiError>,
+) -> impl IntoView {
+    let auth = use_auth();
+    view! {
+        <div class="kairos-board">
+            <For
+                each=move || columns.get()
+                key=|column| column.key.clone()
+                children=move |column: ColumnModel| {
+                    let ColumnModel { id, name, targets, key: _, cards: _ } = column;
+                    // This column's live card list — this lane's slice of
+                    // it: the column node itself persists across
+                    // refetches; only its cards diff.
+                    let cards_column_id = id.clone();
+                    let cards = Memo::new(move |_| {
+                        columns.with(|columns| {
+                            columns
+                                .iter()
+                                .find(|c| c.id == cards_column_id)
+                                .map(|c| {
+                                    c.cards
+                                        .iter()
+                                        .filter(|card| match lane {
+                                            None => true,
+                                            Some(lane) => {
+                                                card_lane(card.work_class.as_deref()) == lane
+                                            }
+                                        })
+                                        .cloned()
+                                        .collect::<Vec<CardModel>>()
+                                })
+                                .unwrap_or_default()
+                        })
+                    });
+                    // Per-handler copies of this column's id (drop target).
+                    let class_id = id.clone();
+                    let over_id = id.clone();
+                    let drop_id = id.clone();
+                    let targets_for_cards = StoredValue::new(targets);
+                    let column_for_cards = StoredValue::new(id);
+                    view! {
+                        <section
+                            class="kairos-board__column"
+                            class:kairos-board__column--droppable=move || {
+                                drag.with(|d| {
+                                    d.as_ref()
+                                        .is_some_and(|d| drop_effect(d, &class_id, lane).is_some())
+                                })
+                            }
+                            on:dragover=move |ev: web_sys::DragEvent| {
+                                // preventDefault marks this zone as a valid
+                                // drop target — only when the drop would
+                                // actually do something legal.
+                                let legal = drag.with_untracked(|d| {
+                                    d.as_ref()
+                                        .is_some_and(|d| drop_effect(d, &over_id, lane).is_some())
+                                });
+                                if legal {
+                                    ev.prevent_default();
+                                }
+                            }
+                            on:drop=move |ev: web_sys::DragEvent| {
+                                ev.prevent_default();
+                                let Some(data) = drag.get_untracked() else { return };
+                                drag.set(None);
+                                let Some(effect) = drop_effect(&data, &drop_id, lane) else {
+                                    return;
+                                };
+                                run_drop(auth, data.kind, data.short_code, effect, on_changed, on_error);
+                            }
+                        >
+                            <header class="kairos-board__column-head">
+                                <Group gap="xs">
+                                    <Text bright=true bold=true size="sm">{name}</Text>
+                                    <Text dimmed=true size="xs">{move || cards.with(Vec::len).to_string()}</Text>
+                                </Group>
+                            </header>
+                            <Stack gap="xs">
+                                {move || ((lane != Some(LANE_SUPPORT)) && cards.with(Vec::is_empty)).then(|| view! {
+                                    <Text dimmed=true size="xs">"No items in this column."</Text>
+                                })}
+                                <For
+                                    each=move || cards.get()
+                                    key=|card| card.key.clone()
+                                    children=move |card: CardModel| {
+                                        let CardModel {
+                                            kind, short_code, title, meta, work_class,
+                                            progress, key: _,
+                                        } = card;
+                                        view! {
+                                            <ItemCard
+                                                kind short_code title meta work_class progress
+                                                targets=targets_for_cards.get_value()
+                                                source_column=column_for_cards.get_value()
+                                                drag powers
+                                            />
+                                        }
+                                    }
+                                />
+                            </Stack>
+                        </section>
+                    }
+                }
+            />
+        </div>
     }
 }
 
@@ -840,10 +1040,17 @@ fn ItemCard(
     title: String,
     /// `(label, color-token)` pills — per-type key metadata.
     meta: Vec<(String, &'static str)>,
+    /// `tasks.work_class` — `Some` for tasks; carried into the drag so
+    /// lane drops are decidable (KAIROS-T-0077).
+    work_class: Option<String>,
+    /// Children rollup badge (KAIROS-T-0080) — renders only when `Some`.
+    progress: Option<data::ProgressCounts>,
     /// `(column_id, column_name)` — the valid targets from this column.
     targets: Vec<(String, String)>,
+    /// The column this card currently sits in (the drag's source).
+    source_column: String,
     /// The board's in-flight drag; this card writes itself here on
-    /// dragstart so legal columns light up and accept the drop.
+    /// dragstart so legal drop zones light up and accept the drop.
     drag: RwSignal<Option<DragData>>,
     /// The user's powers on this board (KAIROS-T-0072): no transition
     /// power → no drag.
@@ -854,11 +1061,15 @@ fn ItemCard(
     let code_for_copy = short_code.clone();
     let code_for_drag = short_code.clone();
     let code_for_class = short_code;
-    let has_targets = !targets.is_empty();
+    // A card is draggable when a column move is offered OR it carries a
+    // lane (KAIROS-T-0077: a task in a dead-end column can still move to
+    // the other lane of the same column).
+    let has_moves = !targets.is_empty() || work_class.is_some();
     let target_ids: Vec<String> = targets.iter().map(|(id, _)| id.clone()).collect();
+    let drag_work_class = work_class;
     // Memoized (KAIROS-T-0074): notifies only when the decision actually
     // flips, so refetches can't needlessly rebuild the card's attributes.
-    let movable = Memo::new(move |_| has_targets && powers.get().transition);
+    let movable = Memo::new(move |_| has_moves && powers.get().transition);
     view! {
         <article
             class="kairos-card"
@@ -867,7 +1078,7 @@ fn ItemCard(
             }
             draggable=move || if movable.get() { "true" } else { "false" }
             on:dragstart=move |ev: web_sys::DragEvent| {
-                if !(has_targets && powers.get_untracked().transition) {
+                if !(has_moves && powers.get_untracked().transition) {
                     return;
                 }
                 // dataTransfer content is required for some engines to
@@ -880,6 +1091,8 @@ fn ItemCard(
                     kind,
                     short_code: code_for_drag.clone(),
                     targets: target_ids.clone(),
+                    source_column: source_column.clone(),
+                    work_class: drag_work_class.clone(),
                 }));
             }
             on:dragend=move |_| drag.set(None)
@@ -902,6 +1115,34 @@ fn ItemCard(
                         <Pill color=color>{label}</Pill>
                     }).collect_view()}
                 </Group>
+            })}
+            {progress.map(|p| {
+                // KAIROS-T-0080: the N-of-M micro-badge. Without done
+                // semantics on the children's boards, composition only —
+                // never a misleading fraction.
+                let percent = if p.has_done && p.total > 0 {
+                    (p.done * 100 / p.total).clamp(0, 100)
+                } else {
+                    0
+                };
+                let label = if p.has_done {
+                    format!("{}/{} done", p.done, p.total)
+                } else {
+                    format!("{} children", p.total)
+                };
+                view! {
+                    <div class="kairos-card__progress" title="direct children">
+                        {p.has_done.then(|| view! {
+                            <span class="kairos-progress__bar">
+                                <span
+                                    class="kairos-progress__fill"
+                                    style=format!("width: {percent}%")
+                                ></span>
+                            </span>
+                        })}
+                        <Text mono=true dimmed=true size="xs">{label}</Text>
+                    </div>
+                }
             })}
         </article>
     }
@@ -932,6 +1173,9 @@ fn CreateItemModal(
     let hypothesis = RwSignal::new(String::new());
     let complexity = RwSignal::new("none".to_string());
     let task_type = RwSignal::new("task".to_string());
+    // KAIROS-T-0077: "auto" omits the field — the server defaults the
+    // lane (support type → Support lane, else Planned).
+    let work_class = RwSignal::new("auto".to_string());
     let decision_maker = RwSignal::new(String::new());
     let decision_date = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
@@ -945,6 +1189,7 @@ fn CreateItemModal(
             hypothesis.set(String::new());
             complexity.set("none".to_string());
             task_type.set("task".to_string());
+            work_class.set("auto".to_string());
             decision_maker.set(String::new());
             decision_date.set(String::new());
             busy.set(false);
@@ -966,6 +1211,7 @@ fn CreateItemModal(
                 hypothesis: opt(hypothesis.get_untracked()),
                 complexity: Some(complexity.get_untracked()).filter(|c| c != "none"),
                 task_type: Some(task_type.get_untracked()),
+                work_class: Some(work_class.get_untracked()).filter(|c| c != "auto"),
                 team_id: team_id.clone(),
                 decision_maker: opt(decision_maker.get_untracked()),
                 decision_date: opt(decision_date.get_untracked()),
@@ -1010,7 +1256,12 @@ fn CreateItemModal(
                 })}
                 {matches!(kind, EntityKind::Task).then(|| view! {
                     <Select label="Task type" value=task_type
-                        options=vec!["task".into(), "bug".into(), "tech_debt".into()]/>
+                        options=vec!["task".into(), "bug".into(), "tech_debt".into(),
+                                     "support".into()]/>
+                    // KAIROS-T-0077: the Planned/Support lane; "auto"
+                    // follows the type (support → Support lane).
+                    <Select label="Lane" value=work_class
+                        options=vec!["auto".into(), "planned".into(), "support".into()]/>
                 })}
                 {matches!(kind, EntityKind::Adr).then(|| view! {
                     <Stack gap="sm">
@@ -1287,6 +1538,63 @@ mod tests {
         assert!(grant_covers("manage_*", "manage_tasks"));
         assert!(!grant_covers("manage_*", "transition_items"));
         assert!(!grant_covers("manage_tasks", "manage_taskss"));
+    }
+
+    /// KAIROS-T-0077: the lane is a pure projection of work_class;
+    /// non-task kinds render in the default Planned lane.
+    #[test]
+    fn card_lane_projects_work_class() {
+        assert_eq!(card_lane(Some("support")), LANE_SUPPORT);
+        assert_eq!(card_lane(Some("planned")), LANE_PLANNED);
+        assert_eq!(card_lane(None), LANE_PLANNED);
+    }
+
+    /// KAIROS-T-0077 drop semantics: same-column cross-lane = lane write
+    /// only (no transition validation); cross-column same-lane =
+    /// transition exactly as before; diagonal = both; column legality
+    /// stays with the transitions; unlaned cards cannot lane-move.
+    #[test]
+    fn drop_effect_decides_column_and_lane_moves() {
+        let drag = |targets: &[&str], work_class: Option<&str>| DragData {
+            kind: EntityKind::Task,
+            short_code: "T-1".into(),
+            targets: targets.iter().map(|s| s.to_string()).collect(),
+            source_column: "c-src".into(),
+            work_class: work_class.map(str::to_string),
+        };
+        // Same column, same lane: no-op.
+        assert_eq!(
+            drop_effect(&drag(&["c-2"], Some("planned")), "c-src", Some("planned")),
+            None
+        );
+        // Same column, other lane: lane write only — legal even from a
+        // dead-end column (no targets).
+        let effect =
+            drop_effect(&drag(&[], Some("planned")), "c-src", Some("support")).expect("legal");
+        assert_eq!(effect.transition_to, None);
+        assert_eq!(effect.set_work_class.as_deref(), Some("support"));
+        // Cross column, same lane: transition exactly as before.
+        let effect =
+            drop_effect(&drag(&["c-2"], Some("support")), "c-2", Some("support")).expect("legal");
+        assert_eq!(effect.transition_to.as_deref(), Some("c-2"));
+        assert_eq!(effect.set_work_class, None);
+        // Diagonal: both writes.
+        let effect =
+            drop_effect(&drag(&["c-2"], Some("planned")), "c-2", Some("support")).expect("legal");
+        assert_eq!(effect.transition_to.as_deref(), Some("c-2"));
+        assert_eq!(effect.set_work_class.as_deref(), Some("support"));
+        // A column outside the transition targets stays illegal, diagonal
+        // or not — lane never affects transition legality.
+        assert_eq!(
+            drop_effect(&drag(&["c-2"], Some("planned")), "c-3", Some("support")),
+            None
+        );
+        // Unlaned rows (non-delivery boards): pure column semantics.
+        let effect = drop_effect(&drag(&["c-2"], None), "c-2", None).expect("legal");
+        assert_eq!(effect.transition_to.as_deref(), Some("c-2"));
+        assert_eq!(drop_effect(&drag(&["c-2"], None), "c-src", None), None);
+        // A card without a lane cannot lane-move.
+        assert_eq!(drop_effect(&drag(&[], None), "c-src", Some("support")), None);
     }
 
     /// A board whose team id names an unknown team lands in "No team"

@@ -71,6 +71,9 @@ pub struct BoardColumn {
     pub position: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Occupants count as completed for children-progress rollups
+    /// (KAIROS-T-0080). Admin-set; the dead-end heuristic only suggests.
+    pub is_done: bool,
 }
 
 /// Insert for [`BoardColumn`].
@@ -80,6 +83,7 @@ pub struct NewBoardColumn {
     pub board_id: Uuid,
     pub name: String,
     pub position: i32,
+    pub is_done: bool,
 }
 
 /// Partial update for [`BoardColumn`].
@@ -88,6 +92,7 @@ pub struct NewBoardColumn {
 pub struct BoardColumnChangeset {
     pub name: Option<String>,
     pub position: Option<i32>,
+    pub is_done: Option<bool>,
     pub updated_at: Option<DateTime<Utc>>,
 }
 

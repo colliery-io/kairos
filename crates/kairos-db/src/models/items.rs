@@ -11,7 +11,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use super::boards::{Board, BoardColumn};
-use super::enums::{BucketType, Complexity, TaskType};
+use super::enums::{BucketType, Complexity, TaskType, WorkClass};
 use super::teams::Team;
 use super::templates::Template;
 use crate::schema::{adrs, documents, initiatives, strategies, tasks};
@@ -152,6 +152,8 @@ pub struct Task {
     pub board_id: Uuid,
     pub column_id: Uuid,
     pub task_type: TaskType,
+    /// The Planned/Support lane axis (KAIROS-T-0077).
+    pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
     pub version: i32,
     pub created_by: Uuid,
@@ -171,6 +173,7 @@ pub struct NewTask {
     pub board_id: Uuid,
     pub column_id: Uuid,
     pub task_type: TaskType,
+    pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
     pub created_by: Uuid,
     pub updated_by: Uuid,
@@ -185,6 +188,7 @@ pub struct TaskChangeset {
     pub board_id: Option<Uuid>,
     pub column_id: Option<Uuid>,
     pub task_type: Option<TaskType>,
+    pub work_class: Option<WorkClass>,
     pub team_id: Option<Option<Uuid>>,
     pub version: Option<i32>,
     pub updated_by: Option<Uuid>,

@@ -489,6 +489,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
             &UpdateColumnRequest {
                 name: Some("Spike 2".into()),
                 position: Some(0),
+                is_done: None,
             },
         )
         .await
@@ -894,6 +895,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
             title: "Wire the API".into(),
             content: String::new(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await

@@ -36,9 +36,13 @@ pub struct SearchArgs {
     /// Restrict to tasks assigned to this team (UUID)
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
-    /// Task type filter, repeatable: task|bug|tech_debt
+    /// Task type filter, repeatable: task|bug|tech_debt|support
     #[arg(long, value_name = "TASK_TYPE")]
     pub task_type: Vec<String>,
+    /// Planned/Support lane filter, repeatable: planned|support
+    /// (KAIROS-T-0077)
+    #[arg(long, value_name = "WORK_CLASS")]
+    pub work_class: Vec<String>,
     /// Restrict to (non-)bucket initiatives
     #[arg(long, value_name = "BOOL")]
     pub is_bucket: Option<bool>,
@@ -102,6 +106,7 @@ impl SearchArgs {
             || self.column.is_some()
             || self.team.is_some()
             || !self.task_type.is_empty()
+            || !self.work_class.is_empty()
             || self.is_bucket.is_some()
             || !self.metadata.is_empty()
             || self.after.is_some()
@@ -154,6 +159,7 @@ impl SearchArgs {
             || self.column.is_some()
             || self.team.is_some()
             || !self.task_type.is_empty()
+            || !self.work_class.is_empty()
             || self.is_bucket.is_some()
             || metadata.is_some()
             || self.after.is_some()
@@ -165,6 +171,7 @@ impl SearchArgs {
             column_id: self.column.clone(),
             team_id: self.team.clone(),
             task_type: non_empty(&self.task_type),
+            work_class: non_empty(&self.work_class),
             is_bucket: self.is_bucket,
             metadata,
             created_after: self.after.clone(),

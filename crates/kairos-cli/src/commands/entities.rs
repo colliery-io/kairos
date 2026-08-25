@@ -571,9 +571,13 @@ pub struct TaskCreateArgs {
     /// Markdown content (defaults to empty)
     #[arg(long, default_value = "")]
     pub content: String,
-    /// Task type: task|bug|tech_debt (defaults to task)
+    /// Task type: task|bug|tech_debt|support (defaults to task)
     #[arg(long = "type", value_name = "TASK_TYPE")]
     pub task_type: Option<String>,
+    /// Planned/Support lane: planned|support (KAIROS-T-0077; defaults to
+    /// support for support-type tasks, else planned)
+    #[arg(long = "work-class", value_name = "WORK_CLASS")]
+    pub work_class: Option<String>,
     /// Owning team (UUID)
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
@@ -589,6 +593,7 @@ impl TaskCreateArgs {
             title: self.title.clone(),
             content: self.content.clone(),
             task_type: self.task_type.clone(),
+            work_class: self.work_class.clone(),
             team_id: self.team.clone(),
         }
     }

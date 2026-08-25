@@ -213,7 +213,7 @@ pub fn AdminBoardPage() -> impl IntoView {
                         </Group>
                         <MutationNotice outcome/>
                         <ColumnsPanel board_id=id.clone() columns=detail.columns.clone()
-                            busy outcome reload/>
+                            transitions=detail.transitions.clone() busy outcome reload/>
                         <TransitionsPanel board_id=id.clone() columns=detail.columns.clone()
                             transitions=detail.transitions.clone() busy outcome reload/>
                         <MembersPanel board_id=id busy outcome reload/>
@@ -224,13 +224,16 @@ pub fn AdminBoardPage() -> impl IntoView {
     }
 }
 
-/// Columns: position-ordered rows with rename / move / remove, plus an
-/// append form. Non-empty-column removals surface the server's
-/// `COLUMN_NOT_EMPTY` 422 (message includes the live item count).
+/// Columns: position-ordered rows with rename / move / remove / done
+/// toggle (KAIROS-T-0080), plus an append form. Non-empty-column removals
+/// surface the server's `COLUMN_NOT_EMPTY` 422 (message includes the live
+/// item count). The dead-end heuristic only ever SUGGESTS the done flag
+/// (a gold "dead end" pill) — marking is an explicit admin click.
 #[component]
 fn ColumnsPanel(
     board_id: String,
     columns: Vec<api::BoardColumn>,
+    transitions: Vec<api::BoardTransition>,
     busy: RwSignal<bool>,
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
@@ -262,7 +265,32 @@ fn ColumnsPanel(
         .map(|column| {
             let rename = RwSignal::new(column.name.clone());
             let position = column.position;
+            let is_done = column.is_done;
+            // The heuristic suggestion (KAIROS-T-0080): a column with no
+            // outbound transitions is either terminal or misconfigured —
+            // surface it, never act on it.
+            let is_dead_end = !transitions
+                .iter()
+                .any(|t| t.from_column_id == column.id);
             let column_id = StoredValue::new(column.id);
+            let on_toggle_done = move |_| {
+                let board_id = board.get_value();
+                let column_id = column_id.get_value();
+                run_mutation(
+                    busy,
+                    outcome,
+                    reload,
+                    format!(
+                        "Column marked {}.",
+                        if is_done { "not done" } else { "done" }
+                    ),
+                    async move {
+                        api::update_column(auth, &board_id, &column_id, None, None, Some(!is_done))
+                            .await
+                            .map(|_| ())
+                    },
+                );
+            };
             let on_rename = move |_| {
                 let board_id = board.get_value();
                 let column_id = column_id.get_value();
@@ -273,7 +301,7 @@ fn ColumnsPanel(
                     reload,
                     format!("Column renamed to \"{name}\"."),
                     async move {
-                        api::update_column(auth, &board_id, &column_id, Some(&name), None)
+                        api::update_column(auth, &board_id, &column_id, Some(&name), None, None)
                             .await
                             .map(|_| ())
                     },
@@ -291,7 +319,7 @@ fn ColumnsPanel(
                     reload,
                     format!("Column moved to position {target}."),
                     async move {
-                        api::update_column(auth, &board_id, &column_id, None, Some(target))
+                        api::update_column(auth, &board_id, &column_id, None, Some(target), None)
                             .await
                             .map(|_| ())
                     },
@@ -319,8 +347,18 @@ fn ColumnsPanel(
                         <TextInput value=rename/>
                         <Button variant="default" size="xs"
                             on_click=Callback::new(on_rename)>"Rename"</Button>
+                        {is_done.then(|| view! {
+                            <Pill color=token::OK>"done"</Pill>
+                        })}
+                        {(is_dead_end && !is_done).then(|| view! {
+                            <Pill color=token::GOLD>"dead end"</Pill>
+                        })}
                     </Group>
                     <Group gap="xs">
+                        <Button variant="default" size="xs"
+                            on_click=Callback::new(on_toggle_done)>
+                            {if is_done { "Unmark done" } else { "Mark done" }}
+                        </Button>
                         <Button variant="default" size="xs"
                             on_click=Callback::new(move |_| move_to(position - 1))>
                             "Up"

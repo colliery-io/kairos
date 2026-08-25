@@ -152,6 +152,7 @@ async fn cascade_preview_matches_actual_cascade() {
             title: "SSO login".into(),
             content: "# Task".into(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await

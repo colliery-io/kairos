@@ -254,6 +254,7 @@ fn relationship_graph_service() {
                 title,
                 content: "",
                 task_type: TaskType::Task,
+                work_class: kairos_db::models::enums::WorkClass::Planned,
                 team_id: None,
             },
             alice,
@@ -726,4 +727,185 @@ fn relationship_graph_service() {
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))
         .execute(&mut admin_conn)
         .expect("dropping scratch database after test");
+}
+
+/// KAIROS-T-0080: the children-progress rollups — per-parent grouping,
+/// multi-board children, done semantics, soft-delete + supports/informs
+/// exclusion, and the whole-board batch (one call for every parent, the
+/// shape that forbids N+1).
+#[test]
+fn children_progress_rollups() {
+    const PROGRESS_DB: &str = "kairos_progress_test";
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!("DROP DATABASE IF EXISTS {PROGRESS_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {PROGRESS_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+    let scratch_url = with_database(&admin_url, PROGRESS_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let alice = insert_user(&mut conn, "dex|alice", "alice@acme.test", "Alice");
+
+    let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    let board_a = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery A",
+        "delivery-a",
+        None,
+        Some(alice),
+    )
+    .expect("creating delivery A")
+    .id;
+    let board_b = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery B",
+        "delivery-b",
+        None,
+        Some(alice),
+    )
+    .expect("creating delivery B")
+    .id;
+    let column_by_name = |conn: &mut PgConnection, board: Uuid, name: &str| -> Uuid {
+        schema::board_columns::table
+            .filter(schema::board_columns::board_id.eq(board))
+            .filter(schema::board_columns::name.eq(name))
+            .select(schema::board_columns::id)
+            .first(conn)
+            .expect("column exists")
+    };
+    let a_completed = column_by_name(&mut conn, board_a, "Completed");
+    let a_backlog = column_by_name(&mut conn, board_a, "Backlog");
+    let b_backlog = column_by_name(&mut conn, board_b, "Backlog");
+
+    // The provisioning path seeds the done flag on terminal columns.
+    let completed_is_done: bool = schema::board_columns::table
+        .filter(schema::board_columns::id.eq(a_completed))
+        .select(schema::board_columns::is_done)
+        .first(&mut conn)
+        .expect("loading flag");
+    assert!(completed_is_done, "seeded Completed column starts done");
+
+    let make_initiative = |conn: &mut PgConnection, title: &str| {
+        items::create_initiative(
+            conn,
+            CreateInitiative {
+                board_id: initiative_board,
+                column_id: None,
+                title,
+                content: "",
+                complexity: None,
+                bucket_type: None,
+            },
+            alice,
+        )
+        .expect("creating initiative")
+    };
+    let i1 = make_initiative(&mut conn, "Rollup parent");
+    let i2 = make_initiative(&mut conn, "Second parent");
+
+    let make_task = |conn: &mut PgConnection, board: Uuid, column: Uuid, title: &str| {
+        items::create_task(
+            conn,
+            CreateTask {
+                board_id: board,
+                column_id: Some(column),
+                title,
+                content: "",
+                task_type: TaskType::Task,
+                work_class: kairos_db::models::enums::WorkClass::Planned,
+                team_id: None,
+            },
+            alice,
+        )
+        .expect("creating task")
+    };
+    let t1 = make_task(&mut conn, board_a, a_completed, "Done child");
+    let t2 = make_task(&mut conn, board_a, a_backlog, "Open child A");
+    let t3 = make_task(&mut conn, board_b, b_backlog, "Open child B");
+    let t4 = make_task(&mut conn, board_a, a_backlog, "Deleted child");
+    let t5 = make_task(&mut conn, board_b, b_backlog, "Other parent's child");
+
+    for child in [t1.id, t2.id, t3.id, t4.id] {
+        graph::link_items(&mut conn, i1.id, child, RelationshipType::Parent, alice)
+            .expect("linking child");
+    }
+    graph::link_items(&mut conn, i2.id, t5.id, RelationshipType::Parent, alice)
+        .expect("linking second parent's child");
+    // Supporting material never counts toward progress.
+    let d1 = items::create_document(
+        &mut conn,
+        CreateDocument {
+            title: "Design notes",
+            content: Some(""),
+            template_id: None,
+        },
+        alice,
+    )
+    .expect("creating document");
+    graph::link_items(&mut conn, i1.id, d1.id, RelationshipType::Supports, alice)
+        .expect("linking supports");
+    // Soft-deleted children drop out.
+    items::soft_delete_item(&mut conn, ItemType::Task, t4.id, alice).expect("soft-deleting");
+
+    // ---- per-parent rollup ---------------------------------------------------
+    let rows = graph::children_progress(&mut conn, i1.id).expect("children_progress");
+    let buckets: Vec<(Uuid, bool, i64)> = rows
+        .iter()
+        .map(|row| (row.column_id, row.is_done, row.count))
+        .collect();
+    assert!(
+        buckets.contains(&(a_completed, true, 1))
+            && buckets.contains(&(a_backlog, false, 1))
+            && buckets.contains(&(b_backlog, false, 1)),
+        "multi-board children group by column: {buckets:?}"
+    );
+    assert!(rows.iter().all(|row| row.board_has_done));
+    let (done, total) = kairos_core::items::children_progress_counts(
+        &rows.iter().map(|row| (row.is_done, row.count)).collect::<Vec<_>>(),
+    );
+    assert_eq!((done, total), (1, 3), "doc + soft-deleted child excluded");
+
+    // A leaf has no rollup at all.
+    assert!(
+        graph::children_progress(&mut conn, t1.id)
+            .expect("leaf rollup")
+            .is_empty()
+    );
+
+    // ---- whole-board batch: every parent from ONE call -----------------------
+    let batch =
+        graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
+    let p1 = batch.get(&i1.id).expect("i1 present");
+    assert_eq!((p1.done, p1.total, p1.has_done), (1, 3, true));
+    let p2 = batch.get(&i2.id).expect("i2 present");
+    assert_eq!((p2.done, p2.total, p2.has_done), (0, 1, true));
+
+    // ---- zero-done-columns: composition only, never a fraction ---------------
+    sql_query("UPDATE board_columns SET is_done = false")
+        .execute(&mut conn)
+        .expect("unflagging all columns");
+    let rows = graph::children_progress(&mut conn, i1.id).expect("children_progress");
+    assert!(
+        rows.iter().all(|row| !row.is_done && !row.board_has_done),
+        "no done semantics anywhere"
+    );
+    let batch =
+        graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
+    let p1 = batch.get(&i1.id).expect("i1 present");
+    assert_eq!((p1.done, p1.total, p1.has_done), (0, 3, false));
 }

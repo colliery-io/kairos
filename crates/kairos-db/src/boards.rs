@@ -169,6 +169,19 @@ fn column_name(columns: &[rules::Column], id: Uuid) -> Result<String, BoardError
 ///
 /// `actor`: `Some(user)` logs `action='create'` to `activity_log`; `None`
 /// is for system provisioning (no user exists yet).
+/// Which seeded columns start with the done flag (KAIROS-T-0080): the
+/// terminal column of each workflow level, and both resting states for
+/// ADRs (a superseded decision is as finished as a decided one). Applies
+/// to the system defaults only — admins own the flag afterwards.
+fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
+    match level {
+        BoardLevel::Strategy | BoardLevel::Initiative | BoardLevel::Delivery => {
+            name == "Completed"
+        }
+        BoardLevel::Adr => matches!(name, "Decided" | "Superseded"),
+    }
+}
+
 pub fn create_board(
     conn: &mut PgConnection,
     level: BoardLevel,
@@ -206,6 +219,7 @@ pub fn create_board(
                     board_id: board.id,
                     name: column.clone(),
                     position: position as i32,
+                    is_done: seeded_done_column(level, column),
                 })
                 .returning(BoardColumn::as_returning())
                 .get_result(conn)?;
@@ -425,6 +439,9 @@ pub fn add_column(
                 board_id,
                 name: name.to_string(),
                 position,
+                // Admin-added columns start un-done; the flag is a
+                // deliberate admin choice (KAIROS-T-0080).
+                is_done: false,
             })
             .returning(BoardColumn::as_returning())
             .get_result(conn)?;
@@ -443,6 +460,42 @@ pub fn add_column(
 
 /// Rename a column (name uniqueness enforced by
 /// [`kairos_core::board::check_rename_column`]).
+/// Set a column's done flag (KAIROS-T-0080) — an explicit admin choice,
+/// logged as board configuration. Setting the current value is a no-op.
+pub fn set_column_done(
+    conn: &mut PgConnection,
+    column_id: Uuid,
+    is_done: bool,
+    actor_id: Uuid,
+) -> Result<BoardColumn, BoardError> {
+    conn.transaction::<_, BoardError, _>(|conn| {
+        use crate::schema::board_columns;
+
+        let board_id = column_board_id(conn, column_id)?;
+        let (columns, _) = load_board_rules(conn, board_id)?;
+        let name = column_name(&columns, column_id)?;
+
+        let updated: BoardColumn =
+            diesel::update(board_columns::table.filter(board_columns::id.eq(column_id)))
+                .set((
+                    board_columns::is_done.eq(is_done),
+                    board_columns::updated_at.eq(diesel::dsl::now),
+                ))
+                .returning(BoardColumn::as_returning())
+                .get_result(conn)?;
+
+        log_activity(
+            conn,
+            actor_id,
+            ActivityAction::BoardConfig,
+            Some(board_id),
+            "board",
+            format!("column_done:{name}={is_done}"),
+        )?;
+        Ok(updated)
+    })
+}
+
 pub fn rename_column(
     conn: &mut PgConnection,
     column_id: Uuid,

@@ -71,12 +71,12 @@ use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use kairos_core::search::{
-    self as core_search, Direction, SearchFilter, SearchRequest, SearchTaskType,
+    self as core_search, Direction, SearchFilter, SearchRequest, SearchTaskType, SearchWorkClass,
     SearchValidationError, Sort, SortField, SortOrder, Traverse, TraverseFrom,
 };
 use kairos_core::short_code::ItemType;
 
-use crate::models::enums::{TaskType, UnknownEnumValue};
+use crate::models::enums::{TaskType, UnknownEnumValue, WorkClass};
 use crate::models::items::{Adr, Document, Initiative, Strategy, Task};
 
 /// Errors from the search pipeline.
@@ -487,8 +487,8 @@ fn applicable_types(filter: Option<&SearchFilter>) -> Vec<ItemType> {
             // Documents do not live on boards.
             types.retain(|t| *t != ItemType::Document);
         }
-        if filter.team_id.is_some() || filter.task_type.is_some() {
-            // team_id and task_type are task-level attributes.
+        if filter.team_id.is_some() || filter.task_type.is_some() || filter.work_class.is_some() {
+            // team_id, task_type, and work_class are task-level attributes.
             types.retain(|t| *t == ItemType::Task);
         }
         if filter.is_bucket.is_some() {
@@ -511,6 +511,15 @@ fn model_task_type(task_type: SearchTaskType) -> TaskType {
         SearchTaskType::Task => TaskType::Task,
         SearchTaskType::Bug => TaskType::Bug,
         SearchTaskType::TechDebt => TaskType::TechDebt,
+        SearchTaskType::Support => TaskType::Support,
+    }
+}
+
+/// The stored counterpart of a [`SearchWorkClass`] (KAIROS-T-0077).
+fn model_work_class(work_class: SearchWorkClass) -> WorkClass {
+    match work_class {
+        SearchWorkClass::Planned => WorkClass::Planned,
+        SearchWorkClass::Support => WorkClass::Support,
     }
 }
 
@@ -619,6 +628,14 @@ fn hydrate_tasks(
         if let Some(task_types) = &filter.task_type {
             let stored: Vec<TaskType> = task_types.iter().copied().map(model_task_type).collect();
             query = query.filter(dsl::task_type.eq_any(stored));
+        }
+        if let Some(work_classes) = &filter.work_class {
+            let stored: Vec<WorkClass> = work_classes
+                .iter()
+                .copied()
+                .map(model_work_class)
+                .collect();
+            query = query.filter(dsl::work_class.eq_any(stored));
         }
         if let Some(after) = filter.created_after {
             query = query.filter(dsl::created_at.gt(after));

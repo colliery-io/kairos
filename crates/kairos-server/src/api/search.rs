@@ -175,8 +175,18 @@ fn filter_to_core(
         .map(|types| {
             types
                 .iter()
-                .map(|t| enum_field(t, "filter.task_type", "task, bug, tech_debt"))
+                .map(|t| enum_field(t, "filter.task_type", "task, bug, tech_debt, support"))
                 .collect::<Result<Vec<core_search::SearchTaskType>, _>>()
+        })
+        .transpose()?;
+    let work_class = filter
+        .work_class
+        .as_ref()
+        .map(|classes| {
+            classes
+                .iter()
+                .map(|c| enum_field(c, "filter.work_class", "planned, support"))
+                .collect::<Result<Vec<core_search::SearchWorkClass>, _>>()
         })
         .transpose()?;
     Ok(core_search::SearchFilter {
@@ -197,6 +207,7 @@ fn filter_to_core(
             .map(|v| uuid_field(v, "filter.team_id"))
             .transpose()?,
         task_type,
+        work_class,
         is_bucket: filter.is_bucket,
         metadata: filter.metadata.clone(),
         created_after: filter
@@ -267,6 +278,7 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
         SearchValidationError::BlankQuery => json!({"field": "q"}),
         SearchValidationError::EmptyEntityTypes => json!({"field": "filter.entity_type"}),
         SearchValidationError::EmptyTaskTypes => json!({"field": "filter.task_type"}),
+        SearchValidationError::EmptyWorkClasses => json!({"field": "filter.work_class"}),
         SearchValidationError::BlankMetadataKey => json!({"field": "filter.metadata"}),
         SearchValidationError::InvertedDateRange { after, before } => json!({
             "field": "filter.created_after",

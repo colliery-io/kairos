@@ -135,6 +135,17 @@ text_enum! {
         Task => "task",
         Bug => "bug",
         TechDebt => "tech_debt",
+        Support => "support",
+    }
+}
+
+text_enum! {
+    /// `tasks.work_class` (KAIROS-T-0077): the Planned/Support lane axis —
+    /// was this work planned, or did it arrive as unplanned intake?
+    /// Orthogonal to [`TaskType`] (a bug can sit in either lane).
+    WorkClass {
+        Planned => "planned",
+        Support => "support",
     }
 }
 
@@ -185,6 +196,7 @@ text_enum! {
         CapabilityGrant => "capability_grant",
         CapabilityRevoke => "capability_revoke",
         BoardConfig => "board_config",
+        WorkClass => "work_class",
     }
 }
 
@@ -249,7 +261,12 @@ mod tests {
 
     #[test]
     fn task_type_round_trip_and_rejection() {
-        assert_text_enum!(TaskType, ["task", "bug", "tech_debt"]);
+        assert_text_enum!(TaskType, ["task", "bug", "tech_debt", "support"]);
+    }
+
+    #[test]
+    fn work_class_round_trip_and_rejection() {
+        assert_text_enum!(WorkClass, ["planned", "support"]);
     }
 
     #[test]
@@ -283,6 +300,7 @@ mod tests {
                 "capability_grant",
                 "capability_revoke",
                 "board_config",
+                "work_class",
             ]
         );
     }

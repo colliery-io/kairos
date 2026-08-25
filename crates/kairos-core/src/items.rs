@@ -75,6 +75,21 @@ pub fn check_version(current_version: i32, expected_version: i32) -> VersionChec
     }
 }
 
+/// Sum a children-by-column rollup into `(done, total)` counts
+/// (KAIROS-T-0080): each entry is one column's `(is_done, occupant
+/// count)`; `done` is the sum over done-flagged columns. Pure — the
+/// grouping itself is the single SQL query in
+/// `kairos-db::graph::children_progress`.
+pub fn children_progress_counts(by_column: &[(bool, i64)]) -> (i64, i64) {
+    let total = by_column.iter().map(|(_, count)| count).sum();
+    let done = by_column
+        .iter()
+        .filter(|(is_done, _)| *is_done)
+        .map(|(_, count)| count)
+        .sum();
+    (done, total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +168,20 @@ mod tests {
         assert_eq!(result.len(), 3, "shared child appears once: {result:?}");
         assert!(result.contains(&a) && result.contains(&b) && result.contains(&shared));
         assert!(!result.contains(&stranger) && !result.contains(&orphan));
+    }
+
+    /// KAIROS-T-0080: the done count is exactly the occupants of
+    /// done-flagged columns; no flagged columns means done = 0 (clients
+    /// then show composition only, never a percentage).
+    #[test]
+    fn children_progress_counts_sums_done_columns() {
+        assert_eq!(children_progress_counts(&[]), (0, 0));
+        assert_eq!(
+            children_progress_counts(&[(false, 3), (true, 2), (false, 1), (true, 1)]),
+            (3, 7)
+        );
+        // Zero done-flagged columns: composition only.
+        assert_eq!(children_progress_counts(&[(false, 4), (false, 2)]), (0, 6));
     }
 
     #[test]

@@ -493,6 +493,7 @@ async fn entity_endpoints_against_live_stack() {
         title: "Wire the endpoints".into(),
         content: "T-0018".into(),
         task_type: None,
+        work_class: None,
         team_id: None,
     };
     let err = rejection(bob.create_task(&create_task_request).await);
@@ -528,6 +529,7 @@ async fn entity_endpoints_against_live_stack() {
             title: "Fix the flaky login".into(),
             content: "repro steps".into(),
             task_type: Some("bug".into()),
+            work_class: None,
             team_id: None,
         })
         .await
@@ -535,11 +537,76 @@ async fn entity_endpoints_against_live_stack() {
     let task_bug_code = task_bug.short_code.clone();
     assert_eq!(task_bug.task_type, "bug");
 
+    // KAIROS-T-0077: the Planned/Support lane axis. Defaults: planned in
+    // general, support for support-type tickets; explicitly settable and
+    // independent of task_type (the recorded no-bug-lane decision).
+    assert_eq!(
+        task_bob.work_class, "planned",
+        "work_class defaults to planned"
+    );
+    assert_eq!(task_bug.work_class, "planned");
+    let task_support = alice
+        .create_task(&CreateTaskRequest {
+            board_id: delivery_board.to_string(),
+            column_id: None,
+            title: "Customer-reported outage".into(),
+            content: "support intake".into(),
+            task_type: Some("support".into()),
+            work_class: None,
+            team_id: None,
+        })
+        .await
+        .expect("creating support task");
+    assert_eq!(task_support.task_type, "support");
+    assert_eq!(
+        task_support.work_class, "support",
+        "a support-type ticket is born in the Support lane"
+    );
+    let unplanned_bug = alice
+        .create_task(&CreateTaskRequest {
+            board_id: delivery_board.to_string(),
+            column_id: None,
+            title: "Prod 500 on login".into(),
+            content: "unplanned".into(),
+            task_type: Some("bug".into()),
+            work_class: Some("support".into()),
+            team_id: None,
+        })
+        .await
+        .expect("creating unplanned bug");
+    assert_eq!(unplanned_bug.task_type, "bug", "the type survives the lane");
+    assert_eq!(unplanned_bug.work_class, "support");
+
+    // Lane moves are gated by transition_items — bob holds only
+    // manage_tasks here.
+    let err = rejection(bob.set_task_work_class(&task_bob_code, "support").await);
+    match &err {
+        Error::Forbidden { capability, .. } => {
+            assert_eq!(capability.as_deref(), Some("transition_items"));
+        }
+        other => panic!("expected Forbidden, got {other}"),
+    }
+    let moved = alice
+        .set_task_work_class(&task_bob_code, "support")
+        .await
+        .expect("alice moves the lane");
+    assert_eq!(moved.work_class, "support");
+    // …and back, so the rest of the arc sees the original lane.
+    alice
+        .set_task_work_class(&task_bob_code, "planned")
+        .await
+        .expect("alice moves the lane back");
+    let err = rejection(alice.set_task_work_class(&task_bob_code, "expedite").await);
+    assert!(
+        matches!(err, Error::Validation { status: 422, .. }),
+        "{err}"
+    );
+
     let body = alice
         .list_tasks(Pagination::default())
         .await
         .expect("listing tasks");
-    assert_eq!(body.total, 2);
+    assert_eq!(body.total, 4);
     assert_eq!(body.limit, 50, "default limit");
 
     // 409 with current state.
@@ -626,6 +693,7 @@ async fn entity_endpoints_against_live_stack() {
                 title: "x".into(),
                 content: String::new(),
                 task_type: None,
+                work_class: None,
                 team_id: None,
             })
             .await,
@@ -639,6 +707,7 @@ async fn entity_endpoints_against_live_stack() {
                 title: "x".into(),
                 content: String::new(),
                 task_type: None,
+                work_class: None,
                 team_id: None,
             })
             .await,

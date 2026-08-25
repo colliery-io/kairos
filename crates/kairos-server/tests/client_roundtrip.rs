@@ -197,6 +197,7 @@ async fn typed_error_mapping_roundtrip() {
             title: "denied".into(),
             content: String::new(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await,
@@ -231,6 +232,7 @@ async fn typed_error_mapping_roundtrip() {
             title: "Roundtrip task".into(),
             content: "v1".into(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await
@@ -303,6 +305,7 @@ async fn typed_error_mapping_roundtrip() {
             title: "x".into(),
             content: String::new(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await,

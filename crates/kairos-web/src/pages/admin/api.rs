@@ -46,6 +46,10 @@ pub struct BoardColumn {
     pub id: String,
     pub name: String,
     pub position: i32,
+    /// Occupants count as completed for children-progress rollups
+    /// (KAIROS-T-0080).
+    #[serde(default)]
+    pub is_done: bool,
 }
 
 /// mirror of: `kairos_client::types_org::BoardTransition` (partial).
@@ -119,18 +123,20 @@ pub async fn add_column(
     .await
 }
 
-/// `PATCH /api/boards/{id}/columns/{col_id}` — rename and/or move.
+/// `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set
+/// the done flag (KAIROS-T-0080).
 pub async fn update_column(
     auth: Auth,
     board_id: &str,
     column_id: &str,
     name: Option<&str>,
     position: Option<i32>,
+    is_done: Option<bool>,
 ) -> Result<Value, ApiError> {
     patch_json(
         auth,
         &format!("/api/boards/{board_id}/columns/{column_id}"),
-        &json!({ "name": name, "position": position }),
+        &json!({ "name": name, "position": position, "is_done": is_done }),
     )
     .await
 }

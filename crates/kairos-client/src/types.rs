@@ -98,8 +98,11 @@ pub struct Task {
     pub board_id: String,
     /// Current column (UUID).
     pub column_id: String,
-    /// `task|bug|tech_debt`.
+    /// `task|bug|tech_debt|support`.
     pub task_type: String,
+    /// Planned/Support lane (`planned|support`, KAIROS-T-0077) — was this
+    /// work planned, or unplanned intake? Orthogonal to `task_type`.
+    pub work_class: String,
     /// Owning team (UUID), if assigned.
     pub team_id: Option<String>,
     /// Optimistic-concurrency version (KAIROS-A-0004).
@@ -223,12 +226,25 @@ pub struct CreateTaskRequest {
     /// Markdown content; defaults to empty.
     #[serde(default)]
     pub content: String,
-    /// `task|bug|tech_debt`; defaults to `task`.
+    /// `task|bug|tech_debt|support`; defaults to `task`.
     #[serde(default)]
     pub task_type: Option<String>,
+    /// Planned/Support lane (`planned|support`, KAIROS-T-0077). Defaults
+    /// to `support` when `task_type` is `support`, else `planned`.
+    #[serde(default)]
+    pub work_class: Option<String>,
     /// Owning team (UUID).
     #[serde(default)]
     pub team_id: Option<String>,
+}
+
+/// Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move
+/// a task between the Planned/Support lanes. Orthogonal to column
+/// transitions — the board rules engine is never consulted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SetWorkClassRequest {
+    /// `planned|support`.
+    pub work_class: String,
 }
 
 /// Body of `POST /api/documents`. Documents attach to a workflow item at

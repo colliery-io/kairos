@@ -34,8 +34,14 @@ import {
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:8080';
 
 // A board column section located by its header name (Backlog/Todo/…).
-const column = (page: Page, name: string): Locator =>
-  page.locator('section.kairos-board__column', {
+// KAIROS-T-0077: delivery boards render two lanes, so a column name
+// matches one section per lane. Pass a lane to get a SINGLE section
+// (required for drag targets); omit it for lookups across both lanes.
+const column = (page: Page, name: string, lane?: 'planned' | 'support'): Locator =>
+  (lane
+    ? page.locator(`section.kairos-board__lane--${lane}`)
+    : page.locator('body')
+  ).locator('section.kairos-board__column', {
     has: page.locator('.kairos-board__column-head', { hasText: name }),
   });
 
@@ -114,7 +120,7 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await expect(async () => {
       const card = cardIn(page, 'Backlog', createdTitle);
       if (await card.isVisible()) {
-        await card.dragTo(column(page, 'Todo'), { timeout: 2_000 });
+        await card.dragTo(column(page, 'Todo', 'planned'), { timeout: 2_000 });
       }
       await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible({
         timeout: 5_000,
@@ -239,7 +245,12 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
       has: page.locator('.cl-panel__title', { hasText: 'Board' }),
     });
     await expect(boardPanel.locator('.cl-pill', { hasText: 'Todo' })).toBeVisible();
-    await boardPanel.locator('select').selectOption({ label: 'Active' });
+    // Two selects live here since KAIROS-T-0077 (Move to + Lane) — pick
+    // the move field by its label.
+    const moveField = boardPanel.locator('.cl-field', {
+      has: page.locator('.cl-field__label', { hasText: 'Move to' }),
+    });
+    await moveField.locator('select').selectOption({ label: 'Active' });
     await boardPanel.getByRole('button', { name: 'Move', exact: true }).click();
     await expect(page.getByText('Moved to Active.')).toBeVisible();
     // The refetch lands: placement now shows Active.

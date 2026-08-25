@@ -81,8 +81,10 @@ pub struct Initiative {
 pub struct Task {
     pub short_code: String,
     pub title: String,
-    /// `task` | `bug` | `tech_debt`.
+    /// `task` | `bug` | `tech_debt` | `support`.
     pub task_type: String,
+    /// `planned` | `support` — the lane axis (KAIROS-T-0077).
+    pub work_class: String,
 }
 
 /// mirror of: `kairos_client::types::Adr` (partial — card fields).
@@ -109,6 +111,20 @@ pub struct BoardColumnItems {
 pub struct BoardItemsResponse {
     pub board: Board,
     pub columns: Vec<BoardColumnItems>,
+    /// Children rollups keyed by the PARENT item's short code
+    /// (KAIROS-T-0080); absent for items without children.
+    #[serde(default)]
+    pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
+}
+
+/// mirror of: `kairos_client::types_org::ProgressCounts` (KAIROS-T-0080).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct ProgressCounts {
+    pub done: i64,
+    pub total: i64,
+    /// False = no involved board has done columns; show composition only.
+    #[serde(default)]
+    pub has_done: bool,
 }
 
 // ---- mirrors: templates + events ------------------------------------------
@@ -238,6 +254,25 @@ pub async fn transition(
     Ok(())
 }
 
+/// mirror of: `kairos_client::types::SetWorkClassRequest`.
+#[derive(Debug, Serialize)]
+struct SetWorkClassRequest<'a> {
+    work_class: &'a str,
+}
+
+/// `POST /api/tasks/{short_code}/work-class` — move a task between the
+/// Planned/Support lanes (KAIROS-T-0077). Tasks only; the response body
+/// is discarded like [`transition`]'s.
+pub async fn set_work_class(
+    auth: Auth,
+    short_code: &str,
+    work_class: &str,
+) -> Result<(), ApiError> {
+    let path = format!("/api/tasks/{short_code}/work-class");
+    let _: serde_json::Value = post_json(auth, &path, &SetWorkClassRequest { work_class }).await?;
+    Ok(())
+}
+
 /// The create-from-column form data; [`create_item`] maps it onto the
 /// right S-0005 request per entity kind.
 #[derive(Clone, Debug, Default)]
@@ -248,8 +283,11 @@ pub struct NewItem {
     pub hypothesis: Option<String>,
     /// initiative: optional complexity (`xs`|`s`|`m`|`l`|`xl`).
     pub complexity: Option<String>,
-    /// task: `task` | `bug` | `tech_debt`.
+    /// task: `task` | `bug` | `tech_debt` | `support`.
     pub task_type: Option<String>,
+    /// task: `planned` | `support` lane (KAIROS-T-0077). `None` lets the
+    /// server apply its default (support type → support lane).
+    pub work_class: Option<String>,
     /// task: the owning team (delivery boards carry one).
     pub team_id: Option<String>,
     /// adr: optional decision maker.
@@ -289,6 +327,8 @@ struct CreateTaskRequest<'a> {
     content: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     task_type: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    work_class: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
 }
@@ -354,6 +394,7 @@ pub async fn create_item(
                     title: &item.title,
                     content: &item.content,
                     task_type: item.task_type.as_deref(),
+                    work_class: item.work_class.as_deref(),
                     team_id: item.team_id.as_deref(),
                 },
             )
@@ -466,7 +507,8 @@ mod tests {
                                  "created_at": "x", "updated_at": "x"}],
                 "tasks": [{"id": "i3", "short_code": "DEMO-T-0003", "title": "T",
                            "content": "…", "board_id": "b", "column_id": "c",
-                           "task_type": "tech_debt", "team_id": null, "version": 1,
+                           "task_type": "tech_debt", "work_class": "support",
+                           "team_id": null, "version": 1,
                            "created_by": "u", "updated_by": "u",
                            "created_at": "x", "updated_at": "x"}],
                 "adrs": [{"id": "i4", "short_code": "DEMO-A-0004", "title": "A",
@@ -479,10 +521,14 @@ mod tests {
         let items: BoardItemsResponse = serde_json::from_value(body).expect("mirror decodes");
         let group = &items.columns[0];
         assert_eq!(group.column.name, "Active");
+        // children_progress is optional on the wire (KAIROS-T-0080) —
+        // absent decodes to an empty map.
+        assert!(items.children_progress.is_empty());
         assert_eq!(group.strategies[0].short_code, "DEMO-S-0001");
         assert_eq!(group.initiatives[0].bucket_type.as_deref(), Some("bug"));
         assert!(group.initiatives[0].is_bucket);
         assert_eq!(group.tasks[0].task_type, "tech_debt");
+        assert_eq!(group.tasks[0].work_class, "support");
         assert_eq!(group.adrs[0].decision_date.as_deref(), Some("2026-06-30"));
     }
 
@@ -516,13 +562,15 @@ mod tests {
             title: "T",
             content: "body",
             task_type: Some("bug"),
+            work_class: Some("support"),
             team_id: None,
         })
         .expect("serializes");
         assert_eq!(
             task,
             serde_json::json!({"board_id": "b-1", "column_id": "c-1",
-                               "title": "T", "content": "body", "task_type": "bug"})
+                               "title": "T", "content": "body", "task_type": "bug",
+                               "work_class": "support"})
         );
 
         let doc = serde_json::to_value(CreateDocumentRequest {

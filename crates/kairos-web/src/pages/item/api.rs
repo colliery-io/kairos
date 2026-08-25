@@ -122,6 +122,9 @@ pub struct ItemDetail {
     pub bucket_type: Option<String>,
     #[serde(default)]
     pub task_type: Option<String>,
+    /// `planned|support` — the lane axis (KAIROS-T-0077; tasks only).
+    #[serde(default)]
+    pub work_class: Option<String>,
     #[serde(default)]
     pub decision_maker: Option<String>,
     #[serde(default)]
@@ -186,6 +189,27 @@ pub struct MetadataDefinition {
     pub field_type: String,
     #[serde(default)]
     pub enum_options: Vec<String>,
+}
+
+/// mirror of: `kairos_client::types_meta::ChildrenProgressResponse`
+/// (partial — KAIROS-T-0080).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ChildrenProgress {
+    pub total: i64,
+    pub done: i64,
+    /// False = no involved board has done columns; composition only.
+    #[serde(default)]
+    pub has_done_columns: bool,
+    #[serde(default)]
+    pub by_column: Vec<ChildColumnProgress>,
+}
+
+/// mirror of: `kairos_client::types_meta::ChildColumnProgress` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ChildColumnProgress {
+    pub column_name: String,
+    pub is_done: bool,
+    pub count: i64,
 }
 
 /// mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`
@@ -348,6 +372,20 @@ pub async fn fetch_metadata(
     )
     .await?;
     Ok(response.values)
+}
+
+/// `GET /api/{family}/{short_code}/children-progress` → the direct
+/// children rollup (KAIROS-T-0080).
+pub async fn fetch_children_progress(
+    auth: Auth,
+    family: Family,
+    code: String,
+) -> Result<ChildrenProgress, ApiError> {
+    get_json(
+        auth,
+        &format!("/api/{}/{code}/children-progress", family.api_family()),
+    )
+    .await
 }
 
 /// `GET /api/{family}/{short_code}/relationships` → both directions,
@@ -628,6 +666,7 @@ mod tests {
             "board_id": "b1a2c3d4-0000-0000-0000-000000000001",
             "column_id": "c1a2c3d4-0000-0000-0000-000000000002",
             "task_type": "task",
+            "work_class": "support",
             "team_id": null,
             "version": 3,
             "created_by": "u1",
@@ -638,6 +677,7 @@ mod tests {
         let item: ItemDetail = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(item.version, 3);
         assert_eq!(item.task_type.as_deref(), Some("task"));
+        assert_eq!(item.work_class.as_deref(), Some("support"));
         assert!(item.board_id.is_some());
         assert!(item.decision_date.is_none());
     }

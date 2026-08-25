@@ -332,6 +332,7 @@ async fn main() -> ExitCode {
                     title: title.to_string(),
                     content: format!("Golden-path task ({SEARCH_TOKEN})."),
                     task_type: Some("task".to_string()),
+                    work_class: None,
                     team_id: None,
                 })
                 .await,

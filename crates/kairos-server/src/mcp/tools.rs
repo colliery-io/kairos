@@ -38,7 +38,7 @@ use kairos_core::search as core_search;
 use kairos_core::short_code::ItemType;
 use kairos_db::models::boards::{Board, BoardColumn};
 use kairos_db::models::enums::{
-    BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamType,
+    BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamType, WorkClass,
 };
 use kairos_db::models::items::{Adr, Document, Initiative, Strategy, Task};
 use kairos_db::models::templates::Template;
@@ -121,8 +121,11 @@ pub struct SearchFilterParams {
     pub column_id: Option<String>,
     /// Restrict to tasks of this team (UUID).
     pub team_id: Option<String>,
-    /// Restrict to task types: task | bug | tech_debt.
+    /// Restrict to task types: task | bug | tech_debt | support.
     pub task_type: Option<Vec<String>>,
+    /// Restrict to Planned/Support lanes: planned | support
+    /// (KAIROS-T-0077).
+    pub work_class: Option<Vec<String>>,
     /// Restrict to (non-)bucket initiatives.
     pub is_bucket: Option<bool>,
     /// Metadata conditions keyed by definition slug; trailing-* globs allowed.
@@ -176,8 +179,11 @@ pub struct CreateItemParams {
     pub template: Option<String>,
     /// Initial markdown content (defaults to empty / the template's).
     pub content: Option<String>,
-    /// Tasks only: task | bug | tech_debt (default task).
+    /// Tasks only: task | bug | tech_debt | support (default task).
     pub task_type: Option<String>,
+    /// Tasks only: Planned/Support lane planned | support (KAIROS-T-0077;
+    /// defaults to support for support-type tasks, else planned).
+    pub work_class: Option<String>,
     /// Strategies only: the strategy's hypothesis.
     pub hypothesis: Option<String>,
     /// Initiatives only: t-shirt complexity xs | s | m | l | xl.
@@ -479,6 +485,9 @@ impl KairosMcp {
             out.push_str(&format!("- type: {}", item.item_type));
             if let Some(task_type) = item.task_type {
                 out.push_str(&format!(" ({task_type})"));
+            }
+            if let Some(work_class) = item.work_class {
+                out.push_str(&format!(" · lane: {work_class}"));
             }
             out.push('\n');
             if let (Some(board_id), Some(column_id)) = (item.board_id, item.column_id) {
@@ -1008,6 +1017,8 @@ struct ItemView {
     board_id: Option<Uuid>,
     column_id: Option<Uuid>,
     task_type: Option<TaskType>,
+    /// Planned/Support lane (KAIROS-T-0077; tasks only).
+    work_class: Option<WorkClass>,
     complexity: Option<Complexity>,
     hypothesis: Option<String>,
     bucket_type: Option<BucketType>,
@@ -1047,6 +1058,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 board_id: Some(row.board_id),
                 column_id: Some(row.column_id),
                 task_type: None,
+                work_class: None,
                 complexity: None,
                 hypothesis: row.hypothesis,
                 bucket_type: None,
@@ -1075,6 +1087,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 board_id: Some(row.board_id),
                 column_id: Some(row.column_id),
                 task_type: None,
+                work_class: None,
                 complexity: row.complexity,
                 hypothesis: None,
                 bucket_type: row.bucket_type,
@@ -1103,6 +1116,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 board_id: Some(row.board_id),
                 column_id: Some(row.column_id),
                 task_type: Some(row.task_type),
+                work_class: Some(row.work_class),
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,
@@ -1131,6 +1145,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 board_id: None,
                 column_id: None,
                 task_type: None,
+                work_class: None,
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,
@@ -1159,6 +1174,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 board_id: row.board_id,
                 column_id: row.column_id,
                 task_type: None,
+                work_class: None,
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,
@@ -1306,7 +1322,7 @@ fn board_item_rows(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardI
             }),
     );
 
-    let tasks: Vec<(Uuid, String, String, TaskType)> = tasks::table
+    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass)> = tasks::table
         .filter(tasks::board_id.eq(board_id))
         .filter(tasks::deleted_at.is_null())
         .order(tasks::short_code.asc())
@@ -1315,19 +1331,23 @@ fn board_item_rows(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardI
             tasks::short_code,
             tasks::title,
             tasks::task_type,
+            tasks::work_class,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    rows.extend(
-        tasks
-            .into_iter()
-            .map(|(column_id, short_code, title, task_type)| BoardItemRow {
-                column_id,
-                short_code,
-                title,
-                kind: task_type.to_string(),
-            }),
-    );
+    rows.extend(tasks.into_iter().map(
+        |(column_id, short_code, title, task_type, work_class)| BoardItemRow {
+            column_id,
+            short_code,
+            title,
+            // The Support lane rides in `kind` (KAIROS-T-0077); Planned
+            // stays unmarked as the default lane.
+            kind: match work_class {
+                WorkClass::Support => format!("{task_type} [support lane]"),
+                WorkClass::Planned => task_type.to_string(),
+            },
+        },
+    ));
 
     let adrs: Vec<(Option<Uuid>, String, String)> = adrs::table
         .filter(adrs::board_id.eq(board_id))
@@ -1794,6 +1814,18 @@ fn create_item_impl(
                 .map(|v| parse_enum(v, "task_type", TaskType::ALL))
                 .transpose()?
                 .unwrap_or(TaskType::Task);
+            // KAIROS-T-0077: same default rule as the REST create — a
+            // support-type ticket is born in the Support lane.
+            let work_class = params
+                .work_class
+                .as_deref()
+                .map(|v| parse_enum(v, "work_class", WorkClass::ALL))
+                .transpose()?
+                .unwrap_or(if task_type == TaskType::Support {
+                    WorkClass::Support
+                } else {
+                    WorkClass::Planned
+                });
             let created = items::create_task(
                 conn,
                 items::CreateTask {
@@ -1802,6 +1834,7 @@ fn create_item_impl(
                     title: &params.title,
                     content,
                     task_type,
+                    work_class,
                     team_id: None,
                 },
                 user,
@@ -1929,8 +1962,20 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                     .map(|types| {
                         types
                             .iter()
-                            .map(|t| enum_field(t, "filter.task_type", "task, bug, tech_debt"))
+                            .map(|t| {
+                                enum_field(t, "filter.task_type", "task, bug, tech_debt, support")
+                            })
                             .collect::<Result<Vec<core_search::SearchTaskType>, _>>()
+                    })
+                    .transpose()?,
+                work_class: filter
+                    .work_class
+                    .as_ref()
+                    .map(|classes| {
+                        classes
+                            .iter()
+                            .map(|c| enum_field(c, "filter.work_class", "planned, support"))
+                            .collect::<Result<Vec<core_search::SearchWorkClass>, _>>()
                     })
                     .transpose()?,
                 is_bucket: filter.is_bucket,

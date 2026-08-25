@@ -434,3 +434,120 @@ pub fn relationships_for(
         incoming: neighbors_of(conn, item_id, "target_id", "source_id")?,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Children progress (KAIROS-T-0080)
+// ---------------------------------------------------------------------------
+
+/// One column bucket of a parent's direct children.
+#[derive(Debug, Clone, PartialEq, QueryableByName)]
+pub struct ChildColumnCount {
+    #[diesel(sql_type = SqlUuid)]
+    pub column_id: Uuid,
+    #[diesel(sql_type = Text)]
+    pub column_name: String,
+    #[diesel(sql_type = SqlUuid)]
+    pub board_id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub is_done: bool,
+    /// Whether the column's BOARD has any done-flagged column at all —
+    /// distinguishes "0 children done" from "done is not configured
+    /// here", so clients can show composition only (KAIROS-T-0080).
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub board_has_done: bool,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub count: i64,
+}
+
+/// The live workflow-item id → column_id union the progress queries join
+/// children through: soft-deleted rows drop out, documents never appear
+/// (no board position), and off-board ADRs are excluded. Only `parent`
+/// edges are followed, so supports/informs material never counts.
+const CHILD_COLUMNS_SQL: &str = "SELECT id, column_id FROM strategies WHERE deleted_at IS NULL \
+     UNION ALL SELECT id, column_id FROM initiatives WHERE deleted_at IS NULL \
+     UNION ALL SELECT id, column_id FROM tasks WHERE deleted_at IS NULL \
+     UNION ALL SELECT id, column_id FROM adrs \
+         WHERE deleted_at IS NULL AND column_id IS NOT NULL";
+
+/// Direct `parent`-edge children of `parent_id`, grouped by their board
+/// column — ONE query, column order within each board (KAIROS-T-0080).
+pub fn children_progress(
+    conn: &mut PgConnection,
+    parent_id: Uuid,
+) -> Result<Vec<ChildColumnCount>, DieselError> {
+    sql_query(format!(
+        "SELECT bc.id AS column_id, bc.name AS column_name, bc.board_id, \
+                bc.is_done, \
+                EXISTS(SELECT 1 FROM board_columns d \
+                       WHERE d.board_id = bc.board_id AND d.is_done) AS board_has_done, \
+                COUNT(*) AS count \
+         FROM item_relationships r \
+         JOIN ({CHILD_COLUMNS_SQL}) c ON c.id = r.target_id \
+         JOIN board_columns bc ON bc.id = c.column_id \
+         WHERE r.source_id = $1 AND r.relationship = 'parent' \
+         GROUP BY bc.id, bc.name, bc.board_id, bc.is_done, bc.position \
+         ORDER BY bc.board_id ASC, bc.position ASC"
+    ))
+    .bind::<SqlUuid, _>(parent_id)
+    .load(conn)
+}
+
+#[derive(QueryableByName)]
+struct BoardProgressRow {
+    #[diesel(sql_type = SqlUuid)]
+    parent_id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    is_done: bool,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    board_has_done: bool,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    count: i64,
+}
+
+/// A parent's `(done, total, has_done_semantics)` children rollup.
+/// `has_done` is false when NO board hosting the children has a
+/// done-flagged column — clients then show composition only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProgressCounts {
+    pub done: i64,
+    pub total: i64,
+    pub has_done: bool,
+}
+
+/// Children rollups for EVERY item on `board_id` that has direct
+/// children — one grouped query for the whole board, never per-item
+/// (the N+1 the KAIROS-T-0080 design forbids).
+pub fn board_children_progress(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+) -> Result<std::collections::HashMap<Uuid, ProgressCounts>, DieselError> {
+    let rows: Vec<BoardProgressRow> = sql_query(format!(
+        "SELECT r.source_id AS parent_id, bc.is_done, \
+                EXISTS(SELECT 1 FROM board_columns d \
+                       WHERE d.board_id = bc.board_id AND d.is_done) AS board_has_done, \
+                COUNT(*) AS count \
+         FROM item_relationships r \
+         JOIN ({CHILD_COLUMNS_SQL}) c ON c.id = r.target_id \
+         JOIN board_columns bc ON bc.id = c.column_id \
+         JOIN (SELECT id FROM strategies WHERE board_id = $1 AND deleted_at IS NULL \
+               UNION ALL SELECT id FROM initiatives WHERE board_id = $1 AND deleted_at IS NULL \
+               UNION ALL SELECT id FROM tasks WHERE board_id = $1 AND deleted_at IS NULL \
+               UNION ALL SELECT id FROM adrs WHERE board_id = $1 AND deleted_at IS NULL) p \
+           ON p.id = r.source_id \
+         WHERE r.relationship = 'parent' \
+         GROUP BY r.source_id, bc.is_done, bc.board_id"
+    ))
+    .bind::<SqlUuid, _>(board_id)
+    .load(conn)?;
+    let mut progress: std::collections::HashMap<Uuid, ProgressCounts> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let entry = progress.entry(row.parent_id).or_default();
+        entry.total += row.count;
+        entry.has_done |= row.board_has_done;
+        if row.is_done {
+            entry.done += row.count;
+        }
+    }
+    Ok(progress)
+}

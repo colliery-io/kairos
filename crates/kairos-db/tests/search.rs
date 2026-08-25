@@ -282,6 +282,7 @@ fn unified_search_pipeline() {
                     title,
                     content,
                     task_type,
+                    work_class: kairos_db::models::enums::WorkClass::Planned,
                     team_id: team,
                 },
                 alice,
@@ -320,6 +321,16 @@ fn unified_search_pipeline() {
         TaskType::Task,
         None,
     );
+
+    // KAIROS-T-0077: one bug rides the Support lane for the work_class
+    // filter cases below (the two axes stay independent).
+    items::set_task_work_class(
+        &mut conn,
+        t2.id,
+        kairos_db::models::enums::WorkClass::Support,
+        alice,
+    )
+    .expect("setting work_class");
 
     let d1 = items::create_document(
         &mut conn,
@@ -412,6 +423,16 @@ fn unified_search_pipeline() {
             && results.adrs.is_empty(),
         "task_type filter can only ever match tasks"
     );
+
+    // work_class (KAIROS-T-0077; implies tasks only)
+    let (results, _) = run(&mut conn, json!({"filter": {"work_class": ["support"]}}));
+    assert_eq!(all_ids(&results), HashSet::from([t2.id]));
+    // The two axes compose: a Support-lane BUG keeps its bug type.
+    let (results, _) = run(
+        &mut conn,
+        json!({"filter": {"task_type": ["bug"], "work_class": ["support"]}}),
+    );
+    assert_eq!(all_ids(&results), HashSet::from([t2.id]));
 
     // board_id (documents structurally excluded; t4 soft-deleted)
     let (results, stats) = run(&mut conn, json!({"filter": {"board_id": delivery_board}}));

@@ -157,6 +157,7 @@ async fn run_op(
                     spec.name, world.soak_initiative_code
                 ),
                 task_type: Some("task".to_string()),
+                work_class: None,
                 team_id: None,
             };
             if let Some(task) = record_call(

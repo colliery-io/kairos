@@ -125,6 +125,11 @@ pub struct SearchFilter {
     /// Restrict to tasks of these types (excludes non-task entities).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<Vec<SearchTaskType>>,
+    /// Restrict to tasks in these Planned/Support lanes (KAIROS-T-0077;
+    /// `work_class` is a task-level attribute; other entity types are
+    /// excluded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_class: Option<Vec<SearchWorkClass>>,
     /// Restrict to (non-)bucket initiatives (`is_bucket` is an
     /// initiative-level attribute; other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -156,6 +161,7 @@ impl SearchFilter {
             || self.column_id.is_some()
             || self.team_id.is_some()
             || self.task_type.is_some()
+            || self.work_class.is_some()
             || self.is_bucket.is_some()
             || self.metadata.as_ref().is_some_and(|m| !m.is_empty())
             || self.created_after.is_some()
@@ -202,6 +208,8 @@ pub enum SearchTaskType {
     Bug,
     /// `'tech_debt'`.
     TechDebt,
+    /// `'support'` (KAIROS-T-0077).
+    Support,
 }
 
 impl SearchTaskType {
@@ -211,6 +219,27 @@ impl SearchTaskType {
             SearchTaskType::Task => "task",
             SearchTaskType::Bug => "bug",
             SearchTaskType::TechDebt => "tech_debt",
+            SearchTaskType::Support => "support",
+        }
+    }
+}
+
+/// A `tasks.work_class` lane in a search filter (KAIROS-T-0077).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchWorkClass {
+    /// `'planned'`.
+    Planned,
+    /// `'support'`.
+    Support,
+}
+
+impl SearchWorkClass {
+    /// The TEXT value stored in `tasks.work_class`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SearchWorkClass::Planned => "planned",
+            SearchWorkClass::Support => "support",
         }
     }
 }
@@ -344,6 +373,9 @@ pub enum SearchValidationError {
     /// `filter.task_type` is present but empty.
     #[error("filter.task_type must not be an empty list")]
     EmptyTaskTypes,
+    /// `filter.work_class` is present but empty (KAIROS-T-0077).
+    #[error("filter.work_class must not be an empty list")]
+    EmptyWorkClasses,
     /// A `filter.metadata` key is blank.
     #[error("filter.metadata keys must not be blank")]
     BlankMetadataKey,
@@ -411,6 +443,11 @@ pub fn validate(request: &SearchRequest) -> Result<(), SearchValidationError> {
             && types.is_empty()
         {
             return Err(SearchValidationError::EmptyTaskTypes);
+        }
+        if let Some(classes) = &filter.work_class
+            && classes.is_empty()
+        {
+            return Err(SearchValidationError::EmptyWorkClasses);
         }
         if let Some(metadata) = &filter.metadata
             && metadata.keys().any(|k| k.trim().is_empty())
@@ -603,6 +640,31 @@ mod tests {
             validate(&request),
             Err(SearchValidationError::EmptyTaskTypes)
         );
+        let request = SearchRequest {
+            filter: Some(SearchFilter {
+                work_class: Some(vec![]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            validate(&request),
+            Err(SearchValidationError::EmptyWorkClasses)
+        );
+    }
+
+    /// KAIROS-T-0077: a work_class-only filter IS constraining — it must
+    /// satisfy the at-least-one-capability rule on its own.
+    #[test]
+    fn work_class_filter_alone_is_a_capability() {
+        let request = SearchRequest {
+            filter: Some(SearchFilter {
+                work_class: Some(vec![SearchWorkClass::Support]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(validate(&request), Ok(()));
     }
 
     #[test]

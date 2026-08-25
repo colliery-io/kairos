@@ -244,6 +244,7 @@ fn write_path_lifecycle() {
             title: "SAML handshake",
             content: "task content",
             task_type: TaskType::Task,
+            work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
         },
         alice,
@@ -251,6 +252,41 @@ fn write_path_lifecycle() {
     .expect("creating task");
     assert_eq!(task.short_code, "ACME-T-0001");
     assert_eq!(task.column_id, first_column(&mut conn, delivery_board));
+
+    // ---- KAIROS-T-0077: the Planned/Support lane write path -------------------
+    let moved = items::set_task_work_class(
+        &mut conn,
+        task.id,
+        kairos_db::models::enums::WorkClass::Support,
+        alice,
+    )
+    .expect("setting work_class");
+    assert_eq!(
+        moved.work_class,
+        kairos_db::models::enums::WorkClass::Support,
+        "lane write lands"
+    );
+    assert_eq!(
+        activity_details(&mut conn, ActivityAction::WorkClass, task.id),
+        ["work_class:planned->support".to_string()],
+        "lane change writes an activity_log row"
+    );
+    // The lane is orthogonal to content versioning and board position.
+    assert_eq!(moved.version, task.version, "lane write never bumps the version");
+    assert_eq!(moved.column_id, task.column_id, "lane write never moves columns");
+    // Setting the value the task already has is a no-op: no second row.
+    items::set_task_work_class(
+        &mut conn,
+        task.id,
+        kairos_db::models::enums::WorkClass::Support,
+        alice,
+    )
+    .expect("no-op lane write");
+    assert_eq!(
+        activity_details(&mut conn, ActivityAction::WorkClass, task.id).len(),
+        1,
+        "a no-op lane write logs nothing"
+    );
 
     let adr = items::create_adr(
         &mut conn,
@@ -323,6 +359,7 @@ fn write_path_lifecycle() {
                             title: &format!("concurrent {i}"),
                             content: "",
                             task_type: TaskType::Task,
+                            work_class: kairos_db::models::enums::WorkClass::Planned,
                             team_id: None,
                         },
                         alice,

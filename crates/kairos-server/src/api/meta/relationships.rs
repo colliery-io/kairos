@@ -37,8 +37,68 @@ pub fn router() -> Router<AppState> {
             "/api/{entity_type}/{short_code}/relationships",
             get(get_relationships),
         )
+        .route(
+            "/api/{entity_type}/{short_code}/children-progress",
+            get(get_children_progress),
+        )
         .route("/api/relationships", post(create_relationship))
         .route("/api/relationships/{id}", delete(delete_relationship))
+}
+
+/// Direct-children progress rollup for one item (KAIROS-T-0080): the
+/// live `parent`-edge children grouped by their board column, plus the
+/// `(done, total)` summary. Soft-deleted children drop out and
+/// supports/informs material never counts; resolution 404s exactly like
+/// the relationships GET.
+#[utoipa::path(
+    get,
+    path = "/api/{entity_type}/{short_code}/children-progress",
+    tag = "relationships",
+    params(
+        ("entity_type" = String, Path, description = "Entity family (plural URL segment)"),
+        ("short_code" = String, Path, description = "The parent item's short code"),
+    ),
+    responses(
+        (status = 200, description = "The rollup", body = dto::ChildrenProgressResponse),
+        (status = 404, description = "Unknown short code", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn get_children_progress(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((family, short_code)): Path<(String, String)>,
+) -> Result<Json<dto::ChildrenProgressResponse>, ApiError> {
+    let response = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let rows = graph::children_progress(conn, item_id).map_err(ApiError::internal)?;
+            let (done, total) = kairos_core::items::children_progress_counts(
+                &rows
+                    .iter()
+                    .map(|row| (row.is_done, row.count))
+                    .collect::<Vec<_>>(),
+            );
+            let has_done_columns = rows.iter().any(|row| row.board_has_done);
+            Ok(dto::ChildrenProgressResponse {
+                short_code,
+                total,
+                done,
+                has_done_columns,
+                by_column: rows
+                    .into_iter()
+                    .map(|row| dto::ChildColumnProgress {
+                        column_id: row.column_id.to_string(),
+                        column_name: row.column_name,
+                        board_id: row.board_id.to_string(),
+                        is_done: row.is_done,
+                        count: row.count,
+                    })
+                    .collect(),
+            })
+        })
+        .await?;
+    Ok(Json(response))
 }
 
 /// [`GraphError`] → HTTP for the relationship write endpoints: the typed

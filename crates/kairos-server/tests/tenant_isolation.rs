@@ -89,6 +89,7 @@ async fn seed_tenant(admin: &KairosClient) -> (String, String, String) {
             title: SHARED_TITLE.into(),
             content: "billing cutover runbook".into(),
             task_type: None,
+            work_class: None,
             team_id: None,
         })
         .await

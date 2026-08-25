@@ -73,10 +73,15 @@ pub struct SearchFilter {
     /// other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
-    /// Restrict to tasks of these types (`task|bug|tech_debt`; excludes
-    /// non-task entities).
+    /// Restrict to tasks of these types (`task|bug|tech_debt|support`;
+    /// excludes non-task entities).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<Vec<String>>,
+    /// Restrict to tasks in these Planned/Support lanes
+    /// (`planned|support`, KAIROS-T-0077; task-level attribute, other
+    /// entity types are excluded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_class: Option<Vec<String>>,
     /// Restrict to (non-)bucket initiatives (initiative-level attribute;
     /// other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]

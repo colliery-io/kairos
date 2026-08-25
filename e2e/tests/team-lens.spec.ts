@@ -115,10 +115,13 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
   //     explicit grants) creates a task and drags it between columns.
   const createdTitle = `Bob's team card ${Date.now()}`;
   await test.step('bob creates and drags a card on his team board', async () => {
-    const backlog = page.locator('section.kairos-board__column', {
+    // KAIROS-T-0077: scope to the Planned lane (defaults create there),
+    // so drag targets stay unique on the two-lane delivery board.
+    const lane = page.locator('section.kairos-board__lane--planned');
+    const backlog = lane.locator('section.kairos-board__column', {
       has: page.locator('.kairos-board__column-head', { hasText: 'Backlog' }),
     });
-    const todo = page.locator('section.kairos-board__column', {
+    const todo = lane.locator('section.kairos-board__column', {
       has: page.locator('.kairos-board__column-head', { hasText: 'Todo' }),
     });
     // Implied manage_tasks: the global create action renders for bob

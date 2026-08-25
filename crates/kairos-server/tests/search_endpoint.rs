@@ -336,6 +336,7 @@ async fn search_endpoint_against_live_stack() {
                 title,
                 content,
                 task_type,
+                work_class: kairos_db::models::enums::WorkClass::Planned,
                 team_id: None,
             },
             seeder,
@@ -506,6 +507,7 @@ async fn search_endpoint_against_live_stack() {
             filter: Some(SearchFilter {
                 entity_type: Some(vec!["task".into()]),
                 task_type: Some(vec!["bug".into()]),
+                work_class: None,
                 metadata: Some(BTreeMap::from([(
                     "priority".to_string(),
                     "critical".to_string(),

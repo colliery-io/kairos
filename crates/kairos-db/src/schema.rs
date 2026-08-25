@@ -41,6 +41,21 @@ diesel::table! {
 }
 
 diesel::table! {
+    api_keys (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        name -> Text,
+        token_hash -> Text,
+        prefix -> Text,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+        expires_at -> Nullable<Timestamptz>,
+        last_used_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     board_columns (id) {
         id -> Uuid,
         board_id -> Uuid,
@@ -48,6 +63,7 @@ diesel::table! {
         position -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        is_done -> Bool,
     }
 }
 
@@ -184,21 +200,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    api_keys (id) {
-        id -> Uuid,
-        user_id -> Uuid,
-        name -> Text,
-        token_hash -> Text,
-        prefix -> Text,
-        created_by -> Uuid,
-        created_at -> Timestamptz,
-        expires_at -> Nullable<Timestamptz>,
-        last_used_at -> Nullable<Timestamptz>,
-        revoked_at -> Nullable<Timestamptz>,
-    }
-}
-
-diesel::table! {
     scim_tokens (id) {
         id -> Uuid,
         name -> Text,
@@ -243,6 +244,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        work_class -> Text,
     }
 }
 
@@ -320,6 +322,7 @@ diesel::joinable!(template_metadata -> templates (template_id));
 diesel::allow_tables_to_appear_in_same_query!(
     activity_log,
     adrs,
+    api_keys,
     board_columns,
     board_member_capabilities,
     board_transitions,
@@ -418,9 +421,9 @@ diesel::table! {
         external_id -> Text,
         email -> Text,
         display_name -> Text,
-        kind -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        kind -> Text,
     }
 }
 

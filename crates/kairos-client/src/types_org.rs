@@ -48,6 +48,10 @@ pub struct BoardColumn {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// Occupants count as completed for children-progress rollups
+    /// (KAIROS-T-0080).
+    #[serde(default)]
+    pub is_done: bool,
 }
 
 /// An allowed column-to-column transition edge.
@@ -114,6 +118,23 @@ pub struct BoardColumnItems {
 pub struct BoardItemsResponse {
     pub board: Board,
     pub columns: Vec<BoardColumnItems>,
+    /// `(done, total)` direct-children counts keyed by the PARENT item's
+    /// short code, for every item on this board that has children
+    /// (KAIROS-T-0080) — computed in one grouped query, never per item.
+    #[serde(default)]
+    pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
+}
+
+/// A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the
+/// children sitting in `is_done` columns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProgressCounts {
+    pub done: i64,
+    pub total: i64,
+    /// False when no board hosting the children has a done-flagged
+    /// column — clients show composition only, never a done fraction.
+    #[serde(default)]
+    pub has_done: bool,
 }
 
 /// Body of `POST /api/boards/{id}/columns`.
@@ -125,7 +146,8 @@ pub struct CreateColumnRequest {
     pub position: i32,
 }
 
-/// Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename and/or move.
+/// Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move,
+/// and/or set the done flag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct UpdateColumnRequest {
     #[serde(default)]
@@ -133,6 +155,11 @@ pub struct UpdateColumnRequest {
     /// New 0-indexed position; the other columns shift around it.
     #[serde(default)]
     pub position: Option<i32>,
+    /// Mark occupants as completed for children-progress rollups
+    /// (KAIROS-T-0080). An explicit admin choice — the dead-end heuristic
+    /// only ever suggests.
+    #[serde(default)]
+    pub is_done: Option<bool>,
 }
 
 /// Body of `POST /api/boards/{id}/transitions`.

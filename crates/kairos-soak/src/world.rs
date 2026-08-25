@@ -228,6 +228,7 @@ pub async fn setup_world(
                 title: format!("Soak collision item {n} ({stamp})"),
                 content: "Contended item for deliberate optimistic-concurrency 409s.".to_string(),
                 task_type: Some("task".to_string()),
+                work_class: None,
                 team_id: None,
             })
             .await

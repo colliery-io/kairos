@@ -84,10 +84,10 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
         notice.set(Some(format!("Saved — the item is now at v{version}.")));
         reload.update(|n| *n += 1);
     });
-    // The move control's success path (KAIROS-T-0075): the item's column
-    // changed server-side; refetch and confirm like a save.
-    let on_moved = Callback::new(move |column: String| {
-        notice.set(Some(format!("Moved to {column}.")));
+    // The move/lane controls' success path (KAIROS-T-0075/T-0077): the
+    // item changed server-side; show the control's message and refetch.
+    let on_moved = Callback::new(move |message: String| {
+        notice.set(Some(message));
         reload.update(|n| *n += 1);
     });
 
@@ -138,6 +138,7 @@ fn ItemLoaded(
     let history_href = format!("/activity/history/{}", item.short_code);
     let code = item.short_code.clone();
     let delete_title = item.title.clone();
+    let lane = item.work_class.clone();
     let ItemDetail {
         short_code,
         title,
@@ -169,6 +170,7 @@ fn ItemLoaded(
                 </Button>
             </Group>
         </Group>
+        <ChildrenProgressBar family code=short_code.clone()/>
         <div class="kairos-item__grid">
             <ContentEditor
                 family
@@ -179,7 +181,8 @@ fn ItemLoaded(
                 on_saved
             />
             <Stack gap="sm">
-                <BoardPanel family code=short_code.clone() board_id column_id on_moved/>
+                <BoardPanel family code=short_code.clone() board_id column_id
+                    work_class=lane on_moved/>
                 <MetadataPanel family code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
@@ -189,12 +192,64 @@ fn ItemLoaded(
     }
 }
 
+/// The children rollup under the header (KAIROS-T-0080): a segmented bar
+/// by column plus "N of M done" — or "N children" composition-only when
+/// no involved board has done columns (never a misleading fraction).
+/// Renders nothing for items without children; a failed read renders
+/// nothing too (progress is enhancement data, not the page).
+#[component]
+fn ChildrenProgressBar(family: Family, #[prop(into)] code: String) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let progress = LocalResource::new(move || {
+        let _ = auth.token();
+        api::fetch_children_progress(auth, family, code.get_value())
+    });
+    view! {
+        {move || match progress.get() {
+            Some(Ok(p)) if p.total > 0 => {
+                let total = p.total;
+                let label = if p.has_done_columns {
+                    format!("{} of {} done", p.done, p.total)
+                } else {
+                    format!("{} children", p.total)
+                };
+                view! {
+                    <div class="kairos-progress">
+                        <div class="kairos-progress__track">
+                            {p.by_column.iter().map(|column| {
+                                let width =
+                                    (column.count as f64 / total as f64 * 100.0).max(3.0);
+                                view! {
+                                    <span
+                                        class="kairos-progress__segment"
+                                        class:kairos-progress__segment--done=column.is_done
+                                        style=format!("width: {width:.1}%")
+                                        title=format!("{}: {}", column.column_name, column.count)
+                                    ></span>
+                                }
+                            }).collect_view()}
+                        </div>
+                        <Text dimmed=true size="xs">{label}</Text>
+                    </div>
+                }.into_any()
+            }
+            _ => ().into_any(),
+        }}
+    }
+}
+
 /// The type-specific facts as pills (each family's extra columns).
 #[component]
 fn TypeFacts(item: ItemDetail) -> impl IntoView {
     let mut facts: Vec<(String, &'static str)> = Vec::new();
     if let Some(task_type) = &item.task_type {
         facts.push((task_type.clone(), token::TEAL));
+    }
+    // KAIROS-T-0077: the lane rides as a fact; Planned stays unmarked as
+    // the default lane.
+    if item.work_class.as_deref() == Some("support") {
+        facts.push(("support lane".to_string(), token::GOLD));
     }
     if let Some(complexity) = &item.complexity {
         facts.push((format!("complexity: {complexity}"), token::TEAL));
@@ -234,10 +289,14 @@ fn BoardPanel(
     #[prop(into)] code: String,
     board_id: Option<String>,
     column_id: Option<String>,
+    /// The task's Planned/Support lane (KAIROS-T-0077) — `Some` enables
+    /// the lane control.
+    work_class: Option<String>,
     on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
+    let work_class = StoredValue::new(work_class);
     view! {
         <Panel title="Board" caption="placement">
             {match board_id {
@@ -279,6 +338,7 @@ fn BoardPanel(
                                             code=code.get_value()
                                             board
                                             column_id=column_id.with_value(Clone::clone)
+                                            work_class=work_class.get_value()
                                             on_moved
                                         />
                                     </Stack>
@@ -292,17 +352,19 @@ fn BoardPanel(
     }
 }
 
-/// The keyboard-accessible transition path (KAIROS-T-0075): cards are
-/// drag-only, so moving an item without a pointer happens here. Renders
-/// only when the board's transitions offer a target from the item's
-/// current column AND the user holds `transition_items` on this board —
-/// the same gate as the drag affordance, via the shared powers mirror.
+/// The keyboard-accessible transition path (KAIROS-T-0075) plus the lane
+/// control (KAIROS-T-0077): cards are drag-only, so moving an item — or
+/// switching a task's Planned/Support lane — without a pointer happens
+/// here. Renders only when there is a legal move to offer AND the user
+/// holds `transition_items` on this board — the same gate as the drag
+/// affordance, via the shared powers mirror.
 #[component]
 fn MoveControl(
     family: Family,
     code: String,
     board: api::BoardInfo,
     column_id: Option<String>,
+    work_class: Option<String>,
     on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
@@ -334,7 +396,11 @@ fn MoveControl(
                 .collect()
         })
         .unwrap_or_default();
-    let (Some(kind), false) = (kind, targets.is_empty()) else {
+    let has_targets = !targets.is_empty();
+    // The lane row exists for tasks only (they carry work_class) — and
+    // keeps a task in a dead-end column movable across lanes.
+    let lane_row = matches!(family, Family::Task).then_some(()).and(work_class);
+    let (Some(kind), false) = (kind, !has_targets && lane_row.is_none()) else {
         return ().into_any();
     };
 
@@ -383,7 +449,27 @@ fn MoveControl(
             match boards::data::transition(auth, kind, &code.get_value(), &to_column_id).await {
                 // Success refetches the whole detail (on_moved bumps the
                 // reload), which drops this instance — no busy reset.
-                Ok(()) => on_moved.run(column_name),
+                Ok(()) => on_moved.run(format!("Moved to {column_name}.")),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+
+    // The lane row (KAIROS-T-0077): tasks switch Planned/Support here —
+    // the keyboard counterpart of a cross-lane drag.
+    let has_lane = lane_row.is_some();
+    let current_lane = StoredValue::new(lane_row.unwrap_or_default());
+    let lane_value = RwSignal::new(current_lane.get_value());
+    let submit_lane: Callback<()> = Callback::new(move |()| {
+        let value = lane_value.get_untracked();
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match boards::data::set_work_class(auth, &code.get_value(), &value).await {
+                Ok(()) => on_moved.run(format!("Lane set to {value}.")),
                 Err(e) => {
                     error.set(Some(e));
                     busy.set(false);
@@ -395,18 +481,36 @@ fn MoveControl(
     view! {
         {move || can_move.get().then(|| view! {
             <div class="kairos-item__move">
-                <Group gap="sm">
-                    <Select label="Move to" value=target
-                        options=option_names.get_value()/>
-                    {move || {
-                        let disabled = busy.get();
-                        view! {
-                            <Button size="xs" disabled=disabled on_click=submit>
-                                {if busy.get_untracked() { "Moving…" } else { "Move" }}
-                            </Button>
-                        }
-                    }}
-                </Group>
+                {has_targets.then(|| view! {
+                    <Group gap="sm">
+                        <Select label="Move to" value=target
+                            options=option_names.get_value()/>
+                        {move || {
+                            let disabled = busy.get();
+                            view! {
+                                <Button size="xs" disabled=disabled on_click=submit>
+                                    {if busy.get_untracked() { "Moving…" } else { "Move" }}
+                                </Button>
+                            }
+                        }}
+                    </Group>
+                })}
+                {has_lane.then(|| view! {
+                    <Group gap="sm">
+                        <Select label="Lane" value=lane_value
+                            options=vec!["planned".to_string(), "support".to_string()]/>
+                        {move || {
+                            let unchanged =
+                                lane_value.get() == current_lane.get_value();
+                            let disabled = busy.get() || unchanged;
+                            view! {
+                                <Button size="xs" disabled=disabled on_click=submit_lane>
+                                    {if busy.get_untracked() { "Setting…" } else { "Set lane" }}
+                                </Button>
+                            }
+                        }}
+                    </Group>
+                })}
                 {move || error.get().map(|e| view! {
                     <Alert title="Could not move" color=token::BAD>
                         <Text size="sm">{api::error_text(&e)}</Text>
@@ -461,22 +565,43 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
     }
 }
 
+/// The human name of one relationship group, read from THIS item's side —
+/// an outgoing `parent` edge points at children, so labeling the group
+/// "parent" read exactly backwards (UAT review nit on T-0075/T-0080
+/// wave). Vocabulary matches the graph explorer's panels; direction is in
+/// the words, not an arrow glyph. Pure, host-tested.
+fn relationship_label(relationship: &str, outgoing: bool) -> String {
+    match (relationship, outgoing) {
+        // source=parent, target=child (A-0001 matrix).
+        ("parent", true) => "children".to_string(),
+        ("parent", false) => "parent".to_string(),
+        ("blocks", true) => "blocks".to_string(),
+        ("blocks", false) => "blocked by".to_string(),
+        // source=workflow item, target=document/ADR (T-0018 contract).
+        ("supports", true) => "supporting material".to_string(),
+        ("supports", false) => "supports".to_string(),
+        // source=document/ADR, target=workflow item.
+        ("informs", true) => "informs".to_string(),
+        ("informs", false) => "informed by".to_string(),
+        ("supersedes", true) => "supersedes".to_string(),
+        ("supersedes", false) => "superseded by".to_string(),
+        // Unknown types stay honest about their direction.
+        (other, true) => format!("{other} (outgoing)"),
+        (other, false) => format!("{other} (incoming)"),
+    }
+}
+
 /// One direction of one relationship type, neighbors linked.
 #[component]
 fn RelationshipGroupView(
     group: RelationshipGroup,
     #[prop(into)] direction: String,
 ) -> impl IntoView {
-    let arrow = if direction == "outgoing" {
-        "→"
-    } else {
-        "←"
-    };
+    let label = relationship_label(&group.relationship, direction == "outgoing");
     view! {
         <div class="kairos-relationships__group">
             <Group gap="sm">
-                <Text mono=true size="xs" dimmed=true>{arrow.to_string()}</Text>
-                <Text size="xs" dimmed=true>{group.relationship.clone()}</Text>
+                <Text size="xs" dimmed=true>{label}</Text>
             </Group>
             {group.items.into_iter().map(|item| view! {
                 <Group gap="sm" justify="between">
@@ -487,5 +612,23 @@ fn RelationshipGroupView(
                 </Group>
             }).collect_view()}
         </div>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The summary reads from THIS item's side: an outgoing parent edge
+    /// lists children; passive voice marks the incoming direction.
+    #[test]
+    fn relationship_labels_read_from_the_items_side() {
+        assert_eq!(relationship_label("parent", true), "children");
+        assert_eq!(relationship_label("parent", false), "parent");
+        assert_eq!(relationship_label("blocks", false), "blocked by");
+        assert_eq!(relationship_label("supports", true), "supporting material");
+        assert_eq!(relationship_label("informs", false), "informed by");
+        assert_eq!(relationship_label("supersedes", false), "superseded by");
+        assert_eq!(relationship_label("mystery", true), "mystery (outgoing)");
     }
 }

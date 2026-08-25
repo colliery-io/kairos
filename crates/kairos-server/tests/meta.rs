@@ -208,6 +208,7 @@ async fn meta_endpoints_against_live_stack() {
                 title: title.into(),
                 content: "c1".into(),
                 task_type: None,
+                work_class: None,
                 team_id: None,
             })
             .await
@@ -360,6 +361,67 @@ async fn meta_endpoints_against_live_stack() {
     let outgoing_supports = rel_group(&body.outgoing, "supports").expect("outgoing supports group");
     assert_eq!(outgoing_supports.items[0].short_code, doc_code);
     assert_eq!(outgoing_supports.items[0].entity_type, "document");
+
+    // ==========================================================================
+    // Children progress (KAIROS-T-0080): rollup over parent-edge children
+    // ==========================================================================
+    // The initiative parents exactly t1; the supports edge to the document
+    // never counts. t1 sits in the entry column (not done), and the seeded
+    // delivery board carries a done-flagged Completed column.
+    let progress = bob
+        .children_progress(EntityKind::Initiative, &initiative_code)
+        .await
+        .expect("initiative children progress");
+    assert_eq!(progress.short_code, initiative_code);
+    assert_eq!((progress.done, progress.total), (0, 1));
+    assert!(progress.has_done_columns, "seeded Completed is done-flagged");
+    assert_eq!(progress.by_column.len(), 1);
+    assert!(!progress.by_column[0].is_done);
+    assert_eq!(progress.by_column[0].count, 1);
+
+    // Walk t1 to Completed (Backlog -> Todo -> Active -> Completed per the
+    // seeded transitions); the rollup follows.
+    let board = bob
+        .get_board(&delivery_board.to_string())
+        .await
+        .expect("delivery board detail");
+    let column_id_of = |name: &str| {
+        board
+            .columns
+            .iter()
+            .find(|c| c.name == name)
+            .unwrap_or_else(|| panic!("column {name} exists"))
+            .id
+            .clone()
+    };
+    // svc is the org admin — transition_items is not among alice's grants
+    // in this fixture.
+    for column in ["Todo", "Active", "Completed"] {
+        svc.transition_task(&t1_code, &column_id_of(column))
+            .await
+            .unwrap_or_else(|e| panic!("moving t1 to {column}: {e}"));
+    }
+    let progress = bob
+        .children_progress(EntityKind::Initiative, &initiative_code)
+        .await
+        .expect("progress after completion");
+    assert_eq!((progress.done, progress.total), (1, 1));
+    assert!(progress.by_column[0].is_done, "the one bucket is Completed");
+
+    // A leaf reports an empty rollup, not an error.
+    let progress = bob
+        .children_progress(EntityKind::Task, &t1_code)
+        .await
+        .expect("leaf children progress");
+    assert_eq!((progress.done, progress.total), (0, 0));
+    assert!(progress.by_column.is_empty());
+
+    // Family/short-code mismatch -> 404, exactly like relationships.
+    let err = rejection(
+        bob.children_progress(EntityKind::Task, &initiative_code)
+            .await,
+    );
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
     // Family/short-code mismatch and unknown family -> 404. (The unknown
     // family is not expressible in the typed surface: raw probe.)
@@ -869,8 +931,9 @@ async fn meta_endpoints_against_live_stack() {
     // ==========================================================================
     // Activity log: combinable filters + pagination (S-0005)
     // ==========================================================================
-    // entity_id: exactly the task's create row (content edits go to
-    // item_history, metadata writes are unversioned/unlogged per A-0004).
+    // entity_id: the task's create row plus the three children-progress
+    // walk transitions above (content edits go to item_history, metadata
+    // writes are unversioned/unlogged per A-0004). Newest first.
     let body = bob
         .activity(&ActivityQuery {
             entity_id: Some(t1_id.clone()),
@@ -878,9 +941,15 @@ async fn meta_endpoints_against_live_stack() {
         })
         .await
         .expect("entity_id filter");
-    assert_eq!(body.total, 1, "{body:?}");
-    assert_eq!(body.items[0].action, "create");
-    assert_eq!(body.items[0].entity_type.as_deref(), Some("task"));
+    assert_eq!(body.total, 4, "{body:?}");
+    assert!(
+        body.items[..3]
+            .iter()
+            .all(|item| item.action == "transition"),
+        "{body:?}"
+    );
+    assert_eq!(body.items[3].action, "create");
+    assert_eq!(body.items[3].entity_type.as_deref(), Some("task"));
 
     // action filter: the parent + blocks links (svc) and the two document
     // supports edges (alice) are relationship_add rows.

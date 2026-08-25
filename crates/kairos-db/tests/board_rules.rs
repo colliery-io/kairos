@@ -387,6 +387,7 @@ fn board_rules_lifecycle() {
             board_id: delivery.id,
             column_id: backlog,
             task_type: TaskType::Task,
+            work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: Some(team.id),
             created_by: actor_id,
             updated_by: actor_id,

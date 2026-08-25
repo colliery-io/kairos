@@ -94,8 +94,15 @@ fn print_board_items(items: &BoardItemsResponse) {
             println!("   {}  [initiative] {}", item.short_code(), item.title());
         }
         for item in &column.tasks {
+            // KAIROS-T-0077: the Support lane rides on the type tag;
+            // Planned stays unmarked as the default lane.
+            let lane = if item.work_class == "support" {
+                " (support lane)"
+            } else {
+                ""
+            };
             println!(
-                "   {}  [{}] {}",
+                "   {}  [{}]{lane} {}",
                 item.short_code(),
                 item.task_type,
                 item.title()

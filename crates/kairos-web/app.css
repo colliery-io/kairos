@@ -96,6 +96,79 @@ body {
   border-color: var(--edge);
 }
 
+/* Children progress (KAIROS-T-0080): the segmented rollup bar on item
+   detail and the micro-badge on parent cards. Done segments/fill use the
+   ok token; the rest stay inset-neutral. */
+.kairos-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.kairos-progress__track {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.kairos-progress__segment {
+  background: var(--border-control);
+  height: 100%;
+}
+
+.kairos-progress__segment--done {
+  background: var(--ok);
+}
+
+.kairos-card__progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.kairos-progress__bar {
+  display: inline-block;
+  width: 48px;
+  height: 4px;
+  border-radius: var(--radius-xs);
+  background: var(--inset);
+  overflow: hidden;
+}
+
+.kairos-progress__fill {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+/* Planned/Support lanes (KAIROS-T-0077): the lane is a projection of
+   tasks.work_class; Support renders on top with an expedite accent. */
+.kairos-board__lane {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+}
+
+.kairos-board__lane + .kairos-board__lane {
+  margin-top: var(--space-sm);
+}
+
+.kairos-board__lane--support {
+  border-left: 3px solid var(--gold);
+}
+
+.kairos-board__lane-head {
+  margin-bottom: var(--space-sm);
+}
+
+/* An empty Support lane renders slim but its columns stay droppable. */
+.kairos-board__lane--empty .kairos-board__column {
+  min-height: 2.5rem;
+}
+
 /* Board view: a horizontally scrolling row of equal-width columns. */
 .kairos-board {
   display: flex;

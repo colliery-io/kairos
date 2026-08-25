@@ -38,6 +38,7 @@ impl IntoDto<dto::BoardColumn> for BoardColumn {
             position: self.position,
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            is_done: self.is_done,
         }
     }
 }

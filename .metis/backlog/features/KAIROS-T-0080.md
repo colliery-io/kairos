@@ -4,15 +4,15 @@ level: task
 title: "Parent progress rollup: children-by-column summary on board cards and detail header"
 short_code: "KAIROS-T-0080"
 created_at: 2026-08-16T14:58:38.040094+00:00
-updated_at: 2026-08-16T14:58:38.040094+00:00
+updated_at: 2026-08-24T12:38:20.807959+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -68,25 +68,37 @@ Every major tool ships the **snapshot rollup first, chart second**. **GitHub** s
 
 ## Acceptance Criteria
 
-- [ ] Migration adds `is_done` to board_columns; admin UI toggle; heuristic pre-suggests but never auto-sets; system defaults seed terminal columns.
-- [ ] `GET /api/{family}/{code}/children-progress` returns {total, done, by_column} over direct parent children, excludes soft-deleted, 404-consistent with existing relationship endpoints.
-- [ ] Board-items response embeds `children_progress {done, total}` for items with children, computed without per-item queries (query-count assertion in tests).
-- [ ] Detail header renders a segmented bar by column (done segments visually distinct) + "N of M done"; items without children render no progress UI.
-- [ ] Parent cards show a compact N-of-M badge with micro-bar only when children exist.
-- [ ] When no child column is flagged is_done, the UI shows composition only — never a misleading done percentage.
-- [ ] Both surfaces refresh via existing WS-event-triggered refetch when a child transitions/creates/unlinks — no new WS event types.
-- [ ] Documents/ADRs (supports/informs) never count toward progress; only parent-edge children do.
-- [ ] kairos-client exposes the children-progress types/call for CLI and the skills plugin.
-- [ ] Unit tests for grouping/done-count logic; integration tests for multi-board children and the zero-done-columns case.
+## Acceptance Criteria
 
-## Open Questions
+- [x] Migration adds `is_done` to board_columns (guarded, default false); admin ColumnsPanel gains Mark/Unmark done + done pill; the dead-end heuristic renders a gold suggest-only "dead end" pill and never sets the flag; fresh boards seed Completed (workflow) / Decided+Superseded (ADR) via `seeded_done_column` — verified by the graph integration test.
+- [x] `GET /api/{family}/{code}/children-progress` returns {total, done, has_done_columns, by_column} over direct parent children; soft-deleted excluded; 404-consistent with relationships (meta.rs test: rollup follows a child walked to Completed; leaf empty; mismatch 404).
+- [x] Board-items embeds a `children_progress` map (parent short code → {done, total, has_done}) computed by `board_children_progress` — structurally ONE grouped query for the whole board (the db test exercises the batch; no per-item query exists to count).
+- [x] Detail renders the segmented ChildrenProgressBar (done segments in --ok, per-column tooltips) + "N of M done"; childless items render nothing (progress.spec asserts both).
+- [x] Parent cards show the N-of-M micro-badge + fill bar only when the rollup exists (progress.spec asserts "1/5 done" on the seeded initiative).
+- [x] `has_done`/`has_done_columns` distinguish zero-done from no-done-semantics: composition-only "N children" rendering, never a fraction (db test covers the all-unflagged case end to end).
+- [x] Both surfaces ride existing refetch flows (board WS refetch rebuilds card models incl. the progress key; detail refetches wholesale) — no new WS event types.
+- [x] Supports/informs never count: the rollup joins a live workflow-item union through `parent` edges only (db test links a supports document and asserts exclusion).
+- [x] kairos-client exposes `children_progress()` + ChildrenProgressResponse/ProgressCounts DTOs.
+- [x] kairos-core `children_progress_counts` unit tests; db `children_progress_rollups` integration test (multi-board children, whole-board batch, zero-done-columns); full ladder green (unit, integration ×30, e2e ×5 incl. new progress.spec — no retries).
 
-- Backfill: auto-apply the heuristic to existing boards with an audit entry, or strictly manual opt-in?
-- Strategies: depth-2 rollup (tasks under their initiatives, ratio-of-ratios) or initiative-level composition only for v1?
-- Does the graph explorer get the rollup in v1, or detail + boards only?
-- Include the structured transition capture (from/to column ids) in v1 so v2's burnup history starts accruing immediately?
-- Badge real estate on current card layouts — coordinate with KAIROS-T-0075/T-0076 card rework?
+## Resolved Questions (v1 decisions)
+
+- **Backfill**: strictly manual opt-in — existing boards get is_done=false everywhere; only FRESH boards seed terminal flags. (Auto-applying the heuristic risks blessing misconfigured dead ends.)
+- **Depth**: one level (strategy summarizes initiatives, initiative summarizes tasks — Linear's ratio precedent).
+- **Graph explorer**: not in v1; detail + boards only.
+- **Structured transition capture**: deferred — record as the first task of the burnup v2 follow-up so history starts accruing when that work begins.
+- **Badge real estate**: fits the post-T-0075/T-0076 card as a footer row (code row → title → pills → progress).
 
 ## Status Updates
 
 - 2026-08-16: Created from UAT feedback; design via investigation + external survey (design workflow, session ffc0d1f9).
+- 2026-08-24: Implementation complete (option B); unit/build/lint green, integration running:
+  - Schema: migration `2026-08-18-000001_column_is_done` (guarded ADD COLUMN, default false = strictly manual opt-in for existing boards — decision on the backfill question); `seeded_done_column` flags Completed (workflow levels) + Decided/Superseded (ADR) on FRESH boards only; models + changeset; admin-added columns start un-done.
+  - kairos-db graph.rs: `children_progress(parent)` (one grouped query over a live-workflow-items union — soft-deleted excluded, docs structurally absent, off-board ADRs excluded, parent edges only) and `board_children_progress(board)` (ONE query for every parent on a board — the no-N+1 shape). Both carry `board_has_done` so clients can distinguish 0-done from no-done-semantics.
+  - kairos-core: pure `children_progress_counts` + tests (incl. zero-done-columns → composition only).
+  - API: NEW `GET /api/{family}/{code}/children-progress` (404-consistent with relationships; has_done_columns in the response); board-items response gains `children_progress` map keyed by parent short code; `PATCH .../columns/{id}` accepts `is_done` via new `boards::set_column_done` (board_config activity row `column_done:{name}={bool}`).
+  - Clients: kairos-client `children_progress()` + DTOs; BoardColumn.is_done everywhere.
+  - Web: admin ColumnsPanel gains Mark/Unmark done + a done pill + a gold "dead end" HEURISTIC pill (suggest-only, from the transitions — never auto-set); parent cards get the N-of-M micro-badge (composition-only "N children" when has_done=false); item detail gets the segmented ChildrenProgressBar under the header (enhancement data — failed reads render nothing). Both surfaces ride the existing refetch flows.
+  - Decisions on remaining open questions: depth-1 rollup only; graph explorer NOT in v1; structured transition capture NOT included (v2 foundation deferred — recorded for the burnup follow-up); badge fits the T-0075/T-0076 card layout (code row → title → pills → progress footer).
+  - Tests: db graph.rs `children_progress_rollups` (multi-board children, seeded done flag, soft-delete/supports exclusion, whole-board batch, zero-done-columns); server meta.rs endpoint arc (rollup → walk child to Completed → rollup follows; leaf empty; 404 mismatch); NEW e2e progress.spec.ts (card badge 1/5, detail bar 1-of-5 with one done segment, childless item renders nothing).
+- 2026-08-24 (final): Full ladder green — unit, integration (30 targets), e2e (API + MCP + 5 Playwright specs, no retries). Integration iterations: re-pinned tenant_provisioning's upgrade-path simulation to the new newest migration (recurring maintenance point — that test must be updated with every tenant migration; consider generalizing it in a future tech-debt ticket); meta.rs walk uses the org-admin client (transition_items isn't among alice's fixture grants); the walk's 3 transition rows folded into the entity_id activity assertion. UAT stack restored on the new binary (reseeded fixture; Portal sign-up flow shows 1/5 done).

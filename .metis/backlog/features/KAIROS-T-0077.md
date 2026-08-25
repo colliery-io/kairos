@@ -4,15 +4,15 @@ level: task
 title: "Boards: Planned/Support swim lanes via work_class field + support ticket type"
 short_code: "KAIROS-T-0077"
 created_at: 2026-08-16T14:56:15.466841+00:00
-updated_at: 2026-08-16T14:56:15.466841+00:00
+updated_at: 2026-08-18T02:58:00.671211+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -77,28 +77,47 @@ P1 — UAT feedback; core team-workflow capability.
 
 ## Acceptance Criteria
 
-- [ ] Tenant migration adds `tasks.work_class` TEXT NOT NULL DEFAULT 'planned' CHECK ('planned'|'support'); existing tasks backfill to 'planned'.
-- [ ] `task_type` accepts 'support' end-to-end: DDL, enum, API parsing, search filter, CLI, MCP.
-- [ ] work_class and task_type independently settable: a `task_type='bug'` + `work_class='support'` task renders in the Support lane with its bug type intact (regression test for the no-bug-lane decision).
-- [ ] Delivery board web view renders Support above Planned spanning the same columns; lane membership determined solely by work_class; other board levels render unchanged.
-- [ ] Same-column cross-lane drag updates only work_class (no transition validation); cross-column same-lane drag validates transitions exactly as today; diagonal applies both; the keyboard-accessible transition path offers lane moves too.
-- [ ] `can_transition` and the rules engine unchanged — lane never affects transition legality (unit-tested).
-- [ ] Creating task_type='support' defaults work_class='support' (overridable) via web, API, CLI, MCP.
-- [ ] work_class changes are activity-logged and emit the existing `item_updated` thin event; open boards live-refresh with no WS protocol changes.
-- [ ] Empty Support lane renders slim but remains a valid drop target; lane headers show per-lane counts; Support lane has distinct expedite-style accent.
-- [ ] `GET /api/boards/{id}/items` includes work_class on task cards; kairos-client, web, CLI `boards show`, and MCP board view expose it.
-- [ ] Search API filters tasks by work_class alongside task_type.
+## Acceptance Criteria
 
-## Open Questions
+- [x] Tenant migration adds `tasks.work_class` TEXT NOT NULL DEFAULT 'planned' CHECK ('planned'|'support'); existing rows backfill via the default; migration is idempotent (fleet-migration guard, verified by tenant_provisioning upgrade-path test).
+- [x] `task_type` accepts 'support' end-to-end: DDL, TaskType enum, API parsing, search filter, CLI, MCP (all integration-tested).
+- [x] Independence regression-tested at three levels: seeded fixture (DEMO bug in Support lane), API test (bug + work_class=support both preserved), lanes.spec (bug pill visible on a Support-lane card).
+- [x] Delivery boards render Support above Planned spanning the same columns (lanes.spec asserts order); lane membership is solely work_class (`card_lane` pure fn); strategy/initiative/ADR boards render the single unlaned row.
+- [x] Drop semantics via pure `drop_effect` (host-tested) + lanes.spec: same-column cross-lane = lane write only; cross-column same-lane = plain transition; diagonal = both; the detail page's Lane select + Set lane button is the keyboard path (lanes.spec step 7).
+- [x] Rules engine untouched (`can_transition` has no lane input; drop_effect test asserts column legality stays with transitions even on diagonals).
+- [x] Create default (support type → Support lane, overridable) server-side — one rule serving web/API/CLI/MCP; API-tested; web modal's "auto" lane omits the field.
+- [x] Lane changes: activity_log `work_class:{from}->{to}` + existing item_updated thin event (write_path test: logged once, no-op logs nothing, version/column untouched); boards live-refresh through the existing WS refetch.
+- [x] Empty Support lane renders slim (`--empty`, no per-column empty text) but droppable; lane heads show counts; gold expedite accent.
+- [x] work_class on board-items task cards; kairos-client Task DTO + set_task_work_class; web mirrors; CLI `boards show` "(support lane)" marker; MCP board view "[support lane]" kind + get_item lane line.
+- [x] Search filters by work_class alongside task_type (db test composes both; core validation counts a work_class-only filter as constraining — bug found and fixed by the integration tier, with EmptyWorkClasses validation added).
 
-- Capability gating for lane drags: require `transition_items` (UX consistency with column drags) or plain task-update permission?
-- Field naming: `work_class` (extensible toward expedite/fixed_date) vs narrower alternatives — recommend work_class, confirm.
-- Server-side lane grouping in the board-items API eventually, or per-client partitioning long-term?
-- Support-demand roll-up to initiative/strategy levels (Businessmap-style CoS-mix reporting) — v2?
-- Per-lane/column WIP limits — separate initiative? (No WIP machinery exists anywhere today.)
-- Triage inbox as the eventual intake surface feeding work_class='support' — v2 candidate.
-- Reconcile initiatives' existing `bucket_type` ('tech_debt'|'bug'|'ad_hoc', enums.rs:141–159) with the work_class axis, or leave alone?
+## Resolved Questions (v1 decisions)
+
+- **Capability**: lane moves require `transition_items` (lane moves are board moves in UX terms; API-tested 403 for a manage_tasks-only user).
+- **Naming**: `work_class`, extensible toward expedite/fixed_date.
+- **Partitioning**: client-side per renderer for v1; server-side lane grouping deferred.
+- **Deferred to future tickets**: CoS-mix roll-up to upper flight levels; per-lane WIP limits; triage inbox as the intake surface; reconciling initiatives' `bucket_type` with the lane axis.
 
 ## Status Updates
 
 - 2026-08-16: Created from UAT feedback; design via investigation + external survey (design workflow, session ffc0d1f9).
+- 2026-08-18: Server-side + clients complete (workspace compiles):
+  - Migration `2026-08-18-000000_task_work_class` (work_class column + CHECK, task_type CHECK gains 'support'; guarded down); applied to org_demo; schema.rs regenerated (work_class is the LAST column — print-schema ordinal).
+  - enums.rs: TaskType::Support, new WorkClass text_enum, ActivityAction::WorkClass (+tests). Models: Task/NewTask/TaskChangeset.
+  - kairos-db: create_task threads work_class; NEW `items::set_task_work_class` (transaction: no-op if unchanged, else update + activity `work_class:{from}->{to}` + ItemUpdated thin event). Seed: SeedTask.work_class; 2 new fixture tasks on platform-delivery — "Customer cannot reset password" (support/support, Active) and "Login page 500s on expired trials" (bug/SUPPORT lane, Todo — the no-bug-lane regression example).
+  - Search: core SearchWorkClass + filter field; db hydrate_tasks predicate + task-only retain; server parse; client types_search; CLI --work-class; MCP filter.
+  - API: create defaults work_class=support iff task_type=support (overridable); NEW POST /api/tasks/{code}/work-class (SetWorkClassRequest, capability transition_items — decision: lane moves are board moves in UX terms); openapi registered; convert.rs Task DTO.
+  - Clients: kairos-client Task.work_class + create field + set_task_work_class(); CLI create --work-class + boards show "(support lane)" marker; MCP create/search/get_item/board view expose lanes.
+  - DECISIONS on open questions: capability = transition_items; name = work_class; client-side lane partitioning for v1.
+  - NEXT: web GUI (lane rows, (column,lane) drops, create-modal lane select, detail lane control), e2e lanes.spec + lane-aware column helpers in existing specs (two column sections per name once lanes land), tests.
+- 2026-08-18 (cont.): Web GUI + e2e authored; unit (all crates incl. 2 new pure lane tests), WASM build, lint green:
+  - boards.rs: DragData gains source_column + work_class; pure `card_lane` + `drop_effect` helpers (host-tested: same-column cross-lane = lane write only; cross-column same-lane = plain transition; diagonal = both; column legality stays with transitions; unlaned cards can't lane-move); `run_transition` → `run_drop` (sequential transition + lane writes); BoardBody splits delivery boards into LaneSection(Support, gold, top) + LaneSection(Planned); new LaneColumns component (lane-filtered fine-grained column row, empty support columns render slim with no empty-text); ItemCard drags with lane payload and stays draggable in dead-end columns when it can lane-move; create modal gains task_type 'support' + Lane select (auto/planned/support; auto = server default rule).
+  - item.rs: MoveControl gains the Lane row (select + Set lane; disabled when unchanged; message-carrying on_moved); TypeFacts shows a gold "support lane" pill; ItemDetail mirror + decode test carry work_class.
+  - app.css: lane container/accent (--gold var), --empty slim treatment. data.rs: Task/NewItem/CreateTaskRequest mirrors + set_work_class + test updates.
+  - Test-target sweep: work_class threaded through 16 construction sites in db/server test suites + soak + golden-path example.
+  - e2e: NEW lanes.spec.ts (lane order, seeded fixtures incl. the no-bug-lane example, create-into-support, cross-lane/same-lane/diagonal drags, detail Lane control); smoke/drag/team-lens column helpers lane-scoped; smoke 7b move-field targeted by label (two selects in the Board panel now).
+  - Integration suite running; e2e next.
+- 2026-08-18 (final): Full ladder green — unit, integration (30 targets), e2e (API golden path + MCP + 4 Playwright specs incl. the new lanes.spec, no retries).
+  - Integration tier caught and fixed 3 real issues: (1) `SearchFilter::is_constraining` didn't count work_class — a work_class-only search 400'd (+ EmptyWorkClasses validation + core unit tests); (2) non-exhaustive validation-error match in the server mapping; (3) tenant_provisioning's upgrade-path simulation was pinned to the previous newest migration — now reverts task_work_class, and the migration itself gained IF-NOT-EXISTS guards (idempotent fleet migrations).
+  - New tests: write_path lane arc (activity row, no-op, version/column untouched), search work_class filter + axis composition, entities API lane arc (defaults, independence, transition_items 403, 422 on bad value), seed fixture lane assertions.
+  - UAT stack rebooted on the new binary with the reseeded 10-task fixture (support request in Support/Active; unplanned bug in Support/Todo).

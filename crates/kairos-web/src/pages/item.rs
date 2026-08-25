@@ -139,6 +139,8 @@ fn ItemLoaded(
     let code = item.short_code.clone();
     let delete_title = item.title.clone();
     let lane = item.work_class.clone();
+    let lifecycle = item.lifecycle.clone();
+    let lifecycle_badge = item.lifecycle.clone();
     let ItemDetail {
         short_code,
         title,
@@ -156,6 +158,14 @@ fn ItemLoaded(
                 <Text mono=true dimmed=true size="sm">{header_code}</Text>
                 <copy_link::CopyLinkButton code=copy_code/>
                 <Pill color=token::ICE>{version_label}</Pill>
+                // The document lifecycle badge (KAIROS-T-0078): an
+                // editorial label, deliberately distinct from anything
+                // board-status-shaped — its own class + state color.
+                {lifecycle_badge.map(|state| view! {
+                    <span class="kairos-lifecycle-badge">
+                        <Pill color=lifecycle_color(&state)>{format!("lifecycle: {state}")}</Pill>
+                    </span>
+                })}
                 <TypeFacts item=facts/>
             </Group>
             <Group gap="sm">
@@ -183,12 +193,83 @@ fn ItemLoaded(
             <Stack gap="sm">
                 <BoardPanel family code=short_code.clone() board_id column_id
                     work_class=lane on_moved/>
+                {lifecycle.map(|current| view! {
+                    <LifecyclePanel code=short_code.clone() current on_moved/>
+                })}
                 <MetadataPanel family code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
         <CreateDocumentDialog parent_code=code.clone() open=create_open/>
         <DeleteDialog family code title=delete_title open=delete_open/>
+    }
+}
+
+/// The badge color of a document lifecycle state (KAIROS-T-0078):
+/// published green, review gold, draft/archived muted — an editorial
+/// palette, deliberately unlike the board-column pills.
+fn lifecycle_color(state: &str) -> &'static str {
+    match state {
+        "published" => token::OK,
+        "review" => token::GOLD,
+        _ => token::MUTED,
+    }
+}
+
+/// The lifecycle control (KAIROS-T-0078, documents only): a
+/// free-transition select + Set button — an editorial label, never a
+/// transition engine. Gating is server-side (`manage_documents` on the
+/// authorization board); a 403 surfaces in the error slot.
+#[component]
+fn LifecyclePanel(
+    #[prop(into)] code: String,
+    current: String,
+    on_moved: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let current = StoredValue::new(current);
+    let value = RwSignal::new(current.get_value());
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<ApiError>);
+    let submit: Callback<()> = Callback::new(move |()| {
+        let lifecycle = value.get_untracked();
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match api::set_lifecycle(auth, &code.get_value(), &lifecycle).await {
+                Ok(()) => on_moved.run(format!("Lifecycle set to {lifecycle}.")),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+    view! {
+        <Panel title="Lifecycle" caption="editorial state — not board status">
+            <Stack gap="sm">
+                <Group gap="sm">
+                    <Select label="State" value=value
+                        options=vec!["draft".to_string(), "review".to_string(),
+                                     "published".to_string(), "archived".to_string()]/>
+                    {move || {
+                        let unchanged = value.get() == current.get_value();
+                        let disabled = busy.get() || unchanged;
+                        view! {
+                            <Button size="xs" disabled=disabled on_click=submit>
+                                {if busy.get_untracked() { "Setting…" } else { "Set" }}
+                            </Button>
+                        }
+                    }}
+                </Group>
+                {move || error.get().map(|e| view! {
+                    <Alert title="Could not set lifecycle" color=token::BAD>
+                        <Text size="sm">{api::error_text(&e)}</Text>
+                    </Alert>
+                })}
+            </Stack>
+        </Panel>
     }
 }
 

@@ -7,6 +7,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use super::enums::FieldType;
+use crate::schema::metadata_definition_scopes;
 use crate::schema::{
     item_metadata, metadata_definitions, metadata_enum_options, template_metadata, templates,
 };
@@ -88,6 +89,24 @@ pub struct MetadataDefinitionChangeset {
     pub field_type: Option<FieldType>,
     pub is_system_default: Option<bool>,
     pub updated_at: Option<DateTime<Utc>>,
+}
+
+// ---------------------------------------------------------------------------
+// metadata_definition_scopes (KAIROS-T-0078)
+// ---------------------------------------------------------------------------
+
+/// One entity type a metadata definition applies to
+/// (`metadata_definition_scopes`). A definition with NO scope rows
+/// applies to every entity type; the vocabulary is the five entity-type
+/// strings ('strategy'|'initiative'|'task'|'document'|'adr'), enforced by
+/// the DDL CHECK and matched against
+/// `kairos_core::short_code::ItemType::entity_type()` at the write paths.
+#[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Insertable)]
+#[diesel(table_name = metadata_definition_scopes)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct MetadataDefinitionScope {
+    pub metadata_definition_id: Uuid,
+    pub entity_type: String,
 }
 
 // ---------------------------------------------------------------------------

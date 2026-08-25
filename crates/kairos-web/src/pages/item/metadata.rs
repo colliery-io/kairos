@@ -40,7 +40,7 @@ pub fn MetadataPanel(family: Family, #[prop(into)] code: String) -> impl IntoVie
         let _ = auth.token();
         let _ = reload.get();
         async move {
-            let definitions = api::fetch_definitions(auth).await?;
+            let definitions = api::fetch_definitions(auth, family).await?;
             let values = api::fetch_metadata(auth, family, code.get_value()).await?;
             Ok::<_, aurora_dark::tokens::ApiError>((definitions, values))
         }

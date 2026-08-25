@@ -96,6 +96,15 @@ body {
   border-color: var(--edge);
 }
 
+/* Document lifecycle badge (KAIROS-T-0078): an editorial label, styled
+   apart from board-status pills — dashed outline marks "not a column". */
+.kairos-lifecycle-badge {
+  display: inline-flex;
+  outline: 1px dashed var(--border-control);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 /* Children progress (KAIROS-T-0080): the segmented rollup bar on item
    detail and the micro-badge on parent cards. Done segments/fill use the
    ok token; the rest stay inset-neutral. */

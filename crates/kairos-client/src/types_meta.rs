@@ -170,6 +170,11 @@ pub struct MetadataDefinition {
     pub is_system_default: bool,
     /// Allowed values in display order (empty unless `field_type = enum`).
     pub enum_options: Vec<String>,
+    /// Entity types this definition applies to (KAIROS-T-0078):
+    /// `strategy|initiative|task|document|adr`. EMPTY = applies to every
+    /// type. Enforced on the write paths, not just rendering.
+    #[serde(default)]
+    pub entity_types: Vec<String>,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -186,6 +191,10 @@ pub struct CreateMetadataDefinitionRequest {
     /// Required non-empty for `enum`; forbidden otherwise.
     #[serde(default)]
     pub enum_options: Vec<String>,
+    /// Entity types the definition applies to (KAIROS-T-0078); empty =
+    /// all types.
+    #[serde(default)]
+    pub entity_types: Vec<String>,
 }
 
 /// Body of `PATCH /api/metadata-definitions/{id}` (org admin). Omitted
@@ -200,6 +209,10 @@ pub struct UpdateMetadataDefinitionRequest {
     /// Replacement option list (enum definitions only, non-empty).
     #[serde(default)]
     pub enum_options: Option<Vec<String>>,
+    /// Replacement scope list (KAIROS-T-0078); `Some([])` clears the
+    /// scopes (definition applies to all types again).
+    #[serde(default)]
+    pub entity_types: Option<Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------

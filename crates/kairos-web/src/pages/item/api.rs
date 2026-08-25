@@ -62,6 +62,18 @@ impl Family {
         Some(family)
     }
 
+    /// The singular entity-type name (KAIROS-T-0078 metadata scoping;
+    /// matches the server's entity-type vocabulary).
+    pub fn entity_type(self) -> &'static str {
+        match self {
+            Family::Strategy => "strategy",
+            Family::Initiative => "initiative",
+            Family::Task => "task",
+            Family::Document => "document",
+            Family::Adr => "adr",
+        }
+    }
+
     /// The plural family segment used by every `/api/{family}` route.
     pub fn api_family(self) -> &'static str {
         match self {
@@ -110,6 +122,10 @@ pub struct ItemDetail {
     pub board_id: Option<String>,
     #[serde(default)]
     pub column_id: Option<String>,
+    /// Editorial lifecycle (KAIROS-T-0078; documents only) —
+    /// `draft|review|published|archived`.
+    #[serde(default)]
+    pub lifecycle: Option<String>,
     pub updated_at: String,
     // -- per-type extras --------------------------------------------------
     #[serde(default)]
@@ -352,12 +368,36 @@ pub async fn fetch_board(auth: Auth, board_id: String) -> Result<BoardInfo, ApiE
     get_json(auth, &format!("/api/boards/{board_id}")).await
 }
 
-/// `GET /api/metadata-definitions` (all of them — the typed editors render
-/// every definition, valued or not).
-pub async fn fetch_definitions(auth: Auth) -> Result<Vec<MetadataDefinition>, ApiError> {
-    let page: Page<MetadataDefinition> =
-        get_json(auth, "/api/metadata-definitions?limit=200").await?;
+/// `GET /api/metadata-definitions?entity_type=…` — ONLY the definitions
+/// in scope for this item's type (KAIROS-T-0078): the server filter is
+/// the same rule the write path enforces, so the picker can never offer
+/// a field the PATCH would reject.
+pub async fn fetch_definitions(
+    auth: Auth,
+    family: Family,
+) -> Result<Vec<MetadataDefinition>, ApiError> {
+    let page: Page<MetadataDefinition> = get_json(
+        auth,
+        &format!(
+            "/api/metadata-definitions?limit=200&entity_type={}",
+            family.entity_type()
+        ),
+    )
+    .await?;
     Ok(page.items)
+}
+
+/// `PATCH /api/documents/{short_code}/lifecycle` — set the editorial
+/// state (KAIROS-T-0078). The response body is discarded; the page
+/// refetches wholesale.
+pub async fn set_lifecycle(auth: Auth, code: &str, lifecycle: &str) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    struct Body<'a> {
+        lifecycle: &'a str,
+    }
+    let path = format!("/api/documents/{code}/lifecycle");
+    let _: ItemDetail = send_json(auth, Verb::Patch, &path, Some(&Body { lifecycle })).await?;
+    Ok(())
 }
 
 /// `GET /api/{family}/{short_code}/metadata` → the item's current values.
@@ -718,6 +758,7 @@ mod tests {
             "title": "PRD: Portal sign-up flow",
             "content": "## Summary\n",
             "template_id": "t1",
+            "lifecycle": "published",
             "version": 1,
             "created_by": "u1",
             "updated_by": "u1",
@@ -727,6 +768,7 @@ mod tests {
         let item: ItemDetail = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(item.board_id, None);
         assert_eq!(item.column_id, None);
+        assert_eq!(item.lifecycle.as_deref(), Some("published"));
     }
 
     /// The 409 envelope parse finds `details.current` whether it is the

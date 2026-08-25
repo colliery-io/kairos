@@ -84,6 +84,7 @@ use crate::app::AppState;
         crate::api::documents::get_document,
         crate::api::documents::create_document,
         crate::api::documents::update_document,
+        crate::api::documents::set_lifecycle,
         crate::api::documents::delete_document,
         crate::api::adrs::list_adrs,
         crate::api::adrs::get_adr,

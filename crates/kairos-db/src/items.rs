@@ -65,7 +65,8 @@ use kairos_core::short_code::{self, ItemType};
 use crate::events::{self, EventKind};
 
 use crate::models::enums::{
-    ActivityAction, BucketType, Complexity, RelationshipType, TaskType, WorkClass,
+    ActivityAction, BucketType, Complexity, DocumentLifecycle, RelationshipType, TaskType,
+    WorkClass,
 };
 use crate::models::graph::{NewActivityLogEntry, NewItemHistory};
 use crate::models::items::{
@@ -674,6 +675,77 @@ pub fn set_task_work_class(
     })
 }
 
+/// Whether a metadata definition applies to `entity_type`
+/// (KAIROS-T-0078): no scope rows = applies to every type; otherwise the
+/// type must be listed. THE enforcement primitive — both write paths
+/// (the metadata PATCH and template stamping) go through it, so the
+/// scoping rule lives in the data layer, not in a server-side map.
+pub fn definition_applies_to(
+    conn: &mut PgConnection,
+    definition_id: Uuid,
+    entity_type: &str,
+) -> Result<bool, DieselError> {
+    use crate::schema::metadata_definition_scopes::dsl;
+    let scopes: Vec<String> = dsl::metadata_definition_scopes
+        .filter(dsl::metadata_definition_id.eq(definition_id))
+        .select(dsl::entity_type)
+        .load(conn)?;
+    Ok(scopes.is_empty() || scopes.iter().any(|scope| scope == entity_type))
+}
+
+/// Set a document's editorial lifecycle (KAIROS-T-0078). A label change,
+/// not a content edit: activity-logged (`lifecycle:{from}->{to}`) and
+/// announced via the existing `item_updated` thin event, with NO version
+/// bump and NO `item_history` row — the A-0004 versioning contract covers
+/// title/content only, exactly like `work_class` (KAIROS-T-0077).
+/// Transitions are free (any state to any state). Setting the current
+/// value is a no-op.
+pub fn set_document_lifecycle(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+    lifecycle: DocumentLifecycle,
+    actor: Uuid,
+) -> Result<Document, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::documents::dsl;
+        let current: Document = dsl::documents
+            .filter(dsl::id.eq(document_id))
+            .filter(dsl::deleted_at.is_null())
+            .select(Document::as_select())
+            .first(conn)
+            .optional()?
+            .ok_or(ItemError::ItemNotFound {
+                entity_type: "document",
+                id: document_id,
+            })?;
+        if current.lifecycle == lifecycle {
+            return Ok(current);
+        }
+        let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
+            .set((
+                dsl::lifecycle.eq(lifecycle),
+                dsl::updated_by.eq(actor),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(Document::as_returning())
+            .get_result(conn)?;
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::Lifecycle,
+            document_id,
+            "document",
+            format!(
+                "lifecycle:{}->{}",
+                current.lifecycle.as_str(),
+                lifecycle.as_str()
+            ),
+        )?;
+        events::emit_item_event_by_id(conn, EventKind::ItemUpdated, "document", document_id, actor)?;
+        Ok(updated)
+    })
+}
+
 /// Input for [`create_document`].
 #[derive(Debug, Clone)]
 pub struct CreateDocument<'a> {
@@ -734,16 +806,21 @@ pub fn create_document(
                     template_metadata::default_value,
                 ))
                 .load(conn)?;
-            let stamps: Vec<NewItemMetadata> = defaults
-                .into_iter()
-                .filter_map(|(metadata_definition_id, default_value)| {
-                    default_value.map(|value| NewItemMetadata {
-                        item_id: created.id,
-                        metadata_definition_id,
-                        value,
-                    })
-                })
-                .collect();
+            let mut stamps: Vec<NewItemMetadata> = Vec::with_capacity(defaults.len());
+            for (metadata_definition_id, default_value) in defaults {
+                let Some(value) = default_value else { continue };
+                // KAIROS-T-0078: stamping is a metadata write path — a
+                // definition scoped away from documents never stamps,
+                // whatever a template association claims.
+                if !definition_applies_to(conn, metadata_definition_id, "document")? {
+                    continue;
+                }
+                stamps.push(NewItemMetadata {
+                    item_id: created.id,
+                    metadata_definition_id,
+                    value,
+                });
+            }
             if !stamps.is_empty() {
                 diesel::insert_into(item_metadata::table)
                     .values(&stamps)

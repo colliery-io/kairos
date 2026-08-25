@@ -117,6 +117,23 @@ pub(crate) async fn update_metadata(
                             "unknown metadata definition slug {definition_slug:?}"
                         ))
                     })?;
+                // KAIROS-T-0078: entity-type scoping is enforced on the
+                // write path, not just hidden in pickers. Clears of
+                // out-of-scope values are still allowed (cleanup).
+                if value.is_some()
+                    && !kairos_db::items::definition_applies_to(
+                        conn,
+                        definition.id,
+                        item_type.entity_type(),
+                    )
+                    .map_err(ApiError::internal)?
+                {
+                    return Err(ApiError::validation(format!(
+                        "metadata definition {definition_slug:?} does not apply to \
+                         {} items",
+                        item_type.entity_type()
+                    )));
+                }
                 if let Some(value) = value {
                     validate_metadata_value(conn, &definition, value)?;
                 }

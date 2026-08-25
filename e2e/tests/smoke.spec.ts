@@ -176,19 +176,28 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     const contentArea = editor.locator('textarea.kairos-editor__textarea');
     await expect(contentArea).toBeVisible();
 
-    // KAIROS-T-0065: the metadata panel scopes to fields the item carries —
-    // a task never shows the document-only definitions; the rest of the
-    // catalog sits behind the add-a-field picker.
+    // KAIROS-T-0065/T-0078: the metadata catalog is entity-scoped at the
+    // API now — a task's add-a-field picker cannot even OFFER the
+    // document-only definitions ('Document status' no longer exists at
+    // all; lifecycle is a typed documents column).
     const metadata = page.locator('.kairos-metadata');
     await expect(metadata).toBeVisible();
     await expect(
       metadata.locator('label', { hasText: 'Document Type' }),
     ).toHaveCount(0);
     await expect(
-      metadata.locator('label', { hasText: 'Document status' }),
-    ).toHaveCount(0);
-    await expect(
       metadata.locator('option', { hasText: '(add a field…)' }),
+    ).toHaveCount(1);
+    await expect(
+      metadata.locator('option', { hasText: 'Document Type' }),
+    ).toHaveCount(0);
+    // The in-scope, unstamped remainder for a task: Complexity (this
+    // seeded task already carries Priority as an editor row).
+    await expect(
+      metadata.locator('option', { hasText: 'Complexity' }),
+    ).toHaveCount(1);
+    await expect(
+      metadata.locator('label', { hasText: 'Priority' }),
     ).toHaveCount(1);
 
     // --- a successful edit + save ---

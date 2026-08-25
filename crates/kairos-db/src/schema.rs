@@ -124,6 +124,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        lifecycle -> Text,
     }
 }
 
@@ -175,6 +176,13 @@ diesel::table! {
         target_id -> Uuid,
         relationship -> Text,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    metadata_definition_scopes (metadata_definition_id, entity_type) {
+        metadata_definition_id -> Uuid,
+        entity_type -> Text,
     }
 }
 
@@ -307,6 +315,7 @@ diesel::joinable!(documents -> templates (template_id));
 diesel::joinable!(initiatives -> board_columns (column_id));
 diesel::joinable!(initiatives -> boards (board_id));
 diesel::joinable!(item_metadata -> metadata_definitions (metadata_definition_id));
+diesel::joinable!(metadata_definition_scopes -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_enum_options -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(strategies -> board_columns (column_id));
 diesel::joinable!(strategies -> boards (board_id));
@@ -333,6 +342,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     item_history,
     item_metadata,
     item_relationships,
+    metadata_definition_scopes,
     metadata_definitions,
     metadata_enum_options,
     scim_tokens,
@@ -371,6 +381,13 @@ diesel::table! {
         #[sql_name = "columns"]
         columns_ -> Text,
         transitions -> Text,
+    }
+}
+
+diesel::table! {
+    public.system_metadata_definition_scopes (metadata_definition_id, entity_type) {
+        metadata_definition_id -> Uuid,
+        entity_type -> Text,
     }
 }
 
@@ -429,6 +446,7 @@ diesel::table! {
 
 diesel::joinable!(organization_members -> organizations (organization_id));
 diesel::joinable!(organization_members -> users (user_id));
+diesel::joinable!(system_metadata_definition_scopes -> system_metadata_definitions (metadata_definition_id));
 diesel::joinable!(system_metadata_enum_options -> system_metadata_definitions (metadata_definition_id));
 diesel::joinable!(system_template_metadata -> system_metadata_definitions (metadata_definition_id));
 diesel::joinable!(system_template_metadata -> system_templates (template_id));
@@ -437,6 +455,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     organization_members,
     organizations,
     system_board_defaults,
+    system_metadata_definition_scopes,
     system_metadata_definitions,
     system_metadata_enum_options,
     system_template_metadata,

@@ -90,6 +90,7 @@ impl IntoDto<dto::Document> for Document {
             title: self.title,
             content: self.content,
             template_id: self.template_id.map(|id| id.to_string()),
+            lifecycle: self.lifecycle.to_string(),
             version: self.version,
             created_by: self.created_by.to_string(),
             updated_by: self.updated_by.to_string(),

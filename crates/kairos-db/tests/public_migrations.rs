@@ -23,11 +23,13 @@ const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kair
 
 const SCRATCH_DB: &str = "kairos_public_migrations_test";
 
-/// The 8 public-schema tables defined by KAIROS-S-0004.
-const EXPECTED_TABLES: [&str; 8] = [
+/// The public-schema tables: the 8 defined by KAIROS-S-0004 plus the
+/// KAIROS-T-0078 system metadata scopes.
+const EXPECTED_TABLES: [&str; 9] = [
     "organization_members",
     "organizations",
     "system_board_defaults",
+    "system_metadata_definition_scopes",
     "system_metadata_definitions",
     "system_metadata_enum_options",
     "system_template_metadata",
@@ -113,7 +115,7 @@ fn public_migrations_from_empty_database() {
     assert_eq!(
         public_base_tables(&mut conn),
         EXPECTED_TABLES,
-        "public schema should contain exactly the 8 KAIROS-S-0004 tables"
+        "public schema should contain exactly the expected public tables"
     );
 
     // (b) Re-running is a no-op (idempotent).

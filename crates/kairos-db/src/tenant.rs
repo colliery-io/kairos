@@ -146,10 +146,26 @@ ON CONFLICT (board_level) DO NOTHING;
 -- KAIROS-A-0003 default metadata definitions.
 INSERT INTO public.system_metadata_definitions (name, slug, field_type) VALUES
     ('Priority', 'priority', 'enum'),
-    ('Document status', 'status', 'enum'),
     ('Complexity', 'complexity', 'enum'),
     ('Document Type', 'document_type', 'enum')
 ON CONFLICT (slug) DO NOTHING;
+
+-- KAIROS-T-0078 entity-type scopes: no rows = applies to all types.
+-- document_type is documents-only; complexity excludes initiatives
+-- (their native column is the source of truth there); priority is
+-- unscoped. 'Document status' is gone — document lifecycle is a typed
+-- documents column, never metadata.
+INSERT INTO public.system_metadata_definition_scopes (metadata_definition_id, entity_type)
+SELECT d.id, s.entity_type
+FROM (VALUES
+    ('document_type', 'document'),
+    ('complexity', 'strategy'),
+    ('complexity', 'task'),
+    ('complexity', 'document'),
+    ('complexity', 'adr')
+) AS s(slug, entity_type)
+JOIN public.system_metadata_definitions d ON d.slug = s.slug
+ON CONFLICT DO NOTHING;
 
 INSERT INTO public.system_metadata_enum_options (metadata_definition_id, value, position)
 SELECT d.id, o.value, o.position
@@ -158,9 +174,6 @@ FROM (VALUES
     ('priority', 'medium', 1),
     ('priority', 'high', 2),
     ('priority', 'critical', 3),
-    ('status', 'draft', 0),
-    ('status', 'review', 1),
-    ('status', 'approved', 2),
     ('complexity', 'xs', 0),
     ('complexity', 's', 1),
     ('complexity', 'm', 2),
@@ -199,11 +212,8 @@ INSERT INTO public.system_template_metadata (template_id, metadata_definition_id
 SELECT t.id, d.id, a.default_value, false
 FROM (VALUES
     ('prd', 'document_type', 'prd'),
-    ('prd', 'status', 'draft'),
     ('system_context', 'document_type', 'system_context'),
-    ('system_context', 'status', 'draft'),
     ('architecture_framing', 'document_type', 'architecture'),
-    ('architecture_framing', 'status', 'draft'),
     ('team_charter', 'document_type', 'charter'),
     ('social_contract', 'document_type', 'social_contract'),
     ('company_vision', 'document_type', 'vision')
@@ -347,6 +357,16 @@ pub fn provision_tenant(
              FROM public.system_metadata_enum_options seo \
              JOIN public.system_metadata_definitions smd ON smd.id = seo.metadata_definition_id \
              JOIN metadata_definitions md ON md.slug = smd.slug",
+        )
+        .execute(conn)?;
+        // KAIROS-T-0078: entity-type scopes travel with the definitions.
+        sql_query(
+            "INSERT INTO metadata_definition_scopes (metadata_definition_id, entity_type) \
+             SELECT md.id, sds.entity_type \
+             FROM public.system_metadata_definition_scopes sds \
+             JOIN public.system_metadata_definitions smd ON smd.id = sds.metadata_definition_id \
+             JOIN metadata_definitions md ON md.slug = smd.slug \
+             ON CONFLICT DO NOTHING",
         )
         .execute(conn)?;
         sql_query(

@@ -11,7 +11,7 @@ use diesel::prelude::*;
 use uuid::Uuid;
 
 use super::boards::{Board, BoardColumn};
-use super::enums::{BucketType, Complexity, TaskType, WorkClass};
+use super::enums::{BucketType, Complexity, DocumentLifecycle, TaskType, WorkClass};
 use super::teams::Team;
 use super::templates::Template;
 use crate::schema::{adrs, documents, initiatives, strategies, tasks};
@@ -218,6 +218,8 @@ pub struct Document {
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Editorial state (KAIROS-T-0078) — a label, never board position.
+    pub lifecycle: DocumentLifecycle,
 }
 
 /// Insert for [`Document`].

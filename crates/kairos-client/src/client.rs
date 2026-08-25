@@ -28,7 +28,8 @@ use crate::error::Error;
 use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
-    ListEnvelope, Pagination, SetWorkClassRequest, Strategy, Task, TransitionRequest,
+    ListEnvelope, Pagination, SetLifecycleRequest, SetWorkClassRequest, Strategy, Task,
+    TransitionRequest,
     UpdateContentRequest,
 };
 use crate::types_meta::{
@@ -851,6 +852,23 @@ impl KairosClient {
             .await
     }
 
+    /// `PATCH /api/documents/{short_code}/lifecycle` — set a document's
+    /// editorial lifecycle (KAIROS-T-0078): draft | review | published |
+    /// archived, free transitions, no version bump.
+    pub async fn set_document_lifecycle(
+        &self,
+        short_code: &str,
+        lifecycle: &str,
+    ) -> Result<Document, Error> {
+        self.patch(
+            &format!("/api/documents/{short_code}/lifecycle"),
+            &SetLifecycleRequest {
+                lifecycle: lifecycle.to_string(),
+            },
+        )
+        .await
+    }
+
     /// `GET /api/{family}/{short_code}/children-progress` — the direct
     /// `parent`-edge children grouped by board column, with the
     /// `(done, total)` summary (KAIROS-T-0080).
@@ -912,6 +930,34 @@ impl KairosClient {
         page: Pagination,
     ) -> Result<ListEnvelope<MetadataDefinition>, Error> {
         self.get_query("/api/metadata-definitions", &page).await
+    }
+
+    /// `GET /api/metadata-definitions?entity_type=…` — the catalog in
+    /// scope for one entity type (KAIROS-T-0078): unscoped definitions
+    /// plus those whose scopes include it.
+    pub async fn list_metadata_definitions_for(
+        &self,
+        page: Pagination,
+        entity_type: Option<&str>,
+    ) -> Result<ListEnvelope<MetadataDefinition>, Error> {
+        #[derive(serde::Serialize)]
+        struct DefinitionQuery<'a> {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            limit: Option<i64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            offset: Option<i64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            entity_type: Option<&'a str>,
+        }
+        self.get_query(
+            "/api/metadata-definitions",
+            &DefinitionQuery {
+                limit: page.limit,
+                offset: page.offset,
+                entity_type,
+            },
+        )
+        .await
     }
 
     /// `GET /api/metadata-definitions/{id}`.

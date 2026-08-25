@@ -38,7 +38,8 @@ use kairos_core::search as core_search;
 use kairos_core::short_code::ItemType;
 use kairos_db::models::boards::{Board, BoardColumn};
 use kairos_db::models::enums::{
-    BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamType, WorkClass,
+    BoardLevel, BucketType, Complexity, DocumentLifecycle, OrgRole, RelationshipType, TaskType,
+    TeamType, WorkClass,
 };
 use kairos_db::models::items::{Adr, Document, Initiative, Strategy, Task};
 use kairos_db::models::templates::Template;
@@ -488,6 +489,9 @@ impl KairosMcp {
             }
             if let Some(work_class) = item.work_class {
                 out.push_str(&format!(" · lane: {work_class}"));
+            }
+            if let Some(lifecycle) = item.lifecycle {
+                out.push_str(&format!(" · lifecycle: {lifecycle}"));
             }
             out.push('\n');
             if let (Some(board_id), Some(column_id)) = (item.board_id, item.column_id) {
@@ -1019,6 +1023,8 @@ struct ItemView {
     task_type: Option<TaskType>,
     /// Planned/Support lane (KAIROS-T-0077; tasks only).
     work_class: Option<WorkClass>,
+    /// Editorial lifecycle (KAIROS-T-0078; documents only).
+    lifecycle: Option<DocumentLifecycle>,
     complexity: Option<Complexity>,
     hypothesis: Option<String>,
     bucket_type: Option<BucketType>,
@@ -1059,6 +1065,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: None,
                 work_class: None,
+                lifecycle: None,
                 complexity: None,
                 hypothesis: row.hypothesis,
                 bucket_type: None,
@@ -1088,6 +1095,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: None,
                 work_class: None,
+                lifecycle: None,
                 complexity: row.complexity,
                 hypothesis: None,
                 bucket_type: row.bucket_type,
@@ -1117,6 +1125,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: Some(row.task_type),
                 work_class: Some(row.work_class),
+                lifecycle: None,
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,
@@ -1146,6 +1155,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: None,
                 task_type: None,
                 work_class: None,
+                lifecycle: Some(row.lifecycle),
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,
@@ -1175,6 +1185,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: row.column_id,
                 task_type: None,
                 work_class: None,
+                lifecycle: None,
                 complexity: None,
                 hypothesis: None,
                 bucket_type: None,

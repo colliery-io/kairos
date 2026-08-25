@@ -37,7 +37,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 23] = [
+const EXPECTED_TABLES: [&str; 24] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -51,6 +51,7 @@ const EXPECTED_TABLES: [&str; 23] = [
     "item_history",
     "item_metadata",
     "item_relationships",
+    "metadata_definition_scopes",
     "metadata_definitions",
     "metadata_enum_options",
     "scim_tokens",
@@ -259,15 +260,16 @@ fn tenant_provisioning_lifecycle() {
         "A-0003 ships 6 system templates"
     );
     assert_eq!(
-        report.metadata_definitions_copied, 4,
-        "A-0003 ships 4 system metadata definitions"
+        report.metadata_definitions_copied, 3,
+        "A-0003 ships 3 system metadata definitions (KAIROS-T-0078 retired \
+         'Document status' — lifecycle is a documents column)"
     );
 
     // Every S-0004 tenant table / view / sequence / index exists in org_acme.
     assert_eq!(
         schema_tables(&mut conn, "org_acme"),
         EXPECTED_TABLES,
-        "org_acme should contain exactly the 21 S-0004 tenant tables"
+        "org_acme should contain exactly the expected tenant tables"
     );
     assert_eq!(schema_views(&mut conn, "org_acme"), EXPECTED_VIEWS);
     assert_eq!(schema_sequences(&mut conn, "org_acme"), EXPECTED_SEQUENCES);
@@ -373,18 +375,38 @@ fn tenant_provisioning_lifecycle() {
              WHERE is_system_default AND slug <> $1",
             "__none__",
         ),
-        ["complexity", "document_type", "priority", "status"]
+        ["complexity", "document_type", "priority"]
+    );
+    // KAIROS-T-0078: entity-type scopes travel with the definitions —
+    // document_type is documents-only, complexity excludes initiatives.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT md.slug || ':' || s.entity_type AS name \
+             FROM org_acme.metadata_definition_scopes s \
+             JOIN org_acme.metadata_definitions md ON md.id = s.metadata_definition_id \
+             WHERE md.slug <> $1 ORDER BY name",
+            "__none__",
+        ),
+        [
+            "complexity:adr",
+            "complexity:document",
+            "complexity:strategy",
+            "complexity:task",
+            "document_type:document",
+        ]
     );
     assert_eq!(
         count(
             &mut conn,
             "SELECT count(*) FROM org_acme.metadata_enum_options"
         ),
-        18
+        15
     );
     assert_eq!(
         count(&mut conn, "SELECT count(*) FROM org_acme.template_metadata"),
-        9
+        6,
+        "one document_type association per template ('status' retired)"
     );
 
     // ---- provisioning an existing slug: typed error, no partial state -----
@@ -446,12 +468,15 @@ fn tenant_provisioning_lifecycle() {
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
     // that predates the NEWEST tenant migration (currently
-    // `column_is_done`, KAIROS-T-0080): revert its DDL and drop its
-    // bookkeeping row in widgets only, then fleet-migrate and expect
-    // exactly that one migration to re-apply.
-    sql_query("ALTER TABLE org_widgets.board_columns DROP COLUMN is_done")
+    // `metadata_scopes_document_lifecycle`, KAIROS-T-0078): revert its DDL
+    // and drop its bookkeeping row in widgets only, then fleet-migrate and
+    // expect exactly that one migration to re-apply.
+    sql_query("ALTER TABLE org_widgets.documents DROP COLUMN lifecycle")
         .execute(&mut conn)
-        .expect("dropping is_done in widgets to simulate an old tenant");
+        .expect("dropping lifecycle in widgets to simulate an old tenant");
+    sql_query("DROP TABLE org_widgets.metadata_definition_scopes")
+        .execute(&mut conn)
+        .expect("dropping scopes in widgets to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -482,11 +507,11 @@ fn tenant_provisioning_lifecycle() {
         count(
             &mut conn,
             "SELECT count(*) FROM information_schema.columns \
-             WHERE table_schema = 'org_widgets' AND table_name = 'board_columns' \
-             AND column_name = 'is_done'"
+             WHERE table_schema = 'org_widgets' AND table_name = 'documents' \
+             AND column_name = 'lifecycle'"
         ),
         1,
-        "is_done is back in widgets after the fleet upgrade"
+        "lifecycle is back in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

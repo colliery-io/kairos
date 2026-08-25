@@ -435,6 +435,7 @@ async fn ws_events_against_live_stack() {
         slug: "ws_priority".into(),
         field_type: "string".into(),
         enum_options: vec![],
+        entity_types: vec![],
     })
     .await
     .expect("creating ws_priority definition");

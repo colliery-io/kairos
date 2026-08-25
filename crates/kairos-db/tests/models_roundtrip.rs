@@ -191,7 +191,9 @@ async fn models_round_trip() {
         .load(&mut pconn)
         .await
         .expect("selecting system metadata definitions");
-    assert_eq!(sys_defs.len(), 4);
+    // 3 since KAIROS-T-0078 retired 'Document status' (lifecycle is a
+    // documents column now).
+    assert_eq!(sys_defs.len(), 3);
     assert!(sys_defs.iter().all(|d| d.field_type == FieldType::Enum));
 
     let delivery_default: SystemBoardDefault = s::system_board_defaults::table

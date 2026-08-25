@@ -119,7 +119,9 @@ pub struct Task {
 
 /// A supporting document, as returned by `/api/documents`. Documents do not
 /// live on boards; they attach to a workflow item via a `supports` edge and
-/// inherit that item's board for authorization (KAIROS-A-0006).
+/// inherit that item's board for authorization (KAIROS-A-0006). Their
+/// `lifecycle` is an editorial label (KAIROS-T-0078) — never board
+/// position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Document {
     /// Entity id (UUID).
@@ -131,6 +133,10 @@ pub struct Document {
     pub content: String,
     /// Template the document was stamped from (UUID), if any.
     pub template_id: Option<String>,
+    /// Editorial lifecycle: `draft|review|published|archived`
+    /// (KAIROS-T-0078). A label with free transitions — never a board
+    /// column, never metadata.
+    pub lifecycle: String,
     /// Optimistic-concurrency version (KAIROS-A-0004).
     pub version: i32,
     /// Creator user id (UUID).
@@ -240,6 +246,15 @@ pub struct CreateTaskRequest {
 
 /// Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move
 /// a task between the Planned/Support lanes. Orthogonal to column
+/// Body of `PATCH /api/documents/{short_code}/lifecycle` (KAIROS-T-0078):
+/// set the document's editorial state. Free transitions; no version bump
+/// (the A-0004 contract covers title/content only).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SetLifecycleRequest {
+    /// `draft|review|published|archived`.
+    pub lifecycle: String,
+}
+
 /// transitions — the board rules engine is never consulted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SetWorkClassRequest {

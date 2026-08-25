@@ -518,6 +518,71 @@ async fn meta_endpoints_against_live_stack() {
         "{err}"
     );
 
+    // KAIROS-T-0078: entity-type scoping is enforced on the write path —
+    // document_type is documents-only, so setting it on a TASK is 422
+    // even with the capability in hand.
+    let err = rejection(
+        alice
+            .update_metadata(
+                EntityKind::Task,
+                &t1_code,
+                &metadata_patch("document_type", Some("prd")),
+            )
+            .await,
+    );
+    match &err {
+        Error::Validation {
+            status, message, ..
+        } => {
+            assert_eq!(*status, 422);
+            assert!(
+                message.contains("does not apply to task items"),
+                "{message}"
+            );
+        }
+        other => panic!("expected 422 Validation, got {other}"),
+    }
+    // …while the same write on a DOCUMENT is fine.
+    alice
+        .update_metadata(
+            EntityKind::Document,
+            &doc_code,
+            &metadata_patch("document_type", Some("prd")),
+        )
+        .await
+        .expect("document_type on a document is in scope");
+
+    // The definitions catalog filters by entity type: tasks never see
+    // document_type; documents do; complexity excludes initiatives.
+    let for_tasks = bob
+        .list_metadata_definitions_for(Pagination::default(), Some("task"))
+        .await
+        .expect("task catalog");
+    let slugs: Vec<&str> = for_tasks.items.iter().map(|d| d.slug.as_str()).collect();
+    assert!(slugs.contains(&"priority") && slugs.contains(&"complexity"));
+    assert!(!slugs.contains(&"document_type"), "{slugs:?}");
+    let for_initiatives = bob
+        .list_metadata_definitions_for(Pagination::default(), Some("initiative"))
+        .await
+        .expect("initiative catalog");
+    let slugs: Vec<&str> = for_initiatives
+        .items
+        .iter()
+        .map(|d| d.slug.as_str())
+        .collect();
+    assert!(
+        !slugs.contains(&"complexity"),
+        "complexity excludes initiatives (native column): {slugs:?}"
+    );
+    let err = rejection(
+        bob.list_metadata_definitions_for(Pagination::default(), Some("widget"))
+            .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { status: 422, .. }),
+        "{err}"
+    );
+
     // bob holds no capability on the delivery board -> 403 naming it.
     let err = rejection(
         bob.update_metadata(
@@ -559,6 +624,45 @@ async fn meta_endpoints_against_live_stack() {
     }
 
     // ==========================================================================
+    // Document lifecycle (KAIROS-T-0078): a typed column, not metadata
+    // ==========================================================================
+    // Born draft; free transitions; gated like every other document write
+    // (manage_documents via the parent's board); never a version bump.
+    let doc = alice
+        .get_document(&doc_code)
+        .await
+        .expect("reading the document");
+    assert_eq!(doc.lifecycle, "draft", "documents are born draft");
+    let before_version = doc.version;
+    let published = alice
+        .set_document_lifecycle(&doc_code, "published")
+        .await
+        .expect("alice publishes");
+    assert_eq!(published.lifecycle, "published");
+    assert_eq!(
+        published.version, before_version,
+        "lifecycle never bumps the content version"
+    );
+    // Free transitions: straight back to draft is legal.
+    let drafted = alice
+        .set_document_lifecycle(&doc_code, "draft")
+        .await
+        .expect("free transition back to draft");
+    assert_eq!(drafted.lifecycle, "draft");
+    let err = rejection(bob.set_document_lifecycle(&doc_code, "published").await);
+    match &err {
+        Error::Forbidden { capability, .. } => {
+            assert_eq!(capability.as_deref(), Some("manage_documents"));
+        }
+        other => panic!("expected Forbidden, got {other}"),
+    }
+    let err = rejection(alice.set_document_lifecycle(&doc_code, "retired").await);
+    assert!(
+        matches!(err, Error::Validation { status: 422, .. }),
+        "{err}"
+    );
+
+    // ==========================================================================
     // Metadata definitions: CRUD, org-admin gating, in-use delete rejection
     // ==========================================================================
     // Non-admin cannot create definitions.
@@ -567,6 +671,7 @@ async fn meta_endpoints_against_live_stack() {
         slug: "due".into(),
         field_type: "date".into(),
         enum_options: vec![],
+        entity_types: vec![],
     };
     let err = rejection(alice.create_metadata_definition(&due_request).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
@@ -647,18 +752,21 @@ async fn meta_endpoints_against_live_stack() {
             slug: "sev".into(),
             field_type: "enum".into(),
             enum_options: vec![],
+            entity_types: vec![],
         },
         CreateMetadataDefinitionRequest {
             name: "Repo".into(),
             slug: "repo2".into(),
             field_type: "string".into(),
             enum_options: vec!["x".into()],
+            entity_types: vec![],
         },
         CreateMetadataDefinitionRequest {
             name: "Odd".into(),
             slug: "odd".into(),
             field_type: "blob".into(),
             enum_options: vec![],
+            entity_types: vec![],
         },
     ] {
         let err = rejection(svc.create_metadata_definition(&bad).await);
@@ -675,6 +783,7 @@ async fn meta_endpoints_against_live_stack() {
             slug: "team_color".into(),
             field_type: "enum".into(),
             enum_options: vec!["red".into(), "blue".into()],
+            entity_types: vec![],
         })
         .await
         .expect("creating team_color definition");
@@ -692,6 +801,7 @@ async fn meta_endpoints_against_live_stack() {
                 name: Some("Team Colour".into()),
                 slug: None,
                 enum_options: Some(vec!["red".into(), "blue".into(), "green".into()]),
+                entity_types: None,
             },
         )
         .await

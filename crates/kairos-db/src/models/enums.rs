@@ -150,6 +150,19 @@ text_enum! {
 }
 
 text_enum! {
+    /// `documents.lifecycle` (KAIROS-T-0078): the editorial state of a
+    /// document — a label with free transitions, NEVER board position
+    /// (the two-vocabulary rule: ticket status is a board column;
+    /// document lifecycle is this).
+    DocumentLifecycle {
+        Draft => "draft",
+        Review => "review",
+        Published => "published",
+        Archived => "archived",
+    }
+}
+
+text_enum! {
     /// `initiatives.complexity` (t-shirt sizing).
     Complexity {
         Xs => "xs",
@@ -197,6 +210,7 @@ text_enum! {
         CapabilityRevoke => "capability_revoke",
         BoardConfig => "board_config",
         WorkClass => "work_class",
+        Lifecycle => "lifecycle",
     }
 }
 
@@ -270,6 +284,14 @@ mod tests {
     }
 
     #[test]
+    fn document_lifecycle_round_trip_and_rejection() {
+        assert_text_enum!(
+            DocumentLifecycle,
+            ["draft", "review", "published", "archived"]
+        );
+    }
+
+    #[test]
     fn complexity_round_trip_and_rejection() {
         assert_text_enum!(Complexity, ["xs", "s", "m", "l", "xl"]);
     }
@@ -301,6 +323,7 @@ mod tests {
                 "capability_revoke",
                 "board_config",
                 "work_class",
+                "lifecycle",
             ]
         );
     }

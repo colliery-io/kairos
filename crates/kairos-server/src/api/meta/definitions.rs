@@ -18,7 +18,8 @@ use kairos_client::types as dto_base;
 use kairos_client::types_meta as dto;
 use kairos_db::models::enums::FieldType;
 use kairos_db::models::templates::{
-    MetadataDefinition, MetadataDefinitionChangeset, NewMetadataDefinition, NewMetadataEnumOption,
+    MetadataDefinition, MetadataDefinitionChangeset, MetadataDefinitionScope,
+    NewMetadataDefinition, NewMetadataEnumOption,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -56,13 +57,73 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<MetadataDefinition, ApiErro
         .ok_or_else(|| ApiError::not_found(format!("no metadata definition {id} exists")))
 }
 
-/// Hydrate a definition row with its option values.
+/// The entity-type vocabulary for scope rows (KAIROS-T-0078) — matches
+/// the DDL CHECK and `kairos_core::short_code::ItemType::entity_type()`.
+const ENTITY_TYPES: &[&str] = &["strategy", "initiative", "task", "document", "adr"];
+
+/// Load a definition's scope rows in vocabulary order (empty = applies
+/// to every entity type).
+fn scopes_of(conn: &mut PgConnection, definition_id: Uuid) -> Result<Vec<String>, ApiError> {
+    use kairos_db::schema::metadata_definition_scopes as scopes;
+    let mut rows: Vec<String> = scopes::table
+        .filter(scopes::metadata_definition_id.eq(definition_id))
+        .select(scopes::entity_type)
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    rows.sort_by_key(|t| ENTITY_TYPES.iter().position(|v| v == t));
+    Ok(rows)
+}
+
+/// Validate an entity_types list: known values, no duplicates.
+fn check_entity_types(entity_types: &[String]) -> Result<(), ApiError> {
+    for entity_type in entity_types {
+        if !ENTITY_TYPES.contains(&entity_type.as_str()) {
+            return Err(ApiError::validation(format!(
+                "entity_types must be drawn from [{}], got {entity_type:?}",
+                ENTITY_TYPES.join(", ")
+            )));
+        }
+    }
+    let mut deduped = entity_types.to_vec();
+    deduped.sort();
+    deduped.dedup();
+    if deduped.len() != entity_types.len() {
+        return Err(ApiError::validation("entity_types contains duplicates"));
+    }
+    Ok(())
+}
+
+/// Replace a definition's scope rows (delete + insert, caller's
+/// transaction). An empty list clears the scopes — applies-to-all.
+fn replace_scopes(
+    conn: &mut PgConnection,
+    definition_id: Uuid,
+    entity_types: &[String],
+) -> Result<(), DieselError> {
+    use kairos_db::schema::metadata_definition_scopes as scopes;
+    diesel::delete(scopes::table.filter(scopes::metadata_definition_id.eq(definition_id)))
+        .execute(conn)?;
+    let rows: Vec<MetadataDefinitionScope> = entity_types
+        .iter()
+        .map(|entity_type| MetadataDefinitionScope {
+            metadata_definition_id: definition_id,
+            entity_type: entity_type.clone(),
+        })
+        .collect();
+    if !rows.is_empty() {
+        diesel::insert_into(scopes::table).values(&rows).execute(conn)?;
+    }
+    Ok(())
+}
+
+/// Hydrate a definition row with its option values and scopes.
 fn hydrate(
     conn: &mut PgConnection,
     definition: MetadataDefinition,
 ) -> Result<dto::MetadataDefinition, ApiError> {
     let options = enum_option_values(conn, definition.id)?;
-    Ok(definition_dto(definition, options))
+    let entity_types = scopes_of(conn, definition.id)?;
+    Ok(definition_dto(definition, options, entity_types))
 }
 
 /// The option-list rules shared by create and update: enum definitions
@@ -122,31 +183,89 @@ fn map_write_error(e: DieselError) -> ApiError {
     }
 }
 
-/// List metadata definitions with their enum options (open tenant-wide).
+/// Query of [`list_definitions`]: pagination plus the KAIROS-T-0078
+/// entity-type filter. (A local struct rather than `#[serde(flatten)]`
+/// over [`dto_base::Pagination`] — serde_urlencoded does not flatten.)
+#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct DefinitionListQuery {
+    /// Page size (default 50, max 200).
+    #[serde(default)]
+    limit: Option<i64>,
+    /// Rows to skip (default 0).
+    #[serde(default)]
+    offset: Option<i64>,
+    /// Only definitions applying to this entity type
+    /// (`strategy|initiative|task|document|adr`): unscoped definitions
+    /// plus those whose scopes include it.
+    #[serde(default)]
+    entity_type: Option<String>,
+}
+
+/// List metadata definitions with their enum options and scopes (open
+/// tenant-wide), optionally filtered to one entity type's catalog.
 #[utoipa::path(
     get,
     path = "/api/metadata-definitions",
     tag = "metadata-definitions",
-    params(dto_base::Pagination),
+    params(DefinitionListQuery),
     responses(
         (status = 200, description = "Page of definitions", body = dto_base::ListEnvelope<dto::MetadataDefinition>),
+        (status = 422, description = "Bad entity_type value", body = dto_base::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn list_definitions(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto_base::Pagination>,
+    Query(query): Query<DefinitionListQuery>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::MetadataDefinition>>, ApiError> {
+    let pagination = dto_base::Pagination {
+        limit: query.limit,
+        offset: query.offset,
+    };
     let (limit, offset) = clamp_pagination(&pagination);
+    if let Some(entity_type) = &query.entity_type
+        && !ENTITY_TYPES.contains(&entity_type.as_str())
+    {
+        return Err(ApiError::validation(format!(
+            "entity_type must be one of [{}], got {entity_type:?}",
+            ENTITY_TYPES.join(", ")
+        )));
+    }
+    let entity_type = query.entity_type;
     let envelope = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            use kairos_db::schema::metadata_definition_scopes as scopes;
             use kairos_db::schema::metadata_definitions as definitions;
-            let total: i64 = definitions::table
-                .count()
-                .get_result(conn)
-                .map_err(ApiError::internal)?;
-            let rows: Vec<MetadataDefinition> = definitions::table
+            let mut base = definitions::table.into_boxed();
+            let mut count = definitions::table.into_boxed();
+            if let Some(entity_type) = &entity_type {
+                // In scope = unscoped (no rows at all) OR a scope row for
+                // this type exists.
+                base = base.filter(
+                    definitions::id
+                        .eq_any(
+                            scopes::table
+                                .select(scopes::metadata_definition_id)
+                                .filter(scopes::entity_type.eq(entity_type.clone())),
+                        )
+                        .or(definitions::id
+                            .ne_all(scopes::table.select(scopes::metadata_definition_id))),
+                );
+                count = count.filter(
+                    definitions::id
+                        .eq_any(
+                            scopes::table
+                                .select(scopes::metadata_definition_id)
+                                .filter(scopes::entity_type.eq(entity_type.clone())),
+                        )
+                        .or(definitions::id
+                            .ne_all(scopes::table.select(scopes::metadata_definition_id))),
+                );
+            }
+            let total: i64 = count.count().get_result(conn).map_err(ApiError::internal)?;
+            let rows: Vec<MetadataDefinition> = base
                 .order(definitions::slug.asc())
                 .limit(limit)
                 .offset(offset)
@@ -188,6 +307,7 @@ pub(crate) async fn create_definition(
     require_org_admin(&tenant)?;
     let field_type = parse_enum(&body.field_type, "field_type", FieldType::ALL)?;
     check_option_rules(field_type, &body.enum_options)?;
+    check_entity_types(&body.entity_types)?;
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
@@ -204,6 +324,7 @@ pub(crate) async fn create_definition(
                         .returning(MetadataDefinition::as_returning())
                         .get_result(conn)?;
                     replace_options(conn, created.id, &body.enum_options)?;
+                    replace_scopes(conn, created.id, &body.entity_types)?;
                     Ok(created)
                 })
                 .map_err(map_write_error)?;
@@ -264,6 +385,9 @@ pub(crate) async fn update_definition(
 ) -> Result<Json<dto::MetadataDefinition>, ApiError> {
     require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "definition id")?;
+    if let Some(entity_types) = &body.entity_types {
+        check_entity_types(entity_types)?;
+    }
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
@@ -294,6 +418,9 @@ pub(crate) async fn update_definition(
                             .get_result(conn)?;
                     if let Some(options) = &body.enum_options {
                         replace_options(conn, id, options)?;
+                    }
+                    if let Some(entity_types) = &body.entity_types {
+                        replace_scopes(conn, id, entity_types)?;
                     }
                     Ok(updated)
                 })

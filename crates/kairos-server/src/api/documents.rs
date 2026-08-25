@@ -31,8 +31,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    clamp_pagination, map_abac_error, map_graph_error, map_item_error, parse_opt_uuid,
-    require_capability, resolve_short_code, short_code_not_found,
+    clamp_pagination, map_abac_error, map_graph_error, map_item_error, parse_enum,
+    parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -51,6 +51,56 @@ pub fn router() -> Router<AppState> {
                 .patch(update_document)
                 .delete(delete_document),
         )
+        .route(
+            "/api/documents/{short_code}/lifecycle",
+            axum::routing::patch(set_lifecycle),
+        )
+}
+
+/// Set a document's editorial lifecycle (KAIROS-T-0078): a free-transition
+/// label — draft | review | published | archived — gated like every other
+/// document write (`manage_documents` on the authorization board). Not a
+/// content edit: no version bump, no history row; activity-logged and
+/// announced via the existing `item_updated` thin event.
+#[utoipa::path(
+    patch,
+    path = "/api/documents/{short_code}/lifecycle",
+    tag = "documents",
+    params(("short_code" = String, Path, description = "Document short code")),
+    request_body = dto::SetLifecycleRequest,
+    responses(
+        (status = 200, description = "Lifecycle updated", body = dto::Document),
+        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "Bad lifecycle value", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn set_lifecycle(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    Json(body): Json<dto::SetLifecycleRequest>,
+) -> Result<Json<dto::Document>, ApiError> {
+    let lifecycle = parse_enum(
+        &body.lifecycle,
+        "lifecycle",
+        kairos_db::models::enums::DocumentLifecycle::ALL,
+    )?;
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let updated = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let document = load(conn, &short_code)?;
+            let board = authorization_board(conn, document.id)?;
+            require_capability(conn, &slug, board, user, MANAGE)?;
+            let updated = items::set_document_lifecycle(conn, document.id, lifecycle, user)
+                .map_err(map_item_error)?;
+            Ok(updated.into_dto())
+        })
+        .await?;
+    Ok(Json(updated))
 }
 
 /// Load the live document with this short code, or 404.

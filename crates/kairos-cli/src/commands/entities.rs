@@ -305,7 +305,7 @@ impl EntityView for Task {
 
 impl EntityView for Document {
     const NOUN: &'static str = "document";
-    const HEADERS: &'static [&'static str] = &["CODE", "TITLE", "VER", "UPDATED"];
+    const HEADERS: &'static [&'static str] = &["CODE", "TITLE", "LIFECYCLE", "VER", "UPDATED"];
 
     fn short_code(&self) -> &str {
         &self.short_code
@@ -326,6 +326,7 @@ impl EntityView for Document {
         vec![
             self.short_code.clone(),
             self.title.clone(),
+            self.lifecycle.clone(),
             self.version.to_string(),
             self.updated_at.clone(),
         ]
@@ -334,6 +335,7 @@ impl EntityView for Document {
         vec![
             ("id", self.id.clone()),
             ("template", or_dash(&self.template_id)),
+            ("lifecycle", self.lifecycle.clone()),
             ("version", self.version.to_string()),
             ("created", self.created_at.clone()),
             ("updated", self.updated_at.clone()),

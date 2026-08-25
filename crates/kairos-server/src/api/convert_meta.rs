@@ -80,11 +80,13 @@ impl IntoDto<dto::ActivityEntry> for ActivityLogEntry {
     }
 }
 
-/// A [`MetadataDefinition`] plus its option values (loaded separately —
-/// the row itself does not carry them) → the definition DTO.
+/// A [`MetadataDefinition`] plus its option values and entity-type
+/// scopes (loaded separately — the row itself carries neither) → the
+/// definition DTO.
 pub fn definition_dto(
     definition: MetadataDefinition,
     enum_options: Vec<String>,
+    entity_types: Vec<String>,
 ) -> dto::MetadataDefinition {
     dto::MetadataDefinition {
         id: definition.id.to_string(),
@@ -93,6 +95,7 @@ pub fn definition_dto(
         field_type: definition.field_type.to_string(),
         is_system_default: definition.is_system_default,
         enum_options,
+        entity_types,
         created_at: timestamp(definition.created_at),
         updated_at: timestamp(definition.updated_at),
     }

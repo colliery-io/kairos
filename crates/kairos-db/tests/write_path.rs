@@ -585,11 +585,98 @@ fn write_path_lifecycle() {
     stamped.sort();
     assert_eq!(
         stamped,
-        [
-            ("document_type".to_string(), "prd".to_string()),
-            ("status".to_string(), "draft".to_string()),
-        ],
-        "template_metadata defaults are stamped as item_metadata rows"
+        [("document_type".to_string(), "prd".to_string())],
+        "template_metadata defaults are stamped as item_metadata rows \
+         ('Document status' retired by KAIROS-T-0078 — lifecycle is a column)"
+    );
+    assert_eq!(
+        doc.lifecycle,
+        kairos_db::models::enums::DocumentLifecycle::Draft,
+        "new documents are born draft"
+    );
+
+    // ---- KAIROS-T-0078: lifecycle write path + stamping scope filter ----------
+    let published = items::set_document_lifecycle(
+        &mut conn,
+        doc.id,
+        kairos_db::models::enums::DocumentLifecycle::Published,
+        alice,
+    )
+    .expect("setting lifecycle");
+    assert_eq!(
+        published.lifecycle,
+        kairos_db::models::enums::DocumentLifecycle::Published
+    );
+    assert_eq!(
+        published.version, doc.version,
+        "lifecycle never bumps the content version"
+    );
+    assert_eq!(
+        activity_details(&mut conn, ActivityAction::Lifecycle, doc.id),
+        ["lifecycle:draft->published".to_string()],
+        "lifecycle change writes an activity row"
+    );
+    items::set_document_lifecycle(
+        &mut conn,
+        doc.id,
+        kairos_db::models::enums::DocumentLifecycle::Published,
+        alice,
+    )
+    .expect("no-op lifecycle write");
+    assert_eq!(
+        activity_details(&mut conn, ActivityAction::Lifecycle, doc.id).len(),
+        1,
+        "a no-op lifecycle write logs nothing"
+    );
+
+    // Stamping is scope-enforced IN kairos-db: associate a task-scoped
+    // definition with the prd template — a fresh document must not stamp
+    // it, whatever the template association claims.
+    let scoped_def: Uuid = diesel::insert_into(schema::metadata_definitions::table)
+        .values((
+            schema::metadata_definitions::name.eq("Task-only field"),
+            schema::metadata_definitions::slug.eq("task_only"),
+            schema::metadata_definitions::field_type.eq("string"),
+            schema::metadata_definitions::is_system_default.eq(false),
+        ))
+        .returning(schema::metadata_definitions::id)
+        .get_result(&mut conn)
+        .expect("creating scoped definition");
+    diesel::insert_into(schema::metadata_definition_scopes::table)
+        .values((
+            schema::metadata_definition_scopes::metadata_definition_id.eq(scoped_def),
+            schema::metadata_definition_scopes::entity_type.eq("task"),
+        ))
+        .execute(&mut conn)
+        .expect("scoping it to tasks");
+    diesel::insert_into(schema::template_metadata::table)
+        .values((
+            schema::template_metadata::template_id.eq(prd_template),
+            schema::template_metadata::metadata_definition_id.eq(scoped_def),
+            schema::template_metadata::default_value.eq("smuggled"),
+            schema::template_metadata::required.eq(false),
+        ))
+        .execute(&mut conn)
+        .expect("associating it with the prd template");
+    let filtered_doc = items::create_document(
+        &mut conn,
+        CreateDocument {
+            title: "Scope-filtered PRD",
+            content: None,
+            template_id: Some(prd_template),
+        },
+        alice,
+    )
+    .expect("creating second templated document");
+    let smuggled: i64 = schema::item_metadata::table
+        .filter(schema::item_metadata::item_id.eq(filtered_doc.id))
+        .filter(schema::item_metadata::metadata_definition_id.eq(scoped_def))
+        .count()
+        .get_result(&mut conn)
+        .expect("counting smuggled stamps");
+    assert_eq!(
+        smuggled, 0,
+        "stamping never writes a definition outside its scope"
     );
 
     // ---- soft-delete cascade over parent edges --------------------------------
@@ -605,7 +692,8 @@ fn write_path_lifecycle() {
         alice,
     )
     .expect("creating child document");
-    assert_eq!(child_doc.short_code, "ACME-D-0002");
+    // D-0002 went to the scope-filter fixture above.
+    assert_eq!(child_doc.short_code, "ACME-D-0003");
     diesel::insert_into(schema::item_relationships::table)
         .values(&[
             NewItemRelationship {
@@ -638,7 +726,7 @@ fn write_path_lifecycle() {
     assert_eq!(outcome.root_short_code, "ACME-S-0001");
     assert_eq!(
         outcome.cascaded_short_codes,
-        ["ACME-D-0002", "ACME-I-0001", "ACME-T-0001"],
+        ["ACME-D-0003", "ACME-I-0001", "ACME-T-0001"],
         "the whole parent-edge subtree is cascaded"
     );
 
@@ -665,7 +753,7 @@ fn write_path_lifecycle() {
     assert_eq!(
         activity_details(&mut conn, ActivityAction::Delete, strategy.id),
         ["short_code:ACME-S-0001 cascade:3 \
-             descendants:ACME-D-0002,ACME-I-0001,ACME-T-0001"
+             descendants:ACME-D-0003,ACME-I-0001,ACME-T-0001"
             .to_string()],
         "one delete activity row on the root records the cascade"
     );

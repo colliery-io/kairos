@@ -1,0 +1,15 @@
+# Metis Ralph Loop State - Multi-Task Serial Execution
+# Working through an explicit list of tasks
+project_path: "/Users/dstorey/Desktop/kairos/.metis"
+mode: tasks
+tasks:
+  - "KAIROS-T-0088"
+  - "KAIROS-T-0089"
+  - "KAIROS-T-0090"
+  - "KAIROS-T-0091"
+  - "KAIROS-T-0092"
+current_task_index: 0
+iteration: 1
+max_iterations: 0
+completion_promise: "ALL TASKS COMPLETE"
+started_at: "2026-08-29T14:40:05Z"

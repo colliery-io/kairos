@@ -14,9 +14,9 @@
 //! a `mirror of:` line so drift stays greppable.
 
 use aurora_dark::tokens::ApiError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::api::get_json;
+use crate::api::{delete_json, get_json, post_json};
 use crate::auth::Auth;
 
 /// mirror of: `kairos_client::types::ListEnvelope<T>` (partial — these
@@ -94,6 +94,210 @@ pub async fn list_board_refs(auth: Auth) -> Result<Vec<BoardRef>, ApiError> {
     Ok(envelope.items)
 }
 
+/// `GET /api/teams/by-slug/{slug}` (KAIROS-T-0083) — kills the
+/// fetch-all directory scan the detail page used before KAIROS-T-0085.
+pub async fn team_by_slug(auth: Auth, slug: &str) -> Result<Team, ApiError> {
+    get_json(auth, &format!("/api/teams/by-slug/{slug}")).await
+}
+
+/// mirror of: `kairos_client::types_team_pages::TeamPage` (partial — the
+/// landing page needs the tree shape + charter content; `updated_at`
+/// stays server-side).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TeamPageNode {
+    pub id: String,
+    pub parent_id: Option<String>,
+    /// `folder|page`.
+    pub kind: String,
+    pub slug: String,
+    pub title: String,
+    pub content: String,
+    pub position: i32,
+    pub is_protected: bool,
+    pub version: i32,
+}
+
+/// `GET /api/teams/{id}/pages` — the flat page tree (nest by parent_id).
+pub async fn team_pages(auth: Auth, team_id: &str) -> Result<Vec<TeamPageNode>, ApiError> {
+    get_json(auth, &format!("/api/teams/{team_id}/pages")).await
+}
+
+/// `PATCH /api/teams/{id}/pages/{page_id}` — the A-0004 versioned
+/// content save, through the shared 409-parsing helper so the
+/// generalized editor gets its merge dialog (KAIROS-T-0086).
+pub async fn save_page_content(
+    auth: Auth,
+    team_id: &str,
+    page_id: &str,
+    title: &str,
+    content: &str,
+    version: i32,
+) -> Result<i32, crate::pages::item::api::SaveError> {
+    #[derive(Serialize)]
+    struct Body<'a> {
+        title: &'a str,
+        content: &'a str,
+        version: i32,
+    }
+    let node: TeamPageNode = crate::pages::item::api::patch_versioned(
+        auth,
+        &format!("/api/teams/{team_id}/pages/{page_id}"),
+        &Body {
+            title,
+            content,
+            version,
+        },
+    )
+    .await?;
+    Ok(node.version)
+}
+
+/// mirror of: `kairos_client::types_team_pages::CreateTeamPageRequest`.
+#[derive(Serialize)]
+struct CreatePageBody<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_id: Option<&'a str>,
+    kind: &'a str,
+    slug: &'a str,
+    title: &'a str,
+    content: &'a str,
+}
+
+/// `POST /api/teams/{id}/pages` (team member or org admin).
+pub async fn create_page(
+    auth: Auth,
+    team_id: &str,
+    parent_id: Option<&str>,
+    kind: &str,
+    slug: &str,
+    title: &str,
+) -> Result<TeamPageNode, ApiError> {
+    post_json(
+        auth,
+        &format!("/api/teams/{team_id}/pages"),
+        &CreatePageBody {
+            parent_id,
+            kind,
+            slug,
+            title,
+            content: "",
+        },
+    )
+    .await
+}
+
+/// mirror of: `kairos_client::types_team_pages::UpdateTeamPageRequest`
+/// (structure half — content edits go through [`save_page_content`]).
+#[derive(Serialize)]
+struct StructureBody<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slug: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    move_to_root: bool,
+}
+
+/// `PATCH /api/teams/{id}/pages/{page_id}` — rename (new sibling slug).
+pub async fn rename_page(
+    auth: Auth,
+    team_id: &str,
+    page_id: &str,
+    slug: &str,
+) -> Result<TeamPageNode, ApiError> {
+    crate::api::patch_json(
+        auth,
+        &format!("/api/teams/{team_id}/pages/{page_id}"),
+        &StructureBody {
+            slug: Some(slug),
+            parent_id: None,
+            move_to_root: false,
+        },
+    )
+    .await
+}
+
+/// `PATCH /api/teams/{id}/pages/{page_id}` — move under `new_parent`
+/// (`None` = to the tree root, via `move_to_root`).
+pub async fn move_page(
+    auth: Auth,
+    team_id: &str,
+    page_id: &str,
+    new_parent: Option<&str>,
+) -> Result<TeamPageNode, ApiError> {
+    crate::api::patch_json(
+        auth,
+        &format!("/api/teams/{team_id}/pages/{page_id}"),
+        &StructureBody {
+            slug: None,
+            parent_id: new_parent,
+            move_to_root: new_parent.is_none(),
+        },
+    )
+    .await
+}
+
+/// `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
+/// empty — the server 422 carries the live-children count).
+pub async fn delete_page(auth: Auth, team_id: &str, page_id: &str) -> Result<(), ApiError> {
+    let _: serde_json::Value =
+        delete_json(auth, &format!("/api/teams/{team_id}/pages/{page_id}")).await?;
+    Ok(())
+}
+
+/// mirror of: `kairos_client::types_team_pages::TeamAnnouncement`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Announcement {
+    pub id: String,
+    pub body: String,
+    pub pinned: bool,
+    pub created_by: String,
+    pub created_at: String,
+}
+
+/// `GET /api/teams/{id}/announcements` (pinned first, newest first).
+pub async fn team_announcements(auth: Auth, team_id: &str) -> Result<Vec<Announcement>, ApiError> {
+    get_json(auth, &format!("/api/teams/{team_id}/announcements")).await
+}
+
+/// mirror of: `kairos_client::types_team_pages::CreateTeamAnnouncementRequest`.
+#[derive(Serialize)]
+struct PostAnnouncementBody<'a> {
+    body: &'a str,
+    pinned: bool,
+}
+
+/// `POST /api/teams/{id}/announcements` (team member or org admin;
+/// append-only — there is no edit call to mirror).
+pub async fn post_announcement(
+    auth: Auth,
+    team_id: &str,
+    body: &str,
+    pinned: bool,
+) -> Result<Announcement, ApiError> {
+    post_json(
+        auth,
+        &format!("/api/teams/{team_id}/announcements"),
+        &PostAnnouncementBody { body, pinned },
+    )
+    .await
+}
+
+/// `DELETE /api/teams/{id}/announcements/{announcement_id}` (author or
+/// org admin).
+pub async fn delete_announcement(
+    auth: Auth,
+    team_id: &str,
+    announcement_id: &str,
+) -> Result<(), ApiError> {
+    let _: serde_json::Value = delete_json(
+        auth,
+        &format!("/api/teams/{team_id}/announcements/{announcement_id}"),
+    )
+    .await?;
+    Ok(())
+}
+
 /// mirror of: `kairos_client::types_team_pages::TeamWorkDocument`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct WorkDocument {
@@ -166,6 +370,45 @@ mod tests {
         });
         let board: BoardRef = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(board.slug, "platform-delivery");
+    }
+
+    /// `TeamPageNode` decodes the server's TeamPage shape.
+    #[test]
+    fn team_page_node_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "id": "p1",
+            "team_id": "t1",
+            "parent_id": null,
+            "kind": "page",
+            "slug": "charter",
+            "title": "Team Charter",
+            "content": "# Charter",
+            "position": 0,
+            "is_protected": true,
+            "version": 1,
+            "created_at": "2026-08-29T00:00:00Z",
+            "updated_at": "2026-08-29T00:00:00Z"
+        });
+        let node: TeamPageNode = serde_json::from_value(body).expect("mirror decodes");
+        assert!(node.is_protected);
+        assert_eq!(node.parent_id, None);
+        assert_eq!(node.kind, "page");
+    }
+
+    /// `Announcement` decodes the server's TeamAnnouncement shape.
+    #[test]
+    fn announcement_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "id": "a1",
+            "team_id": "t1",
+            "body": "Deploy freeze",
+            "pinned": true,
+            "created_by": "u1",
+            "created_at": "2026-08-29T00:00:00Z"
+        });
+        let a: Announcement = serde_json::from_value(body).expect("mirror decodes");
+        assert!(a.pinned);
+        assert_eq!(a.created_by, "u1");
     }
 
     /// `WorkDocument` decodes the derived work-documents row.

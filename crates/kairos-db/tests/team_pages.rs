@@ -162,6 +162,36 @@ fn team_page_scaffold() {
         other => panic!("duplicate root slug must violate uniqueness, got {other:?}"),
     }
 
+    // Moving a folder under itself or its own descendant is refused
+    // (cycle prevention in rename_move_page).
+    let docs_id: Uuid = schema::team_pages::table
+        .filter(schema::team_pages::team_id.eq(team.id))
+        .filter(schema::team_pages::slug.eq("documentation"))
+        .select(schema::team_pages::id)
+        .first(&mut conn)
+        .expect("documentation folder");
+    let tutorials_id: Uuid = schema::team_pages::table
+        .filter(schema::team_pages::team_id.eq(team.id))
+        .filter(schema::team_pages::parent_id.eq(docs_id))
+        .filter(schema::team_pages::slug.eq("tutorials"))
+        .select(schema::team_pages::id)
+        .first(&mut conn)
+        .expect("tutorials folder");
+    for bad_parent in [docs_id, tutorials_id] {
+        match kairos_db::team_pages::rename_move_page(
+            &mut conn,
+            team.id,
+            docs_id,
+            None,
+            Some(Some(bad_parent)),
+            None,
+            actor,
+        ) {
+            Err(kairos_db::team_pages::TeamPageError::BadParent(_)) => {}
+            other => panic!("cycle move must be BadParent, got {other:?}"),
+        }
+    }
+
     // A second team scaffolds independently (same slugs, different team).
     let other: Team = diesel::insert_into(schema::teams::table)
         .values(NewTeam {

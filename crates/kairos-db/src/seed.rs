@@ -29,6 +29,11 @@
 //! - `priority` metadata stamps on four tasks
 //! - two ADRs on the ADR board, the newer superseding the older
 //!   (`supersedes` edge; the old one sits in the Superseded column)
+//! - team landing content (KAIROS-T-0087): real charter text for both
+//!   teams (content saves over the scaffold, so history has a v2), one
+//!   announcement per team (platform's pinned), a how-to page under
+//!   platform's Documentation, and a runbook document supporting a
+//!   platform task (the work-documents panel's demo-visible row)
 //!
 //! # Idempotency contract (recorded in KAIROS-T-0035)
 //!
@@ -56,8 +61,10 @@ use crate::items::{
     create_document, create_initiative, create_strategy, create_task,
 };
 use crate::models::enums::{
-    BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamType, WorkClass,
+    BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamPageKind,
+    TeamType, WorkClass,
 };
+use crate::models::team_pages::TeamPage;
 use crate::models::public::{NewOrganizationMember, NewUser, User};
 use crate::models::teams::{NewDeliveryStream, NewTeam, NewTeamMember, Team};
 use crate::models::templates::NewItemMetadata;
@@ -123,6 +130,9 @@ pub enum SeedError {
     /// Creating a delivery board failed.
     #[error(transparent)]
     Board(#[from] BoardError),
+    /// Seeding demo team-page content failed (KAIROS-T-0087).
+    #[error(transparent)]
+    TeamPage(#[from] crate::team_pages::TeamPageError),
     /// Any other database error.
     #[error("database error: {0}")]
     Database(#[from] DieselError),
@@ -151,7 +161,7 @@ pub struct SeedDemoReport {
     pub initiatives: usize,
     /// Tasks created (incl. the bug and tech-debt items).
     pub tasks: usize,
-    /// Documents created (the PRD).
+    /// Documents created (the PRD + the platform runbook).
     pub documents: usize,
     /// ADRs created.
     pub adrs: usize,
@@ -732,6 +742,128 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         )?;
         edges += 1;
 
+        // --- team landing content (KAIROS-T-0087) -----------------------------
+        // Real charters (a content save over the scaffold skeleton, so the
+        // history chain looks lived-in), one announcement per team (the
+        // platform one pinned), a how-to page under platform's
+        // Documentation, and a runbook document supporting a platform TASK
+        // so the work-documents panel has a demo-visible row (the PRD
+        // supports the org-level sign-up initiative and correctly does not
+        // appear there).
+        let charter_of = |conn: &mut PgConnection, team: Uuid| -> Result<TeamPage, SeedError> {
+            use crate::schema::team_pages as tp;
+            Ok(tp::table
+                .filter(tp::team_id.eq(team))
+                .filter(tp::parent_id.is_null())
+                .filter(tp::slug.eq("charter"))
+                .select(TeamPage::as_select())
+                .first(conn)?)
+        };
+        let platform_charter = charter_of(conn, platform.id)?;
+        crate::team_pages::update_page_content(
+            conn,
+            platform.id,
+            platform_charter.id,
+            None,
+            "# Team Charter\n\n## Mission\n\nOwn the paved road: tenancy, auth, and the \
+             delivery pipeline every other team builds on.\n\n## Scope\n\n- Tenant \
+             provisioning and isolation\n- Sign-in and session tokens\n- CI/CD and the \
+             deploy runway\n\n## Working agreements\n\n- Support intake before new \
+             work\n- Every incident gets a runbook page",
+            platform_charter.version,
+            alice,
+        )?;
+        let web_charter = charter_of(conn, web.id)?;
+        crate::team_pages::update_page_content(
+            conn,
+            web.id,
+            web_charter.id,
+            None,
+            "# Team Charter\n\n## Mission\n\nShip the customer-facing portal: every \
+             screen between sign-up and invoice.\n\n## Scope\n\n- Sign-up and onboarding \
+             flows\n- Portal UI and accessibility\n\n## Working agreements\n\n- Demo \
+             every Friday\n- Design review before build",
+            web_charter.version,
+            carol,
+        )?;
+
+        let how_to_folder: Uuid = {
+            use crate::schema::team_pages as tp;
+            let docs_folder: Uuid = tp::table
+                .filter(tp::team_id.eq(platform.id))
+                .filter(tp::parent_id.is_null())
+                .filter(tp::slug.eq("documentation"))
+                .select(tp::id)
+                .first(conn)?;
+            tp::table
+                .filter(tp::team_id.eq(platform.id))
+                .filter(tp::parent_id.eq(docs_folder))
+                .filter(tp::slug.eq("how-to-guides"))
+                .select(tp::id)
+                .first(conn)?
+        };
+        crate::team_pages::create_page(
+            conn,
+            platform.id,
+            crate::team_pages::CreatePage {
+                parent_id: Some(how_to_folder),
+                kind: TeamPageKind::Page,
+                slug: "deploy-kairos",
+                title: "Deploy Kairos",
+                content: "# Deploy Kairos\n\n1. `angreal services up`\n2. `angreal db \
+                          migrate && angreal db seed --force`\n3. Start the server and \
+                          smoke `/api/whoami`\n\nRollbacks: redeploy the previous tag; \
+                          migrations are guarded and idempotent.",
+                position: 0,
+            },
+            bob,
+        )?;
+
+        use crate::models::team_pages::NewTeamAnnouncement;
+        diesel::insert_into(crate::schema::team_announcements::table)
+            .values(NewTeamAnnouncement {
+                team_id: platform.id,
+                body: "Welcome to the Platform team space — start with the charter, \
+                       and file support intake before planned work."
+                    .to_string(),
+                pinned: true,
+                created_by: alice,
+            })
+            .execute(conn)?;
+        diesel::insert_into(crate::schema::team_announcements::table)
+            .values(NewTeamAnnouncement {
+                team_id: web.id,
+                body: "Sprint demo Friday 14:00 — portal sign-up flow, end to end."
+                    .to_string(),
+                pinned: false,
+                created_by: carol,
+            })
+            .execute(conn)?;
+
+        let runbook = create_document(
+            conn,
+            CreateDocument {
+                title: "Runbook: password-less auth rollout",
+                content: Some(
+                    "## Purpose\n\nOperating notes for the password-less email auth \
+                     rollout.\n\n## Checks\n\n- Magic-link emails delivered < 30s\n- \
+                     Token TTL 15 minutes\n\n## Rollback\n\nFlip `AUTH_MAGIC_LINKS` \
+                     off; password auth remains available.",
+                ),
+                template_id: None,
+            },
+            alice,
+        )?;
+        codes.push(runbook.short_code.clone());
+        link_items(
+            conn,
+            task_ids[1],
+            runbook.id,
+            RelationshipType::Supports,
+            alice,
+        )?;
+        edges += 1;
+
         Ok(SeedDemoReport {
             slug: DEMO_SLUG.to_string(),
             schema: report.schema,
@@ -743,7 +875,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             strategies: 1,
             initiatives: 4,
             tasks: plan.len(),
-            documents: 1,
+            documents: 2,
             adrs: 2,
             edges,
             metadata_stamps,

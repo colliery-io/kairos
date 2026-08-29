@@ -499,7 +499,19 @@ pub async fn update_content(
         content,
         version,
     };
-    let response = send(auth, Verb::Patch, &path, Some(&body))
+    patch_versioned(auth, &path, &body).await
+}
+
+/// The A-0004 versioned PATCH, generically: 409 parses `details.current`
+/// into [`SaveError::Conflict`] for the merge UI; every other status maps
+/// like a normal call. Shared by item content saves and team-page saves
+/// (KAIROS-T-0086's generalized editor).
+pub(crate) async fn patch_versioned<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    path: &str,
+    body: &B,
+) -> Result<T, SaveError> {
+    let response = send(auth, Verb::Patch, path, Some(body))
         .await
         .map_err(SaveError::Api)?;
     let status = response.status();
@@ -526,7 +538,7 @@ pub async fn update_content(
         return Err(SaveError::Api(error_from(status, response).await));
     }
     response
-        .json::<ItemDetail>()
+        .json::<T>()
         .await
         .map_err(|e| SaveError::Api(ApiError::Unknown(format!("decoding {path}: {e}"))))
 }

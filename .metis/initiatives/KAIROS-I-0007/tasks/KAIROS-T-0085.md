@@ -4,14 +4,14 @@ level: task
 title: "Web: team landing page v1 — fixed opinionated layout"
 short_code: "KAIROS-T-0085"
 created_at: 2026-08-29T02:59:03.767757+00:00
-updated_at: 2026-08-29T02:59:03.767757+00:00
+updated_at: 2026-08-29T13:43:39.668969+00:00
 parent: KAIROS-I-0007
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,12 +37,16 @@ Rebuild `/teams/:slug` as the fixed v1 landing layout: header, rendered Charter,
 
 ## Acceptance Criteria
 
-- [ ] /teams/:slug renders all v1 panels in the fixed order; charter markdown renders through the safe pipeline.
-- [ ] Announcements: pinned-first ordering, member/org-admin post box, no comment/reaction surface anywhere.
-- [ ] Documentation tree shows the seeded scaffold with folder nesting; pages link to the T-0086 route.
-- [ ] By-slug fetch replaces the client-side scan; unknown slug renders a clean not-found panel.
-- [ ] Mirrors carry decode tests; unit + lint + build green.
+## Acceptance Criteria
+
+- [x] /teams/:slug renders all v1 panels in the fixed order; charter markdown renders through the safe pipeline.
+- [x] Announcements: pinned-first ordering, member/org-admin post box, no comment/reaction surface anywhere.
+- [x] Documentation tree shows the seeded scaffold with folder nesting; pages link to the T-0086 route.
+- [x] By-slug fetch replaces the client-side scan; unknown slug renders a clean not-found panel.
+- [x] Mirrors carry decode tests; unit + lint + build green.
 
 ## Status Updates
 
 - 2026-08-29: Created from the KAIROS-I-0007 decomposition (PO-approved; wave 2).
+- 2026-08-29: COMPLETE. Data layer (pages/teams/api.rs): `team_by_slug` (kills the directory scan), `TeamPageNode` + `Announcement` partial mirrors with decode tests, `team_pages`/`team_announcements`/`post_announcement`/`delete_announcement`. `WhoamiUser` mirror gained `id` (drives the author-delete affordance; boards.rs + gating.rs fixtures updated). teams.rs detail rebuilt in the fixed v1 order: PageHeader → Charter (markdown via item::markdown::to_html — module made pub(crate) — with an "Open / edit" link to the T-0086 route) → Announcements → Members → Delivery board → Streams → Documentation tree → Work documents. AnnouncementsPanel: pinned Pill + date, body through the safe markdown pipeline, post box (plain textarea + Post, gated by whoami team membership/org-admin, server stays authority), delete × for author-or-admin, errors via Alert + item api's `error_text`. DocTree: recursive eager render (views built owned — Leptos 'static lesson), native `<details>` disclosure per folder, pages link to `/teams/:slug/pages/{slug-path}`, charter excluded (own panel), new `.kairos-doctree__*` styles in app.css. Unknown slug: dedicated 404 arm with a clean not-found panel + directory link. T-0086 lands in this same wave, so tree links resolve within the release.
+- 2026-08-29: Verified: `angreal test unit` green (61 kairos-web tests incl. 3 new decode tests), `angreal web lint` clean (tokens only), `angreal web build` succeeds. Playwright coverage arrives with T-0087.

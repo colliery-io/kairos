@@ -136,3 +136,59 @@ export async function patchTask(
   }
   return (await res.json()).version as number;
 }
+
+// --- team pages (KAIROS-T-0087) ---------------------------------------------
+
+export interface TeamPageState {
+  id: string;
+  teamId: string;
+  slug: string;
+  title: string;
+  content: string;
+  version: number;
+}
+
+/** Resolve a team page by slug path (e.g. 'documentation/how-to-guides/deploy-kairos'). */
+export async function getTeamPage(
+  server: string,
+  token: string,
+  teamSlug: string,
+  path: string,
+): Promise<TeamPageState> {
+  const team = await json(server, token, `/api/teams/by-slug/${teamSlug}`);
+  const pages = (await json(server, token, `/api/teams/${team.id}/pages`)) as any[];
+  let parent: string | null = null;
+  let node: any = null;
+  for (const segment of path.split('/')) {
+    node = pages.find((p) => p.parent_id === parent && p.slug === segment);
+    if (!node) throw new Error(`no team page at ${path} (stuck on ${segment})`);
+    parent = node.id;
+  }
+  return {
+    id: node.id,
+    teamId: team.id,
+    slug: node.slug,
+    title: node.title,
+    content: node.content,
+    version: node.version,
+  };
+}
+
+/** PATCH a team page's content — the competing write for the 409 walk. */
+export async function patchTeamPage(
+  server: string,
+  token: string,
+  teamId: string,
+  pageId: string,
+  body: { title: string; content: string; version: number },
+): Promise<number> {
+  const res = await fetch(`${server}/api/teams/${teamId}/pages/${pageId}`, {
+    method: 'PATCH',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`patch team page -> ${res.status}: ${await res.text()}`);
+  }
+  return (await res.json()).version as number;
+}

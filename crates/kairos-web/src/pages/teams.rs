@@ -16,14 +16,19 @@
 //!   endpoint; stream counts are small at org scale).
 
 pub(crate) mod api;
+pub(crate) mod doc;
 
 use aurora_dark::components::{
-    Anchor, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Stack, Text,
+    ActionIcon, Alert, Anchor, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Stack,
+    Text,
 };
+use aurora_dark::tokens::ApiError;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 use crate::auth::use_auth;
+use crate::pages::item::api::error_text;
+use crate::pages::item::markdown;
 use api::team_type_color;
 
 /// Lifecycle chip accent — the same mapping as the item detail's
@@ -127,23 +132,19 @@ struct TeamView {
     streams: Vec<api::DeliveryStream>,
     /// Documents attached to the team's work (KAIROS-T-0084, derived).
     work_documents: Vec<api::WorkDocument>,
+    /// The full page tree, flat (KAIROS-T-0082 scaffold + user pages).
+    pages: Vec<api::TeamPageNode>,
+    /// Pinned first, newest first (server ordering).
+    announcements: Vec<api::Announcement>,
 }
 
-/// Load everything the detail page shows. The slug resolves through the
-/// teams list (the API keys teams by id; slugs are the human handle).
+/// Load everything the detail page shows, resolving the slug through
+/// `GET /api/teams/by-slug/{slug}` (KAIROS-T-0085 — no directory scan).
 async fn load_team_view(
     auth: crate::auth::Auth,
     slug: &str,
 ) -> Result<TeamView, aurora_dark::tokens::ApiError> {
-    let teams = api::list_teams(auth).await?;
-    let team = teams
-        .into_iter()
-        .find(|team| team.slug == slug)
-        .ok_or_else(|| aurora_dark::tokens::ApiError::Http {
-            status: 404,
-            message: format!("no team with slug {slug:?}"),
-            code: Some("NOT_FOUND".to_string()),
-        })?;
+    let team = api::team_by_slug(auth, slug).await?;
     let members = api::team_members(auth, &team.id).await?;
 
     let delivery_board = match &team.delivery_board_id {
@@ -167,6 +168,8 @@ async fn load_team_view(
     }
 
     let work_documents = api::team_work_documents(auth, &team.id).await?;
+    let pages = api::team_pages(auth, &team.id).await?;
+    let announcements = api::team_announcements(auth, &team.id).await?;
 
     Ok(TeamView {
         team,
@@ -174,10 +177,14 @@ async fn load_team_view(
         delivery_board,
         streams,
         work_documents,
+        pages,
+        announcements,
     })
 }
 
-/// `/teams/:slug` — roster, delivery board, and stream membership.
+/// `/teams/:slug` — the fixed v1 landing layout (KAIROS-T-0085):
+/// header, Charter, Announcements, Members, Delivery board, Streams,
+/// Documentation tree, Work documents.
 #[component]
 pub fn TeamPage() -> impl IntoView {
     let auth = use_auth();
@@ -190,33 +197,69 @@ pub fn TeamPage() -> impl IntoView {
     view! {
         {move || match team.get() {
             None => view! { <Loading label="Loading team…"/> }.into_any(),
+            // Unknown slug: a clean not-found, not a generic error wall.
+            Some(Err(aurora_dark::tokens::ApiError::Http { status: 404, .. })) => {
+                let slug = params.read().get("slug").unwrap_or_default();
+                view! {
+                    <PageHeader title="Team not found" sub="teams"/>
+                    <Panel title="Not found" caption="nothing lives at this address">
+                        <Empty message=format!("There is no team with slug {slug:?} — check the directory.")/>
+                        <Anchor href="/teams">"Back to the team directory"</Anchor>
+                    </Panel>
+                }.into_any()
+            }
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| team.refetch())/>
             }.into_any(),
-            Some(Ok(view_model)) => view! { <TeamBody view_model/> }.into_any(),
+            Some(Ok(view_model)) => view! {
+                <TeamBody view_model on_changed=Callback::new(move |_| team.refetch())/>
+            }.into_any(),
         }}
     }
 }
 
-/// The loaded team detail.
+/// The loaded team detail — panels in the fixed v1 order.
 #[component]
-fn TeamBody(view_model: TeamView) -> impl IntoView {
+fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
     let TeamView {
         team,
         members,
         delivery_board,
         streams,
         work_documents,
+        pages,
+        announcements,
     } = view_model;
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
     let header_right: Children = Box::new(move || {
         view! { <Pill color=team_type_color(&type_pill)>{type_pill.clone()}</Pill> }.into_any()
     });
+    let charter = pages
+        .iter()
+        .find(|p| p.parent_id.is_none() && p.slug == "charter")
+        .cloned();
+    let team_id = team.id.clone();
+    let team_slug = team.slug.clone();
+    let charter_href = format!("/teams/{team_slug}/pages/charter");
 
     view! {
         <PageHeader title=team.name.clone() sub=sub right=header_right/>
         <Stack gap="md">
+            <Panel title="Charter" caption="why this team exists">
+                {match charter {
+                    Some(page) => view! {
+                        <Stack gap="xs">
+                            <div class="kairos-markdown" inner_html=markdown::to_html(&page.content)></div>
+                            <Anchor href=charter_href>"Open / edit the charter"</Anchor>
+                        </Stack>
+                    }.into_any(),
+                    None => view! {
+                        <Empty message="No charter page — the scaffold seeds one for every team."/>
+                    }.into_any(),
+                }}
+            </Panel>
+            <AnnouncementsPanel team_id=team_id.clone() announcements on_changed/>
             <Panel title="Members" caption="the roster">
                 {if members.is_empty() {
                     view! {
@@ -247,6 +290,28 @@ fn TeamBody(view_model: TeamView) -> impl IntoView {
                         <Empty message="This team has no delivery board."/>
                     }.into_any(),
                 }}
+            </Panel>
+            <Panel title="Delivery streams" caption="cross-team streams this team works in">
+                {if streams.is_empty() {
+                    view! { <Empty message="This team is not part of any delivery stream."/> }
+                        .into_any()
+                } else {
+                    view! {
+                        <Stack gap="xs">
+                            {streams.into_iter().map(|stream| view! {
+                                <Group justify="between">
+                                    <Text bright=true size="sm">{stream.name}</Text>
+                                    {stream.description.map(|description| view! {
+                                        <Text dimmed=true size="xs">{description}</Text>
+                                    })}
+                                </Group>
+                            }).collect_view()}
+                        </Stack>
+                    }.into_any()
+                }}
+            </Panel>
+            <Panel title="Documentation" caption="the team's page tree — folders expand, pages open">
+                <DocTree pages=pages.clone() team_slug=team_slug.clone()/>
             </Panel>
             <Panel title="Work documents" caption="documents attached to this team's work items">
                 {if work_documents.is_empty() {
@@ -284,25 +349,227 @@ fn TeamBody(view_model: TeamView) -> impl IntoView {
                     }.into_any()
                 }}
             </Panel>
-            <Panel title="Delivery streams" caption="cross-team streams this team works in">
-                {if streams.is_empty() {
-                    view! { <Empty message="This team is not part of any delivery stream."/> }
-                        .into_any()
+        </Stack>
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Announcements (KAIROS-T-0085): one-way, pinned-first, append-only
+// ---------------------------------------------------------------------------
+
+/// Pinned-first feed with a member/org-admin post box and an author-or-
+/// admin delete affordance. Deliberately NO comments or reactions — the
+/// feed is one-way by design (KAIROS-I-0007). The server stays the
+/// authority on every gate; whoami only decides what to show.
+#[component]
+fn AnnouncementsPanel(
+    team_id: String,
+    announcements: Vec<api::Announcement>,
+    on_changed: Callback<()>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let team_id = StoredValue::new(team_id);
+    let draft = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
+
+    // `(my user id, org admin?, member of THIS team?)` once whoami lands.
+    let identity = move || {
+        whoami.and_then(|resource| resource.get()).and_then(|result| {
+            result.ok().map(|me| {
+                let is_admin = me.organization.role == "admin";
+                let is_member = me.teams.iter().any(|t| t.id == team_id.get_value());
+                (me.user.id, is_admin, is_member)
+            })
+        })
+    };
+
+    let post = move |_| {
+        let body = draft.get_untracked();
+        if body.trim().is_empty() || busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result =
+                api::post_announcement(auth, &team_id.get_value(), body.trim(), false).await;
+            busy.set(false);
+            match result {
+                Ok(_) => {
+                    draft.set(String::new());
+                    on_changed.run(());
+                }
+                Err(e) => error.set(Some(error_text(&e))),
+            }
+        });
+    };
+    let delete = move |announcement_id: String| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result =
+                api::delete_announcement(auth, &team_id.get_value(), &announcement_id).await;
+            busy.set(false);
+            match result {
+                Ok(()) => on_changed.run(()),
+                Err(e) => error.set(Some(error_text(&e))),
+            }
+        });
+    };
+
+    view! {
+        <Panel title="Announcements" caption="one-way — no comments, no reactions">
+            <Stack gap="sm">
+                {move || error.get().map(|message| view! {
+                    <Alert title="Announcement call failed" color=aurora_dark::tokens::token::BAD>
+                        <Text size="sm" dimmed=true>{message}</Text>
+                    </Alert>
+                })}
+                {if announcements.is_empty() {
+                    view! { <Empty message="Nothing announced yet."/> }.into_any()
                 } else {
                     view! {
-                        <Stack gap="xs">
-                            {streams.into_iter().map(|stream| view! {
-                                <Group justify="between">
-                                    <Text bright=true size="sm">{stream.name}</Text>
-                                    {stream.description.map(|description| view! {
-                                        <Text dimmed=true size="xs">{description}</Text>
-                                    })}
-                                </Group>
+                        <Stack gap="sm">
+                            {announcements.into_iter().map(|announcement| {
+                                let api::Announcement { id, body, pinned, created_by, created_at } = announcement;
+                                let date = created_at.split('T').next().unwrap_or_default().to_string();
+                                let delete_id = id.clone();
+                                view! {
+                                    <Stack gap="xs">
+                                        <Group justify="between">
+                                            <Group gap="xs">
+                                                {pinned.then(|| view! {
+                                                    <Pill color=aurora_dark::tokens::token::GOLD>"pinned"</Pill>
+                                                })}
+                                                <Text dimmed=true size="xs">{date}</Text>
+                                            </Group>
+                                            {move || {
+                                                let mine_or_admin = identity()
+                                                    .map(|(my_id, is_admin, _)| is_admin || my_id == created_by)
+                                                    .unwrap_or(false);
+                                                let delete_id = delete_id.clone();
+                                                mine_or_admin.then(|| view! {
+                                                    <ActionIcon
+                                                        title="Delete this announcement"
+                                                        on_click=Callback::new(move |_| delete(delete_id.clone()))
+                                                    >
+                                                        "×"
+                                                    </ActionIcon>
+                                                })
+                                            }}
+                                        </Group>
+                                        <div class="kairos-markdown" inner_html=markdown::to_html(&body)></div>
+                                    </Stack>
+                                }
                             }).collect_view()}
                         </Stack>
                     }.into_any()
                 }}
-            </Panel>
-        </Stack>
+                {move || {
+                    let can_post = identity()
+                        .map(|(_, is_admin, is_member)| is_admin || is_member)
+                        .unwrap_or(false);
+                    can_post.then(|| view! {
+                        <Stack gap="xs">
+                            <label class="cl-field__label">"Post an announcement (markdown)"</label>
+                            <textarea
+                                class="kairos-editor__textarea"
+                                prop:value=move || draft.get()
+                                on:input=move |e| draft.set(event_target_value(&e))
+                            ></textarea>
+                            <Group justify="end">
+                                <button
+                                    class="cl-btn cl-btn--filled"
+                                    disabled=move || busy.get() || draft.get().trim().is_empty()
+                                    on:click=post
+                                >
+                                    {move || if busy.get() { "Posting…" } else { "Post" }}
+                                </button>
+                            </Group>
+                        </Stack>
+                    })
+                }}
+            </Stack>
+        </Panel>
     }
+}
+
+// ---------------------------------------------------------------------------
+// Documentation tree (KAIROS-T-0085)
+// ---------------------------------------------------------------------------
+
+/// The page-tree navigator: root nodes except the charter (it has its own
+/// panel above), folders as native `<details>` disclosures, pages linking
+/// to the KAIROS-T-0086 route at their slug path.
+#[component]
+fn DocTree(pages: Vec<api::TeamPageNode>, team_slug: String) -> impl IntoView {
+    let visible = pages
+        .iter()
+        .filter(|p| !(p.parent_id.is_none() && p.slug == "charter"))
+        .cloned()
+        .collect::<Vec<_>>();
+    if visible.is_empty() {
+        return view! { <Empty message="No pages yet."/> }.into_any();
+    }
+    render_tree_level(&visible, None, &team_slug, "")
+}
+
+/// One nesting level: `parent`'s children in position-then-title order
+/// (the server ordering), recursing into folders. Views are built
+/// EAGERLY (owned) before assembly — `view!` output must be `'static`.
+fn render_tree_level(
+    pages: &[api::TeamPageNode],
+    parent: Option<&str>,
+    team_slug: &str,
+    path_prefix: &str,
+) -> AnyView {
+    let rows = pages
+        .iter()
+        .filter(|p| p.parent_id.as_deref() == parent)
+        .map(|node| {
+            let path = if path_prefix.is_empty() {
+                node.slug.clone()
+            } else {
+                format!("{path_prefix}/{}", node.slug)
+            };
+            if node.kind == "folder" {
+                let inner = render_tree_level(pages, Some(&node.id), team_slug, &path);
+                let title = node.title.clone();
+                let href = format!("/teams/{team_slug}/pages/{path}");
+                view! {
+                    <details class="kairos-doctree__folder">
+                        <summary class="kairos-doctree__summary">
+                            <Group gap="xs">
+                                <Text bright=true size="sm">{title}</Text>
+                                <Anchor href=href>
+                                    <Text dimmed=true size="xs">"open"</Text>
+                                </Anchor>
+                            </Group>
+                        </summary>
+                        <div class="kairos-doctree__children">{inner}</div>
+                    </details>
+                }
+                .into_any()
+            } else {
+                let href = format!("/teams/{team_slug}/pages/{path}");
+                let title = node.title.clone();
+                let protected = node.is_protected;
+                view! {
+                    <Group gap="xs">
+                        <Anchor href=href>{title}</Anchor>
+                        {protected.then(|| view! {
+                            <Text dimmed=true size="xs">"(protected)"</Text>
+                        })}
+                    </Group>
+                }
+                .into_any()
+            }
+        })
+        .collect::<Vec<_>>();
+    view! { <Stack gap="xs">{rows}</Stack> }.into_any()
 }

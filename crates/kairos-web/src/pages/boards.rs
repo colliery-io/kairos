@@ -1488,7 +1488,7 @@ mod tests {
 
     fn me(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoami {
         serde_json::from_value(serde_json::json!({
-            "user": {"display_name": "u", "email": "u@x.test"},
+            "user": {"id": "u-1", "display_name": "u", "email": "u@x.test"},
             "organization": {"slug": "demo", "role": role},
             "teams": team_ids.iter().map(|id| serde_json::json!({
                 "id": id, "slug": id, "name": id

@@ -4,14 +4,14 @@ level: task
 title: "Team pages e2e + fixture wave: seeded content, teampages.spec, spec fallout"
 short_code: "KAIROS-T-0087"
 created_at: 2026-08-29T02:59:11.409291+00:00
-updated_at: 2026-08-29T02:59:11.409291+00:00
+updated_at: 2026-08-29T14:08:50.289210+00:00
 parent: KAIROS-I-0007
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -36,10 +36,16 @@ Make the feature demonstrable and regression-proof: seed-demo team content, a te
 
 ## Acceptance Criteria
 
-- [ ] seed-demo provisions the demo team content above; seed_demo test asserts it.
-- [ ] teampages.spec covers scaffold, announcements (one-way, pinned-first, permission), page edit + 409 merge, charter protection, and the work-documents panel — green without retries.
-- [ ] Existing specs/tests updated for the new layout; full ladder green (unit, integration, e2e).
+## Acceptance Criteria
+
+- [x] seed-demo provisions the demo team content above; seed_demo test asserts it.
+- [x] teampages.spec covers scaffold, announcements (one-way, pinned-first, permission), page edit + 409 merge, charter protection, and the work-documents panel — green without retries.
+- [x] Existing specs/tests updated for the new layout; full ladder green (unit, integration, e2e).
 
 ## Status Updates
 
 - 2026-08-29: Created from the KAIROS-I-0007 decomposition (PO-approved; wave 2).
+- 2026-08-29: Seed additions (seed.rs, one transaction): real charter content for platform+web via `update_page_content` (v2 + history rows — the chain looks lived-in), platform announcement pinned (alice) + web announcement (carol), how-to page `documentation/how-to-guides/deploy-kairos` (bob), and "Runbook: password-less auth rollout" document supporting the platform "Password-less email auth" task (the work-documents demo row; PRD stays org-level and correctly absent). `SeedError::TeamPage` variant added. seed_demo test: documents 1→2, supports edges 1→2, + new assertions (21 live team pages, 4 charter history rows, 2 announcements exactly 1 pinned).
+- 2026-08-29: e2e: `helpers/api.ts` gained `getTeamPage` (slug-path resolution) + `patchTeamPage` (the competing writer); new `teampages.spec.ts` runs as bob — landing layout (charter markdown, pinned-first announcements, diataxis tree, runbook in Work documents + PRD absent), member announcement post, tree-navigate → toolbar bold-insert → edit/save → v2, API-forced 409 → take-theirs walk, charter shows Edit but no Manage/rename/delete, and the /teams/web negative (no post box, no Edit, reads open). Fallout checked: team-lens.spec's Members/board/stream assertions still hold on the rebuilt layout; smoke.spec's conflict step only pins "Edit conflict" (unchanged).
+- 2026-08-29: Deflake + review fixes before green: (1) the announcement post refetches the landing page and Leptos may REUSE the details DOM (open state preserved) — blind summary clicks toggled the tree closed; the spec now forces `details.open = true` via evaluate instead of clicking. (2) doc.rs computed `manage` once at body render — if whoami landed after the pages fetch the Edit/Manage affordances never appeared; the identity is now read inside the reactive closure so the body re-renders when whoami lands.
+- 2026-08-29: COMPLETE. Full ladder green: `angreal test unit` clean, `angreal test integration` 32/32 targets (incl. new seed_demo counts + the T-0086 cycle-prevention db test), `angreal test e2e` 8/8 specs passed in 9.6s with zero retries (API golden path + MCP + GUI).

@@ -98,7 +98,7 @@ pub use boards::{BoardPage, BoardsPage};
 
 // Item detail (KAIROS-T-0041): detail per entity type, markdown edit +
 // preview, 409 conflict merge, metadata, create-from-template, soft delete.
-mod item;
+pub(crate) mod item;
 pub use item::ItemPage;
 
 // Unified search + relationships explorer (KAIROS-T-0042): the A-0007
@@ -110,7 +110,10 @@ pub use search::{RelationshipsPage, SearchPage};
 // /teams/:slug detail (roster, delivery board, streams) — the user-facing
 // team lens. Its `api` submodule is the shared team data layer that
 // `admin::api` re-exports from.
+pub(crate) mod editor;
+
 pub(crate) mod teams;
+pub use teams::doc::TeamDocPage;
 pub use teams::{TeamPage, TeamsPage};
 
 // Admin surfaces (KAIROS-T-0043): board configuration + members/capability

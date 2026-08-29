@@ -188,9 +188,12 @@ pub struct WhoamiBoardCapabilities {
     pub grants: Vec<String>,
 }
 
-/// mirror of: `kairos_server::app::WhoamiUser` (partial).
+/// mirror of: `kairos_server::app::WhoamiUser` (partial). `id` drives
+/// "mine" affordances (e.g. deleting my own team announcement,
+/// KAIROS-T-0085).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct WhoamiUser {
+    pub id: String,
     pub display_name: String,
     pub email: String,
 }

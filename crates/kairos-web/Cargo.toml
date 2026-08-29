@@ -58,4 +58,6 @@ web-sys = { workspace = true, features = [
     "MouseEvent",
     # Metadata add-field picker reset (KAIROS-T-0078 review fix)
     "HtmlSelectElement",
+    # Markdown toolbar cursor insertion (KAIROS-T-0086)
+    "HtmlTextAreaElement",
 ] }

@@ -88,6 +88,7 @@ mod tests {
     fn me(role: &str, grants: &[(&str, &[&str])]) -> Whoami {
         Whoami {
             user: WhoamiUser {
+                id: "u-1".into(),
                 display_name: "u".into(),
                 email: "u@x".into(),
             },

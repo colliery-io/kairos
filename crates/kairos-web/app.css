@@ -485,3 +485,18 @@ body {
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Team documentation tree (KAIROS-T-0085): native disclosure nesting. */
+.kairos-doctree__folder {
+  border-left: 1px solid var(--border-fainter);
+  padding-left: var(--space-xs);
+}
+
+.kairos-doctree__summary {
+  cursor: pointer;
+  list-style: revert;
+}
+
+.kairos-doctree__children {
+  padding: var(--space-xs) 0 0 var(--space-sm);
+}

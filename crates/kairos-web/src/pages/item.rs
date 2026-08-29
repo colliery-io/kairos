@@ -16,11 +16,11 @@
 //! - create-from-template ([`create_doc`]) and soft delete with cascade
 //!   warning ([`delete`], A-0001).
 
-mod api;
+pub(crate) mod api;
 mod create_doc;
 mod delete;
 mod editor;
-mod markdown;
+pub(crate) mod markdown;
 mod metadata;
 
 use aurora_dark::components::{

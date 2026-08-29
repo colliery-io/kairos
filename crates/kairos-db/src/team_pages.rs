@@ -408,10 +408,20 @@ pub fn rename_move_page(
             return Err(TeamPageError::ProtectedPage(page_id));
         }
         if let Some(Some(parent)) = new_parent {
-            if parent == page_id {
-                return Err(TeamPageError::BadParent(parent));
-            }
             check_parent(conn, team_id, parent)?;
+            // No cycles: the new parent must not be the page itself or any
+            // of its descendants (walk ancestors of the target parent).
+            let mut cursor = Some(parent);
+            while let Some(node) = cursor {
+                if node == page_id {
+                    return Err(TeamPageError::BadParent(parent));
+                }
+                cursor = dsl::team_pages
+                    .filter(dsl::id.eq(node))
+                    .select(dsl::parent_id)
+                    .first::<Option<Uuid>>(conn)
+                    .map_err(TeamPageError::Database)?;
+            }
         }
         let updated: TeamPage = diesel::update(dsl::team_pages.filter(dsl::id.eq(page_id)))
             .set(TeamPageChangeset {

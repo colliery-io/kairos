@@ -200,9 +200,9 @@ fn seed_demo_fixture_lifecycle() {
             1,
         ),
         (
-            "documents (PRD)",
+            "documents (PRD + the platform runbook, KAIROS-T-0087)",
             "SELECT COUNT(*) AS count FROM org_demo.documents",
-            1,
+            2,
         ),
         (
             "PRD created from the prd template",
@@ -225,9 +225,32 @@ fn seed_demo_fixture_lifecycle() {
             2,
         ),
         (
-            "supports edge (initiative -> PRD)",
+            "supports edges (initiative -> PRD, platform task -> runbook)",
             "SELECT COUNT(*) AS count FROM org_demo.item_relationships \
              WHERE relationship = 'supports'",
+            2,
+        ),
+        (
+            "team pages (2 scaffolds of 10 + platform's how-to page)",
+            "SELECT COUNT(*) AS count FROM org_demo.team_pages \
+             WHERE deleted_at IS NULL",
+            21,
+        ),
+        (
+            "charter content saves wrote history (baseline + v2, both teams)",
+            "SELECT COUNT(*) AS count FROM org_demo.team_page_history h \
+             JOIN org_demo.team_pages p ON p.id = h.page_id \
+             WHERE p.slug = 'charter'",
+            4,
+        ),
+        (
+            "team announcements (platform pinned + web)",
+            "SELECT COUNT(*) AS count FROM org_demo.team_announcements",
+            2,
+        ),
+        (
+            "exactly one pinned announcement",
+            "SELECT COUNT(*) AS count FROM org_demo.team_announcements WHERE pinned",
             1,
         ),
         (

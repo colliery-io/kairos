@@ -63,6 +63,7 @@ pub fn App() -> impl IntoView {
                         <Route path=path!("search/relationships/:code") view=pages::RelationshipsPage/>
                         <Route path=path!("teams") view=pages::TeamsPage/>
                         <Route path=path!("teams/:slug") view=pages::TeamPage/>
+                        <Route path=path!("teams/:slug/pages/*path") view=pages::TeamDocPage/>
                         <ParentRoute path=path!("admin") view=pages::AdminPage>
                             <Route path=path!("") view=pages::admin::AdminHomePage/>
                             <Route path=path!("boards") view=pages::admin::AdminBoardsPage/>

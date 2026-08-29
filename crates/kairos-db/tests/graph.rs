@@ -909,3 +909,215 @@ fn children_progress_rollups() {
     let p1 = batch.get(&i1.id).expect("i1 present");
     assert_eq!((p1.done, p1.total, p1.has_done), (0, 3, false));
 }
+
+// ---------------------------------------------------------------------------
+// Focal subgraph (KAIROS-T-0088)
+// ---------------------------------------------------------------------------
+
+/// `item_subgraph`: depth bounding with min-depth per node, cross-links
+/// between visited nodes, live-neighbor `degree`, and soft-delete
+/// exclusion — the wire contract the graph view draws from.
+#[test]
+fn focal_subgraph_contract() {
+    const SUBGRAPH_DB: &str = "kairos_subgraph_test";
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!("DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {SUBGRAPH_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+    let scratch_url = with_database(&admin_url, SUBGRAPH_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let alice = insert_user(&mut conn, "dex|subgraph", "subgraph@acme.test", "Alice");
+
+    let strategy_board = board_id_by_slug(&mut conn, "strategy");
+    let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    let delivery = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery",
+        "delivery",
+        None,
+        Some(alice),
+    )
+    .expect("creating delivery board")
+    .id;
+
+    // S ─parent→ I1 ─parent→ T1, T2(soft-deleted); S ─parent→ I2 ─parent→ T3;
+    // T1 ─blocks→ T3 (the cross-initiative dependency); I1 ─supports→ D.
+    let s = items::create_strategy(
+        &mut conn,
+        CreateStrategy {
+            board_id: strategy_board,
+            column_id: None,
+            title: "North star",
+            content: "",
+            hypothesis: None,
+        },
+        alice,
+    )
+    .expect("strategy");
+    let mk_initiative = |conn: &mut PgConnection, title: &str| {
+        items::create_initiative(
+            conn,
+            CreateInitiative {
+                board_id: initiative_board,
+                column_id: None,
+                title,
+                content: "",
+                complexity: None,
+                bucket_type: None,
+            },
+            alice,
+        )
+        .expect("initiative")
+    };
+    let i1 = mk_initiative(&mut conn, "Initiative one");
+    let i2 = mk_initiative(&mut conn, "Initiative two");
+    let mk_task = |conn: &mut PgConnection, title: &str| {
+        items::create_task(
+            conn,
+            CreateTask {
+                board_id: delivery,
+                column_id: None,
+                title,
+                content: "",
+                task_type: TaskType::Task,
+                work_class: kairos_db::models::WorkClass::Planned,
+                team_id: None,
+            },
+            alice,
+        )
+        .expect("task")
+    };
+    let t1 = mk_task(&mut conn, "Task one");
+    let t2 = mk_task(&mut conn, "Task doomed");
+    let t3 = mk_task(&mut conn, "Task three");
+    let d = items::create_document(
+        &mut conn,
+        CreateDocument {
+            title: "Supporting doc",
+            content: Some(""),
+            template_id: None,
+        },
+        alice,
+    )
+    .expect("document");
+
+    let link = |conn: &mut PgConnection, from: Uuid, to: Uuid, rel: RelationshipType| {
+        graph::link_items(conn, from, to, rel, alice).expect("linking");
+    };
+    link(&mut conn, s.id, i1.id, RelationshipType::Parent);
+    link(&mut conn, s.id, i2.id, RelationshipType::Parent);
+    link(&mut conn, i1.id, t1.id, RelationshipType::Parent);
+    link(&mut conn, i1.id, t2.id, RelationshipType::Parent);
+    link(&mut conn, i2.id, t3.id, RelationshipType::Parent);
+    link(&mut conn, t1.id, t3.id, RelationshipType::Blocks);
+    link(&mut conn, i1.id, d.id, RelationshipType::Supports);
+    // t2 also blocks t3 while alive — its soft-delete below must drop it
+    // from BOTH the subgraph and the blocks rollup.
+    link(&mut conn, t2.id, t3.id, RelationshipType::Blocks);
+    diesel::update(schema::tasks::table.find(t2.id))
+        .set(schema::tasks::deleted_at.eq(diesel::dsl::now))
+        .execute(&mut conn)
+        .expect("soft-deleting t2");
+
+    // --- depth 2 from T1 ----------------------------------------------------
+    let (nodes, edges) = graph::item_subgraph(&mut conn, t1.id, 2).expect("subgraph");
+    let by_id = |id: Uuid| nodes.iter().find(|n| n.id == id);
+    // Visible: T1(0), I1(1), T3(1), S(2), I2(2), D(2); T2 dropped (deleted).
+    assert_eq!(nodes.len(), 6, "live nodes only: {nodes:?}");
+    assert!(by_id(t2.id).is_none(), "soft-deleted node excluded");
+    assert_eq!(by_id(t1.id).expect("focus").depth, 0);
+    assert_eq!(by_id(i1.id).expect("i1").depth, 1);
+    assert_eq!(by_id(t3.id).expect("t3").depth, 1);
+    assert_eq!(by_id(s.id).expect("s").depth, 2);
+    assert_eq!(by_id(i2.id).expect("i2").depth, 2);
+    assert_eq!(by_id(d.id).expect("d").depth, 2);
+    // Status vocabulary split (A-0018): workflow = column name, doc = lifecycle.
+    assert_eq!(by_id(t1.id).expect("t1").status, "Backlog");
+    assert_eq!(by_id(d.id).expect("d").status, "draft");
+    assert_eq!(by_id(t1.id).expect("t1").entity_type, ItemType::Task);
+    // Degree counts LIVE neighbors only: I1 touches S, T1, D (T2 is dead).
+    assert_eq!(by_id(i1.id).expect("i1").degree, 3);
+    assert_eq!(by_id(t1.id).expect("t1").degree, 2);
+    // Nodes ordered by short code (deterministic layout input).
+    let codes: Vec<&str> = nodes.iter().map(|n| n.short_code.as_str()).collect();
+    let mut sorted = codes.clone();
+    sorted.sort();
+    assert_eq!(codes, sorted, "nodes sorted by short code");
+
+    // Edges: ALL live edges among the visible set — including the
+    // cross-link I2→T3 the walk did not discover first. Edge depth is the
+    // view depth at which both endpoints are visible.
+    let edge = |src: Uuid, tgt: Uuid, rel: RelationshipType| {
+        edges
+            .iter()
+            .find(|e| e.source_id == src && e.target_id == tgt && e.relationship == rel)
+    };
+    assert_eq!(edges.len(), 6, "live edges among visible: {edges:?}");
+    assert_eq!(
+        edge(i1.id, t1.id, RelationshipType::Parent).expect("i1->t1").depth,
+        1
+    );
+    assert_eq!(
+        edge(t1.id, t3.id, RelationshipType::Blocks).expect("blocks").depth,
+        1
+    );
+    assert_eq!(
+        edge(i2.id, t3.id, RelationshipType::Parent)
+            .expect("cross-link present")
+            .depth,
+        2
+    );
+    assert_eq!(
+        edge(i1.id, d.id, RelationshipType::Supports).expect("supports").depth,
+        2
+    );
+    assert!(
+        edge(i1.id, t2.id, RelationshipType::Parent).is_none(),
+        "edges to soft-deleted endpoints excluded"
+    );
+
+    // --- blocks rollup for board cards (KAIROS-T-0091) ----------------------
+    // One grouped query; soft-deleted neighbors (t2) never count; items
+    // without live blocks edges have no entry.
+    let summary =
+        graph::blocks_summary(&mut conn, &[t1.id, t2.id, t3.id, i1.id]).expect("blocks summary");
+    let t1_counts = summary.get(&t1.id).expect("t1 counts");
+    assert_eq!((t1_counts.blocked_by, t1_counts.blocks), (0, 1));
+    let t3_counts = summary.get(&t3.id).expect("t3 counts");
+    assert_eq!(
+        (t3_counts.blocked_by, t3_counts.blocks),
+        (1, 0),
+        "t2's edge is dead weight: only t1 counts"
+    );
+    assert!(summary.get(&i1.id).is_none(), "no blocks edges, no entry");
+
+    // --- depth 1 from T1: strict bound --------------------------------------
+    let (near, near_edges) = graph::item_subgraph(&mut conn, t1.id, 1).expect("depth 1");
+    assert_eq!(
+        near.iter().map(|n| n.id).collect::<std::collections::HashSet<_>>(),
+        [t1.id, i1.id, t3.id].into_iter().collect(),
+        "depth 1 = focus + direct neighbors"
+    );
+    assert_eq!(near_edges.len(), 2, "only the two incident edges: {near_edges:?}");
+
+    drop(conn);
+    sql_query(format!("DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database after test");
+}

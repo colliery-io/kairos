@@ -41,6 +41,10 @@ pub fn router() -> Router<AppState> {
             "/api/{entity_type}/{short_code}/children-progress",
             get(get_children_progress),
         )
+        .route(
+            "/api/{entity_type}/{short_code}/graph",
+            get(get_item_graph),
+        )
         .route("/api/relationships", post(create_relationship))
         .route("/api/relationships/{id}", delete(delete_relationship))
 }
@@ -93,6 +97,79 @@ pub(crate) async fn get_children_progress(
                         board_id: row.board_id.to_string(),
                         is_done: row.is_done,
                         count: row.count,
+                    })
+                    .collect(),
+            })
+        })
+        .await?;
+    Ok(Json(response))
+}
+
+/// Query of [`get_item_graph`] (explicit struct — serde_urlencoded
+/// cannot flatten, T-0021 lesson).
+#[derive(serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct GraphQuery {
+    /// Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH.
+    depth: Option<u32>,
+}
+
+/// The focal subgraph (KAIROS-T-0088): every live node within `depth`
+/// hops over any relationship type in either direction, plus ALL live
+/// edges among the returned nodes — the wire contract the graph view
+/// draws from. Open tenant-wide like the other graph reads.
+#[utoipa::path(
+    get,
+    path = "/api/{entity_type}/{short_code}/graph",
+    tag = "relationships",
+    params(
+        ("entity_type" = String, Path, description = "Entity family (plural URL segment)"),
+        ("short_code" = String, Path, description = "The focal item's short code"),
+        GraphQuery,
+    ),
+    responses(
+        (status = 200, description = "The focal subgraph", body = kairos_client::types_graph::GraphResponse),
+        (status = 404, description = "Unknown family or short code", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn get_item_graph(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((family, short_code)): Path<(String, String)>,
+    axum::extract::Query(query): axum::extract::Query<GraphQuery>,
+) -> Result<Json<kairos_client::types_graph::GraphResponse>, ApiError> {
+    use kairos_client::types_graph as graph_dto;
+    let depth = query
+        .depth
+        .unwrap_or(2)
+        .clamp(1, kairos_core::search::MAX_TRAVERSE_DEPTH);
+    let response = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (nodes, edges) =
+                graph::item_subgraph(conn, item_id, depth).map_err(ApiError::internal)?;
+            Ok(graph_dto::GraphResponse {
+                focus: short_code,
+                depth,
+                nodes: nodes
+                    .into_iter()
+                    .map(|node| graph_dto::GraphNode {
+                        id: node.id.to_string(),
+                        short_code: node.short_code,
+                        entity_type: node.entity_type.to_string(),
+                        title: node.title,
+                        status: node.status,
+                        depth: node.depth,
+                        degree: node.degree,
+                    })
+                    .collect(),
+                edges: edges
+                    .into_iter()
+                    .map(|edge| graph_dto::GraphEdge {
+                        source_id: edge.source_id.to_string(),
+                        target_id: edge.target_id.to_string(),
+                        relationship: edge.relationship.to_string(),
+                        depth: edge.depth,
                     })
                     .collect(),
             })

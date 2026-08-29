@@ -297,60 +297,9 @@ pub async fn delete_relationship(
     api::delete_json(auth, &format!("/api/relationships/{relationship_id}")).await
 }
 
-// ---------------------------------------------------------------------------
-// Item summary + parent chain (the breadcrumb)
-// ---------------------------------------------------------------------------
-
-/// mirror of: `kairos_client::types::{Strategy, Initiative, Task, Document,
-/// Adr}` (partial — the header fields of any `GET /api/{family}/{code}`).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ItemSummary {
-    pub short_code: String,
-    pub title: String,
-}
-
-/// `GET /api/{family}/{short_code}` — just the header fields.
-pub async fn item_summary(auth: Auth, short_code: &str) -> Result<ItemSummary, ApiError> {
-    let family = family_or_err(short_code)?;
-    api::get_json(auth, &format!("/api/{family}/{short_code}")).await
-}
-
-/// One breadcrumb ancestor.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Crumb {
-    pub short_code: String,
-    pub entity_type: String,
-    pub title: String,
-}
-
-/// Walk `parent` edges upward (each item's parent is the source of its
-/// incoming `parent` edge) and return the chain root-first. Bounded and
-/// cycle-guarded — `parent` is acyclic server-side (A-0001), this is just
-/// client hygiene.
-pub async fn parent_chain(auth: Auth, short_code: &str) -> Result<Vec<Crumb>, ApiError> {
-    let mut chain: Vec<Crumb> = Vec::new();
-    let mut seen: Vec<String> = vec![short_code.to_string()];
-    let mut current = short_code.to_string();
-    for _ in 0..10 {
-        let rels = relationships(auth, &current).await?;
-        let parents = rels.group("parent", false);
-        let Some(parent) = parents.first() else {
-            break;
-        };
-        if seen.contains(&parent.short_code) {
-            break;
-        }
-        seen.push(parent.short_code.clone());
-        chain.push(Crumb {
-            short_code: parent.short_code.clone(),
-            entity_type: parent.entity_type.clone(),
-            title: parent.title.clone(),
-        });
-        current = parent.short_code.clone();
-    }
-    chain.reverse();
-    Ok(chain)
-}
+// The old item-summary + sequential parent-chain walk (up to 10 upward
+// GETs per page view) died with the five-panel explorer (KAIROS-T-0089):
+// the graph canvas renders lineage from ONE subgraph fetch.
 
 #[cfg(test)]
 mod tests {
@@ -497,5 +446,85 @@ mod tests {
         assert_eq!(rels.group("parent", false)[0].short_code, "DEMO-S-0001");
         assert_eq!(rels.group("supports", true)[0].entity_type, "document");
         assert!(rels.group("blocks", true).is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Focal subgraph (KAIROS-T-0089, contract from KAIROS-T-0088)
+// ---------------------------------------------------------------------------
+
+/// mirror of: `kairos_client::types_graph::GraphNode`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct GraphNode {
+    pub id: String,
+    pub short_code: String,
+    /// `strategy|initiative|task|document|adr`.
+    pub entity_type: String,
+    pub title: String,
+    /// Board column name for workflow items; lifecycle for documents.
+    pub status: String,
+    /// Hop distance from the focus (0 = the focus).
+    pub depth: i32,
+    /// Total live-edge count; `+N` = degree − edges shown.
+    pub degree: i64,
+}
+
+/// mirror of: `kairos_client::types_graph::GraphEdge`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct GraphEdge {
+    pub source_id: String,
+    pub target_id: String,
+    /// `parent|supports|informs|supersedes|blocks`.
+    pub relationship: String,
+    pub depth: i32,
+}
+
+/// mirror of: `kairos_client::types_graph::GraphResponse`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct GraphResponse {
+    pub focus: String,
+    pub depth: u32,
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+/// `GET /api/{family}/{code}/graph?depth=N` — the focal subgraph.
+pub async fn item_graph(
+    auth: Auth,
+    short_code: &str,
+    depth: Option<u32>,
+) -> Result<GraphResponse, ApiError> {
+    let family = family_or_err(short_code)?;
+    let path = match depth {
+        Some(depth) => format!("/api/{family}/{short_code}/graph?depth={depth}"),
+        None => format!("/api/{family}/{short_code}/graph"),
+    };
+    api::get_json(auth, &path).await
+}
+
+#[cfg(test)]
+mod graph_tests {
+    use super::*;
+
+    /// `GraphResponse` decodes the KAIROS-T-0088 wire shape.
+    #[test]
+    fn graph_response_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "focus": "DEMO-T-0002",
+            "depth": 2,
+            "nodes": [{
+                "id": "n1", "short_code": "DEMO-T-0002", "entity_type": "task",
+                "title": "Password-less email auth", "status": "Todo",
+                "depth": 0, "degree": 3
+            }],
+            "edges": [{
+                "source_id": "n2", "target_id": "n1",
+                "relationship": "parent", "depth": 1
+            }]
+        });
+        let decoded: GraphResponse = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(decoded.focus, "DEMO-T-0002");
+        assert_eq!(decoded.nodes[0].degree, 3);
+        assert_eq!(decoded.edges[0].relationship, "parent");
     }
 }

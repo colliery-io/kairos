@@ -39,7 +39,7 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_query;
-use diesel::sql_types::{Text, Uuid as SqlUuid};
+use diesel::sql_types::{Array, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use kairos_core::graph as rules;
@@ -605,4 +605,239 @@ pub fn team_work_documents(
     .bind::<SqlUuid, _>(team_id)
     .bind::<diesel::sql_types::Nullable<SqlUuid>, _>(delivery_board)
     .load(conn)
+}
+
+// ---------------------------------------------------------------------------
+// Focal subgraph (KAIROS-T-0088, design in KAIROS-I-0008)
+// ---------------------------------------------------------------------------
+
+/// One hydrated node of a focal subgraph. `status` is the board column
+/// name for workflow items and the editorial lifecycle for documents (the
+/// A-0018 two-vocabulary split); `degree` is the node's TOTAL live-edge
+/// count so clients can render `+N` for undisplayed neighbors.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubgraphNode {
+    pub id: Uuid,
+    pub short_code: String,
+    pub entity_type: ItemType,
+    pub title: String,
+    pub status: String,
+    pub depth: i32,
+    pub degree: i64,
+}
+
+/// One typed directed edge between two visible subgraph nodes. `depth` is
+/// the minimum view depth at which BOTH endpoints are visible
+/// (`max(depth(source), depth(target))`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SubgraphEdge {
+    pub source_id: Uuid,
+    pub target_id: Uuid,
+    pub relationship: RelationshipType,
+    pub depth: i32,
+}
+
+#[derive(QueryableByName)]
+struct DepthRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    depth: i32,
+}
+
+#[derive(QueryableByName)]
+struct NodeHydrationRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = Text)]
+    short_code: String,
+    #[diesel(sql_type = Text)]
+    entity_type: String,
+    #[diesel(sql_type = Text)]
+    title: String,
+    #[diesel(sql_type = Text)]
+    status: String,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    degree: i64,
+}
+
+#[derive(QueryableByName)]
+struct EdgeRow {
+    #[diesel(sql_type = SqlUuid)]
+    source_id: Uuid,
+    #[diesel(sql_type = SqlUuid)]
+    target_id: Uuid,
+    #[diesel(sql_type = Text)]
+    relationship: RelationshipType,
+}
+
+/// The focal subgraph around `root` (KAIROS-T-0088): every live node
+/// reachable within `depth` hops over ANY relationship type in EITHER
+/// direction, plus ALL live edges among the visible set — including
+/// cross-links the walk did not discover first (the links the old panels
+/// view could never show). Cycle-safe like [`crate::search`]'s traverse
+/// (the UNION deduplicates `(id, depth)` rows and the depth bound
+/// terminates the recursion). The root is included at depth 0; callers
+/// resolve and 404 dead roots before calling.
+pub fn item_subgraph(
+    conn: &mut PgConnection,
+    root: Uuid,
+    depth: u32,
+) -> Result<(Vec<SubgraphNode>, Vec<SubgraphEdge>), GraphError> {
+    // 1. The walk: visited ids with their MINIMUM discovery depth.
+    let visited: Vec<DepthRow> = sql_query(
+        "WITH RECURSIVE walk(id, depth) AS (
+             SELECT $1::uuid, 0
+             UNION
+             SELECT CASE WHEN r.source_id = w.id THEN r.target_id ELSE r.source_id END,
+                    w.depth + 1
+             FROM walk w
+             JOIN item_relationships r ON (r.source_id = w.id OR r.target_id = w.id)
+             WHERE w.depth < $2
+         )
+         SELECT id, MIN(depth)::int4 AS depth FROM walk GROUP BY id",
+    )
+    .bind::<SqlUuid, _>(root)
+    .bind::<diesel::sql_types::Integer, _>(depth as i32)
+    .load(conn)?;
+    let depth_of: std::collections::HashMap<Uuid, i32> =
+        visited.iter().map(|row| (row.id, row.depth)).collect();
+    let ids: Vec<Uuid> = visited.iter().map(|row| row.id).collect();
+
+    // 2. Hydrate LIVE nodes: entity_directory (live-only) for identity,
+    //    a per-family union for status, and a live-neighbor count for
+    //    degree. Soft-deleted ids simply drop out here, and edges to them
+    //    drop out in step 3 because both endpoints must hydrate.
+    let rows: Vec<NodeHydrationRow> = sql_query(
+        "WITH status_of AS (
+             SELECT s.id, bc.name AS status FROM strategies s
+                 JOIN board_columns bc ON bc.id = s.column_id
+                 WHERE s.deleted_at IS NULL
+             UNION ALL
+             SELECT i.id, bc.name FROM initiatives i
+                 JOIN board_columns bc ON bc.id = i.column_id
+                 WHERE i.deleted_at IS NULL
+             UNION ALL
+             SELECT t.id, bc.name FROM tasks t
+                 JOIN board_columns bc ON bc.id = t.column_id
+                 WHERE t.deleted_at IS NULL
+             UNION ALL
+             SELECT a.id, COALESCE(bc.name, 'off-board') FROM adrs a
+                 LEFT JOIN board_columns bc ON bc.id = a.column_id
+                 WHERE a.deleted_at IS NULL
+             UNION ALL
+             SELECT d.id, d.lifecycle FROM documents d WHERE d.deleted_at IS NULL
+         )
+         SELECT d.id, d.short_code, d.entity_type, d.title, s.status,
+                (SELECT COUNT(*) FROM item_relationships r
+                    JOIN entity_directory other
+                      ON other.id = CASE WHEN r.source_id = d.id
+                                         THEN r.target_id ELSE r.source_id END
+                    WHERE r.source_id = d.id OR r.target_id = d.id) AS degree
+         FROM entity_directory d
+         JOIN status_of s ON s.id = d.id
+         WHERE d.id = ANY($1)",
+    )
+    .bind::<Array<SqlUuid>, _>(&ids)
+    .load(conn)?;
+    let mut nodes = rows
+        .into_iter()
+        .map(|row| {
+            Ok(SubgraphNode {
+                depth: depth_of.get(&row.id).copied().unwrap_or_default(),
+                entity_type: parse_entity_type(&row.entity_type)?,
+                id: row.id,
+                short_code: row.short_code,
+                title: row.title,
+                status: row.status,
+                degree: row.degree,
+            })
+        })
+        .collect::<Result<Vec<_>, GraphError>>()?;
+    nodes.sort_by(|a, b| a.short_code.cmp(&b.short_code));
+    let live: std::collections::HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
+
+    // 3. ALL live edges among the visible set (cross-links included).
+    let live_ids: Vec<Uuid> = live.iter().copied().collect();
+    let edge_rows: Vec<EdgeRow> = sql_query(
+        "SELECT source_id, target_id, relationship FROM item_relationships
+         WHERE source_id = ANY($1) AND target_id = ANY($1)
+         ORDER BY relationship ASC, source_id ASC, target_id ASC",
+    )
+    .bind::<Array<SqlUuid>, _>(&live_ids)
+    .load(conn)?;
+    let edges = edge_rows
+        .into_iter()
+        .map(|row| SubgraphEdge {
+            depth: depth_of
+                .get(&row.source_id)
+                .copied()
+                .unwrap_or_default()
+                .max(depth_of.get(&row.target_id).copied().unwrap_or_default()),
+            source_id: row.source_id,
+            target_id: row.target_id,
+            relationship: row.relationship,
+        })
+        .collect();
+    Ok((nodes, edges))
+}
+
+// ---------------------------------------------------------------------------
+// Blocks rollup for board cards (KAIROS-T-0091)
+// ---------------------------------------------------------------------------
+
+/// The dependency counts one board card shows (KAIROS-T-0091).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct BlocksCounts {
+    /// Live incoming `blocks` edges (things blocking this item).
+    pub blocked_by: i64,
+    /// Live outgoing `blocks` edges (things this item blocks).
+    pub blocks: i64,
+}
+
+#[derive(QueryableByName)]
+struct BlocksRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    blocked_by: i64,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    blocks: i64,
+}
+
+/// Blocked-by/blocks counts for a set of items in ONE grouped query
+/// (never per item — the T-0080 rollup discipline). Soft-deleted
+/// neighbors are excluded via the live-only `entity_directory` join.
+/// Items with no live blocks edges simply have no entry.
+pub fn blocks_summary(
+    conn: &mut PgConnection,
+    ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, BlocksCounts>, DieselError> {
+    let rows: Vec<BlocksRow> = sql_query(
+        "SELECT n.id,
+                COUNT(*) FILTER (WHERE r.target_id = n.id) AS blocked_by,
+                COUNT(*) FILTER (WHERE r.source_id = n.id) AS blocks
+         FROM unnest($1::uuid[]) AS n(id)
+         JOIN item_relationships r
+           ON (r.source_id = n.id OR r.target_id = n.id)
+          AND r.relationship = 'blocks'
+         JOIN entity_directory other
+           ON other.id = CASE WHEN r.source_id = n.id
+                              THEN r.target_id ELSE r.source_id END
+         GROUP BY n.id",
+    )
+    .bind::<Array<SqlUuid>, _>(ids)
+    .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.id,
+                BlocksCounts {
+                    blocked_by: row.blocked_by,
+                    blocks: row.blocks,
+                },
+            )
+        })
+        .collect())
 }

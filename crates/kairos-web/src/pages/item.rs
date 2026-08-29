@@ -45,11 +45,50 @@ use metadata::MetadataPanel;
 #[component]
 pub fn ItemPage() -> impl IntoView {
     let params = use_params_map();
+    let query = leptos_router::hooks::use_query_map();
     view! {
         {move || {
             let code = params.read().get("code").unwrap_or_default();
+            // KAIROS-T-0090: Details | Graph as ANCHOR tabs riding a
+            // `?view=` query param — plain history entries, so back and
+            // refresh keep the choice with zero effect plumbing.
+            let graph_mode = query.read().get("view").as_deref() == Some("graph");
             match Family::of_short_code(&code) {
-                Some(family) => view! { <ItemDetailView family code/> }.into_any(),
+                Some(family) => {
+                    let tabs = {
+                        let details_href = format!("/items/{code}");
+                        let graph_href = format!("/items/{code}?view=graph");
+                        view! {
+                            <Group gap="xs">
+                                <Anchor href=details_href>
+                                    <Pill color=if graph_mode { token::MUTED } else { token::ICE }>
+                                        "Details"
+                                    </Pill>
+                                </Anchor>
+                                <Anchor href=graph_href>
+                                    <Pill color=if graph_mode { token::ICE } else { token::MUTED }>
+                                        "Graph"
+                                    </Pill>
+                                </Anchor>
+                            </Group>
+                        }
+                    };
+                    if graph_mode {
+                        view! {
+                            <PageHeader
+                                title=code.clone()
+                                sub="What does this depend on, what does it feed into, where does it sit?"
+                            />
+                            {tabs}
+                            <crate::pages::search::graph::GraphView short_code=code/>
+                        }.into_any()
+                    } else {
+                        view! {
+                            {tabs}
+                            <ItemDetailView family code/>
+                        }.into_any()
+                    }
+                }
                 None => view! {
                     <PageHeader title=code.clone() sub="work item"/>
                     <Panel title="Not a short code" caption="items/:code">

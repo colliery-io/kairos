@@ -885,6 +885,22 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/{family}/{short_code}/graph?depth=N` — the focal
+    /// subgraph: nodes AND typed directed edges (KAIROS-T-0088). `None`
+    /// depth takes the server default (2).
+    pub async fn get_item_graph(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+        depth: Option<u32>,
+    ) -> Result<crate::types_graph::GraphResponse, Error> {
+        let path = match depth {
+            Some(depth) => format!("/api/{kind}/{short_code}/graph?depth={depth}"),
+            None => format!("/api/{kind}/{short_code}/graph"),
+        };
+        self.get(&path).await
+    }
+
     /// `POST /api/relationships` (org admin, KAIROS-A-0006).
     pub async fn create_relationship(
         &self,

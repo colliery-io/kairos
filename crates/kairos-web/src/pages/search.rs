@@ -10,6 +10,8 @@
 //! component is standalone so the item-detail task can also embed it.
 
 pub mod data;
+pub mod graph;
+pub mod graph_layout;
 pub mod relationships;
 
 use aurora_dark::components::{
@@ -349,7 +351,9 @@ pub fn SearchPage() -> impl IntoView {
                         />
                     </Stack>
                     <Divider/>
-                    <Switch checked=traverse_on label="Traverse the graph from an item"/>
+                    // KAIROS-T-0090: this is result SCOPING, not the graph
+                    // story — the graph view lives on each item.
+                    <Switch checked=traverse_on label="Limit results to items reachable from…"/>
                     {move || traverse_on.get().then(|| view! {
                         <Group gap="sm" wrap=true top=true>
                             <TextInput

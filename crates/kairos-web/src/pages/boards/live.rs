@@ -40,8 +40,14 @@ type Handler<T> = RefCell<Option<Closure<T>>>;
 /// reconnect timer chain.
 struct Live {
     auth: Auth,
-    board_id: String,
-    refetch: Box<dyn Fn()>,
+    /// `Some` filters the stream to one board; `None` subscribes to the
+    /// whole tenant stream (`{"subscribe": {}}` clears the server filter —
+    /// the graph view's mode, KAIROS-T-0090).
+    board_id: Option<String>,
+    /// Runs on every event and every reconnect. The argument is the
+    /// event's `short_code` when one arrived (reconnect reconciles pass
+    /// `None`) — consumers that only care THAT something changed ignore it.
+    refetch: Box<dyn Fn(Option<&str>)>,
     /// Set by the drop guard: no further reconnects, handlers inert.
     closed: Cell<bool>,
     /// Consecutive failed/closed connections (drives the backoff).
@@ -87,6 +93,24 @@ pub fn subscribe_board_events(
     auth: Auth,
     board_id: String,
     refetch: impl Fn() + 'static,
+) -> LiveBoardGuard {
+    subscribe(auth, Some(board_id), move |_| refetch())
+}
+
+/// Subscribe to the WHOLE tenant stream (no board filter): the graph
+/// view's mode (KAIROS-T-0090). `on_event` receives the event's
+/// short_code when present, `None` on reconnect reconciles.
+pub fn subscribe_all_events(
+    auth: Auth,
+    on_event: impl Fn(Option<&str>) + 'static,
+) -> LiveBoardGuard {
+    subscribe(auth, None, on_event)
+}
+
+fn subscribe(
+    auth: Auth,
+    board_id: Option<String>,
+    refetch: impl Fn(Option<&str>) + 'static,
 ) -> LiveBoardGuard {
     let state = Rc::new(Live {
         auth,
@@ -137,15 +161,20 @@ fn connect(state: Rc<Live>) {
                 return;
             }
             state.attempts.set(0);
-            // Filter the stream to this board (S-0005 subscribe message).
-            let subscribe =
-                serde_json::json!({ "subscribe": { "board_id": state.board_id } }).to_string();
+            // Filter the stream to this board — or clear the filter for
+            // the whole tenant stream (S-0005 subscribe message).
+            let subscribe = match &state.board_id {
+                Some(board_id) => {
+                    serde_json::json!({ "subscribe": { "board_id": board_id } }).to_string()
+                }
+                None => serde_json::json!({ "subscribe": {} }).to_string(),
+            };
             if let Some(socket) = state.socket.borrow().as_ref() {
                 let _ = socket.send_with_str(&subscribe);
             }
             if state.ever_opened.replace(true) {
                 // Reconnect: silently reconcile whatever was missed.
-                (state.refetch)();
+                (state.refetch)(None);
             }
         }) as Box<dyn FnMut()>)
     };
@@ -158,9 +187,18 @@ fn connect(state: Rc<Live>) {
             let Some(text) = event.data().as_string() else {
                 return;
             };
-            // Thin event → re-fetch through REST (events carry no payload).
+            // Thin event → re-fetch through REST (events carry routing
+            // fields only; the payload is always refetched).
             if serde_json::from_str::<ThinEvent>(&text).is_ok() {
-                (state.refetch)();
+                let short_code = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|value| {
+                        value
+                            .get("short_code")
+                            .and_then(|code| code.as_str())
+                            .map(str::to_string)
+                    });
+                (state.refetch)(short_code.as_deref());
             }
         }) as Box<dyn FnMut(MessageEvent)>)
     };

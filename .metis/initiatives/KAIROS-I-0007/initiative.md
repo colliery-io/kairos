@@ -4,14 +4,14 @@ level: initiative
 title: "Team Landing Pages - Seeded Documentation Tree, Charter, and One-Way Announcements"
 short_code: "KAIROS-I-0007"
 created_at: 2026-08-29T02:48:32.769579+00:00
-updated_at: 2026-08-29T03:01:16.560675+00:00
+updated_at: 2026-08-29T15:48:22.832140+00:00
 parent: KAIROS-V-0001
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -100,6 +100,7 @@ use crate::app::AppState;
         // activity (KAIROS-T-0020).
         crate::api::meta::relationships::get_relationships,
         crate::api::meta::relationships::get_children_progress,
+        crate::api::meta::relationships::get_item_graph,
         crate::api::meta::relationships::create_relationship,
         crate::api::meta::relationships::delete_relationship,
         crate::api::meta::metadata::get_metadata,

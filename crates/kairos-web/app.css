@@ -500,3 +500,91 @@ body {
 .kairos-doctree__children {
   padding: var(--space-xs) 0 0 var(--space-sm);
 }
+
+/* Focal flight-level graph (KAIROS-T-0089). Red deliberately unused. */
+.kairos-graph {
+  overflow-x: auto;
+}
+
+.kairos-graph__header {
+  fill: var(--text-dimmed);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.kairos-graph__lane {
+  fill: var(--surface-raised);
+  stroke: var(--border-fainter);
+}
+
+.kairos-graph__lane-label {
+  fill: var(--text-dimmed);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.kairos-graph__box {
+  fill: var(--surface);
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+
+.kairos-graph__node--focus .kairos-graph__box {
+  stroke-width: 3;
+}
+
+.kairos-graph__code {
+  fill: var(--text-bright);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.kairos-graph__title {
+  fill: var(--text);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.kairos-graph__status {
+  fill: var(--text-dimmed);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.kairos-graph__edge {
+  fill: none;
+  stroke: var(--text-dimmed);
+  stroke-width: 1.5;
+}
+
+.kairos-graph__edge--hot {
+  stroke: var(--text-bright);
+  stroke-width: 2.5;
+}
+
+.kairos-graph__arrowhead {
+  fill: var(--text-dimmed);
+}
+
+.kairos-graph__more {
+  cursor: pointer;
+}
+
+.kairos-graph__more circle {
+  fill: var(--surface-raised);
+  stroke: var(--border-fainter);
+}
+
+.kairos-graph__more text {
+  fill: var(--text-bright);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+/* Dependency badges on cards (KAIROS-T-0091): plain link chrome off. */
+.kairos-card__blocks {
+  text-decoration: none;
+}

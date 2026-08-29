@@ -539,6 +539,26 @@ pub(crate) async fn board_items(
 
             let progress = kairos_db::graph::board_children_progress(conn, board_id)
                 .map_err(ApiError::internal)?;
+            // KAIROS-T-0091: blocked-by/blocks counts, one grouped query;
+            // only items with at least one live blocks edge get an entry.
+            let item_ids: Vec<Uuid> = item_codes.iter().map(|(id, _)| *id).collect();
+            let blocks = kairos_db::graph::blocks_summary(conn, &item_ids)
+                .map_err(ApiError::internal)?;
+            let blocks_summary: std::collections::BTreeMap<String, dto::BlocksCounts> =
+                item_codes
+                    .iter()
+                    .filter_map(|(id, code)| {
+                        blocks.get(id).map(|counts| {
+                            (
+                                code.clone(),
+                                dto::BlocksCounts {
+                                    blocked_by: counts.blocked_by,
+                                    blocks: counts.blocks,
+                                },
+                            )
+                        })
+                    })
+                    .collect();
             let children_progress: std::collections::BTreeMap<String, dto::ProgressCounts> =
                 item_codes
                     .into_iter()
@@ -560,6 +580,7 @@ pub(crate) async fn board_items(
                 board: board.into_dto(),
                 columns: groups,
                 children_progress,
+                blocks_summary,
             })
         })
         .await?;

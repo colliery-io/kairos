@@ -7,7 +7,7 @@ created_at: 2026-08-16T14:59:20.498818+00:00
 updated_at: 2026-08-16T14:59:20.498818+00:00
 parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -65,6 +65,8 @@ P2 — real UAT feedback, but the boards/team surfaces (T-0075–T-0080) are the
 - **Web**: replace the body of `/search/relationships/:code` (same route) with a Leptos SVG canvas: three fixed columns (Strategy | Initiative | Task); parent = containment lanes; blocks = solid directional arrows; supports/informs/supersedes in a slim side panel (empty state suppressed); barycenter ordering for deterministic layout; hover = tooltip + highlight incident edges; click = refocus with history trail (no remount); short code → `/items/:code`; entity colors reused from search's pill palette (search.rs:40–49); org-admin link/unlink retained; Aurora Dark; **red reserved for at-risk/violated only** (unused in v1, reserved by convention).
 - **Demote traverse honestly**: keep the API and the search-page switch, relabel as result **scoping** ("Limit results to items reachable from…") — stop presenting it as the graph story.
 - **Put the view's question in the UI** as the page subtitle: "What does this depend on, what does it feed into, where does it sit?"
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

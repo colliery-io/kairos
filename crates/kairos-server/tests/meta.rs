@@ -423,6 +423,77 @@ async fn meta_endpoints_against_live_stack() {
     );
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
+    // ==========================================================================
+    // Focal subgraph endpoint (KAIROS-T-0088): nodes + edges + depth
+    // ==========================================================================
+    // From t1 at default depth (2): the initiative parent (depth 1), the
+    // blocked t2 (depth 1), and both edges among the visible set.
+    let body = bob
+        .get_item_graph(EntityKind::Task, &t1_code, None)
+        .await
+        .expect("t1 subgraph");
+    assert_eq!(body.focus, t1_code);
+    assert_eq!(body.depth, 2);
+    let node = |code: &str| body.nodes.iter().find(|n| n.short_code == code);
+    let focus = node(&t1_code).expect("focus present");
+    assert_eq!((focus.depth, focus.entity_type.as_str()), (0, "task"));
+    // Workflow status is the board COLUMN NAME (t1 was just completed).
+    assert_eq!(focus.status, "Completed");
+    assert_eq!(node(&initiative_code).expect("parent").depth, 1);
+    assert_eq!(node(&t2_code).expect("blocked").depth, 1);
+    let has_edge = |src: &str, tgt: &str, rel: &str| {
+        let id_of = |code: &str| node(code).map(|n| n.id.clone()).unwrap_or_default();
+        body.edges.iter().any(|e| {
+            e.source_id == id_of(src) && e.target_id == id_of(tgt) && e.relationship == rel
+        })
+    };
+    assert!(has_edge(&initiative_code, &t1_code, "parent"), "{body:?}");
+    assert!(has_edge(&t1_code, &t2_code, "blocks"), "{body:?}");
+    // degree powers the +N badge: t1 touches initiative + t2.
+    assert_eq!(focus.degree, 2);
+
+    // depth=1 bounds the walk; an oversized depth clamps (200 -> the cap)
+    // rather than erroring.
+    let near = bob
+        .get_item_graph(EntityKind::Task, &t1_code, Some(1))
+        .await
+        .expect("depth 1");
+    assert_eq!(near.depth, 1);
+    assert!(near.nodes.len() >= 3, "focus + neighbors: {near:?}");
+    let clamped = bob
+        .get_item_graph(EntityKind::Task, &t1_code, Some(200))
+        .await
+        .expect("clamped depth");
+    assert_eq!(clamped.depth, 10, "MAX_TRAVERSE_DEPTH cap");
+
+    // Family mismatch and dead refs -> 404 like the sibling reads.
+    let err = rejection(
+        bob.get_item_graph(EntityKind::Task, &initiative_code, None)
+            .await,
+    );
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+
+    // The same edges roll up as board-card badge counts (KAIROS-T-0091):
+    // t1 blocks t2; the initiative has no blocks edges, so no entry.
+    let board = bob
+        .board_items(&delivery_board.to_string())
+        .await
+        .expect("delivery board items");
+    let t1_counts = board
+        .blocks_summary
+        .get(&t1_code)
+        .expect("t1 has a blocks entry");
+    assert_eq!((t1_counts.blocked_by, t1_counts.blocks), (0, 1), "{board:?}");
+    let t2_counts = board
+        .blocks_summary
+        .get(&t2_code)
+        .expect("t2 has a blocks entry");
+    assert_eq!((t2_counts.blocked_by, t2_counts.blocks), (1, 0), "{board:?}");
+    assert!(
+        !board.blocks_summary.contains_key(&initiative_code),
+        "no blocks edges, no entry (and the initiative is off this board)"
+    );
+
     // Family/short-code mismatch and unknown family -> 404. (The unknown
     // family is not expressible in the typed surface: raw probe.)
     let err = rejection(bob.relationships(EntityKind::Task, &initiative_code).await);

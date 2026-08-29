@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-08-29T14:09:04Z | 204 files | Python, Rust, TypeScript
+> Generated: 2026-08-29T15:36:59Z | 208 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -37,6 +37,7 @@
 │   │       ├── lib.rs
 │   │       ├── types.rs
 │   │       ├── types_events.rs
+│   │       ├── types_graph.rs
 │   │       ├── types_meta.rs
 │   │       ├── types_org.rs
 │   │       ├── types_search.rs
@@ -225,6 +226,8 @@
 │           │   ├── item.rs
 │           │   ├── search/
 │           │   │   ├── data.rs
+│           │   │   ├── graph.rs
+│           │   │   ├── graph_layout.rs
 │           │   │   └── relationships.rs
 │           │   ├── search.rs
 │           │   ├── teams/
@@ -239,6 +242,7 @@
 │   ├── playwright.config.ts
 │   └── tests/
 │       ├── drag.spec.ts
+│       ├── graph.spec.ts
 │       ├── lanes.spec.ts
 │       ├── lifecycle.spec.ts
 │       ├── metadata.spec.ts
@@ -666,37 +670,38 @@
 - pub `relationships` function L850-857 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemRelationshipsRespon...` — `GET /api/{family}/{short_code}/relationships` — both directions,
 - pub `set_document_lifecycle` function L862-874 — `( &self, short_code: &str, lifecycle: &str, ) -> Result<Document, Error>` — `PATCH /api/documents/{short_code}/lifecycle` — set a document's
 - pub `children_progress` function L879-886 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ChildrenProgressRespons...` — `GET /api/{family}/{short_code}/children-progress` — the direct
-- pub `create_relationship` function L889-894 — `( &self, request: &CreateRelationshipRequest, ) -> Result<Relationship, Error>` — `POST /api/relationships` (org admin, KAIROS-A-0006).
-- pub `delete_relationship` function L897-903 — `( &self, relationship_id: &str, ) -> Result<DeletedResponse, Error>` — `DELETE /api/relationships/{id}` (org admin).
-- pub `metadata` function L908-915 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemMetadataResponse, E...` — `GET /api/{family}/{short_code}/metadata`.
-- pub `update_metadata` function L919-927 — `( &self, kind: EntityKind, short_code: &str, request: &UpdateMetadataRequest, ) ...` — `PATCH /api/{family}/{short_code}/metadata` — typed upsert; `null`
-- pub `get_team_by_slug` function L934-936 — `(&self, slug: &str) -> Result<Team, Error>` — `GET /api/teams/by-slug/{slug}`.
-- pub `list_team_pages` function L940-942 — `(&self, team_id: &str) -> Result<Vec<TeamPage>, Error>` — `GET /api/teams/{id}/pages` — the team's live page tree as a flat
-- pub `get_team_page` function L945-948 — `(&self, team_id: &str, page_id: &str) -> Result<TeamPage, Error>` — `GET /api/teams/{id}/pages/{page_id}`.
-- pub `create_team_page` function L951-958 — `( &self, team_id: &str, request: &CreateTeamPageRequest, ) -> Result<TeamPage, E...` — `POST /api/teams/{id}/pages` (team member or org admin).
-- pub `update_team_page` function L962-970 — `( &self, team_id: &str, page_id: &str, request: &UpdateTeamPageRequest, ) -> Res...` — `PATCH /api/teams/{id}/pages/{page_id}` — content edit
-- pub `delete_team_page` function L974-981 — `( &self, team_id: &str, page_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
-- pub `list_team_work_documents` function L986-992 — `( &self, team_id: &str, ) -> Result<Vec<TeamWorkDocument>, Error>` — `GET /api/teams/{id}/announcements` — pinned first, newest first.
-- pub `list_team_announcements` function L994-1000 — `( &self, team_id: &str, ) -> Result<Vec<TeamAnnouncement>, Error>` — typed surface deliberately cannot express.
-- pub `create_team_announcement` function L1004-1011 — `( &self, team_id: &str, request: &CreateTeamAnnouncementRequest, ) -> Result<Tea...` — `POST /api/teams/{id}/announcements` (team member or org admin;
-- pub `delete_team_announcement` function L1015-1024 — `( &self, team_id: &str, announcement_id: &str, ) -> Result<OrgDeleteResponse, Er...` — `DELETE /api/teams/{id}/announcements/{announcement_id}` (author
-- pub `list_metadata_definitions` function L1027-1032 — `( &self, page: Pagination, ) -> Result<ListEnvelope<MetadataDefinition>, Error>` — `GET /api/metadata-definitions`.
-- pub `list_metadata_definitions_for` function L1037-1060 — `( &self, page: Pagination, entity_type: Option<&str>, ) -> Result<ListEnvelope<M...` — `GET /api/metadata-definitions?entity_type=…` — the catalog in
-- pub `get_metadata_definition` function L1063-1065 — `(&self, id: &str) -> Result<MetadataDefinition, Error>` — `GET /api/metadata-definitions/{id}`.
-- pub `create_metadata_definition` function L1068-1074 — `( &self, request: &CreateMetadataDefinitionRequest, ) -> Result<MetadataDefiniti...` — `POST /api/metadata-definitions` (org admin).
-- pub `update_metadata_definition` function L1077-1084 — `( &self, id: &str, request: &UpdateMetadataDefinitionRequest, ) -> Result<Metada...` — `PATCH /api/metadata-definitions/{id}` (org admin).
-- pub `delete_metadata_definition` function L1088-1091 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/metadata-definitions/{id}` (org admin; 409
-- pub `list_templates` function L1096-1098 — `(&self, page: Pagination) -> Result<ListEnvelope<Template>, Error>` — `GET /api/templates`.
-- pub `get_template` function L1101-1103 — `(&self, id: &str) -> Result<TemplateDetail, Error>` — `GET /api/templates/{id}` — template + metadata associations.
-- pub `create_template` function L1106-1111 — `( &self, request: &CreateTemplateRequest, ) -> Result<TemplateDetail, Error>` — `POST /api/templates` (org admin).
-- pub `update_template` function L1114-1120 — `( &self, id: &str, request: &UpdateTemplateRequest, ) -> Result<TemplateDetail, ...` — `PATCH /api/templates/{id}` (org admin).
-- pub `delete_template` function L1123-1125 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/templates/{id}` (org admin; hard delete).
-- pub `history` function L1131-1147 — `( &self, kind: EntityKind, short_code: &str, limit: Option<i64>, offset: Option<...` — `GET /api/{family}/{short_code}/history` — the version list,
-- pub `history_snapshot` function L1151-1166 — `( &self, kind: EntityKind, short_code: &str, version: i32, ) -> Result<HistorySn...` — `GET /api/{family}/{short_code}/history?version=N` — one full
-- pub `cascade_preview` function L1174-1181 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<CascadePreviewResponse,...` — `GET /api/{family}/{short_code}/cascade-preview` — the AUTHORITATIVE
-- pub `activity` function L1186-1191 — `( &self, query: &ActivityQuery, ) -> Result<ListEnvelope<ActivityEntry>, Error>` — `GET /api/activity` with combinable filters (S-0005).
-- pub `search` function L1196-1198 — `(&self, request: &SearchRequest) -> Result<SearchResponse, Error>` — `POST /api/search` — full-text + filter + traverse composition.
-- pub `whoami` function L1203-1205 — `(&self) -> Result<WhoamiResponse, Error>` — `GET /api/whoami` — the resolved user/tenant/teams identity probe.
+- pub `get_item_graph` function L891-902 — `( &self, kind: EntityKind, short_code: &str, depth: Option<u32>, ) -> Result<cra...` — `GET /api/{family}/{short_code}/graph?depth=N` — the focal
+- pub `create_relationship` function L905-910 — `( &self, request: &CreateRelationshipRequest, ) -> Result<Relationship, Error>` — `POST /api/relationships` (org admin, KAIROS-A-0006).
+- pub `delete_relationship` function L913-919 — `( &self, relationship_id: &str, ) -> Result<DeletedResponse, Error>` — `DELETE /api/relationships/{id}` (org admin).
+- pub `metadata` function L924-931 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemMetadataResponse, E...` — `GET /api/{family}/{short_code}/metadata`.
+- pub `update_metadata` function L935-943 — `( &self, kind: EntityKind, short_code: &str, request: &UpdateMetadataRequest, ) ...` — `PATCH /api/{family}/{short_code}/metadata` — typed upsert; `null`
+- pub `get_team_by_slug` function L950-952 — `(&self, slug: &str) -> Result<Team, Error>` — `GET /api/teams/by-slug/{slug}`.
+- pub `list_team_pages` function L956-958 — `(&self, team_id: &str) -> Result<Vec<TeamPage>, Error>` — `GET /api/teams/{id}/pages` — the team's live page tree as a flat
+- pub `get_team_page` function L961-964 — `(&self, team_id: &str, page_id: &str) -> Result<TeamPage, Error>` — `GET /api/teams/{id}/pages/{page_id}`.
+- pub `create_team_page` function L967-974 — `( &self, team_id: &str, request: &CreateTeamPageRequest, ) -> Result<TeamPage, E...` — `POST /api/teams/{id}/pages` (team member or org admin).
+- pub `update_team_page` function L978-986 — `( &self, team_id: &str, page_id: &str, request: &UpdateTeamPageRequest, ) -> Res...` — `PATCH /api/teams/{id}/pages/{page_id}` — content edit
+- pub `delete_team_page` function L990-997 — `( &self, team_id: &str, page_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
+- pub `list_team_work_documents` function L1002-1008 — `( &self, team_id: &str, ) -> Result<Vec<TeamWorkDocument>, Error>` — `GET /api/teams/{id}/announcements` — pinned first, newest first.
+- pub `list_team_announcements` function L1010-1016 — `( &self, team_id: &str, ) -> Result<Vec<TeamAnnouncement>, Error>` — typed surface deliberately cannot express.
+- pub `create_team_announcement` function L1020-1027 — `( &self, team_id: &str, request: &CreateTeamAnnouncementRequest, ) -> Result<Tea...` — `POST /api/teams/{id}/announcements` (team member or org admin;
+- pub `delete_team_announcement` function L1031-1040 — `( &self, team_id: &str, announcement_id: &str, ) -> Result<OrgDeleteResponse, Er...` — `DELETE /api/teams/{id}/announcements/{announcement_id}` (author
+- pub `list_metadata_definitions` function L1043-1048 — `( &self, page: Pagination, ) -> Result<ListEnvelope<MetadataDefinition>, Error>` — `GET /api/metadata-definitions`.
+- pub `list_metadata_definitions_for` function L1053-1076 — `( &self, page: Pagination, entity_type: Option<&str>, ) -> Result<ListEnvelope<M...` — `GET /api/metadata-definitions?entity_type=…` — the catalog in
+- pub `get_metadata_definition` function L1079-1081 — `(&self, id: &str) -> Result<MetadataDefinition, Error>` — `GET /api/metadata-definitions/{id}`.
+- pub `create_metadata_definition` function L1084-1090 — `( &self, request: &CreateMetadataDefinitionRequest, ) -> Result<MetadataDefiniti...` — `POST /api/metadata-definitions` (org admin).
+- pub `update_metadata_definition` function L1093-1100 — `( &self, id: &str, request: &UpdateMetadataDefinitionRequest, ) -> Result<Metada...` — `PATCH /api/metadata-definitions/{id}` (org admin).
+- pub `delete_metadata_definition` function L1104-1107 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/metadata-definitions/{id}` (org admin; 409
+- pub `list_templates` function L1112-1114 — `(&self, page: Pagination) -> Result<ListEnvelope<Template>, Error>` — `GET /api/templates`.
+- pub `get_template` function L1117-1119 — `(&self, id: &str) -> Result<TemplateDetail, Error>` — `GET /api/templates/{id}` — template + metadata associations.
+- pub `create_template` function L1122-1127 — `( &self, request: &CreateTemplateRequest, ) -> Result<TemplateDetail, Error>` — `POST /api/templates` (org admin).
+- pub `update_template` function L1130-1136 — `( &self, id: &str, request: &UpdateTemplateRequest, ) -> Result<TemplateDetail, ...` — `PATCH /api/templates/{id}` (org admin).
+- pub `delete_template` function L1139-1141 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/templates/{id}` (org admin; hard delete).
+- pub `history` function L1147-1163 — `( &self, kind: EntityKind, short_code: &str, limit: Option<i64>, offset: Option<...` — `GET /api/{family}/{short_code}/history` — the version list,
+- pub `history_snapshot` function L1167-1182 — `( &self, kind: EntityKind, short_code: &str, version: i32, ) -> Result<HistorySn...` — `GET /api/{family}/{short_code}/history?version=N` — one full
+- pub `cascade_preview` function L1190-1197 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<CascadePreviewResponse,...` — `GET /api/{family}/{short_code}/cascade-preview` — the AUTHORITATIVE
+- pub `activity` function L1202-1207 — `( &self, query: &ActivityQuery, ) -> Result<ListEnvelope<ActivityEntry>, Error>` — `GET /api/activity` with combinable filters (S-0005).
+- pub `search` function L1212-1214 — `(&self, request: &SearchRequest) -> Result<SearchResponse, Error>` — `POST /api/search` — full-text + filter + traverse composition.
+- pub `whoami` function L1219-1221 — `(&self) -> Result<WhoamiResponse, Error>` — `GET /api/whoami` — the resolved user/tenant/teams identity probe.
 -  `StaticToken` type L71-76 — `impl TokenProvider for StaticToken` — typed surface deliberately cannot express.
 -  `bearer_token` function L72-75 — `(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>>` — typed surface deliberately cannot express.
 -  `EntityKind` type L89-100 — `= EntityKind` — typed surface deliberately cannot express.
@@ -716,8 +721,8 @@
 -  `delete` function L268-275 — `(&self, path: &str) -> Result<T, Error>` — typed surface deliberately cannot express.
 -  `entity_family` macro L308-348 — `-` — The five entity CRUD families (S-0005; KAIROS-T-0018 contracts).
 -  `entity_transition` macro L351-369 — `-` — `POST /api/{family}/{short_code}/transition` for the on-board families.
--  `KairosClient` type L371-1206 — `= KairosClient` — typed surface deliberately cannot express.
--  `DefinitionQuery` struct L1043-1050 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<&'a str> }` — typed surface deliberately cannot express.
+-  `KairosClient` type L371-1222 — `= KairosClient` — typed surface deliberately cannot express.
+-  `DefinitionQuery` struct L1059-1066 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<&'a str> }` — typed surface deliberately cannot express.
 
 #### crates/kairos-client/src/error.rs
 
@@ -740,14 +745,15 @@
 - pub `types_org` module L14 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
 - pub `types_search` module L15 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
 - pub `types_service_accounts` module L16 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
-- pub `types_team_pages` module L17 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
-- pub `ws` module L18 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
-- pub `types_meta` module L20 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
-- pub `types_events` module L22 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
-- pub `CRATE_NAME` variable L29 — `: &str` — Placeholder marker kept for early consumers (KAIROS-I-0003).
--  `tests` module L32-60 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
--  `smoke` function L36-38 — `()` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
--  `envelopes_round_trip` function L42-59 — `()` — The envelopes round-trip through serde with the S-0005 field names.
+- pub `types_graph` module L17 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+- pub `types_team_pages` module L18 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+- pub `ws` module L19 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+- pub `types_meta` module L21 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+- pub `types_events` module L23 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+- pub `CRATE_NAME` variable L30 — `: &str` — Placeholder marker kept for early consumers (KAIROS-I-0003).
+-  `tests` module L33-61 — `-` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+-  `smoke` function L37-39 — `()` — to variants, and the [`ws`] `/ws/events` helper ([`EventStream`]).
+-  `envelopes_round_trip` function L43-60 — `()` — The envelopes round-trip through serde with the S-0005 field names.
 
 #### crates/kairos-client/src/types.rs
 
@@ -777,6 +783,12 @@
 - pub `ThinEvent` struct L19-37 — `{ event: String, entity_type: String, short_code: String, board_id: Option<Strin...` — One thin change event pushed by the server (S-0005 shape).
 - pub `SubscribeRequest` struct L42-45 — `{ subscribe: SubscribeFilter }` — Client → server message: `{"subscribe": {"board_id": "uuid"}}` filters
 - pub `SubscribeFilter` struct L49-54 — `{ board_id: Option<String> }` — The [`SubscribeRequest`] filter body.
+
+#### crates/kairos-client/src/types_graph.rs
+
+- pub `GraphNode` struct L11-27 — `{ id: String, short_code: String, entity_type: String, title: String, status: St...` — One hydrated node of the focal subgraph.
+- pub `GraphEdge` struct L31-40 — `{ source_id: String, target_id: String, relationship: String, depth: i32 }` — One typed directed edge between two returned nodes.
+- pub `GraphResponse` struct L44-57 — `{ focus: String, depth: u32, nodes: Vec<GraphNode>, edges: Vec<GraphEdge> }` — Response of `GET /api/{family}/{code}/graph`.
 
 #### crates/kairos-client/src/types_meta.rs
 
@@ -818,39 +830,40 @@
 - pub `CreateBoardRequest` struct L85-93 — `{ name: String, slug: String, board_level: String, team_id: Option<String> }` — Body of `POST /api/boards`: creates a board seeded with the system
 - pub `UpdateBoardRequest` struct L97-102 — `{ name: Option<String>, slug: Option<String> }` — Body of `PATCH /api/boards/{id}` (board settings).
 - pub `BoardColumnItems` struct L107-113 — `{ column: BoardColumn, strategies: Vec<Strategy>, initiatives: Vec<Initiative>, ...` — One column's items in the `GET /api/boards/{id}/items` view: every live
-- pub `BoardItemsResponse` struct L118-126 — `{ board: Board, columns: Vec<BoardColumnItems>, children_progress: std::collecti...` — Response of `GET /api/boards/{id}/items`: all items on the board,
-- pub `ProgressCounts` struct L131-138 — `{ done: i64, total: i64, has_done: bool }` — A `(done, total)` children rollup (KAIROS-T-0080).
-- pub `CreateColumnRequest` struct L142-147 — `{ name: String, position: i32 }` — Body of `POST /api/boards/{id}/columns`.
-- pub `UpdateColumnRequest` struct L152-163 — `{ name: Option<String>, position: Option<i32>, is_done: Option<bool> }` — Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move,
-- pub `CreateTransitionRequest` struct L167-172 — `{ from_column_id: String, to_column_id: String }` — Body of `POST /api/boards/{id}/transitions`.
-- pub `BoardMember` struct L181-188 — `{ user_id: String, email: String, display_name: String, capabilities: Vec<String...` — A board member and their capability grants
-- pub `AddBoardMemberRequest` struct L192-198 — `{ user_id: String, capabilities: Vec<String> }` — Body of `POST /api/boards/{id}/members`.
-- pub `ReplaceCapabilitiesRequest` struct L203-207 — `{ capabilities: Vec<String> }` — Body of `PATCH /api/boards/{id}/members/{user_id}` — replaces the user's
-- pub `RemoveBoardMemberResponse` struct L212-217 — `{ user_id: String, revoked_capabilities: Vec<String> }` — Response of `DELETE /api/boards/{id}/members/{user_id}` — full
-- pub `OrgDeleteResponse` struct L222-226 — `{ id: String, deleted: bool }` — Generic delete acknowledgement for organizational resources (boards,
-- pub `Team` struct L236-249 — `{ id: String, name: String, slug: String, team_type: String, delivery_board_id: ...` — A team (`/api/teams`).
-- pub `CreateTeamRequest` struct L255-262 — `{ name: String, slug: String, team_type: Option<String> }` — Body of `POST /api/teams`.
-- pub `UpdateTeamRequest` struct L266-273 — `{ name: Option<String>, slug: Option<String>, team_type: Option<String> }` — Body of `PATCH /api/teams/{id}`.
-- pub `TeamMember` struct L277-284 — `{ user_id: String, email: String, display_name: String, joined_at: String }` — A team member (`GET /api/teams/{id}/members` element).
-- pub `AddTeamMemberRequest` struct L288-291 — `{ user_id: String }` — Body of `POST /api/teams/{id}/members`.
-- pub `DeliveryStream` struct L299-309 — `{ id: String, name: String, slug: String, description: Option<String>, created_a...` — A delivery stream (`/api/delivery-streams`).
-- pub `CreateStreamRequest` struct L313-318 — `{ name: String, slug: String, description: Option<String> }` — Body of `POST /api/delivery-streams`.
-- pub `UpdateStreamRequest` struct L322-329 — `{ name: Option<String>, slug: Option<String>, description: Option<String> }` — Body of `PATCH /api/delivery-streams/{id}`.
-- pub `AddStreamTeamRequest` struct L333-336 — `{ team_id: String }` — Body of `POST /api/delivery-streams/{id}/teams`.
-- pub `OrgMember` struct L344-355 — `{ user_id: String, external_id: String, email: String, display_name: String, rol...` — An organization member (`GET /api/members` element).
-- pub `AddOrgMemberRequest` struct L361-366 — `{ email: String, role: Option<String> }` — Body of `POST /api/members`.
-- pub `UpdateOrgMemberRequest` struct L371-374 — `{ role: String }` — Body of `PATCH /api/members/{user_id}` — role change.
-- pub `RemoveOrgMemberResponse` struct L378-382 — `{ user_id: String, removed: bool }` — Response of `DELETE /api/members/{user_id}`.
-- pub `WhoamiResponse` struct L391-404 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — Response of `GET /api/whoami`: everything the auth → tenant stack
-- pub `WhoamiBoardCapabilities` struct L410-418 — `{ board_id: String, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
-- pub `WhoamiUser` struct L422-429 — `{ id: String, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
-- pub `WhoamiOrganization` struct L433-439 — `{ id: String, slug: String, role: String }` — The `organization` object of [`WhoamiResponse`].
-- pub `WhoamiTeam` struct L443-448 — `{ id: String, slug: String, name: String }` — One team of [`WhoamiResponse::teams`].
-- pub `CreateTenantRequest` struct L457-467 — `{ slug: String, name: String, initial_admin_external_id: Option<String> }` — Body of `POST /api/admin/tenants` (deployment-admin only; see
-- pub `TenantInitialAdmin` struct L471-479 — `{ user_id: String, external_id: String, email: String, role: String }` — The org-admin membership created with a new tenant.
-- pub `TenantCreatedResponse` struct L484-496 — `{ slug: String, schema: String, migrations_applied: Vec<String>, boards_created:...` — Response of `POST /api/admin/tenants` — the T-0008 provisioning report
-- pub `TenantSummary` struct L500-505 — `{ slug: String, name: String, schema_exists: bool }` — A provisioned tenant (`GET /api/admin/tenants` element).
-- pub `TenantDeletedResponse` struct L509-512 — `{ slug: String, dropped: bool }` — Response of `DELETE /api/admin/tenants/{slug}`.
+- pub `BoardItemsResponse` struct L118-131 — `{ board: Board, columns: Vec<BoardColumnItems>, children_progress: std::collecti...` — Response of `GET /api/boards/{id}/items`: all items on the board,
+- pub `BlocksCounts` struct L136-141 — `{ blocked_by: i64, blocks: i64 }` — Dependency counts behind a board card's blocked-by/blocks badges
+- pub `ProgressCounts` struct L146-153 — `{ done: i64, total: i64, has_done: bool }` — A `(done, total)` children rollup (KAIROS-T-0080).
+- pub `CreateColumnRequest` struct L157-162 — `{ name: String, position: i32 }` — Body of `POST /api/boards/{id}/columns`.
+- pub `UpdateColumnRequest` struct L167-178 — `{ name: Option<String>, position: Option<i32>, is_done: Option<bool> }` — Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move,
+- pub `CreateTransitionRequest` struct L182-187 — `{ from_column_id: String, to_column_id: String }` — Body of `POST /api/boards/{id}/transitions`.
+- pub `BoardMember` struct L196-203 — `{ user_id: String, email: String, display_name: String, capabilities: Vec<String...` — A board member and their capability grants
+- pub `AddBoardMemberRequest` struct L207-213 — `{ user_id: String, capabilities: Vec<String> }` — Body of `POST /api/boards/{id}/members`.
+- pub `ReplaceCapabilitiesRequest` struct L218-222 — `{ capabilities: Vec<String> }` — Body of `PATCH /api/boards/{id}/members/{user_id}` — replaces the user's
+- pub `RemoveBoardMemberResponse` struct L227-232 — `{ user_id: String, revoked_capabilities: Vec<String> }` — Response of `DELETE /api/boards/{id}/members/{user_id}` — full
+- pub `OrgDeleteResponse` struct L237-241 — `{ id: String, deleted: bool }` — Generic delete acknowledgement for organizational resources (boards,
+- pub `Team` struct L251-264 — `{ id: String, name: String, slug: String, team_type: String, delivery_board_id: ...` — A team (`/api/teams`).
+- pub `CreateTeamRequest` struct L270-277 — `{ name: String, slug: String, team_type: Option<String> }` — Body of `POST /api/teams`.
+- pub `UpdateTeamRequest` struct L281-288 — `{ name: Option<String>, slug: Option<String>, team_type: Option<String> }` — Body of `PATCH /api/teams/{id}`.
+- pub `TeamMember` struct L292-299 — `{ user_id: String, email: String, display_name: String, joined_at: String }` — A team member (`GET /api/teams/{id}/members` element).
+- pub `AddTeamMemberRequest` struct L303-306 — `{ user_id: String }` — Body of `POST /api/teams/{id}/members`.
+- pub `DeliveryStream` struct L314-324 — `{ id: String, name: String, slug: String, description: Option<String>, created_a...` — A delivery stream (`/api/delivery-streams`).
+- pub `CreateStreamRequest` struct L328-333 — `{ name: String, slug: String, description: Option<String> }` — Body of `POST /api/delivery-streams`.
+- pub `UpdateStreamRequest` struct L337-344 — `{ name: Option<String>, slug: Option<String>, description: Option<String> }` — Body of `PATCH /api/delivery-streams/{id}`.
+- pub `AddStreamTeamRequest` struct L348-351 — `{ team_id: String }` — Body of `POST /api/delivery-streams/{id}/teams`.
+- pub `OrgMember` struct L359-370 — `{ user_id: String, external_id: String, email: String, display_name: String, rol...` — An organization member (`GET /api/members` element).
+- pub `AddOrgMemberRequest` struct L376-381 — `{ email: String, role: Option<String> }` — Body of `POST /api/members`.
+- pub `UpdateOrgMemberRequest` struct L386-389 — `{ role: String }` — Body of `PATCH /api/members/{user_id}` — role change.
+- pub `RemoveOrgMemberResponse` struct L393-397 — `{ user_id: String, removed: bool }` — Response of `DELETE /api/members/{user_id}`.
+- pub `WhoamiResponse` struct L406-419 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — Response of `GET /api/whoami`: everything the auth → tenant stack
+- pub `WhoamiBoardCapabilities` struct L425-433 — `{ board_id: String, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
+- pub `WhoamiUser` struct L437-444 — `{ id: String, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
+- pub `WhoamiOrganization` struct L448-454 — `{ id: String, slug: String, role: String }` — The `organization` object of [`WhoamiResponse`].
+- pub `WhoamiTeam` struct L458-463 — `{ id: String, slug: String, name: String }` — One team of [`WhoamiResponse::teams`].
+- pub `CreateTenantRequest` struct L472-482 — `{ slug: String, name: String, initial_admin_external_id: Option<String> }` — Body of `POST /api/admin/tenants` (deployment-admin only; see
+- pub `TenantInitialAdmin` struct L486-494 — `{ user_id: String, external_id: String, email: String, role: String }` — The org-admin membership created with a new tenant.
+- pub `TenantCreatedResponse` struct L499-511 — `{ slug: String, schema: String, migrations_applied: Vec<String>, boards_created:...` — Response of `POST /api/admin/tenants` — the T-0008 provisioning report
+- pub `TenantSummary` struct L515-520 — `{ slug: String, name: String, schema_exists: bool }` — A provisioned tenant (`GET /api/admin/tenants` element).
+- pub `TenantDeletedResponse` struct L524-527 — `{ slug: String, dropped: bool }` — Response of `DELETE /api/admin/tenants/{slug}`.
 
 #### crates/kairos-client/src/types_search.rs
 
@@ -1241,6 +1254,11 @@
 - pub `board_children_progress` function L520-553 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<std::collections::HashMap...` — Children rollups for EVERY item on `board_id` that has direct
 - pub `TeamWorkDocument` struct L562-575 — `{ short_code: String, title: String, lifecycle: String, parent_short_code: Strin...` — One document attached to a team's work, with its supports-parent for
 - pub `team_work_documents` function L586-608 — `( conn: &mut PgConnection, team_id: Uuid, delivery_board: Option<Uuid>, ) -> Res...` — The documents attached to a team's WORK (KAIROS-T-0084): live documents
+- pub `SubgraphNode` struct L619-627 — `{ id: Uuid, short_code: String, entity_type: ItemType, title: String, status: St...` — One hydrated node of a focal subgraph.
+- pub `SubgraphEdge` struct L633-638 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType, depth: i32 }` — One typed directed edge between two visible subgraph nodes.
+- pub `item_subgraph` function L682-783 — `( conn: &mut PgConnection, root: Uuid, depth: u32, ) -> Result<(Vec<SubgraphNode...` — The focal subgraph around `root` (KAIROS-T-0088): every live node
+- pub `BlocksCounts` struct L791-796 — `{ blocked_by: i64, blocks: i64 }` — The dependency counts one board card shows (KAIROS-T-0091).
+- pub `blocks_summary` function L812-843 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<std::collections::HashMap<U...` — Blocked-by/blocks counts for a set of items in ONE grouped query
 -  `core_relationship` function L96-104 — `(relationship: RelationshipType) -> rules::Relationship` — The pure mirror of a stored [`RelationshipType`] (kairos-core carries no
 -  `parse_entity_type` function L108-121 — `(value: &str) -> Result<ItemType, GraphError>` — Parse an `entity_directory.entity_type` value.
 -  `DirectoryRow` struct L124-129 — `{ entity_type: String, short_code: String }` — [`crate::abac::grant_capability`].
@@ -1253,6 +1271,10 @@
 -  `neighbors_of` function L403-419 — `( conn: &mut PgConnection, item_id: Uuid, own_column: &str, other_column: &str, ...` — One direction of [`relationships_for`]: edges where `item_id` sits in
 -  `CHILD_COLUMNS_SQL` variable L466-470 — `: &str` — The live workflow-item id → column_id union the progress queries join
 -  `BoardProgressRow` struct L496-505 — `{ parent_id: Uuid, is_done: bool, board_has_done: bool, count: i64 }` — [`crate::abac::grant_capability`].
+-  `DepthRow` struct L641-646 — `{ id: Uuid, depth: i32 }` — [`crate::abac::grant_capability`].
+-  `NodeHydrationRow` struct L649-662 — `{ id: Uuid, short_code: String, entity_type: String, title: String, status: Stri...` — [`crate::abac::grant_capability`].
+-  `EdgeRow` struct L665-672 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType }` — [`crate::abac::grant_capability`].
+-  `BlocksRow` struct L799-806 — `{ id: Uuid, blocked_by: i64, blocks: i64 }` — [`crate::abac::grant_capability`].
 
 #### crates/kairos-db/src/items.rs
 
@@ -1692,6 +1714,8 @@
 -  `relationship_graph_service` function L170-730 — `()` — (`idx_item_relationships_source` / `idx_item_relationships_target`)
 -  `children_progress_rollups` function L737-911 — `()` — KAIROS-T-0080: the children-progress rollups — per-parent grouping,
 -  `PROGRESS_DB` variable L738 — `: &str` — (`idx_item_relationships_source` / `idx_item_relationships_target`)
+-  `focal_subgraph_contract` function L921-1123 — `()` — `item_subgraph`: depth bounding with min-depth per node, cross-links
+-  `SUBGRAPH_DB` variable L922 — `: &str` — (`idx_item_relationships_source` / `idx_item_relationships_target`)
 
 #### crates/kairos-db/tests/isolation.rs
 
@@ -2011,16 +2035,16 @@
 
 #### crates/kairos-server/src/api/openapi.rs
 
-- pub `spec` function L195-197 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
-- pub `router` function L207-214 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
--  `ApiDoc` struct L191 — `-` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `SPEC_JSON` variable L200-202 — `: LazyLock<String>` — The serialized spec, built once per process.
--  `openapi_json` function L227-232 — `() -> impl IntoResponse` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `whoami` function L260 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `spa_config` function L285 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `token_relay` function L309 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `swagger_ui` function L317-319 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
--  `SWAGGER_UI_HTML` variable L325-346 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
+- pub `spec` function L196-198 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
+- pub `router` function L208-215 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
+-  `ApiDoc` struct L192 — `-` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `SPEC_JSON` variable L201-203 — `: LazyLock<String>` — The serialized spec, built once per process.
+-  `openapi_json` function L228-233 — `() -> impl IntoResponse` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `whoami` function L261 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `spa_config` function L286 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `token_relay` function L310 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `swagger_ui` function L318-320 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
+-  `SWAGGER_UI_HTML` variable L326-347 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
 
 #### crates/kairos-server/src/api/search.rs
 
@@ -2122,13 +2146,15 @@
 
 #### crates/kairos-server/src/api/meta/relationships.rs
 
-- pub `router` function L34-46 — `() -> Router<AppState>` — `VALIDATION`.
--  `get_children_progress` function L66-102 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
--  `map_link_error` function L106-121 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP for the relationship write endpoints: the typed
--  `group_neighbors` function L126-153 — `( neighbors: Vec<Neighbor>, edge_ids: &HashMap<(RelationshipType, Uuid, bool), U...` — Fold one direction's neighbors (already ordered by relationship, then
--  `get_relationships` function L171-214 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
--  `create_relationship` function L231-263 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
--  `delete_relationship` function L279-311 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
+- pub `router` function L34-50 — `() -> Router<AppState>` — `VALIDATION`.
+-  `get_children_progress` function L70-106 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
+-  `GraphQuery` struct L111-114 — `{ depth: Option<u32> }` — Query of [`get_item_graph`] (explicit struct — serde_urlencoded
+-  `get_item_graph` function L134-179 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
+-  `map_link_error` function L183-198 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP for the relationship write endpoints: the typed
+-  `group_neighbors` function L203-230 — `( neighbors: Vec<Neighbor>, edge_ids: &HashMap<(RelationshipType, Uuid, bool), U...` — Fold one direction's neighbors (already ordered by relationship, then
+-  `get_relationships` function L248-291 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
+-  `create_relationship` function L308-340 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
+-  `delete_relationship` function L356-388 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
 
 #### crates/kairos-server/src/api/meta/templates.rs
 
@@ -2175,20 +2201,20 @@
 -  `create_board` function L250-298 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 -  `update_board` function L315-366 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 -  `delete_board` function L383-432 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `board_items` function L451-567 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `list_columns` function L584-601 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_column` function L618-639 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `update_column` function L659-708 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_column` function L727-751 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `list_transitions` function L768-785 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_transition` function L802-832 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_transition` function L849-884 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `capabilities_of` function L891-904 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<Vec<String...` — The `capabilities` a user holds on a board, sorted.
--  `board_member_view` function L907-919 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<dto::Board...` — One user's `BoardMember` view (joins `public.users` for identity).
--  `list_board_members` function L933-988 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_board_member` function L1006-1032 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `replace_capabilities` function L1053-1090 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_board_member` function L1109-1141 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `board_items` function L451-588 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `list_columns` function L605-622 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_column` function L639-660 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `update_column` function L680-729 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_column` function L748-772 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `list_transitions` function L789-806 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_transition` function L823-853 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_transition` function L870-905 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `capabilities_of` function L912-925 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<Vec<String...` — The `capabilities` a user holds on a board, sorted.
+-  `board_member_view` function L928-940 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<dto::Board...` — One user's `BoardMember` view (joins `public.users` for identity).
+-  `list_board_members` function L954-1009 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_board_member` function L1027-1053 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `replace_capabilities` function L1074-1111 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_board_member` function L1130-1162 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 
 #### crates/kairos-server/src/api/org/members.rs
 
@@ -2923,7 +2949,7 @@
 -  `rel_group` function L84-89 — `( groups: &'a [RelationshipGroup], relationship: &str, ) -> Option<&'a Relations...` — The group of `relationship` in one direction of a relationships
 -  `metadata_value` function L93-95 — `(body: &'a ItemMetadataResponse, slug: &str) -> Option<&'a MetadataValue>` — The metadata value entry for `slug` in an item-metadata response, if
 -  `metadata_patch` function L98-102 — `(slug: &str, value: Option<&str>) -> UpdateMetadataRequest` — A one-entry metadata PATCH body (`None` clears the slug).
--  `meta_endpoints_against_live_stack` function L105-1161 — `()` — - `bob`   — org member with NO grants (the 403 matrix; reads only).
+-  `meta_endpoints_against_live_stack` function L105-1232 — `()` — - `bob`   — org member with NO grants (the 403 matrix; reads only).
 
 #### crates/kairos-server/tests/metrics.rs
 
@@ -3450,7 +3476,7 @@
 #### crates/kairos-web/src/pages/boards.rs
 
 - pub `BoardsPage` function L358-433 — `() -> impl IntoView` — `/boards` — boards in flight-level bands (strategy above initiatives
-- pub `BoardPage` function L601-715 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
+- pub `BoardPage` function L609-723 — `() -> impl IntoView` — `/boards/:board` — columns from the board config, items grouped, a
 -  `data` module L24 — `-` — view (`/boards/:board` — slug or id) with live `/ws/events` updates.
 -  `live` module L25 — `-` — attach to strategies/initiatives/tasks only).
 -  `describe` function L42-51 — `(error: &ApiError) -> String` — A short human line for a failed mutation (page-level `Banner`; load
@@ -3471,26 +3497,26 @@
 -  `LEVEL_BANDS` variable L263-268 — `: &[(&str, &str)]` — The flight-level band order for `/boards` (KAIROS-T-0069/T-0063:
 -  `BandModel` struct L272-278 — `{ level: String, label: String, groups: Vec<(Option<(String, String)>, Vec<data:...` — One rendered board-list band: level heading + its tiles, with the
 -  `band_models` function L284-352 — `( boards: Vec<data::Board>, teams: &[crate::pages::teams::api::Team], ) -> Vec<B...` — Bucket boards into level bands (strategy → initiative → delivery →
--  `CardModel` struct L444-454 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — One card's owned view model with a content-fingerprint `key`
--  `ColumnModel` struct L460-466 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — One column's owned view model.
--  `column_models` function L470-569 — `(view: &data::BoardView) -> Vec<ColumnModel>` — Flatten the wire shape into owned, keyed view models (leptos children
--  `doc_parent_options` function L573-596 — `(view: &data::BoardView) -> Vec<(String, String)>` — `(short_code, title)` of the board's document-parent candidates
--  `BoardBody` function L726-858 — `( /// The live board view model. ALWAYS `Some` while this component is /// mount...` — The loaded board: header (+ create actions) and the column row.
--  `LaneSection` function L869-906 — `( lane: &'static str, label: &'static str, caption: &'static str, color: &'stati...` — One horizontal lane on a delivery board: accent header with a live
--  `LaneColumns` function L913-1025 — `( lane: Option<&'static str>, columns: Memo<Vec<ColumnModel>>, drag: RwSignal<Op...` — The column row (KAIROS-T-0040/T-0074 fine-grained rendering), filtered
--  `ItemCard` function L1037-1149 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code (the detail link, KAIROS-T-0076) with its
--  `CreateItemModal` function L1160-1295 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
--  `CreateDocumentModal` function L1301-1426 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
--  `tests` module L1429-1614 — `-` — attach to strategies/initiatives/tasks only).
--  `board` function L1433-1441 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
--  `team` function L1443-1451 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
--  `band_models_orders_levels_and_groups_delivery_by_team` function L1456-1487 — `()` — Bands come out in flight-level order, the delivery band grouped by
--  `me` function L1489-1501 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
--  `board_powers_mirror_team_implication` function L1506-1521 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
--  `board_powers_mirror_grants_and_admin` function L1525-1541 — `()` — Explicit grants (incl.
--  `card_lane_projects_work_class` function L1546-1550 — `()` — KAIROS-T-0077: the lane is a pure projection of work_class;
--  `drop_effect_decides_column_and_lane_moves` function L1557-1598 — `()` — KAIROS-T-0077 drop semantics: same-column cross-lane = lane write
--  `band_models_keeps_unknown_team_boards_reachable` function L1603-1613 — `()` — A board whose team id names an unknown team lands in "No team"
+-  `CardModel` struct L444-457 — `{ kind: EntityKind, short_code: String, title: String, meta: Vec<(String, &'stat...` — One card's owned view model with a content-fingerprint `key`
+-  `ColumnModel` struct L463-469 — `{ id: String, name: String, targets: Vec<(String, String)>, cards: Vec<CardModel...` — One column's owned view model.
+-  `column_models` function L473-577 — `(view: &data::BoardView) -> Vec<ColumnModel>` — Flatten the wire shape into owned, keyed view models (leptos children
+-  `doc_parent_options` function L581-604 — `(view: &data::BoardView) -> Vec<(String, String)>` — `(short_code, title)` of the board's document-parent candidates
+-  `BoardBody` function L734-866 — `( /// The live board view model. ALWAYS `Some` while this component is /// mount...` — The loaded board: header (+ create actions) and the column row.
+-  `LaneSection` function L877-914 — `( lane: &'static str, label: &'static str, caption: &'static str, color: &'stati...` — One horizontal lane on a delivery board: accent header with a live
+-  `LaneColumns` function L921-1034 — `( lane: Option<&'static str>, columns: Memo<Vec<ColumnModel>>, drag: RwSignal<Op...` — The column row (KAIROS-T-0040/T-0074 fine-grained rendering), filtered
+-  `ItemCard` function L1046-1193 — `( kind: EntityKind, short_code: String, title: String, /// `(label, color-token)...` — One board card: short code (the detail link, KAIROS-T-0076) with its
+-  `CreateItemModal` function L1204-1339 — `( open: RwSignal<bool>, kind: EntityKind, board_id: String, /// Delivery boards ...` — The global create flow (KAIROS-T-0062): the board level's entity type
+-  `CreateDocumentModal` function L1345-1470 — `( open: RwSignal<bool>, /// `(short_code, title)` of this board's eligible paren...` — "New document" (board header): template picker + parent picker.
+-  `tests` module L1473-1658 — `-` — attach to strategies/initiatives/tasks only).
+-  `board` function L1477-1485 — `(id: &str, level: &str, team_id: Option<&str>) -> data::Board` — attach to strategies/initiatives/tasks only).
+-  `team` function L1487-1495 — `(id: &str, slug: &str) -> Team` — attach to strategies/initiatives/tasks only).
+-  `band_models_orders_levels_and_groups_delivery_by_team` function L1500-1531 — `()` — Bands come out in flight-level order, the delivery band grouped by
+-  `me` function L1533-1545 — `(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoam...` — attach to strategies/initiatives/tasks only).
+-  `board_powers_mirror_team_implication` function L1550-1565 — `()` — KAIROS-T-0072 client mirror: team membership implies the delivery
+-  `board_powers_mirror_grants_and_admin` function L1569-1585 — `()` — Explicit grants (incl.
+-  `card_lane_projects_work_class` function L1590-1594 — `()` — KAIROS-T-0077: the lane is a pure projection of work_class;
+-  `drop_effect_decides_column_and_lane_moves` function L1601-1642 — `()` — KAIROS-T-0077 drop semantics: same-column cross-lane = lane write
+-  `band_models_keeps_unknown_team_boards_reachable` function L1647-1657 — `()` — A board whose team id names an unknown team lands in "No team"
 
 #### crates/kairos-web/src/pages/copy_link.rs
 
@@ -3507,39 +3533,41 @@
 
 #### crates/kairos-web/src/pages/item.rs
 
-- pub `ItemPage` function L46-64 — `() -> impl IntoView` — `/items/:code` — parse the family from the short code and hand off.
+- pub `ItemPage` function L46-103 — `() -> impl IntoView` — `/items/:code` — parse the family from the short code and hand off.
 -  `api` module L19 — `-` — entity families (the short code's type letter picks the family — see
 -  `create_doc` module L20 — `-` — warning ([`delete`], A-0001).
 -  `delete` module L21 — `-` — warning ([`delete`], A-0001).
 -  `editor` module L22 — `-` — warning ([`delete`], A-0001).
 -  `markdown` module L23 — `-` — warning ([`delete`], A-0001).
 -  `metadata` module L24 — `-` — warning ([`delete`], A-0001).
--  `ItemDetailView` function L69-115 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The detail resource + the four async view states.
--  `ItemLoaded` function L120-206 — `( item: ItemDetail, family: Family, on_saved: Callback<i32>, on_moved: Callback<...` — The loaded page: header + actions, the editor column, and the facts /
--  `lifecycle_color` function L211-217 — `(state: &str) -> &'static str` — The badge color of a document lifecycle state (KAIROS-T-0078):
--  `LifecyclePanel` function L224-274 — `( #[prop(into)] code: String, current: String, on_moved: Callback<String>, ) -> ...` — The lifecycle control (KAIROS-T-0078, documents only): a
--  `ChildrenProgressBar` function L282-321 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The children rollup under the header (KAIROS-T-0080): a segmented bar
--  `TypeFacts` function L325-360 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
--  `BoardPanel` function L368-434 — `( family: Family, #[prop(into)] code: String, board_id: Option<String>, column_i...` — Board/column display: documents never sit on boards; ADRs may not; the
--  `MoveControl` function L443-604 — `( family: Family, code: String, board: api::BoardInfo, column_id: Option<String>...` — The keyboard-accessible transition path (KAIROS-T-0075) plus the lane
--  `RelationshipsPanel` function L609-647 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
--  `relationship_label` function L654-673 — `(relationship: &str, outgoing: bool) -> String` — The human name of one relationship group, read from THIS item's side —
--  `RelationshipGroupView` function L677-697 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
--  `tests` module L700-715 — `-` — warning ([`delete`], A-0001).
--  `relationship_labels_read_from_the_items_side` function L706-714 — `()` — The summary reads from THIS item's side: an outgoing parent edge
+-  `ItemDetailView` function L108-154 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The detail resource + the four async view states.
+-  `ItemLoaded` function L159-245 — `( item: ItemDetail, family: Family, on_saved: Callback<i32>, on_moved: Callback<...` — The loaded page: header + actions, the editor column, and the facts /
+-  `lifecycle_color` function L250-256 — `(state: &str) -> &'static str` — The badge color of a document lifecycle state (KAIROS-T-0078):
+-  `LifecyclePanel` function L263-313 — `( #[prop(into)] code: String, current: String, on_moved: Callback<String>, ) -> ...` — The lifecycle control (KAIROS-T-0078, documents only): a
+-  `ChildrenProgressBar` function L321-360 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The children rollup under the header (KAIROS-T-0080): a segmented bar
+-  `TypeFacts` function L364-399 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
+-  `BoardPanel` function L407-473 — `( family: Family, #[prop(into)] code: String, board_id: Option<String>, column_i...` — Board/column display: documents never sit on boards; ADRs may not; the
+-  `MoveControl` function L482-643 — `( family: Family, code: String, board: api::BoardInfo, column_id: Option<String>...` — The keyboard-accessible transition path (KAIROS-T-0075) plus the lane
+-  `RelationshipsPanel` function L648-686 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
+-  `relationship_label` function L693-712 — `(relationship: &str, outgoing: bool) -> String` — The human name of one relationship group, read from THIS item's side —
+-  `RelationshipGroupView` function L716-736 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
+-  `tests` module L739-754 — `-` — warning ([`delete`], A-0001).
+-  `relationship_labels_read_from_the_items_side` function L745-753 — `()` — The summary reads from THIS item's side: an outgoing parent edge
 
 #### crates/kairos-web/src/pages/search.rs
 
 - pub `data` module L12 — `-` — one text query + a structured filter builder + an optional graph
-- pub `relationships` module L13 — `-` — component is standalone so the item-detail task can also embed it.
-- pub `SearchPage` function L61-448 — `() -> impl IntoView` — `/search` — the unified search page.
--  `ENTITY_TYPES` variable L28 — `: [&str; 5]` — The entity-type vocabulary (S-0005 `filter.entity_type`).
--  `TASK_TYPES` variable L31 — `: [&str; 3]` — The task-type vocabulary (S-0005 `filter.task_type`).
--  `RELATIONSHIPS` variable L34 — `: [&str; 5]` — The relationship vocabulary (S-0005 `traverse.relationships`).
--  `ANY` variable L37 — `: &str` — The "no board/column selected" option.
--  `entity_color` function L40-49 — `(entity_type: &str) -> &'static str` — A data-driven accent per entity type (token constants only).
--  `MetaRow` struct L53-57 — `{ id: usize, key: RwSignal<String>, value: RwSignal<String> }` — One dynamic metadata `key = value` filter row.
--  `ResultGroup` function L453-511 — `(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) -> impl IntoVi...` — One entity-type result group: a panel with linked rows (omitted when
+- pub `graph` module L13 — `-` — component is standalone so the item-detail task can also embed it.
+- pub `graph_layout` module L14 — `-` — component is standalone so the item-detail task can also embed it.
+- pub `relationships` module L15 — `-` — component is standalone so the item-detail task can also embed it.
+- pub `SearchPage` function L63-452 — `() -> impl IntoView` — `/search` — the unified search page.
+-  `ENTITY_TYPES` variable L30 — `: [&str; 5]` — The entity-type vocabulary (S-0005 `filter.entity_type`).
+-  `TASK_TYPES` variable L33 — `: [&str; 3]` — The task-type vocabulary (S-0005 `filter.task_type`).
+-  `RELATIONSHIPS` variable L36 — `: [&str; 5]` — The relationship vocabulary (S-0005 `traverse.relationships`).
+-  `ANY` variable L39 — `: &str` — The "no board/column selected" option.
+-  `entity_color` function L42-51 — `(entity_type: &str) -> &'static str` — A data-driven accent per entity type (token constants only).
+-  `MetaRow` struct L55-59 — `{ id: usize, key: RwSignal<String>, value: RwSignal<String> }` — One dynamic metadata `key = value` filter row.
+-  `ResultGroup` function L457-515 — `(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) -> impl IntoVi...` — One entity-type result group: a panel with linked rows (omitted when
 
 #### crates/kairos-web/src/pages/teams.rs
 
@@ -3720,54 +3748,57 @@
 - pub `Task` struct L81-88 — `{ short_code: String, title: String, task_type: String, work_class: String }` — mirror of: `kairos_client::types::Task` (partial — card fields).
 - pub `Adr` struct L92-97 — `{ short_code: String, title: String, decision_date: Option<String> }` — mirror of: `kairos_client::types::Adr` (partial — card fields).
 - pub `BoardColumnItems` struct L101-107 — `{ column: BoardColumn, strategies: Vec<Strategy>, initiatives: Vec<Initiative>, ...` — mirror of: `kairos_client::types_org::BoardColumnItems`.
-- pub `BoardItemsResponse` struct L111-118 — `{ board: Board, columns: Vec<BoardColumnItems>, children_progress: std::collecti...` — mirror of: `kairos_client::types_org::BoardItemsResponse`.
-- pub `ProgressCounts` struct L122-128 — `{ done: i64, total: i64, has_done: bool }` — mirror of: `kairos_client::types_org::ProgressCounts` (KAIROS-T-0080).
-- pub `Template` struct L134-137 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
-- pub `TemplateListEnvelope` struct L141-143 — `{ items: Vec<Template> }` — mirror of: `kairos_client::types::ListEnvelope<Template>` (partial).
-- pub `ThinEvent` struct L149-151 — `{ event: String }` — mirror of: `kairos_client::types_events::ThinEvent` (partial — the view
-- pub `BoardView` struct L158-161 — `{ detail: BoardDetail, items: BoardItemsResponse }` — Everything the board view renders: configuration (columns +
-- pub `list_boards` function L164-167 — `(auth: Auth) -> Result<Vec<Board>, ApiError>` — The board list (one page is plenty for v1 — the demo tenant has 5).
-- pub `load_board_view` function L171-185 — `(auth: Auth, param: &str) -> Result<BoardView, ApiError>` — Resolve a route param (board slug, or id as a fallback) against the
-- pub `list_templates` function L188-191 — `(auth: Auth) -> Result<Vec<Template>, ApiError>` — Templates for the document create flow.
-- pub `EntityKind` enum L197-202 — `Strategy | Initiative | Task | Adr` — The four board-item entity kinds (documents are off-board, S-0005).
-- pub `api_family` function L206-213 — `(self) -> &'static str` — The S-0005 URL family (`/api/{family}/{short_code}/…`).
-- pub `label` function L216-223 — `(self) -> &'static str` — The card label.
-- pub `for_board_level` function L227-235 — `(level: &str) -> Option<EntityKind>` — The entity type a board level's create flow produces
-- pub `transition` function L246-255 — `( auth: Auth, kind: EntityKind, short_code: &str, to_column_id: &str, ) -> Resul...` — `POST /api/{family}/{short_code}/transition`.
-- pub `set_work_class` function L266-274 — `( auth: Auth, short_code: &str, work_class: &str, ) -> Result<(), ApiError>` — `POST /api/tasks/{short_code}/work-class` — move a task between the
-- pub `NewItem` struct L279-297 — `{ title: String, content: String, hypothesis: Option<String>, complexity: Option...` — The create-from-column form data; [`create_item`] maps it onto the
-- pub `create_item` function L350-420 — `( auth: Auth, kind: EntityKind, board_id: &str, column_id: &str, item: &NewItem,...` — `POST /api/{family}` — create a board item in the given column.
-- pub `create_document` function L434-451 — `( auth: Auth, title: &str, template_id: Option<&str>, parent_short_code: &str, )...` — `POST /api/documents` — create a document attached to a board item.
--  `EntityKind` type L204-236 — `= EntityKind` — every mirror carries a `mirror of:` line and a decode test).
--  `TransitionRequest` struct L240-242 — `{ to_column_id: &'a str }` — mirror of: `kairos_client::types::TransitionRequest`.
--  `SetWorkClassRequest` struct L259-261 — `{ work_class: &'a str }` — mirror of: `kairos_client::types::SetWorkClassRequest`.
--  `CreateStrategyRequest` struct L301-308 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, hypot...` — mirror of: `kairos_client::types::CreateStrategyRequest`.
--  `CreateInitiativeRequest` struct L312-319 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, compl...` — mirror of: `kairos_client::types::CreateInitiativeRequest`.
--  `CreateTaskRequest` struct L323-334 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, task_...` — mirror of: `kairos_client::types::CreateTaskRequest`.
--  `CreateAdrRequest` struct L338-347 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, decis...` — mirror of: `kairos_client::types::CreateAdrRequest`.
--  `CreateDocumentRequest` struct L424-431 — `{ title: &'a str, template_id: Option<&'a str>, parent_short_code: &'a str }` — mirror of: `kairos_client::types::CreateDocumentRequest`.
--  `tests` module L454-608 — `-` — every mirror carries a `mirror of:` line and a decode test).
--  `board_detail_mirror_decodes_server_shape` function L461-488 — `()` — The board-view mirrors decode a realistic
--  `board_items_mirror_decodes_server_shape` function L492-533 — `()` — The grouped-items mirror decodes all four entity types.
--  `template_and_event_mirrors_decode` function L537-553 — `()` — The template + event mirrors decode their wire shapes.
--  `create_requests_serialize_wire_shape` function L558-587 — `()` — Create requests serialize with the exact S-0005 field names and
--  `entity_kind_per_board_level` function L591-607 — `()` — Board level → create-flow entity kind (A-0002 one-family-per-level).
+- pub `BoardItemsResponse` struct L111-122 — `{ board: Board, columns: Vec<BoardColumnItems>, children_progress: std::collecti...` — mirror of: `kairos_client::types_org::BoardItemsResponse`.
+- pub `BlocksCounts` struct L126-129 — `{ blocked_by: i64, blocks: i64 }` — mirror of: `kairos_client::types_org::BlocksCounts` (KAIROS-T-0091).
+- pub `ProgressCounts` struct L133-139 — `{ done: i64, total: i64, has_done: bool }` — mirror of: `kairos_client::types_org::ProgressCounts` (KAIROS-T-0080).
+- pub `Template` struct L145-148 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
+- pub `TemplateListEnvelope` struct L152-154 — `{ items: Vec<Template> }` — mirror of: `kairos_client::types::ListEnvelope<Template>` (partial).
+- pub `ThinEvent` struct L160-162 — `{ event: String }` — mirror of: `kairos_client::types_events::ThinEvent` (partial — the view
+- pub `BoardView` struct L169-172 — `{ detail: BoardDetail, items: BoardItemsResponse }` — Everything the board view renders: configuration (columns +
+- pub `list_boards` function L175-178 — `(auth: Auth) -> Result<Vec<Board>, ApiError>` — The board list (one page is plenty for v1 — the demo tenant has 5).
+- pub `load_board_view` function L182-196 — `(auth: Auth, param: &str) -> Result<BoardView, ApiError>` — Resolve a route param (board slug, or id as a fallback) against the
+- pub `list_templates` function L199-202 — `(auth: Auth) -> Result<Vec<Template>, ApiError>` — Templates for the document create flow.
+- pub `EntityKind` enum L208-213 — `Strategy | Initiative | Task | Adr` — The four board-item entity kinds (documents are off-board, S-0005).
+- pub `api_family` function L217-224 — `(self) -> &'static str` — The S-0005 URL family (`/api/{family}/{short_code}/…`).
+- pub `label` function L227-234 — `(self) -> &'static str` — The card label.
+- pub `for_board_level` function L238-246 — `(level: &str) -> Option<EntityKind>` — The entity type a board level's create flow produces
+- pub `transition` function L257-266 — `( auth: Auth, kind: EntityKind, short_code: &str, to_column_id: &str, ) -> Resul...` — `POST /api/{family}/{short_code}/transition`.
+- pub `set_work_class` function L277-285 — `( auth: Auth, short_code: &str, work_class: &str, ) -> Result<(), ApiError>` — `POST /api/tasks/{short_code}/work-class` — move a task between the
+- pub `NewItem` struct L290-308 — `{ title: String, content: String, hypothesis: Option<String>, complexity: Option...` — The create-from-column form data; [`create_item`] maps it onto the
+- pub `create_item` function L361-431 — `( auth: Auth, kind: EntityKind, board_id: &str, column_id: &str, item: &NewItem,...` — `POST /api/{family}` — create a board item in the given column.
+- pub `create_document` function L445-462 — `( auth: Auth, title: &str, template_id: Option<&str>, parent_short_code: &str, )...` — `POST /api/documents` — create a document attached to a board item.
+-  `EntityKind` type L215-247 — `= EntityKind` — every mirror carries a `mirror of:` line and a decode test).
+-  `TransitionRequest` struct L251-253 — `{ to_column_id: &'a str }` — mirror of: `kairos_client::types::TransitionRequest`.
+-  `SetWorkClassRequest` struct L270-272 — `{ work_class: &'a str }` — mirror of: `kairos_client::types::SetWorkClassRequest`.
+-  `CreateStrategyRequest` struct L312-319 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, hypot...` — mirror of: `kairos_client::types::CreateStrategyRequest`.
+-  `CreateInitiativeRequest` struct L323-330 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, compl...` — mirror of: `kairos_client::types::CreateInitiativeRequest`.
+-  `CreateTaskRequest` struct L334-345 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, task_...` — mirror of: `kairos_client::types::CreateTaskRequest`.
+-  `CreateAdrRequest` struct L349-358 — `{ board_id: &'a str, column_id: &'a str, title: &'a str, content: &'a str, decis...` — mirror of: `kairos_client::types::CreateAdrRequest`.
+-  `CreateDocumentRequest` struct L435-442 — `{ title: &'a str, template_id: Option<&'a str>, parent_short_code: &'a str }` — mirror of: `kairos_client::types::CreateDocumentRequest`.
+-  `tests` module L465-630 — `-` — every mirror carries a `mirror of:` line and a decode test).
+-  `board_detail_mirror_decodes_server_shape` function L472-499 — `()` — The board-view mirrors decode a realistic
+-  `board_items_mirror_decodes_server_shape` function L503-555 — `()` — The grouped-items mirror decodes all four entity types.
+-  `template_and_event_mirrors_decode` function L559-575 — `()` — The template + event mirrors decode their wire shapes.
+-  `create_requests_serialize_wire_shape` function L580-609 — `()` — Create requests serialize with the exact S-0005 field names and
+-  `entity_kind_per_board_level` function L613-629 — `()` — Board level → create-flow entity kind (A-0002 one-family-per-level).
 
 #### crates/kairos-web/src/pages/boards/live.rs
 
-- pub `LiveBoardGuard` struct L63-65 — `{ state: Rc<Live> }` — Dropping this closes the socket and stops the reconnect chain.
-- pub `subscribe_board_events` function L86-105 — `( auth: Auth, board_id: String, refetch: impl Fn() + 'static, ) -> LiveBoardGuar...` — Subscribe the board view to `/ws/events`, filtered to `board_id`.
+- pub `LiveBoardGuard` struct L69-71 — `{ state: Rc<Live> }` — Dropping this closes the socket and stops the reconnect chain.
+- pub `subscribe_board_events` function L92-98 — `( auth: Auth, board_id: String, refetch: impl Fn() + 'static, ) -> LiveBoardGuar...` — Subscribe the board view to `/ws/events`, filtered to `board_id`.
+- pub `subscribe_all_events` function L103-108 — `( auth: Auth, on_event: impl Fn(Option<&str>) + 'static, ) -> LiveBoardGuard` — Subscribe to the WHOLE tenant stream (no board filter): the graph
 -  `BACKOFF_INITIAL_MS` variable L33 — `: u64` — Reconnect backoff bounds (milliseconds).
 -  `BACKOFF_MAX_MS` variable L34 — `: u64` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
 -  `Handler` type L37 — `= RefCell<Option<Closure<T>>>` — A stored wasm event-handler closure (present while a socket is live).
--  `Live` struct L41-59 — `{ auth: Auth, board_id: String, refetch: Box<dyn Fn()>, closed: Cell<bool>, atte...` — The per-connection state shared by the event handlers and the
--  `LiveBoardGuard` type L67-82 — `impl Drop for LiveBoardGuard` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
--  `drop` function L68-81 — `(&mut self)` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
--  `events_url` function L110-116 — `(token: &str) -> Option<String>` — The `ws(s)://…/ws/events?access_token=…` URL for the current origin.
--  `connect` function L119-187 — `(state: Rc<Live>)` — Open one connection attempt and register its handlers.
--  `schedule_reconnect` function L190-198 — `(state: Rc<Live>)` — Queue the next connection attempt with exponential backoff.
--  `tests` module L201-214 — `-` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
--  `backoff_doubles_and_caps` function L205-213 — `()` — Backoff doubles from 1s and caps at 15s (host-testable math for
+-  `Live` struct L41-65 — `{ auth: Auth, board_id: Option<String>, refetch: Box<dyn Fn(Option<&str>)>, clos...` — The per-connection state shared by the event handlers and the
+-  `LiveBoardGuard` type L73-88 — `impl Drop for LiveBoardGuard` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
+-  `drop` function L74-87 — `(&mut self)` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
+-  `subscribe` function L110-129 — `( auth: Auth, board_id: Option<String>, refetch: impl Fn(Option<&str>) + 'static...` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
+-  `events_url` function L134-140 — `(token: &str) -> Option<String>` — The `ws(s)://…/ws/events?access_token=…` URL for the current origin.
+-  `connect` function L143-225 — `(state: Rc<Live>)` — Open one connection attempt and register its handlers.
+-  `schedule_reconnect` function L228-236 — `(state: Rc<Live>)` — Queue the next connection attempt with exponential backoff.
+-  `tests` module L239-252 — `-` — backoff timer chain, and break the closure ↔ state `Rc` cycle.
+-  `backoff_doubles_and_caps` function L243-251 — `()` — Backoff doubles from 1s and caps at 15s (host-testable math for
 
 ### crates/kairos-web/src/pages/item
 
@@ -3901,23 +3932,61 @@
 - pub `relationships` function L278-281 — `(auth: Auth, short_code: &str) -> Result<ItemRelationships, ApiError>` — `GET /api/{family}/{short_code}/relationships`.
 - pub `create_relationship` function L285-290 — `( auth: Auth, request: &CreateRelationship, ) -> Result<CreatedRelationship, Api...` — `POST /api/relationships` (org admin; the typed 422s — `RELATIONSHIP_RULE`,
 - pub `delete_relationship` function L293-298 — `( auth: Auth, relationship_id: &str, ) -> Result<DeletedRelationship, ApiError>` — `DELETE /api/relationships/{id}` (org admin).
-- pub `ItemSummary` struct L307-310 — `{ short_code: String, title: String }` — mirror of: `kairos_client::types::{Strategy, Initiative, Task, Document,
-- pub `item_summary` function L313-316 — `(auth: Auth, short_code: &str) -> Result<ItemSummary, ApiError>` — `GET /api/{family}/{short_code}` — just the header fields.
-- pub `Crumb` struct L320-324 — `{ short_code: String, entity_type: String, title: String }` — One breadcrumb ancestor.
-- pub `parent_chain` function L330-353 — `(auth: Auth, short_code: &str) -> Result<Vec<Crumb>, ApiError>` — Walk `parent` edges upward (each item's parent is the source of its
+- pub `GraphNode` struct L458-470 — `{ id: String, short_code: String, entity_type: String, title: String, status: St...` — mirror of: `kairos_client::types_graph::GraphNode`.
+- pub `GraphEdge` struct L474-480 — `{ source_id: String, target_id: String, relationship: String, depth: i32 }` — mirror of: `kairos_client::types_graph::GraphEdge`.
+- pub `GraphResponse` struct L484-489 — `{ focus: String, depth: u32, nodes: Vec<GraphNode>, edges: Vec<GraphEdge> }` — mirror of: `kairos_client::types_graph::GraphResponse`.
+- pub `item_graph` function L492-503 — `( auth: Auth, short_code: &str, depth: Option<u32>, ) -> Result<GraphResponse, A...` — `GET /api/{family}/{code}/graph?depth=N` — the focal subgraph.
 -  `family_or_err` function L41-44 — `(short_code: &str) -> Result<&'static str, ApiError>` — [`family_of`] as an [`ApiError`] for fetchers that need a family.
 -  `SearchFilter` type L88-95 — `= SearchFilter` — run on the host (`cargo test -p kairos-web`).
 -  `ItemRelationships` type L224-238 — `= ItemRelationships` — run on the host (`cargo test -p kairos-web`).
--  `tests` module L356-501 — `-` — run on the host (`cargo test -p kairos-web`).
--  `family_of_maps_type_letters` function L361-370 — `()` — Type letters map to the S-0004 families; junk maps to none.
--  `search_request_serializes_s0005_field_names` function L375-427 — `()` — The request mirror serializes the exact S-0005 field names (the
--  `search_response_mirror_decodes_server_shape` function L432-470 — `()` — The response mirror decodes a realistic grouped body — typed extra
--  `relationships_mirror_decodes_server_shape` function L475-500 — `()` — The relationships mirror decodes the T-0020 grouped shape, and
+-  `tests` module L305-450 — `-` — run on the host (`cargo test -p kairos-web`).
+-  `family_of_maps_type_letters` function L310-319 — `()` — Type letters map to the S-0004 families; junk maps to none.
+-  `search_request_serializes_s0005_field_names` function L324-376 — `()` — The request mirror serializes the exact S-0005 field names (the
+-  `search_response_mirror_decodes_server_shape` function L381-419 — `()` — The response mirror decodes a realistic grouped body — typed extra
+-  `relationships_mirror_decodes_server_shape` function L424-449 — `()` — The relationships mirror decodes the T-0020 grouped shape, and
+-  `graph_tests` module L506-530 — `-` — run on the host (`cargo test -p kairos-web`).
+-  `graph_response_mirror_decodes_server_shape` function L511-529 — `()` — `GraphResponse` decodes the KAIROS-T-0088 wire shape.
+
+#### crates/kairos-web/src/pages/search/graph.rs
+
+- pub `GraphView` function L65-494 — `(#[prop(into)] short_code: String) -> impl IntoView` — The focal graph, standalone: `short_code` is its only input (T-0090
+-  `column_of` function L33-40 — `(entity_type: &str) -> Option<Column>` — The canvas column of an entity type; documents/ADRs return `None` and
+-  `clip` function L43-50 — `(title: &str, max: usize) -> String` — Truncate a title for its node box (SVG text does not wrap).
+-  `PanelRow` struct L54-60 — `{ direction: String, entity_type: String, short_code: String, title: String, sta...` — One row of the supporting-material side panel.
+-  `ManagePanel` function L500-663 — `(#[prop(into)] short_code: String, on_changed: Callback<()>) -> impl IntoView` — Org-admin link/unlink (ported from the old explorer): the focus item's
+
+#### crates/kairos-web/src/pages/search/graph_layout.rs
+
+- pub `Column` enum L17-21 — `Strategy | Initiative | Task` — The three canvas columns, in fixed left-to-right order.
+- pub `LayoutInputNode` struct L35-44 — `{ id: String, short_code: String, column: Column, hidden_neighbors: i64 }` — One node the layout places (the component maps wire mirrors to this).
+- pub `LayoutInputEdge` struct L48-54 — `{ source_id: String, target_id: String, relationship: String }` — One edge the layout considers (already filtered to canvas nodes).
+- pub `PlacedNode` struct L58-67 — `{ id: String, x: f64, y: f64, w: f64, h: f64, hidden_neighbors: i64 }` — A placed node box.
+- pub `PlacedLane` struct L72-78 — `{ parent_id: String, x: f64, y: f64, w: f64, h: f64 }` — A containment lane: the band a visible parent draws around its
+- pub `PlacedArrow` struct L82-86 — `{ source_id: String, target_id: String, path: String }` — A blocks arrow, as a ready-to-render SVG path between box edges.
+- pub `GraphLayout` struct L90-98 — `{ width: f64, height: f64, headers: Vec<(&'static str, f64)>, lanes: Vec<PlacedL...` — The finished geometry.
+- pub `NODE_W` variable L100 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+- pub `NODE_H` variable L101 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+- pub `layout` function L140-364 — `(nodes: &[LayoutInputNode], edges: &[LayoutInputEdge]) -> GraphLayout` — Lay out the subgraph.
+-  `Column` type L23-31 — `= Column` — so positions build spatial memory and survive WS refetches unchanged.
+-  `index` function L24-30 — `(self) -> usize` — so positions build spatial memory and survive WS refetches unchanged.
+-  `COLUMN_GAP` variable L102 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `ROW_GAP` variable L103 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `LANE_PAD` variable L104 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `MARGIN_X` variable L105 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `HEADER_H` variable L106 — `: f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `GROUP_GAP` variable L108 — `: f64` — Extra vertical gap between lane groups so bands never touch.
+-  `column_x` function L110-112 — `(column: Column) -> f64` — so positions build spatial memory and survive WS refetches unchanged.
+-  `order_column` function L117-137 — `( mut ids: Vec<usize>, nodes: &[LayoutInputNode], parent_row: &std::collections:...` — Order a column: barycenter over the average placed-parent row, ties
+-  `tests` module L367-460 — `-` — so positions build spatial memory and survive WS refetches unchanged.
+-  `node` function L370-377 — `(id: &str, code: &str, column: Column, hidden_neighbors: i64) -> LayoutInputNode` — so positions build spatial memory and survive WS refetches unchanged.
+-  `edge` function L379-385 — `(source: &str, target: &str, relationship: &str) -> LayoutInputEdge` — so positions build spatial memory and survive WS refetches unchanged.
+-  `fixture` function L387-406 — `() -> (Vec<LayoutInputNode>, Vec<LayoutInputEdge>)` — so positions build spatial memory and survive WS refetches unchanged.
+-  `layout_is_deterministic` function L411-427 — `()` — Identical input → identical geometry, twice over (the no-force
+-  `columns_lanes_and_arrows` function L431-459 — `()` — Columns are fixed by type; lanes band children under their parent.
 
 #### crates/kairos-web/src/pages/search/relationships.rs
 
-- pub `RelationshipsPage` function L29-41 — `() -> impl IntoView` — `/search/relationships/:code` — route wrapper; re-mounts the view when
-- pub `RelationshipsView` function L47-350 — `(#[prop(into)] short_code: String) -> impl IntoView` — One item's relationships, explorable.
+- pub `RelationshipsPage` function L14-32 — `() -> impl IntoView` — The route wrapper; the view's question is the page subtitle.
 
 ### crates/kairos-web/src/pages/teams
 
@@ -4012,6 +4081,11 @@
 
 -  `column` function L23-28 — `const column = (page: Page, name: string): Locator`
 -  `cardIn` function L30-31 — `const cardIn = (page: Page, columnName: string): Locator`
+
+#### e2e/tests/graph.spec.ts
+
+-  `canvas` function L28 — `const canvas = (page: Page)`
+-  `columnIdOf` function L148-153 — `const columnIdOf = (name: string)`
 
 #### e2e/tests/lanes.spec.ts
 

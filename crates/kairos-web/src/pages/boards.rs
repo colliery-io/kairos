@@ -22,7 +22,7 @@
 //!   attach to strategies/initiatives/tasks only).
 
 pub(crate) mod data;
-mod live;
+pub(crate) mod live;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Modal, PageHeader, Pill, Select,
@@ -450,6 +450,9 @@ struct CardModel {
     work_class: Option<String>,
     /// Children rollup — `Some` for parents only (KAIROS-T-0080).
     progress: Option<data::ProgressCounts>,
+    /// Blocked-by/blocks counts — `Some` only with live blocks edges
+    /// (KAIROS-T-0091).
+    blocks: Option<data::BlocksCounts>,
     key: String,
 }
 
@@ -478,19 +481,24 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
     };
     let progress_of =
         |short_code: &str| view.items.children_progress.get(short_code).copied();
+    let blocks_of = |short_code: &str| view.items.blocks_summary.get(short_code).copied();
     let card = |kind: EntityKind,
                 short_code: &str,
                 title: &str,
                 meta: Vec<(String, &'static str)>,
                 work_class: Option<String>| {
         let progress = progress_of(short_code);
+        let blocks = blocks_of(short_code);
         CardModel {
             kind,
             short_code: short_code.to_string(),
             title: title.to_string(),
-            key: format!("{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}"),
+            key: format!(
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}|{blocks:?}"
+            ),
             work_class,
             progress,
+            blocks,
             meta,
         }
     };
@@ -1003,11 +1011,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            progress, key: _,
+                                            progress, blocks, key: _,
                                         } = card;
                                         view! {
                                             <ItemCard
                                                 kind short_code title meta work_class progress
+                                                blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
                                                 drag powers
@@ -1045,6 +1054,10 @@ fn ItemCard(
     work_class: Option<String>,
     /// Children rollup badge (KAIROS-T-0080) — renders only when `Some`.
     progress: Option<data::ProgressCounts>,
+    /// Blocked-by/blocks badges (KAIROS-T-0091) — render only when
+    /// nonzero; click-through to the item's graph. Neutral accents only —
+    /// red stays reserved.
+    blocks: Option<data::BlocksCounts>,
     /// `(column_id, column_name)` — the valid targets from this column.
     targets: Vec<(String, String)>,
     /// The column this card currently sits in (the drag's source).
@@ -1058,6 +1071,7 @@ fn ItemCard(
 ) -> impl IntoView {
     let href = format!("/items/{short_code}");
     let code_text = short_code.clone();
+    let graph_code = short_code.clone();
     let code_for_copy = short_code.clone();
     let code_for_drag = short_code.clone();
     let code_for_class = short_code;
@@ -1142,6 +1156,36 @@ fn ItemCard(
                         })}
                         <Text mono=true dimmed=true size="xs">{label}</Text>
                     </div>
+                }
+            })}
+            {blocks.map(|counts| {
+                // KAIROS-T-0091: dependency badges — Jira-style counts,
+                // neutral accents (red stays reserved), linking to the
+                // item's graph where the web is visible.
+                let graph_href = format!("/items/{}?view=graph", graph_code);
+                view! {
+                    <Group gap="xs" wrap=true>
+                        {(counts.blocked_by > 0).then(|| {
+                            let href = graph_href.clone();
+                            view! {
+                                <a class="kairos-card__blocks" href=href title="open the graph">
+                                    <Pill color=token::GOLD>
+                                        {format!("blocked by {}", counts.blocked_by)}
+                                    </Pill>
+                                </a>
+                            }
+                        })}
+                        {(counts.blocks > 0).then(|| {
+                            let href = graph_href.clone();
+                            view! {
+                                <a class="kairos-card__blocks" href=href title="open the graph">
+                                    <Pill color=token::ICE>
+                                        {format!("blocks {}", counts.blocks)}
+                                    </Pill>
+                                </a>
+                            }
+                        })}
+                    </Group>
                 }
             })}
         </article>

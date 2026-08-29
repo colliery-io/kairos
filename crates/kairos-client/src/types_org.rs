@@ -123,6 +123,21 @@ pub struct BoardItemsResponse {
     /// (KAIROS-T-0080) — computed in one grouped query, never per item.
     #[serde(default)]
     pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
+    /// Blocked-by/blocks counts keyed by short code, for every item on
+    /// this board with at least one live `blocks` edge (KAIROS-T-0091) —
+    /// one grouped query; soft-deleted neighbors never count.
+    #[serde(default)]
+    pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
+}
+
+/// Dependency counts behind a board card's blocked-by/blocks badges
+/// (KAIROS-T-0091).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct BlocksCounts {
+    /// Live incoming `blocks` edges (things blocking this item).
+    pub blocked_by: i64,
+    /// Live outgoing `blocks` edges (things this item blocks).
+    pub blocks: i64,
 }
 
 /// A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the

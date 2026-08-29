@@ -115,6 +115,17 @@ pub struct BoardItemsResponse {
     /// (KAIROS-T-0080); absent for items without children.
     #[serde(default)]
     pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
+    /// Blocked-by/blocks counts keyed by short code (KAIROS-T-0091);
+    /// absent for items with no live blocks edges.
+    #[serde(default)]
+    pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
+}
+
+/// mirror of: `kairos_client::types_org::BlocksCounts` (KAIROS-T-0091).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct BlocksCounts {
+    pub blocked_by: i64,
+    pub blocks: i64,
 }
 
 /// mirror of: `kairos_client::types_org::ProgressCounts` (KAIROS-T-0080).
@@ -521,9 +532,20 @@ mod tests {
         let items: BoardItemsResponse = serde_json::from_value(body).expect("mirror decodes");
         let group = &items.columns[0];
         assert_eq!(group.column.name, "Active");
-        // children_progress is optional on the wire (KAIROS-T-0080) —
-        // absent decodes to an empty map.
+        // children_progress and blocks_summary are optional on the wire
+        // (KAIROS-T-0080 / T-0091) — absent decodes to empty maps.
         assert!(items.children_progress.is_empty());
+        assert!(items.blocks_summary.is_empty());
+        let with_blocks: BoardItemsResponse = serde_json::from_value(serde_json::json!({
+            "board": {"id": "b1", "name": "Delivery", "slug": "delivery",
+                      "board_level": "delivery", "team_id": null,
+                      "created_at": "x", "updated_at": "x"},
+            "columns": [],
+            "blocks_summary": {"DEMO-T-0003": {"blocked_by": 1, "blocks": 2}}
+        }))
+        .expect("blocks mirror decodes");
+        let counts = with_blocks.blocks_summary.get("DEMO-T-0003").expect("entry");
+        assert_eq!((counts.blocked_by, counts.blocks), (1, 2));
         assert_eq!(group.strategies[0].short_code, "DEMO-S-0001");
         assert_eq!(group.initiatives[0].bucket_type.as_deref(), Some("bug"));
         assert!(group.initiatives[0].is_bucket);

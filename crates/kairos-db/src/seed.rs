@@ -277,6 +277,9 @@ fn seed_team(
         Some(team.id),
         Some(actor),
     )?;
+    // KAIROS-T-0082: seeded teams get the page scaffold exactly like
+    // API-created ones (a team is never born bare).
+    crate::team_pages::seed_team_scaffold(conn, team.id, actor)?;
     for user_id in member_ids {
         diesel::insert_into(team_members::table)
             .values(NewTeamMember {

@@ -56,4 +56,6 @@ web-sys = { workspace = true, features = [
     "Navigator",
     "Clipboard",
     "MouseEvent",
+    # Metadata add-field picker reset (KAIROS-T-0078 review fix)
+    "HtmlSelectElement",
 ] }

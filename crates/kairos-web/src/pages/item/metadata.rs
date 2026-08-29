@@ -12,9 +12,11 @@
 
 use std::collections::BTreeMap;
 
-use aurora_dark::components::{Alert, Empty, ErrorState, Group, Loading, Panel, Pill, Select, Text};
+use aurora_dark::components::{Alert, Empty, ErrorState, Group, Loading, Panel, Pill, Text};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
+
+use wasm_bindgen::JsCast;
 
 use super::api::{self, Family, MetadataDefinition, MetadataValue};
 use crate::auth::use_auth;
@@ -88,12 +90,16 @@ fn MetadataForm(
     let saving = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
 
-    // Stamped definitions become editor rows; the rest are addable.
-    let (stamped, unstamped): (Vec<MetadataDefinition>, Vec<MetadataDefinition>) = definitions
-        .into_iter()
-        .partition(|definition| values.iter().any(|value| value.slug == definition.slug));
-    let rows: RwSignal<Vec<FieldRow>> = RwSignal::new(
-        stamped
+    // EVERY definition gets its row (and its draft signal) up front, at
+    // render time; `visible` decides which rows show. The picker only
+    // pushes a slug into `visible` — it never creates signals. Two prior
+    // shapes of this code broke on the add path (T-0078 review): an
+    // Effect resetting the signal it watched re-entered itself and
+    // panicked the reactive runtime, and creating the draft signal inside
+    // the change handler (no reactive owner) produced a dead editor whose
+    // writes never propagated.
+    let all_rows: StoredValue<Vec<FieldRow>> = StoredValue::new(
+        definitions
             .into_iter()
             .map(|definition| {
                 let original = values
@@ -109,39 +115,49 @@ fn MetadataForm(
             })
             .collect(),
     );
-    let available: RwSignal<Vec<MetadataDefinition>> = RwSignal::new(unstamped);
+    let visible: RwSignal<Vec<String>> =
+        RwSignal::new(values.iter().map(|value| value.slug.clone()).collect());
 
-    // Choosing a definition in the picker promotes it to an (empty) editor
-    // row immediately; the value only reaches the server on save.
-    let add_choice = RwSignal::new(ADD_PLACEHOLDER.to_string());
-    Effect::new(move |_| {
-        let choice = add_choice.get();
+    // Choosing a definition in the picker reveals its (empty) editor row;
+    // the value only reaches the server on save.
+    let on_pick = move |e: web_sys::Event| {
+        let choice = event_target_value(&e);
         if choice == ADD_PLACEHOLDER {
             return;
         }
-        available.update(|definitions| {
-            if let Some(index) = definitions.iter().position(|d| d.name == choice) {
-                let definition = definitions.remove(index);
-                rows.update(|rows| {
-                    rows.push(FieldRow {
-                        definition,
-                        draft: RwSignal::new(String::new()),
-                        original: String::new(),
-                    });
-                });
-            }
+        let slug = all_rows.with_value(|rows| {
+            rows.iter()
+                .find(|row| row.definition.name == choice)
+                .map(|row| row.definition.slug.clone())
         });
-        add_choice.set(ADD_PLACEHOLDER.to_string());
-    });
+        if let Some(slug) = slug {
+            visible.update(|shown| {
+                if !shown.contains(&slug) {
+                    shown.push(slug);
+                }
+            });
+        }
+        // Reset the picker to its placeholder so the next add is a fresh
+        // change event (the node survives the option-list re-render).
+        if let Some(select) = e
+            .target()
+            .and_then(|target| target.dyn_into::<web_sys::HtmlSelectElement>().ok())
+        {
+            select.set_value(ADD_PLACEHOLDER);
+        }
+    };
 
-    let dirty = move || rows.with(|rows| rows.iter().any(|row| row.draft.get() != row.original));
+    // Hidden rows are never dirty (draft == original == server value).
+    let dirty = move || {
+        all_rows.with_value(|rows| rows.iter().any(|row| row.draft.get() != row.original))
+    };
 
     let save = move |_| {
         if saving.get_untracked() {
             return;
         }
         // Changed fields only; "" means clear (A-0003 null-clears).
-        let changed: BTreeMap<String, Option<String>> = rows.with_untracked(|rows| {
+        let changed: BTreeMap<String, Option<String>> = all_rows.with_value(|rows| {
             rows.iter()
                 .filter(|row| row.draft.get_untracked() != row.original)
                 .map(|row| {
@@ -174,7 +190,21 @@ fn MetadataForm(
                 </Alert>
             })}
             {move || {
-                let current = rows.get();
+                // Render in VISIBLE order (stamped first, then picks in
+                // the order made), so a freshly added row lands at the
+                // bottom, right above the picker — in catalog order an
+                // add could insert above existing rows, out of view of
+                // the picker the user just used.
+                let shown = visible.get();
+                let current: Vec<FieldRow> = all_rows.with_value(|rows| {
+                    shown
+                        .iter()
+                        .filter_map(|slug| {
+                            rows.iter().find(|row| &row.definition.slug == slug)
+                        })
+                        .cloned()
+                        .collect()
+                });
                 if current.is_empty() {
                     view! {
                         <Text size="sm" dimmed=true>
@@ -189,11 +219,29 @@ fn MetadataForm(
                         .into_any()
                 }
             }}
-            {move || (!available.get().is_empty()).then(|| {
-                let mut options = vec![ADD_PLACEHOLDER.to_string()];
-                options.extend(available.get().into_iter().map(|d| d.name));
-                view! { <Select label="" options value=add_choice/> }
-            })}
+            {move || {
+                let shown = visible.get();
+                let available: Vec<String> = all_rows.with_value(|rows| {
+                    rows.iter()
+                        .filter(|row| !shown.contains(&row.definition.slug))
+                        .map(|row| row.definition.name.clone())
+                        .collect()
+                });
+                (!available.is_empty()).then(|| {
+                    let mut options = vec![ADD_PLACEHOLDER.to_string()];
+                    options.extend(available);
+                    view! {
+                        <div class="cl-field">
+                            <select class="cl-input cl-select" on:change=on_pick>
+                                {options.into_iter().map(|option| {
+                                    let label = option.clone();
+                                    view! { <option value=option>{label}</option> }
+                                }).collect_view()}
+                            </select>
+                        </div>
+                    }
+                })
+            }}
             <Group justify="between">
                 <Text size="xs" dimmed=true>"Blank clears a field. Last write wins (not versioned, A-0004)."</Text>
                 <button

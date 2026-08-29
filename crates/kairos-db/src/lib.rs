@@ -21,6 +21,7 @@ pub mod scim;
 pub mod search;
 pub mod seed;
 pub mod service_accounts;
+pub mod team_pages;
 pub mod tenant;
 
 pub use abac::{

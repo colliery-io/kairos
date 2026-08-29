@@ -26,6 +26,17 @@ use leptos_router::hooks::use_params_map;
 use crate::auth::use_auth;
 use api::team_type_color;
 
+/// Lifecycle chip accent — the same mapping as the item detail's
+/// lifecycle panel (KAIROS-T-0078), so the states read identically.
+fn lifecycle_color(state: &str) -> &'static str {
+    use aurora_dark::tokens::token;
+    match state {
+        "published" => token::OK,
+        "review" => token::GOLD,
+        _ => token::MUTED,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Directory
 // ---------------------------------------------------------------------------
@@ -114,6 +125,8 @@ struct TeamView {
     delivery_board: Option<(String, String)>,
     /// Streams this team participates in.
     streams: Vec<api::DeliveryStream>,
+    /// Documents attached to the team's work (KAIROS-T-0084, derived).
+    work_documents: Vec<api::WorkDocument>,
 }
 
 /// Load everything the detail page shows. The slug resolves through the
@@ -153,11 +166,14 @@ async fn load_team_view(
         }
     }
 
+    let work_documents = api::team_work_documents(auth, &team.id).await?;
+
     Ok(TeamView {
         team,
         members,
         delivery_board,
         streams,
+        work_documents,
     })
 }
 
@@ -190,6 +206,7 @@ fn TeamBody(view_model: TeamView) -> impl IntoView {
         members,
         delivery_board,
         streams,
+        work_documents,
     } = view_model;
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
@@ -229,6 +246,42 @@ fn TeamBody(view_model: TeamView) -> impl IntoView {
                     None => view! {
                         <Empty message="This team has no delivery board."/>
                     }.into_any(),
+                }}
+            </Panel>
+            <Panel title="Work documents" caption="documents attached to this team's work items">
+                {if work_documents.is_empty() {
+                    view! {
+                        <Empty message="No documents attached to this team's work items yet — documents under org-level items live with their parent."/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <Stack gap="sm">
+                            {work_documents.into_iter().map(|doc| {
+                                let api::WorkDocument {
+                                    short_code, title, lifecycle,
+                                    parent_short_code, parent_title, ..
+                                } = doc;
+                                view! {
+                                    <Stack gap="xs">
+                                        <Group justify="between">
+                                            <Anchor href=format!("/items/{short_code}")>
+                                                {format!("{short_code} — {title}")}
+                                            </Anchor>
+                                            <Pill color=lifecycle_color(&lifecycle)>{lifecycle.clone()}</Pill>
+                                        </Group>
+                                        <Group gap="xs">
+                                            <Text dimmed=true size="xs">"supports"</Text>
+                                            <Anchor href=format!("/items/{parent_short_code}")>
+                                                <Text dimmed=true size="xs">
+                                                    {format!("{parent_short_code} — {parent_title}")}
+                                                </Text>
+                                            </Anchor>
+                                        </Group>
+                                    </Stack>
+                                }
+                            }).collect_view()}
+                        </Stack>
+                    }.into_any()
                 }}
             </Panel>
             <Panel title="Delivery streams" caption="cross-team streams this team works in">

@@ -41,6 +41,11 @@ const MANAGE: &str = "manage_teams";
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/teams", get(list_teams).post(create_team))
+        .route("/api/teams/by-slug/{slug}", get(get_team_by_slug))
+        .route(
+            "/api/teams/{id}/work-documents",
+            get(list_work_documents),
+        )
         .route(
             "/api/teams/{id}",
             get(get_team).patch(update_team).delete(delete_team),
@@ -180,6 +185,86 @@ pub(crate) async fn get_team(
     Ok(Json(team))
 }
 
+/// One live team by SLUG (open tenant-wide; KAIROS-T-0083 — the web
+/// client resolves `/teams/:slug` here instead of scanning the list).
+#[utoipa::path(
+    get,
+    path = "/api/teams/by-slug/{slug}",
+    tag = "teams",
+    params(("slug" = String, Path, description = "Team slug")),
+    responses(
+        (status = 200, description = "The team", body = dto::Team),
+        (status = 404, description = "Unknown slug", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn get_team_by_slug(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(slug): Path<String>,
+) -> Result<Json<dto::Team>, ApiError> {
+    let team = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            use kairos_db::schema::teams::dsl;
+            let team: Option<Team> = dsl::teams
+                .filter(dsl::slug.eq(&slug))
+                .filter(dsl::deleted_at.is_null())
+                .select(Team::as_select())
+                .first(conn)
+                .optional()
+                .map_err(ApiError::internal)?;
+            let team = team
+                .ok_or_else(|| ApiError::not_found(format!("no team with slug {slug:?}")))?;
+            let board = delivery_board_of(conn, team.id)?;
+            Ok(team_to_dto(team, board))
+        })
+        .await?;
+    Ok(Json(team))
+}
+
+/// The documents attached to the team's WORK (KAIROS-T-0084): live
+/// documents whose supports-parent is a task of the team or an item on
+/// the team's delivery board. Open tenant-wide. Docs under org-level
+/// items deliberately absent — team attribution follows the parent item.
+#[utoipa::path(
+    get,
+    path = "/api/teams/{id}/work-documents",
+    tag = "teams",
+    params(("id" = String, Path, description = "Team id (UUID)")),
+    responses(
+        (status = 200, description = "Derived work documents, by short code", body = Vec<kairos_client::types_team_pages::TeamWorkDocument>),
+        (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn list_work_documents(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<kairos_client::types_team_pages::TeamWorkDocument>>, ApiError> {
+    let team_id = parse_uuid(&id, "id")?;
+    let rows = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            load_team(conn, team_id)?;
+            let board = delivery_board_of(conn, team_id)?;
+            let rows = kairos_db::graph::team_work_documents(conn, team_id, board)
+                .map_err(ApiError::internal)?;
+            Ok(rows
+                .into_iter()
+                .map(|row| kairos_client::types_team_pages::TeamWorkDocument {
+                    short_code: row.short_code,
+                    title: row.title,
+                    lifecycle: row.lifecycle,
+                    parent_short_code: row.parent_short_code,
+                    parent_title: row.parent_title,
+                    parent_type: row.parent_type,
+                })
+                .collect::<Vec<_>>())
+        })
+        .await?;
+    Ok(Json(rows))
+}
+
 /// Create a team AND its delivery board (seeded from the system delivery
 /// defaults, slug `{slug}-delivery`) in one transaction. Org-admin-only.
 #[utoipa::path(
@@ -251,6 +336,11 @@ pub(crate) async fn create_team(
                     }
                     e => map_config_error(e),
                 })?;
+                // KAIROS-T-0082: a team is never born bare — the page
+                // scaffold (charter, support processes, documentation
+                // tree) seeds in this same transaction.
+                kairos_db::team_pages::seed_team_scaffold(conn, team.id, user)
+                    .map_err(ApiError::internal)?;
                 log_team_activity(
                     conn,
                     user,

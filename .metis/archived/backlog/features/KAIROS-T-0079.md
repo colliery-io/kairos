@@ -7,7 +7,7 @@ created_at: 2026-08-16T14:57:48.022857+00:00
 updated_at: 2026-08-16T14:57:48.022857+00:00
 parent: 
 blocked_by: []
-archived: false
+archived: true
 
 tags:
   - "#task"
@@ -78,6 +78,8 @@ Best-fit synthesis: Atlas-style fixed charter layout + Confluence-style seeded d
 - **GUI**: `/teams/:slug` becomes a **fixed opinionated layout** in v1 (not configurable blocks): header, rendered Charter, Announcements panel (newest-first, pinned on top, post box for members), Members, Delivery board link, Streams, Documentation tree navigator. `/teams/:slug/pages/{path...}` renders/edits pages.
 - **Editor v1 (honest scope)**: existing textarea + Edit/Preview generalized over a save callback, plus a markdown toolbar (heading/bold/list/link inserting syntax) and the A-0004 merge dialog. **Markdown stays the source of truth.** True WYSIWYG-over-markdown live formatting is v2 — deterministic round-tripping is the hard bit per the survey.
 - **v2 wave**: hybrid live-formatting editor, configurable landing blocks, announcement push/digest distribution, verification badges, cross-linking team pages ↔ work items, move/rename with redirects, export.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria (v1)
 

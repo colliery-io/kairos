@@ -551,3 +551,58 @@ pub fn board_children_progress(
     }
     Ok(progress)
 }
+
+// ---------------------------------------------------------------------------
+// Derived team work-documents (KAIROS-T-0084)
+// ---------------------------------------------------------------------------
+
+/// One document attached to a team's work, with its supports-parent for
+/// attribution.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct TeamWorkDocument {
+    #[diesel(sql_type = Text)]
+    pub short_code: String,
+    #[diesel(sql_type = Text)]
+    pub title: String,
+    #[diesel(sql_type = Text)]
+    pub lifecycle: String,
+    #[diesel(sql_type = Text)]
+    pub parent_short_code: String,
+    #[diesel(sql_type = Text)]
+    pub parent_title: String,
+    #[diesel(sql_type = Text)]
+    pub parent_type: String,
+}
+
+/// The documents attached to a team's WORK (KAIROS-T-0084): live documents
+/// whose `supports` PARENT (edge source) is (a) a live task with `team_id
+/// = {team}` or (b) any live item on the team's delivery board. One row
+/// per document (`DISTINCT ON`), parent chosen deterministically
+/// (lexicographically first short code), ordered by document short code.
+///
+/// Documents supporting org-level items deliberately do NOT appear — team
+/// attribution follows the parent item. `delivery_board = None` (a team
+/// without a delivery board) leaves only path (a).
+pub fn team_work_documents(
+    conn: &mut PgConnection,
+    team_id: Uuid,
+    delivery_board: Option<Uuid>,
+) -> Result<Vec<TeamWorkDocument>, DieselError> {
+    sql_query(
+        "SELECT DISTINCT ON (d.short_code) \
+             d.short_code, d.title, d.lifecycle, \
+             p.short_code AS parent_short_code, \
+             p.title AS parent_title, \
+             p.entity_type AS parent_type \
+         FROM item_relationships r \
+         JOIN documents d ON d.id = r.target_id AND d.deleted_at IS NULL \
+         JOIN entity_directory p ON p.id = r.source_id \
+         LEFT JOIN tasks t ON t.id = r.source_id AND t.deleted_at IS NULL \
+         WHERE r.relationship = 'supports' \
+           AND (t.team_id = $1 OR p.board_id = $2) \
+         ORDER BY d.short_code, p.short_code",
+    )
+    .bind::<SqlUuid, _>(team_id)
+    .bind::<diesel::sql_types::Nullable<SqlUuid>, _>(delivery_board)
+    .load(conn)
+}

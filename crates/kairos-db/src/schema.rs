@@ -257,6 +257,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    team_announcements (id) {
+        id -> Uuid,
+        team_id -> Uuid,
+        body -> Text,
+        pinned -> Bool,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     team_delivery_streams (team_id, delivery_stream_id) {
         team_id -> Uuid,
         delivery_stream_id -> Uuid,
@@ -268,6 +279,38 @@ diesel::table! {
         team_id -> Uuid,
         user_id -> Uuid,
         joined_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    team_page_history (id) {
+        id -> Uuid,
+        page_id -> Uuid,
+        version -> Int4,
+        title -> Text,
+        content -> Text,
+        edited_by -> Uuid,
+        edited_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    team_pages (id) {
+        id -> Uuid,
+        team_id -> Uuid,
+        parent_id -> Nullable<Uuid>,
+        kind -> Text,
+        slug -> Text,
+        title -> Text,
+        content -> Text,
+        position -> Int4,
+        is_protected -> Bool,
+        version -> Int4,
+        created_by -> Uuid,
+        updated_by -> Uuid,
+        deleted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -322,9 +365,12 @@ diesel::joinable!(strategies -> boards (board_id));
 diesel::joinable!(tasks -> board_columns (column_id));
 diesel::joinable!(tasks -> boards (board_id));
 diesel::joinable!(tasks -> teams (team_id));
+diesel::joinable!(team_announcements -> teams (team_id));
 diesel::joinable!(team_delivery_streams -> delivery_streams (delivery_stream_id));
 diesel::joinable!(team_delivery_streams -> teams (team_id));
 diesel::joinable!(team_members -> teams (team_id));
+diesel::joinable!(team_page_history -> team_pages (page_id));
+diesel::joinable!(team_pages -> teams (team_id));
 diesel::joinable!(template_metadata -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(template_metadata -> templates (template_id));
 
@@ -348,8 +394,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     scim_tokens,
     strategies,
     tasks,
+    team_announcements,
     team_delivery_streams,
     team_members,
+    team_page_history,
+    team_pages,
     teams,
     template_metadata,
     templates,

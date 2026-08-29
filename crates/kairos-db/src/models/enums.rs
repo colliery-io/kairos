@@ -150,6 +150,15 @@ text_enum! {
 }
 
 text_enum! {
+    /// `team_pages.kind` (KAIROS-T-0082): a folder groups pages; a page
+    /// carries markdown content.
+    TeamPageKind {
+        Folder => "folder",
+        Page => "page",
+    }
+}
+
+text_enum! {
     /// `documents.lifecycle` (KAIROS-T-0078): the editorial state of a
     /// document — a label with free transitions, NEVER board position
     /// (the two-vocabulary rule: ticket status is a board column;
@@ -281,6 +290,11 @@ mod tests {
     #[test]
     fn work_class_round_trip_and_rejection() {
         assert_text_enum!(WorkClass, ["planned", "support"]);
+    }
+
+    #[test]
+    fn team_page_kind_round_trip_and_rejection() {
+        assert_text_enum!(TeamPageKind, ["folder", "page"]);
     }
 
     #[test]

@@ -94,6 +94,23 @@ pub async fn list_board_refs(auth: Auth) -> Result<Vec<BoardRef>, ApiError> {
     Ok(envelope.items)
 }
 
+/// mirror of: `kairos_client::types_team_pages::TeamWorkDocument`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct WorkDocument {
+    pub short_code: String,
+    pub title: String,
+    pub lifecycle: String,
+    pub parent_short_code: String,
+    pub parent_title: String,
+    pub parent_type: String,
+}
+
+/// `GET /api/teams/{id}/work-documents` (KAIROS-T-0084) — live documents
+/// supporting the team's tasks or items on its delivery board.
+pub async fn team_work_documents(auth: Auth, team_id: &str) -> Result<Vec<WorkDocument>, ApiError> {
+    get_json(auth, &format!("/api/teams/{team_id}/work-documents")).await
+}
+
 /// The accent token for a team type pill (shared by directory, detail,
 /// and the admin teams table).
 pub fn team_type_color(team_type: &str) -> &'static str {
@@ -149,5 +166,21 @@ mod tests {
         });
         let board: BoardRef = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(board.slug, "platform-delivery");
+    }
+
+    /// `WorkDocument` decodes the derived work-documents row.
+    #[test]
+    fn work_document_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "short_code": "ACME-D-0002",
+            "title": "Rollout runbook",
+            "lifecycle": "published",
+            "parent_short_code": "ACME-T-0009",
+            "parent_title": "Ship the rollout",
+            "parent_type": "task"
+        });
+        let doc: WorkDocument = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(doc.lifecycle, "published");
+        assert_eq!(doc.parent_short_code, "ACME-T-0009");
     }
 }

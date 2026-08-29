@@ -49,6 +49,10 @@ use crate::types_org::{
     UpdateColumnRequest, UpdateOrgMemberRequest, UpdateStreamRequest, UpdateTeamRequest,
     WhoamiResponse,
 };
+use crate::types_team_pages::{
+    CreateTeamAnnouncementRequest, CreateTeamPageRequest, TeamAnnouncement, TeamPage,
+    TeamWorkDocument, UpdateTeamPageRequest,
+};
 use crate::types_search::{SearchRequest, SearchResponse};
 
 /// Supplies the bearer token for each request. The CLI implements this
@@ -923,6 +927,101 @@ impl KairosClient {
     }
 
     // -- metadata definitions ------------------------------------------------------
+
+    // -- team pages + announcements (KAIROS-T-0083) -------------------------
+
+    /// `GET /api/teams/by-slug/{slug}`.
+    pub async fn get_team_by_slug(&self, slug: &str) -> Result<Team, Error> {
+        self.get(&format!("/api/teams/by-slug/{slug}")).await
+    }
+
+    /// `GET /api/teams/{id}/pages` — the team's live page tree as a flat
+    /// list (nest by parent_id).
+    pub async fn list_team_pages(&self, team_id: &str) -> Result<Vec<TeamPage>, Error> {
+        self.get(&format!("/api/teams/{team_id}/pages")).await
+    }
+
+    /// `GET /api/teams/{id}/pages/{page_id}`.
+    pub async fn get_team_page(&self, team_id: &str, page_id: &str) -> Result<TeamPage, Error> {
+        self.get(&format!("/api/teams/{team_id}/pages/{page_id}"))
+            .await
+    }
+
+    /// `POST /api/teams/{id}/pages` (team member or org admin).
+    pub async fn create_team_page(
+        &self,
+        team_id: &str,
+        request: &CreateTeamPageRequest,
+    ) -> Result<TeamPage, Error> {
+        self.post_created(&format!("/api/teams/{team_id}/pages"), request)
+            .await
+    }
+
+    /// `PATCH /api/teams/{id}/pages/{page_id}` — content edit
+    /// (version-checked) or rename/move.
+    pub async fn update_team_page(
+        &self,
+        team_id: &str,
+        page_id: &str,
+        request: &UpdateTeamPageRequest,
+    ) -> Result<TeamPage, Error> {
+        self.patch(&format!("/api/teams/{team_id}/pages/{page_id}"), request)
+            .await
+    }
+
+    /// `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
+    /// empty).
+    pub async fn delete_team_page(
+        &self,
+        team_id: &str,
+        page_id: &str,
+    ) -> Result<OrgDeleteResponse, Error> {
+        self.delete(&format!("/api/teams/{team_id}/pages/{page_id}"))
+            .await
+    }
+
+    /// `GET /api/teams/{id}/announcements` — pinned first, newest first.
+    /// `GET /api/teams/{id}/work-documents` — live documents supporting
+    /// the team's tasks or items on its delivery board (KAIROS-T-0084).
+    pub async fn list_team_work_documents(
+        &self,
+        team_id: &str,
+    ) -> Result<Vec<TeamWorkDocument>, Error> {
+        self.get(&format!("/api/teams/{team_id}/work-documents"))
+            .await
+    }
+
+    pub async fn list_team_announcements(
+        &self,
+        team_id: &str,
+    ) -> Result<Vec<TeamAnnouncement>, Error> {
+        self.get(&format!("/api/teams/{team_id}/announcements"))
+            .await
+    }
+
+    /// `POST /api/teams/{id}/announcements` (team member or org admin;
+    /// append-only — there is no edit).
+    pub async fn create_team_announcement(
+        &self,
+        team_id: &str,
+        request: &CreateTeamAnnouncementRequest,
+    ) -> Result<TeamAnnouncement, Error> {
+        self.post_created(&format!("/api/teams/{team_id}/announcements"), request)
+            .await
+    }
+
+    /// `DELETE /api/teams/{id}/announcements/{announcement_id}` (author
+    /// or org admin).
+    pub async fn delete_team_announcement(
+        &self,
+        team_id: &str,
+        announcement_id: &str,
+    ) -> Result<OrgDeleteResponse, Error> {
+        self.delete(&format!(
+            "/api/teams/{team_id}/announcements/{announcement_id}"
+        ))
+        .await
+    }
 
     /// `GET /api/metadata-definitions`.
     pub async fn list_metadata_definitions(

@@ -14,6 +14,7 @@ pub mod types;
 pub mod types_org;
 pub mod types_search;
 pub mod types_service_accounts;
+pub mod types_team_pages;
 pub mod ws;
 
 pub mod types_meta;

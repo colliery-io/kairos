@@ -150,12 +150,12 @@ impl AppConfig {
         let database_url = required(
             "DATABASE_URL",
             "it is required to reach PostgreSQL \
-             (e.g. postgres://kairos:kairos@localhost:5432/kairos)",
+             (e.g. postgres://kairos:kairos@localhost:41432/kairos)",
         )?;
         let oidc_issuer_url = required(
             "OIDC_ISSUER_URL",
             "it is required to validate bearer tokens \
-             (e.g. http://localhost:5558/dex for the dev stack)",
+             (e.g. http://localhost:41558/dex for the dev stack)",
         )?;
         let oidc_audience = required(
             "OIDC_AUDIENCE",

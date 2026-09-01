@@ -33,10 +33,10 @@ use kairos_server::middleware::auth::Authenticator;
 /// discipline: own the database, nothing else).
 const SCRATCH_DB: &str = "kairos_cli_t0037_test";
 /// The live dev/test issuer (`.angreal/dex/config.yaml`).
-const ISSUER: &str = "http://localhost:5558/dex";
+const ISSUER: &str = "http://localhost:41558/dex";
 const AUDIENCE: &str = "kairos-cli";
 const TENANT: &str = "cli_t37";
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())

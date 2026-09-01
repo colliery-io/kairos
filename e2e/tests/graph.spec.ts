@@ -23,7 +23,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
 import { loadPlatformDelivery, transitionTask } from '../helpers/api';
 
-const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:8080';
+const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
 const canvas = (page: Page) => page.locator('svg .kairos-graph__box');
 

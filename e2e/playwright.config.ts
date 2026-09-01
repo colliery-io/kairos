@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 // redirect_uri Dex registers for the `kairos-web` public client, so real
 // in-browser PKCE works with no interception). `angreal test e2e` boots it;
 // override for a hand-run dev server via E2E_GUI_BASE_URL.
-const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:8080';
+const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
 export default defineConfig({
   testDir: './tests',

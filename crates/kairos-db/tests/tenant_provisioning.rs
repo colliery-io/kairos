@@ -30,7 +30,7 @@ use kairos_db::tenant::TenantError;
 use kairos_db::{drop_tenant, migrate_all_tenants, provision_tenant, run_public_migrations};
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 

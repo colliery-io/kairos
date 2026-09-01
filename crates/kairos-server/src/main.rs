@@ -43,7 +43,7 @@ use diesel::pg::PgConnection;
 fn connect_and_migrate_public() -> Result<PgConnection, String> {
     let database_url = std::env::var("DATABASE_URL").map_err(|_| {
         "DATABASE_URL is not set; it is required to run schema migrations \
-         (e.g. postgres://kairos:kairos@localhost:5432/kairos)"
+         (e.g. postgres://kairos:kairos@localhost:41432/kairos)"
             .to_string()
     })?;
 

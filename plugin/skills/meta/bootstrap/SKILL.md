@@ -13,7 +13,7 @@ Connect the current repo to a Kairos deployment so every other kairos skill (and
 
 On a re-run, recover what is already known before asking: the `kairos` entry in the repo's `.mcp.json` (URL, `X-Tenant` header) and the frontmatter of `.claude/kairos.local.md`. Ask the user only for what is missing or being changed (or take it from the arguments):
 
-- **Deployment URL** — e.g. `https://acme.kairos.example` or `http://localhost:8080`. Strip any trailing slash. The MCP endpoint is `<deployment-url>/mcp`.
+- **Deployment URL** — e.g. `https://acme.kairos.example` or `http://localhost:41080`. Strip any trailing slash. The MCP endpoint is `<deployment-url>/mcp`.
 - **Tenant slug (optional, dev setups only)** — production deployments resolve the tenant from the URL's subdomain, so most users skip this. When the URL has no tenant subdomain (localhost, IP, plain host), ask for the tenant slug; it is sent as an `X-Tenant` header on every request.
 
 Sanity-check reachability before writing anything: fetch `<deployment-url>/healthz` (expect `ok`) and `<deployment-url>/.well-known/oauth-protected-resource/mcp` (RFC 9728 metadata naming the deployment's authorization server). If unreachable, show the user what failed, confirm the URL with them, and stop — do not write config for a URL that doesn't answer.

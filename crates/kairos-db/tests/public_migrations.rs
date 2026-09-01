@@ -5,7 +5,7 @@
 //! `angreal test integration` — the database is never mocked, per
 //! KAIROS-A-0012). Connection details come from `DATABASE_URL` if set,
 //! otherwise the same default the angreal tooling uses
-//! (`.angreal/task_db.py`): `postgres://kairos:kairos@localhost:5432/kairos`.
+//! (`.angreal/task_db.py`): `postgres://kairos:kairos@localhost:41432/kairos`.
 //!
 //! For isolation the test drops and recreates a dedicated scratch database
 //! (`kairos_public_migrations_test`) on the same server, so it never
@@ -19,7 +19,7 @@ use diesel::sql_query;
 use kairos_db::run_public_migrations;
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 const SCRATCH_DB: &str = "kairos_public_migrations_test";
 

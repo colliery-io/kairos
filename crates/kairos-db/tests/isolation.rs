@@ -70,7 +70,7 @@ use kairos_core::retention::{RetentionConfig, RetentionMode};
 // ===========================================================================
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 /// The two tenants every test provisions. `acme` is always the attacker,
 /// `zenith` the victim.

@@ -31,13 +31,13 @@ from utils import docker_up, docker_down, run_cargo_command, PROJECT_ROOT
 test = angreal.command_group(name="test", about="commands for running tests")
 
 # Soak stack wiring (KAIROS-T-0046): a dedicated port so neither a dev
-# server (8080) nor the e2e stack (8188) collides. The soak DRIVER
+# server (41080) nor the e2e stack (41188) collides. The soak DRIVER
 # (crates/kairos-soak) always targets an already-running deployment via
 # --url; this task is the boot-and-seed choreography around it, mirroring
 # the e2e pattern: compose up -> build -> seed-demo --force -> serve ->
 # drive -> stop the server. Unlike e2e it does NOT tear down the compose
 # services afterwards (soak is nightly-scale; the dev stack stays up).
-SOAK_PORT = int(os.environ.get("KAIROS_SOAK_PORT", "8189"))
+SOAK_PORT = int(os.environ.get("KAIROS_SOAK_PORT", "41189"))
 SOAK_BASE_URL = f"http://127.0.0.1:{SOAK_PORT}"
 SOAK_BIN = PROJECT_ROOT / "target" / "debug" / "kairos-soak"
 SOAK_REPORT = os.environ.get(
@@ -51,21 +51,21 @@ SOAK_DEPLOYMENT_ADMIN = "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWx
 # E2E stack wiring (KAIROS-T-0035): dedicated port so a dev server on the
 # default 8080 never collides; everything else matches the compose stack
 # defaults (.angreal/task_db.py, .angreal/dex/config.yaml).
-E2E_PORT = int(os.environ.get("KAIROS_E2E_PORT", "8188"))
+E2E_PORT = int(os.environ.get("KAIROS_E2E_PORT", "41188"))
 E2E_BASE_URL = f"http://127.0.0.1:{E2E_PORT}"
 E2E_DATABASE_URL = os.environ.get(
-    "DATABASE_URL", "postgres://kairos:kairos@localhost:5432/kairos"
+    "DATABASE_URL", "postgres://kairos:kairos@localhost:41432/kairos"
 )
-E2E_ISSUER = "http://localhost:5558/dex"
+E2E_ISSUER = "http://localhost:41558/dex"
 SERVER_BIN = PROJECT_ROOT / "target" / "debug" / "kairos-server"
 E2E_RUNNER_BIN = PROJECT_ROOT / "target" / "debug" / "examples" / "e2e_golden_path"
 
-# GUI smoke leg (KAIROS-T-0045): the Leptos SPA is served on :8080 because
+# GUI smoke leg (KAIROS-T-0045): the Leptos SPA is served on :41080 because
 # that is the ONLY redirect_uri Dex registers for the `kairos-web` public
 # client (.angreal/dex/config.yaml), so the Playwright suite does REAL
 # in-browser PKCE with no interception. Distinct from the golden-path
 # server's :8188 — the two run side by side against the same compose stack.
-E2E_GUI_PORT = int(os.environ.get("KAIROS_E2E_GUI_PORT", "8080"))
+E2E_GUI_PORT = int(os.environ.get("KAIROS_E2E_GUI_PORT", "41080"))
 E2E_GUI_BASE_URL = f"http://localhost:{E2E_GUI_PORT}"
 E2E_DIR = PROJECT_ROOT / "e2e"
 WEB_DIST = PROJECT_ROOT / "crates" / "kairos-web" / "dist"
@@ -260,7 +260,7 @@ def _ensure_playwright():
 
 def _run_gui_smoke(env):
     """The KAIROS-T-0045 GUI leg: build the SPA, reseed a clean demo
-    fixture, serve it on :8080 (the only redirect_uri Dex registers for
+    fixture, serve it on :41080 (the only redirect_uri Dex registers for
     kairos-web → real in-browser PKCE), and run the Playwright smoke suite
     headless. Returns an exit code; the caller attributes the phase."""
     print("Building the kairos-web bundle (angreal web build)...", flush=True)
@@ -350,8 +350,8 @@ def _run_gui_smoke(env):
 
         7. GUI smoke leg (KAIROS-T-0045): `angreal web build` (the CSR
            bundle), reseed the demo tenant, boot a SECOND kairos-server on
-           :8080 (OIDC_AUDIENCE=kairos-web, KAIROS_SINGLE_TENANT=demo,
-           KAIROS_WEB_DIST=dist — :8080 is the only redirect_uri Dex
+           :41080 (OIDC_AUDIENCE=kairos-web, KAIROS_SINGLE_TENANT=demo,
+           KAIROS_WEB_DIST=dist — :41080 is the only redirect_uri Dex
            registers for the kairos-web client, so PKCE is real), then run
            the Playwright suite in e2e/ headless (`npx playwright test`):
            real Dex login -> board list -> platform-delivery items in

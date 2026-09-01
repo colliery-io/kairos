@@ -17,7 +17,7 @@ use kairos_db::api_keys::{self, NewApiKey};
 use kairos_db::models::{NewServiceAccountUser, USER_KIND_SERVICE_ACCOUNT};
 use kairos_db::{provision_tenant, run_public_migrations};
 
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 const SLUG: &str = "acme";
 
 fn admin_url() -> String {

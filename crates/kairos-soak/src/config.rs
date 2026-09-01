@@ -242,8 +242,8 @@ pub struct SoakConfig {
 impl Default for SoakConfig {
     fn default() -> Self {
         SoakConfig {
-            url: "http://127.0.0.1:8080".to_string(),
-            issuer: "http://localhost:5558/dex".to_string(),
+            url: "http://127.0.0.1:41080".to_string(),
+            issuer: "http://localhost:41558/dex".to_string(),
             tenant: "demo".to_string(),
             bystander_tenant: "soak-bystander".to_string(),
             duration: Duration::from_secs(4 * 3600),

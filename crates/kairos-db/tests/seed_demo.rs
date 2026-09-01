@@ -26,7 +26,7 @@ use kairos_db::seed::{DEMO_SLUG, DEMO_USERS, SeedError, demo_tenant_exists};
 use kairos_db::{provision_tenant, run_public_migrations, seed_demo};
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 const SCRATCH_DB: &str = "kairos_seed_demo_test";
 

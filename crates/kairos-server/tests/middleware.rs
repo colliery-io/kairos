@@ -2,7 +2,7 @@
 //! contracts per KAIROS-A-0010 / KAIROS-A-0005 §2 / KAIROS-A-0013).
 //!
 //! Runs against the LIVE compose stack (`angreal services up`): real
-//! Postgres and the real Dex issuer at `http://localhost:5558/dex` —
+//! Postgres and the real Dex issuer at `http://localhost:41558/dex` —
 //! tokens are obtained via the password grant with the seeded test users
 //! (`.angreal/dex/config.yaml`), never forged. For isolation the test
 //! drops and recreates a dedicated scratch database

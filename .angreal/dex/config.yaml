@@ -15,10 +15,10 @@
 # and everything else in the dev workflow is container-only):
 #   docker run --rm httpd:2.4 htpasswd -bnBC 10 "" <password> | tr -d ':\n'
 
-# Port 5558 (not Dex's default 5556) — 5556/5557 collide with other local
+# Port 41558 (not Dex's default 5556) — 5556/5557 collide with other local
 # Dex instances. The port must stay consistent here, in the compose port map,
 # and in every OIDC_ISSUER_URL that points at this stack.
-issuer: http://localhost:5558/dex
+issuer: http://localhost:41558/dex
 
 # In-memory storage: instant startup, nothing to persist. Signing keys rotate
 # on every container restart, which is fine for dev/test (KAIROS-A-0012 runs
@@ -27,7 +27,7 @@ storage:
   type: memory
 
 web:
-  http: 0.0.0.0:5558
+  http: 0.0.0.0:41558
 
 # Long-lived test tokens per KAIROS-A-0012 (24h so soak/integration runs never
 # hit mid-run expiry). Production TTLs are a Keycloak realm concern, not this file.
@@ -83,7 +83,7 @@ staticPasswords:
 staticClients:
   # Leptos GUI: Authorization Code + PKCE (public client, no secret).
   #
-  # KAIROS-T-0050: register a RANGE of localhost callback ports (8080-8099) so
+  # KAIROS-T-0050: register a RANGE of localhost callback ports (41080-41099) so
   # multiple locally-run kairos-server instances can complete PKCE in parallel
   # (the concurrent GUI dev/verification wave needed this — one shared port
   # forced CDP-interception workarounds). Dex exact-matches each registered
@@ -95,26 +95,26 @@ staticClients:
     name: Kairos Web GUI
     public: true
     redirectURIs:
-      - http://localhost:8080/callback
-      - http://localhost:8081/callback
-      - http://localhost:8082/callback
-      - http://localhost:8083/callback
-      - http://localhost:8084/callback
-      - http://localhost:8085/callback
-      - http://localhost:8086/callback
-      - http://localhost:8087/callback
-      - http://localhost:8088/callback
-      - http://localhost:8089/callback
-      - http://localhost:8090/callback
-      - http://localhost:8091/callback
-      - http://localhost:8092/callback
-      - http://localhost:8093/callback
-      - http://localhost:8094/callback
-      - http://localhost:8095/callback
-      - http://localhost:8096/callback
-      - http://localhost:8097/callback
-      - http://localhost:8098/callback
-      - http://localhost:8099/callback
+      - http://localhost:41080/callback
+      - http://localhost:41081/callback
+      - http://localhost:41082/callback
+      - http://localhost:41083/callback
+      - http://localhost:41084/callback
+      - http://localhost:41085/callback
+      - http://localhost:41086/callback
+      - http://localhost:41087/callback
+      - http://localhost:41088/callback
+      - http://localhost:41089/callback
+      - http://localhost:41090/callback
+      - http://localhost:41091/callback
+      - http://localhost:41092/callback
+      - http://localhost:41093/callback
+      - http://localhost:41094/callback
+      - http://localhost:41095/callback
+      - http://localhost:41096/callback
+      - http://localhost:41097/callback
+      - http://localhost:41098/callback
+      - http://localhost:41099/callback
 
   # kairos CLI: Device Authorization Grant (public client).
   - id: kairos-cli

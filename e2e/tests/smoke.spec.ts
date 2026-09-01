@@ -31,7 +31,7 @@ import {
   patchTask,
 } from '../helpers/api';
 
-const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:8080';
+const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
 // A board column section located by its header name (Backlog/Todo/…).
 // KAIROS-T-0077: delivery boards render two lanes, so a column name

@@ -24,10 +24,10 @@ use kairos_client::KairosClient;
 use kairos_server::config::{AppConfig, LogFormat};
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-pub const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+pub const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 /// The live dev/test issuer (`.angreal/dex/config.yaml`).
-pub const ISSUER: &str = "http://localhost:5558/dex";
+pub const ISSUER: &str = "http://localhost:41558/dex";
 
 /// The audience the server accepts = the client id user tokens are minted
 /// through: Dex sets `aud` to the requesting OAuth client id, so user

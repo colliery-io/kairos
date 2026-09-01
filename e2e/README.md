@@ -27,25 +27,25 @@ Almost always via angreal — it owns the whole stack lifecycle:
 angreal test e2e     # compose up → seed → API+MCP golden path → GUI smoke → down
 ```
 
-The GUI leg builds the SPA, reseeds, boots a server on **:8080**, and runs this
-suite. `:8080` is not arbitrary — it is the **only** `redirect_uri` Dex
+The GUI leg builds the SPA, reseeds, boots a server on **:41080**, and runs this
+suite. `:41080` is not arbitrary — it is the **only** `redirect_uri` Dex
 registers for the `kairos-web` public client (`.angreal/dex/config.yaml`), so
 the browser login is genuine Authorization-Code + PKCE with no interception.
 
 ### Hand-running against your own dev server
 
 Point the suite at an already-running GUI server (see
-`docs/gui-conventions.md` for the dev-loop env — it must run on :8080 with
+`docs/gui-conventions.md` for the dev-loop env — it must run on :41080 with
 `OIDC_AUDIENCE=kairos-web`, `KAIROS_SINGLE_TENANT=demo`, seeded demo data):
 
 ```sh
 npm install                         # first time only
 npx playwright install chromium     # first time only (idempotent)
-E2E_GUI_BASE_URL=http://localhost:8080 npx playwright test
+E2E_GUI_BASE_URL=http://localhost:41080 npx playwright test
 ```
 
-Env knobs: `E2E_GUI_BASE_URL` (default `http://localhost:8080`), `E2E_ISSUER`
-(default `http://localhost:5558/dex`).
+Env knobs: `E2E_GUI_BASE_URL` (default `http://localhost:41080`), `E2E_ISSUER`
+(default `http://localhost:41558/dex`).
 
 ## Flake posture
 

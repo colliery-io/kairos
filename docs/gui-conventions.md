@@ -58,14 +58,14 @@ document builds on.
 angreal services up                      # postgres + dex
 angreal web build                        # or: trunk watch, in a second shell
 angreal db seed                          # demo tenant fixture
-DATABASE_URL=postgres://kairos:kairos@localhost:5432/kairos \
-  OIDC_ISSUER_URL=http://localhost:5558/dex \
+DATABASE_URL=postgres://kairos:kairos@localhost:41432/kairos \
+  OIDC_ISSUER_URL=http://localhost:41558/dex \
   OIDC_AUDIENCE=kairos-web \
   KAIROS_SINGLE_TENANT=demo \
   KAIROS_WEB_DIST=crates/kairos-web/dist \
   KAIROS_LOG_FORMAT=pretty \
   cargo run -p kairos-server -- serve
-# → http://localhost:8080  (alice@kairos.test / alice-password)
+# → http://localhost:41080  (alice@kairos.test / alice-password)
 ```
 
 Two dev-stack facts worth knowing (both are deployment config, not code):

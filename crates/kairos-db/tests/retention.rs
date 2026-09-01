@@ -50,7 +50,7 @@ use kairos_db::retention::{
 use kairos_db::{provision_tenant, run_public_migrations, schema};
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
 const SCRATCH_DB: &str = "kairos_retention_test";
 

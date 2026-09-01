@@ -25,8 +25,8 @@ export interface MintOptions {
 
 /** Run a full headless PKCE login and return the access token. */
 export async function mintToken(opts: MintOptions = {}): Promise<string> {
-  const issuer = opts.issuer ?? process.env.E2E_ISSUER ?? 'http://localhost:5558/dex';
-  const server = opts.server ?? process.env.E2E_GUI_BASE_URL ?? 'http://localhost:8080';
+  const issuer = opts.issuer ?? process.env.E2E_ISSUER ?? 'http://localhost:41558/dex';
+  const server = opts.server ?? process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
   const clientId = opts.clientId ?? 'kairos-web';
   const redirect = `${server}/callback`;
   const email = opts.email ?? 'alice@kairos.test';

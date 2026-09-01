@@ -18,7 +18,7 @@ use kairos_db::models::teams::{NewTeam, Team};
 use kairos_db::team_pages::seed_team_scaffold;
 use kairos_db::{provision_tenant, run_public_migrations, schema};
 
-const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 const SCRATCH_DB: &str = "kairos_team_pages_test";
 
 fn admin_database_url() -> String {

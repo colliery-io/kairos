@@ -20,7 +20,7 @@ db = angreal.command_group(name="db", about="database management commands")
 # Installed into target/tools so it never clobbers a user-global diesel.
 DIESEL_CLI_VERSION = "2.3.6"
 DIESEL_TOOLS_ROOT = PROJECT_ROOT / "target" / "tools"
-DATABASE_URL = "postgres://kairos:kairos@localhost:5432/kairos"
+DATABASE_URL = "postgres://kairos:kairos@localhost:41432/kairos"
 SCHEMA_RS = PROJECT_ROOT / "crates" / "kairos-db" / "src" / "schema.rs"
 # Throwaway tenant provisioned (and dropped) by schema-sync so diesel
 # print-schema has a migrated tenant schema to introspect (KAIROS-T-0009).

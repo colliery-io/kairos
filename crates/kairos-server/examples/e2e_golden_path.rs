@@ -187,7 +187,7 @@ async fn main() -> ExitCode {
     let base_url = std::env::var("KAIROS_E2E_BASE_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:8188".to_string());
     let issuer = std::env::var("KAIROS_E2E_ISSUER")
-        .unwrap_or_else(|_| "http://localhost:5558/dex".to_string());
+        .unwrap_or_else(|_| "http://localhost:41558/dex".to_string());
     let http = reqwest::Client::new();
 
     println!("[e2e] golden path against {base_url} (tenant {TENANT:?}, issuer {issuer})");

@@ -43,7 +43,7 @@ mod setup {
     use kairos_db::{provision_tenant, run_public_migrations};
 
     /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
-    const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:5432/kairos";
+    const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
     fn admin_database_url() -> String {
         std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())

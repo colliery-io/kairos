@@ -4,14 +4,14 @@ level: task
 title: "Forge integration e2e + seeded fixtures + setup documentation"
 short_code: "KAIROS-T-0102"
 created_at: 2026-09-01T23:12:38.913970+00:00
-updated_at: 2026-09-01T23:12:38.913970+00:00
+updated_at: 2026-09-02T10:48:00.557298+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -49,13 +49,21 @@ Make the feature demonstrable and regression-proof: seeded demo links, an e2e sp
 
 ## Acceptance Criteria
 
-- [ ] Seed provisions demo connections + links covering open/draft/merged/branch; `seed_demo` counts updated and asserted.
-- [ ] `forge.spec.ts` drives real signed deliveries: open → merged live over WS → replay stays merged → bad signature is a no-op → team rollup shows only in-flight work. Green without retries.
-- [ ] A reusable signed-delivery helper lives in `e2e/helpers/`.
-- [ ] Fallout swept: provisioning counts, item-detail specs, seed counts, openapi gate.
-- [ ] Setup docs cover both forges, the branch-naming convention, the reachability requirement (including the localhost caveat), and secret rotation.
-- [ ] Full ladder green: unit, integration, e2e.
+## Acceptance Criteria
+
+- [x] Seed provisions demo connections + links covering open/draft/merged/branch; `seed_demo` counts updated and asserted.
+- [x] `forge.spec.ts` drives real signed deliveries: open → merged live over WS → replay stays merged → bad signature is a no-op → team rollup shows only in-flight work. Green without retries.
+- [x] A reusable signed-delivery helper lives in `e2e/helpers/`.
+- [x] Fallout swept: provisioning counts, item-detail specs, seed counts, openapi gate.
+- [x] Setup docs cover both forges, the branch-naming convention, the reachability requirement (including the localhost caveat), and secret rotation.
+- [x] Full ladder green: unit, integration, e2e.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition.
+- 2026-09-02: COMPLETE. Seed: one connection per demo team (GitHub `acme/payments-api` → platform, GitLab `acme/portal-web` → web, both team-attributed) plus four links covering every state the panels render — open PR, branch, merged PR, draft. `SeedError::Forge` variant added. seed_demo asserts connections=2, both forges present, both attributed, links=4, three distinct states, one branch.
+- 2026-09-02: e2e: `createForgeConnection` / `deliverGithubWebhook` / `githubPullRequest` helpers in `e2e/helpers/api.ts` (the delivery helper computes a real `X-Hub-Signature-256` with Node's `crypto.createHmac`, and rewrites the returned public `webhook_url` to the local test server's path). `forge.spec.ts` walks: seeded links on the item → register a repo → signed "opened" delivery appears with NO reload → merge flips the chip live → **replay of the earlier open leaves it merged** (the ordering guard, proven in a browser) → a wrongly signed delivery is 401 and changes nothing → the team In flight panel shows open work and hides the merged PR. `.angreal/task_test.py` now sets `KAIROS_PUBLIC_URL` + `KAIROS_WEBHOOK_SIGNING_KEY` for the GUI leg.
+- 2026-09-02: **Harness bug found and fixed — worth more than the feature work.** The first full run showed 3 failures (forge, team-lens, teampages) that looked like real regressions. Root cause: a stray dev server of mine still held :41080, so our GUI server died with "Address already in use" while `_wait_for_url(healthz)` happily got a 200 **from the stale process** — the whole suite then ran against a binary predating the `/links` endpoints. The harness now checks `gui_server.poll()` after healthz answers and fails loudly ("something else is already listening"), so this class of confusion cannot recur. With the port free, team-lens and teampages passed untouched, confirming they were never broken.
+- 2026-09-02: One genuine test-only fix: the In flight assertion hit a Playwright strict-mode violation because an item can legitimately carry several in-flight links (seeded PR + branch + the delivered one) — scoped to `.first()` rather than asserting uniqueness.
+- 2026-09-02: Docs: new README section "Git forge integration (GitHub / GitLab)" covering the branch/PR short-code convention (the part engineers must actually do), `KAIROS_PUBLIC_URL` + `KAIROS_WEBHOOK_SIGNING_KEY`, the reachability requirement with the localhost-needs-a-tunnel caveat, per-forge webhook setup steps and event selections, rotation (new id ⇒ new URL *and* secret), and the deliberate non-goals. Skipped the optional bootstrap-skill mention — recorded here rather than done half-way.
+- 2026-09-02: Full ladder green: `angreal test unit` clean, `angreal test integration` 34/34 targets, `angreal test e2e` 10/10 specs with no retries.

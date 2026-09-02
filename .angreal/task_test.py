@@ -289,6 +289,11 @@ def _run_gui_smoke(env):
         "KAIROS_SINGLE_TENANT": "demo",
         "KAIROS_BASE_DOMAIN": "kairos.test",
         "KAIROS_WEB_DIST": str(WEB_DIST),
+        # KAIROS-T-0102: the forge spec registers a repo and delivers
+        # signed webhooks, so the GUI leg needs the integration configured
+        # (without these the connection endpoints answer 501).
+        "KAIROS_PUBLIC_URL": E2E_GUI_BASE_URL,
+        "KAIROS_WEBHOOK_SIGNING_KEY": "e2e-webhook-signing-key",
     })
     print(f"Booting the GUI server on {E2E_GUI_BASE_URL}...", flush=True)
     gui_server = subprocess.Popen(
@@ -301,6 +306,18 @@ def _run_gui_smoke(env):
             return _e2e_phase(
                 "GUI server boot (healthz never answered; "
                 f"process state: {gui_server.poll()})",
+                1,
+            )
+        # `healthz` answering is NOT proof that OUR server answered it: if
+        # the port was already taken (a stray dev server), our process
+        # exits with "Address already in use" and the suite silently runs
+        # against whatever else is listening — usually a stale binary,
+        # producing a pile of baffling failures. Fail loudly instead.
+        if gui_server.poll() is not None:
+            return _e2e_phase(
+                f"GUI server exited immediately (code {gui_server.returncode}) — "
+                f"something else is already listening on {E2E_GUI_BASE_URL}; "
+                "stop it and re-run",
                 1,
             )
         print("Running the Playwright GUI smoke suite...", flush=True)

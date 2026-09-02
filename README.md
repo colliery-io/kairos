@@ -255,6 +255,80 @@ exactly once); revocation and expiry take effect immediately on the next request
 service accounts can never be org admins or deployment admins; rotate by minting a
 new key and revoking the old one; never commit a key to source control.
 
+## Git forge integration (GitHub / GitLab)
+
+Kairos associates work items with the branches and pull/merge requests that
+reference them (KAIROS-I-0009). A short code anywhere in a **branch name**, **PR
+title**, or **PR description** creates the link — `dylan/DEMO-T-0002-fix-auth`,
+`Fix login (DEMO-T-0002)`, and a description mentioning `DEMO-T-0002` all work.
+Links appear in a **Development** panel on the item and roll up to an **In
+flight** panel on the owning team's page.
+
+This is deliberately *not* a service catalog: no ownership graph, no
+dependencies, no in-repo manifest. Kairos records links; the forge remains the
+source of truth. **Nothing is written back** to the forge, and PR state never
+moves cards — board columns are configurable per KAIROS-A-0002, so there is no
+universal "In Progress" to target.
+
+**Prerequisites.** Kairos must be **reachable from the forge** — webhooks are
+inbound. That is ordinary for a deployed ingress; for local development you need
+a tunnel (`cloudflared`, `ngrok`, or similar) since `localhost` is not routable
+from github.com. Set two config values:
+
+```sh
+KAIROS_PUBLIC_URL=https://kairos.acme.example      # your externally reachable base URL
+KAIROS_WEBHOOK_SIGNING_KEY=<a long random secret>  # every webhook secret derives from this
+```
+
+Without them the connection endpoints answer `501` and the integration is simply
+off. The signing key is deployment-wide: webhook secrets are **derived** from it
+per connection rather than stored, so a database compromise alone yields no
+webhook secrets — but treat the key like any other deployment secret.
+
+**1. Connect a repository** (org admin). The response contains the delivery URL
+and the secret, and the secret is shown **exactly once**:
+
+```sh
+curl -X POST https://<host>/api/forge-connections \
+  -H "Authorization: Bearer <your-admin-token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"forge":"github","repo_full_name":"acme/payments-api",
+       "repo_url":"https://github.com/acme/payments-api",
+       "team_id":"<optional team uuid>"}'
+```
+
+Setting `team_id` attributes the whole repository to a team, so its activity
+reaches that team's In flight panel even for work items that carry no team.
+
+**2. Add the webhook in the forge:**
+
+- **GitHub** — *Settings → Webhooks → Add webhook*. Payload URL: the returned
+  `webhook_url`. Content type: `application/json`. Secret: the returned
+  `webhook_secret`. Events: **Pull requests** and **Branch or tag creation**.
+- **GitLab** — *Settings → Webhooks → Add new webhook*. URL: the returned
+  `webhook_url`. Secret token: the returned `webhook_secret`. Triggers:
+  **Merge request events** and **Push events**.
+
+**3. Use it.** Name the short code in your branch (the convention worth adopting
+team-wide) and the link appears when the branch is pushed or the PR opened;
+merging updates it live.
+
+**Rotation and removal:**
+
+```sh
+# New secret AND new delivery URL (the secret derives from the connection id),
+# so update both fields in the forge:
+curl -X POST https://<host>/api/forge-connections/<id>/rotate -H "Authorization: Bearer <admin>"
+
+curl -X DELETE https://<host>/api/forge-connections/<id> -H "Authorization: Bearer <admin>"
+```
+
+**Notes.** Deliveries whose short codes do not exist here are accepted and
+ignored — a branch may legitimately reference another deployment's codes, and
+rejecting would make the forge retry forever. Redelivered or out-of-order events
+cannot regress state (a replayed "opened" will not un-merge a merged PR). Editing
+a PR to remove a short code removes that link.
+
 ## CI
 
 `.github/workflows/ci.yml` runs the KAIROS-A-0012 verification gates on every

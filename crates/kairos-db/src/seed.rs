@@ -46,7 +46,7 @@
 //! partial state. Only the `demo` tenant and the three fixture users are
 //! ever touched; other tenants and users are invisible to this module.
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
@@ -133,6 +133,9 @@ pub enum SeedError {
     /// Seeding demo team-page content failed (KAIROS-T-0087).
     #[error(transparent)]
     TeamPage(#[from] crate::team_pages::TeamPageError),
+    /// Seeding demo forge connections/links failed (KAIROS-T-0102).
+    #[error(transparent)]
+    Forge(#[from] crate::forge::ForgeError),
     /// Any other database error.
     #[error("database error: {0}")]
     Database(#[from] DieselError),
@@ -863,6 +866,105 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             alice,
         )?;
         edges += 1;
+
+        // --- forge connections + links (KAIROS-T-0102) -----------------------
+        // One connected repo per team, and links covering every state the
+        // panels render: an open PR, a draft, a merged one, and a branch.
+        // Fictional repos — nothing here reaches the network.
+        use crate::models::enums::{Forge, LinkKind, LinkState};
+        use crate::models::forge::{NewForgeConnection, NewItemLink};
+        let platform_repo = crate::forge::create_connection(
+            conn,
+            NewForgeConnection {
+                forge: Forge::Github,
+                repo_full_name: "acme/payments-api".to_string(),
+                repo_url: "https://github.com/acme/payments-api".to_string(),
+                team_id: Some(platform.id),
+                created_by: alice,
+            },
+        )?;
+        let web_repo = crate::forge::create_connection(
+            conn,
+            NewForgeConnection {
+                forge: Forge::Gitlab,
+                repo_full_name: "acme/portal-web".to_string(),
+                repo_url: "https://gitlab.com/acme/portal-web".to_string(),
+                team_id: Some(web.id),
+                created_by: alice,
+            },
+        )?;
+
+        // (connection, item, kind, external id, title, state, author)
+        let seeded_links: [(Uuid, Uuid, LinkKind, &str, &str, LinkState, &str); 4] = [
+            (
+                platform_repo.id,
+                task_ids[1],
+                LinkKind::PullRequest,
+                "42",
+                "Password-less email auth",
+                LinkState::Open,
+                "bob",
+            ),
+            (
+                platform_repo.id,
+                task_ids[1],
+                LinkKind::Branch,
+                "bob/passwordless-auth",
+                "bob/passwordless-auth",
+                LinkState::Open,
+                "bob",
+            ),
+            (
+                platform_repo.id,
+                task_ids[2],
+                LinkKind::PullRequest,
+                "43",
+                "Provision tenant on first login",
+                LinkState::Merged,
+                "alice",
+            ),
+            (
+                web_repo.id,
+                task_ids[0],
+                LinkKind::PullRequest,
+                "7",
+                "Draft: sign-up form skeleton",
+                LinkState::Draft,
+                "carol",
+            ),
+        ];
+        let mut links = 0usize;
+        for (connection_id, item_id, kind, external_id, title, state, author) in seeded_links {
+            let repo = if connection_id == platform_repo.id {
+                ("github.com", "acme/payments-api", "pull")
+            } else {
+                ("gitlab.com", "acme/portal-web", "-/merge_requests")
+            };
+            let url = match kind {
+                LinkKind::PullRequest => {
+                    format!("https://{}/{}/{}/{external_id}", repo.0, repo.1, repo.2)
+                }
+                LinkKind::Branch => {
+                    format!("https://{}/{}/tree/{external_id}", repo.0, repo.1)
+                }
+            };
+            crate::forge::upsert_link(
+                conn,
+                NewItemLink {
+                    item_id,
+                    connection_id,
+                    kind,
+                    external_id: external_id.to_string(),
+                    title: title.to_string(),
+                    url,
+                    state,
+                    author: author.to_string(),
+                    forge_updated_at: Utc::now(),
+                },
+            )?;
+            links += 1;
+        }
+        debug_assert_eq!(links, 4);
 
         Ok(SeedDemoReport {
             slug: DEMO_SLUG.to_string(),

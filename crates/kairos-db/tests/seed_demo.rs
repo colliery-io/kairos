@@ -254,6 +254,38 @@ fn seed_demo_fixture_lifecycle() {
             1,
         ),
         (
+            "forge connections (one per team, KAIROS-T-0102)",
+            "SELECT COUNT(*) AS count FROM org_demo.forge_connections \
+             WHERE deleted_at IS NULL",
+            2,
+        ),
+        (
+            "both forges represented",
+            "SELECT COUNT(DISTINCT forge) AS count FROM org_demo.forge_connections",
+            2,
+        ),
+        (
+            "every connection is attributed to a team",
+            "SELECT COUNT(*) AS count FROM org_demo.forge_connections \
+             WHERE team_id IS NOT NULL",
+            2,
+        ),
+        (
+            "item links covering open/merged/draft plus a branch",
+            "SELECT COUNT(*) AS count FROM org_demo.item_links",
+            4,
+        ),
+        (
+            "every link state the panels render is present",
+            "SELECT COUNT(DISTINCT state) AS count FROM org_demo.item_links",
+            3,
+        ),
+        (
+            "one branch link (the rest are pull requests)",
+            "SELECT COUNT(*) AS count FROM org_demo.item_links WHERE kind = 'branch'",
+            1,
+        ),
+        (
             "supersedes edge (ADR chain)",
             "SELECT COUNT(*) AS count FROM org_demo.item_relationships \
              WHERE relationship = 'supersedes'",

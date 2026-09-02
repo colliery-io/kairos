@@ -4,6 +4,8 @@
 // S-0005 / the kairos-web data layer (POST /api/{family}/{code}/transition,
 // PATCH /api/{family}/{code} carrying {title,content,version}).
 
+import crypto from 'node:crypto';
+
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
 async function json(server: string, token: string, path: string): Promise<any> {
@@ -191,4 +193,108 @@ export async function patchTeamPage(
     throw new Error(`patch team page -> ${res.status}: ${await res.text()}`);
   }
   return (await res.json()).version as number;
+}
+
+// --- forge webhooks (KAIROS-T-0102) -----------------------------------------
+
+export interface ForgeConnection {
+  id: string;
+  webhookUrl: string;
+  webhookSecret: string;
+}
+
+/** Register a repository and capture its delivery URL + secret (shown once). */
+export async function createForgeConnection(
+  server: string,
+  token: string,
+  repoFullName: string,
+  teamId?: string,
+): Promise<ForgeConnection> {
+  const res = await fetch(`${server}/api/forge-connections`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      forge: 'github',
+      repo_full_name: repoFullName,
+      repo_url: `https://github.com/${repoFullName}`,
+      team_id: teamId ?? null,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`create connection -> ${res.status}: ${await res.text()}`);
+  }
+  const body = await res.json();
+  return {
+    id: body.id,
+    webhookUrl: body.webhook_url,
+    webhookSecret: body.webhook_secret,
+  };
+}
+
+/**
+ * POST a GitHub webhook payload with a correct `X-Hub-Signature-256`:
+ * HMAC-SHA256 of the RAW body under the connection's secret — which is
+ * exactly why the secret is returned at creation.
+ *
+ * `signWith` overrides the secret so a test can prove a bad signature is
+ * rejected. Returns the HTTP status.
+ */
+export async function deliverGithubWebhook(
+  server: string,
+  connection: ForgeConnection,
+  event: string,
+  payload: unknown,
+  signWith?: string,
+): Promise<number> {
+  const body = JSON.stringify(payload);
+  const secret = signWith ?? connection.webhookSecret;
+  const signature =
+    'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+  // webhook_url names the deployment's PUBLIC url, which in the e2e stack
+  // is not where the test server listens — deliver to the same path on the
+  // local server.
+  const path = new URL(connection.webhookUrl).pathname;
+  const res = await fetch(`${server}${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-github-event': event,
+      'x-hub-signature-256': signature,
+    },
+    body,
+  });
+  return res.status;
+}
+
+/** A GitHub `pull_request` payload naming `code`. */
+export function githubPullRequest(opts: {
+  number: number;
+  code: string;
+  repoFullName: string;
+  state: 'open' | 'closed';
+  merged?: boolean;
+  draft?: boolean;
+  updatedAt: string;
+  title?: string;
+}): unknown {
+  return {
+    action: opts.state === 'closed' ? 'closed' : 'opened',
+    repository: {
+      full_name: opts.repoFullName,
+      html_url: `https://github.com/${opts.repoFullName}`,
+    },
+    sender: { login: 'dylan' },
+    pull_request: {
+      number: opts.number,
+      state: opts.state,
+      merged: opts.merged ?? false,
+      draft: opts.draft ?? false,
+      title: opts.title ?? `Work on ${opts.code}`,
+      body: '',
+      html_url: `https://github.com/${opts.repoFullName}/pull/${opts.number}`,
+      updated_at: opts.updatedAt,
+      user: { login: 'dylan' },
+      head: { ref: `dylan/${opts.code}-branch` },
+    },
+  };
 }

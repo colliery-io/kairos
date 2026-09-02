@@ -885,6 +885,30 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/{family}/{short_code}/links` — the branches and
+    /// pull/merge requests linked to one item (KAIROS-T-0100).
+    pub async fn item_links(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+    ) -> Result<Vec<crate::types_forge::ItemLink>, Error> {
+        self.get(&format!("/api/{kind}/{short_code}/links")).await
+    }
+
+    /// `GET /api/teams/{id}/links` — the team's in-flight forge links
+    /// (KAIROS-T-0101). `states` defaults to open+draft server-side.
+    pub async fn team_links(
+        &self,
+        team_id: &str,
+        states: Option<&str>,
+    ) -> Result<Vec<crate::types_forge::TeamLink>, Error> {
+        let path = match states {
+            Some(states) => format!("/api/teams/{team_id}/links?state={states}"),
+            None => format!("/api/teams/{team_id}/links"),
+        };
+        self.get(&path).await
+    }
+
     /// `GET /api/forge-connections` (KAIROS-T-0097).
     pub async fn list_forge_connections(
         &self,

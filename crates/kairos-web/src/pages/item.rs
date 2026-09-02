@@ -236,6 +236,7 @@ fn ItemLoaded(
                     <LifecyclePanel code=short_code.clone() current on_moved/>
                 })}
                 <MetadataPanel family code=short_code.clone()/>
+                <DevelopmentPanel family code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
@@ -682,6 +683,95 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
                 }.into_any(),
             }}
         </Panel>
+    }
+}
+
+/// The accent for a forge link's state (KAIROS-T-0100). Red stays
+/// reserved for violated/at-risk — a closed pull request is a normal
+/// outcome, not an error.
+fn link_state_color(state: &str) -> &'static str {
+    match state {
+        "open" => token::ICE,
+        "merged" => token::VIOLET,
+        "draft" => token::MUTED,
+        _ => token::MUTED,
+    }
+}
+
+/// Branches and pull/merge requests for this item (KAIROS-T-0100).
+/// Renders NOTHING when there are no links — an always-present empty
+/// panel is exactly what the T-0089 explorer rework removed.
+#[component]
+fn DevelopmentPanel(family: Family, #[prop(into)] code: String) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let reload = RwSignal::new(0u32);
+    let links = LocalResource::new(move || {
+        let _ = auth.token();
+        let _ = reload.get();
+        api::fetch_links(auth, family, code.get_value())
+    });
+
+    // Webhook ingestion is the whole point of this panel, and it happens
+    // without the user doing anything — so subscribe to the tenant stream
+    // and refetch when an event names THIS item (the T-0074 pattern; the
+    // item page has no other live subscription).
+    let live_guard: StoredValue<Option<crate::pages::boards::live::LiveBoardGuard>, LocalStorage> =
+        StoredValue::new_local(None);
+    let guard = crate::pages::boards::live::subscribe_all_events(auth, move |event_code| {
+        let concerns_me = event_code.is_none_or(|event_code| event_code == code.get_value());
+        if concerns_me {
+            reload.update(|n| *n += 1);
+        }
+    });
+    live_guard.set_value(Some(guard));
+    on_cleanup(move || live_guard.set_value(None));
+
+    view! {
+        {move || match links.get() {
+            Some(Ok(links)) if !links.is_empty() => {
+                let rows = links
+                    .into_iter()
+                    .map(|link| {
+                        let label = if link.kind == "pull_request" {
+                            format!("#{} {}", link.external_id, link.title)
+                        } else {
+                            link.title.clone()
+                        };
+                        let repo = format!("{} · {}", link.forge, link.repo_full_name);
+                        view! {
+                            <Group justify="between" wrap=true>
+                                <Group gap="sm" wrap=true>
+                                    <Pill color=link_state_color(&link.state)>
+                                        {link.state.clone()}
+                                    </Pill>
+                                    // Leaves the app: open in a new tab and
+                                    // sever the opener reference.
+                                    <a
+                                        class="cl-anchor"
+                                        href=link.url.clone()
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {label}
+                                    </a>
+                                </Group>
+                                <Text mono=true dimmed=true size="xs">{repo}</Text>
+                            </Group>
+                        }
+                    })
+                    .collect_view();
+                view! {
+                    <Panel title="Development" caption="branches and pull requests">
+                        <Stack gap="xs">{rows}</Stack>
+                    </Panel>
+                }
+                .into_any()
+            }
+            // No links, still loading, or the read failed: render nothing.
+            // This panel is additive context, never the page's job.
+            _ => ().into_any(),
+        }}
     }
 }
 

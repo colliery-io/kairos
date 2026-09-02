@@ -682,9 +682,64 @@ async fn error_from(status: u16, response: gloo_net::http::Response) -> ApiError
     }
 }
 
+// ---------------------------------------------------------------------------
+// Forge links (KAIROS-T-0100)
+// ---------------------------------------------------------------------------
+
+/// mirror of: `kairos_client::types_forge::ItemLink` (partial — the
+/// Development panel does not render `id` or `item_id`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ItemLink {
+    /// `branch|pull_request`.
+    pub kind: String,
+    /// PR/MR number, or the branch ref.
+    pub external_id: String,
+    pub title: String,
+    /// Browser URL on the forge.
+    pub url: String,
+    /// `open|merged|closed|draft`.
+    pub state: String,
+    pub author: String,
+    /// `github|gitlab`.
+    pub forge: String,
+    /// `owner/repo`.
+    pub repo_full_name: String,
+}
+
+/// `GET /api/{family}/{code}/links` — server-ordered (PRs first, newest
+/// first), so this never re-sorts.
+pub async fn fetch_links(
+    auth: Auth,
+    family: Family,
+    code: String,
+) -> Result<Vec<ItemLink>, ApiError> {
+    get_json(auth, &format!("/api/{}/{code}/links", family.api_family())).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ItemLink` decodes the KAIROS-T-0100 wire shape.
+    #[test]
+    fn item_link_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "id": "l1",
+            "item_id": "i1",
+            "kind": "pull_request",
+            "external_id": "42",
+            "title": "Password-less auth",
+            "url": "https://github.com/acme/payments-api/pull/42",
+            "state": "merged",
+            "author": "dylan",
+            "forge": "github",
+            "repo_full_name": "acme/payments-api",
+            "forge_updated_at": "2026-09-01T12:00:00Z"
+        });
+        let link: ItemLink = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(link.state, "merged");
+        assert_eq!(link.repo_full_name, "acme/payments-api");
+    }
 
     /// Short-code → family across all five letters, multi-segment
     /// prefixes included; junk is rejected.

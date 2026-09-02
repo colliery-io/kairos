@@ -43,6 +43,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/teams", get(list_teams).post(create_team))
         .route("/api/teams/by-slug/{slug}", get(get_team_by_slug))
         .route(
+            "/api/teams/{id}/links",
+            get(list_team_links),
+        )
+        .route(
             "/api/teams/{id}/work-documents",
             get(list_work_documents),
         )
@@ -220,6 +224,79 @@ pub(crate) async fn get_team_by_slug(
         })
         .await?;
     Ok(Json(team))
+}
+
+/// Query of [`list_team_links`] (explicit struct — serde_urlencoded
+/// cannot flatten).
+#[derive(serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct TeamLinksQuery {
+    /// Comma-separated states; defaults to `open,draft` — the panel's
+    /// question is "what is in flight", not merged history.
+    state: Option<String>,
+    /// Result cap (default 100).
+    limit: Option<i64>,
+}
+
+/// The team's in-flight forge links (KAIROS-T-0101): links whose item is
+/// a task of this team, or an item on the team's delivery board, or whose
+/// repository is attributed to the team. Open tenant-wide.
+#[utoipa::path(
+    get,
+    path = "/api/teams/{id}/links",
+    tag = "teams",
+    params(
+        ("id" = String, Path, description = "Team id (UUID)"),
+        TeamLinksQuery,
+    ),
+    responses(
+        (status = 200, description = "In-flight links, newest first", body = Vec<kairos_client::types_forge::TeamLink>),
+        (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn list_team_links(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<TeamLinksQuery>,
+) -> Result<Json<Vec<kairos_client::types_forge::TeamLink>>, ApiError> {
+    let team_id = parse_uuid(&id, "id")?;
+    let states: Vec<String> = query
+        .state
+        .as_deref()
+        .unwrap_or("open,draft")
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let limit = query.limit.unwrap_or(100).clamp(1, 500);
+    let rows = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            load_team(conn, team_id)?;
+            let board = delivery_board_of(conn, team_id)?;
+            let refs: Vec<&str> = states.iter().map(String::as_str).collect();
+            let rows =
+                kairos_db::graph::team_link_rollup(conn, team_id, board, &refs, limit)
+                    .map_err(ApiError::internal)?;
+            Ok(rows
+                .into_iter()
+                .map(|row| kairos_client::types_forge::TeamLink {
+                    kind: row.kind,
+                    external_id: row.external_id,
+                    title: row.title,
+                    url: row.url,
+                    state: row.state,
+                    author: row.author,
+                    forge: row.forge,
+                    repo_full_name: row.repo_full_name,
+                    item_short_code: row.item_short_code,
+                    item_title: row.item_title,
+                    forge_updated_at: row.forge_updated_at.to_rfc3339(),
+                })
+                .collect::<Vec<_>>())
+        })
+        .await?;
+    Ok(Json(rows))
 }
 
 /// The documents attached to the team's WORK (KAIROS-T-0084): live

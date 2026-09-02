@@ -841,3 +841,77 @@ pub fn blocks_summary(
         })
         .collect())
 }
+
+/// Forge links across a team's WORK (KAIROS-T-0101). A link qualifies
+/// three ways, matching how the team's work is defined elsewhere:
+///
+/// 1. its item is a task with `team_id = {team}`;
+/// 2. its item sits on the team's delivery board;
+/// 3. its repository is attributed to the team (`forge_connections.team_id`).
+///
+/// **Kept adjacent to [`team_work_documents`] on purpose**: paths 1 and 2
+/// are that function's exact predicate. If the definition of "this team's
+/// work" ever changes, both must change together, and adjacency is what
+/// makes that obvious.
+///
+/// `states` filters (the panel asks "what is in flight", not for merged
+/// history) and `limit` caps a busy team's result set. `DISTINCT` on the
+/// link: one row however many ways it qualified.
+pub fn team_link_rollup(
+    conn: &mut PgConnection,
+    team_id: Uuid,
+    delivery_board: Option<Uuid>,
+    states: &[&str],
+    limit: i64,
+) -> Result<Vec<TeamLinkRow>, DieselError> {
+    sql_query(
+        "SELECT DISTINCT ON (l.id) \
+             l.id, l.kind, l.external_id, l.title, l.url, l.state, l.author, \
+             l.forge_updated_at, \
+             c.forge, c.repo_full_name, \
+             d.short_code AS item_short_code, d.title AS item_title \
+         FROM item_links l \
+         JOIN forge_connections c ON c.id = l.connection_id AND c.deleted_at IS NULL \
+         JOIN entity_directory d ON d.id = l.item_id \
+         LEFT JOIN tasks t ON t.id = l.item_id AND t.deleted_at IS NULL \
+         WHERE l.state = ANY($3) \
+           AND (t.team_id = $1 OR d.board_id = $2 OR c.team_id = $1) \
+         ORDER BY l.id, l.forge_updated_at DESC \
+         LIMIT $4",
+    )
+    .bind::<SqlUuid, _>(team_id)
+    .bind::<diesel::sql_types::Nullable<SqlUuid>, _>(delivery_board)
+    .bind::<Array<Text>, _>(states.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    .bind::<diesel::sql_types::BigInt, _>(limit)
+    .load(conn)
+}
+
+/// One row of [`team_link_rollup`] — the link plus the repo and the work
+/// item it belongs to, so the panel can link both ways.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct TeamLinkRow {
+    #[diesel(sql_type = SqlUuid)]
+    pub id: Uuid,
+    #[diesel(sql_type = Text)]
+    pub kind: String,
+    #[diesel(sql_type = Text)]
+    pub external_id: String,
+    #[diesel(sql_type = Text)]
+    pub title: String,
+    #[diesel(sql_type = Text)]
+    pub url: String,
+    #[diesel(sql_type = Text)]
+    pub state: String,
+    #[diesel(sql_type = Text)]
+    pub author: String,
+    #[diesel(sql_type = diesel::sql_types::Timestamptz)]
+    pub forge_updated_at: chrono::DateTime<chrono::Utc>,
+    #[diesel(sql_type = Text)]
+    pub forge: String,
+    #[diesel(sql_type = Text)]
+    pub repo_full_name: String,
+    #[diesel(sql_type = Text)]
+    pub item_short_code: String,
+    #[diesel(sql_type = Text)]
+    pub item_title: String,
+}

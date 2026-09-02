@@ -64,6 +64,32 @@ pub struct UpdateForgeConnectionRequest {
     pub clear_team: bool,
 }
 
+/// One row of a team's in-flight rollup (KAIROS-T-0101): a link plus the
+/// work item it belongs to, so the panel can link both to the forge and
+/// back into Kairos.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TeamLink {
+    /// `branch|pull_request`.
+    pub kind: String,
+    /// PR/MR number, or the branch ref.
+    pub external_id: String,
+    pub title: String,
+    /// Browser URL on the forge.
+    pub url: String,
+    /// `open|merged|closed|draft`.
+    pub state: String,
+    pub author: String,
+    /// `github|gitlab`.
+    pub forge: String,
+    /// `owner/repo`.
+    pub repo_full_name: String,
+    /// The Kairos work item this link belongs to.
+    pub item_short_code: String,
+    pub item_title: String,
+    /// RFC 3339.
+    pub forge_updated_at: String,
+}
+
 /// One branch or pull/merge request linked to a work item.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ItemLink {

@@ -45,6 +45,10 @@ pub fn router() -> Router<AppState> {
             "/api/{entity_type}/{short_code}/graph",
             get(get_item_graph),
         )
+        .route(
+            "/api/{entity_type}/{short_code}/links",
+            get(get_item_links),
+        )
         .route("/api/relationships", post(create_relationship))
         .route("/api/relationships/{id}", delete(delete_relationship))
 }
@@ -103,6 +107,55 @@ pub(crate) async fn get_children_progress(
         })
         .await?;
     Ok(Json(response))
+}
+
+/// The branches and pull/merge requests linked to one item
+/// (KAIROS-T-0100). Ordering is server-side (pull requests before
+/// branches, newest first) so every client agrees. Open tenant-wide like
+/// its sibling reads.
+#[utoipa::path(
+    get,
+    path = "/api/{entity_type}/{short_code}/links",
+    tag = "relationships",
+    params(
+        ("entity_type" = String, Path, description = "Entity family (plural URL segment)"),
+        ("short_code" = String, Path, description = "The item's short code"),
+    ),
+    responses(
+        (status = 200, description = "Linked branches and pull/merge requests", body = Vec<kairos_client::types_forge::ItemLink>),
+        (status = 404, description = "Unknown family or short code", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn get_item_links(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((family, short_code)): Path<(String, String)>,
+) -> Result<Json<Vec<kairos_client::types_forge::ItemLink>>, ApiError> {
+    let rows = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let links =
+                kairos_db::forge::links_for_item(conn, item_id).map_err(ApiError::internal)?;
+            Ok(links
+                .into_iter()
+                .map(|row| kairos_client::types_forge::ItemLink {
+                    id: row.link.id.to_string(),
+                    item_id: row.link.item_id.to_string(),
+                    kind: row.link.kind.to_string(),
+                    external_id: row.link.external_id,
+                    title: row.link.title,
+                    url: row.link.url,
+                    state: row.link.state.to_string(),
+                    author: row.link.author,
+                    forge: row.forge.to_string(),
+                    repo_full_name: row.repo_full_name,
+                    forge_updated_at: row.link.forge_updated_at.to_rfc3339(),
+                })
+                .collect::<Vec<_>>())
+        })
+        .await?;
+    Ok(Json(rows))
 }
 
 /// Query of [`get_item_graph`] (explicit struct — serde_urlencoded

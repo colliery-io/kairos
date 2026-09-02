@@ -298,6 +298,33 @@ pub async fn delete_announcement(
     Ok(())
 }
 
+/// mirror of: `kairos_client::types_forge::TeamLink` (KAIROS-T-0101).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TeamLink {
+    /// `branch|pull_request`.
+    pub kind: String,
+    /// PR/MR number, or the branch ref.
+    pub external_id: String,
+    pub title: String,
+    /// Browser URL on the forge.
+    pub url: String,
+    /// `open|merged|closed|draft`.
+    pub state: String,
+    /// `github|gitlab`.
+    pub forge: String,
+    /// `owner/repo`.
+    pub repo_full_name: String,
+    /// The Kairos work item this link belongs to.
+    pub item_short_code: String,
+    pub item_title: String,
+}
+
+/// `GET /api/teams/{id}/links` — in-flight work (open + draft) across the
+/// team's repos; server-ordered newest first.
+pub async fn team_links(auth: Auth, team_id: &str) -> Result<Vec<TeamLink>, ApiError> {
+    get_json(auth, &format!("/api/teams/{team_id}/links")).await
+}
+
 /// mirror of: `kairos_client::types_team_pages::TeamWorkDocument`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct WorkDocument {
@@ -409,6 +436,27 @@ mod tests {
         let a: Announcement = serde_json::from_value(body).expect("mirror decodes");
         assert!(a.pinned);
         assert_eq!(a.created_by, "u1");
+    }
+
+    /// `TeamLink` decodes the in-flight rollup row.
+    #[test]
+    fn team_link_mirror_decodes_server_shape() {
+        let body = serde_json::json!({
+            "kind": "pull_request",
+            "external_id": "42",
+            "title": "Password-less auth",
+            "url": "https://github.com/acme/payments-api/pull/42",
+            "state": "open",
+            "author": "dylan",
+            "forge": "github",
+            "repo_full_name": "acme/payments-api",
+            "item_short_code": "DEMO-T-0002",
+            "item_title": "Password-less email auth",
+            "forge_updated_at": "2026-09-01T10:00:00Z"
+        });
+        let link: TeamLink = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(link.item_short_code, "DEMO-T-0002");
+        assert_eq!(link.state, "open");
     }
 
     /// `WorkDocument` decodes the derived work-documents row.

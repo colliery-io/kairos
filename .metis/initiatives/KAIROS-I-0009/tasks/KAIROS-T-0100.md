@@ -4,14 +4,14 @@ level: task
 title: "Links read API + item-detail Development panel"
 short_code: "KAIROS-T-0100"
 created_at: 2026-09-01T23:12:36.803347+00:00
-updated_at: 2026-09-01T23:12:36.803347+00:00
+updated_at: 2026-09-02T10:24:44.952033+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,13 +40,19 @@ Surface the links where the work is: `GET /api/{family}/{code}/links` plus a Dev
 
 ## Acceptance Criteria
 
-- [ ] `GET /api/{family}/{code}/links` returns the item's branches and PRs with repo/forge context; 404 on family mismatch like its sibling endpoints; open tenant-wide; openapi registered.
-- [ ] Ordering is server-side and stable (PRs first, newest first).
-- [ ] kairos-client DTOs + method; web mirror with a decode test.
-- [ ] Item detail renders a Development panel only when links exist; rows link out to the forge with `noopener noreferrer`; state chips use tokens with no red.
-- [ ] An ingested webhook updates the open item view without a manual refresh.
-- [ ] Unit + lint + build green; server integration coverage for the endpoint.
+## Acceptance Criteria
+
+- [x] `GET /api/{family}/{code}/links` returns the item's branches and PRs with repo/forge context; 404 on family mismatch like its sibling endpoints; open tenant-wide; openapi registered.
+- [x] Ordering is server-side and stable (PRs first, newest first).
+- [x] kairos-client DTOs + method; web mirror with a decode test.
+- [x] Item detail renders a Development panel only when links exist; rows link out to the forge with `noopener noreferrer`; state chips use tokens with no red.
+- [x] An ingested webhook updates the open item view without a manual refresh.
+- [x] Unit + lint + build green; server integration coverage for the endpoint.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition.
+- 2026-09-02: COMPLETE. `GET /api/{entity_type}/{short_code}/links` added to meta/relationships.rs beside `/relationships`, `/children-progress`, and `/graph` — same `resolve_family_item` 404 behaviour, open tenant-wide, openapi registered. Ordering is SQL-side in `links_for_item` (`kind DESC` puts pull_request before branch, then `forge_updated_at DESC`). `types_forge::ItemLink` + `client.item_links()`; partial mirror + decode test in `pages/item/api.rs`.
+- 2026-09-02: Web: `DevelopmentPanel` between Metadata and Relationships, rendering **nothing** when there are no links — including while loading or on error, since the panel is additive context and never the page's job (the standing no-empty-panels rule from the T-0089 rework). Rows: state Pill (open=ICE, merged=VIOLET, draft/closed=MUTED — **no red**, a closed PR is a normal outcome), the PR title as a plain `<a class="cl-anchor" target="_blank" rel="noopener noreferrer">` (aurora's `Anchor` has no target/rel props, and this is the first place Kairos links off-origin), and `forge · owner/repo` mono-dimmed.
+- 2026-09-02: Live refresh required NEW plumbing, not a reuse: the item page had **no WS subscription at all**. Wired the panel to `subscribe_all_events` (the whole-tenant helper generalized for the graph view in KAIROS-T-0090), refetching when an event names this short code, with the guard in `StoredValue::new_local` + `on_cleanup` per the boards drop-guard discipline.
+- 2026-09-02: Verified: `forge_webhook` extended to assert the endpoint returns what ingestion wrote (state, kind, external_id, forge, repo) plus a family-mismatch 404 — test green. `angreal test unit` clean, `angreal web lint` clean, `angreal web build` succeeds. Browser proof of the live path rides KAIROS-T-0102's spec.

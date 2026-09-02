@@ -4,14 +4,14 @@ level: task
 title: "Team landing-page in-flight rollup: derived team links query and panel"
 short_code: "KAIROS-T-0101"
 created_at: 2026-09-01T23:12:38.101728+00:00
-updated_at: 2026-09-01T23:12:38.101728+00:00
+updated_at: 2026-09-02T10:31:15.763890+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,12 +40,18 @@ initiative_id: KAIROS-I-0009
 
 ## Acceptance Criteria
 
-- [ ] `GET /api/teams/{id}/links` returns open links for the team by all three qualifying paths (task `team_id`, delivery-board item, repo attributed to the team), DISTINCT, newest first, 404 on unknown team.
-- [ ] Default state filter is open+draft; merged/closed reachable via the query param; result cap documented.
-- [ ] The team-work predicate is implemented adjacent to `team_work_documents` and the parallel is noted in both, so the definitions cannot drift silently.
-- [ ] `/teams/:slug` renders the "In flight" panel with forge links and item short-code links; the empty state names what counts.
-- [ ] kairos-client DTO + method; web mirror decode test; unit + lint + build green; server integration test covers all three qualifying paths plus the DISTINCT case.
+## Acceptance Criteria
+
+- [x] `GET /api/teams/{id}/links` returns open links for the team by all three qualifying paths (task `team_id`, delivery-board item, repo attributed to the team), DISTINCT, newest first, 404 on unknown team.
+- [x] Default state filter is open+draft; merged/closed reachable via the query param; result cap documented.
+- [x] The team-work predicate is implemented adjacent to `team_work_documents` and the parallel is noted in both, so the definitions cannot drift silently.
+- [x] `/teams/:slug` renders the "In flight" panel with forge links and item short-code links; the empty state names what counts.
+- [x] kairos-client DTO + method; web mirror decode test; unit + lint + build green; server integration test covers all three qualifying paths plus the DISTINCT case.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition.
+- 2026-09-02: COMPLETE. `graph::team_link_rollup` sits directly beside `team_work_documents` with a doc comment in each naming the other, since paths 1 and 2 are that function's exact predicate — the drift risk the ticket called out. `DISTINCT ON (l.id)` so a link qualifying several ways appears once; `state = ANY($3)` with the default `open,draft` applied at the handler; `limit` clamped to 1..=500, default 100 (recorded — the T-0084 precedent takes everything, which a busy team would regret).
+- 2026-09-02: `GET /api/teams/{id}/links` in org/teams.rs beside `work-documents`, open tenant-wide, explicit `TeamLinksQuery` struct (serde_urlencoded cannot flatten), openapi registered. `types_forge::TeamLink` carries the work item's short code and title alongside the link, so the panel connects both directions; `client.team_links()`; web mirror + decode test in pages/teams/api.rs.
+- 2026-09-02: Web: "In flight" panel added last in the fixed v1 layout (charter → announcements → members → board → streams → documentation → work documents → in flight). Rows: state Pill using the same `link_state_color` mapping as the item Development panel (no red), PR title as a `target="_blank" rel="noopener noreferrer"` anchor to the forge, `forge · owner/repo` mono-dimmed, and a dimmed "on {CODE} — {title}" line linking back to `/items/{code}`. Empty state names all three qualifying paths so a blank panel does not read as broken.
+- 2026-09-02: Verified: `forge_webhook` extended to prove each qualifying path in isolation — unattributed task+repo yields nothing; attributing the REPO qualifies the link; clearing that and setting the TASK's team qualifies it again; the default filter drops the merged PR (the "in flight, not history" contract); unknown team 404s. `angreal test unit` clean, `angreal web lint` clean, `angreal web build` succeeds, `angreal test integration` 34/34 targets green.

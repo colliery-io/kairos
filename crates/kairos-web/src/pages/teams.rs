@@ -136,6 +136,8 @@ struct TeamView {
     pages: Vec<api::TeamPageNode>,
     /// Pinned first, newest first (server ordering).
     announcements: Vec<api::Announcement>,
+    /// In-flight forge links across the team's work (KAIROS-T-0101).
+    links: Vec<api::TeamLink>,
 }
 
 /// Load everything the detail page shows, resolving the slug through
@@ -170,6 +172,7 @@ async fn load_team_view(
     let work_documents = api::team_work_documents(auth, &team.id).await?;
     let pages = api::team_pages(auth, &team.id).await?;
     let announcements = api::team_announcements(auth, &team.id).await?;
+    let links = api::team_links(auth, &team.id).await?;
 
     Ok(TeamView {
         team,
@@ -179,6 +182,7 @@ async fn load_team_view(
         work_documents,
         pages,
         announcements,
+        links,
     })
 }
 
@@ -229,6 +233,7 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
         work_documents,
         pages,
         announcements,
+        links,
     } = view_model;
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
@@ -349,7 +354,69 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                     }.into_any()
                 }}
             </Panel>
+            <Panel title="In flight" caption="open work across this team's repos">
+                {if links.is_empty() {
+                    view! {
+                        <Empty message="Nothing open across this team's repos — this counts pull requests and branches on this team's work items, plus repos attributed to the team."/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <Stack gap="sm">
+                            {links.into_iter().map(|link| {
+                                let label = if link.kind == "pull_request" {
+                                    format!("#{} {}", link.external_id, link.title)
+                                } else {
+                                    link.title.clone()
+                                };
+                                let repo = format!("{} · {}", link.forge, link.repo_full_name);
+                                let item_href = format!("/items/{}", link.item_short_code);
+                                let item_label = format!(
+                                    "{} — {}",
+                                    link.item_short_code, link.item_title
+                                );
+                                view! {
+                                    <Stack gap="xs">
+                                        <Group justify="between" wrap=true>
+                                            <Group gap="sm" wrap=true>
+                                                <Pill color=link_state_color(&link.state)>
+                                                    {link.state.clone()}
+                                                </Pill>
+                                                <a
+                                                    class="cl-anchor"
+                                                    href=link.url.clone()
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    {label}
+                                                </a>
+                                            </Group>
+                                            <Text mono=true dimmed=true size="xs">{repo}</Text>
+                                        </Group>
+                                        <Group gap="xs">
+                                            <Text dimmed=true size="xs">"on"</Text>
+                                            <Anchor href=item_href>
+                                                <Text dimmed=true size="xs">{item_label}</Text>
+                                            </Anchor>
+                                        </Group>
+                                    </Stack>
+                                }
+                            }).collect_view()}
+                        </Stack>
+                    }.into_any()
+                }}
+            </Panel>
         </Stack>
+    }
+}
+
+/// The accent for a forge link's state — same mapping as the item
+/// detail's Development panel (KAIROS-T-0100). Red stays reserved.
+fn link_state_color(state: &str) -> &'static str {
+    use aurora_dark::tokens::token;
+    match state {
+        "open" => token::ICE,
+        "merged" => token::VIOLET,
+        _ => token::MUTED,
     }
 }
 

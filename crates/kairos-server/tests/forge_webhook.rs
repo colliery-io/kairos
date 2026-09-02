@@ -56,6 +56,14 @@ fn link_state(conn: &mut PgConnection, item_id: Uuid, external_id: &str) -> Opti
         .expect("querying item_links")
 }
 
+/// Unwrap an expected API rejection (panics on success).
+fn rejection<T: std::fmt::Debug>(result: Result<T, kairos_client::Error>) -> kairos_client::Error {
+    match result {
+        Ok(value) => panic!("expected an API rejection, got success: {value:?}"),
+        Err(err) => err,
+    }
+}
+
 fn link_count(conn: &mut PgConnection) -> i64 {
     use kairos_db::schema::item_links::dsl;
     dsl::item_links
@@ -243,6 +251,26 @@ async fn forge_webhook_ingestion_against_live_stack() {
     );
 
     // =======================================================================
+    // The read API surfaces what ingestion wrote (KAIROS-T-0100)
+    // =======================================================================
+    let links = svc
+        .item_links(kairos_client::EntityKind::Task, &code)
+        .await
+        .expect("item links");
+    assert_eq!(links.len(), 1, "{links:?}");
+    assert_eq!(links[0].state, "merged");
+    assert_eq!(links[0].kind, "pull_request");
+    assert_eq!(links[0].external_id, "42");
+    assert_eq!(links[0].forge, "github");
+    assert_eq!(links[0].repo_full_name, "acme/payments-api");
+    // Family mismatch 404s like the sibling reads.
+    let err = rejection(
+        svc.item_links(kairos_client::EntityKind::Document, &code)
+            .await,
+    );
+    assert!(matches!(err, kairos_client::Error::NotFound { .. }), "{err}");
+
+    // =======================================================================
     // Authenticity failures are uniform, and change nothing
     // =======================================================================
     let before = link_count(&mut conn);
@@ -314,6 +342,80 @@ async fn forge_webhook_ingestion_against_live_stack() {
         before,
         "a code from another deployment is ignored, not an error"
     );
+
+    // =======================================================================
+    // Team rollup (KAIROS-T-0101): all three qualifying paths
+    // =======================================================================
+    // The task carries no team_id and the connection no team, so nothing
+    // qualifies yet.
+    let team = svc
+        .create_team(&kairos_client::types_org::CreateTeamRequest {
+            name: "Platform".into(),
+            slug: "platform".into(),
+            team_type: None,
+        })
+        .await
+        .expect("team");
+    // PR 42 is currently merged, so ask for merged explicitly.
+    assert!(
+        svc.team_links(&team.id, Some("merged"))
+            .await
+            .expect("rollup")
+            .is_empty(),
+        "an unattributed task and repo qualify no links"
+    );
+
+    // Path 3: attribute the REPO to the team.
+    svc.update_forge_connection(
+        &created.connection.id,
+        &kairos_client::types_forge::UpdateForgeConnectionRequest {
+            team_id: Some(team.id.clone()),
+            clear_team: false,
+        },
+    )
+    .await
+    .expect("attributing the repo");
+    let rollup = svc
+        .team_links(&team.id, Some("merged"))
+        .await
+        .expect("rollup by repo attribution");
+    assert_eq!(rollup.len(), 1, "{rollup:?}");
+    assert_eq!(rollup[0].item_short_code, code);
+    assert_eq!(rollup[0].repo_full_name, "acme/payments-api");
+
+    // Path 1: the task's own team_id qualifies it even with the repo
+    // attribution cleared.
+    svc.update_forge_connection(
+        &created.connection.id,
+        &kairos_client::types_forge::UpdateForgeConnectionRequest {
+            team_id: None,
+            clear_team: true,
+        },
+    )
+    .await
+    .expect("clearing the repo attribution");
+    let team_uuid: Uuid = team.id.parse().expect("uuid");
+    diesel::update(kairos_db::schema::tasks::table.find(task.id))
+        .set(kairos_db::schema::tasks::team_id.eq(Some(team_uuid)))
+        .execute(&mut conn)
+        .expect("assigning the task to the team");
+    let rollup = svc
+        .team_links(&team.id, Some("merged"))
+        .await
+        .expect("rollup by task team");
+    assert_eq!(rollup.len(), 1, "the task's own team qualifies it");
+
+    // Default state filter is in-flight only, so a merged PR drops out.
+    assert!(
+        svc.team_links(&team.id, None)
+            .await
+            .expect("default rollup")
+            .is_empty(),
+        "the default asks what is IN FLIGHT, not merged history"
+    );
+    // Unknown team → 404.
+    let err = rejection(svc.team_links(&Uuid::new_v4().to_string(), None).await);
+    assert!(matches!(err, kairos_client::Error::NotFound { .. }), "{err}");
 
     // =======================================================================
     // Re-editing a PR to drop the code removes the stale link

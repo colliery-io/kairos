@@ -1,0 +1,6 @@
+{
+  "ref": "v1.2.0",
+  "ref_type": "tag",
+  "repository": { "full_name": "acme/payments-api", "html_url": "https://github.com/acme/payments-api" },
+  "sender": { "login": "dylan" }
+}

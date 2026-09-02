@@ -885,6 +885,55 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/forge-connections` (KAIROS-T-0097).
+    pub async fn list_forge_connections(
+        &self,
+    ) -> Result<Vec<crate::types_forge::ForgeConnection>, Error> {
+        self.get("/api/forge-connections").await
+    }
+
+    /// `GET /api/forge-connections/{id}`.
+    pub async fn get_forge_connection(
+        &self,
+        id: &str,
+    ) -> Result<crate::types_forge::ForgeConnection, Error> {
+        self.get(&format!("/api/forge-connections/{id}")).await
+    }
+
+    /// `POST /api/forge-connections` (org admin) — the response carries
+    /// `webhook_secret`, which is shown exactly once.
+    pub async fn create_forge_connection(
+        &self,
+        request: &crate::types_forge::CreateForgeConnectionRequest,
+    ) -> Result<crate::types_forge::CreatedForgeConnection, Error> {
+        self.post_created("/api/forge-connections", request).await
+    }
+
+    /// `PATCH /api/forge-connections/{id}` — team attribution only.
+    pub async fn update_forge_connection(
+        &self,
+        id: &str,
+        request: &crate::types_forge::UpdateForgeConnectionRequest,
+    ) -> Result<crate::types_forge::ForgeConnection, Error> {
+        self.patch(&format!("/api/forge-connections/{id}"), request)
+            .await
+    }
+
+    /// `DELETE /api/forge-connections/{id}` (org admin).
+    pub async fn delete_forge_connection(&self, id: &str) -> Result<OrgDeleteResponse, Error> {
+        self.delete(&format!("/api/forge-connections/{id}")).await
+    }
+
+    /// `POST /api/forge-connections/{id}/rotate` — mints a new connection
+    /// id (and therefore a new URL and secret) for the same repository.
+    pub async fn rotate_forge_connection(
+        &self,
+        id: &str,
+    ) -> Result<crate::types_forge::CreatedForgeConnection, Error> {
+        self.post_ok(&format!("/api/forge-connections/{id}/rotate"), &serde_json::json!({}))
+            .await
+    }
+
     /// `GET /api/{family}/{short_code}/graph?depth=N` — the focal
     /// subgraph: nodes AND typed directed edges (KAIROS-T-0088). `None`
     /// depth takes the server default (2).

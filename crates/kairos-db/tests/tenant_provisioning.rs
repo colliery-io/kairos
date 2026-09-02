@@ -37,7 +37,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 27] = [
+const EXPECTED_TABLES: [&str; 29] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -47,8 +47,10 @@ const EXPECTED_TABLES: [&str; 27] = [
     "boards",
     "delivery_streams",
     "documents",
+    "forge_connections",
     "initiatives",
     "item_history",
+    "item_links",
     "item_metadata",
     "item_relationships",
     "metadata_definition_scopes",
@@ -470,19 +472,20 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `team_pages`,
-    // KAIROS-T-0082): revert its DDL and drop its bookkeeping row in
+    // that predates the NEWEST tenant migration (currently `forge_links`,
+    // KAIROS-T-0097): revert its DDL and drop its bookkeeping row in
     // widgets only, then fleet-migrate and expect exactly that one
     // migration to re-apply.
-    sql_query("DROP TABLE org_widgets.team_announcements")
+    //
+    // NOTE: this block is hand-re-pinned to the newest migration on every
+    // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
+    // to remove by deriving the target from the embedded migration list.
+    sql_query("DROP TABLE org_widgets.item_links")
         .execute(&mut conn)
-        .expect("dropping announcements in widgets to simulate an old tenant");
-    sql_query("DROP TABLE org_widgets.team_page_history")
+        .expect("dropping item links in widgets to simulate an old tenant");
+    sql_query("DROP TABLE org_widgets.forge_connections")
         .execute(&mut conn)
-        .expect("dropping page history in widgets to simulate an old tenant");
-    sql_query("DROP TABLE org_widgets.team_pages")
-        .execute(&mut conn)
-        .expect("dropping team pages in widgets to simulate an old tenant");
+        .expect("dropping forge connections in widgets to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -513,10 +516,10 @@ fn tenant_provisioning_lifecycle() {
         count(
             &mut conn,
             "SELECT count(*) FROM information_schema.tables \
-             WHERE table_schema = 'org_widgets' AND table_name = 'team_pages'"
+             WHERE table_schema = 'org_widgets' AND table_name = 'item_links'"
         ),
         1,
-        "team_pages is back in widgets after the fleet upgrade"
+        "item_links is back in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

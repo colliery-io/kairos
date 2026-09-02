@@ -1,0 +1,17 @@
+{
+  "action": "opened",
+  "repository": { "full_name": "acme/payments-api", "html_url": "https://github.com/acme/payments-api" },
+  "sender": { "login": "dylan" },
+  "pull_request": {
+    "number": 42,
+    "state": "open",
+    "merged": false,
+    "draft": false,
+    "title": "Password-less auth for DEMO-T-0002",
+    "body": "Implements the magic-link flow. Spec: DEMO-D-0001.",
+    "html_url": "https://github.com/acme/payments-api/pull/42",
+    "updated_at": "2026-09-01T10:00:00Z",
+    "user": { "login": "dylan" },
+    "head": { "ref": "dylan/DEMO-T-0002-fix-auth" }
+  }
+}

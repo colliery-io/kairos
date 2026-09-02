@@ -4,14 +4,14 @@ level: task
 title: "Forge payload normalization in kairos-core: GitHub + GitLab parsers, short-code extraction"
 short_code: "KAIROS-T-0098"
 created_at: 2026-09-01T23:12:30.697892+00:00
-updated_at: 2026-09-01T23:12:30.697892+00:00
+updated_at: 2026-09-02T10:11:16.541382+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,12 +48,17 @@ Turn two different forge webhook payloads into one internal event shape, and pul
 
 ## Acceptance Criteria
 
-- [ ] `kairos-core::forge` normalizes GitHub and GitLab branch + PR/MR payloads into one `ForgeEvent`; unknown/ping events return `None` rather than erroring.
-- [ ] GitHub merged-vs-closed is correct (`closed` + `merged: true` → `Merged`), and draft state maps on both forges; one test per state-table row.
-- [ ] Short-code extraction finds codes in branch names, PR titles, and PR bodies; deduplicates; ignores lowercase and malformed codes; the type-letter set derives from `ItemType`.
-- [ ] Parsers operate on the raw body string so signature verification can precede parsing.
-- [ ] Captured fixture payloads live in-repo and every parser test runs against them; no network, no database, runs under `angreal test unit`.
+## Acceptance Criteria
+
+- [x] `kairos-core::forge` normalizes GitHub and GitLab branch + PR/MR payloads into one `ForgeEvent`; unknown/ping events return `None` rather than erroring.
+- [x] GitHub merged-vs-closed is correct (`closed` + `merged: true` → `Merged`), and draft state maps on both forges; one test per state-table row.
+- [x] Short-code extraction finds codes in branch names, PR titles, and PR bodies; deduplicates; ignores lowercase and malformed codes; the type-letter set derives from `ItemType`.
+- [x] Parsers operate on the raw body string so signature verification can precede parsing.
+- [x] Captured fixture payloads live in-repo and every parser test runs against them; no network, no database, runs under `angreal test unit`.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition.
+- 2026-09-02: COMPLETE. `kairos-core/src/forge.rs`: `LinkKind`/`LinkState`/`ForgeEvent` plus `parse_github` and `parse_gitlab` over the raw body string (so KAIROS-T-0099 can verify the HMAC before parsing), and `extract_short_codes`. 12 fixture payloads in `crates/kairos-core/tests/fixtures/forge/`; 15 unit tests, no network, no database. `ForgeEvent` also carries `repo_full_name` (added beyond the ticket's shape) — the endpoint needs it to resolve the connection, and it is the one field only the payload knows.
+- 2026-09-02: **The extraction design in the ticket was wrong, and the tests caught it.** The ticket specified a whole-token match (`[A-Z][A-Z0-9]*-[SITDA]-\d{4}`), which fails on the single most important carrier: a branch name like `dylan/DEMO-T-0002-fix-auth` has a prefix before the code and a slug after it, so nothing matches. Replaced with a sliding scan that anchors on the `-L-NNNN` tail and walks backwards over the prefix run. My own `rejects_lookalikes` test had encoded the same wrong assumption (asserting `DEMO-T-0002-EXTRA` must NOT match) — corrected, and a `matches_codes_embedded_in_branch_names` test added covering the four real shapes. No regex dependency was added to core: the scan is a byte walk, safe on UTF-8 because short codes are pure ASCII.
+- 2026-09-02: Other findings worth carrying: GitLab timestamps are not reliably RFC 3339 (`2026-09-01 10:00:00 UTC`), so `parse_time` accepts both shapes; GitHub `create` fires for TAGS as well as branches (filtered on `ref_type`), and GitLab `Push Hook` carries `refs/tags/...` (filtered on the `refs/heads/` prefix) — both are covered by tests. Verified: `cargo test -p kairos-core forge` 15/15, `angreal test unit` clean.

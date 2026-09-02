@@ -1,0 +1,9 @@
+{
+  "object_kind": "push",
+  "ref": "refs/tags/v1.2.0",
+  "user_username": "dylan",
+  "project": {
+    "path_with_namespace": "acme/portal-web",
+    "web_url": "https://gitlab.com/acme/portal-web"
+  }
+}

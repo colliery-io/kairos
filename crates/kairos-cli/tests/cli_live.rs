@@ -194,6 +194,8 @@ async fn cli_login_whoami_refresh_logout_live() {
         web_client_id: "kairos-web".to_string(),
         api_bearer: kairos_server::config::ApiBearer::AccessToken,
         web_client_secret: None,
+        public_url: None,
+        webhook_signing_key: None,
     };
     let router = app::router(app::state_with(config, pool, auth));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

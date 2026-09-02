@@ -159,6 +159,38 @@ text_enum! {
 }
 
 text_enum! {
+    /// `forge_connections.forge` (KAIROS-T-0097): which git host a
+    /// connection ingests from.
+    Forge {
+        Github => "github",
+        Gitlab => "gitlab",
+    }
+}
+
+text_enum! {
+    /// `item_links.kind` (KAIROS-T-0097): what the link points at. A
+    /// pull request and a merge request are the same thing under
+    /// different forge vocabulary — one variant, normalized on ingest.
+    LinkKind {
+        Branch => "branch",
+        PullRequest => "pull_request",
+    }
+}
+
+text_enum! {
+    /// `item_links.state` (KAIROS-T-0097): the forge-side state of a
+    /// link. `Merged` is distinct from `Closed` because the forges are
+    /// (GitHub reports merged as `closed` + `merged: true`) and because
+    /// the team rollup treats them differently.
+    LinkState {
+        Open => "open",
+        Merged => "merged",
+        Closed => "closed",
+        Draft => "draft",
+    }
+}
+
+text_enum! {
     /// `documents.lifecycle` (KAIROS-T-0078): the editorial state of a
     /// document — a label with free transitions, NEVER board position
     /// (the two-vocabulary rule: ticket status is a board column;
@@ -295,6 +327,21 @@ mod tests {
     #[test]
     fn team_page_kind_round_trip_and_rejection() {
         assert_text_enum!(TeamPageKind, ["folder", "page"]);
+    }
+
+    #[test]
+    fn forge_round_trip_and_rejection() {
+        assert_text_enum!(Forge, ["github", "gitlab"]);
+    }
+
+    #[test]
+    fn link_kind_round_trip_and_rejection() {
+        assert_text_enum!(LinkKind, ["branch", "pull_request"]);
+    }
+
+    #[test]
+    fn link_state_round_trip_and_rejection() {
+        assert_text_enum!(LinkState, ["open", "merged", "closed", "draft"]);
     }
 
     #[test]

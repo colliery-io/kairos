@@ -18,6 +18,7 @@ pub mod app;
 pub mod blocking;
 pub mod config;
 pub mod error;
+pub mod forge;
 pub mod metrics;
 pub mod middleware;
 pub mod ws;

@@ -129,6 +129,17 @@ pub struct AppConfig {
     /// Workspace, whose "Web application" clients are confidential. It is
     /// server-side only: never sent to the browser or `/api/config`.
     pub web_client_secret: Option<String>,
+    /// `KAIROS_PUBLIC_URL` — the deployment's externally reachable base
+    /// URL (KAIROS-T-0097). Needed to hand operators a webhook delivery
+    /// URL to paste into GitHub/GitLab. Deliberately NOT inferred from the
+    /// request `Host` header: that is attacker-controlled, and the value
+    /// ends up configured in a third party.
+    pub public_url: Option<String>,
+    /// `KAIROS_WEBHOOK_SIGNING_KEY` — the deployment secret every webhook
+    /// secret is derived from (KAIROS-T-0097, see
+    /// [`crate::forge::auth`]). Absent ⇒ forge connections cannot be
+    /// created or verified; the feature is simply off.
+    pub webhook_signing_key: Option<String>,
 }
 
 impl AppConfig {
@@ -227,6 +238,8 @@ impl AppConfig {
             web_client_id: get("KAIROS_WEB_CLIENT_ID").unwrap_or_else(|| "kairos-web".to_string()),
             api_bearer,
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),
+            public_url: get("KAIROS_PUBLIC_URL").map(|url| url.trim_end_matches('/').to_string()),
+            webhook_signing_key: get("KAIROS_WEBHOOK_SIGNING_KEY"),
         })
     }
 }

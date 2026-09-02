@@ -6,6 +6,7 @@
 
 pub mod abac;
 pub mod board;
+pub mod forge;
 pub mod graph;
 pub mod items;
 pub mod retention;

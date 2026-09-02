@@ -1,0 +1,20 @@
+{
+  "object_kind": "merge_request",
+  "user": { "username": "carol" },
+  "project": {
+    "path_with_namespace": "acme/portal-web",
+    "web_url": "https://gitlab.com/acme/portal-web"
+  },
+  "object_attributes": {
+    "id": 90210,
+    "iid": 7,
+    "state": "opened",
+    "work_in_progress": true,
+    "title": "Draft: Portal sign-up polish (DEMO-T-0004)",
+    "description": "Follow-up styling.",
+    "source_branch": "carol/portal-signup",
+    "url": "https://gitlab.com/acme/portal-web/-/merge_requests/7",
+    "updated_at": "2026-09-01 09:00:00 UTC",
+    "action": "update"
+  }
+}

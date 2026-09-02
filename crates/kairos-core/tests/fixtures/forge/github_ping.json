@@ -1,0 +1,5 @@
+{
+  "zen": "Non-blocking is better than blocking.",
+  "hook_id": 1,
+  "repository": { "full_name": "acme/payments-api", "html_url": "https://github.com/acme/payments-api" }
+}

@@ -199,6 +199,8 @@ mod tests {
             web_client_id: "kairos-web".to_string(),
             api_bearer: crate::config::ApiBearer::AccessToken,
             web_client_secret: None,
+            public_url: None,
+            webhook_signing_key: None,
         }
     }
 

@@ -129,6 +129,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    forge_connections (id) {
+        id -> Uuid,
+        forge -> Text,
+        repo_full_name -> Text,
+        repo_url -> Text,
+        team_id -> Nullable<Uuid>,
+        created_by -> Uuid,
+        deleted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     initiatives (id) {
         id -> Uuid,
         short_code -> Text,
@@ -157,6 +171,23 @@ diesel::table! {
         content -> Text,
         edited_by -> Uuid,
         edited_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    item_links (id) {
+        id -> Uuid,
+        item_id -> Uuid,
+        connection_id -> Uuid,
+        kind -> Text,
+        external_id -> Text,
+        title -> Text,
+        url -> Text,
+        state -> Text,
+        author -> Text,
+        forge_updated_at -> Timestamptz,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -355,8 +386,10 @@ diesel::joinable!(board_member_capabilities -> boards (board_id));
 diesel::joinable!(board_transitions -> boards (board_id));
 diesel::joinable!(boards -> teams (team_id));
 diesel::joinable!(documents -> templates (template_id));
+diesel::joinable!(forge_connections -> teams (team_id));
 diesel::joinable!(initiatives -> board_columns (column_id));
 diesel::joinable!(initiatives -> boards (board_id));
+diesel::joinable!(item_links -> forge_connections (connection_id));
 diesel::joinable!(item_metadata -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_definition_scopes -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_enum_options -> metadata_definitions (metadata_definition_id));
@@ -384,8 +417,10 @@ diesel::allow_tables_to_appear_in_same_query!(
     boards,
     delivery_streams,
     documents,
+    forge_connections,
     initiatives,
     item_history,
+    item_links,
     item_metadata,
     item_relationships,
     metadata_definition_scopes,

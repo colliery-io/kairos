@@ -4,14 +4,14 @@ level: task
 title: "Forge connections + item_links schema, models, and org-admin setup API"
 short_code: "KAIROS-T-0097"
 created_at: 2026-09-01T23:12:29.236671+00:00
-updated_at: 2026-09-01T23:12:29.236671+00:00
+updated_at: 2026-09-02T10:06:09.610458+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,13 +45,23 @@ The persistence and setup half: `forge_connections` + `item_links` tables, model
 
 ## Acceptance Criteria
 
-- [ ] Migration pair creates both tables with the partial unique/lookup indexes; `down.sql` drops in FK order; `tenant_provisioning` EXPECTED_TABLES/INDEXES updated (count constant bumped).
-- [ ] `text_enum!` types for `forge`, `kind`, and `state` with round-trip tests; models follow the Row/New/Changeset convention.
-- [ ] Org-admin CRUD + rotate exist, registered in openapi, with kairos-client DTOs and methods; non-admins get the standard 403 naming the required capability; reads open tenant-wide.
-- [ ] Creating a connection returns `webhook_url` and `webhook_secret`; the secret is **never** stored and never returned again by any endpoint; rotate produces a different connection id and a different secret.
-- [ ] Secret derivation is a pure unit-tested function; config value documented alongside the other A-0013 env vars.
-- [ ] Server integration test: create → list (no secret) → duplicate `(forge, repo)` rejected → rotate changes both → delete → 404. `angreal test unit` + `angreal test integration` green.
+## Acceptance Criteria
+
+- [x] Migration pair creates both tables with the partial unique/lookup indexes; `down.sql` drops in FK order; `tenant_provisioning` EXPECTED_TABLES/INDEXES updated (count constant bumped).
+- [x] `text_enum!` types for `forge`, `kind`, and `state` with round-trip tests; models follow the Row/New/Changeset convention.
+- [x] Org-admin CRUD + rotate exist, registered in openapi, with kairos-client DTOs and methods; non-admins get the standard 403 naming the required capability; reads open tenant-wide.
+- [x] Creating a connection returns `webhook_url` and `webhook_secret`; the secret is **never** stored and never returned again by any endpoint; rotate produces a different connection id and a different secret.
+- [x] Secret derivation is a pure unit-tested function; config value documented alongside the other A-0013 env vars.
+- [x] Server integration test: create → list (no secret) → duplicate `(forge, repo)` rejected → rotate changes both → delete → 404. `angreal test unit` + `angreal test integration` green.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition (PO decisions: webhooks, links-only, both forges).
+- 2026-09-02: COMPLETE. Shipped: migration `2026-09-01-000000_forge_links` (both tables, partial unique on `(forge, repo_full_name)` WHERE live, `item_links` upsert index, no FK on `item_id` per the shared-UUID convention); `Forge`/`LinkKind`/`LinkState` text_enums with round-trip tests; `models/forge.rs`; `kairos-db/src/forge.rs` services with typed `ForgeError`; `api/org/forge.rs` (list/get/create/patch/delete/rotate, org-admin writes via the `MANAGE` + `board_id: None` gate, reads open); `types_forge.rs` DTOs + 6 client methods; openapi registered.
+- 2026-09-02: Decisions recorded (deviations from the ticket's guesses):
+  (1) **Secret derivation lives in `kairos-server/src/forge/auth.rs`, NOT kairos-core** — core is deliberately dependency-light (no sha2/hmac) and both existing credential modules (`scim/auth.rs`, `service_accounts/auth.rs`) live in the server. Added `hmac` to kairos-server. Unit-tested: determinism, key/id sensitivity, 64-hex length, GitHub signature shape, constant-time compare.
+  (2) **Missing config is a 501 `FORGE_NOT_CONFIGURED` / `PUBLIC_URL_NOT_CONFIGURED`, not a startup error** — the integration is optional, so a deployment without it should boot fine and only refuse the forge endpoints.
+  (3) **Nothing in config knew the deployment's external URL**, so `KAIROS_PUBLIC_URL` is new. Deliberately not inferred from the `Host` header: that is attacker-controlled and the value ends up pasted into a third party.
+  (4) **Rotation mints a new connection row** (delete + create in one transaction, same repo) because the secret is derived from the id — so the delivery URL changes too and the operator updates both fields. The partial unique index never sees two live rows for one repo.
+  (5) **The guarded upsert is raw SQL** (sanctioned under A-0009, as search.rs/graph.rs do): diesel's builder cannot express `DO UPDATE ... WHERE`, and select-then-write would race concurrent deliveries for the same PR.
+- 2026-09-02: Also re-pinned the `tenant_provisioning` upgrade-path simulation from `team_pages` to `forge_links` — the exact recurring chore KAIROS-T-0093 exists to remove; left a comment there naming that ticket. Verified: `angreal test unit` clean, `angreal test integration` 33/33 targets green (new `forge_connections` test covers the permission matrix, derived-secret reproducibility, duplicate-repo 409, team attribution + clear, rotation changing id/URL/secret, and repo reuse after disconnect).

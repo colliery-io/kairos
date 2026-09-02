@@ -20,6 +20,7 @@
 
 pub mod admin;
 pub mod boards;
+pub mod forge;
 pub mod members;
 pub mod streams;
 pub mod team_pages;
@@ -42,6 +43,7 @@ use crate::error::ApiError;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(boards::router())
+        .merge(forge::router())
         .merge(teams::router())
         .merge(team_pages::router())
         .merge(streams::router())

@@ -43,6 +43,7 @@ rmcp = { workspace = true, features = [
 # rust-embed only compiles under the `embed-web` feature below.
 mime_guess = { workspace = true }
 rust-embed = { workspace = true, optional = true }
+hmac = "0.12"
 
 [features]
 # Embed the built GUI (crates/kairos-web/dist) into the binary — the

@@ -67,6 +67,9 @@ pub enum EventKind {
     RelationshipChanged,
     /// The item's metadata values changed.
     MetadataChanged,
+    /// The item's forge links (branches, pull/merge requests) changed
+    /// (KAIROS-T-0099).
+    ItemLinksChanged,
 }
 
 impl EventKind {
@@ -79,6 +82,7 @@ impl EventKind {
             EventKind::ItemDeleted => "item_deleted",
             EventKind::RelationshipChanged => "relationship_changed",
             EventKind::MetadataChanged => "metadata_changed",
+            EventKind::ItemLinksChanged => "item_links_changed",
         }
     }
 }

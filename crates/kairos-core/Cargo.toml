@@ -7,7 +7,7 @@ edition.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 thiserror = { workspace = true }
 serde = { workspace = true }
-uuid = { workspace = true, features = ["serde"] }
-
-[dev-dependencies]
+# KAIROS-T-0098: forge webhook payloads are parsed here (pure, no I/O), so
+# serde_json moved from dev-dependencies to a real dependency.
 serde_json = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }

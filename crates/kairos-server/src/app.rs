@@ -174,6 +174,12 @@ pub fn router(state: AppState) -> Router {
         // OIDC auth → tenant stack, like the admin router below. See
         // crate::scim module docs.
         .merge(crate::scim::router(state.clone()))
+        // KAIROS-T-0099 (KAIROS-I-0009): forge webhook deliveries. Like
+        // SCIM above, these carry no bearer token and no tenant header —
+        // the URL carries the routing and the HMAC signature carries the
+        // authenticity — so this mounts OUTSIDE the auth → tenant stack.
+        // Non-/api by design (invisible to the openapi route scanner).
+        .merge(crate::forge::webhook::router())
         .route("/healthz", get(|| async { "ok" }))
         // KAIROS-T-0049 (A-0013): readiness + Prometheus scrape, both
         // unauthenticated by convention and mounted OUTSIDE the auth stack

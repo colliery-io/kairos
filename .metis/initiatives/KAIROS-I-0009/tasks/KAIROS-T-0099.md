@@ -4,14 +4,14 @@ level: task
 title: "Webhook endpoint: tenant routing, signature verification, ordering-safe upsert"
 short_code: "KAIROS-T-0099"
 created_at: 2026-09-01T23:12:31.882520+00:00
-updated_at: 2026-09-01T23:12:31.882520+00:00
+updated_at: 2026-09-02T10:20:26.364228+00:00
 parent: KAIROS-I-0009
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -49,14 +49,26 @@ The ingestion endpoint: accept deliveries from GitHub and GitLab, resolve the te
 
 ## Acceptance Criteria
 
-- [ ] `POST /webhooks/{forge}/{tenant}/{connection_id}` ingests GitHub and GitLab branch + PR/MR deliveries and creates/updates `item_links`.
-- [ ] Signature verified over raw bytes in constant time on both forges; a bad signature, unknown connection, unknown tenant, and malformed slug are indistinguishable in the response.
-- [ ] Deliveries matching no live short code return 2xx and change nothing; unknown event types (pings) likewise.
-- [ ] **Redelivery and out-of-order safety proven by test**: applying a merge event then replaying an earlier open leaves the link merged.
-- [ ] A PR edited to add a short code links the new item; the recorded decision on code removal is implemented and tested.
-- [ ] Thin `item_links_changed` WS event emitted for affected items.
-- [ ] Server integration test drives synthetic signed deliveries for both forges end to end; `angreal test unit` + `angreal test integration` green.
+## Acceptance Criteria
+
+- [x] `POST /webhooks/{forge}/{tenant}/{connection_id}` ingests GitHub and GitLab branch + PR/MR deliveries and creates/updates `item_links`.
+- [x] Signature verified over raw bytes in constant time on both forges; a bad signature, unknown connection, unknown tenant, and malformed slug are indistinguishable in the response.
+- [x] Deliveries matching no live short code return 2xx and change nothing; unknown event types (pings) likewise.
+- [x] **Redelivery and out-of-order safety proven by test**: applying a merge event then replaying an earlier open leaves the link merged.
+- [x] A PR edited to add a short code links the new item; the recorded decision on code removal is implemented and tested.
+- [x] Thin `item_links_changed` WS event emitted for affected items.
+- [x] Server integration test drives synthetic signed deliveries for both forges end to end; `angreal test unit` + `angreal test integration` green.
 
 ## Status Updates
 
 - 2026-09-01: Created from the KAIROS-I-0009 decomposition.
+- 2026-09-02: COMPLETE. `kairos-server/src/forge/webhook.rs` mounted in app.rs beside the SCIM router, outside the auth→tenant stack, non-`/api`. Body read as `Bytes` and the HMAC verified over the raw bytes BEFORE any parsing; GitHub `X-Hub-Signature-256`, GitLab `X-Gitlab-Token`, both constant-time. New `EventKind::ItemLinksChanged` emitted per touched item.
+- 2026-09-02: Decisions recorded:
+  (1) **Code removal deletes the link** (the ticket's recommendation), but ONLY for pull-request events. A branch push carries no authoritative list of the codes it once mentioned, so pruning on a push would delete links the PR still legitimately holds.
+  (2) **Unknown connection resolves to the SAME rejection as a bad signature** — the handler returns `Ok(None)` from the tenant closure and the caller maps it to the uniform 401, so connection existence is not observable.
+  (3) **Synchronous handling** kept for v1 (the work is one parse plus a few statements, far inside GitHub's ~10s timeout); no queue, and the handler contains nothing unbounded.
+  (4) **Metrics deferred** — the existing A-0013 layer is a generic HTTP middleware with no per-outcome hook, so a `(forge, outcome)` counter would mean new plumbing rather than a cheap addition. Noted for a follow-up rather than done badly here.
+- 2026-09-02: Two real bugs the tests caught, both would have shipped silently:
+  (1) **A syntactically valid but nonexistent tenant slug 500'd** instead of rejecting — it reached the blocking pool and hit a missing schema, which both leaks the difference and is an ugly error. Now resolved in the PUBLIC schema first (the SCIM approach) and mapped to the uniform rejection.
+  (2) **`serde_json` was only a dev-dependency of kairos-core**, so `kairos_core::forge` compiled under `cargo test` but the library alone did not — `angreal test unit` passed while `cargo check -p kairos-server` failed. Promoted to a real dependency.
+- 2026-09-02: Verified: new `forge_webhook` integration test drives real signed deliveries — create link → merge → **replay the earlier open and assert it stays merged** (the ordering guard, browser-invisible otherwise) → bad signature / unsigned / unknown connection / unknown tenant all 401 and write nothing → ping and foreign-code deliveries are 2xx no-ops → PR edited to drop the code removes the link. `angreal test unit` clean; `angreal test integration` 34/34 targets green.

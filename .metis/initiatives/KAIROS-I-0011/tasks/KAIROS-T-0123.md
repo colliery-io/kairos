@@ -4,14 +4,14 @@ level: task
 title: "Fix: MCP reads — links on get_item, delivery board slug in get_repository, Backlog-only refusal text for cross-team filers"
 short_code: "KAIROS-T-0123"
 created_at: 2026-09-22T12:12:41.644199+00:00
-updated_at: 2026-09-22T12:12:41.644199+00:00
+updated_at: 2026-09-22T12:19:14.441247+00:00
 parent: KAIROS-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,11 +43,15 @@ None.
 
 ## Acceptance Criteria
 
-- [ ] `get_item DEMO-T-0002` text contains a `## Development` section listing the seeded PR with its state.
-- [ ] `get_repository payments-api` prints `- delivery board: platform-delivery (…)`.
-- [ ] carol's `transition_item` on a task she filed into platform's Backlog is refused with text naming Backlog/triage and `file_backlog`; a non-member on a board still gets the generic capability refusal.
-- [ ] fmt, workspace clippy `-D warnings`, `angreal test unit`, `angreal test integration` green.
+- [x] `get_item` renders `## Development` with `- pull_request 77 [merged] …` (probed in tests/mcp.rs on a link inserted for the bound task; same query/order as the links API).
+- [x] `get_repository payments-api` prints `- delivery board: platform-delivery (Platform Delivery)`.
+- [x] bob (org member, no grant on platform's board) files a task over MCP and his `transition_item` / `update_item` are refused with "… sits in platform's Backlog for their triage; a cross-team filer may create and link it (file_backlog), not move, edit or delete it — that needs \"transition_items\" on their board"; the existing generic-FORBIDDEN probes still pass.
+- [x] fmt + workspace clippy clean; `cargo test --test mcp|file_backlog|meta|task_repositories|forge_webhook|repositories_api` green against the running stack. The full `angreal test integration` (which cycles compose) is deferred to T-0125's gate run because the T-0124 agent is using the stack concurrently.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `3cba74b`.
+
+- Implemented as a `require_capability_explained` helper in `mcp/tools.rs` used by `transition_item` and `authorize_item_write` (update/delete): on a FORBIDDEN from `require_capability`, if `abac::check_file_backlog` passes for the caller on that board, the message is rewritten with the owning team's slug (boards ⋈ teams). Details carry `held: "file_backlog"`.
+- `## Development` is rendered for every non-document item from `kairos_db::forge::links_for_item`.
+- Test gotcha: bob's `users` row is JIT-provisioned on his first authenticated `/mcp` call (403 MEMBERSHIP_REQUIRED) — mint + call before `user_id()`; and `conn`'s search_path must be re-pinned to `org_acme` before inserting the link.

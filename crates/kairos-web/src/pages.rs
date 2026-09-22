@@ -116,6 +116,11 @@ pub(crate) mod teams;
 pub use teams::doc::TeamDocPage;
 pub use teams::{TeamPage, TeamsPage};
 
+// Repositories (KAIROS-I-0010, A-0019): the shared repository data layer
+// (`repositories::api`) that boards, item detail, team pages and
+// `admin::api` all consume. No route of its own yet.
+pub(crate) mod repositories;
+
 // Admin surfaces (KAIROS-T-0043): board configuration + members/capability
 // grants, teams, delivery streams, org members, templates, metadata
 // definitions. Sub-routes under /admin are registered in `app.rs`.

@@ -222,7 +222,9 @@ pub struct ItemRelationships {
 }
 
 impl ItemRelationships {
-    /// The neighbors of one relationship type in one direction.
+    /// The neighbors of one relationship type in one direction. The views
+    /// walk the groups directly; this accessor backs the decode test.
+    #[cfg(test)]
     pub fn group(&self, relationship: &str, outgoing: bool) -> Vec<RelatedItem> {
         let groups = if outgoing {
             &self.outgoing

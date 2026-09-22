@@ -31,7 +31,8 @@ use aurora_dark::components::{
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
-use leptos_router::hooks::{query_signal, use_params_map};
+use leptos_router::NavigateOptions;
+use leptos_router::hooks::{query_signal_with_options, use_params_map};
 
 use super::copy_link;
 use crate::auth::use_auth;
@@ -237,17 +238,17 @@ fn run_drop(
     on_error: Callback<ApiError>,
 ) {
     leptos::task::spawn_local(async move {
-        if let Some(column_id) = effect.transition_to {
-            if let Err(error) = data::transition(auth, kind, &code, &column_id).await {
-                on_error.run(error);
-                return;
-            }
+        if let Some(column_id) = effect.transition_to
+            && let Err(error) = data::transition(auth, kind, &code, &column_id).await
+        {
+            on_error.run(error);
+            return;
         }
-        if let Some(work_class) = effect.set_work_class {
-            if let Err(error) = data::set_work_class(auth, &code, &work_class).await {
-                on_error.run(error);
-                return;
-            }
+        if let Some(work_class) = effect.set_work_class
+            && let Err(error) = data::set_work_class(auth, &code, &work_class).await
+        {
+            on_error.run(error);
+            return;
         }
         on_changed.run(());
     });
@@ -266,14 +267,17 @@ const LEVEL_BANDS: &[(&str, &str)] = &[
     ("adr", "Decisions"),
 ];
 
+/// One board-list group: `(Some((heading, /teams/:slug href)), boards)`
+/// per team for the delivery band; a single unnamed group for every other
+/// level.
+type BoardGroup = (Option<(String, String)>, Vec<data::Board>);
+
 /// One rendered board-list band: level heading + its tiles, with the
 /// delivery band grouped by owning team.
 struct BandModel {
     level: String,
     label: String,
-    /// `(heading, /teams/:slug href, boards)` — one group per team for the
-    /// delivery band; a single unnamed group for every other level.
-    groups: Vec<(Option<(String, String)>, Vec<data::Board>)>,
+    groups: Vec<BoardGroup>,
 }
 
 /// Bucket boards into level bands (strategy → initiative → delivery →
@@ -298,7 +302,7 @@ fn band_models(
         let groups = if *level == "delivery" {
             // One group per team (team order = teams list order), then
             // teamless boards under their own heading.
-            let mut groups: Vec<(Option<(String, String)>, Vec<data::Board>)> = Vec::new();
+            let mut groups: Vec<BoardGroup> = Vec::new();
             for team in teams {
                 let of_team: Vec<data::Board> = of_level
                     .iter()
@@ -811,19 +815,18 @@ fn BoardBody(
     // KAIROS-T-0109 (A-0019): the repository lens. `?repo=a,b` in the URL
     // is the source of truth for the selection, so it survives WS
     // refetches AND reloads; `?by_repo=1` groups the delivery board into
-    // one lane per repository instead of Support/Planned.
-    let (repo_query, set_repo_query) = query_signal::<String>("repo");
-    let (by_repo_query, set_by_repo_query) = query_signal::<String>("by_repo");
-    let selected_repos = Memo::new(move |_| {
-        repo_query
-            .get()
-            .unwrap_or_default()
-            .split(',')
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<String>>()
-    });
-    let group_by_repo = Memo::new(move |_| by_repo_query.get().is_some_and(|v| v == "1"));
+    // one lane per repository instead of Support/Planned. Lens writes
+    // REPLACE the history entry (a filter change is not a page the back
+    // button should revisit — and the prune write-back below must never
+    // push, or "back" would land on the stale URL and bounce forward).
+    let lens_nav = || NavigateOptions {
+        replace: true,
+        scroll: false,
+        ..Default::default()
+    };
+    let (repo_query, set_repo_query) = query_signal_with_options::<String>("repo", lens_nav());
+    let (by_repo_query, set_by_repo_query) =
+        query_signal_with_options::<String>("by_repo", lens_nav());
     // Every repository slug present on the board, sorted — the chip set.
     let board_repos = Memo::new(move |_| {
         model.with(|m| {
@@ -843,6 +846,35 @@ fn BoardBody(
             slugs
         })
     });
+    // What the URL asks for vs. what the board can show (KAIROS-T-0114):
+    // a stale `?repo=<slug no longer here>` must not blank every task
+    // with no chip lit, so the EFFECTIVE selection is pruned against the
+    // board's slugs, and the pruned form is written back to the URL.
+    let requested_repos = Memo::new(move |_| parse_repo_query(repo_query.get().as_deref()));
+    let selected_repos = Memo::new(move |_| {
+        requested_repos.with(|requested| board_repos.with(|known| prune_repos(requested, known)))
+    });
+    Effect::new(move |_| {
+        let requested = requested_repos.get();
+        let selected = selected_repos.get();
+        if requested != selected {
+            set_repo_query.set((!selected.is_empty()).then(|| selected.join(",")));
+        }
+    });
+    let group_by_repo = Memo::new(move |_| by_repo_query.get().is_some_and(|v| v == "1"));
+    // The lens row renders whenever the board has repositories OR a lens
+    // query param is set (so a stale/odd URL always has a visible "clear");
+    // the group-by toggle renders when grouping is meaningful (>1 repo) OR
+    // already on (so it can always be turned off).
+    let lens_active =
+        Memo::new(move |_| repo_query.get().is_some() || by_repo_query.get().is_some());
+    let lens_shown = Memo::new(move |_| !board_repos.with(Vec::is_empty) || lens_active.get());
+    let group_toggle_shown =
+        Memo::new(move |_| board_repos.with(|r| r.len() > 1) || group_by_repo.get());
+    // The group-by lanes derive from the effective selection (+ unbound).
+    let lanes = Memo::new(move |_| {
+        selected_repos.with(|selected| board_repos.with(|known| repo_lanes(selected, known)))
+    });
     let toggle_repo = move |slug: String| {
         let mut selected = selected_repos.get_untracked();
         match selected.iter().position(|s| *s == slug) {
@@ -853,20 +885,17 @@ fn BoardBody(
         }
         set_repo_query.set((!selected.is_empty()).then(|| selected.join(",")));
     };
+    let clear_lens = move || {
+        set_repo_query.set(None);
+        set_by_repo_query.set(None);
+    };
     let columns = Memo::new(move |_| {
         let selected = selected_repos.get();
         model.with(|m| {
             let mut columns = m.as_ref().map(column_models).unwrap_or_default();
             if !selected.is_empty() {
                 for column in columns.iter_mut() {
-                    // The filter narrows TASKS only; other kinds stay.
-                    column.cards.retain(|card| {
-                        card.kind != EntityKind::Task
-                            || card
-                                .repository
-                                .as_ref()
-                                .is_some_and(|slug| selected.contains(slug))
-                    });
+                    column.cards.retain(|card| lens_admits(card, &selected));
                 }
             }
             columns
@@ -901,7 +930,7 @@ fn BoardBody(
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
         }}
-        {move || (is_delivery && !board_repos.with(Vec::is_empty)).then(|| view! {
+        {move || (is_delivery && lens_shown.get()).then(|| view! {
             <div class="kairos-board__lens" data-testid="repo-lens">
                 <Group gap="xs" wrap=true>
                     <Text dimmed=true size="xs">"Repository"</Text>
@@ -910,16 +939,16 @@ fn BoardBody(
                         key=|slug| slug.clone()
                         children=move |slug: String| {
                             let on_slug = slug.clone();
-                            let is_slug = slug.clone();
-                            let label = slug.clone();
+                            let is_on = Memo::new(move |_| selected_repos.with(|s| s.contains(&slug)));
+                            let label = on_slug.clone();
+                            let attr = on_slug.clone();
                             view! {
                                 <button
                                     type="button"
                                     class="kairos-board__lens-chip"
-                                    class:kairos-board__lens-chip--on=move || {
-                                        selected_repos.with(|s| s.contains(&is_slug))
-                                    }
-                                    data-repo=slug
+                                    class:kairos-board__lens-chip--on=move || is_on.get()
+                                    aria-pressed=move || is_on.get().to_string()
+                                    data-repo=attr
                                     on:click=move |_| toggle_repo(on_slug.clone())
                                 >
                                     {label}
@@ -927,17 +956,28 @@ fn BoardBody(
                             }
                         }
                     />
-                    {move || (board_repos.with(|r| r.len() > 1)).then(|| view! {
+                    {move || group_toggle_shown.get().then(|| view! {
                         <button
                             type="button"
                             class="kairos-board__lens-chip"
                             class:kairos-board__lens-chip--on=move || group_by_repo.get()
+                            aria-pressed=move || group_by_repo.get().to_string()
                             data-testid="group-by-repo"
                             on:click=move |_| {
                                 set_by_repo_query.set((!group_by_repo.get_untracked()).then(|| "1".to_string()))
                             }
                         >
                             "Group by repository"
+                        </button>
+                    })}
+                    {move || lens_active.get().then(|| view! {
+                        <button
+                            type="button"
+                            class="kairos-board__lens-chip kairos-board__lens-chip--clear"
+                            data-testid="clear-repo-lens"
+                            on:click=move |_| clear_lens()
+                        >
+                            "Clear"
                         </button>
                     })}
                 </Group>
@@ -952,18 +992,24 @@ fn BoardBody(
             // KAIROS-T-0109: with `?by_repo=1` a delivery board instead
             // shows one lane per repository (plus "No repository"), and
             // drops only transition — the lane axis is not a work_class.
+            // Lanes are a keyed <For> (key = slug) so a WS refetch that
+            // changes the slug set diffs lanes instead of rebuilding them
+            // all (KAIROS-T-0074 rule, KAIROS-T-0114).
             if is_delivery {
                 view! {
                     {move || if group_by_repo.get() {
-                        let mut lanes: Vec<Option<String>> = board_repos.get().into_iter().map(Some).collect();
-                        lanes.push(None);
-                        lanes
-                            .into_iter()
-                            .map(|lane| view! {
-                                <RepoLaneSection repo=lane columns drag powers on_changed on_error/>
-                            })
-                            .collect_view()
-                            .into_any()
+                        view! {
+                            <For
+                                each=move || lanes.get()
+                                key=|lane: &LaneKey| lane.clone()
+                                children=move |lane: LaneKey| {
+                                    view! {
+                                        <RepoLaneSection repo=lane columns drag powers on_changed on_error/>
+                                    }
+                                }
+                            />
+                        }
+                        .into_any()
                     } else {
                         view! {
                             <LaneSection lane=LANE_SUPPORT label="Support" caption="unplanned intake"
@@ -1062,6 +1108,66 @@ impl RepoLane {
             RepoLane::Unbound => card.repository.is_none(),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Repository lens projections (KAIROS-T-0109 / KAIROS-T-0114) — pure,
+// host-tested
+// ---------------------------------------------------------------------------
+
+/// Parse `?repo=a,b` into the requested slugs: empty segments dropped,
+/// duplicates removed (first occurrence wins, order kept).
+fn parse_repo_query(query: Option<&str>) -> Vec<String> {
+    let mut slugs: Vec<String> = Vec::new();
+    for slug in query
+        .unwrap_or_default()
+        .split(',')
+        .filter(|s| !s.is_empty())
+    {
+        if !slugs.iter().any(|s| s == slug) {
+            slugs.push(slug.to_string());
+        }
+    }
+    slugs
+}
+
+/// The effective selection: the requested slugs that are actually on the
+/// board. A stale `?repo=` (re-homed, unbound, or simply mistyped) is
+/// ignored rather than blanking every task with no chip lit.
+fn prune_repos(requested: &[String], known: &[String]) -> Vec<String> {
+    requested
+        .iter()
+        .filter(|slug| known.contains(slug))
+        .cloned()
+        .collect()
+}
+
+/// Does the lens admit this card? The filter narrows TASKS only — other
+/// kinds always stay — and an empty selection admits everything.
+fn lens_admits(card: &CardModel, selected: &[String]) -> bool {
+    selected.is_empty()
+        || card.kind != EntityKind::Task
+        || card
+            .repository
+            .as_ref()
+            .is_some_and(|slug| selected.contains(slug))
+}
+
+/// A group-by-repository lane's identity: `Some(slug)` or the unbound
+/// remainder (`None`). The keyed `<For>` diffs lanes on it.
+type LaneKey = Option<String>;
+
+/// The group-by-repository lanes: one per EFFECTIVE selection (every
+/// board repository when nothing is selected), in board order, then the
+/// unbound remainder (`None`).
+fn repo_lanes(selected: &[String], known: &[String]) -> Vec<LaneKey> {
+    known
+        .iter()
+        .filter(|slug| selected.is_empty() || selected.contains(slug))
+        .cloned()
+        .map(Some)
+        .chain(std::iter::once(None))
+        .collect()
 }
 
 /// One repository lane on a delivery board (KAIROS-T-0109): the columns
@@ -1859,6 +1965,122 @@ mod tests {
             drop_effect(&drag(&[], None), "c-src", Some("support")),
             None
         );
+    }
+
+    fn card(kind: EntityKind, repository: Option<&str>) -> CardModel {
+        CardModel {
+            kind,
+            short_code: "X-1".into(),
+            title: "x".into(),
+            meta: Vec::new(),
+            work_class: None,
+            repository: repository.map(str::to_string),
+            progress: None,
+            blocks: None,
+            key: String::new(),
+        }
+    }
+
+    fn slugs(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// KAIROS-T-0114: `?repo=` parses to a deduplicated slug list and the
+    /// effective selection is pruned to what the board can show — a stale
+    /// slug is dropped (never a blank board), and the pruned form differs
+    /// from the request exactly when a write-back is due.
+    #[test]
+    fn selected_repos_parse_and_prune_against_the_board() {
+        assert!(parse_repo_query(None).is_empty());
+        assert!(parse_repo_query(Some("")).is_empty());
+        assert_eq!(parse_repo_query(Some(",a,,b,a,")), slugs(&["a", "b"]));
+
+        let known = slugs(&["payments-api", "platform-infra"]);
+        let requested = parse_repo_query(Some("platform-infra,gone,payments-api"));
+        assert_eq!(
+            prune_repos(&requested, &known),
+            slugs(&["platform-infra", "payments-api"])
+        );
+        // Entirely stale → empty selection (the URL is then cleared).
+        assert!(prune_repos(&slugs(&["gone"]), &known).is_empty());
+        // Nothing on the board → nothing selectable.
+        assert!(prune_repos(&requested, &[]).is_empty());
+        // A clean request round-trips unchanged (no write-back).
+        let clean = slugs(&["payments-api"]);
+        assert_eq!(prune_repos(&clean, &known), clean);
+    }
+
+    /// KAIROS-T-0109: a repo lane admits exactly its tasks; the unbound
+    /// lane takes repository-less cards (tasks and other kinds alike).
+    #[test]
+    fn repo_lane_admits_by_binding() {
+        let bound = card(EntityKind::Task, Some("payments-api"));
+        let other = card(EntityKind::Task, Some("platform-infra"));
+        let unbound = card(EntityKind::Task, None);
+        let adr = card(EntityKind::Adr, None);
+
+        let lane = RepoLane::Slug("payments-api".into());
+        assert!(lane.admits(&bound));
+        assert!(!lane.admits(&other));
+        assert!(!lane.admits(&unbound));
+        assert!(!lane.admits(&adr));
+
+        assert!(!RepoLane::Unbound.admits(&bound));
+        assert!(RepoLane::Unbound.admits(&unbound));
+        assert!(RepoLane::Unbound.admits(&adr));
+
+        assert!(RepoLane::Any.admits(&bound));
+        assert!(RepoLane::Any.admits(&adr));
+    }
+
+    /// KAIROS-T-0109: the lens retain filter narrows TASKS only — an
+    /// empty selection admits everything, and non-task kinds always stay.
+    #[test]
+    fn lens_filter_narrows_tasks_only() {
+        let selected = slugs(&["payments-api"]);
+        assert!(lens_admits(
+            &card(EntityKind::Task, Some("payments-api")),
+            &selected
+        ));
+        assert!(!lens_admits(
+            &card(EntityKind::Task, Some("platform-infra")),
+            &selected
+        ));
+        assert!(!lens_admits(&card(EntityKind::Task, None), &selected));
+        assert!(lens_admits(&card(EntityKind::Initiative, None), &selected));
+        assert!(lens_admits(&card(EntityKind::Adr, None), &selected));
+        assert!(lens_admits(&card(EntityKind::Task, None), &[]));
+        assert!(lens_admits(
+            &card(EntityKind::Task, Some("platform-infra")),
+            &[]
+        ));
+    }
+
+    /// KAIROS-T-0114: group-by lanes come from the EFFECTIVE selection
+    /// (all board repositories when none is selected), in board order,
+    /// plus the unbound remainder — never a lane for a chip that is off.
+    #[test]
+    fn repo_lanes_follow_the_effective_selection() {
+        let known = slugs(&["payments-api", "platform-infra"]);
+        assert_eq!(
+            repo_lanes(&[], &known),
+            vec![
+                Some("payments-api".to_string()),
+                Some("platform-infra".to_string()),
+                None
+            ]
+        );
+        assert_eq!(
+            repo_lanes(&slugs(&["platform-infra"]), &known),
+            vec![Some("platform-infra".to_string()), None]
+        );
+        // One repository on the board: a single repo lane + unbound.
+        assert_eq!(
+            repo_lanes(&[], &slugs(&["only"])),
+            vec![Some("only".to_string()), None]
+        );
+        // No repositories at all: just the unbound lane.
+        assert_eq!(repo_lanes(&[], &[]), vec![None]);
     }
 
     /// A board whose team id names an unknown team lands in "No team"

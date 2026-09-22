@@ -36,6 +36,10 @@ const BACKOFF_MAX_MS: u64 = 15_000;
 /// A stored wasm event-handler closure (present while a socket is live).
 type Handler<T> = RefCell<Option<Closure<T>>>;
 
+/// The consumer's refetch hook: called with the event's `short_code` when
+/// one arrived, `None` for a reconnect reconcile.
+type Refetch = Box<dyn Fn(Option<&str>)>;
+
 /// The per-connection state shared by the event handlers and the
 /// reconnect timer chain.
 struct Live {
@@ -47,7 +51,7 @@ struct Live {
     /// Runs on every event and every reconnect. The argument is the
     /// event's `short_code` when one arrived (reconnect reconciles pass
     /// `None`) — consumers that only care THAT something changed ignore it.
-    refetch: Box<dyn Fn(Option<&str>)>,
+    refetch: Refetch,
     /// Set by the drop guard: no further reconnects, handlers inert.
     closed: Cell<bool>,
     /// Consecutive failed/closed connections (drives the backoff).

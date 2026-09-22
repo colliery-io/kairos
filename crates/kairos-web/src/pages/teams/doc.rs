@@ -1,10 +1,10 @@
 //! `/teams/:slug/pages/{path…}` (KAIROS-T-0086): view and edit one team
 //! page at its slug path, or index a folder's children — with the
 //! generalized markdown editor (Edit/Preview + toolbar + versioned saves
-//! + 409 merge dialog) and the manage affordances (create page/folder,
-//! rename, move, soft-delete) under the team-member-or-admin permission
-//! model. The charter shows no destructive controls (server-enforced,
-//! UI-honest).
+//! and the 409 merge dialog) and the manage affordances (create
+//! page/folder, rename, move, soft-delete) under the
+//! team-member-or-admin permission model. The charter shows no
+//! destructive controls (server-enforced, UI-honest).
 //!
 //! Decisions (recorded on KAIROS-T-0086): folder indexes are the create
 //! surface (root-level sections ship with the scaffold; creating new

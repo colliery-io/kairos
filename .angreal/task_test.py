@@ -8,6 +8,10 @@ share a single entry point:
   tier 2+3 integration -> `angreal test integration`
   tier 4  e2e smoke    -> `angreal test e2e`   (golden path + MCP + GUI Playwright)
   tier 5  soak         -> `angreal test soak`  (workforce driver, KAIROS-T-0046)
+
+plus the static gate that precedes them (CI gates 1+2, KAIROS-T-0114):
+
+  fmt + clippy         -> `angreal test lint`  (whole workspace, -D warnings)
 """
 
 import json
@@ -94,6 +98,52 @@ def _integration_test_targets():
             if "test" in target.get("kind", []):
                 targets.append(f"{package['name']}::{target['name']}")
     return targets
+
+
+# The clippy gate covers the WHOLE workspace — every crate, every target,
+# warnings denied. kairos-web is a plain workspace member (its lib target
+# compiles natively, docs/gui-conventions.md §1), so it is in scope here
+# exactly like the server: no per-crate carve-outs (KAIROS-T-0114 retired
+# the last pre-existing kairos-web backlog).
+CLIPPY_ARGS = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
+
+
+@test()
+@angreal.command(
+    name="lint",
+    about="static gate: cargo fmt --check + cargo clippy --workspace -D warnings",
+    tool=angreal.ToolDescription(
+        """
+        The static gate that precedes the KAIROS-A-0012 tiers (CI gates 1
+        and 2 in .github/workflows/ci.yml, run locally as one task):
+
+        1. `cargo fmt --all --check`
+        2. `cargo clippy --workspace --all-targets -- -D warnings`
+
+        The clippy run covers every workspace crate including kairos-web
+        (its lib target compiles natively). No services needed.
+
+        ## When to use
+        - Before committing (part of the mechanical completion gate)
+        - After touching any crate, to catch warnings CI would reject
+
+        ## Related tasks
+        - `web lint` - the kairos-web token-rule grep (separate, also a gate)
+        - `test unit` - tier 1 unit tests
+
+        ## Output
+        Standard cargo output. Exit code 0 iff both steps pass; the first
+        failing step's exit code is propagated otherwise.
+        """,
+        risk_level="safe",
+    ),
+)
+def lint():
+    """Run rustfmt in check mode, then clippy across the whole workspace."""
+    code = run_cargo_command(["fmt", "--all", "--check"])
+    if code:
+        return code
+    return run_cargo_command(CLIPPY_ARGS)
 
 
 @test()
@@ -682,26 +732,32 @@ def soak(duration=None, config=None):
 @test()
 @angreal.command(
     name="all",
-    about="run all implemented tests (unit + integration)",
+    about="run the static gate and all implemented tests (lint + unit + integration)",
     tool=angreal.ToolDescription(
         """
-        Run `test unit` then `test integration` in sequence, stopping at
-        the first failure. Does NOT include the e2e tier (release/milestone
-        gate - run `angreal test e2e` explicitly) or the soak tier (a
-        placeholder that always fails until its harness lands).
+        Run `test lint`, then `test unit`, then `test integration` in
+        sequence, stopping at the first failure. Does NOT include the e2e
+        tier (release/milestone gate - run `angreal test e2e` explicitly)
+        or the soak tier (nightly/pre-release only).
 
         ## When to use
         - Full pre-completion validation in one command
 
         ## Output
-        Exit code of the first failing tier, or 0 if both pass.
+        Exit code of the first failing step, or 0 if all pass.
         """,
         risk_level="safe",
     ),
 )
 def all_tests():
-    """Run all implemented tests."""
-    print("Running unit tests...")
+    """Run the static gate, then all implemented tests."""
+    print("Running the static gate (fmt + clippy)...")
+    exit_code = lint()
+    if exit_code != 0:
+        print("Static gate failed!")
+        return exit_code
+
+    print("\nRunning unit tests...")
     exit_code = unit()
     if exit_code != 0:
         print("Unit tests failed!")

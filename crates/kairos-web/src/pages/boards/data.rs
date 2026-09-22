@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::{get_json, post_json};
 use crate::auth::Auth;
+use crate::pages::repositories::api::RepositoryRef;
 
 // ---- mirrors: boards ------------------------------------------------------
 
@@ -89,16 +90,6 @@ pub struct Task {
     /// (KAIROS-T-0104, A-0019); `None` for unbound tasks.
     #[serde(default)]
     pub repository: Option<RepositoryRef>,
-}
-
-/// mirror of: `kairos_client::types_repositories::RepositoryRef` (partial —
-/// what cards and pickers show).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct RepositoryRef {
-    pub id: String,
-    pub slug: String,
-    #[serde(default)]
-    pub repo_full_name: String,
 }
 
 /// mirror of: `kairos_client::types::Adr` (partial — card fields).
@@ -644,66 +635,4 @@ mod tests {
         assert_eq!(EntityKind::for_board_level("nope"), None);
         assert_eq!(EntityKind::Strategy.api_family(), "strategies");
     }
-}
-
-// ---------------------------------------------------------------------------
-// Repositories (KAIROS-T-0109, A-0019)
-// ---------------------------------------------------------------------------
-
-/// mirror of: `kairos_client::types_repositories::RepositoryTeam`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct RepositoryTeam {
-    pub id: String,
-    pub slug: String,
-    pub name: String,
-}
-
-/// mirror of: `kairos_client::types_repositories::Repository`.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct Repository {
-    pub id: String,
-    pub slug: String,
-    pub forge: String,
-    pub repo_full_name: String,
-    pub repo_url: String,
-    pub default_branch: String,
-    #[serde(default)]
-    pub description: String,
-    pub team: RepositoryTeam,
-    #[serde(default)]
-    pub delivery_board_id: Option<String>,
-    #[serde(default)]
-    pub open_tasks: i64,
-    #[serde(default)]
-    pub has_webhook: bool,
-}
-
-/// `GET /api/repositories[?team=]` — the directory, optionally one team's.
-pub async fn list_repositories(
-    auth: Auth,
-    team: Option<&str>,
-) -> Result<Vec<Repository>, ApiError> {
-    let path = match team {
-        Some(team) => format!("/api/repositories?team={team}"),
-        None => "/api/repositories".to_string(),
-    };
-    get_json(auth, &path).await
-}
-
-/// mirror of: `kairos_client::types_repositories::SetTaskRepositoryRequest`.
-#[derive(Debug, Serialize)]
-struct SetTaskRepositoryRequest<'a> {
-    repository: Option<&'a str>,
-}
-
-/// `PUT /api/tasks/{code}/repository` — bind, re-home, or clear (`None`).
-pub async fn set_repository(
-    auth: Auth,
-    short_code: &str,
-    repository: Option<&str>,
-) -> Result<(), ApiError> {
-    let path = format!("/api/tasks/{short_code}/repository");
-    let _: serde_json::Value =
-        crate::api::put_json(auth, &path, &SetTaskRepositoryRequest { repository }).await?;
-    Ok(())
 }

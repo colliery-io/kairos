@@ -12,7 +12,7 @@ use aurora_dark::components::{
     Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
     Text, TextInput,
 };
-use aurora_dark::tokens::token;
+use aurora_dark::tokens::ApiError;
 use leptos::prelude::*;
 
 use super::api;
@@ -53,6 +53,25 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
     let slug = RwSignal::new(String::new());
     let branch = RwSignal::new(String::new());
     let description = RwSignal::new(String::new());
+    // The owning-team picker's option list, and its default: the first
+    // team once the directory has loaded, set from an Effect — never a
+    // signal write inside a tracked render (KAIROS-T-0114).
+    let team_slugs = Memo::new(move |_| {
+        teams
+            .get()
+            .and_then(|t| t.ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.slug)
+            .collect::<Vec<String>>()
+    });
+    Effect::new(move |_| {
+        if let Some(first) = team_slugs.with(|slugs| slugs.first().cloned())
+            && team.get_untracked().is_empty()
+        {
+            team.set(first);
+        }
+    });
 
     let on_create = move |_| {
         let (f, n, u, t, s, b, d) = (
@@ -139,20 +158,8 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                             options=vec!["github".to_string(), "gitlab".to_string(), "other".to_string()]/>
                         <TextInput label="Full name" value=name placeholder="e.g. acme/payments-api"/>
                         <TextInput label="URL" value=url placeholder="https://github.com/acme/payments-api"/>
-                        {move || {
-                            let options: Vec<String> = teams
-                                .get()
-                                .and_then(|t| t.ok())
-                                .unwrap_or_default()
-                                .into_iter()
-                                .map(|t| t.slug)
-                                .collect();
-                            if team.get_untracked().is_empty()
-                                && let Some(first) = options.first()
-                            {
-                                team.set(first.clone());
-                            }
-                            view! { <Select label="Owning team" value=team options=options/> }
+                        {move || view! {
+                            <Select label="Owning team" value=team options=team_slugs.get()/>
                         }}
                     </Group>
                     <Group gap="sm" wrap=true top=true>
@@ -273,9 +280,15 @@ fn RepositoryRow(
             format!("Webhook disconnected for \"{reference}\"."),
             async move {
                 let detail = api::repository_detail(auth, &reference).await?;
-                if let Some(id) = detail.connection_id {
-                    api::disconnect_webhook(auth, &id).await?;
-                }
+                // The row's `has_webhook` may be stale (another operator
+                // disconnected first): say so rather than reporting a
+                // disconnect that never happened.
+                let Some(id) = detail.connection_id else {
+                    return Err(ApiError::Unknown(format!(
+                        "No webhook to disconnect: \"{reference}\" has no forge connection."
+                    )));
+                };
+                api::disconnect_webhook(auth, &id).await?;
                 Ok(())
             },
         );
@@ -328,7 +341,7 @@ fn RepositoryRow(
                         <TextInput label="How to work here" value=edit_description/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
-                    <Text dimmed=true size="xs" attr:style=format!("color: {}", token::GOLD)>
+                    <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "Re-homing to another team does not move its tasks; they are re-checked on their next write."
                     </Text>
                 </Stack>

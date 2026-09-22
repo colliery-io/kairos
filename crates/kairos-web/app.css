@@ -203,6 +203,12 @@ body {
   color: var(--ice);
 }
 
+/* KAIROS-T-0114: the "Clear" chip — present whenever a lens query param
+   is set, so a stale selection always has a visible way out. */
+.kairos-board__lens-chip--clear {
+  border-style: dashed;
+}
+
 /* An empty Support lane renders slim but its columns stay droppable. */
 .kairos-board__lane--empty .kairos-board__column {
   min-height: 2.5rem;

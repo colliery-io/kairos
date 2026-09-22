@@ -391,7 +391,6 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                     x=x + 10.0 y=y + 50.0
                                 >{node.status.clone()}</text>
                                 {(hidden > 0).then(|| {
-                                    let expand = expand.clone();
                                     view! {
                                         <g
                                             class="kairos-graph__more"

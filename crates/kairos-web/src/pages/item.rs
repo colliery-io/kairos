@@ -34,6 +34,7 @@ use leptos_router::hooks::use_params_map;
 
 use super::boards;
 use super::copy_link;
+use super::repositories;
 use crate::auth::use_auth;
 use api::{Family, ItemDetail, RelationshipGroup};
 use create_doc::CreateDocumentDialog;
@@ -490,6 +491,37 @@ fn BoardPanel(
     }
 }
 
+/// One board power as a memo over the shell's shared whoami identity
+/// (KAIROS-T-0072 client mirror; the server remains the authority). Shared
+/// by [`MoveControl`] (`transition`) and [`RepositoryControl`] (`create`
+/// tasks = `manage_tasks`) so both controls gate through one derivation
+/// (KAIROS-T-0114). `false` until whoami has resolved.
+fn board_power(
+    board_slug: String,
+    team_id: Option<String>,
+    kind: Option<boards::data::EntityKind>,
+    pick: fn(boards::BoardPowers) -> bool,
+) -> Memo<bool> {
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let slug = StoredValue::new(board_slug);
+    let team = StoredValue::new(team_id);
+    Memo::new(move |_| {
+        whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+            .is_some_and(|me| {
+                slug.with_value(|slug| {
+                    team.with_value(|team| {
+                        pick(boards::board_powers(&me, slug, team.as_deref(), kind))
+                    })
+                })
+            })
+    })
+}
+
+/// The picker's "no repository" option value.
+const NO_REPOSITORY: &str = "(none)";
+
 /// The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
 /// owning team's repositories (or none). The server enforces the repo →
 /// team → board rule and `manage_tasks`; a refusal shows inline.
@@ -506,46 +538,49 @@ fn RepositoryControl(
 ) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
-    let none = "(none)".to_string();
-    let current = StoredValue::new(current.unwrap_or_else(|| none.clone()));
-    let value = RwSignal::new(current.get_value());
+    let current = StoredValue::new(current);
+    let value = RwSignal::new(
+        current
+            .get_value()
+            .unwrap_or_else(|| NO_REPOSITORY.to_string()),
+    );
     let busy = RwSignal::new(false);
     let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
-    // Same `manage_tasks` mirror as the board's create affordance
-    // (KAIROS-T-0072); the server remains the authority.
-    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
-    let slug = StoredValue::new(board_slug);
-    let team_for_powers = StoredValue::new(team_id.clone());
-    let can_bind = Memo::new(move |_| {
-        whoami
-            .and_then(|resource| resource.get())
-            .and_then(Result::ok)
-            .is_some_and(|me| {
-                slug.with_value(|slug| {
-                    team_for_powers.with_value(|team| {
-                        boards::board_powers(
-                            &me,
-                            slug,
-                            team.as_deref(),
-                            Some(boards::data::EntityKind::Task),
-                        )
-                        .create
-                    })
-                })
-            })
-    });
+    // Same `manage_tasks` mirror as the board's create affordance.
+    let can_bind = board_power(
+        board_slug,
+        team_id.clone(),
+        Some(boards::data::EntityKind::Task),
+        |powers| powers.create,
+    );
     let repos = LocalResource::new(move || {
         let _ = auth.token();
         let team = team_id.clone();
-        async move { boards::data::list_repositories(auth, team.as_deref()).await }
+        async move { repositories::api::list_repositories(auth, team.as_deref()).await }
+    });
+    // The binding may name a repository that has since been re-homed to
+    // another team: it is not among this team's options, so the control
+    // says so instead of silently disabling the button, and the picker
+    // starts at "(none)" so the first submit is a deliberate re-bind or
+    // clear. (Signal write in an Effect, never inside a tracked render.)
+    let elsewhere = Memo::new(move |_| {
+        let bound = current.get_value()?;
+        let list = repos.get()?.ok()?;
+        (!list.iter().any(|r| r.slug == bound)).then_some(bound)
+    });
+    Effect::new(move |_| {
+        if elsewhere.get().is_some() {
+            value.set(NO_REPOSITORY.to_string());
+        }
     });
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
-        let repository = (chosen != "(none)").then_some(chosen);
+        let repository = (chosen != NO_REPOSITORY).then_some(chosen);
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            match boards::data::set_repository(auth, &code.get_value(), repository.as_deref()).await
+            match repositories::api::set_repository(auth, &code.get_value(), repository.as_deref())
+                .await
             {
                 Ok(()) => on_moved.run(match repository {
                     Some(slug) => format!("Repository set to {slug}."),
@@ -564,27 +599,63 @@ fn RepositoryControl(
             {move || match repos.get() {
                 None => view! { <Text size="xs" dimmed=true>"Loading repositories…"</Text> }.into_any(),
                 Some(Err(_)) => view! { <Text size="xs" dimmed=true>"Repositories unavailable."</Text> }.into_any(),
+                Some(Ok(list)) if list.is_empty() => view! {
+                    <Text size="xs" dimmed=true>"No repositories registered for this team."</Text>
+                }.into_any(),
                 Some(Ok(list)) => {
-                    let mut options = vec!["(none)".to_string()];
-                    options.extend(list.iter().map(|r| r.slug.clone()));
-                    if list.is_empty() {
-                        return view! {
-                            <Text size="xs" dimmed=true>"No repositories registered for this team."</Text>
-                        }.into_any();
-                    }
+                    // Options are `(value, label)`: the slug stays the value
+                    // (what the server takes) and the label adds the forge
+                    // full name next to it.
+                    let options: Vec<(String, String)> = std::iter::once((
+                        NO_REPOSITORY.to_string(),
+                        NO_REPOSITORY.to_string(),
+                    ))
+                    .chain(list.iter().map(|r| {
+                        let label = if r.repo_full_name.is_empty() {
+                            r.slug.clone()
+                        } else {
+                            format!("{} · {}", r.slug, r.repo_full_name)
+                        };
+                        (r.slug.clone(), label)
+                    }))
+                    .collect();
+                    let bound = current
+                        .get_value()
+                        .unwrap_or_else(|| NO_REPOSITORY.to_string());
                     view! {
-                        <Group gap="sm">
-                            <Select label="Repository" value=value options=options/>
-                            {move || {
-                                let unchanged = value.get() == current.get_value();
-                                let disabled = busy.get() || unchanged;
-                                view! {
-                                    <Button size="xs" disabled=disabled on_click=submit>
-                                        {if busy.get_untracked() { "Setting…" } else { "Set repository" }}
-                                    </Button>
-                                }
-                            }}
-                        </Group>
+                        <Stack gap="xs">
+                            {move || elsewhere.get().map(|slug| view! {
+                                <Text size="xs" dimmed=true>
+                                    {format!("Bound to {slug}, which now belongs to another team — pick one of this team's repositories, or clear it.")}
+                                </Text>
+                            })}
+                            <Group gap="sm">
+                                <div class="cl-field">
+                                    <label class="cl-field__label">"Repository"</label>
+                                    <select
+                                        class="cl-input cl-select"
+                                        prop:value=move || value.get()
+                                        on:change=move |e| value.set(event_target_value(&e))
+                                    >
+                                        {options.into_iter().map(|(slug, label)| view! {
+                                            <option value=slug>{label}</option>
+                                        }).collect_view()}
+                                    </select>
+                                </div>
+                                {move || {
+                                    // A stale (re-homed) binding is never
+                                    // "unchanged": clearing it is a real write.
+                                    let unchanged =
+                                        elsewhere.with(Option::is_none) && value.get() == bound;
+                                    let disabled = busy.get() || unchanged;
+                                    view! {
+                                        <Button size="xs" disabled=disabled on_click=submit>
+                                            {if busy.get_untracked() { "Setting…" } else { "Set repository" }}
+                                        </Button>
+                                    }
+                                }}
+                            </Group>
+                        </Stack>
                     }.into_any()
                 }
             }}
@@ -650,22 +721,10 @@ fn MoveControl(
         return ().into_any();
     };
 
-    // Same client-side capability mirror as the board (KAIROS-T-0072);
-    // the server remains the authority.
-    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
-    let slug = StoredValue::new(board.slug.clone());
-    let team_id = StoredValue::new(board.team_id.clone());
-    let can_move = Memo::new(move |_| {
-        whoami
-            .and_then(|resource| resource.get())
-            .and_then(Result::ok)
-            .is_some_and(|me| {
-                slug.with_value(|slug| {
-                    team_id.with_value(|team| {
-                        boards::board_powers(&me, slug, team.as_deref(), None).transition
-                    })
-                })
-            })
+    // Same client-side capability mirror as the board's drag affordance
+    // (KAIROS-T-0072); the server remains the authority.
+    let can_move = board_power(board.slug.clone(), board.team_id.clone(), None, |powers| {
+        powers.transition
     });
 
     let option_names = StoredValue::new(

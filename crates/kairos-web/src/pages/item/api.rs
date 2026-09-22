@@ -143,7 +143,7 @@ pub struct ItemDetail {
     pub work_class: Option<String>,
     /// The bound repository (KAIROS-T-0109, A-0019; tasks only).
     #[serde(default)]
-    pub repository: Option<crate::pages::boards::data::RepositoryRef>,
+    pub repository: Option<crate::pages::repositories::api::RepositoryRef>,
     #[serde(default)]
     pub decision_maker: Option<String>,
     #[serde(default)]

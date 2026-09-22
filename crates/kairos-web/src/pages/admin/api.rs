@@ -673,7 +673,7 @@ mod tests {
 // Repositories + forge connections (KAIROS-T-0109, A-0019)
 // ---------------------------------------------------------------------------
 
-pub use crate::pages::boards::data::{Repository, list_repositories};
+pub use crate::pages::repositories::api::{Repository, list_repositories};
 
 /// mirror of: `kairos_client::types_forge::CreatedForgeConnection` (partial —
 /// the fields shown once at connect time).

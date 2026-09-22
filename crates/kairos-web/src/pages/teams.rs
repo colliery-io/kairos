@@ -23,6 +23,8 @@ use aurora_dark::components::{
     Text,
 };
 use aurora_dark::tokens::ApiError;
+use futures_util::future::join_all;
+use futures_util::join;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
@@ -138,44 +140,91 @@ struct TeamView {
     announcements: Vec<api::Announcement>,
     /// In-flight forge links across the team's work (KAIROS-T-0101).
     links: Vec<api::TeamLink>,
-    /// The repositories this team owns (KAIROS-T-0109, A-0019).
-    repositories: Vec<crate::pages::boards::data::Repository>,
+    /// The repositories this team owns (KAIROS-T-0109, A-0019). Empty
+    /// when the directory read failed — the panel degrades, the page
+    /// does not (KAIROS-T-0114).
+    repositories: Vec<crate::pages::repositories::api::Repository>,
+}
+
+/// The team's delivery board as `(name, slug)`, resolved through the
+/// board list (`None` when the team has no board or it is not listed).
+async fn load_delivery_board(
+    auth: crate::auth::Auth,
+    delivery_board_id: Option<&str>,
+) -> Result<Option<(String, String)>, aurora_dark::tokens::ApiError> {
+    let Some(board_id) = delivery_board_id else {
+        return Ok(None);
+    };
+    Ok(api::list_board_refs(auth)
+        .await?
+        .into_iter()
+        .find(|board| board.id == board_id)
+        .map(|board| (board.name, board.slug)))
+}
+
+/// Stream membership has no reverse endpoint: check each stream's team
+/// list (concurrently — org-scale stream counts keep this cheap). A
+/// failing stream read fails the whole load (consistent error surface
+/// beats a silent gap).
+async fn load_streams(
+    auth: crate::auth::Auth,
+    team_id: &str,
+) -> Result<Vec<api::DeliveryStream>, aurora_dark::tokens::ApiError> {
+    let streams = api::list_streams(auth).await?;
+    let memberships = join_all(
+        streams
+            .iter()
+            .map(|stream| api::stream_teams(auth, &stream.id)),
+    )
+    .await;
+    let mut mine = Vec::new();
+    for (stream, teams) in streams.into_iter().zip(memberships) {
+        if teams?.iter().any(|t| t.id == team_id) {
+            mine.push(stream);
+        }
+    }
+    Ok(mine)
 }
 
 /// Load everything the detail page shows, resolving the slug through
 /// `GET /api/teams/by-slug/{slug}` (KAIROS-T-0085 — no directory scan).
+/// The per-team reads run concurrently once the team is known
+/// (KAIROS-T-0114); only the repositories read degrades to empty on
+/// failure — everything else is load-bearing for the layout.
 async fn load_team_view(
     auth: crate::auth::Auth,
     slug: &str,
 ) -> Result<TeamView, aurora_dark::tokens::ApiError> {
     let team = api::team_by_slug(auth, slug).await?;
-    let members = api::team_members(auth, &team.id).await?;
+    let team_id = team.id.as_str();
 
-    let delivery_board = match &team.delivery_board_id {
-        Some(board_id) => api::list_board_refs(auth)
-            .await?
-            .into_iter()
-            .find(|board| &board.id == board_id)
-            .map(|board| (board.name, board.slug)),
-        None => None,
-    };
-
-    // Stream membership has no reverse endpoint: check each stream's team
-    // list. Org-scale stream counts keep this cheap; a failing stream read
-    // fails the whole load (consistent error surface beats a silent gap).
-    let mut streams = Vec::new();
-    for stream in api::list_streams(auth).await? {
-        let stream_team_ids = api::stream_teams(auth, &stream.id).await?;
-        if stream_team_ids.iter().any(|t| t.id == team.id) {
-            streams.push(stream);
-        }
-    }
-
-    let work_documents = api::team_work_documents(auth, &team.id).await?;
-    let pages = api::team_pages(auth, &team.id).await?;
-    let announcements = api::team_announcements(auth, &team.id).await?;
-    let links = api::team_links(auth, &team.id).await?;
-    let repositories = crate::pages::boards::data::list_repositories(auth, Some(&team.id)).await?;
+    let (
+        members,
+        delivery_board,
+        streams,
+        work_documents,
+        pages,
+        announcements,
+        links,
+        repositories,
+    ) = join!(
+        api::team_members(auth, team_id),
+        load_delivery_board(auth, team.delivery_board_id.as_deref()),
+        load_streams(auth, team_id),
+        api::team_work_documents(auth, team_id),
+        api::team_pages(auth, team_id),
+        api::team_announcements(auth, team_id),
+        api::team_links(auth, team_id),
+        crate::pages::repositories::api::list_repositories(auth, Some(team_id)),
+    );
+    let members = members?;
+    let delivery_board = delivery_board?;
+    let streams = streams?;
+    let work_documents = work_documents?;
+    let pages = pages?;
+    let announcements = announcements?;
+    let links = links?;
+    let repositories = repositories.unwrap_or_default();
 
     Ok(TeamView {
         team,

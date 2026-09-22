@@ -43,14 +43,19 @@ The board's repository lens honours URL state it cannot show: a stale `?repo=<sl
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Stale `?repo=` no longer hides everything: unknown slugs are dropped from the URL and a visible clear control exists; `?by_repo=1` with one repo renders the single-lane view sanely.
-- [ ] Chips + group-by renders only selected lanes (+ unbound).
-- [ ] Repo lanes are keyed; unit tests for the three projections pass.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean (first time) and is the gate.
-- [ ] `angreal web lint`, `angreal web build`, `angreal test e2e` green.
+- [x] Stale `?repo=` no longer hides everything: unknown slugs are dropped from the URL and a visible clear control exists; `?by_repo=1` with one repo renders the single-lane view sanely. — `selected_repos` = `parse_repo_query` pruned against `board_repos` (`prune_repos`), an `Effect` writes the pruned form back (history **replace**, so a stale entry is not a back-button trap); the lens row renders whenever a lens param is set, with a `Clear` chip (`data-testid="clear-repo-lens"`); the group-by toggle stays visible while grouping is on so a one-repo `?by_repo=1` (one repo lane + unbound) can be turned off.
+- [x] Chips + group-by renders only selected lanes (+ unbound). — `repo_lanes(selected, known)`: the effective selection in board order (all when none), then `None`.
+- [x] Repo lanes are keyed; unit tests for the three projections pass. — keyed `<For>` over `Memo<Vec<LaneKey>>` (key = `Option<slug>`); tests `selected_repos_parse_and_prune_against_the_board`, `repo_lane_admits_by_binding`, `lens_filter_narrows_tasks_only`, `repo_lanes_follow_the_effective_selection` (71 kairos-web lib tests pass).
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` is clean (first time) and is the gate. — ten backlog errors retired; the angreal tasks had no clippy step at all, so `angreal test lint` (fmt --check + workspace clippy `-D warnings`) was added and `angreal test all` now starts with it (CI's gate 2 already ran `--workspace`).
+- [x] `angreal web lint`, `angreal web build`, `angreal test e2e` green. — all green; 11/11 Playwright specs, no e2e selector changes needed (repositories.spec/forge.spec untouched).
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — implemented in `231aa25`. All nine implementation notes done. Downstream notes:
+
+- Repository mirrors now live in `crates/kairos-web/src/pages/repositories/api.rs` (`Repository`, `RepositoryRef`, `RepositoryTeam`, `list_repositories`, `set_repository`); `admin::api` re-exports `Repository`/`list_repositories` from there. `boards::data` no longer defines them.
+- `item.rs` gained `board_power(board_slug, team_id, kind, pick) -> Memo<bool>` — use it for any further whoami-gated affordance on the detail page rather than re-deriving from `use_context`.
+- The repository picker is a raw `<select class="cl-input cl-select">` with `(slug value, "slug · repo_full_name" label)` pairs because aurora's `Select` is value == label; the e2e `selectOption('platform-infra')` keeps matching by value.
+- Lens query writes (`repo`, `by_repo`) use `query_signal_with_options` with `replace: true, scroll: false`.
+- `kairos-web` now depends on `futures-util` (0.3.31, same as server/client) for the team page's `join!`/`join_all`.
+- Gate results: `cargo fmt --all --check` PASS; `angreal web lint` clean; `cargo clippy --workspace --all-targets -- -D warnings` exit 0 (verified in an isolated worktree at HEAD + this change, because the shared working tree carried a concurrent, uncommitted KAIROS-T-0115 edit to `kairos-server/tests/task_repositories.rs` that did not compile); `cargo test -p kairos-web --lib` 71 passed; `angreal web build` OK; `angreal test e2e` PASSED (golden path 10/10, 11 Playwright specs).

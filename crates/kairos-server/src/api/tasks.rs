@@ -125,6 +125,54 @@ pub(crate) fn resolve_routing(
     })
 }
 
+/// Authorize a task CREATE (KAIROS-T-0105, A-0019 §4). `manage_tasks` on
+/// the target board as always; failing that, the computed `file_backlog`
+/// applies ONLY when all of: a repository routed the task, and the target
+/// column is the board's Backlog (position 0 — the default when no column
+/// is named). An explicitly requested non-Backlog column by a non-member
+/// is a 403, never silently re-routed. Shared by HTTP and MCP so the two
+/// entry points cannot diverge (the KAIROS-T-0096 lesson).
+pub(crate) fn require_task_create_capability(
+    conn: &mut PgConnection,
+    slug: &str,
+    user: Uuid,
+    route: &TaskRoute,
+    column_id: Option<Uuid>,
+) -> Result<(), ApiError> {
+    use kairos_db::abac;
+    let manages =
+        abac::authorize(conn, slug, route.board_id, user, MANAGE).map_err(super::map_abac_error)?;
+    if manages {
+        return Ok(());
+    }
+    let targets_backlog = route.repository_id.is_some()
+        && match column_id {
+            None => true,
+            Some(column) => {
+                use kairos_db::schema::board_columns::dsl;
+                let position: Option<i32> = dsl::board_columns
+                    .filter(dsl::id.eq(column))
+                    .filter(dsl::board_id.eq(route.board_id))
+                    .select(dsl::position)
+                    .first(conn)
+                    .optional()
+                    .map_err(ApiError::internal)?;
+                position == Some(0)
+            }
+        };
+    if targets_backlog {
+        require_capability(
+            conn,
+            slug,
+            Some(route.board_id),
+            user,
+            kairos_core::abac::FILE_BACKLOG,
+        )
+    } else {
+        Err(ApiError::capability_required(MANAGE, Some(route.board_id)))
+    }
+}
+
 /// Load the live task with this short code, or 404.
 fn load(conn: &mut PgConnection, short_code: &str) -> Result<Task, ApiError> {
     use kairos_db::schema::tasks::dsl;
@@ -258,7 +306,7 @@ pub(crate) async fn create_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let route = resolve_routing(conn, board_id, team_id, repository.as_deref())?;
-            require_capability(conn, &slug, Some(route.board_id), user, MANAGE)?;
+            require_task_create_capability(conn, &slug, user, &route, column_id)?;
             let created = items::create_task(
                 conn,
                 items::CreateTask {

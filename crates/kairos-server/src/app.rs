@@ -252,6 +252,10 @@ pub struct WhoamiResponse {
     /// grants; org admins get their explicit grants only (usually none —
     /// their access is the `organization.role == "admin"` bypass).
     pub capabilities: Vec<WhoamiBoardCapabilities>,
+    /// COMPUTED capabilities every tenant member holds without a grant
+    /// (KAIROS-T-0105): currently `file_backlog` — create a task against
+    /// another team's repository into that team's Backlog.
+    pub implicit: Vec<&'static str>,
 }
 
 /// The `user` object of [`WhoamiResponse`].
@@ -342,6 +346,7 @@ async fn whoami(
             slug: tenant.slug,
             role: tenant.role.as_str(),
         },
+        implicit: kairos_core::abac::COMPUTED_CAPABILITIES.to_vec(),
         teams: teams
             .into_iter()
             .map(|(id, slug, name)| WhoamiTeam { id, slug, name })

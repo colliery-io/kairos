@@ -416,6 +416,10 @@ pub struct WhoamiResponse {
     /// == "admin"` and usually appear here with no explicit grants.
     #[serde(default)]
     pub capabilities: Vec<WhoamiBoardCapabilities>,
+    /// COMPUTED capabilities every tenant member holds without a grant
+    /// (KAIROS-T-0105): currently `file_backlog`.
+    #[serde(default)]
+    pub implicit: Vec<String>,
 }
 
 /// One board on which the caller holds explicit capability grants

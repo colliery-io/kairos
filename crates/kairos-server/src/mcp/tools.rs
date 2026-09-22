@@ -182,6 +182,13 @@ pub struct CreateItemParams {
     pub content: Option<String>,
     /// Tasks only: task | bug | tech_debt | support (default task).
     pub task_type: Option<String>,
+    /// Tasks only: the repository to issue the task against (slug or
+    /// UUID, KAIROS-A-0019). ROUTES the task to the repository's owning
+    /// team's delivery board, so `board` becomes optional (and must agree
+    /// when given). Any tenant member may create a task against ANOTHER
+    /// team's repository: it lands in that team's Backlog behind their
+    /// triage gate (the computed `file_backlog` capability).
+    pub repository: Option<String>,
     /// Tasks only: Planned/Support lane planned | support (KAIROS-T-0077;
     /// defaults to support for support-type tasks, else planned).
     pub work_class: Option<String>,
@@ -350,6 +357,13 @@ impl KairosMcp {
             for ((slug, name), capabilities) in by_board {
                 out.push_str(&format!("- {slug} ({name}): {}\n", capabilities.join(", ")));
             }
+            // KAIROS-T-0105: computed capabilities every member holds.
+            out.push_str(&format!(
+                "- implicit (every member, every delivery board): {}\n  \
+                 file_backlog = create a task against another team's repository; \
+                 it lands in their Backlog for triage.\n",
+                kairos_core::abac::COMPUTED_CAPABILITIES.join(", ")
+            ));
             Ok(out)
         })
         .await
@@ -649,7 +663,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: pass `repository` (slug/UUID) to issue the task against a codebase; it routes to the owning team's delivery board. Any member may create a task against another team's repository — it lands in that board's Backlog for their triage. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1771,19 +1785,55 @@ fn create_item_impl(
         ));
     }
 
+    if item_type != ItemType::Task {
+        reject_field("repository", params.repository.as_ref(), item_type, "tasks")?;
+    }
+
     // Board items: resolve the board (explicit slug/UUID or the single
-    // board of the matching level), then manage_<type> on it.
-    let board = match params.board.as_deref() {
-        Some(reference) => board_by_ref(conn, reference)?,
-        None => default_board_for(conn, level_of(item_type))?,
+    // board of the matching level), then manage_<type> on it. Tasks go
+    // through the SAME routing + capability helpers as POST /api/tasks
+    // (KAIROS-T-0104/T-0105): a repository routes the task to its owning
+    // team's delivery board, and a non-member may still file into that
+    // board's Backlog.
+    let (board, route) = if item_type == ItemType::Task {
+        let explicit = params
+            .board
+            .as_deref()
+            .map(|reference| board_by_ref(conn, reference))
+            .transpose()?;
+        let route = match (explicit.as_ref(), params.repository.as_deref()) {
+            (None, None) => {
+                let board = default_board_for(conn, level_of(item_type))?;
+                crate::api::tasks::TaskRoute {
+                    board_id: board.id,
+                    team_id: None,
+                    repository_id: None,
+                }
+            }
+            (board, repository) => {
+                crate::api::tasks::resolve_routing(conn, board.map(|b| b.id), None, repository)?
+            }
+        };
+        crate::api::tasks::require_task_create_capability(conn, slug, user, &route, None)?;
+        let board = match explicit {
+            Some(board) if board.id == route.board_id => board,
+            _ => board_by_ref(conn, &route.board_id.to_string())?,
+        };
+        (board, Some(route))
+    } else {
+        let board = match params.board.as_deref() {
+            Some(reference) => board_by_ref(conn, reference)?,
+            None => default_board_for(conn, level_of(item_type))?,
+        };
+        require_capability(
+            conn,
+            slug,
+            Some(board.id),
+            user,
+            manage_capability(item_type),
+        )?;
+        (board, None)
     };
-    require_capability(
-        conn,
-        slug,
-        Some(board.id),
-        user,
-        manage_capability(item_type),
-    )?;
 
     let (created_code, created_title, created_id) = match item_type {
         ItemType::Strategy => {
@@ -1841,18 +1891,18 @@ fn create_item_impl(
                 } else {
                     WorkClass::Planned
                 });
+            let route = route.expect("tasks always resolve a route");
             let created = items::create_task(
                 conn,
                 items::CreateTask {
-                    board_id: board.id,
+                    board_id: route.board_id,
                     column_id: None,
                     title: &params.title,
                     content,
                     task_type,
                     work_class,
-                    team_id: None,
-                    // Routing by repository lands in KAIROS-T-0104.
-                    repository_id: None,
+                    team_id: route.team_id,
+                    repository_id: route.repository_id,
                 },
                 user,
             )

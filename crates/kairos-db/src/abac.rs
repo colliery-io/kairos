@@ -147,10 +147,58 @@ pub fn is_org_admin(
     Ok(admin)
 }
 
+/// Whether `user_id` is a member (any role) of the organization `org_slug`.
+pub fn is_org_member(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    user_id: Uuid,
+) -> Result<bool, AbacError> {
+    use crate::schema::{organization_members, organizations};
+
+    let member: bool = diesel::select(diesel::dsl::exists(
+        organization_members::table
+            .inner_join(organizations::table)
+            .filter(organizations::slug.eq(org_slug))
+            .filter(organization_members::user_id.eq(user_id)),
+    ))
+    .get_result(conn)?;
+    Ok(member)
+}
+
+/// The COMPUTED `file_backlog` capability (KAIROS-T-0105, A-0019 §4): any
+/// tenant member holds it on every live DELIVERY board — and only there.
+/// Whether the write is actually a Backlog-only task create is the
+/// caller's decision (the server chooses to ask for `file_backlog` only in
+/// that exact case); this answers "is this principal allowed to file on
+/// this board at all".
+pub fn check_file_backlog(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    board_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, AbacError> {
+    use crate::models::enums::BoardLevel;
+    use crate::schema::boards::dsl;
+
+    if !is_org_member(conn, org_slug, user_id)? {
+        return Ok(false);
+    }
+    let delivery: bool = diesel::select(diesel::dsl::exists(
+        dsl::boards
+            .filter(dsl::id.eq(board_id))
+            .filter(dsl::board_level.eq(BoardLevel::Delivery))
+            .filter(dsl::deleted_at.is_null()),
+    ))
+    .get_result(conn)?;
+    Ok(delivery)
+}
+
 /// The combined KAIROS-A-0006 write-authorization decision for a board
 /// action: org admins bypass the whitelist (implicit full access, checked
 /// first); everyone else needs a matching `board_member_capabilities` grant
-/// ([`check_capability`]).
+/// ([`check_capability`]) — or, for the computed `file_backlog`
+/// (KAIROS-T-0105), tenant membership on a delivery board
+/// ([`check_file_backlog`]).
 pub fn authorize(
     conn: &mut PgConnection,
     org_slug: &str,
@@ -160,6 +208,9 @@ pub fn authorize(
 ) -> Result<bool, AbacError> {
     if is_org_admin(conn, org_slug, user_id)? {
         return Ok(true);
+    }
+    if required == kairos_core::abac::FILE_BACKLOG {
+        return check_file_backlog(conn, org_slug, board_id, user_id);
     }
     check_capability(conn, board_id, user_id, required)
 }

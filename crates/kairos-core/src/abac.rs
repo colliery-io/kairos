@@ -100,6 +100,24 @@ pub fn team_implies(required: &str) -> bool {
     TEAM_IMPLIED_CAPABILITIES.contains(&required)
 }
 
+/// Cross-team Backlog filing (KAIROS-T-0105, A-0019 §4 amending A-0006):
+/// any member of the tenant may create a TASK against another team's
+/// repository, landing in that team's delivery-board Backlog (position 0)
+/// behind their triage gate. COMPUTED, never stored: it is not in the
+/// grantable vocabulary ([`CAPABILITIES`]), so `board_member_capabilities`
+/// can never carry it, and it is satisfied purely by tenant membership on
+/// a delivery board. Nothing past Backlog is opened by it.
+pub const FILE_BACKLOG: &str = "file_backlog";
+
+/// Every capability that is COMPUTED rather than granted — refused by the
+/// grant/revoke endpoints, reported by `whoami` under `implicit`.
+pub const COMPUTED_CAPABILITIES: &[&str] = &[FILE_BACKLOG];
+
+/// Is `capability` computed (never stored)?
+pub fn is_computed(capability: &str) -> bool {
+    COMPUTED_CAPABILITIES.contains(&capability)
+}
+
 // ---------------------------------------------------------------------------
 // Tenant-wide configuration policy (A-0006 "items not on boards")
 // ---------------------------------------------------------------------------
@@ -370,5 +388,26 @@ mod tests {
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));
         assert!(!team_implies(GLOB_MANAGE));
+    }
+
+    #[test]
+    fn file_backlog_is_computed_never_grantable_never_team_implied() {
+        assert!(is_computed(FILE_BACKLOG));
+        // Not in the grantable vocabulary: no grant row can ever carry it,
+        // and no family glob resolves to it (the bare `*` matches every
+        // string by construction — moot, since a `*` holder already has
+        // manage_tasks and the server never consults grants for it).
+        assert!(!CAPABILITIES.contains(&FILE_BACKLOG));
+        for glob in GLOBS.iter().filter(|g| **g != GLOB_ALL) {
+            assert!(
+                !capability_matches(glob, FILE_BACKLOG),
+                "{glob} must not match {FILE_BACKLOG}"
+            );
+        }
+        // Not implied by team membership either — it is tenant-wide.
+        assert!(!team_implies(FILE_BACKLOG));
+        for capability in CAPABILITIES {
+            assert!(!is_computed(capability));
+        }
     }
 }

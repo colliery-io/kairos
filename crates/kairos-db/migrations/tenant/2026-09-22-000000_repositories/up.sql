@@ -67,62 +67,80 @@ BEGIN
                    FROM forge_connections
                   WHERE deleted_at IS NULL AND team_id IS NULL);
         END IF;
+        -- A soft-deleted, team-less connection in a tenant with no live team
+        -- has no owner to borrow; unrecoverable here, so say so instead of
+        -- tripping NOT NULL half-way through (KAIROS-T-0113).
+        IF EXISTS (SELECT 1 FROM forge_connections WHERE deleted_at IS NOT NULL AND team_id IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM teams WHERE deleted_at IS NULL) THEN
+            RAISE EXCEPTION
+                'KAIROS-T-0113: soft-deleted forge connections without a team need at least one live team to migrate; hard-delete them or create a team: %',
+                (SELECT string_agg(id::text, ', ')
+                   FROM forge_connections
+                  WHERE deleted_at IS NOT NULL AND team_id IS NULL);
+        END IF;
 
         ALTER TABLE forge_connections
             ADD COLUMN IF NOT EXISTS repository_id UUID REFERENCES repositories(id);
 
-        -- One live repository per live connection. The slug is derived from
-        -- the full name (`acme/payments-api` -> `acme-payments-api`).
-        INSERT INTO repositories
-            (slug, forge, repo_full_name, repo_url, team_id, created_by, updated_by)
-        SELECT lower(regexp_replace(repo_full_name, '[^A-Za-z0-9]+', '-', 'g')),
-               forge, repo_full_name, repo_url, team_id, created_by, created_by
-          FROM forge_connections
-         WHERE deleted_at IS NULL;
+        -- One repository per DISTINCT (forge, full name), live ones first.
+        -- The slug derives from the full name exactly as
+        -- kairos_core::repositories::slug_from_full_name does (lowercase,
+        -- runs of non-alphanumerics -> one hyphen, edge hyphens trimmed,
+        -- 63 bytes). The OLD uniqueness was (forge, full name), so two
+        -- connections can collide on the derived slug (`acme/foo` on GitHub
+        -- and GitLab; `Acme/Foo` and `acme/foo`): collisions get `-<forge>`
+        -- then `-2`, `-3`, ... appended, cut so the result stays <= 63
+        -- (KAIROS-T-0113). Temporary table so the loop is set-based.
+        CREATE TEMP TABLE backfill_repos ON COMMIT DROP AS
+        SELECT DISTINCT ON (fc.forge, fc.repo_full_name)
+               fc.forge,
+               fc.repo_full_name,
+               fc.repo_url,
+               COALESCE(fc.team_id,
+                        (SELECT id FROM teams WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1)) AS team_id,
+               fc.created_by,
+               -- live if ANY connection for the pair is live
+               bool_or(fc.deleted_at IS NULL) OVER (PARTITION BY fc.forge, fc.repo_full_name) AS live,
+               rtrim(left(btrim(regexp_replace(lower(fc.repo_full_name), '[^a-z0-9]+', '-', 'g'), '-'), 63), '-') AS base_slug,
+               NULL::text AS slug
+          FROM forge_connections fc
+         ORDER BY fc.forge, fc.repo_full_name, fc.deleted_at NULLS FIRST;
 
-        UPDATE forge_connections fc
-           SET repository_id = r.id
-          FROM repositories r
-         WHERE fc.deleted_at IS NULL
-           AND r.deleted_at IS NULL
-           AND fc.forge = r.forge
-           AND fc.repo_full_name = r.repo_full_name;
-
-        -- Soft-deleted connections point at a live twin when one exists,
-        -- else at a soft-deleted repository of their own (team may be
-        -- absent on these; fall back to any live team so NOT NULL holds —
-        -- the row is dead either way).
-        UPDATE forge_connections fc
-           SET repository_id = r.id
-          FROM repositories r
-         WHERE fc.deleted_at IS NOT NULL
-           AND fc.repository_id IS NULL
-           AND r.deleted_at IS NULL
-           AND fc.forge = r.forge
-           AND fc.repo_full_name = r.repo_full_name;
+        -- First pass: unique base slugs keep them.
+        UPDATE backfill_repos b SET slug = base_slug
+         WHERE (SELECT count(*) FROM backfill_repos x WHERE x.base_slug = b.base_slug) = 1;
+        -- Second pass: colliding base slugs get their forge appended.
+        UPDATE backfill_repos b SET slug = left(base_slug, 63 - length(forge) - 1) || '-' || forge
+         WHERE slug IS NULL
+           AND (SELECT count(*) FROM backfill_repos x WHERE x.base_slug = b.base_slug AND x.forge = b.forge) = 1;
+        -- Third pass: still colliding (same forge, case-only difference) get -2, -3, ...
+        UPDATE backfill_repos b
+           SET slug = left(base_slug, 63 - length(n.rn::text) - 1) || '-' || n.rn
+          FROM (SELECT forge, repo_full_name,
+                       row_number() OVER (PARTITION BY base_slug ORDER BY repo_full_name) + 1 AS rn
+                  FROM backfill_repos WHERE slug IS NULL) n
+         WHERE b.slug IS NULL AND b.forge = n.forge AND b.repo_full_name = n.repo_full_name;
+        IF EXISTS (SELECT 1 FROM backfill_repos WHERE slug IS NULL OR slug = '' OR slug !~ '^[a-z0-9][a-z0-9-]{1,62}$') THEN
+            RAISE EXCEPTION
+                'KAIROS-T-0113: could not derive a valid repository slug for: %',
+                (SELECT string_agg(forge || ':' || repo_full_name, ', ') FROM backfill_repos
+                  WHERE slug IS NULL OR slug = '' OR slug !~ '^[a-z0-9][a-z0-9-]{1,62}$');
+        END IF;
 
         INSERT INTO repositories
             (slug, forge, repo_full_name, repo_url, team_id, created_by, updated_by, deleted_at)
-        SELECT DISTINCT ON (fc.forge, fc.repo_full_name)
-               lower(regexp_replace(fc.repo_full_name, '[^A-Za-z0-9]+', '-', 'g')),
-               fc.forge, fc.repo_full_name, fc.repo_url,
-               COALESCE(fc.team_id,
-                        (SELECT id FROM teams WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1)),
-               fc.created_by, fc.created_by, fc.deleted_at
-          FROM forge_connections fc
-         WHERE fc.deleted_at IS NOT NULL
-           AND fc.repository_id IS NULL
-         ORDER BY fc.forge, fc.repo_full_name, fc.deleted_at DESC;
+        SELECT slug, forge, repo_full_name, repo_url, team_id, created_by, created_by,
+               CASE WHEN live THEN NULL ELSE now() END
+          FROM backfill_repos;
 
         UPDATE forge_connections fc
            SET repository_id = r.id
           FROM repositories r
-         WHERE fc.repository_id IS NULL
-           AND r.deleted_at IS NOT NULL
-           AND fc.forge = r.forge
+         WHERE fc.forge = r.forge
            AND fc.repo_full_name = r.repo_full_name;
 
         ALTER TABLE forge_connections ALTER COLUMN repository_id SET NOT NULL;
+        DROP TABLE backfill_repos;
 
         DROP INDEX IF EXISTS idx_forge_connections_repo;
         DROP INDEX IF EXISTS idx_forge_connections_team;

@@ -73,5 +73,16 @@ mod tests {
         assert_eq!(slug_from_full_name("/weird//name/"), "weird-name");
         assert_eq!(slug_from_full_name("3scale/apicast"), "3scale-apicast");
         assert!(is_valid_slug(&slug_from_full_name("acme/payments-api")));
+        // Long names truncate to 63 and never end in a hyphen.
+        let long = format!("{}/{}", "a".repeat(40), "b".repeat(40));
+        let slug = slug_from_full_name(&long);
+        assert_eq!(slug.len(), 63);
+        assert!(!slug.ends_with('-'));
+        assert!(is_valid_slug(&slug));
+        // A name that is 62 chars then a separator: the truncation lands on
+        // the hyphen and it must be trimmed (the SQL mirrors this with
+        // rtrim(left(..)), KAIROS-T-0113).
+        let edge = format!("{}/x", "a".repeat(62));
+        assert_eq!(slug_from_full_name(&edge), "a".repeat(62));
     }
 }

@@ -264,6 +264,21 @@ impl KairosClient {
         .await
     }
 
+    /// PUT expecting 200 OK (whole-field replacement, e.g. a task's
+    /// repository binding).
+    async fn put_ok<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &(impl Serialize + ?Sized),
+    ) -> Result<T, Error> {
+        self.execute(
+            format!("PUT {path}"),
+            200,
+            self.http.put(self.url(path)).json(body),
+        )
+        .await
+    }
+
     async fn delete<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
         self.execute(
             format!("DELETE {path}"),
@@ -419,6 +434,40 @@ impl KairosClient {
                 work_class: work_class.to_string(),
             },
         )
+        .await
+    }
+
+    /// `PUT /api/tasks/{short_code}/repository` — bind the task to a
+    /// repository (slug or UUID) or clear it with `None` (KAIROS-T-0104).
+    /// The repository must belong to the team whose delivery board the
+    /// task sits on; requires `manage_tasks` on that board.
+    pub async fn set_task_repository(
+        &self,
+        short_code: &str,
+        repository: Option<&str>,
+    ) -> Result<Task, Error> {
+        self.put_ok(
+            &format!("/api/tasks/{short_code}/repository"),
+            &crate::types_repositories::SetTaskRepositoryRequest {
+                repository: repository.map(str::to_string),
+            },
+        )
+        .await
+    }
+
+    /// `GET /api/boards/{id}/items?repository=` — the board narrowed to
+    /// tasks bound to one repository (slug or UUID, KAIROS-T-0104); other
+    /// entity types are unaffected.
+    pub async fn board_items_for_repository(
+        &self,
+        board_id: &str,
+        repository: &str,
+    ) -> Result<BoardItemsResponse, Error> {
+        // Slugs are `[a-z0-9-]` and UUIDs are hex, so no encoding is needed
+        // for valid input; anything else is rejected server-side anyway.
+        self.get(&format!(
+            "/api/boards/{board_id}/items?repository={repository}"
+        ))
         .await
     }
 

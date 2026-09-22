@@ -1973,6 +1973,9 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                     .as_deref()
                     .map(|v| uuid_field(v, "filter.team_id"))
                     .transpose()?,
+                // Slug-or-UUID `repository` on the MCP filter lands in
+                // KAIROS-T-0107; the core filter is by id.
+                repository_id: None,
                 task_type: filter
                     .task_type
                     .as_ref()

@@ -203,7 +203,8 @@ async fn meta_endpoints_against_live_stack() {
     for title in ["Wire endpoints", "Write tests"] {
         let task = alice
             .create_task(&CreateTaskRequest {
-                board_id: delivery_board.to_string(),
+                board_id: Some(delivery_board.to_string()),
+                repository_id: None,
                 column_id: None,
                 title: title.into(),
                 content: "c1".into(),

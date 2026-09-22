@@ -80,6 +80,8 @@ use crate::app::AppState;
         crate::api::tasks::delete_task,
         crate::api::tasks::transition_task,
         crate::api::tasks::set_work_class,
+        // Task repository binding (KAIROS-T-0104).
+        crate::api::tasks::set_repository,
         crate::api::documents::list_documents,
         crate::api::documents::get_document,
         crate::api::documents::create_document,

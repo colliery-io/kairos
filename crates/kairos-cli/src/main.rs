@@ -473,7 +473,7 @@ mod tests {
         .expect("tasks create parses");
         match cli.command {
             Command::Tasks(TasksCommand::Create(args)) => {
-                assert_eq!(args.board, "b-1");
+                assert_eq!(args.board.as_deref(), Some("b-1"));
                 assert_eq!(args.title, "Fix login");
                 assert_eq!(args.task_type.as_deref(), Some("bug"));
                 assert_eq!(args.content, "body");

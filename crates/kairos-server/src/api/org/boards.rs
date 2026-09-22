@@ -26,7 +26,7 @@ use kairos_db::{abac, boards};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::super::convert::IntoDto;
+use super::super::convert::{IntoDto, attach_repositories};
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
     count_board_items, is_unique_violation, load_board, map_config_error, map_grant_error,
@@ -435,14 +435,22 @@ pub(crate) async fn delete_board(
 // Items view
 // ---------------------------------------------------------------------------
 
+/// Query of `GET /api/boards/{id}/items` (KAIROS-T-0104).
+#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct BoardItemsQuery {
+    /// Narrow the TASKS to those bound to this repository (slug or UUID).
+    /// Other entity types are unaffected. Unknown repository → 422.
+    pub repository: Option<String>,
+}
+
 /// All live items on the board, grouped by column (columns in position
 /// order; every entity type — strategies, initiatives, tasks, ADRs). Open
-/// tenant-wide.
+/// tenant-wide. `?repository=` narrows the tasks (KAIROS-T-0104).
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/items",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "Board id (UUID)"), BoardItemsQuery),
     responses(
         (status = 200, description = "Items grouped by column", body = dto::BoardItemsResponse),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -452,6 +460,7 @@ pub(crate) async fn board_items(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    Query(query): Query<BoardItemsQuery>,
 ) -> Result<Json<dto::BoardItemsResponse>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let response = state
@@ -461,6 +470,15 @@ pub(crate) async fn board_items(
 
             let board = load_board(conn, board_id)?;
             let columns = load_columns(conn, board_id)?;
+            let repository_filter: Option<Uuid> = query
+                .repository
+                .as_deref()
+                .map(|reference| {
+                    kairos_db::repositories::resolve(conn, reference)
+                        .map(|r| r.id)
+                        .map_err(crate::api::tasks::map_repository_error)
+                })
+                .transpose()?;
 
             let mut groups: Vec<dto::BoardColumnItems> = columns
                 .into_iter()
@@ -508,9 +526,14 @@ pub(crate) async fn board_items(
                     groups[i].initiatives.push(row.into_dto());
                 }
             }
-            let task_rows: Vec<Task> = tasks::table
+            let mut task_query = tasks::table
                 .filter(tasks::board_id.eq(board_id))
                 .filter(tasks::deleted_at.is_null())
+                .into_boxed();
+            if let Some(repository_id) = repository_filter {
+                task_query = task_query.filter(tasks::repository_id.eq(repository_id));
+            }
+            let task_rows: Vec<Task> = task_query
                 .order(tasks::short_code.asc())
                 .select(Task::as_select())
                 .load(conn)
@@ -520,6 +543,11 @@ pub(crate) async fn board_items(
                     item_codes.push((row.id, row.short_code.clone()));
                     groups[i].tasks.push(row.into_dto());
                 }
+            }
+            // KAIROS-T-0104: embed the repository ref on every task, one
+            // query for the whole board.
+            for group in groups.iter_mut() {
+                attach_repositories(conn, &mut group.tasks).map_err(ApiError::internal)?;
             }
             let adr_rows: Vec<Adr> = adrs::table
                 .filter(adrs::board_id.eq(board_id))

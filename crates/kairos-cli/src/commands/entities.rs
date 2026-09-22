@@ -561,9 +561,11 @@ impl InitiativeCreateArgs {
 /// Arguments of `kairos tasks create`.
 #[derive(Args, Debug)]
 pub struct TaskCreateArgs {
-    /// Delivery board to create the task on (UUID)
-    #[arg(long, value_name = "BOARD_ID")]
-    pub board: String,
+    /// Delivery board to create the task on (UUID). Optional when --repo
+    /// is given: the task is routed to the repository's owning team's
+    /// delivery board (KAIROS-A-0019)
+    #[arg(long, value_name = "BOARD_ID", required_unless_present = "repo")]
+    pub board: Option<String>,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]
     pub column: Option<String>,
@@ -580,9 +582,13 @@ pub struct TaskCreateArgs {
     /// support for support-type tasks, else planned)
     #[arg(long = "work-class", value_name = "WORK_CLASS")]
     pub work_class: Option<String>,
-    /// Owning team (UUID)
+    /// Owning team (UUID; defaults to the repository's owning team)
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
+    /// Repository to issue the task against (slug or UUID); routes the
+    /// task to the owning team's delivery board
+    #[arg(long, value_name = "REPOSITORY")]
+    pub repo: Option<String>,
     #[command(flatten)]
     pub common: Common,
 }
@@ -591,6 +597,7 @@ impl TaskCreateArgs {
     fn request(&self) -> CreateTaskRequest {
         CreateTaskRequest {
             board_id: self.board.clone(),
+            repository_id: self.repo.clone(),
             column_id: self.column.clone(),
             title: self.title.clone(),
             content: self.content.clone(),

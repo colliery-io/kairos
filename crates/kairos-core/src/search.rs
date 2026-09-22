@@ -122,6 +122,10 @@ pub struct SearchFilter {
     /// attribute; other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<Uuid>,
+    /// Restrict to tasks issued against this repository (KAIROS-T-0104,
+    /// A-0019; task-level attribute, other entity types are excluded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository_id: Option<Uuid>,
     /// Restrict to tasks of these types (excludes non-task entities).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_type: Option<Vec<SearchTaskType>>,
@@ -160,6 +164,7 @@ impl SearchFilter {
             || self.board_id.is_some()
             || self.column_id.is_some()
             || self.team_id.is_some()
+            || self.repository_id.is_some()
             || self.task_type.is_some()
             || self.work_class.is_some()
             || self.is_bucket.is_some()

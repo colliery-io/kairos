@@ -105,6 +105,15 @@ pub struct Task {
     pub work_class: String,
     /// Owning team (UUID), if assigned.
     pub team_id: Option<String>,
+    /// The repository this task is issued against (UUID), if bound
+    /// (KAIROS-T-0104, A-0019).
+    #[serde(default)]
+    pub repository_id: Option<String>,
+    /// The bound repository, embedded (slug, forge, name, owning team).
+    /// Present on the task, board-items and search endpoints; other
+    /// carriers (events) send only `repository_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<crate::types_repositories::RepositoryRef>,
     /// Optimistic-concurrency version (KAIROS-A-0004).
     pub version: i32,
     /// Creator user id (UUID).
@@ -223,8 +232,12 @@ pub struct CreateInitiativeRequest {
 /// Body of `POST /api/tasks`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
-    /// Board to create the task on (UUID).
-    pub board_id: String,
+    /// Board to create the task on (UUID). Optional since KAIROS-T-0104:
+    /// when `repository_id` is given the task is ROUTED to the owning
+    /// team's delivery board (A-0019); when both are given they must
+    /// agree; neither is a 422.
+    #[serde(default)]
+    pub board_id: Option<String>,
     /// Column to place it in (UUID); defaults to the board's first column.
     #[serde(default)]
     pub column_id: Option<String>,
@@ -239,9 +252,14 @@ pub struct CreateTaskRequest {
     /// to `support` when `task_type` is `support`, else `planned`.
     #[serde(default)]
     pub work_class: Option<String>,
-    /// Owning team (UUID).
+    /// Owning team (UUID). Defaults to the repository's owning team when
+    /// `repository_id` is given; an explicit different team is a 422.
     #[serde(default)]
     pub team_id: Option<String>,
+    /// Repository to issue the task against (slug or UUID, KAIROS-T-0104).
+    /// Routes the task: repo -> owning team -> that team's delivery board.
+    #[serde(default)]
+    pub repository_id: Option<String>,
 }
 
 /// Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move

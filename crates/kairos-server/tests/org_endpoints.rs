@@ -890,7 +890,8 @@ async fn org_and_admin_endpoints_against_live_stack() {
     // Put a task on the team's delivery board for the cross-family check.
     let task = svc
         .create_task(&CreateTaskRequest {
-            board_id: delivery_board.clone(),
+            board_id: Some(delivery_board.clone()),
+            repository_id: None,
             column_id: None,
             title: "Wire the API".into(),
             content: String::new(),

@@ -43,7 +43,7 @@
 //! 6. **Hydrate**: at most one typed `SELECT … WHERE id = ANY(…)` per
 //!    entity type — **bounded at 5 queries regardless of result size**
 //!    ([`SearchStats::hydration_queries`] proves it) — carrying the
-//!    structural filter predicates (`board_id`, `column_id`, `team_id`,
+//!    structural filter predicates (`board_id`, `column_id`, `team_id`, `repository_id`,
 //!    `task_type`, `is_bucket`, `created_after`/`before`) and the
 //!    `deleted_at IS NULL` default. Filters on attributes a type does not
 //!    have exclude the type outright (e.g. `task_type` ⇒ tasks only,
@@ -487,8 +487,13 @@ fn applicable_types(filter: Option<&SearchFilter>) -> Vec<ItemType> {
             // Documents do not live on boards.
             types.retain(|t| *t != ItemType::Document);
         }
-        if filter.team_id.is_some() || filter.task_type.is_some() || filter.work_class.is_some() {
-            // team_id, task_type, and work_class are task-level attributes.
+        if filter.team_id.is_some()
+            || filter.repository_id.is_some()
+            || filter.task_type.is_some()
+            || filter.work_class.is_some()
+        {
+            // team_id, repository_id, task_type, and work_class are
+            // task-level attributes.
             types.retain(|t| *t == ItemType::Task);
         }
         if filter.is_bucket.is_some() {
@@ -624,6 +629,9 @@ fn hydrate_tasks(
         }
         if let Some(team_id) = filter.team_id {
             query = query.filter(dsl::team_id.eq(team_id));
+        }
+        if let Some(repository_id) = filter.repository_id {
+            query = query.filter(dsl::repository_id.eq(repository_id));
         }
         if let Some(task_types) = &filter.task_type {
             let stored: Vec<TaskType> = task_types.iter().copied().map(model_task_type).collect();

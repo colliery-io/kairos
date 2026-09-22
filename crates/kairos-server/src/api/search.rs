@@ -81,9 +81,13 @@ pub(crate) async fn search(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            execute_search(conn, &core)
+            let mut response = execute_search(conn, &core)
                 .map(into_response)
-                .map_err(map_search_error)
+                .map_err(map_search_error)?;
+            // KAIROS-T-0104: embed the repository ref on task hits.
+            super::convert::attach_repositories(conn, &mut response.results.tasks)
+                .map_err(ApiError::internal)?;
+            Ok(response)
         })
         .await?;
     Ok(Json(response))
@@ -205,6 +209,11 @@ fn filter_to_core(
             .team_id
             .as_deref()
             .map(|v| uuid_field(v, "filter.team_id"))
+            .transpose()?,
+        repository_id: filter
+            .repository_id
+            .as_deref()
+            .map(|v| uuid_field(v, "filter.repository_id"))
             .transpose()?,
         task_type,
         work_class,

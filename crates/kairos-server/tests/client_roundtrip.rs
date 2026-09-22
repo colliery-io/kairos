@@ -192,7 +192,8 @@ async fn typed_error_mapping_roundtrip() {
     // --- 403 Forbidden WITH the capability payload -----------------------------
     let err = rejection(
         bob.create_task(&CreateTaskRequest {
-            board_id: board_id.clone(),
+            board_id: Some(board_id.clone()),
+            repository_id: None,
             column_id: None,
             title: "denied".into(),
             content: String::new(),
@@ -227,7 +228,8 @@ async fn typed_error_mapping_roundtrip() {
     // --- 409 Conflict { current }: stale optimistic-concurrency PATCH -----------
     let task = svc
         .create_task(&CreateTaskRequest {
-            board_id: board_id.clone(),
+            board_id: Some(board_id.clone()),
+            repository_id: None,
             column_id: None,
             title: "Roundtrip task".into(),
             content: "v1".into(),
@@ -300,7 +302,8 @@ async fn typed_error_mapping_roundtrip() {
     // --- 422 Validation: malformed UUID reference ---------------------------------
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
-            board_id: "not-a-uuid".into(),
+            board_id: Some("not-a-uuid".into()),
+            repository_id: None,
             column_id: None,
             title: "x".into(),
             content: String::new(),

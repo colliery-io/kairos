@@ -204,7 +204,7 @@ async fn meta_endpoints_against_live_stack() {
         let task = alice
             .create_task(&CreateTaskRequest {
                 board_id: Some(delivery_board.to_string()),
-                repository_id: None,
+                repository: None,
                 column_id: None,
                 title: title.into(),
                 content: "c1".into(),

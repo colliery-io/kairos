@@ -193,7 +193,7 @@ async fn typed_error_mapping_roundtrip() {
     let err = rejection(
         bob.create_task(&CreateTaskRequest {
             board_id: Some(board_id.clone()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "denied".into(),
             content: String::new(),
@@ -229,7 +229,7 @@ async fn typed_error_mapping_roundtrip() {
     let task = svc
         .create_task(&CreateTaskRequest {
             board_id: Some(board_id.clone()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "Roundtrip task".into(),
             content: "v1".into(),
@@ -303,7 +303,7 @@ async fn typed_error_mapping_roundtrip() {
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
             board_id: Some("not-a-uuid".into()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "x".into(),
             content: String::new(),

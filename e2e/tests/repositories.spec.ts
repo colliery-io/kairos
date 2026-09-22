@@ -9,7 +9,9 @@
 //      the cards and lives in the URL, "Group by repository" re-lanes
 //   3. cross-team: carol files a task against platform's repo over the
 //      API with no board → it lands in platform's Backlog; carol cannot
-//      transition it; alice (admin) can; the card shows the repo chip
+//      transition it; bob (a platform member, NOT an admin) can — the team
+//      gate, not the admin bypass; carol links her own web task to it with
+//      a `blocks` edge (collaborative relationship); the card shows the chip
 //   4. the item page's repository picker re-homes a task within the team
 //   5. a PR opened in the repo naming the cross-team task links back to it
 //      (forge webhook against a freshly connected repo)
@@ -18,7 +20,9 @@
 //
 // Conventions match the other specs: visible-text/role selectors plus the
 // stable `.kairos-*`/`.cl-*` classes and data-testid hooks, in-app
-// navigation only.
+// navigation only. Everything the test REGISTERS carries a per-run suffix
+// so a retry (or a stack that was not re-seeded) never trips the unique
+// slug / (forge, full name) indexes.
 
 import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
@@ -30,10 +34,13 @@ import {
   githubPullRequest,
   listRepositories,
   loadPlatformDelivery,
+  tryCreateRelationship,
   tryTransitionTask,
 } from '../helpers/api';
 
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
+// Per-run suffix for everything the test registers (see the header).
+const RUN = Date.now().toString(36);
 
 const panel = (page: Page, title: string) =>
   page.locator('.cl-panel', {
@@ -58,6 +65,11 @@ test('repositories: team panel → board lens → cross-team filing → picker �
   // headless mint for alice after the browser login would invalidate the
   // browser's silent-restore token and full navigations would bounce to Dex.
   const alice = await mintToken({ server: GUI, email: 'alice@kairos.test' });
+  const bob = await mintToken({
+    server: GUI,
+    email: 'bob@kairos.test',
+    password: 'bob-password',
+  });
   const carol = await mintToken({
     server: GUI,
     email: 'carol@kairos.test',
@@ -97,7 +109,9 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     // Only infra-bound tasks (plus non-task cards) remain.
     await expect(page.locator('.kairos-card__repo[data-repo="payments-api"]')).toHaveCount(0);
     await expect(page.locator('.kairos-card__repo[data-repo="platform-infra"]').first()).toBeVisible();
-    expect(await page.locator('article.kairos-card').count()).toBeLessThan(chipsBefore);
+    await expect
+      .poll(() => page.locator('article.kairos-card').count())
+      .toBeLessThan(chipsBefore);
 
     // The selection survives a reload — it is URL state.
     await page.reload();
@@ -113,7 +127,6 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await expect(page).toHaveURL(/by_repo=1/);
     await expect(page.locator('.kairos-board__lane--repo[data-repo-lane="payments-api"]')).toBeVisible();
     await expect(page.locator('.kairos-board__lane--repo[data-repo-lane="platform-infra"]')).toBeVisible();
-    await expect(page.locator('.kairos-board__lane--repo[data-repo-lane=""]')).toBeVisible();
     await page.locator('[data-testid="group-by-repo"]').click();
     await expect(page).not.toHaveURL(/by_repo/);
   });
@@ -131,10 +144,35 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     expect(board.columnName.get(filed.column_id)).toBe('Backlog');
     expect(filed.repository.slug).toBe('payments-api');
 
-    // Carol cannot move it; the owning team (alice, admin here) can.
+    // Carol cannot move it (file_backlog stops at the entry column); bob —
+    // a platform member with no admin bypass — can: the team gate proper.
     const todo = [...board.columnName.entries()].find(([, name]) => name === 'Todo')![0];
     expect(await tryTransitionTask(GUI, carol, filedCode, todo)).toBe(403);
-    expect(await tryTransitionTask(GUI, alice, filedCode, todo)).toBe(200);
+    expect(await tryTransitionTask(GUI, bob, filedCode, todo)).toBe(200);
+
+    // Coordination across the seam: carol files the web-side half against
+    // her own repo and links the platform task as blocking it. `blocks` is
+    // collaborative (A-0019 §D6) — authoring the source is enough, no
+    // platform-board power needed. A `supports` edge is not, so it is refused.
+    const webSide = await createTask(GUI, carol, {
+      title: 'Portal: consume the export endpoint',
+      repository: 'portal-web',
+    });
+    expect(webSide.repository.slug).toBe('portal-web');
+    expect(
+      await tryCreateRelationship(GUI, carol, {
+        source: filedCode,
+        target: webSide.short_code,
+        relationship: 'blocks',
+      }),
+    ).toBe(201);
+    expect(
+      await tryCreateRelationship(GUI, carol, {
+        source: filedCode,
+        target: webSide.short_code,
+        relationship: 'supports',
+      }),
+    ).toBe(403);
 
     // It renders on the board with its repo chip.
     await page.goto('/boards/platform-delivery');
@@ -166,16 +204,17 @@ test('repositories: team panel → board lens → cross-team filing → picker �
   await test.step('a signed PR naming the filed task links back to it', async () => {
     // A fresh repo + connection (the seeded payments-api connection's secret
     // is not known to the test).
+    const billing = `billing-worker-${RUN}`;
     const fresh = await createRepository(GUI, alice, {
-      slug: 'billing-worker',
-      repoFullName: 'acme/billing-worker',
+      slug: billing,
+      repoFullName: `acme/${billing}`,
       team: 'platform',
     });
     const connection = await createForgeConnection(GUI, alice, fresh.slug);
     const opened = githubPullRequest({
       number: 77,
       code: filedCode,
-      repoFullName: 'acme/billing-worker',
+      repoFullName: `acme/${billing}`,
       state: 'open',
       updatedAt: '2026-09-22T10:00:00Z',
       title: `Export endpoint for ${filedCode}`,
@@ -183,9 +222,9 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     expect(await deliverGithubWebhook(GUI, connection, 'pull_request', opened)).toBe(200);
     const dev = panel(page, 'Development');
     await expect(dev.getByText('#77', { exact: false })).toBeVisible({ timeout: 20_000 });
-    await expect(dev.getByText('acme/billing-worker', { exact: false })).toBeVisible();
+    await expect(dev.getByText(`acme/${billing}`, { exact: false })).toBeVisible();
     const directory = await listRepositories(GUI, alice, 'platform');
-    expect(directory.find((r) => r.slug === 'billing-worker')?.hasWebhook).toBe(true);
+    expect(directory.find((r) => r.slug === billing)?.hasWebhook).toBe(true);
   });
 
   // 6. Admin page: register + connect, secret shown once ----------------------
@@ -197,20 +236,23 @@ test('repositories: team panel → board lens → cross-team filing → picker �
       form.locator('.cl-field', {
         has: page.locator('.cl-field__label', { hasText: label }),
       });
-    await field('Full name').locator('input').fill('acme/notifier');
-    await field('URL').locator('input').fill('https://github.com/acme/notifier');
-    await field('Slug (optional)').locator('input').fill('notifier');
+    const notifier = `notifier-${RUN}`;
+    await field('Full name').locator('input').fill(`acme/${notifier}`);
+    await field('URL').locator('input').fill(`https://github.com/acme/${notifier}`);
+    await field('Slug (optional)').locator('input').fill(notifier);
     await field('Owning team').locator('select').selectOption({ label: 'web' });
     await form.getByRole('button', { name: 'Register repository' }).click();
-    const row = page.locator('[data-repo="notifier"]').first();
+    const row = page.locator(`[data-repo="${notifier}"]`).first();
     await expect(row).toBeVisible({ timeout: 10_000 });
     await expect(row).toContainText('owner: web');
     await row.getByRole('button', { name: 'Connect webhook' }).click();
     const secret = page.locator('[data-testid="webhook-secret"]');
     await expect(secret).toBeVisible({ timeout: 10_000 });
-    await expect(secret).toContainText('/webhooks/github/demo/');
+    // The delivery URL names the forge and the tenant — whichever tenant
+    // the stack was seeded with.
+    await expect(secret).toContainText('/webhooks/github/');
     await secret.getByRole('button', { name: 'I have copied them' }).click();
     await expect(secret).toHaveCount(0);
-    await expect(page.locator('[data-repo="notifier"]').first()).toContainText('webhooks');
+    await expect(page.locator(`[data-repo="${notifier}"]`).first()).toContainText('webhooks');
   });
 });

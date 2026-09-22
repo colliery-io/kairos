@@ -71,10 +71,10 @@ Run `git remote get-url origin`. Normalize the remote to `(forge, full_name)`:
 | `https://gitlab.example.com/acme/web.git` | `gitlab` (any host containing `gitlab`) | `acme/web` |
 | anything else | `other` | path after the host, `.git` stripped |
 
-Strip a trailing `.git` and any leading `/`. Then match: first `whoami`'s `repositories` (the user's own teams'), then `list_repositories` (the whole directory), on `forge` + `full_name`.
+Strip a trailing `.git` and any leading `/`. Then match on `forge` + `full_name` against `list_repositories` (the MCP directory carries both fields; `whoami`'s repository list does not show the forge), or over HTTP with `GET /api/repositories?forge=<forge>&name=<full_name>` (one row or empty).
 
 - **Found** → its `slug` is the repository; its owning team's delivery board is the **team board**, and that team is the **delivery stream** default. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
-- **Not found** → offer to register it with `POST /api/repositories` / `kairos repos create` (any member of the owning team may). Use the user's single team as the owner; if they are on several, ask which; if they are on none, say an org admin or a team member must register it and leave `repository:` empty.
+- **Not found** → there is no MCP tool for registering a repository, so offer to run `kairos repos create --forge <forge> --name <full_name> --repo-url <url> --team <team>` (any member of the owning team may; the CLI must be logged in — `kairos login`) or, headless, `POST /api/repositories`. Use the user's single team as the owner; if they are on several, ask which; if they are on none, say an org admin or a team member must register it and leave `repository:` empty.
 - **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped.
 
 From the results pick, confirming with the user whenever there is more than one candidate:
@@ -95,8 +95,8 @@ deployment_url: https://acme.kairos.example
 tenant: acme
 repository: payments-api
 delivery_stream: platform
-team_board: Platform Delivery
-initiative_board: Platform Initiatives
+team_board: platform-delivery
+initiative_board: initiatives
 ---
 
 # Kairos wiring for this repo
@@ -108,7 +108,7 @@ from the origin remote; boards derived from it 2026-09-22. Re-run
 missing and what unblocks it.>
 ```
 
-Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); the three board keys are derived from its owning team when it is set and are still written so older skills keep working. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
+Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); `team_board` and `initiative_board` are board **slugs** (what `board_items` resolves — never display names); the three board keys are derived from the repository's owning team when it is set and are still written so older skills keep working. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
 
 Then ensure it is gitignored — it is org-specific wiring, not for the repo's history (tokens live with the MCP client, never in this file). If `.gitignore` does not already cover it, append:
 

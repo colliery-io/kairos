@@ -489,7 +489,7 @@ async fn entity_endpoints_against_live_stack() {
     // bob has NO grants: 403 naming the missing capability (A-0006).
     let create_task_request = CreateTaskRequest {
         board_id: Some(delivery_board.to_string()),
-        repository_id: None,
+        repository: None,
         column_id: None,
         title: "Wire the endpoints".into(),
         content: "T-0018".into(),
@@ -526,7 +526,7 @@ async fn entity_endpoints_against_live_stack() {
     let task_bug = alice
         .create_task(&CreateTaskRequest {
             board_id: Some(delivery_board.to_string()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "Fix the flaky login".into(),
             content: "repro steps".into(),
@@ -550,7 +550,7 @@ async fn entity_endpoints_against_live_stack() {
     let task_support = alice
         .create_task(&CreateTaskRequest {
             board_id: Some(delivery_board.to_string()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "Customer-reported outage".into(),
             content: "support intake".into(),
@@ -568,7 +568,7 @@ async fn entity_endpoints_against_live_stack() {
     let unplanned_bug = alice
         .create_task(&CreateTaskRequest {
             board_id: Some(delivery_board.to_string()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "Prod 500 on login".into(),
             content: "unplanned".into(),
@@ -693,7 +693,7 @@ async fn entity_endpoints_against_live_stack() {
         alice
             .create_task(&CreateTaskRequest {
                 board_id: Some(Uuid::nil().to_string()),
-                repository_id: None,
+                repository: None,
                 column_id: None,
                 title: "x".into(),
                 content: String::new(),
@@ -708,7 +708,7 @@ async fn entity_endpoints_against_live_stack() {
         alice
             .create_task(&CreateTaskRequest {
                 board_id: Some("not-a-uuid".into()),
-                repository_id: None,
+                repository: None,
                 column_id: None,
                 title: "x".into(),
                 content: String::new(),

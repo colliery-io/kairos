@@ -171,7 +171,7 @@ async fn task_repository_binding_against_live_stack() {
         task_type: None,
         work_class: None,
         team_id: None,
-        repository_id: None,
+        repository: None,
     };
 
     // =======================================================================
@@ -179,7 +179,7 @@ async fn task_repository_binding_against_live_stack() {
     // =======================================================================
     let routed = svc
         .create_task(&CreateTaskRequest {
-            repository_id: Some("payments-api".into()),
+            repository: Some("payments-api".into()),
             ..base.clone()
         })
         .await
@@ -201,12 +201,24 @@ async fn task_repository_binding_against_live_stack() {
     // By UUID works too.
     let by_uuid = svc
         .create_task(&CreateTaskRequest {
-            repository_id: Some(portal.id.to_string()),
+            repository: Some(portal.id.to_string()),
             ..base.clone()
         })
         .await
         .expect("repo by UUID");
     assert_eq!(by_uuid.board_id, web_board);
+    // The pre-rename wire field is still accepted for one release
+    // (KAIROS-T-0115).
+    let (status, body) = svc
+        .raw_request(
+            reqwest::Method::POST,
+            "/api/tasks",
+            Some(&serde_json::json!({ "title": "Aliased", "repository_id": "portal-web" })),
+        )
+        .await
+        .expect("raw create");
+    assert_eq!(status, 201, "repository_id alias on create: {body}");
+    assert_eq!(body["repository"]["slug"], "portal-web");
     assert_eq!(by_uuid.team_id.as_deref(), Some(web.id.as_str()));
 
     // =======================================================================
@@ -215,7 +227,7 @@ async fn task_repository_binding_against_live_stack() {
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
             board_id: Some(web_board.clone()),
-            repository_id: Some("payments-api".into()),
+            repository: Some("payments-api".into()),
             ..base.clone()
         })
         .await,
@@ -230,7 +242,7 @@ async fn task_repository_binding_against_live_stack() {
     let agreeing = svc
         .create_task(&CreateTaskRequest {
             board_id: Some(platform_board.clone()),
-            repository_id: Some("payments-api".into()),
+            repository: Some("payments-api".into()),
             ..base.clone()
         })
         .await
@@ -239,7 +251,7 @@ async fn task_repository_binding_against_live_stack() {
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
             team_id: Some(web.id.clone()),
-            repository_id: Some("payments-api".into()),
+            repository: Some("payments-api".into()),
             ..base.clone()
         })
         .await,
@@ -270,7 +282,7 @@ async fn task_repository_binding_against_live_stack() {
     // Unknown repository → 422.
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
-            repository_id: Some("nope".into()),
+            repository: Some("nope".into()),
             ..base.clone()
         })
         .await,
@@ -408,12 +420,13 @@ async fn task_repository_binding_against_live_stack() {
         "unknown slug → 422: {err}"
     );
 
-    // Search: repository_id is a task-level filter.
+    // Search: `filter.repository` is a task-level filter taking a slug or a
+    // UUID (KAIROS-T-0115), resolved in the handler like board items.
     let hits = svc
         .search(&SearchRequest {
             q: None,
             filter: Some(SearchFilter {
-                repository_id: Some(payments.id.to_string()),
+                repository: Some("payments-api".into()),
                 ..Default::default()
             }),
             traverse: None,
@@ -431,15 +444,40 @@ async fn task_repository_binding_against_live_stack() {
             .all(|t| t.repository.as_ref().map(|r| r.slug.as_str()) == Some("payments-api")),
         "search hits carry the embedded ref"
     );
+    let by_uuid = svc
+        .search(&SearchRequest {
+            q: None,
+            filter: Some(SearchFilter {
+                repository: Some(payments.id.to_string()),
+                ..Default::default()
+            }),
+            traverse: None,
+            sort: None,
+            limit: None,
+            offset: None,
+        })
+        .await
+        .expect("search by repository uuid");
+    assert_eq!(by_uuid.results.tasks.len(), 2);
+    // The old wire name is still accepted for one release.
+    let (status, body) = svc
+        .raw_request(
+            reqwest::Method::POST,
+            "/api/search",
+            Some(&serde_json::json!({ "filter": { "repository_id": "payments-api" } })),
+        )
+        .await
+        .expect("raw search");
+    assert_eq!(status, 200, "repository_id alias: {body}");
     let (status, _) = svc
         .raw_request(
             reqwest::Method::POST,
             "/api/search",
-            Some(&serde_json::json!({ "filter": { "repository_id": "not-a-uuid" } })),
+            Some(&serde_json::json!({ "filter": { "repository": "nope" } })),
         )
         .await
         .expect("raw search");
-    assert_eq!(status, 400, "filter.repository_id must be a UUID");
+    assert_eq!(status, 422, "unknown repository slug is a validation error");
 
     drop(server);
     drop(pool);

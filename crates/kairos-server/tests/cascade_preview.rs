@@ -148,7 +148,7 @@ async fn cascade_preview_matches_actual_cascade() {
     let task = svc
         .create_task(&CreateTaskRequest {
             board_id: Some(delivery_board.to_string()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: "SSO login".into(),
             content: "# Task".into(),

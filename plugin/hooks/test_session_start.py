@@ -32,41 +32,41 @@ class ReadFrontmatter(unittest.TestCase):
             "tenant: acme\n"
             "repository: payments-api\n"
             "delivery_stream: platform\n"
-            "team_board: Platform Delivery\n"
-            "initiative_board: Platform Initiatives\n"
+            "team_board: platform-delivery\n"
+            "initiative_board: initiatives\n"
             "---\n\n# prose\n"
         )
         values = session_start.read_frontmatter(path)
         self.assertEqual(values["repository"], "payments-api")
-        self.assertEqual(values["team_board"], "Platform Delivery")
+        self.assertEqual(values["team_board"], "platform-delivery")
         self.assertEqual(set(values), set(session_start.FRONTMATTER_KEYS))
 
     def test_empty_values_and_unknown_keys_are_dropped(self):
         path = write(
-            "---\nrepository:\nteam_board: Web Delivery\nunknown: x\n---\n"
+            "---\nrepository:\nteam_board: web-delivery\nunknown: x\n---\n"
         )
         values = session_start.read_frontmatter(path)
         self.assertNotIn("repository", values)
         self.assertNotIn("unknown", values)
-        self.assertEqual(values["team_board"], "Web Delivery")
+        self.assertEqual(values["team_board"], "web-delivery")
 
 
 class LiveStateHint(unittest.TestCase):
     def test_repo_scoped_when_repository_is_set(self):
         hint = session_start.live_state_hint(
-            {"repository": "payments-api", "team_board": "Platform Delivery"}
+            {"repository": "payments-api", "team_board": "platform-delivery"}
         )
         self.assertIn("repository `payments-api`", hint)
         self.assertIn("`get_repository`", hint)
         self.assertIn("`repository=payments-api`", hint)
-        self.assertIn("Platform Delivery", hint)
+        self.assertIn("platform-delivery", hint)
         self.assertIn("ANOTHER repository", hint)
         self.assertNotIn("re-run /kairos:bootstrap to detect", hint)
 
     def test_board_scoped_when_repository_is_unset(self):
-        hint = session_start.live_state_hint({"team_board": "Platform Delivery"})
+        hint = session_start.live_state_hint({"team_board": "platform-delivery"})
         self.assertIn("`my_boards`", hint)
-        self.assertIn("Platform Delivery", hint)
+        self.assertIn("platform-delivery", hint)
         self.assertIn("No `repository` is wired", hint)
         self.assertNotIn("get_repository", hint)
 

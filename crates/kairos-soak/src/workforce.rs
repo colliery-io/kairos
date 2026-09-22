@@ -150,7 +150,7 @@ async fn run_op(
                 &world.delivery_boards[rng.below(world.delivery_boards.len() as u64) as usize];
             let request = CreateTaskRequest {
                 board_id: Some(board.id.clone()),
-                repository_id: None,
+                repository: None,
                 column_id: None,
                 title: format!("Soak {} #{counter}", spec.name),
                 content: format!(

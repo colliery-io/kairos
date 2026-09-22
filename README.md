@@ -258,6 +258,8 @@ new key and revoking the old one; never commit a key to source control.
 
 ## Repositories — where tickets are issued and executed
 
+### Why repositories
+
 Boards and delivery streams plan the work; a **repository** is the unit a ticket
 is issued against and executed in (KAIROS-A-0019). Every repository has
 **exactly one owning team**, and a task binds to **at most one repository** —
@@ -270,6 +272,19 @@ plugin's `/kairos:bootstrap` detects it from the git remote — see
 `plugin/README.md`): its queue is the team board narrowed to the repo, tasks it
 creates carry the repo, and `get_repository` gives it the team's *"how to work
 here"* description and the repo's in-flight pull requests.
+
+**Cross-team filing.** Any member of the organization — human or service
+account — may create a task against **another team's** repository. It lands in
+that team's **Backlog** and nothing else: the filer cannot move it out of
+Backlog, edit it, delete it, or change its metadata — the owning team's triage
+is the gate. This is the computed `file_backlog` capability every member holds
+on every delivery board (`whoami` lists it under `implicit`); it is never
+granted or revoked. The filer *may* link the ticket to their own with a
+`parent` or `blocks` edge (the two collaborative relationships), and a pull
+request they later open in that repository naming the short code links itself
+to the ticket through the team's webhook (below).
+
+### How to
 
 **Register a repository.** Any member of the owning team may (org admins may
 for any team). `team` is a slug or UUID; `slug` defaults to one derived from the
@@ -288,43 +303,51 @@ curl -X POST https://<host>/api/repositories -H "Authorization: Bearer <token>" 
        "slug":"payments-api"}'
 ```
 
-`kairos repos list [--team <slug>]` and `kairos repos get <slug>` read the
-directory (open tenant-wide); `kairos repos update <slug> --team <other>`
-re-homes a repository (its tasks are untouched and re-checked on their next
-write); `kairos repos delete <slug> --confirm` is org-admin only and refused with
-`409` while tasks or a webhook connection still reference it. The GUI has the
-same surface under *Admin → Repositories*, a **Repositories** panel on each team
-page, and a repository lens (filter and group-by) on delivery boards.
-
-**File a task against a repository** — yours or another team's:
+**File a task against a repository** — yours or another team's — and find the
+work bound to one:
 
 ```sh
 kairos tasks create --repo payments-api --title "Bulk invoice export endpoint"
 # → lands on platform's delivery board; --board is not needed
 kairos repos bind DEMO-T-0042 payments-api      # bind an existing task
 kairos repos unbind DEMO-T-0042
+kairos search --repo payments-api               # every task issued against it
 ```
 
-**Cross-team filing.** Any member of the organization — human or service
-account — may create a task against **another team's** repository. It lands in
-that team's **Backlog** and nothing else: the filer cannot move it out of
-Backlog, edit it, delete it, or change its metadata — the owning team's triage
-is the gate. This is the computed `file_backlog` capability every member holds
-on every delivery board (`whoami` lists it under `implicit`); it is never
-granted or revoked. A pull request the filer later opens in that repository
-naming the short code links itself to the ticket through the team's webhook
-(below). From an agent session the recipe is in the `/kairos` router skill:
-`list_repositories` → `get_repository` → `create_item` with `repository` and
-`parent`, then `link_items` `blocks` back to your own item.
+**From an agent session**, the cross-team recipe lives with the `/kairos:implement`
+skill (`plugin/skills/workflow/implement/CROSS-TEAM-FILING.md`):
+`list_repositories` → `get_repository` → `create_item` with `repository` (and
+`parent`), then `link_items` `blocks` back to your own item.
 
-**Upgrade notes (KAIROS-I-0010).** Two API contracts changed: `POST
-/api/tasks` no longer requires `board_id` (a `repository_id` routes the task;
-neither → `422`), and `POST /api/forge-connections` takes `{"repository":
-<slug|uuid>}` for a *registered* repository instead of the repo fields and an
-optional `team_id` (`PATCH` on a connection is gone — ownership is edited on the
-repository). Existing forge connections are migrated into repositories
-automatically; a live connection with no team fails the migration and names
-itself so an operator can attribute it first.
+### Reference
+
+| Surface | What it does |
+|---|---|
+| `kairos repos list [--team <slug>]`, `kairos repos get <slug>` | Read the directory (open tenant-wide). `get` also lists tasks whose team no longer matches the owner. |
+| `kairos repos update <slug> --team <other>` | Re-home a repository. Its tasks are untouched and re-checked on their next write. |
+| `kairos repos delete <slug> --confirm` | Org-admin only; refused with `409` while tasks or a webhook connection still reference it. |
+| `kairos tasks create --repo <slug\|uuid>`, `kairos repos bind\|unbind` | Bind a task at creation or afterwards; `--board` is implied by the repo. |
+| `kairos search --repo <slug\|uuid>` | The task-level filter (`filter.repository` on `POST /api/search`). |
+| `GET /api/repositories?forge=github&name=acme/payments-api` | Look a repository up by its forge identity (what bootstrap does with the git remote). |
+| GUI | *Admin → Repositories*; a **Repositories** panel on each team page; a repository lens (filter and group-by) on delivery boards; a repository picker on the item page. |
+| MCP | `list_repositories`, `get_repository`, `repository` on `create_item`, `board_items` and `search`; `whoami` shows `file_backlog` under `implicit`. |
+
+### Upgrade notes (KAIROS-I-0010)
+
+Three API contracts changed:
+
+- `POST /api/tasks` no longer requires `board_id`: a `repository` (slug or
+  UUID) routes the task; neither → `422`. The field was named `repository_id`
+  during the initiative; that spelling is still accepted as an alias for one
+  release, as is `filter.repository_id` on `POST /api/search`.
+- `POST /api/forge-connections` takes `{"repository": <slug|uuid>}` for a
+  *registered* repository instead of the repo fields and an optional
+  `team_id`; `PATCH` on a connection is gone — ownership is edited on the
+  repository.
+- Existing forge connections are migrated into repositories automatically. A
+  live connection with no team fails the migration and names itself so an
+  operator can attribute it first; colliding derived slugs get a `-<forge>` or
+  `-2`, `-3`… suffix.
 
 ## Git forge integration (GitHub / GitLab)
 

@@ -224,7 +224,7 @@ pub async fn setup_world(
         let task = alice
             .create_task(&CreateTaskRequest {
                 board_id: Some(delivery_boards[0].id.clone()),
-                repository_id: None,
+                repository: None,
                 column_id: None,
                 title: format!("Soak collision item {n} ({stamp})"),
                 content: "Contended item for deliberate optimistic-concurrency 409s.".to_string(),

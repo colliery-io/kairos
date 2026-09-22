@@ -31,7 +31,7 @@ Look for the item the change implements, in this order:
 
 Fetch the item with `get_item <short-code>` and extract its acceptance criteria — plus the objective and any requirements sections if the criteria are thin. This pasted content is the spec the Spec sub-agent reviews against.
 
-**Repository check (KAIROS-A-0019).** Compare the item's `repository` with this checkout (the session's `repository`, or `git remote get-url origin` matched against `list_repositories`). A mismatch — the change implements a ticket bound to a different repository — is a finding in its own right in the final report: either the item is bound to the wrong repo (fix with `kairos repos bind`), or the work landed in the wrong codebase. An unbound item on a multi-repo team gets a note recommending the bind.
+**Repository check (KAIROS-A-0019).** `get_item` prints the item's `repository: <slug> (owner: <team>)`; compare it with this checkout (the session's `repository`, or `git remote get-url origin` matched via `list_repositories` / `GET /api/repositories?forge=&name=`). A mismatch — the change implements a ticket bound to a different repository — is a finding in its own right in the final report: either the item is bound to the wrong repo (`kairos repos bind <code> <slug>` — CLI, there is no MCP binding tool), or the work landed in the wrong codebase. An unbound item on a multi-repo team gets a note recommending the bind.
 
 ### 3. Identify the standards sources
 

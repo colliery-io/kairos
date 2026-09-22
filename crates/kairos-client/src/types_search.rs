@@ -73,10 +73,16 @@ pub struct SearchFilter {
     /// other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<String>,
-    /// Restrict to tasks issued against this repository (UUID; task-level
-    /// attribute, other entity types are excluded — KAIROS-T-0104).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repository_id: Option<String>,
+    /// Restrict to tasks issued against this repository (slug or UUID —
+    /// KAIROS-T-0115 made every repository reference on the wire the same
+    /// shape; `repository_id` is accepted as an alias). Task-level attribute,
+    /// other entity types are excluded.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "repository_id"
+    )]
+    pub repository: Option<String>,
     /// Restrict to tasks of these types (`task|bug|tech_debt|support`;
     /// excludes non-task entities).
     #[serde(default, skip_serializing_if = "Option::is_none")]

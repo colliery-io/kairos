@@ -280,7 +280,7 @@ export async function createTask(
     headers: { ...bearer(token), 'content-type': 'application/json' },
     body: JSON.stringify({
       board_id: opts.boardId ?? null,
-      repository_id: opts.repository ?? null,
+      repository: opts.repository ?? null,
       title: opts.title,
       content: opts.content ?? '',
     }),
@@ -397,4 +397,26 @@ export function githubPullRequest(opts: {
       head: { ref: `dylan/${opts.code}-branch` },
     },
   };
+}
+
+/**
+ * Raw status of `POST /api/relationships` — the cross-team coordination
+ * edge (KAIROS-A-0019 §D6: `parent`/`blocks` are collaborative; the author
+ * of the source may link it without managing the target's board).
+ */
+export async function tryCreateRelationship(
+  server: string,
+  token: string,
+  edge: { source: string; target: string; relationship: string },
+): Promise<number> {
+  const res = await fetch(`${server}/api/relationships`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      source_short_code: edge.source,
+      target_short_code: edge.target,
+      relationship: edge.relationship,
+    }),
+  });
+  return res.status;
 }

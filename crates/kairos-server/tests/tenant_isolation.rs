@@ -85,7 +85,7 @@ async fn seed_tenant(admin: &KairosClient) -> (String, String, String) {
     let task = admin
         .create_task(&CreateTaskRequest {
             board_id: Some(board_id.clone()),
-            repository_id: None,
+            repository: None,
             column_id: None,
             title: SHARED_TITLE.into(),
             content: "billing cutover runbook".into(),

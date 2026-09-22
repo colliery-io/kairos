@@ -36,8 +36,8 @@ pub struct SearchArgs {
     /// Restrict to tasks assigned to this team (UUID)
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
-    /// Restrict to tasks issued against this repository (UUID)
-    #[arg(long, value_name = "REPOSITORY_ID")]
+    /// Restrict to tasks issued against this repository (slug or UUID)
+    #[arg(long, value_name = "REPOSITORY")]
     pub repo: Option<String>,
     /// Task type filter, repeatable: task|bug|tech_debt|support
     #[arg(long, value_name = "TASK_TYPE")]
@@ -174,7 +174,7 @@ impl SearchArgs {
             board_id: self.board.clone(),
             column_id: self.column.clone(),
             team_id: self.team.clone(),
-            repository_id: self.repo.clone(),
+            repository: self.repo.clone(),
             task_type: non_empty(&self.task_type),
             work_class: non_empty(&self.work_class),
             is_bucket: self.is_bucket,

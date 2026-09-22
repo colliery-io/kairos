@@ -305,7 +305,7 @@ async fn file_backlog_against_live_stack() {
         task_type: None,
         work_class: None,
         team_id: None,
-        repository_id: Some("payments-api".into()),
+        repository: Some("payments-api".into()),
     };
 
     // =======================================================================
@@ -397,7 +397,7 @@ async fn file_backlog_against_live_stack() {
         alice
             .create_task(&CreateTaskRequest {
                 board_id: Some(platform_board.clone()),
-                repository_id: None,
+                repository: None,
                 ..filing.clone()
             })
             .await,
@@ -518,7 +518,7 @@ async fn file_backlog_against_live_stack() {
             task_type: None,
             work_class: None,
             team_id: None,
-            repository_id: None,
+            repository: None,
         })
         .await
         .expect("alice creates on her own team's board");

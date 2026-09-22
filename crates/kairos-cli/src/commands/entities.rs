@@ -597,7 +597,7 @@ impl TaskCreateArgs {
     fn request(&self) -> CreateTaskRequest {
         CreateTaskRequest {
             board_id: self.board.clone(),
-            repository_id: self.repo.clone(),
+            repository: self.repo.clone(),
             column_id: self.column.clone(),
             title: self.title.clone(),
             content: self.content.clone(),

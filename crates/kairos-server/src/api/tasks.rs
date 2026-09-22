@@ -217,7 +217,7 @@ pub(crate) async fn create_task(
     let board_id = parse_opt_uuid(body.board_id.as_deref(), "board_id")?;
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let team_id = parse_opt_uuid(body.team_id.as_deref(), "team_id")?;
-    let repository = body.repository_id.clone();
+    let repository = body.repository.clone();
     let task_type = body
         .task_type
         .as_deref()

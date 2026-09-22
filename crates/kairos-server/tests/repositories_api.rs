@@ -295,7 +295,7 @@ async fn repository_api_against_live_stack() {
             task_type: None,
             work_class: None,
             team_id: None,
-            repository_id: Some("payments-api".into()),
+            repository: Some("payments-api".into()),
         })
         .await
         .expect("task against the repo");
@@ -366,7 +366,7 @@ async fn repository_api_against_live_stack() {
             task_type: None,
             work_class: None,
             team_id: None,
-            repository_id: Some("acme-platform-infra".into()),
+            repository: Some("acme-platform-infra".into()),
         })
         .await
         .expect("task on infra");

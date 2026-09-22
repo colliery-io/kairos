@@ -75,6 +75,8 @@ def live_state_hint(values):
     `repository` the session is repo-scoped (KAIROS-A-0019); without one it
     is board-scoped, exactly as before T-0108."""
     repository = values.get("repository")
+    # `team_board` is a board SLUG (what `board_items` resolves), per the
+    # bootstrap contract.
     team_board = values.get("team_board") or "unset"
     if repository:
         return (

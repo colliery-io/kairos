@@ -72,15 +72,28 @@ pub(crate) async fn search(
             format!("malformed search request: {e}"),
         )
     })?;
-    let core = to_core(&request)?;
+    let mut core = to_core(&request)?;
+    let repository = request.filter.as_ref().and_then(|f| f.repository.clone());
     // Validate before dispatching to the blocking pool: an invalid request
-    // never costs a connection checkout. `execute_search` re-validates
+    // never costs a connection checkout. A filter carrying only
+    // `repository` becomes constraining once resolved, so that case is
+    // validated after resolution instead. `execute_search` re-validates
     // (cheaply) as part of its own contract.
-    core_search::validate(&core).map_err(map_validation_error)?;
+    if repository.is_none() {
+        core_search::validate(&core).map_err(map_validation_error)?;
+    }
 
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            if let Some(reference) = repository.as_deref() {
+                let repo = kairos_db::repositories::resolve(conn, reference)
+                    .map_err(crate::api::tasks::map_repository_error)?;
+                core.filter
+                    .get_or_insert_with(Default::default)
+                    .repository_id = Some(repo.id);
+                core_search::validate(&core).map_err(map_validation_error)?;
+            }
             let mut response = execute_search(conn, &core)
                 .map(into_response)
                 .map_err(map_search_error)?;
@@ -210,11 +223,9 @@ fn filter_to_core(
             .as_deref()
             .map(|v| uuid_field(v, "filter.team_id"))
             .transpose()?,
-        repository_id: filter
-            .repository_id
-            .as_deref()
-            .map(|v| uuid_field(v, "filter.repository_id"))
-            .transpose()?,
+        // `filter.repository` is slug-or-UUID and needs a connection to
+        // resolve; the handler injects it after conversion (KAIROS-T-0115).
+        repository_id: None,
         task_type,
         work_class,
         is_bucket: filter.is_bucket,

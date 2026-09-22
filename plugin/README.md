@@ -53,7 +53,8 @@ one repository — that binding routes it to the owning team's delivery board. `
 only this repository's tickets, `decompose` binds every task it creates, `triage` grooms this
 repo's slice by default, and `code-review` flags a PR whose ticket is bound elsewhere. Work for
 another team's codebase is **filed** against their repository (it lands in their Backlog —
-recipe in the `/kairos` router skill), never implemented from here.
+recipe in `skills/workflow/implement/CROSS-TEAM-FILING.md`, which the `/kairos` router
+points at), never implemented from here.
 
 ## `.mcp.json` is a template
 

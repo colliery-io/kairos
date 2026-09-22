@@ -328,7 +328,7 @@ async fn main() -> ExitCode {
             client
                 .create_task(&CreateTaskRequest {
                     board_id: Some(delivery_board.clone()),
-                    repository_id: None,
+                    repository: None,
                     column_id: None,
                     title: title.to_string(),
                     content: format!("Golden-path task ({SEARCH_TOKEN})."),

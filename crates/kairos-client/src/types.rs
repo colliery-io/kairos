@@ -233,7 +233,7 @@ pub struct CreateInitiativeRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
     /// Board to create the task on (UUID). Optional since KAIROS-T-0104:
-    /// when `repository_id` is given the task is ROUTED to the owning
+    /// when `repository` is given the task is ROUTED to the owning
     /// team's delivery board (A-0019); when both are given they must
     /// agree; neither is a 422.
     #[serde(default)]
@@ -253,13 +253,15 @@ pub struct CreateTaskRequest {
     #[serde(default)]
     pub work_class: Option<String>,
     /// Owning team (UUID). Defaults to the repository's owning team when
-    /// `repository_id` is given; an explicit different team is a 422.
+    /// `repository` is given; an explicit different team is a 422.
     #[serde(default)]
     pub team_id: Option<String>,
     /// Repository to issue the task against (slug or UUID, KAIROS-T-0104).
     /// Routes the task: repo -> owning team -> that team's delivery board.
-    #[serde(default)]
-    pub repository_id: Option<String>,
+    /// `repository` is THE reference field name on the wire (KAIROS-T-0115);
+    /// `repository_id` is accepted as an alias for one release.
+    #[serde(default, alias = "repository_id")]
+    pub repository: Option<String>,
 }
 
 /// Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move

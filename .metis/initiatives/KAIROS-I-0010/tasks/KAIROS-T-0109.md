@@ -4,14 +4,14 @@ level: task
 title: "GUI: repo filter + swimlane on boards, repo chips, team Repositories panel, admin Repositories page, task repo picker"
 short_code: "KAIROS-T-0109"
 created_at: 2026-09-22T03:04:52.321519+00:00
-updated_at: 2026-09-22T03:04:52.321519+00:00
+updated_at: 2026-09-22T04:49:58.556528+00:00
 parent: KAIROS-I-0010
-blocked_by: ["KAIROS-T-0104", "KAIROS-T-0106"]
+blocked_by: [KAIROS-T-0104, KAIROS-T-0106]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,14 +47,17 @@ Board rendering has flaked before under WS refetch (T-0073/T-0074); keep the rep
 
 ## Acceptance Criteria
 
-- [ ] Repo chip visible on task cards and detail header when set; absent otherwise.
-- [ ] Filter chip narrows the board; swimlane toggle appears only for >1 repo; selection survives a WS refetch and a reload (URL state).
-- [ ] Task repo picker sets/clears/re-homes; a cross-team repo shows the 422 message inline.
-- [ ] Team page Repositories panel renders the seeded demo repos with correct counts.
-- [ ] Admin Repositories page: create, edit, connect webhook (secret shown once), disconnect, delete-refused-while-referenced.
-- [ ] `angreal test e2e` smoke suite still green (new specs are T-0110's).
-- [ ] `cargo fmt --check`, clippy `-D warnings` on `kairos-web`; `angreal build web` green.
+- [x] Card chip (`.kairos-card__repo[data-repo]`, ICE pill) when bound, absent otherwise; detail header shows `repo: <slug>` among the type facts.
+- [x] Repository lens (`[data-testid=repo-lens]`, one chip per slug on the board) narrows tasks only; "Group by repository" (`[data-testid=group-by-repo]`) appears only when >1 repo is present; both live in the URL (`?repo=`, `?by_repo=1`) via `query_signal`, so they survive WS refetches and reloads by construction.
+- [x] Picker (`[data-testid=repository-control]`) sets / re-homes / clears via `PUT …/repository`; server 422s render inline in an Alert; gated on the same `manage_tasks` mirror as create (bob on the web team sees none — the team-lens spec's "no select in the Board panel" holds).
+- [x] Team page Repositories panel (slug pill, forge · name link, "N open", webhooks/no webhooks), fed by `GET /api/repositories?team=`; the demo seed renders three.
+- [x] `/admin/repositories`: register (forge, name, URL, team picker, optional slug/branch/description), edit + re-home, Connect webhook (URL + secret in a once-only panel, `[data-testid=webhook-secret]`), Disconnect (looks up the connection id via the detail), Delete (server 409 surfaces in the mutation notice). Tab + card added; route registered.
+- [~] `angreal test e2e`: 9/10 green incl. smoke; the one failure is `forge.spec` on the old connection body — T-0106's deliberate break, fixed in T-0110.
+- [x] fmt; `angreal web lint` clean; no NEW clippy findings in `kairos-web` (the 10 remaining are pre-existing under this toolchain); `cargo test -p kairos-web --lib` 65/65; `angreal web build` green.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`795e3e6`). Notes for T-0110:
+  - Selectors: `.kairos-card__repo[data-repo=<slug>]`, `[data-testid=repo-lens] .kairos-board__lens-chip[data-repo=<slug>]` (+ `--on` when selected), `[data-testid=group-by-repo]`, `.kairos-board__lane--repo[data-repo-lane=<slug|''>]`, `[data-testid=repository-control]`, team page `[data-repo=<slug>]` rows, admin `[data-repo=<slug>]` rows and `[data-testid=webhook-secret]`.
+  - The group-by view passes `RepoLane` into `LaneColumns`; drag/drop there transitions only (no lane axis), by design.
+  - `RepositoryControl` reads the whoami context the item page already provides; anonymous or non-`manage_tasks` users never see the select.

@@ -4,14 +4,14 @@ level: task
 title: "UAT J2 planning: strategy → initiative → tasks with a blocks edge; progress bar, graph, live WS move, traverse + repo search, lifecycle"
 short_code: "KAIROS-T-0119"
 created_at: 2026-09-22T11:15:22.725893+00:00
-updated_at: 2026-09-22T11:15:22.725893+00:00
+updated_at: 2026-09-22T11:57:20.081166+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0117"]
+blocked_by: [KAIROS-T-0117]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,9 +51,15 @@ T-0117.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey planning` green under compose and under `--server` (no compose-only steps), report lists short codes, progress text, and the search hit lists.
-- [ ] No `uat-<run>-` items remain after the run (`kairos search` by title prefix returns nothing).
+- [x] Green under compose (hand-run, `UAT_MODE=compose`) and `angreal test uat --server … --journey planning`; report lists short codes, "0 of 2 done", graph nodes/arrow, traverse children and the repo-filter hit.
+- [x] `kairos search --query uat-` returns nothing after the run.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `4fdb6a1`.
+
+- Story adjustments vs D4: the strategy→initiative edge is made in the GUI (Graph tab "Manage links" panel) rather than over the API; the editorial lifecycle is a *document* feature (A-0018), so the journey attaches a design note to the initiative and moves that to review instead of "the strategy document".
+- **Product bug found and fixed:** `kairos search --repo <slug>` alone was refused ("nothing to search for") — `--repo` was missing from the CLI's has-filter check although README documents the invocation. Fixed in `crates/kairos-cli/src/commands/search.rs` with unit test `repo_alone_is_a_filter`.
+- **GUI observation (not fixed):** `/items/:code` renders its Details/Graph tab anchors from the route param, which is empty on the first render (`/items/?view=graph` → router fallback "Nothing here"). Only reachable by a programmatic click within the first frame; the journey waits for the code text first. Candidate hygiene ticket.
+- Graph semantics: `parent` is drawn as containment lanes, `blocks` as the only arrow — the assertion is `1` arrow, not 3 edges.
+- Tooling gotcha: perl replacements interpolate `${…}` in TS template strings — use the Edit tool for those.

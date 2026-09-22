@@ -4,14 +4,14 @@ level: task
 title: "UAT harness: uat/ package, personas + surfaces, ledger, narrated steps, report reporter, angreal test uat (compose + --server)"
 short_code: "KAIROS-T-0117"
 created_at: 2026-09-22T11:15:16.902924+00:00
-updated_at: 2026-09-22T11:15:16.902924+00:00
+updated_at: 2026-09-22T11:43:54.874951+00:00
 parent: KAIROS-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -54,11 +54,18 @@ None (first task). Reads `e2e/helpers/*.ts`, `.angreal/task_test.py`, `crates/ka
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey smoke` boots compose, runs the smoke journey green, writes `uat/reports/<run>/report.md` + `.json` with a three-row table (GUI / CLI / MCP), tears down.
-- [ ] `angreal test uat --keep-running --journey smoke` then `angreal test uat --server http://localhost:41080 --journey smoke` passes in server mode with compose-only steps reported as skipped (add one compose-only no-op step to smoke to prove the path).
-- [ ] A deliberately failing step (temporarily) yields a non-zero exit, a ❌ row naming persona + step, and a screenshot path that exists in the run directory.
-- [ ] `npx tsc --noEmit` clean in `uat/`; `uat/README.md` documents both modes and the conventions; `angreal tree --long` shows the task with its description.
+## Acceptance Criteria
+
+- [x] `angreal test uat --journey smoke` boots compose, runs the smoke journey green, writes `uat/reports/<run>/report.md` + `.json` (four rows: GUI / CLI / MCP / compose-only admin), tears down — run `muclufwa`.
+- [x] `--keep-running` then `--server http://localhost:41080 --journey smoke` passed in server mode with the compose-only step reported "skipped: needs a deployment-admin token" — run `muclm8d2`.
+- [x] A deliberately failing journey (temporary file) exited 1 ("UAT FAILED at phase: UAT: playwright test"), rendered a ❌ row with the plain-text expect message, `failing-step2-alice.png` and `failing-alice.trace.zip` in the run dir — run `muclmg0d`.
+- [x] `npx tsc --noEmit` clean; `uat/README.md` written; `angreal tree` lists `test uat`; `angreal test e2e` still green (11/11 + golden path) on the shared boot helpers.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `6d8b3a3`.
+
+- Built as designed (I-0011 D0–D3, D5, D1). Deviations: `--journey` is comma-separated (angreal arguments are not repeatable) and maps to Playwright `--grep "@a$|@b$"`; the journey record reaches the reporter as a test attachment (`uat-journey`) rather than annotations — attachments are guaranteed on `TestResult`; per-persona traces are started on each context and kept only when the journey fails; a kept server (`--keep-running`) logs to `target/uat-server.log` because an inherited stdout pipe kept the calling shell open.
+- The CLI has no API-key login mode; the agent persona's CLI gets a credential store whose `access_token` IS the key (the server accepts `kairos_sk_` keys as bearer), `expires_at` 6h out, no refresh token.
+- Cosmetic: Playwright's list reporter attributes every journey to `run/narrate.ts:69` (the `test()` call site); the UAT report is the readable artefact, so left as is.
+- Gates: tsc clean; `angreal test uat --journey smoke` compose + server modes; failure path; `angreal test e2e` 11/11.

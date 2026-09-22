@@ -4,14 +4,14 @@ level: task
 title: "UAT J1 onboarding: tenant (compose-only), team + member + repo + service account via CLI, bob and the agent find their team"
 short_code: "KAIROS-T-0118"
 created_at: 2026-09-22T11:15:19.682088+00:00
-updated_at: 2026-09-22T11:15:19.682088+00:00
+updated_at: 2026-09-22T11:47:32.461447+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0117"]
+blocked_by: [KAIROS-T-0117]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -55,10 +55,15 @@ T-0117 harness.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey onboarding` green under compose; report shows all 8 steps with observed board slug/columns, repo slug/owner, agent whoami excerpt.
-- [ ] Same journey under `--server` against the kept-running stack: tenant step reported skipped, the rest green, and after the run `kairos repos list` / teams list show no `uat-<run>-` leftovers.
-- [ ] `setupTeamRepoAgent` exported and covered by the journey (J3 will import it).
+- [x] Green under compose (hand-run against the kept stack, `UAT_MODE=compose`, run `muclzm57`): 9 steps, observed board slug + columns (Backlog, Todo, Blocked, Active, Completed; 7 transitions), repo slug/owner, agent implicit `file_backlog`, description read via `get_repository`, team-delete 409 message.
+- [x] `angreal test uat --server http://localhost:41080 --journey onboarding` (run `mucm00ov`): tenant step skipped with reason, rest green; `kairos repos|teams|service-accounts|admin tenants list` show zero `uat-` rows afterwards.
+- [x] `fixtures/team.ts` exports `teamFixture` (narratable parts) and `setupTeamRepoAgent` (one call); J1 covers every part.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `81a818d`.
+
+- CLI surface was sufficient (`teams create/members add --user`, `members list`, `repos create`, `service-accounts create`, `keys create`), all `--json`; no API fallbacks needed except the tenant step (`POST/DELETE /api/admin/tenants`) and the team-delete refusal probe.
+- Deviation from D4: the agent is added to the team as a member instead of holding a `manage_tasks` board grant — team-implied capabilities are the product's model (A-0006 / T-0072) and it is what puts the repo in the agent's `whoami`.
+- Finding: the team page's Repositories panel shows slug, forge/full name, open count and webhook state but NOT the description; the description is asserted through the agent's `get_repository` instead. Candidate follow-up if the description should be visible to humans there.
+- Gotcha: lane boards render two `Backlog` heads (Planned/Support) — `.first()`.

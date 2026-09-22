@@ -4,14 +4,14 @@ level: task
 title: "Fix: UAT journeys assert the real behaviour — drop the workarounds for the fixed findings, full runs in both modes"
 short_code: "KAIROS-T-0125"
 created_at: 2026-09-22T12:12:48.100683+00:00
-updated_at: 2026-09-22T12:48:18.386193+00:00
+updated_at: 2026-09-22T12:52:45.647795+00:00
 parent: KAIROS-I-0011
 blocked_by: [KAIROS-T-0123, KAIROS-T-0124]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

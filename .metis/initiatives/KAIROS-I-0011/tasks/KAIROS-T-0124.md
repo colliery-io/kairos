@@ -44,8 +44,6 @@ None (T-0125 consumes the results).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `/items/<code>` never emits an href with an empty code (grep the rendered DOM in a kairos-web unit test or an e2e assertion on the Graph anchor).
 - [x] Team page Repositories rows show the description when set (e2e `repositories.spec` asserts the seeded payments-api blurb).
 - [x] New task modal on a delivery board whose team owns repositories offers a Repository select; a task created with one selected carries the repo chip immediately.

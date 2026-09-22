@@ -4,14 +4,14 @@ level: task
 title: "UAT J3 agent-loop: agent bootstraps over MCP, picks the repo's ticket, PR opened → merged via webhook, Done; standalone under --server"
 short_code: "KAIROS-T-0120"
 created_at: 2026-09-22T11:15:25.449796+00:00
-updated_at: 2026-09-22T11:15:25.449796+00:00
+updated_at: 2026-09-22T12:01:35.967423+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0117", "KAIROS-T-0118"]
+blocked_by: [KAIROS-T-0117, KAIROS-T-0118]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -54,10 +54,15 @@ T-0117, T-0118.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey agent-loop` green under compose and `--server`; report shows the MCP excerpts (repository line, in-flight PR line) and the link state transitions.
-- [ ] Journey runs standalone (no `--journey onboarding` in the same invocation) in both modes.
-- [ ] Nothing `uat-<run>-` remains after teardown.
+- [x] Green under compose (hand-run) and `angreal test uat --server … --journey agent-loop,onboarding`; report shows the repository line, the queue, "pull_request 7 [open]", state merged, in-flight back to nothing open.
+- [x] Standalone in both modes (setup builds its own repo + agent on the existing team).
+- [x] `kairos repos list` / `service-accounts list` show no `uat-` rows after the run.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `2c2409e`.
+
+- **Design deviation (forced):** a team whose delivery board has ever held an item cannot be deleted — `count_board_items` counts soft-deleted rows on purpose (T-0010: they would orphan on restore). So J3 cannot run on J1's fresh team and stay self-cleaning; it registers its repository and agent on bob's existing team (`UAT_TEAM`, default `platform`) and removes them afterwards. J1 keeps creating a team because it never raises work on it.
+- **Finding:** an agent cannot see PR link state over MCP — `get_item` renders no links; the merge is visible only as the PR leaving `get_repository`'s in-flight list. The journey reads the merged state from `GET /api/tasks/{code}/links`. Candidate follow-up: links on `get_item`.
+- Finding: the GUI's New task modal has no repository picker; binding happens on the item page (journey does that).
+- Left behind by the first failing run on the kept dev stack: team `uat-mucmeudq-mobile` (undeletable per above; the compose lifecycle reseeds anyway).

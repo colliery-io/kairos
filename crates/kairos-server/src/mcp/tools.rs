@@ -473,6 +473,15 @@ impl KairosMcp {
             let stale = repositories::stale_tasks(conn, &repo)
                 .map_err(crate::api::org::repositories::map_error)?;
             let rendered = crate::api::org::repositories::render(conn, vec![repo])?.remove(0);
+            // Slugs everywhere (KAIROS-T-0123): the delivery board is what
+            // the skills pass to `board_items`, so print it the way they
+            // will use it.
+            let delivery_board = match rendered.delivery_board_id.as_deref() {
+                Some(id) => board_by_ref(conn, id)
+                    .map(|b| format!("{} ({})", b.slug, b.name))
+                    .unwrap_or_else(|_| id.to_string()),
+                None => "(none)".to_string(),
+            };
             let in_flight =
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
                     .map_err(ApiError::internal)?;
@@ -485,7 +494,7 @@ impl KairosMcp {
                 rendered.default_branch,
                 rendered.team.slug,
                 rendered.team.name,
-                rendered.delivery_board_id.as_deref().unwrap_or("(none)"),
+                delivery_board,
                 rendered.open_tasks,
                 if rendered.has_webhook { "connected" } else { "not connected" },
             );
@@ -738,6 +747,29 @@ impl KairosMcp {
             if !relationships.is_empty() {
                 out.push_str("\n## Relationships\n");
                 out.push_str(&relationships);
+            }
+
+            // Forge links (KAIROS-T-0123, UAT finding #3): an agent must see
+            // PR state here, not only as a PR leaving `get_repository`'s
+            // in-flight list. Same query and order as the links API.
+            if item.item_type != ItemType::Document {
+                let links = kairos_db::forge::links_for_item(conn, item.id)
+                    .map_err(crate::api::org::forge::map_error)?;
+                if !links.is_empty() {
+                    out.push_str("\n## Development\n");
+                    for link in links {
+                        out.push_str(&format!(
+                            "- {} {} [{}] {} — {} ({}/{})\n",
+                            link.link.kind,
+                            link.link.external_id,
+                            link.link.state,
+                            link.link.title,
+                            link.link.url,
+                            link.forge,
+                            link.repo_full_name
+                        ));
+                    }
+                }
             }
 
             out.push_str("\n## Content\n");
@@ -995,7 +1027,14 @@ impl KairosMcp {
                     ));
                 }
             };
-            require_capability(conn, &slug, Some(board_id), user, "transition_items")?;
+            require_capability_explained(
+                conn,
+                &slug,
+                Some(board_id),
+                user,
+                "transition_items",
+                &item.short_code,
+            )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
 
@@ -1442,7 +1481,64 @@ fn authorize_item_write(
     item: &ItemView,
 ) -> Result<(), ApiError> {
     let board = abac::resolve_authorization_board(conn, item.id).map_err(map_abac_error)?;
-    require_capability(conn, slug, board, user, manage_capability(item.item_type))
+    require_capability_explained(
+        conn,
+        slug,
+        board,
+        user,
+        manage_capability(item.item_type),
+        &item.short_code,
+    )
+}
+
+/// `require_capability`, but when the caller is a cross-team filer — no
+/// grant on this board, yet `file_backlog` would let them file into it —
+/// the refusal explains the Backlog-only rule the plugin recipe teaches
+/// instead of the bare capability name (KAIROS-T-0123, UAT finding #5).
+/// The HTTP API keeps its generic envelope; this is agent-facing text.
+fn require_capability_explained(
+    conn: &mut PgConnection,
+    slug: &str,
+    board_id: Option<Uuid>,
+    user: Uuid,
+    capability: &str,
+    short_code: &str,
+) -> Result<(), ApiError> {
+    let err = match require_capability(conn, slug, board_id, user, capability) {
+        Ok(()) => return Ok(()),
+        Err(err) => err,
+    };
+    let Some(board_id) = board_id else {
+        return Err(err);
+    };
+    if err.code != "FORBIDDEN"
+        || !abac::check_file_backlog(conn, slug, board_id, user).unwrap_or(false)
+    {
+        return Err(err);
+    }
+    let owner = {
+        use kairos_db::schema::{boards, teams};
+        boards::table
+            .inner_join(teams::table)
+            .filter(boards::id.eq(board_id))
+            .select(teams::slug)
+            .first::<String>(conn)
+            .optional()
+            .map_err(ApiError::internal)?
+    };
+    let whose = owner
+        .map(|team| format!("{team}'s"))
+        .unwrap_or_else(|| "the owning team's".to_string());
+    Err(ApiError::forbidden(format!(
+        "{short_code} sits in {whose} Backlog for their triage; a cross-team filer may create \
+         and link it (file_backlog), not move, edit or delete it — that needs {capability:?} \
+         on their board"
+    ))
+    .with_details(json!({
+        "required_capability": capability,
+        "board_id": board_id,
+        "held": "file_backlog",
+    })))
 }
 
 /// Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.

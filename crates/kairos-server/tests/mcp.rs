@@ -916,6 +916,116 @@ async fn mcp_endpoint_against_live_stack() {
     );
     assert!(text.contains("file_backlog"), "{text}");
 
+    // --- KAIROS-T-0123 (UAT findings #3, #4, #5) ---------------------------
+    // #4: the delivery board is printed as a slug, the way board_items takes it.
+    let text = session
+        .call_ok("get_repository", json!({"repository": "payments-api"}))
+        .await;
+    assert!(
+        text.contains("- delivery board: platform-delivery (Platform Delivery)"),
+        "{text}"
+    );
+    // #3: a PR linked to the task shows up on get_item under ## Development.
+    {
+        sql_query("SET search_path TO org_acme, public")
+            .execute(&mut conn)
+            .expect("pinning search_path");
+        use kairos_db::models::enums::{Forge, LinkKind, LinkState};
+        use kairos_db::models::forge::{NewForgeConnection, NewItemLink};
+        let connection = kairos_db::forge::create_connection(
+            &mut conn,
+            NewForgeConnection {
+                forge: Forge::Github,
+                repository_id: payments.id,
+                created_by: alice,
+            },
+        )
+        .expect("webhook connection");
+        let task_id: Uuid = kairos_db::schema::tasks::table
+            .filter(kairos_db::schema::tasks::short_code.eq(&bound_code))
+            .select(kairos_db::schema::tasks::id)
+            .first(&mut conn)
+            .expect("bound task exists");
+        kairos_db::forge::upsert_link(
+            &mut conn,
+            NewItemLink {
+                item_id: task_id,
+                connection_id: connection.id,
+                kind: LinkKind::PullRequest,
+                external_id: "77".into(),
+                title: format!("Export endpoint for {bound_code}"),
+                url: "https://github.com/acme/payments-api/pull/77".into(),
+                state: LinkState::Merged,
+                author: "carol".into(),
+                forge_updated_at: chrono::Utc::now(),
+            },
+        )
+        .expect("link");
+    }
+    let text = session
+        .call_ok("get_item", json!({"short_code": bound_code}))
+        .await;
+    assert!(text.contains("## Development"), "{text}");
+    assert!(
+        text.contains("- pull_request 77 [merged] Export endpoint for"),
+        "{text}"
+    );
+    // #5: bob is an org member with no grant on platform's board. He may file
+    // into its Backlog (file_backlog) and is told THAT rule when he tries to
+    // move what he filed — not the bare capability name.
+    // A first authenticated call JIT-provisions bob's users row (403 until
+    // he is a member); only then can membership be granted.
+    let bob_token = user_token(&http, "bob").await;
+    let (status, _, _) = raw_request(
+        &router,
+        Method::POST,
+        "/mcp",
+        Some(&bob_token),
+        None,
+        Some(
+            json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "t", "version": "0"}}}),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let bob = user_id(&mut conn, "bob@kairos.test");
+    diesel::insert_into(organization_members::table)
+        .values(NewOrganizationMember {
+            organization_id: org_id,
+            user_id: bob,
+            role: OrgRole::Member,
+        })
+        .execute(&mut conn)
+        .expect("granting bob membership");
+    let (mut bob_session, _) = McpSession::connect(&router, &bob_token).await;
+    let text = bob_session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Filed by bob", "repository": "payments-api"}),
+        )
+        .await;
+    let filed = extract_code(&text, "ACME-T-");
+    let text = bob_session
+        .call_err(
+            "transition_item",
+            json!({"short_code": filed, "to_column": "Todo"}),
+        )
+        .await;
+    assert!(text.contains("FORBIDDEN"), "{text}");
+    assert!(
+        text.contains("platform's Backlog") && text.contains("file_backlog"),
+        "cross-team filer gets the Backlog-only explanation: {text}"
+    );
+    let text = bob_session
+        .call_err(
+            "update_item",
+            json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
+        )
+        .await;
+    assert!(text.contains("file_backlog"), "{text}");
+
     // --- teardown ------------------------------------------------------------
     drop(conn);
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);

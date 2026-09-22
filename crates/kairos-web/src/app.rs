@@ -70,6 +70,7 @@ pub fn App() -> impl IntoView {
                             <Route path=path!("boards/:board") view=pages::admin::AdminBoardPage/>
                             <Route path=path!("teams") view=pages::admin::AdminTeamsPage/>
                             <Route path=path!("streams") view=pages::admin::AdminStreamsPage/>
+                            <Route path=path!("repositories") view=pages::admin::AdminRepositoriesPage/>
                             <Route path=path!("members") view=pages::admin::AdminMembersPage/>
                             <Route path=path!("templates") view=pages::admin::AdminTemplatesPage/>
                             <Route path=path!("metadata") view=pages::admin::AdminMetadataPage/>

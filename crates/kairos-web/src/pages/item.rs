@@ -178,6 +178,7 @@ fn ItemLoaded(
     let code = item.short_code.clone();
     let delete_title = item.title.clone();
     let lane = item.work_class.clone();
+    let repository = item.repository.as_ref().map(|r| r.slug.clone());
     let lifecycle = item.lifecycle.clone();
     let lifecycle_badge = item.lifecycle.clone();
     let ItemDetail {
@@ -231,7 +232,7 @@ fn ItemLoaded(
             />
             <Stack gap="sm">
                 <BoardPanel family code=short_code.clone() board_id column_id
-                    work_class=lane on_moved/>
+                    work_class=lane repository on_moved/>
                 {lifecycle.map(|current| view! {
                     <LifecyclePanel code=short_code.clone() current on_moved/>
                 })}
@@ -367,6 +368,10 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
     if let Some(task_type) = &item.task_type {
         facts.push((task_type.clone(), token::TEAL));
     }
+    // KAIROS-T-0109: the repository the task is issued against (A-0019).
+    if let Some(repository) = &item.repository {
+        facts.push((format!("repo: {}", repository.slug), token::ICE));
+    }
     // KAIROS-T-0077: the lane rides as a fact; Planned stays unmarked as
     // the default lane.
     if item.work_class.as_deref() == Some("support") {
@@ -413,11 +418,14 @@ fn BoardPanel(
     /// The task's Planned/Support lane (KAIROS-T-0077) — `Some` enables
     /// the lane control.
     work_class: Option<String>,
+    /// The task's bound repository slug (KAIROS-T-0109), if any.
+    repository: Option<String>,
     on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
     let work_class = StoredValue::new(work_class);
+    let repository = StoredValue::new(repository);
     view! {
         <Panel title="Board" caption="placement">
             {match board_id {
@@ -454,6 +462,15 @@ fn BoardPanel(
                                             <Anchor href=format!("/boards/{slug}")>{name}</Anchor>
                                             <Pill color=token::ICE>{column}</Pill>
                                         </Group>
+                                        {matches!(family, Family::Task).then(|| view! {
+                                            <RepositoryControl
+                                                code=code.get_value()
+                                                board_slug=board.slug.clone()
+                                                team_id=board.team_id.clone()
+                                                current=repository.get_value()
+                                                on_moved
+                                            />
+                                        })}
                                         <MoveControl
                                             family
                                             code=code.get_value()
@@ -470,6 +487,114 @@ fn BoardPanel(
                 }
             }}
         </Panel>
+    }
+}
+
+/// The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
+/// owning team's repositories (or none). The server enforces the repo →
+/// team → board rule and `manage_tasks`; a refusal shows inline.
+#[component]
+fn RepositoryControl(
+    code: String,
+    /// The board's slug — for the client-side capability mirror.
+    board_slug: String,
+    /// The board's owning team (UUID) — the picker offers its repositories.
+    team_id: Option<String>,
+    /// The current binding (slug).
+    current: Option<String>,
+    on_moved: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let none = "(none)".to_string();
+    let current = StoredValue::new(current.unwrap_or_else(|| none.clone()));
+    let value = RwSignal::new(current.get_value());
+    let busy = RwSignal::new(false);
+    let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    // Same `manage_tasks` mirror as the board's create affordance
+    // (KAIROS-T-0072); the server remains the authority.
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let slug = StoredValue::new(board_slug);
+    let team_for_powers = StoredValue::new(team_id.clone());
+    let can_bind = Memo::new(move |_| {
+        whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+            .is_some_and(|me| {
+                slug.with_value(|slug| {
+                    team_for_powers.with_value(|team| {
+                        boards::board_powers(
+                            &me,
+                            slug,
+                            team.as_deref(),
+                            Some(boards::data::EntityKind::Task),
+                        )
+                        .create
+                    })
+                })
+            })
+    });
+    let repos = LocalResource::new(move || {
+        let _ = auth.token();
+        let team = team_id.clone();
+        async move { boards::data::list_repositories(auth, team.as_deref()).await }
+    });
+    let submit: Callback<()> = Callback::new(move |()| {
+        let chosen = value.get_untracked();
+        let repository = (chosen != "(none)").then_some(chosen);
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match boards::data::set_repository(auth, &code.get_value(), repository.as_deref()).await
+            {
+                Ok(()) => on_moved.run(match repository {
+                    Some(slug) => format!("Repository set to {slug}."),
+                    None => "Repository cleared.".to_string(),
+                }),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+    view! {
+        {move || can_bind.get().then(|| view! {
+        <div class="kairos-item__repository" data-testid="repository-control">
+            {move || match repos.get() {
+                None => view! { <Text size="xs" dimmed=true>"Loading repositories…"</Text> }.into_any(),
+                Some(Err(_)) => view! { <Text size="xs" dimmed=true>"Repositories unavailable."</Text> }.into_any(),
+                Some(Ok(list)) => {
+                    let mut options = vec!["(none)".to_string()];
+                    options.extend(list.iter().map(|r| r.slug.clone()));
+                    if list.is_empty() {
+                        return view! {
+                            <Text size="xs" dimmed=true>"No repositories registered for this team."</Text>
+                        }.into_any();
+                    }
+                    view! {
+                        <Group gap="sm">
+                            <Select label="Repository" value=value options=options/>
+                            {move || {
+                                let unchanged = value.get() == current.get_value();
+                                let disabled = busy.get() || unchanged;
+                                view! {
+                                    <Button size="xs" disabled=disabled on_click=submit>
+                                        {if busy.get_untracked() { "Setting…" } else { "Set repository" }}
+                                    </Button>
+                                }
+                            }}
+                        </Group>
+                    }.into_any()
+                }
+            }}
+            {move || error.get().map(|e| view! {
+                <Alert title="Could not set repository" color=token::BAD>
+                    <Text size="sm">{api::error_text(&e)}</Text>
+                </Alert>
+            })}
+        </div>
+        })}
     }
 }
 

@@ -46,6 +46,7 @@ mod boards;
 mod capabilities;
 mod members;
 mod metadata;
+mod repositories;
 mod streams;
 mod teams;
 mod templates;
@@ -53,6 +54,7 @@ mod templates;
 pub use boards::{AdminBoardPage, AdminBoardsPage};
 pub use members::AdminMembersPage;
 pub use metadata::AdminMetadataPage;
+pub use repositories::AdminRepositoriesPage;
 pub use streams::AdminStreamsPage;
 pub use teams::AdminTeamsPage;
 pub use templates::AdminTemplatesPage;
@@ -176,6 +178,7 @@ fn SectionTabs(is_admin: bool) -> impl IntoView {
             <>
                 {tab("/admin/teams", "Teams")}
                 {tab("/admin/streams", "Streams")}
+                {tab("/admin/repositories", "Repositories")}
                 {tab("/admin/members", "Members")}
                 {tab("/admin/templates", "Templates")}
                 {tab("/admin/metadata", "Metadata")}
@@ -233,6 +236,9 @@ pub fn AdminHomePage() -> impl IntoView {
                          delivery board.")}
                     {card("/admin/streams", "Delivery streams",
                         "Delivery streams and which teams feed them.")}
+                    {card("/admin/repositories", "Repositories",
+                        "The codebases tickets are issued against — one owning team each — \
+                         and their forge webhooks.")}
                     {card("/admin/members", "Organization members",
                         "Who belongs to this organization, and who is an admin.")}
                     {card("/admin/templates", "Templates",

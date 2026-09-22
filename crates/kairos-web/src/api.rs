@@ -89,6 +89,26 @@ pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
     decode_response(auth, token, path, response).await
 }
 
+/// `PUT {path}` with a JSON body and the bearer token (KAIROS-T-0109).
+pub async fn put_json<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    path: &str,
+    body: &B,
+) -> Result<T, ApiError> {
+    let token = auth.token();
+    let mut request = gloo_net::http::Request::put(path);
+    if let Some(token) = &token {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    let response = request
+        .json(body)
+        .map_err(|e| ApiError::Unknown(format!("encoding {path}: {e}")))?
+        .send()
+        .await
+        .map_err(|_| ApiError::Network)?;
+    decode_response(auth, token, path, response).await
+}
+
 /// `DELETE {path}` with the bearer token; JSON-decode the response body.
 pub async fn delete_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
     let token = auth.token();

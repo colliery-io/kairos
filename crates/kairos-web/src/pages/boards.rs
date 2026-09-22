@@ -31,7 +31,7 @@ use aurora_dark::components::{
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
-use leptos_router::hooks::use_params_map;
+use leptos_router::hooks::{query_signal, use_params_map};
 
 use super::copy_link;
 use crate::auth::use_auth;
@@ -447,6 +447,8 @@ struct CardModel {
     meta: Vec<(String, &'static str)>,
     /// `tasks.work_class` — `Some` for tasks only (KAIROS-T-0077).
     work_class: Option<String>,
+    /// The bound repository's slug — tasks only (KAIROS-T-0109, A-0019).
+    repository: Option<String>,
     /// Children rollup — `Some` for parents only (KAIROS-T-0080).
     progress: Option<data::ProgressCounts>,
     /// Blocked-by/blocks counts — `Some` only with live blocks edges
@@ -484,15 +486,19 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 short_code: &str,
                 title: &str,
                 meta: Vec<(String, &'static str)>,
-                work_class: Option<String>| {
+                work_class: Option<String>,
+                repository: Option<String>| {
         let progress = progress_of(short_code);
         let blocks = blocks_of(short_code);
         CardModel {
             kind,
             short_code: short_code.to_string(),
             title: title.to_string(),
-            key: format!("{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}|{blocks:?}"),
+            key: format!(
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{progress:?}|{blocks:?}"
+            ),
             work_class,
+            repository,
             progress,
             blocks,
             meta,
@@ -519,6 +525,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.title,
                     Vec::new(),
                     None,
+                    None,
                 )
             }));
             cards.extend(group.initiatives.iter().map(|item| {
@@ -536,6 +543,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.title,
                     meta,
                     None,
+                    None,
                 )
             }));
             cards.extend(group.tasks.iter().map(|item| {
@@ -551,6 +559,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.title,
                     meta,
                     Some(item.work_class.clone()),
+                    item.repository.as_ref().map(|r| r.slug.clone()),
                 )
             }));
             cards.extend(group.adrs.iter().map(|item| {
@@ -559,7 +568,14 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     .iter()
                     .map(|date| (format!("decided {date}"), token::VIOLET))
                     .collect();
-                card(EntityKind::Adr, &item.short_code, &item.title, meta, None)
+                card(
+                    EntityKind::Adr,
+                    &item.short_code,
+                    &item.title,
+                    meta,
+                    None,
+                    None,
+                )
             }));
             ColumnModel {
                 id: group.column.id.clone(),
@@ -792,8 +808,70 @@ fn BoardBody(
     let doc_parents =
         Memo::new(move |_| model.with(|m| m.as_ref().map(doc_parent_options).unwrap_or_default()));
     let documents_offered = Memo::new(move |_| !is_adr && !doc_parents.with(Vec::is_empty));
-    let columns =
-        Memo::new(move |_| model.with(|m| m.as_ref().map(column_models).unwrap_or_default()));
+    // KAIROS-T-0109 (A-0019): the repository lens. `?repo=a,b` in the URL
+    // is the source of truth for the selection, so it survives WS
+    // refetches AND reloads; `?by_repo=1` groups the delivery board into
+    // one lane per repository instead of Support/Planned.
+    let (repo_query, set_repo_query) = query_signal::<String>("repo");
+    let (by_repo_query, set_by_repo_query) = query_signal::<String>("by_repo");
+    let selected_repos = Memo::new(move |_| {
+        repo_query
+            .get()
+            .unwrap_or_default()
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<String>>()
+    });
+    let group_by_repo = Memo::new(move |_| by_repo_query.get().is_some_and(|v| v == "1"));
+    // Every repository slug present on the board, sorted — the chip set.
+    let board_repos = Memo::new(move |_| {
+        model.with(|m| {
+            let mut slugs: Vec<String> = m
+                .as_ref()
+                .map(|view| {
+                    view.items
+                        .columns
+                        .iter()
+                        .flat_map(|c| c.tasks.iter())
+                        .filter_map(|t| t.repository.as_ref().map(|r| r.slug.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            slugs.sort_unstable();
+            slugs.dedup();
+            slugs
+        })
+    });
+    let toggle_repo = move |slug: String| {
+        let mut selected = selected_repos.get_untracked();
+        match selected.iter().position(|s| *s == slug) {
+            Some(i) => {
+                selected.remove(i);
+            }
+            None => selected.push(slug),
+        }
+        set_repo_query.set((!selected.is_empty()).then(|| selected.join(",")));
+    };
+    let columns = Memo::new(move |_| {
+        let selected = selected_repos.get();
+        model.with(|m| {
+            let mut columns = m.as_ref().map(column_models).unwrap_or_default();
+            if !selected.is_empty() {
+                for column in columns.iter_mut() {
+                    // The filter narrows TASKS only; other kinds stay.
+                    column.cards.retain(|card| {
+                        card.kind != EntityKind::Task
+                            || card
+                                .repository
+                                .as_ref()
+                                .is_some_and(|slug| selected.contains(slug))
+                    });
+                }
+            }
+            columns
+        })
+    });
 
     let create_label = StoredValue::new(
         create_kind
@@ -823,22 +901,81 @@ fn BoardBody(
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
         }}
+        {move || (is_delivery && !board_repos.with(Vec::is_empty)).then(|| view! {
+            <div class="kairos-board__lens" data-testid="repo-lens">
+                <Group gap="xs" wrap=true>
+                    <Text dimmed=true size="xs">"Repository"</Text>
+                    <For
+                        each=move || board_repos.get()
+                        key=|slug| slug.clone()
+                        children=move |slug: String| {
+                            let on_slug = slug.clone();
+                            let is_slug = slug.clone();
+                            let label = slug.clone();
+                            view! {
+                                <button
+                                    type="button"
+                                    class="kairos-board__lens-chip"
+                                    class:kairos-board__lens-chip--on=move || {
+                                        selected_repos.with(|s| s.contains(&is_slug))
+                                    }
+                                    data-repo=slug
+                                    on:click=move |_| toggle_repo(on_slug.clone())
+                                >
+                                    {label}
+                                </button>
+                            }
+                        }
+                    />
+                    {move || (board_repos.with(|r| r.len() > 1)).then(|| view! {
+                        <button
+                            type="button"
+                            class="kairos-board__lens-chip"
+                            class:kairos-board__lens-chip--on=move || group_by_repo.get()
+                            data-testid="group-by-repo"
+                            on:click=move |_| {
+                                set_by_repo_query.set((!group_by_repo.get_untracked()).then(|| "1".to_string()))
+                            }
+                        >
+                            "Group by repository"
+                        </button>
+                    })}
+                </Group>
+            </div>
+        })}
         {
             // KAIROS-T-0077: delivery boards split into Support (on top,
             // the expedite convention) and Planned lanes — the lane is a
             // pure projection of tasks.work_class. Other levels keep the
             // single unlaned row. The level is fixed per BoardBody
             // instance, so this branch is deliberately non-reactive.
+            // KAIROS-T-0109: with `?by_repo=1` a delivery board instead
+            // shows one lane per repository (plus "No repository"), and
+            // drops only transition — the lane axis is not a work_class.
             if is_delivery {
                 view! {
-                    <LaneSection lane=LANE_SUPPORT label="Support" caption="unplanned intake"
-                        color=token::GOLD columns drag powers on_changed on_error/>
-                    <LaneSection lane=LANE_PLANNED label="Planned" caption="scheduled work"
-                        color=token::TEAL columns drag powers on_changed on_error/>
+                    {move || if group_by_repo.get() {
+                        let mut lanes: Vec<Option<String>> = board_repos.get().into_iter().map(Some).collect();
+                        lanes.push(None);
+                        lanes
+                            .into_iter()
+                            .map(|lane| view! {
+                                <RepoLaneSection repo=lane columns drag powers on_changed on_error/>
+                            })
+                            .collect_view()
+                            .into_any()
+                    } else {
+                        view! {
+                            <LaneSection lane=LANE_SUPPORT label="Support" caption="unplanned intake"
+                                color=token::GOLD columns drag powers on_changed on_error/>
+                            <LaneSection lane=LANE_PLANNED label="Planned" caption="scheduled work"
+                                color=token::TEAL columns drag powers on_changed on_error/>
+                        }.into_any()
+                    }}
                 }
                 .into_any()
             } else {
-                view! { <LaneColumns lane=None columns drag powers on_changed on_error/> }
+                view! { <LaneColumns lane=None repo=RepoLane::Any columns drag powers on_changed on_error/> }
                     .into_any()
             }
         }
@@ -901,7 +1038,73 @@ fn LaneSection(
                     <Text dimmed=true size="xs">{caption}</Text>
                 </Group>
             </header>
-            <LaneColumns lane=Some(lane) columns drag powers on_changed on_error/>
+            <LaneColumns lane=Some(lane) repo=RepoLane::Any columns drag powers on_changed on_error/>
+        </section>
+    }
+}
+
+/// Which repository a lane shows (KAIROS-T-0109).
+#[derive(Clone, PartialEq)]
+enum RepoLane {
+    /// Every card.
+    Any,
+    /// Tasks bound to this slug.
+    Slug(String),
+    /// Tasks with no repository (and non-task cards).
+    Unbound,
+}
+
+impl RepoLane {
+    fn admits(&self, card: &CardModel) -> bool {
+        match self {
+            RepoLane::Any => true,
+            RepoLane::Slug(slug) => card.repository.as_deref() == Some(slug.as_str()),
+            RepoLane::Unbound => card.repository.is_none(),
+        }
+    }
+}
+
+/// One repository lane on a delivery board (KAIROS-T-0109): the columns
+/// narrowed to tasks bound to `repo` (`None` = the unbound remainder).
+/// Drops here transition only — no lane axis to re-lane into.
+#[component]
+fn RepoLaneSection(
+    repo: Option<String>,
+    columns: Memo<Vec<ColumnModel>>,
+    drag: RwSignal<Option<DragData>>,
+    powers: Signal<BoardPowers>,
+    on_changed: Callback<()>,
+    on_error: Callback<ApiError>,
+) -> impl IntoView {
+    let lane = match &repo {
+        Some(slug) => RepoLane::Slug(slug.clone()),
+        None => RepoLane::Unbound,
+    };
+    let count_lane = lane.clone();
+    let count = Memo::new(move |_| {
+        columns.with(|columns| {
+            columns
+                .iter()
+                .flat_map(|column| column.cards.iter())
+                .filter(|card| count_lane.admits(card))
+                .count()
+        })
+    });
+    let label = repo.clone().unwrap_or_else(|| "No repository".to_string());
+    let attr = repo.clone().unwrap_or_default();
+    view! {
+        <section
+            class="kairos-board__lane kairos-board__lane--repo"
+            class:kairos-board__lane--empty=move || count.get() == 0
+            data-repo-lane=attr
+        >
+            <header class="kairos-board__lane-head">
+                <Group gap="xs">
+                    <Pill color=token::ICE>{label}</Pill>
+                    <Text dimmed=true size="xs">{move || count.get().to_string()}</Text>
+                </Group>
+            </header>
+            <LaneColumns lane=None repo=lane columns drag powers on_changed on_error/>
         </section>
     }
 }
@@ -913,6 +1116,8 @@ fn LaneSection(
 #[component]
 fn LaneColumns(
     lane: Option<&'static str>,
+    /// Repository narrowing for the group-by-repo view (KAIROS-T-0109).
+    repo: RepoLane,
     columns: Memo<Vec<ColumnModel>>,
     drag: RwSignal<Option<DragData>>,
     powers: Signal<BoardPowers>,
@@ -920,6 +1125,7 @@ fn LaneColumns(
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
     let auth = use_auth();
+    let repo = StoredValue::new(repo);
     view! {
         <div class="kairos-board">
             <For
@@ -939,6 +1145,7 @@ fn LaneColumns(
                                 .map(|c| {
                                     c.cards
                                         .iter()
+                                        .filter(|card| repo.with_value(|r| r.admits(card)))
                                         .filter(|card| match lane {
                                             None => true,
                                             Some(lane) => {
@@ -1004,12 +1211,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            progress, blocks, key: _,
+                                            repository, progress, blocks, key: _,
                                         } = card;
                                         view! {
                                             <ItemCard
-                                                kind short_code title meta work_class progress
-                                                blocks
+                                                kind short_code title meta work_class repository
+                                                progress blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
                                                 drag powers
@@ -1045,6 +1252,8 @@ fn ItemCard(
     /// `tasks.work_class` — `Some` for tasks; carried into the drag so
     /// lane drops are decidable (KAIROS-T-0077).
     work_class: Option<String>,
+    /// The bound repository's slug (KAIROS-T-0109) — a chip on the card.
+    repository: Option<String>,
     /// Children rollup badge (KAIROS-T-0080) — renders only when `Some`.
     progress: Option<data::ProgressCounts>,
     /// Blocked-by/blocks badges (KAIROS-T-0091) — render only when
@@ -1113,7 +1322,17 @@ fn ItemCard(
                     </a>
                     <copy_link::CopyLinkButton code=code_for_copy/>
                 </Group>
-                <Pill color=kind_color(kind)>{kind.label()}</Pill>
+                <Group gap="xs">
+                    {repository.map(|slug| {
+                        let attr = slug.clone();
+                        view! {
+                            <span class="kairos-card__repo" data-repo=attr>
+                                <Pill color=token::ICE>{slug}</Pill>
+                            </span>
+                        }
+                    })}
+                    <Pill color=kind_color(kind)>{kind.label()}</Pill>
+                </Group>
             </Group>
             <span class="kairos-card__title">{title}</span>
             {(!meta.is_empty()).then(|| view! {

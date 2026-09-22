@@ -138,6 +138,8 @@ struct TeamView {
     announcements: Vec<api::Announcement>,
     /// In-flight forge links across the team's work (KAIROS-T-0101).
     links: Vec<api::TeamLink>,
+    /// The repositories this team owns (KAIROS-T-0109, A-0019).
+    repositories: Vec<crate::pages::boards::data::Repository>,
 }
 
 /// Load everything the detail page shows, resolving the slug through
@@ -173,6 +175,7 @@ async fn load_team_view(
     let pages = api::team_pages(auth, &team.id).await?;
     let announcements = api::team_announcements(auth, &team.id).await?;
     let links = api::team_links(auth, &team.id).await?;
+    let repositories = crate::pages::boards::data::list_repositories(auth, Some(&team.id)).await?;
 
     Ok(TeamView {
         team,
@@ -183,6 +186,7 @@ async fn load_team_view(
         pages,
         announcements,
         links,
+        repositories,
     })
 }
 
@@ -234,6 +238,7 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
         pages,
         announcements,
         links,
+        repositories,
     } = view_model;
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
@@ -348,6 +353,43 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                             </Anchor>
                                         </Group>
                                     </Stack>
+                                }
+                            }).collect_view()}
+                        </Stack>
+                    }.into_any()
+                }}
+            </Panel>
+            <Panel title="Repositories" caption="the codebases this team owns — tickets are issued against them">
+                {if repositories.is_empty() {
+                    view! {
+                        <Empty message="No repositories registered for this team yet. Any member can register one (kairos repos create), or an org admin from Admin → Repositories."/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <Stack gap="sm">
+                            {repositories.into_iter().map(|repo| {
+                                let name = format!("{} · {}", repo.forge, repo.repo_full_name);
+                                let open = format!("{} open", repo.open_tasks);
+                                let webhook = if repo.has_webhook { "webhooks" } else { "no webhooks" };
+                                let slug_attr = repo.slug.clone();
+                                view! {
+                                    <Group justify="between" wrap=true attr:data-repo=slug_attr>
+                                        <Group gap="sm" wrap=true>
+                                            <Pill color=aurora_dark::tokens::token::ICE>{repo.slug.clone()}</Pill>
+                                            <a
+                                                class="cl-anchor"
+                                                href=repo.repo_url.clone()
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                {name}
+                                            </a>
+                                        </Group>
+                                        <Group gap="sm">
+                                            <Text dimmed=true size="xs">{open}</Text>
+                                            <Text dimmed=true size="xs">{webhook}</Text>
+                                        </Group>
+                                    </Group>
                                 }
                             }).collect_view()}
                         </Stack>

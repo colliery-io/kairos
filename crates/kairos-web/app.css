@@ -173,6 +173,36 @@ body {
   margin-bottom: var(--space-sm);
 }
 
+/* KAIROS-T-0109: a repository lane (group-by-repo view). */
+.kairos-board__lane--repo {
+  border-left: 3px solid var(--ice);
+}
+
+/* KAIROS-T-0109: the repository lens — toggle chips above the lanes. */
+.kairos-board__lens {
+  margin-bottom: var(--space-sm);
+}
+
+.kairos-board__lens-chip {
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg-2);
+  cursor: pointer;
+}
+
+.kairos-board__lens-chip:hover {
+  color: var(--fg-bright);
+}
+
+.kairos-board__lens-chip--on {
+  border-color: var(--ice);
+  color: var(--ice);
+}
+
 /* An empty Support lane renders slim but its columns stay droppable. */
 .kairos-board__lane--empty .kairos-board__column {
   min-height: 2.5rem;

@@ -668,3 +668,112 @@ mod tests {
         assert!(detail.metadata[0].required);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Repositories + forge connections (KAIROS-T-0109, A-0019)
+// ---------------------------------------------------------------------------
+
+pub use crate::pages::boards::data::{Repository, list_repositories};
+
+/// mirror of: `kairos_client::types_forge::CreatedForgeConnection` (partial —
+/// the fields shown once at connect time).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct CreatedForgeConnection {
+    pub id: String,
+    pub webhook_url: String,
+    pub webhook_secret: String,
+}
+
+/// mirror of: `kairos_client::types_repositories::RepositoryDetail`
+/// (partial — the connection id).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RepositoryDetail {
+    #[serde(default)]
+    pub connection_id: Option<String>,
+}
+
+/// `POST /api/repositories`.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_repository(
+    auth: Auth,
+    slug: Option<&str>,
+    forge: &str,
+    repo_full_name: &str,
+    repo_url: &str,
+    team: &str,
+    default_branch: Option<&str>,
+    description: Option<&str>,
+) -> Result<Repository, ApiError> {
+    post_json(
+        auth,
+        "/api/repositories",
+        &json!({
+            "slug": slug,
+            "forge": forge,
+            "repo_full_name": repo_full_name,
+            "repo_url": repo_url,
+            "team": team,
+            "default_branch": default_branch,
+            "description": description,
+        }),
+    )
+    .await
+}
+
+/// `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes.
+pub async fn update_repository(
+    auth: Auth,
+    reference: &str,
+    slug: Option<&str>,
+    repo_url: Option<&str>,
+    default_branch: Option<&str>,
+    team: Option<&str>,
+    description: Option<&str>,
+) -> Result<Repository, ApiError> {
+    let mut body = serde_json::Map::new();
+    for (key, value) in [
+        ("slug", slug),
+        ("repo_url", repo_url),
+        ("default_branch", default_branch),
+        ("team", team),
+        ("description", description),
+    ] {
+        if let Some(value) = value {
+            body.insert(key.to_string(), Value::String(value.to_string()));
+        }
+    }
+    patch_json(
+        auth,
+        &format!("/api/repositories/{reference}"),
+        &Value::Object(body),
+    )
+    .await
+}
+
+/// `DELETE /api/repositories/{slug}` (409 while referenced).
+pub async fn delete_repository(auth: Auth, reference: &str) -> Result<Value, ApiError> {
+    delete_json(auth, &format!("/api/repositories/{reference}")).await
+}
+
+/// `GET /api/repositories/{slug}` — for the connection id.
+pub async fn repository_detail(auth: Auth, reference: &str) -> Result<RepositoryDetail, ApiError> {
+    get_json(auth, &format!("/api/repositories/{reference}")).await
+}
+
+/// `POST /api/forge-connections` — the secret is shown ONCE.
+pub async fn connect_webhook(
+    auth: Auth,
+    repository: &str,
+) -> Result<CreatedForgeConnection, ApiError> {
+    post_json(
+        auth,
+        "/api/forge-connections",
+        &json!({ "repository": repository }),
+    )
+    .await
+}
+
+/// `DELETE /api/forge-connections/{id}` — disconnect (the repo stays).
+pub async fn disconnect_webhook(auth: Auth, connection_id: &str) -> Result<Value, ApiError> {
+    delete_json(auth, &format!("/api/forge-connections/{connection_id}")).await
+}

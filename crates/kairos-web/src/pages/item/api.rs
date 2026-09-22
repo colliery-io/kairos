@@ -141,6 +141,9 @@ pub struct ItemDetail {
     /// `planned|support` — the lane axis (KAIROS-T-0077; tasks only).
     #[serde(default)]
     pub work_class: Option<String>,
+    /// The bound repository (KAIROS-T-0109, A-0019; tasks only).
+    #[serde(default)]
+    pub repository: Option<crate::pages::boards::data::RepositoryRef>,
     #[serde(default)]
     pub decision_maker: Option<String>,
     #[serde(default)]

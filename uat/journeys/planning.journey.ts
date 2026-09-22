@@ -57,7 +57,10 @@ journey(
       await card(page, initiativeTitle).locator('a.kairos-card__code').click();
       await page.waitForURL(new RegExp(`/items/${initiative}`));
       await expect(page.getByText(initiative, { exact: true }).first()).toBeVisible();
-      await page.getByRole('link', { name: 'Graph', exact: true }).click();
+      // The tab anchors are built from the resolved code, never an empty one.
+      const graphTab = page.getByRole('link', { name: 'Graph', exact: true });
+      await expect(graphTab).toHaveAttribute('href', `/items/${initiative}?view=graph`);
+      await graphTab.click();
       await page.waitForURL(/view=graph/);
       const links = panel(page, 'Manage links');
       await expect(links).toBeVisible();

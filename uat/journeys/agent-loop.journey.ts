@@ -59,20 +59,15 @@ journey(
       await page.getByRole('button', { name: 'New task', exact: true }).click();
       const modal = page.locator('.cl-modal');
       await modal.locator('input.cl-input').first().fill(title);
+      // The New task modal offers the team's repositories.
+      await modal.locator('[data-testid="create-repository"] select').selectOption(team.repoSlug);
       await modal.getByRole('button', { name: 'Create' }).click();
       const created = card(page, title);
       await expect(created.locator('a.kairos-card__code')).toHaveText(/-T-\d{4}/);
       code = (await created.locator('a.kairos-card__code').innerText()).trim();
       const api = await alice.api();
       ledger.add({ kind: 'task', label: code, delete: async () => { await api.delete(`/api/tasks/${code}`); } });
-      // The create modal has no repository picker; the item page does.
-      await created.locator('a.kairos-card__code').click();
-      await page.waitForURL(new RegExp(`/items/${code}`));
-      const control = page.locator('[data-testid="repository-control"]');
-      await control.locator('select').selectOption(team.repoSlug);
-      await control.getByRole('button', { name: 'Set repository' }).click();
-      await expect(page.locator('.cl-pill', { hasText: `repo: ${team.repoSlug}` })).toBeVisible({ timeout: 10_000 });
-      await openBoard(page, team.boardSlug);
+      await expect(created.locator(`.kairos-card__repo[data-repo="${team.repoSlug}"]`)).toBeVisible();
       await dragCard(page, code, 'Todo');
       return { short_code: code, repository: team.repoSlug, column: 'Todo' };
     });
@@ -139,15 +134,15 @@ journey(
       });
       expect(await deliverGithubWebhook(connection, 'pull_request', merged)).toBe(200);
       const mcp = await agent.mcp();
-      // Over MCP the merge shows as the PR leaving the repository's
-      // in-flight list; the link's own state is on the links API.
+      // The ticket itself now shows the PR and its state (## Development);
+      // the repository's in-flight list no longer lists it.
+      const item = await mcp.call('get_item', { short_code: code });
+      const prLine = item.split('## Development')[1]?.split('\n').find((l) => l.includes('pull_request 7'));
+      expect(prLine).toContain('[merged]');
       const repo = await mcp.call('get_repository', { repository: team.repoSlug });
       expect(repo).toContain('(nothing open)');
-      const links = await (await agent.api()).get(`/api/tasks/${code}/links`);
-      const pr = (Array.isArray(links) ? links : links.items ?? []).find((l: any) => l.external_id === '7');
-      expect(pr?.state).toBe('merged');
       await mcp.call('transition_item', { short_code: code, to_column: 'Completed' });
-      return { pr: '#7', state: pr?.state, moved_to: 'Completed', in_flight: 'nothing open' };
+      return { pr: '#7', development_line: prLine?.trim(), moved_to: 'Completed', in_flight: 'nothing open' };
     });
 
     await step(bob, 'sees the merged chip on the task and the card in Completed', async () => {

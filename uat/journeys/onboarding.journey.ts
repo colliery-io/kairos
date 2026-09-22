@@ -80,6 +80,8 @@ journey(
       const repos = panel(page, 'Repositories');
       await expect(repos.locator(`[data-repo="${team.fixture.repoSlug}"]`)).toBeVisible();
       await expect(repos.locator(`[data-repo="${team.fixture.repoSlug}"]`)).toContainText(team.fixture.repoFullName!);
+      // The "how to work here" blurb the agent reads is visible to the humans too.
+      await expect(repos.locator(`[data-repo="${team.fixture.repoSlug}"] .kairos-team__repo-description`)).toContainText('flutter test');
       await page.goto(`/boards/${team.fixture.boardSlug}`);
       await expect(page.locator('.kairos-board__column-head', { hasText: 'Backlog' }).first()).toBeVisible();
       const cards = await page.locator('article.kairos-card').count();

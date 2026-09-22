@@ -36,12 +36,10 @@ journey(
       expect(directory).toContain(THEIR_REPO);
       const repo = await mcp.call('get_repository', { repository: THEIR_REPO });
       const owner = repo.match(/- owner team: ([a-z0-9-]+)/)?.[1];
-      // get_repository prints the delivery board as a UUID (every other
-      // tool prints slugs) — resolve the slug for the board steps below.
-      const boardId = repo.match(/- delivery board: ([0-9a-f-]{36})/)?.[1];
+      // The delivery board is printed as a slug — what board_items takes.
+      theirBoard = repo.match(/- delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
       expect(owner).toBeTruthy();
-      expect(boardId).toBeTruthy();
-      theirBoard = (await (await alice.api()).get(`/api/boards/${boardId}`)).slug;
+      expect(theirBoard).toBeTruthy();
       const howToWorkHere = repo.split('## How to work here')[1]?.split('##')[0]?.trim().split('\n')[0];
       return { repository: THEIR_REPO, owner, their_board: theirBoard, how_to_work_here: howToWorkHere?.slice(0, 80) };
     });
@@ -82,7 +80,9 @@ journey(
     await step(carol, 'is refused when she tries to move the platform task out of their Backlog', async () => {
       const mcp = await carol.mcp();
       const refusal = await mcp.refused('transition_item', { short_code: filed, to_column: 'Todo' });
-      expect(refusal.toLowerCase()).toMatch(/backlog|file_backlog|capability|forbidden|not allowed/);
+      // The refusal teaches the rule the recipe describes, not just a capability name.
+      expect(refusal).toContain('Backlog for their triage');
+      expect(refusal).toContain('file_backlog');
       return { refused: refusal.split('\n')[0].slice(0, 160) };
     });
 

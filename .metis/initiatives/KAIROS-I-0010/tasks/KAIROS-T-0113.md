@@ -4,14 +4,14 @@ level: task
 title: "Fix: repositories migration hardening — slug collision handling, SQL/Rust slug parity, populated backfill and down-migration tests"
 short_code: "KAIROS-T-0113"
 created_at: 2026-09-22T09:53:02.350168+00:00
-updated_at: 2026-09-22T10:16:29.942171+00:00
+updated_at: 2026-09-22T10:21:47.382671+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -37,13 +37,11 @@ The `2026-09-22-000000_repositories` migration has a real failure mode the upgra
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Colliding names migrate to distinct slugs; slugs pass `is_valid_slug`; SQL and Rust derivations agree on the test table.
-- [ ] Team-less live connection RAISEs naming the id (tested).
-- [ ] Down migration is executed by a test and restores the pre-shape; up re-applies cleanly after it.
-- [ ] fmt / clippy / unit / integration green; `angreal db schema-sync` produces no diff.
+- [x] `github:acme/foo` + `gitlab:acme/foo` + `github:Acme/Foo` → `acme-foo-2`, `acme-foo-3`, `acme-foo-gitlab`; `/weird//name/` → `weird-name` = Rust derivation; all pass `is_valid_slug`.
+- [x] Live team-less connection → migration Err naming the id; soft-deleted team-less with no live team → its own RAISE.
+- [x] `down.sql` executed by the test (restores the three columns incl. the borrowed team on the dead orphan); up re-applies (4 live repos); the soft-deleted twin shares the live repo; links resolve through the join.
+- [x] fmt, clippy, unit, integration 38/38; `angreal db schema-sync` no diff.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done, `e6ac54e`. Decision on the "no live team" edge: RAISE rather than skip (a dead row with no owner in an ownerless tenant is unrecoverable and rare; a loud message beats a half-migrated schema).

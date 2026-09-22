@@ -4,14 +4,14 @@ level: task
 title: "Fix: web — stale repo lens state, group-by from effective selection, keyed repo lanes, shared power memo, projection tests, a11y, clippy backlog"
 short_code: "KAIROS-T-0114"
 created_at: 2026-09-22T09:53:04.194205+00:00
-updated_at: 2026-09-22T09:53:04.194205+00:00
+updated_at: 2026-09-22T10:21:48.212872+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ The board's repository lens honours URL state it cannot show: a stale `?repo=<sl
 7. **a11y**: `aria-pressed` on lens chips and the group-by toggle.
 8. **Team page**: fetch repositories concurrently with the other five loads (`futures::join!` or `join_all`) and degrade to an empty panel on error rather than failing the page.
 9. **Clippy backlog** (pre-existing, all trivial): `search/data.rs:226` unused `group`; `boards/live.rs:50`, `boards.rs:276`, `:301` type_complexity → `type` aliases; `boards.rs:240`, `:246` collapsible_if; `search/graph.rs:394` clone-on-Copy; `teams/doc.rs:5-7` doc indentation. Then add `-p kairos-web` to the clippy gate in `.angreal/task_test.py` (or wherever the gate runs) so `-D warnings` covers the whole workspace.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

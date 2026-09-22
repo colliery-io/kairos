@@ -38,7 +38,7 @@ Kairos is an API-first work management platform built on PostgreSQL with multi-t
 
 **Key benefits over Metis:**
 - Three distinct Flight Levels with clear ownership, ceremonies, and cadences
-- Work organized around delivery streams, not repositories
+- Work planned around delivery streams that span repositories, and issued and executed per repository — a team owns many repos, and agents work one repo at a time
 - Tenant isolation enables multi-org deployments with hard data boundaries
 - Real-time consistency (no sync step between filesystem and database)
 - Authentication via any OIDC-compliant IdP (bring your own); authorization in Kairos; SCIM 2.0 provisioning
@@ -101,7 +101,7 @@ Work enters from two sources: upstream tasks decomposed from initiatives, and te
 ## Major Features
 
 - **Three-level Flight Levels boards**: Strategy, Initiative, and Delivery boards with distinct ownership, phases, and ceremonies at each level
-- **Delivery stream organization**: Work is organized around delivery streams, not repositories. A delivery stream represents a flow of work toward a business outcome and may span many repositories, teams, and technologies. Repositories are metadata on tasks, not organizational boundaries.
+- **Delivery streams plan, repositories execute**: A delivery stream represents a flow of work toward a business outcome and may span many repositories, teams, and technologies; streams and boards are where work is planned and tracked. Repositories are first-class, team-owned entities (KAIROS-A-0019): a team owns many repositories, each task is issued against at most one, and that binding routes the ticket to the owning team's delivery board. Agents execute inside one repository at a time, and can discover other teams' repositories — owner, board, conventions — to file tickets and open PRs across team boundaries.
 - **Supporting documents with configurable templates**: Any workflow item (strategy, initiative, task) can have child documents attached to it. Documents are template-driven - the system ships with defaults (PRD, System Context, Architecture Framing, Team Charter, Social Contract, Company Vision) and teams can create their own templates. Documents are the substance of initiative phases: a PRD is produced during Discovery, architecture docs during Design. They're children of the parent they support - not free-floating artifacts.
 - **Reference documents**: Governance documents that inform boards but don't live on them:
   - **Company Vision** - the root document of the organization. Everything maps up to it. Strategies are evaluated against it.
@@ -122,7 +122,7 @@ Work enters from two sources: upstream tasks decomposed from initiatives, and te
 - The three Flight Levels (Strategy, Initiative, Delivery) operate as distinct boards with their own ownership, phases, and cadences
 - Direction flows down and information flows up across levels with clear linkage (strategy -> initiative -> task)
 - A single Kairos deployment can serve multiple tenants with complete data isolation
-- Delivery streams can span multiple repositories; repos are metadata, not boundaries
+- Delivery streams can span multiple repositories; each repository has one owning team, each task binds to at most one repository, and an agent in one repository can file work against another team's repository and see the resulting PR linked back
 - Any API client (CLI, GUI, MCP) interacts through the same API
 - Authentication via OIDC prevents unauthorized access; authorization scopes to tenant boundaries
 - Latency for common operations (list, read, transition) is under 50ms p95
@@ -131,7 +131,7 @@ Work enters from two sources: upstream tasks decomposed from initiatives, and te
 
 - **Three levels, clear ownership**: Strategy is owned by leadership. Initiative coordination is owned by coordinators. Delivery is owned by team leads. Access at each level is governed by ABAC with sensible defaults and customization.
 - **Direction down, information up**: Strategic direction flows downward through decomposition. Progress, blockers, and proposals flow upward through ceremonies and escalation.
-- **Delivery streams over repositories**: The primary organizational unit is the delivery stream. Repositories are where code lives; delivery streams are where work is planned, tracked, and coordinated.
+- **Streams and boards plan; repositories are where tickets are issued and executed**: The planning unit is the delivery stream and its boards. The execution unit is the repository — tickets are addressed to a repo, agents work inside a repo, and PRs land in a repo. A team owns many repositories; a repository has exactly one owning team; a task belongs to at most one repository (multi-repo work is decomposed). Any team's agent may file work into another team's Backlog against that team's repository, behind the owning team's triage gate (KAIROS-A-0019).
 - **Teams work how they work**: Delivery teams choose their own cadence and process. The only requirement is trackable work linked to initiatives for cross-level visibility.
 - **API-first**: The HTTP API is the primary interface. CLI, MCP, and GUI are all equal consumers. No special paths or backdoors.
 - **Design is part of delivery**: Planning artifacts (PRDs, system context, architecture docs) are first-class content in Kairos, not external documents you link to. The tool centralizes both the thinking and the tracking.

@@ -394,4 +394,48 @@ the report for the journey attached to the task's status update.
   four scope/form/target/surface decisions taken via AskUserQuestion; design
   D0–D7 written against the current code (A-0012 tiers, e2e harness,
   `KAIROS_DEPLOYMENT_ADMINS`, public API surface). Three open points for
-  Dylan before → ready.
+  Dylan before → ready.- 2026-09-22: All six tasks completed. `6d8b3a3` harness (T-0117),
+  `81a818d` J1 onboarding (T-0118), `4fdb6a1` J2 planning + a CLI fix
+  (T-0119), `2c2409e` J3 agent-loop (T-0120), `d46da4d` J4 cross-team
+  (T-0121), `ec4e5ff` A-0012 tier 6 + README + nightly workflow (T-0122).
+  **Recorded runs:** compose `angreal test uat` → run `mucmoyog`,
+  "5 journeys, 5 passed, 0 failed, 0 steps skipped" (42 ✅ steps); server
+  `angreal test uat --server http://localhost:41080` against the kept
+  stack → run `mucmps8b`, "5 journeys, 5 passed, 0 failed, 2 steps
+  skipped" (tenant provisioning, the smoke admin probe). e2e still 11/11
+  on the shared boot helpers. Initiative left **active** for Dylan's review.
+
+  **What the journeys found** (candidate follow-ups, none blocking):
+  1. *Fixed in T-0119:* `kairos search --repo <slug>` alone was refused as
+     "nothing to search for" — README documents that invocation.
+  2. `/items/:code` builds its Details/Graph tab anchors from the route
+     param, which is empty on the first render (`/items/?view=graph` → the
+     router's "Nothing here"). Only a first-frame programmatic click hits it.
+  3. An agent cannot see PR link state over MCP: `get_item` renders no
+     links; a merge is visible only as the PR leaving `get_repository`'s
+     in-flight list. Links on `get_item` would close the loop.
+  4. `get_repository` prints `delivery board: <UUID>` while every other tool
+     prints slugs.
+  5. The refusal a cross-team filer gets on `transition_item` is the generic
+     `FORBIDDEN … requires capability "transition_items"`; it never mentions
+     the Backlog-only rule the recipe teaches.
+  6. The team page's Repositories panel does not show the description
+     agents read; the New task modal has no repository picker (binding
+     happens on the item page).
+  7. Design constraint learned: a team whose delivery board ever held an
+     item can never be deleted (soft-deleted rows pin the board, T-0010) —
+     J3 therefore runs on an existing team; J1 creates one but raises no
+     work on it.
+  8. The first HTML5 drop after a board navigation is swallowed reliably
+     enough that `dragCard` retries once (Todo→Active in J4 every run).
+
+  **Design deviations, as built:** `--journey` is comma-separated (angreal
+  arguments are not repeatable); the journey record reaches the reporter as
+  a test attachment, not annotations; the agent persona joins its team as a
+  member instead of holding a board grant; J2's lifecycle step acts on a
+  design note (documents carry the editorial lifecycle, A-0018) and links
+  the initiative to the strategy in the GUI's Manage links panel; J4's
+  badge clears when carol removes the satisfied edge, which is what the
+  product actually promises. Follow-ups deferred as listed in the design:
+  storage-state login capture for IdPs without a password form, a rendered
+  manual checklist from the same narration.

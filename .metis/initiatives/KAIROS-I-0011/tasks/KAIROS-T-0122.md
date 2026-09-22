@@ -4,14 +4,14 @@ level: task
 title: "UAT tier 6 in A-0012, README section, nightly CI job, full recorded runs (compose and --server)"
 short_code: "KAIROS-T-0122"
 created_at: 2026-09-22T11:15:31.213057+00:00
-updated_at: 2026-09-22T11:15:31.213057+00:00
+updated_at: 2026-09-22T12:07:49.653380+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0117", "KAIROS-T-0118", "KAIROS-T-0119", "KAIROS-T-0120", "KAIROS-T-0121"]
+blocked_by: [KAIROS-T-0117, KAIROS-T-0118, KAIROS-T-0119, KAIROS-T-0120, KAIROS-T-0121]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,10 +43,13 @@ T-0117 … T-0121.
 
 ## Acceptance Criteria
 
-- [ ] A-0012 lists tier 6 with a dated amendment; README section present; nightly workflow file validates (`actionlint` if available, else a careful read against the existing workflow).
-- [ ] Both full runs green; result lines and report paths recorded in KAIROS-I-0011's progress log.
-- [ ] `angreal test all` unchanged (UAT not in the per-task gate); `angreal tree` shows `test uat`.
+- [x] A-0012 tier 6 added (dated 2026-09-22), Playwright sentence extended; README "User acceptance runs" (how-to ×2 + reference) before "CI"; `.github/workflows/uat-nightly.yml` actionlint-clean.
+- [x] Compose run `mucmoyog`: "UAT passed: 5 journeys, 5 passed, 0 failed, 0 steps skipped" (42 ✅ steps). Server run `mucmps8b` against the kept stack: "5 journeys, 5 passed, 0 failed, 2 steps skipped". Recorded in the initiative log.
+- [x] `all_tests` does not reference uat; `angreal tree` lists `test uat`.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `ec4e5ff`.
+
+- Runs recorded: compose `uat/reports/mucmoyog/report.md` (5/5, 0 skipped), server `uat/reports/mucmps8b/report.md` (5/5, 2 skipped: tenant provisioning + the smoke admin probe). Reports are gitignored; the summary rows are in the initiative log.
+- The nightly workflow is dormant until a GitHub remote exists (same as ci.yml / e2e.yml).

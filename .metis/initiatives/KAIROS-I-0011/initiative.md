@@ -4,14 +4,14 @@ level: initiative
 title: "User Acceptance Journeys - Persona-Driven UAT Tier with Readable Reports"
 short_code: "KAIROS-I-0011"
 created_at: 2026-09-22T11:10:59.088845+00:00
-updated_at: 2026-09-22T11:13:24.092064+00:00
+updated_at: 2026-09-22T11:17:32.135748+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -384,6 +384,11 @@ Gates per task: fmt/clippy unaffected (no Rust) except the angreal task;
 the report for the journey attached to the task's status update.
 
 ## Progress Log
+
+- 2026-09-22: Dylan: "go" on the defaults for the three open points
+  (Playwright/TypeScript runner; tenant provisioning kept as a compose-only
+  J1 step; nightly CI job in scope). → ready → decompose into T-0117 … T-0122
+  per the Implementation Plan; → active; Ralph loop started.
 
 - 2026-09-22: Created in discovery from Dylan's "let's get UAT tests set up";
   four scope/form/target/surface decisions taken via AskUserQuestion; design

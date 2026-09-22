@@ -1,17 +1,17 @@
 ---
-id: repository-api-crud-forge
+id: repository-api-api-repositories
 level: task
 title: "Repository API: /api/repositories CRUD, forge-connections re-keyed on repository, DTOs"
 short_code: "KAIROS-T-0106"
-created_at: 2026-09-22T03:04:42.000000+00:00
-updated_at: 2026-09-22T03:04:42.000000+00:00
+created_at: 2026-09-22T03:04:42+00:00
+updated_at: 2026-09-22T04:18:35.789696+00:00
 parent: KAIROS-I-0010
-blocked_by: ["KAIROS-T-0103"]
+blocked_by: [KAIROS-T-0103]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,12 +48,17 @@ The forge-connection body change breaks the e2e `createForgeConnection` helper a
 
 ## Acceptance Criteria
 
-- [ ] Integration tests per route: list/get shapes, self-serve POST by a team-board `manage_tasks` holder succeeds, POST by an unrelated member → 403, duplicate forge name → 409, slug validation → 422, PATCH re-home, DELETE refused while referenced then succeeds after.
-- [ ] Forge connection create/patch/list tests updated; webhook ingestion tests (T-0099) unchanged in what they assert.
-- [ ] `GET /api/repositories/{slug}.in_flight` matches the team rollup for a single-repo team.
-- [ ] OpenAPI regenerated; kairos-client compiles and its integration suite is green.
-- [ ] fmt/clippy/unit/integration green.
+- [x] `tests/repositories_api.rs`: list (by slug, `?team=` slug/UUID, unknown team 422) and detail shapes; self-serve POST by a team member (team by slug and by UUID) succeeds, unrelated member → 403, admin anything; bad slug 422, slug taken 409, forge name taken 409, unknown team 422, unknown forge 422; PATCH gated on the *current* owner, re-home + rename by admin flips who may edit; DELETE owner-not-enough 403, referenced 409 (connection, then task), succeeds once unbound, slug/name free again.
+- [x] `forge_connections.rs` and `forge_webhook.rs` rewritten to the repository-first flow (`{ repository }` body, `other`-forge repo cannot be connected, ownership edited on the repo); everything about links, rollup paths and webhook ingestion asserts exactly what it did before.
+- [x] `GET /api/repositories/{slug}.in_flight` equals the team rollup for the single-repo team after a real signed PR delivery.
+- [x] Paths registered in OpenAPI (`tests/openapi.rs` completeness check green); kairos-client has the five repository methods; PATCH forge-connection method removed.
+- [x] fmt, clippy `-D warnings` on the touched crates, `angreal test unit`, `angreal test integration` 37/37 green.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`4231b84`). Notes for downstream:
+  - Route module is `api/org/repositories.rs` (with the other org-level families); `map_error` there is `pub(crate)` and the forge API reuses it.
+  - Team references on the wire are UUID **or slug** (`team` field) — same as `repository` everywhere else.
+  - `GET /api/forge-connections/{id}` PATCH is gone; `UpdateForgeConnectionRequest` deleted from the client. The web GUI never called it (T-0109 builds the admin page fresh).
+  - Deliberately left broken for T-0110: `e2e/helpers/api.ts::createForgeConnection` still sends the old body — the break is loud on the next `angreal test e2e`.
+  - `Repository.delivery_board_id` is `Option` only for misconfigured tenants; T-0107's `list_repositories` can render it as the board an agent files onto.

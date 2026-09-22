@@ -4,14 +4,14 @@ level: task
 title: "Fix: cross-team story end to end — blocks/parent edge permissions, create_item parent gate, task repository in MCP reads"
 short_code: "KAIROS-T-0111"
 created_at: 2026-09-22T09:52:58.941427+00:00
-updated_at: 2026-09-22T09:52:58.941427+00:00
+updated_at: 2026-09-22T10:08:38.990120+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -38,12 +38,12 @@ Make the A-0019 §4 cross-team story actually executable by the principal it was
 
 ## Acceptance Criteria
 
-- [ ] A non-admin `file_backlog` filer can `link_items blocks` from her filed task to her own item over HTTP and MCP; cannot link two foreign items; cannot `supersedes`.
-- [ ] `create_item`+`parent` is gated by the same helper; foreign-initiative parent by a non-member → 403; own-initiative parent → 200.
-- [ ] MCP `get_item`, `board_items`, `search` show a task's repository slug.
-- [ ] fmt / clippy `-D warnings` on touched crates / unit / integration green.
-- [ ] `repositories.spec.ts` (T-0115) can assert the blocks edge as carol.
+- [x] Filer links `blocks` from her filed task to her own item (HTTP create + delete of her own edge; MCP link_items via manage-on-target); two foreign items → 403; `supersedes` → 403 even on her own items.
+- [x] `create_item`+`parent` gated by `require_edge_capability_on` BEFORE the insert: foreign initiative → refused with no orphan (task count asserted equal); an initiative she authored → 200 with the edge.
+- [x] `get_item` prints `repository: <slug> (owner: <team>)` or `(none)`; `board_items` and `search` rows carry `[repo:<slug>]` (one slug query per call). Asserted in `tests/mcp.rs`.
+- [x] fmt, clippy `-D warnings` on core/db/client/server/cli/soak, unit, integration 37/37.
+- [ ] `repositories.spec.ts` asserting the edge as carol is T-0115's (now unblocked).
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done, `21f8a05`. Rule as shipped: collaborative = `parent`, `blocks`; allowed when admin, or manage_<family> on source's board, or on target's board, or caller created the source. Removal is gated identically. `meta.rs`/`mcp.rs` probes that relied on "any relationship write is admin-only" now use `informs`; alice (who manages both boards in those fixtures) is asserted ALLOWED for `parent`/`blocks`, and bob (no grants) is the 403 case for delete. The A-0006 note in `api/meta/mod.rs` docs records the carve-out; the ADR text ("blocks edge from the new task to the originating item") did not need to change.

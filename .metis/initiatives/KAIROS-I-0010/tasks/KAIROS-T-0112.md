@@ -4,14 +4,14 @@ level: task
 title: "Fix: repository ownership invariants — two-sided re-home gate, team delete guard, team_id sync on bind, routing helpers into kairos-db"
 short_code: "KAIROS-T-0112"
 created_at: 2026-09-22T09:53:00.631400+00:00
-updated_at: 2026-09-22T09:53:00.631400+00:00
+updated_at: 2026-09-22T10:08:39.808466+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -37,6 +37,8 @@ Hold the repo → team → board invariant on every write path, not just task cr
 5. **One delivery-board helper**: delete the two `delivery_board_of` copies (`org/teams.rs:75`, `org/repositories.rs:111`) in favour of `kairos_db::repositories::delivery_board_for_team` (exactly-one semantics) — or an `Option`-returning sibling — so directory, gate and routing agree.
 6. `attach_repositories` in `org/boards.rs` board_items: collect all task DTOs, attach once, redistribute (the comment currently claims one query; make it true).
 7. `soft_delete` reference check inside the transaction (TOCTOU).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

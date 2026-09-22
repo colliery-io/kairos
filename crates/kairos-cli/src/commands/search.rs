@@ -162,6 +162,7 @@ impl SearchArgs {
             || self.board.is_some()
             || self.column.is_some()
             || self.team.is_some()
+            || self.repo.is_some()
             || !self.task_type.is_empty()
             || !self.work_class.is_empty()
             || self.is_bucket.is_some()
@@ -405,6 +406,24 @@ mod tests {
         .build_request()
         .expect_err("anchor needs depth");
         assert!(err.to_string().contains("--depth"), "{err}");
+    }
+
+    /// `kairos search --repo <slug>` on its own is a complete request
+    /// (KAIROS-T-0119 UAT finding: the repository filter was left out of
+    /// the "is there a filter at all" check and the documented invocation
+    /// was refused as "nothing to search for").
+    #[test]
+    fn repo_alone_is_a_filter() {
+        let request = SearchArgs {
+            repo: Some("payments-api".into()),
+            ..SearchArgs::default()
+        }
+        .build_request()
+        .expect("--repo alone is a filter");
+        assert_eq!(
+            request.filter.expect("filter").repository.as_deref(),
+            Some("payments-api")
+        );
     }
 
     /// --query-json is the verbatim escape hatch: parsed as the full

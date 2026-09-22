@@ -22,6 +22,7 @@ pub mod admin;
 pub mod boards;
 pub mod forge;
 pub mod members;
+pub mod repositories;
 pub mod streams;
 pub mod team_pages;
 pub mod teams;
@@ -44,6 +45,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .merge(boards::router())
         .merge(forge::router())
+        .merge(repositories::router())
         .merge(teams::router())
         .merge(team_pages::router())
         .merge(streams::router())

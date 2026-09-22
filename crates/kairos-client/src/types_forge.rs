@@ -4,44 +4,28 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// One repository wired up to this tenant. The webhook secret is never
-/// carried here — it is returned exactly once, by
+/// The webhook wiring of one repository (KAIROS-T-0106 re-key: repo
+/// identity and ownership live on the embedded repository). The webhook
+/// secret is never carried here — it is returned exactly once, by
 /// [`CreatedForgeConnection`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ForgeConnection {
     /// Connection id (UUID) — also the webhook URL's last segment.
     pub id: String,
-    /// `github|gitlab`.
+    /// `github|gitlab` — the webhook dialect.
     pub forge: String,
-    /// `owner/repo` on GitHub, `group/project` on GitLab.
-    pub repo_full_name: String,
-    pub repo_url: String,
-    /// The owning team (UUID) of the connected repository. Always present
-    /// since KAIROS-T-0103 (ownership lives on the repository, A-0019);
-    /// kept optional on the wire for one release of client compatibility.
-    pub team_id: Option<String>,
-    /// The repository this connection delivers webhooks for (UUID,
-    /// KAIROS-T-0103).
-    pub repository_id: String,
+    /// The repository this connection delivers for.
+    pub repository: crate::types_repositories::RepositoryRef,
     /// RFC 3339.
     pub created_at: String,
 }
 
-/// Body of `POST /api/forge-connections`.
+/// Body of `POST /api/forge-connections`: connect webhooks for a
+/// registered repository (slug or UUID). Register the repository first
+/// via `POST /api/repositories`; its `forge` must be `github` or `gitlab`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateForgeConnectionRequest {
-    /// `github|gitlab`.
-    pub forge: String,
-    /// `owner/repo` — must match what the forge sends in its payloads.
-    pub repo_full_name: String,
-    /// Browser URL of the repository.
-    pub repo_url: String,
-    /// Owning team (UUID). REQUIRED since KAIROS-T-0103: connecting a
-    /// repository that is not yet registered creates it, and every
-    /// repository has exactly one owning team (A-0019). Ignored when the
-    /// repository already exists.
-    #[serde(default)]
-    pub team_id: Option<String>,
+    pub repository: String,
 }
 
 /// Response of connection creation and rotation: the connection plus the
@@ -57,21 +41,6 @@ pub struct CreatedForgeConnection {
     /// Paste into the forge's webhook "Secret" (GitHub) / "Secret token"
     /// (GitLab).
     pub webhook_secret: String,
-}
-
-/// Body of `PATCH /api/forge-connections/{id}` — re-homes the connected
-/// REPOSITORY to another team (KAIROS-T-0103); repo identity is fixed for
-/// a connection's lifetime.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-pub struct UpdateForgeConnectionRequest {
-    /// New team (UUID). JSON `null` cannot distinguish "unchanged" from
-    /// "clear", so set `clear_team` for the latter.
-    #[serde(default)]
-    pub team_id: Option<String>,
-    /// Formerly dropped the team attribution. Since KAIROS-T-0103 a
-    /// repository always has an owner, so this is rejected with 422.
-    #[serde(default)]
-    pub clear_team: bool,
 }
 
 /// One row of a team's in-flight rollup (KAIROS-T-0101): a link plus the

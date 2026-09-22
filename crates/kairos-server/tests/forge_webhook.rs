@@ -185,12 +185,23 @@ async fn forge_webhook_ingestion_against_live_stack() {
         })
         .await
         .expect("owning team");
+    let payments = svc
+        .create_repository(
+            &kairos_client::types_repositories::CreateRepositoryRequest {
+                slug: Some("payments-api".into()),
+                forge: "github".into(),
+                repo_full_name: "acme/payments-api".into(),
+                repo_url: "https://github.com/acme/payments-api".into(),
+                default_branch: None,
+                team: infra.id.clone(),
+                description: None,
+            },
+        )
+        .await
+        .expect("registering the repo");
     let created = svc
         .create_forge_connection(&CreateForgeConnectionRequest {
-            forge: "github".into(),
-            repo_full_name: "acme/payments-api".into(),
-            repo_url: "https://github.com/acme/payments-api".into(),
-            team_id: Some(infra.id.clone()),
+            repository: payments.slug.clone(),
         })
         .await
         .expect("connecting the repo");
@@ -381,15 +392,15 @@ async fn forge_webhook_ingestion_against_live_stack() {
     );
 
     // Path 3: re-home the REPO to the team (ownership, A-0019).
-    svc.update_forge_connection(
-        &created.connection.id,
-        &kairos_client::types_forge::UpdateForgeConnectionRequest {
-            team_id: Some(team.id.clone()),
-            clear_team: false,
+    svc.update_repository(
+        &payments.slug,
+        &kairos_client::types_repositories::UpdateRepositoryRequest {
+            team: Some(team.id.clone()),
+            ..Default::default()
         },
     )
     .await
-    .expect("attributing the repo");
+    .expect("re-homing the repo");
     let rollup = svc
         .team_links(&team.id, Some("merged"))
         .await
@@ -400,11 +411,11 @@ async fn forge_webhook_ingestion_against_live_stack() {
 
     // Path 1: the task's own team_id qualifies it even with the repo
     // owned by another team again.
-    svc.update_forge_connection(
-        &created.connection.id,
-        &kairos_client::types_forge::UpdateForgeConnectionRequest {
-            team_id: Some(infra.id.clone()),
-            clear_team: false,
+    svc.update_repository(
+        &payments.slug,
+        &kairos_client::types_repositories::UpdateRepositoryRequest {
+            team: Some(infra.id.clone()),
+            ..Default::default()
         },
     )
     .await

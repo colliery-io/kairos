@@ -318,3 +318,40 @@ fn log_activity(
         .execute(conn)?;
     Ok(())
 }
+
+/// Per-repository counts the directory renders (KAIROS-T-0106), ONE query
+/// for a whole list: live tasks not in a done column, and whether a live
+/// webhook connection exists.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct RepositoryCounts {
+    #[diesel(sql_type = diesel::sql_types::Uuid)]
+    pub repository_id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::BigInt)]
+    pub open_tasks: i64,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub has_webhook: bool,
+}
+
+/// [`RepositoryCounts`] for every id in `ids` (repositories with no tasks
+/// and no connection still get a row).
+pub fn counts(
+    conn: &mut PgConnection,
+    ids: &[Uuid],
+) -> Result<Vec<RepositoryCounts>, RepositoryError> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(diesel::sql_query(
+        "SELECT r.id AS repository_id, \
+                (SELECT count(*) FROM tasks t \
+                   JOIN board_columns c ON c.id = t.column_id \
+                  WHERE t.repository_id = r.id AND t.deleted_at IS NULL \
+                    AND NOT c.is_done) AS open_tasks, \
+                EXISTS (SELECT 1 FROM forge_connections fc \
+                         WHERE fc.repository_id = r.id AND fc.deleted_at IS NULL) AS has_webhook \
+           FROM repositories r \
+          WHERE r.id = ANY($1)",
+    )
+    .bind::<diesel::sql_types::Array<diesel::sql_types::Uuid>, _>(ids.to_vec())
+    .load(conn)?)
+}

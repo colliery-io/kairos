@@ -981,14 +981,51 @@ impl KairosClient {
         self.post_created("/api/forge-connections", request).await
     }
 
-    /// `PATCH /api/forge-connections/{id}` — team attribution only.
-    pub async fn update_forge_connection(
+    // -- repositories (KAIROS-T-0106, A-0019) ----------------------------
+
+    /// `GET /api/repositories[?team=]` — the repository directory (open
+    /// tenant-wide), optionally one team's (UUID or slug).
+    pub async fn list_repositories(
         &self,
-        id: &str,
-        request: &crate::types_forge::UpdateForgeConnectionRequest,
-    ) -> Result<crate::types_forge::ForgeConnection, Error> {
-        self.patch(&format!("/api/forge-connections/{id}"), request)
+        team: Option<&str>,
+    ) -> Result<Vec<crate::types_repositories::Repository>, Error> {
+        match team {
+            Some(team) => self.get(&format!("/api/repositories?team={team}")).await,
+            None => self.get("/api/repositories").await,
+        }
+    }
+
+    /// `GET /api/repositories/{slug}` — the repository, its webhook
+    /// connection id and in-flight links.
+    pub async fn get_repository(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_repositories::RepositoryDetail, Error> {
+        self.get(&format!("/api/repositories/{reference}")).await
+    }
+
+    /// `POST /api/repositories` — register a repository under its owning
+    /// team (org admin, or a member of that team).
+    pub async fn create_repository(
+        &self,
+        request: &crate::types_repositories::CreateRepositoryRequest,
+    ) -> Result<crate::types_repositories::Repository, Error> {
+        self.post_created("/api/repositories", request).await
+    }
+
+    /// `PATCH /api/repositories/{slug}`.
+    pub async fn update_repository(
+        &self,
+        reference: &str,
+        request: &crate::types_repositories::UpdateRepositoryRequest,
+    ) -> Result<crate::types_repositories::Repository, Error> {
+        self.patch(&format!("/api/repositories/{reference}"), request)
             .await
+    }
+
+    /// `DELETE /api/repositories/{slug}` (org admin; 409 while referenced).
+    pub async fn delete_repository(&self, reference: &str) -> Result<OrgDeleteResponse, Error> {
+        self.delete(&format!("/api/repositories/{reference}")).await
     }
 
     /// `DELETE /api/forge-connections/{id}` (org admin).

@@ -916,3 +916,31 @@ pub struct TeamLinkRow {
     #[diesel(sql_type = Text)]
     pub item_title: String,
 }
+
+/// Forge links on ONE repository (KAIROS-T-0106): the repository detail's
+/// in-flight panel. Same row shape as [`team_link_rollup`] so the API
+/// renders both with one DTO; `states` and `limit` as there.
+pub fn repository_link_rollup(
+    conn: &mut PgConnection,
+    repository_id: Uuid,
+    states: &[&str],
+    limit: i64,
+) -> Result<Vec<TeamLinkRow>, DieselError> {
+    sql_query(
+        "SELECT l.id, l.kind, l.external_id, l.title, l.url, l.state, l.author, \
+             l.forge_updated_at, \
+             r.forge, r.repo_full_name, \
+             d.short_code AS item_short_code, d.title AS item_title \
+         FROM item_links l \
+         JOIN forge_connections c ON c.id = l.connection_id AND c.deleted_at IS NULL \
+         JOIN repositories r ON r.id = c.repository_id \
+         JOIN entity_directory d ON d.id = l.item_id \
+         WHERE r.id = $1 AND l.state = ANY($2) \
+         ORDER BY l.forge_updated_at DESC \
+         LIMIT $3",
+    )
+    .bind::<SqlUuid, _>(repository_id)
+    .bind::<Array<Text>, _>(states.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    .bind::<diesel::sql_types::BigInt, _>(limit)
+    .load(conn)
+}

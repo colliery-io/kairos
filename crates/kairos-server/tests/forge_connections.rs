@@ -23,8 +23,9 @@ use common::{
     with_database,
 };
 use kairos_client::Error;
-use kairos_client::types_forge::{CreateForgeConnectionRequest, UpdateForgeConnectionRequest};
+use kairos_client::types_forge::CreateForgeConnectionRequest;
 use kairos_client::types_org::CreateTeamRequest;
+use kairos_client::types_repositories::{CreateRepositoryRequest, UpdateRepositoryRequest};
 use kairos_db::models::{NewOrganizationMember, OrgRole};
 use kairos_db::schema::{organization_members, organizations, users};
 use kairos_db::{TenantPool, provision_tenant, run_public_migrations};
@@ -103,9 +104,9 @@ async fn forge_connection_lifecycle_against_live_stack() {
     // =======================================================================
     // Writes are org-admin only; reads open tenant-wide
     // =======================================================================
-    // KAIROS-T-0103 (A-0019): connecting an unregistered repository
-    // registers it, and a repository has exactly one owning team — so the
-    // owner comes first, and a team-less connect of a new repo is 422.
+    // KAIROS-T-0106 (A-0019): a connection is the webhook wiring OF a
+    // registered repository — register it (under its one owning team)
+    // first, then connect by slug.
     let platform = svc
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
@@ -114,24 +115,37 @@ async fn forge_connection_lifecycle_against_live_stack() {
         })
         .await
         .expect("owning team");
+    let payments = svc
+        .create_repository(&CreateRepositoryRequest {
+            slug: None,
+            forge: "github".into(),
+            repo_full_name: "acme/payments-api".into(),
+            repo_url: "https://github.com/acme/payments-api".into(),
+            default_branch: None,
+            team: platform.id.clone(),
+            description: None,
+        })
+        .await
+        .expect("registering the repository");
+    assert_eq!(
+        payments.slug, "acme-payments-api",
+        "slug derives from the full name"
+    );
+    assert!(!payments.has_webhook);
     let request = CreateForgeConnectionRequest {
-        forge: "github".into(),
-        repo_full_name: "acme/payments-api".into(),
-        repo_url: "https://github.com/acme/payments-api".into(),
-        team_id: Some(platform.id.clone()),
+        repository: payments.slug.clone(),
     };
     let err = rejection(alice.create_forge_connection(&request).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
     let err = rejection(
         svc.create_forge_connection(&CreateForgeConnectionRequest {
-            team_id: None,
-            ..request.clone()
+            repository: "nope".into(),
         })
         .await,
     );
     assert!(
-        matches!(err, Error::Validation { .. }),
-        "a new repository needs an owning team: {err}"
+        matches!(err, Error::NotFound { .. }),
+        "an unregistered repository cannot be connected: {err}"
     );
 
     let created = svc
@@ -139,15 +153,22 @@ async fn forge_connection_lifecycle_against_live_stack() {
         .await
         .expect("org admin connects a repository");
     assert_eq!(created.connection.forge, "github");
-    assert_eq!(created.connection.repo_full_name, "acme/payments-api");
+    assert_eq!(created.connection.repository.slug, payments.slug);
     assert_eq!(
-        created.connection.team_id.as_deref(),
-        Some(platform.id.as_str()),
+        created.connection.repository.repo_full_name,
+        "acme/payments-api"
+    );
+    assert_eq!(
+        created.connection.repository.team_id, platform.id,
         "ownership is the repository's"
     );
     assert!(
-        !created.connection.repository_id.is_empty(),
-        "the connection hangs off a registered repository"
+        svc.get_repository(&payments.slug)
+            .await
+            .expect("repo detail")
+            .repository
+            .has_webhook,
+        "the directory shows the webhook"
     );
 
     // The delivery URL carries forge, tenant, and connection id — the
@@ -178,33 +199,36 @@ async fn forge_connection_lifecycle_against_live_stack() {
         .get_forge_connection(&created.connection.id)
         .await
         .expect("single read");
-    assert_eq!(fetched.repo_full_name, "acme/payments-api");
+    assert_eq!(fetched.repository.repo_full_name, "acme/payments-api");
 
     // =======================================================================
     // One live connection per repo; validation
     // =======================================================================
     let err = rejection(svc.create_forge_connection(&request).await);
     assert!(matches!(err, Error::Conflict { .. }), "{err}");
-    let err = rejection(
-        svc.create_forge_connection(&CreateForgeConnectionRequest {
-            forge: "bitbucket".into(),
-            ..request.clone()
+    // An `other`-forge repository owns tasks but has no webhook dialect.
+    let plain = svc
+        .create_repository(&CreateRepositoryRequest {
+            slug: Some("wiki".into()),
+            forge: "other".into(),
+            repo_full_name: "acme/wiki".into(),
+            repo_url: "https://wiki.acme.test".into(),
+            default_branch: None,
+            team: platform.id.clone(),
+            description: None,
         })
-        .await,
-    );
-    assert!(matches!(err, Error::Validation { .. }), "{err}");
+        .await
+        .expect("an other-forge repo");
     let err = rejection(
         svc.create_forge_connection(&CreateForgeConnectionRequest {
-            repo_full_name: "acme/other".into(),
-            team_id: Some(Uuid::new_v4().to_string()),
-            ..request.clone()
+            repository: plain.slug.clone(),
         })
         .await,
     );
     assert!(matches!(err, Error::Validation { .. }), "{err}");
 
     // =======================================================================
-    // Ownership: PATCH re-homes the repository; clearing is refused
+    // Ownership lives on the repository: re-home it there, never here
     // =======================================================================
     let team = svc
         .create_team(&CreateTeamRequest {
@@ -215,38 +239,32 @@ async fn forge_connection_lifecycle_against_live_stack() {
         .await
         .expect("team to re-home to");
     let updated = svc
-        .update_forge_connection(
-            &created.connection.id,
-            &UpdateForgeConnectionRequest {
-                team_id: Some(team.id.clone()),
-                clear_team: false,
+        .update_repository(
+            &payments.slug,
+            &UpdateRepositoryRequest {
+                team: Some(team.id.clone()),
+                ..Default::default()
             },
         )
         .await
         .expect("re-homing the repo to another team");
-    assert_eq!(updated.team_id.as_deref(), Some(team.id.as_str()));
-    assert_eq!(updated.repository_id, created.connection.repository_id);
-    let err = rejection(
-        svc.update_forge_connection(
-            &created.connection.id,
-            &UpdateForgeConnectionRequest {
-                team_id: None,
-                clear_team: true,
-            },
-        )
-        .await,
-    );
-    assert!(
-        matches!(err, Error::Validation { .. }),
-        "a repository always has an owner (A-0019): {err}"
-    );
+    assert_eq!(updated.team.id, team.id);
+    let fetched = alice
+        .get_forge_connection(&created.connection.id)
+        .await
+        .expect("connection follows its repository");
+    assert_eq!(fetched.repository.team_id, team.id);
+    // A repository with a live connection cannot be deleted.
+    let err = rejection(svc.delete_repository(&payments.slug).await);
+    assert!(matches!(err, Error::Conflict { .. }), "{err}");
+    // A plain member (on neither team) cannot re-home it.
     let err = rejection(
         alice
-            .update_forge_connection(
-                &created.connection.id,
-                &UpdateForgeConnectionRequest {
-                    team_id: Some(team.id.clone()),
-                    clear_team: false,
+            .update_repository(
+                &payments.slug,
+                &UpdateRepositoryRequest {
+                    team: Some(platform.id.clone()),
+                    ..Default::default()
                 },
             )
             .await,
@@ -264,10 +282,13 @@ async fn forge_connection_lifecycle_against_live_stack() {
     assert_ne!(rotated.webhook_secret, created.webhook_secret);
     assert_ne!(rotated.webhook_url, created.webhook_url);
     // Same repository, and still exactly one live connection for it.
-    assert_eq!(rotated.connection.repo_full_name, "acme/payments-api");
     assert_eq!(
-        rotated.connection.repository_id,
-        created.connection.repository_id
+        rotated.connection.repository.repo_full_name,
+        "acme/payments-api"
+    );
+    assert_eq!(
+        rotated.connection.repository.id,
+        created.connection.repository.id
     );
     let listed = alice.list_forge_connections().await.expect("after rotate");
     assert_eq!(listed.len(), 1, "the old connection is gone: {listed:?}");

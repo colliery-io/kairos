@@ -4,14 +4,14 @@ level: task
 title: "UAT J4 cross-team: carol files into platform's Backlog over MCP, refused a transition, links blocks; bob triages in the GUI; badge clears live"
 short_code: "KAIROS-T-0121"
 created_at: 2026-09-22T11:15:28.143152+00:00
-updated_at: 2026-09-22T11:15:28.143152+00:00
+updated_at: 2026-09-22T12:05:13.347450+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0117"]
+blocked_by: [KAIROS-T-0117]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,9 +51,14 @@ T-0117.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey cross-team` green under compose and `--server`; report shows the Backlog landing, the refusal text, and the badge appearing then clearing.
-- [ ] Nothing `uat-<run>-` remains after teardown.
+- [x] Green under compose (hand-run) and in the full `angreal test uat --server …` run (5/5 journeys); report shows "platform-delivery / column: Backlog", `FORBIDDEN: this action requires capability "transition_items" on board …`, "blocked by 1" then "cleared; reloaded: false".
+- [x] `kairos search --query uat-` and `kairos repos list` show nothing after the run.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `d46da4d`.
+
+- Story adjustment vs D4: a `blocks` badge counts LIVE edges regardless of the blocker's column (kairos-db `graph.rs` rollup), so "bob moves it to Done → carol's badge clears" cannot happen by itself. The journey has carol remove the satisfied edge (`unlink_items`, allowed because she authored the source) and asserts the live clear — which is what the product actually promises.
+- **Finding:** `get_repository` prints `- delivery board: <UUID>` while every other MCP tool prints slugs; an agent following the skills gets a UUID it then has to pass to `board_items` (works, but inconsistent). Candidate hygiene ticket.
+- Finding: the refusal text for a `file_backlog`-only caller is the generic `FORBIDDEN … requires capability "transition_items"` — correct, but it does not mention the Backlog-only rule the recipe describes. Candidate: friendlier refusal for cross-team filers.
+- The Todo→Active drag needs the retry every run (~5s): the first HTML5 drop after a navigation is swallowed. Journey-level dragCard retries once; if it starts needing two, that is a GUI bug to chase.

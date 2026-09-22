@@ -29,10 +29,7 @@ use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route(
-            "/api/teams/{id}/pages",
-            get(list_pages).post(create_page),
-        )
+        .route("/api/teams/{id}/pages", get(list_pages).post(create_page))
         .route(
             "/api/teams/{id}/pages/{page_id}",
             get(get_page).patch(update_page).delete(delete_page),
@@ -127,18 +124,22 @@ fn map_page_error(e: TeamPageError) -> ApiError {
             "SLUG_CONFLICT",
             format!("a sibling with slug {slug:?} already exists"),
         ),
-        TeamPageError::BadParent(id) => ApiError::validation(format!(
-            "parent {id} is not a live folder of this team"
-        )),
+        TeamPageError::BadParent(id) => {
+            ApiError::validation(format!("parent {id} is not a live folder of this team"))
+        }
         TeamPageError::ProtectedPage(id) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "PROTECTED_PAGE",
-            format!("page {id} is protected (the Charter): it cannot be renamed, moved, or deleted"),
+            format!(
+                "page {id} is protected (the Charter): it cannot be renamed, moved, or deleted"
+            ),
         ),
         TeamPageError::FolderNotEmpty { folder, children } => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "FOLDER_NOT_EMPTY",
-            format!("folder {folder} still contains {children} live page(s); move or delete them first"),
+            format!(
+                "folder {folder} still contains {children} live page(s); move or delete them first"
+            ),
         ),
         TeamPageError::VersionConflict {
             expected_version,
@@ -276,8 +277,8 @@ pub(crate) async fn create_page(
     let team_id = parse_uuid(&id, "id")?;
     let kind: TeamPageKind = parse_enum(&body.kind, "kind", TeamPageKind::ALL)?;
     let parent_id = parse_opt_uuid(body.parent_id.as_deref(), "parent_id")?;
-        let slug = tenant.slug.clone();
-let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let user = auth.user_id;
     let created = state
         .blocking
         .run(&slug, move |conn| {
@@ -340,7 +341,10 @@ pub(crate) async fn update_page(
     let team_id = parse_uuid(&id, "id")?;
     let page_id = parse_uuid(&page_id, "page_id")?;
     let is_content_edit = body.content.is_some();
-    let is_structure_edit = body.slug.is_some() || body.parent_id.is_some() || body.move_to_root || body.position.is_some();
+    let is_structure_edit = body.slug.is_some()
+        || body.parent_id.is_some()
+        || body.move_to_root
+        || body.position.is_some();
     if is_content_edit && is_structure_edit {
         return Err(ApiError::validation(
             "a content edit (content/version) and a rename/move (slug/parent_id/position) \
@@ -362,8 +366,8 @@ pub(crate) async fn update_page(
     } else {
         parse_opt_uuid(body.parent_id.as_deref(), "parent_id")?.map(Some)
     };
-        let slug = tenant.slug.clone();
-let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let user = auth.user_id;
     let updated = state
         .blocking
         .run(&slug, move |conn| {
@@ -422,16 +426,15 @@ pub(crate) async fn delete_page(
 ) -> Result<Json<kairos_client::types_org::OrgDeleteResponse>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let page_uuid = parse_uuid(&page_id, "page_id")?;
-        let slug = tenant.slug.clone();
-let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let user = auth.user_id;
     state
         .blocking
         .run(&slug, move |conn| {
             require_team(conn, team_id)?;
             require_team_member_or_admin(conn, &tenant, team_id, user)?;
             let doomed = team_pages::load_page(conn, team_id, page_uuid).map_err(map_page_error)?;
-            team_pages::soft_delete_page(conn, team_id, page_uuid, user)
-                .map_err(map_page_error)?;
+            team_pages::soft_delete_page(conn, team_id, page_uuid, user).map_err(map_page_error)?;
             log_page_activity(
                 conn,
                 user,
@@ -469,8 +472,7 @@ pub(crate) async fn list_announcements(
         .blocking
         .run(&tenant.slug, move |conn| {
             require_team(conn, team_id)?;
-            let rows =
-                team_pages::list_announcements(conn, team_id).map_err(ApiError::internal)?;
+            let rows = team_pages::list_announcements(conn, team_id).map_err(ApiError::internal)?;
             Ok(rows.into_iter().map(announcement_dto).collect::<Vec<_>>())
         })
         .await?;
@@ -507,8 +509,8 @@ pub(crate) async fn create_announcement(
             team_pages::MAX_CONTENT_BYTES
         )));
     }
-        let slug = tenant.slug.clone();
-let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let user = auth.user_id;
     let created = state
         .blocking
         .run(&slug, move |conn| {

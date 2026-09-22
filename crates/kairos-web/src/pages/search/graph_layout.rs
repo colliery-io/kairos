@@ -186,8 +186,12 @@ pub fn layout(nodes: &[LayoutInputNode], edges: &[LayoutInputEdge]) -> GraphLayo
                 .iter()
                 .filter_map(|&p| strategy_row.get(nodes[p].id.as_str()).copied())
                 .collect();
-            (!rows.is_empty())
-                .then(|| (node.id.as_str(), rows.iter().sum::<f64>() / rows.len() as f64))
+            (!rows.is_empty()).then(|| {
+                (
+                    node.id.as_str(),
+                    rows.iter().sum::<f64>() / rows.len() as f64,
+                )
+            })
         })
         .collect();
     let initiatives = order_column(ids_in(Column::Initiative), nodes, &initiative_bary);
@@ -292,8 +296,12 @@ pub fn layout(nodes: &[LayoutInputNode], edges: &[LayoutInputEdge]) -> GraphLayo
         }
         y
     };
-    let initiatives_bottom =
-        place_grouped(&initiative_groups, Column::Initiative, &strategies, &mut lanes);
+    let initiatives_bottom = place_grouped(
+        &initiative_groups,
+        Column::Initiative,
+        &strategies,
+        &mut lanes,
+    );
     let tasks_bottom = place_grouped(&task_groups, Column::Task, &initiatives, &mut lanes);
     max_y = max_y.max(initiatives_bottom).max(tasks_bottom);
 
@@ -441,8 +449,7 @@ mod tests {
         assert!(placed("t1").y < placed("t2").y);
         assert!(placed("t2").y < placed("t3").y);
         // Lanes exist for both initiatives and the strategy.
-        let lane_parents: Vec<&str> =
-            result.lanes.iter().map(|l| l.parent_id.as_str()).collect();
+        let lane_parents: Vec<&str> = result.lanes.iter().map(|l| l.parent_id.as_str()).collect();
         assert!(lane_parents.contains(&"i1"));
         assert!(lane_parents.contains(&"i2"));
         assert!(lane_parents.contains(&"s1"));

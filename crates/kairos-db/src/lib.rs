@@ -16,6 +16,7 @@ pub mod items;
 pub mod migrations;
 pub mod models;
 pub mod pool;
+pub mod repositories;
 pub mod retention;
 pub mod schema;
 pub mod scim;

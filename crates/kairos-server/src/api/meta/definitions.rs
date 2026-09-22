@@ -111,7 +111,9 @@ fn replace_scopes(
         })
         .collect();
     if !rows.is_empty() {
-        diesel::insert_into(scopes::table).values(&rows).execute(conn)?;
+        diesel::insert_into(scopes::table)
+            .values(&rows)
+            .execute(conn)?;
     }
     Ok(())
 }

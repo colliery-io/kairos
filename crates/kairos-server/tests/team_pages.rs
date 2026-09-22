@@ -567,6 +567,7 @@ async fn team_pages_endpoints_against_live_stack() {
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team_id: team,
+                repository_id: None,
             },
             alice_id,
         )
@@ -613,8 +614,14 @@ async fn team_pages_endpoints_against_live_stack() {
     let _doc_d = mk_doc(&mut conn, "Doc D (org-level, absent)", org_initiative.id);
     // Dedup: one doc supporting TWO team items appears once.
     let doc_e = mk_doc(&mut conn, "Doc E (two parents)", t1.id);
-    kairos_db::graph::link_items(&mut conn, t2.id, doc_e.id, RelationshipType::Supports, alice_id)
-        .expect("second supports edge");
+    kairos_db::graph::link_items(
+        &mut conn,
+        t2.id,
+        doc_e.id,
+        RelationshipType::Supports,
+        alice_id,
+    )
+    .expect("second supports edge");
     // Soft-deleted document and soft-deleted parent are both excluded.
     let doc_f = mk_doc(&mut conn, "Doc F (deleted doc)", t1.id);
     diesel::update(kairos_db::schema::documents::table.find(doc_f.id))

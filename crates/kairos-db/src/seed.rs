@@ -23,9 +23,13 @@
 //!   attached with a `supports` edge (initiative → document `parent` is
 //!   disallowed by the kairos-core rule matrix)
 //! - standing `bugs` and `tech-debt` bucket initiatives
-//! - eight tasks spread across both delivery boards and several columns,
+//! - three team-owned repositories (KAIROS-T-0103, A-0019): platform owns
+//!   `payments-api` and `platform-infra`, web owns `portal-web`
+//! - eleven tasks spread across both delivery boards and several columns,
 //!   with two `blocks` edges, including one bug and one tech-debt item
-//!   parented to the matching bucket
+//!   parented to the matching bucket, most bound to a repository, and one
+//!   filed CROSS-TEAM by carol (web) into platform's Backlog against
+//!   `payments-api`
 //! - `priority` metadata stamps on four tasks
 //! - two ADRs on the ADR board, the newer superseding the older
 //!   (`supersedes` edge; the old one sits in the Superseded column)
@@ -64,8 +68,8 @@ use crate::models::enums::{
     BoardLevel, BucketType, Complexity, OrgRole, RelationshipType, TaskType, TeamPageKind,
     TeamType, WorkClass,
 };
-use crate::models::team_pages::TeamPage;
 use crate::models::public::{NewOrganizationMember, NewUser, User};
+use crate::models::team_pages::TeamPage;
 use crate::models::teams::{NewDeliveryStream, NewTeam, NewTeamMember, Team};
 use crate::models::templates::NewItemMetadata;
 use crate::tenant::{TenantError, drop_tenant, provision_tenant};
@@ -136,6 +140,9 @@ pub enum SeedError {
     /// Seeding demo forge connections/links failed (KAIROS-T-0102).
     #[error(transparent)]
     Forge(#[from] crate::forge::ForgeError),
+    /// Seeding demo repositories failed (KAIROS-T-0103).
+    #[error(transparent)]
+    Repository(#[from] crate::repositories::RepositoryError),
     /// Any other database error.
     #[error("database error: {0}")]
     Database(#[from] DieselError),
@@ -162,7 +169,10 @@ pub struct SeedDemoReport {
     pub strategies: usize,
     /// Initiatives created (2 real + 2 buckets).
     pub initiatives: usize,
-    /// Tasks created (incl. the bug and tech-debt items).
+    /// Repositories created (KAIROS-T-0103): two for platform, one for web.
+    pub repositories: usize,
+    /// Tasks created (incl. the bug and tech-debt items and the cross-team
+    /// filed one).
     pub tasks: usize,
     /// Documents created (the PRD + the platform runbook).
     pub documents: usize,
@@ -518,6 +528,60 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         link_items(conn, signup.id, prd.id, RelationshipType::Supports, alice)?;
         edges += 1;
 
+        // --- repositories (KAIROS-T-0103, A-0019) ----------------------------
+        // Team-owned, created BEFORE tasks so tasks can bind to them: two for
+        // platform (one with a webhook, one plain), one for web. Fictional —
+        // nothing here reaches the network.
+        use crate::models::enums::Forge;
+        use crate::models::repositories::NewRepository;
+        let new_repo = |slug: &str, forge: Forge, name: &str, url: &str, team: Uuid, desc: &str| {
+            NewRepository {
+                slug: slug.to_string(),
+                forge,
+                repo_full_name: name.to_string(),
+                repo_url: url.to_string(),
+                default_branch: "main".to_string(),
+                team_id: team,
+                description: desc.to_string(),
+                created_by: alice,
+                updated_by: alice,
+            }
+        };
+        let payments_repo = crate::repositories::create(
+            conn,
+            new_repo(
+                "payments-api",
+                Forge::Github,
+                "acme/payments-api",
+                "https://github.com/acme/payments-api",
+                platform.id,
+                "Rust/axum service. `cargo test` before every PR; migrations via diesel.",
+            ),
+        )?;
+        let infra_repo = crate::repositories::create(
+            conn,
+            new_repo(
+                "platform-infra",
+                Forge::Github,
+                "acme/platform-infra",
+                "https://github.com/acme/platform-infra",
+                platform.id,
+                "Terraform + Helm. Plan output in every PR description.",
+            ),
+        )?;
+        let portal_repo = crate::repositories::create(
+            conn,
+            new_repo(
+                "portal-web",
+                Forge::Gitlab,
+                "acme/portal-web",
+                "https://gitlab.com/acme/portal-web",
+                web.id,
+                "Leptos front end. `trunk build` must pass; no hardcoded colors.",
+            ),
+        )?;
+        let repositories = 3usize;
+
         // --- tasks across both delivery boards --------------------------------
         struct SeedTask<'a> {
             board: Uuid,
@@ -528,6 +592,8 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             /// KAIROS-T-0077 lane axis: planned work vs unplanned intake.
             work_class: WorkClass,
             team: Uuid,
+            /// KAIROS-T-0103 (A-0019): the repository the task is issued against.
+            repo: Option<Uuid>,
             parent: Uuid,
             actor: Uuid,
             priority: Option<&'a str>,
@@ -541,6 +607,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: web.id,
+                repo: Some(portal_repo.id),
                 parent: signup.id,
                 actor: carol,
                 priority: None,
@@ -553,6 +620,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: platform.id,
+                repo: Some(payments_repo.id),
                 parent: signup.id,
                 actor: alice,
                 priority: Some("high"),
@@ -565,6 +633,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: platform.id,
+                repo: Some(payments_repo.id),
                 parent: signup.id,
                 actor: alice,
                 priority: None,
@@ -577,6 +646,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: web.id,
+                repo: Some(portal_repo.id),
                 parent: signup.id,
                 actor: bob,
                 priority: Some("low"),
@@ -589,6 +659,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: platform.id,
+                repo: Some(infra_repo.id),
                 parent: billing.id,
                 actor: bob,
                 priority: Some("medium"),
@@ -601,6 +672,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
                 team: platform.id,
+                repo: Some(payments_repo.id),
                 parent: billing.id,
                 actor: bob,
                 priority: None,
@@ -614,6 +686,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Bug,
                 work_class: WorkClass::Planned,
                 team: web.id,
+                repo: Some(portal_repo.id),
                 parent: bug_bucket.id,
                 actor: carol,
                 priority: Some("critical"),
@@ -626,6 +699,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::TechDebt,
                 work_class: WorkClass::Planned,
                 team: web.id,
+                repo: None,
                 parent: debt_bucket.id,
                 actor: carol,
                 priority: None,
@@ -641,6 +715,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Support,
                 work_class: WorkClass::Support,
                 team: platform.id,
+                repo: None,
                 parent: signup.id,
                 actor: alice,
                 priority: Some("critical"),
@@ -656,9 +731,29 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 task_type: TaskType::Bug,
                 work_class: WorkClass::Support,
                 team: platform.id,
+                repo: Some(payments_repo.id),
                 parent: bug_bucket.id,
                 actor: bob,
                 priority: Some("high"),
+            },
+            // KAIROS-T-0103 (A-0019 §4): the cross-team fixture. Carol (web,
+            // NOT a platform member) files work against platform's
+            // payments-api; it lands in platform's Backlog behind their
+            // triage gate. The e2e (KAIROS-T-0110) asserts on this row.
+            SeedTask {
+                board: platform_board,
+                column: "Backlog",
+                title: "Portal needs a bulk invoice export endpoint",
+                content: "Filed from portal-web: the billing page wants \
+                          GET /invoices/export?from=&to= returning CSV. \
+                          Blocks the portal export button.",
+                task_type: TaskType::Task,
+                work_class: WorkClass::Planned,
+                team: platform.id,
+                repo: Some(payments_repo.id),
+                parent: billing.id,
+                actor: carol,
+                priority: None,
             },
         ];
 
@@ -677,6 +772,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                     task_type: spec.task_type,
                     work_class: spec.work_class,
                     team_id: Some(spec.team),
+                    repository_id: spec.repo,
                 },
                 spec.actor,
             )?;
@@ -836,8 +932,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         diesel::insert_into(crate::schema::team_announcements::table)
             .values(NewTeamAnnouncement {
                 team_id: web.id,
-                body: "Sprint demo Friday 14:00 — portal sign-up flow, end to end."
-                    .to_string(),
+                body: "Sprint demo Friday 14:00 — portal sign-up flow, end to end.".to_string(),
                 pinned: false,
                 created_by: carol,
             })
@@ -868,18 +963,17 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         edges += 1;
 
         // --- forge connections + links (KAIROS-T-0102) -----------------------
-        // One connected repo per team, and links covering every state the
-        // panels render: an open PR, a draft, a merged one, and a branch.
-        // Fictional repos — nothing here reaches the network.
-        use crate::models::enums::{Forge, LinkKind, LinkState};
+        // Webhook wiring on one repository per team (platform-infra stays
+        // unconnected on purpose: a repo without webhooks is a valid state),
+        // and links covering every state the panels render: an open PR, a
+        // draft, a merged one, and a branch.
+        use crate::models::enums::{LinkKind, LinkState};
         use crate::models::forge::{NewForgeConnection, NewItemLink};
         let platform_repo = crate::forge::create_connection(
             conn,
             NewForgeConnection {
                 forge: Forge::Github,
-                repo_full_name: "acme/payments-api".to_string(),
-                repo_url: "https://github.com/acme/payments-api".to_string(),
-                team_id: Some(platform.id),
+                repository_id: payments_repo.id,
                 created_by: alice,
             },
         )?;
@@ -887,9 +981,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             conn,
             NewForgeConnection {
                 forge: Forge::Gitlab,
-                repo_full_name: "acme/portal-web".to_string(),
-                repo_url: "https://gitlab.com/acme/portal-web".to_string(),
-                team_id: Some(web.id),
+                repository_id: portal_repo.id,
                 created_by: alice,
             },
         )?;
@@ -976,6 +1068,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             streams: 1,
             strategies: 1,
             initiatives: 4,
+            repositories,
             tasks: plan.len(),
             documents: 2,
             adrs: 2,

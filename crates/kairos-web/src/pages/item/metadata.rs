@@ -148,9 +148,8 @@ fn MetadataForm(
     };
 
     // Hidden rows are never dirty (draft == original == server value).
-    let dirty = move || {
-        all_rows.with_value(|rows| rows.iter().any(|row| row.draft.get() != row.original))
-    };
+    let dirty =
+        move || all_rows.with_value(|rows| rows.iter().any(|row| row.draft.get() != row.original));
 
     let save = move |_| {
         if saving.get_untracked() {

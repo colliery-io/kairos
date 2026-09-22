@@ -132,13 +132,11 @@ diesel::table! {
     forge_connections (id) {
         id -> Uuid,
         forge -> Text,
-        repo_full_name -> Text,
-        repo_url -> Text,
-        team_id -> Nullable<Uuid>,
         created_by -> Uuid,
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        repository_id -> Uuid,
     }
 }
 
@@ -239,6 +237,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    repositories (id) {
+        id -> Uuid,
+        slug -> Text,
+        forge -> Text,
+        repo_full_name -> Text,
+        repo_url -> Text,
+        default_branch -> Text,
+        team_id -> Uuid,
+        description -> Text,
+        created_by -> Uuid,
+        updated_by -> Uuid,
+        deleted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     scim_tokens (id) {
         id -> Uuid,
         name -> Text,
@@ -284,6 +300,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         work_class -> Text,
+        repository_id -> Nullable<Uuid>,
     }
 }
 
@@ -386,17 +403,19 @@ diesel::joinable!(board_member_capabilities -> boards (board_id));
 diesel::joinable!(board_transitions -> boards (board_id));
 diesel::joinable!(boards -> teams (team_id));
 diesel::joinable!(documents -> templates (template_id));
-diesel::joinable!(forge_connections -> teams (team_id));
+diesel::joinable!(forge_connections -> repositories (repository_id));
 diesel::joinable!(initiatives -> board_columns (column_id));
 diesel::joinable!(initiatives -> boards (board_id));
 diesel::joinable!(item_links -> forge_connections (connection_id));
 diesel::joinable!(item_metadata -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_definition_scopes -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_enum_options -> metadata_definitions (metadata_definition_id));
+diesel::joinable!(repositories -> teams (team_id));
 diesel::joinable!(strategies -> board_columns (column_id));
 diesel::joinable!(strategies -> boards (board_id));
 diesel::joinable!(tasks -> board_columns (column_id));
 diesel::joinable!(tasks -> boards (board_id));
+diesel::joinable!(tasks -> repositories (repository_id));
 diesel::joinable!(tasks -> teams (team_id));
 diesel::joinable!(team_announcements -> teams (team_id));
 diesel::joinable!(team_delivery_streams -> delivery_streams (delivery_stream_id));
@@ -426,6 +445,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     metadata_definition_scopes,
     metadata_definitions,
     metadata_enum_options,
+    repositories,
     scim_tokens,
     strategies,
     tasks,

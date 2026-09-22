@@ -544,7 +544,10 @@ mod tests {
             "blocks_summary": {"DEMO-T-0003": {"blocked_by": 1, "blocks": 2}}
         }))
         .expect("blocks mirror decodes");
-        let counts = with_blocks.blocks_summary.get("DEMO-T-0003").expect("entry");
+        let counts = with_blocks
+            .blocks_summary
+            .get("DEMO-T-0003")
+            .expect("entry");
         assert_eq!((counts.blocked_by, counts.blocks), (1, 2));
         assert_eq!(group.strategies[0].short_code, "DEMO-S-0001");
         assert_eq!(group.initiatives[0].bucket_type.as_deref(), Some("bug"));

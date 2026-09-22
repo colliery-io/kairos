@@ -103,14 +103,36 @@ async fn forge_connection_lifecycle_against_live_stack() {
     // =======================================================================
     // Writes are org-admin only; reads open tenant-wide
     // =======================================================================
+    // KAIROS-T-0103 (A-0019): connecting an unregistered repository
+    // registers it, and a repository has exactly one owning team — so the
+    // owner comes first, and a team-less connect of a new repo is 422.
+    let platform = svc
+        .create_team(&CreateTeamRequest {
+            name: "Platform".into(),
+            slug: "platform".into(),
+            team_type: None,
+        })
+        .await
+        .expect("owning team");
     let request = CreateForgeConnectionRequest {
         forge: "github".into(),
         repo_full_name: "acme/payments-api".into(),
         repo_url: "https://github.com/acme/payments-api".into(),
-        team_id: None,
+        team_id: Some(platform.id.clone()),
     };
     let err = rejection(alice.create_forge_connection(&request).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    let err = rejection(
+        svc.create_forge_connection(&CreateForgeConnectionRequest {
+            team_id: None,
+            ..request.clone()
+        })
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { .. }),
+        "a new repository needs an owning team: {err}"
+    );
 
     let created = svc
         .create_forge_connection(&request)
@@ -118,6 +140,15 @@ async fn forge_connection_lifecycle_against_live_stack() {
         .expect("org admin connects a repository");
     assert_eq!(created.connection.forge, "github");
     assert_eq!(created.connection.repo_full_name, "acme/payments-api");
+    assert_eq!(
+        created.connection.team_id.as_deref(),
+        Some(platform.id.as_str()),
+        "ownership is the repository's"
+    );
+    assert!(
+        !created.connection.repository_id.is_empty(),
+        "the connection hangs off a registered repository"
+    );
 
     // The delivery URL carries forge, tenant, and connection id — the
     // routing a webhook has instead of an auth stack.
@@ -173,16 +204,16 @@ async fn forge_connection_lifecycle_against_live_stack() {
     assert!(matches!(err, Error::Validation { .. }), "{err}");
 
     // =======================================================================
-    // Team attribution
+    // Ownership: PATCH re-homes the repository; clearing is refused
     // =======================================================================
     let team = svc
         .create_team(&CreateTeamRequest {
-            name: "Platform".into(),
-            slug: "platform".into(),
+            name: "Web".into(),
+            slug: "web".into(),
             team_type: None,
         })
         .await
-        .expect("team for attribution");
+        .expect("team to re-home to");
     let updated = svc
         .update_forge_connection(
             &created.connection.id,
@@ -192,19 +223,23 @@ async fn forge_connection_lifecycle_against_live_stack() {
             },
         )
         .await
-        .expect("attributing the repo to a team");
+        .expect("re-homing the repo to another team");
     assert_eq!(updated.team_id.as_deref(), Some(team.id.as_str()));
-    let cleared = svc
-        .update_forge_connection(
+    assert_eq!(updated.repository_id, created.connection.repository_id);
+    let err = rejection(
+        svc.update_forge_connection(
             &created.connection.id,
             &UpdateForgeConnectionRequest {
                 team_id: None,
                 clear_team: true,
             },
         )
-        .await
-        .expect("clearing the attribution");
-    assert_eq!(cleared.team_id, None);
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { .. }),
+        "a repository always has an owner (A-0019): {err}"
+    );
     let err = rejection(
         alice
             .update_forge_connection(
@@ -230,6 +265,10 @@ async fn forge_connection_lifecycle_against_live_stack() {
     assert_ne!(rotated.webhook_url, created.webhook_url);
     // Same repository, and still exactly one live connection for it.
     assert_eq!(rotated.connection.repo_full_name, "acme/payments-api");
+    assert_eq!(
+        rotated.connection.repository_id,
+        created.connection.repository_id
+    );
     let listed = alice.list_forge_connections().await.expect("after rotate");
     assert_eq!(listed.len(), 1, "the old connection is gone: {listed:?}");
     assert_eq!(listed[0].id, rotated.connection.id);

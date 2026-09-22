@@ -246,6 +246,7 @@ fn write_path_lifecycle() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice,
     )
@@ -272,8 +273,14 @@ fn write_path_lifecycle() {
         "lane change writes an activity_log row"
     );
     // The lane is orthogonal to content versioning and board position.
-    assert_eq!(moved.version, task.version, "lane write never bumps the version");
-    assert_eq!(moved.column_id, task.column_id, "lane write never moves columns");
+    assert_eq!(
+        moved.version, task.version,
+        "lane write never bumps the version"
+    );
+    assert_eq!(
+        moved.column_id, task.column_id,
+        "lane write never moves columns"
+    );
     // Setting the value the task already has is a no-op: no second row.
     items::set_task_work_class(
         &mut conn,
@@ -361,6 +368,7 @@ fn write_path_lifecycle() {
                             task_type: TaskType::Task,
                             work_class: kairos_db::models::enums::WorkClass::Planned,
                             team_id: None,
+                            repository_id: None,
                         },
                         alice,
                     )

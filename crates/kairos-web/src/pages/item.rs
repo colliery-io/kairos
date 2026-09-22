@@ -550,9 +550,8 @@ fn MoveControl(
             .collect::<Vec<String>>(),
     );
     let targets = StoredValue::new(targets);
-    let target = RwSignal::new(
-        option_names.with_value(|names| names.first().cloned().unwrap_or_default()),
-    );
+    let target =
+        RwSignal::new(option_names.with_value(|names| names.first().cloned().unwrap_or_default()));
     let code = StoredValue::new(code);
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<ApiError>);

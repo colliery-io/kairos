@@ -71,8 +71,8 @@ use diesel::sql_types::{Array, BigInt, Integer, Text, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use kairos_core::search::{
-    self as core_search, Direction, SearchFilter, SearchRequest, SearchTaskType, SearchWorkClass,
-    SearchValidationError, Sort, SortField, SortOrder, Traverse, TraverseFrom,
+    self as core_search, Direction, SearchFilter, SearchRequest, SearchTaskType,
+    SearchValidationError, SearchWorkClass, Sort, SortField, SortOrder, Traverse, TraverseFrom,
 };
 use kairos_core::short_code::ItemType;
 
@@ -630,11 +630,8 @@ fn hydrate_tasks(
             query = query.filter(dsl::task_type.eq_any(stored));
         }
         if let Some(work_classes) = &filter.work_class {
-            let stored: Vec<WorkClass> = work_classes
-                .iter()
-                .copied()
-                .map(model_work_class)
-                .collect();
+            let stored: Vec<WorkClass> =
+                work_classes.iter().copied().map(model_work_class).collect();
             query = query.filter(dsl::work_class.eq_any(stored));
         }
         if let Some(after) = filter.created_after {

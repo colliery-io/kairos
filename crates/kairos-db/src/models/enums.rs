@@ -159,11 +159,13 @@ text_enum! {
 }
 
 text_enum! {
-    /// `forge_connections.forge` (KAIROS-T-0097): which git host a
-    /// connection ingests from.
+    /// `repositories.forge` and `forge_connections.forge`: which git host
+    /// a repository lives on (KAIROS-T-0097; `Other` added by KAIROS-T-0103
+    /// for repos with no webhook-capable forge — they can still own tasks).
     Forge {
         Github => "github",
         Gitlab => "gitlab",
+        Other => "other",
     }
 }
 
@@ -252,6 +254,7 @@ text_enum! {
         BoardConfig => "board_config",
         WorkClass => "work_class",
         Lifecycle => "lifecycle",
+        Repository => "repository",
     }
 }
 
@@ -331,7 +334,7 @@ mod tests {
 
     #[test]
     fn forge_round_trip_and_rejection() {
-        assert_text_enum!(Forge, ["github", "gitlab"]);
+        assert_text_enum!(Forge, ["github", "gitlab", "other"]);
     }
 
     #[test]
@@ -385,6 +388,7 @@ mod tests {
                 "board_config",
                 "work_class",
                 "lifecycle",
+                "repository",
             ]
         );
     }

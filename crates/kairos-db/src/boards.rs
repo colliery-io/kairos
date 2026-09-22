@@ -175,9 +175,7 @@ fn column_name(columns: &[rules::Column], id: Uuid) -> Result<String, BoardError
 /// to the system defaults only — admins own the flag afterwards.
 fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
     match level {
-        BoardLevel::Strategy | BoardLevel::Initiative | BoardLevel::Delivery => {
-            name == "Completed"
-        }
+        BoardLevel::Strategy | BoardLevel::Initiative | BoardLevel::Delivery => name == "Completed",
         BoardLevel::Adr => matches!(name, "Decided" | "Superseded"),
     }
 }

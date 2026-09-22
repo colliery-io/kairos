@@ -16,8 +16,13 @@ pub struct ForgeConnection {
     /// `owner/repo` on GitHub, `group/project` on GitLab.
     pub repo_full_name: String,
     pub repo_url: String,
-    /// Optional team attribution (UUID) for the landing-page rollup.
+    /// The owning team (UUID) of the connected repository. Always present
+    /// since KAIROS-T-0103 (ownership lives on the repository, A-0019);
+    /// kept optional on the wire for one release of client compatibility.
     pub team_id: Option<String>,
+    /// The repository this connection delivers webhooks for (UUID,
+    /// KAIROS-T-0103).
+    pub repository_id: String,
     /// RFC 3339.
     pub created_at: String,
 }
@@ -31,7 +36,10 @@ pub struct CreateForgeConnectionRequest {
     pub repo_full_name: String,
     /// Browser URL of the repository.
     pub repo_url: String,
-    /// Optional team attribution (UUID).
+    /// Owning team (UUID). REQUIRED since KAIROS-T-0103: connecting a
+    /// repository that is not yet registered creates it, and every
+    /// repository has exactly one owning team (A-0019). Ignored when the
+    /// repository already exists.
     #[serde(default)]
     pub team_id: Option<String>,
 }
@@ -51,15 +59,17 @@ pub struct CreatedForgeConnection {
     pub webhook_secret: String,
 }
 
-/// Body of `PATCH /api/forge-connections/{id}` — team attribution only;
-/// repo identity is fixed for a connection's lifetime.
+/// Body of `PATCH /api/forge-connections/{id}` — re-homes the connected
+/// REPOSITORY to another team (KAIROS-T-0103); repo identity is fixed for
+/// a connection's lifetime.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct UpdateForgeConnectionRequest {
     /// New team (UUID). JSON `null` cannot distinguish "unchanged" from
     /// "clear", so set `clear_team` for the latter.
     #[serde(default)]
     pub team_id: Option<String>,
-    /// Drop the team attribution.
+    /// Formerly dropped the team attribution. Since KAIROS-T-0103 a
+    /// repository always has an owner, so this is rejected with 422.
     #[serde(default)]
     pub clear_team: bool,
 }

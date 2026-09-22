@@ -205,8 +205,7 @@ pub(crate) fn board_powers(
             documents: true,
         };
     }
-    let team_member =
-        board_team_id.is_some_and(|team| me.teams.iter().any(|mine| mine.id == team));
+    let team_member = board_team_id.is_some_and(|team| me.teams.iter().any(|mine| mine.id == team));
     let has = |required: &str| {
         (team_member && team_implies(required))
             || me
@@ -479,8 +478,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             .map(|c| c.name.clone())
             .unwrap_or_default()
     };
-    let progress_of =
-        |short_code: &str| view.items.children_progress.get(short_code).copied();
+    let progress_of = |short_code: &str| view.items.children_progress.get(short_code).copied();
     let blocks_of = |short_code: &str| view.items.blocks_summary.get(short_code).copied();
     let card = |kind: EntityKind,
                 short_code: &str,
@@ -493,9 +491,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             kind,
             short_code: short_code.to_string(),
             title: title.to_string(),
-            key: format!(
-                "{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}|{blocks:?}"
-            ),
+            key: format!("{short_code}|{title}|{meta:?}|{work_class:?}|{progress:?}|{blocks:?}"),
             work_class,
             progress,
             blocks,
@@ -662,9 +658,8 @@ pub fn BoardPage() -> impl IntoView {
     });
     // One BoardBody instance per board id — navigating to another board
     // (or the first load) is the only thing that recreates it.
-    let board_key = Memo::new(move |_| {
-        model.with(|m| m.as_ref().map(|view| view.items.board.id.clone()))
-    });
+    let board_key =
+        Memo::new(move |_| model.with(|m| m.as_ref().map(|view| view.items.board.id.clone())));
     // Powers re-derive when whoami OR the board changes, so affordances
     // appear as soon as both are known (KAIROS-T-0072). MEMOIZED
     // (KAIROS-T-0074): a plain Signal::derive notifies consumers on every
@@ -794,13 +789,11 @@ fn BoardBody(
     });
     // Document create ("New document") — not offered on ADR boards:
     // documents attach to strategies/initiatives/tasks.
-    let doc_parents = Memo::new(move |_| {
-        model.with(|m| m.as_ref().map(doc_parent_options).unwrap_or_default())
-    });
+    let doc_parents =
+        Memo::new(move |_| model.with(|m| m.as_ref().map(doc_parent_options).unwrap_or_default()));
     let documents_offered = Memo::new(move |_| !is_adr && !doc_parents.with(Vec::is_empty));
-    let columns = Memo::new(move |_| {
-        model.with(|m| m.as_ref().map(column_models).unwrap_or_default())
-    });
+    let columns =
+        Memo::new(move |_| model.with(|m| m.as_ref().map(column_models).unwrap_or_default()));
 
     let create_label = StoredValue::new(
         create_kind
@@ -1550,7 +1543,12 @@ mod tests {
     fn board_powers_mirror_team_implication() {
         let bob = me("member", &["t1"], &[]);
         // On the team's delivery board: transition + create tasks + docs.
-        let on_team = board_powers(&bob, "platform-delivery", Some("t1"), Some(EntityKind::Task));
+        let on_team = board_powers(
+            &bob,
+            "platform-delivery",
+            Some("t1"),
+            Some(EntityKind::Task),
+        );
         assert!(on_team.transition && on_team.create && on_team.documents);
         // A team-owned STRATEGY board: transition/docs implied, create is
         // manage_strategies — not implied.
@@ -1638,7 +1636,10 @@ mod tests {
         assert_eq!(effect.transition_to.as_deref(), Some("c-2"));
         assert_eq!(drop_effect(&drag(&["c-2"], None), "c-src", None), None);
         // A card without a lane cannot lane-move.
-        assert_eq!(drop_effect(&drag(&[], None), "c-src", Some("support")), None);
+        assert_eq!(
+            drop_effect(&drag(&[], None), "c-src", Some("support")),
+            None
+        );
     }
 
     /// A board whose team id names an unknown team lands in "No team"

@@ -180,7 +180,29 @@ fn seed_demo_fixture_lifecycle() {
             "SELECT COUNT(*) AS count FROM org_demo.initiatives WHERE is_bucket",
             2,
         ),
-        ("tasks", "SELECT COUNT(*) AS count FROM org_demo.tasks", 10),
+        ("tasks", "SELECT COUNT(*) AS count FROM org_demo.tasks", 11),
+        (
+            "repositories (KAIROS-T-0103): two for platform, one for web",
+            "SELECT COUNT(*) AS count FROM org_demo.repositories WHERE deleted_at IS NULL",
+            3,
+        ),
+        (
+            "tasks bound to a repository",
+            "SELECT COUNT(*) AS count FROM org_demo.tasks WHERE repository_id IS NOT NULL",
+            9,
+        ),
+        (
+            "the cross-team fixture: carol (web) filed into platform's Backlog",
+            "SELECT COUNT(*) AS count FROM org_demo.tasks t \
+             JOIN org_demo.board_columns c ON c.id = t.column_id \
+             JOIN org_demo.teams tm ON tm.id = t.team_id \
+             JOIN public.users u ON u.id = t.created_by \
+             WHERE c.name = 'Backlog' AND tm.slug = 'platform' \
+               AND u.email LIKE 'carol@%' \
+               AND NOT EXISTS (SELECT 1 FROM org_demo.team_members m \
+                               WHERE m.team_id = tm.id AND m.user_id = u.id)",
+            1,
+        ),
         (
             "bug + tech-debt tasks",
             "SELECT COUNT(*) AS count FROM org_demo.tasks \
@@ -213,10 +235,10 @@ fn seed_demo_fixture_lifecycle() {
         ),
         ("ADRs", "SELECT COUNT(*) AS count FROM org_demo.adrs", 2),
         (
-            "parent edges (strategy->2 initiatives, 10 tasks)",
+            "parent edges (strategy->2 initiatives, 11 tasks)",
             "SELECT COUNT(*) AS count FROM org_demo.item_relationships \
              WHERE relationship = 'parent'",
-            12,
+            13,
         ),
         (
             "blocks edges",
@@ -265,9 +287,10 @@ fn seed_demo_fixture_lifecycle() {
             2,
         ),
         (
-            "every connection is attributed to a team",
-            "SELECT COUNT(*) AS count FROM org_demo.forge_connections \
-             WHERE team_id IS NOT NULL",
+            "every connection hangs off a team-owned repository (KAIROS-T-0103)",
+            "SELECT COUNT(*) AS count FROM org_demo.forge_connections c \
+             JOIN org_demo.repositories r ON r.id = c.repository_id \
+             WHERE c.deleted_at IS NULL AND r.team_id IS NOT NULL",
             2,
         ),
         (
@@ -348,7 +371,7 @@ fn seed_demo_fixture_lifecycle() {
     );
     assert_eq!(
         count(&mut conn, "SELECT COUNT(*) AS count FROM org_demo.tasks"),
-        10
+        11
     );
     // Users were upserted, not duplicated.
     assert_eq!(

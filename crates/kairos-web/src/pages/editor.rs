@@ -94,9 +94,8 @@ pub fn MarkdownEditor(
         saving.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            let future = saver.with_value(|s| {
-                s(title.get_untracked(), content.get_untracked(), version)
-            });
+            let future =
+                saver.with_value(|s| s(title.get_untracked(), content.get_untracked(), version));
             let result = future.await;
             saving.set(false);
             match result {
@@ -125,7 +124,8 @@ pub fn MarkdownEditor(
         let value = el.value();
         let units: Vec<u16> = value.encode_utf16().collect();
         let start = (el.selection_start().ok().flatten().unwrap_or(0) as usize).min(units.len());
-        let end = (el.selection_end().ok().flatten().unwrap_or(0) as usize).clamp(start, units.len());
+        let end =
+            (el.selection_end().ok().flatten().unwrap_or(0) as usize).clamp(start, units.len());
         let selected = String::from_utf16_lossy(&units[start..end]);
         let inserted = if selected.is_empty() {
             format!("{prefix}{placeholder}{suffix}")

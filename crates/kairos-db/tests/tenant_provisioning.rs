@@ -37,7 +37,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 29] = [
+const EXPECTED_TABLES: [&str; 30] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -56,6 +56,7 @@ const EXPECTED_TABLES: [&str; 29] = [
     "metadata_definition_scopes",
     "metadata_definitions",
     "metadata_enum_options",
+    "repositories",
     "scim_tokens",
     "strategies",
     "tasks",
@@ -472,20 +473,29 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `forge_links`,
-    // KAIROS-T-0097): revert its DDL and drop its bookkeeping row in
-    // widgets only, then fleet-migrate and expect exactly that one
-    // migration to re-apply.
+    // that predates the NEWEST tenant migration (currently `repositories`,
+    // KAIROS-T-0103): revert its DDL (the down migration's shape) and drop
+    // its bookkeeping row in widgets only, then fleet-migrate and expect
+    // exactly that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
     // to remove by deriving the target from the embedded migration list.
-    sql_query("DROP TABLE org_widgets.item_links")
+    sql_query("ALTER TABLE org_widgets.tasks DROP COLUMN repository_id")
         .execute(&mut conn)
-        .expect("dropping item links in widgets to simulate an old tenant");
-    sql_query("DROP TABLE org_widgets.forge_connections")
+        .expect("dropping tasks.repository_id in widgets to simulate an old tenant");
+    sql_query(
+        "ALTER TABLE org_widgets.forge_connections \
+             DROP COLUMN repository_id, \
+             ADD COLUMN repo_full_name TEXT NOT NULL, \
+             ADD COLUMN repo_url TEXT NOT NULL, \
+             ADD COLUMN team_id UUID REFERENCES org_widgets.teams(id)",
+    )
+    .execute(&mut conn)
+    .expect("restoring pre-repositories forge_connections shape in widgets");
+    sql_query("DROP TABLE org_widgets.repositories")
         .execute(&mut conn)
-        .expect("dropping forge connections in widgets to simulate an old tenant");
+        .expect("dropping repositories in widgets to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -516,10 +526,20 @@ fn tenant_provisioning_lifecycle() {
         count(
             &mut conn,
             "SELECT count(*) FROM information_schema.tables \
-             WHERE table_schema = 'org_widgets' AND table_name = 'item_links'"
+             WHERE table_schema = 'org_widgets' AND table_name = 'repositories'"
         ),
         1,
-        "item_links is back in widgets after the fleet upgrade"
+        "repositories is back in widgets after the fleet upgrade"
+    );
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'org_widgets' AND table_name = 'forge_connections' \
+               AND column_name IN ('repository_id', 'repo_full_name')"
+        ),
+        1,
+        "forge_connections is re-keyed on repository_id (old columns gone) after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

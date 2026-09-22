@@ -155,6 +155,9 @@ pub struct Task {
     /// The Planned/Support lane axis (KAIROS-T-0077).
     pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
+    /// The repository this task is issued against (KAIROS-A-0019): at
+    /// most one; multi-repo work decomposes into one task per repo.
+    pub repository_id: Option<Uuid>,
     pub version: i32,
     pub created_by: Uuid,
     pub updated_by: Uuid,
@@ -175,6 +178,7 @@ pub struct NewTask {
     pub task_type: TaskType,
     pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
+    pub repository_id: Option<Uuid>,
     pub created_by: Uuid,
     pub updated_by: Uuid,
 }

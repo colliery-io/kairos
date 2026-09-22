@@ -104,16 +104,66 @@ fn team_page_scaffold() {
     assert_eq!(
         shape,
         [
-            ("".to_string(), "charter".to_string(), "page".to_string(), true),
-            ("".to_string(), "documentation".to_string(), "folder".to_string(), false),
-            ("".to_string(), "support-processes".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "design-docs".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "explanation".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "how-to-guides".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "planning".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "reference".to_string(), "folder".to_string(), false),
-            ("documentation".to_string(), "tutorials".to_string(), "folder".to_string(), false),
-            ("support-processes".to_string(), "overview".to_string(), "page".to_string(), false),
+            (
+                "".to_string(),
+                "charter".to_string(),
+                "page".to_string(),
+                true
+            ),
+            (
+                "".to_string(),
+                "documentation".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "".to_string(),
+                "support-processes".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "design-docs".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "explanation".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "how-to-guides".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "planning".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "reference".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "documentation".to_string(),
+                "tutorials".to_string(),
+                "folder".to_string(),
+                false
+            ),
+            (
+                "support-processes".to_string(),
+                "overview".to_string(),
+                "page".to_string(),
+                false
+            ),
         ],
         "the KAIROS-I-0007 scaffold: protected charter, support \
          processes, documentation with the diataxis + planning/design buckets"

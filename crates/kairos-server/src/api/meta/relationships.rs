@@ -41,14 +41,8 @@ pub fn router() -> Router<AppState> {
             "/api/{entity_type}/{short_code}/children-progress",
             get(get_children_progress),
         )
-        .route(
-            "/api/{entity_type}/{short_code}/graph",
-            get(get_item_graph),
-        )
-        .route(
-            "/api/{entity_type}/{short_code}/links",
-            get(get_item_links),
-        )
+        .route("/api/{entity_type}/{short_code}/graph", get(get_item_graph))
+        .route("/api/{entity_type}/{short_code}/links", get(get_item_links))
         .route("/api/relationships", post(create_relationship))
         .route("/api/relationships/{id}", delete(delete_relationship))
 }

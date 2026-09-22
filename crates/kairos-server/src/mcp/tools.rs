@@ -1346,19 +1346,23 @@ fn board_item_rows(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardI
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    rows.extend(tasks.into_iter().map(
-        |(column_id, short_code, title, task_type, work_class)| BoardItemRow {
-            column_id,
-            short_code,
-            title,
-            // The Support lane rides in `kind` (KAIROS-T-0077); Planned
-            // stays unmarked as the default lane.
-            kind: match work_class {
-                WorkClass::Support => format!("{task_type} [support lane]"),
-                WorkClass::Planned => task_type.to_string(),
-            },
-        },
-    ));
+    rows.extend(
+        tasks
+            .into_iter()
+            .map(
+                |(column_id, short_code, title, task_type, work_class)| BoardItemRow {
+                    column_id,
+                    short_code,
+                    title,
+                    // The Support lane rides in `kind` (KAIROS-T-0077); Planned
+                    // stays unmarked as the default lane.
+                    kind: match work_class {
+                        WorkClass::Support => format!("{task_type} [support lane]"),
+                        WorkClass::Planned => task_type.to_string(),
+                    },
+                },
+            ),
+    );
 
     let adrs: Vec<(Option<Uuid>, String, String)> = adrs::table
         .filter(adrs::board_id.eq(board_id))
@@ -1847,6 +1851,8 @@ fn create_item_impl(
                     task_type,
                     work_class,
                     team_id: None,
+                    // Routing by repository lands in KAIROS-T-0104.
+                    repository_id: None,
                 },
                 user,
             )

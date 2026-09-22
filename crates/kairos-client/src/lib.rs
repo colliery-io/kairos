@@ -11,11 +11,11 @@
 pub mod client;
 pub mod error;
 pub mod types;
+pub mod types_forge;
+pub mod types_graph;
 pub mod types_org;
 pub mod types_search;
 pub mod types_service_accounts;
-pub mod types_forge;
-pub mod types_graph;
 pub mod types_team_pages;
 pub mod ws;
 

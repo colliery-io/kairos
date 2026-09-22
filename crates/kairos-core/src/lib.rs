@@ -9,6 +9,7 @@ pub mod board;
 pub mod forge;
 pub mod graph;
 pub mod items;
+pub mod repositories;
 pub mod retention;
 pub mod search;
 pub mod short_code;

@@ -28,7 +28,7 @@ use common::{
 };
 use kairos_client::types_forge::CreateForgeConnectionRequest;
 use kairos_db::models::{BoardLevel, NewOrganizationMember, OrgRole, TaskType, WorkClass};
-use kairos_db::schema::{boards, organization_members, organizations, users};
+use kairos_db::schema::{organization_members, organizations, users};
 use kairos_db::{TenantPool, items, provision_tenant, run_public_migrations};
 use kairos_server::app;
 use kairos_server::forge::auth::github_signature;
@@ -167,26 +167,35 @@ async fn forge_webhook_ingestion_against_live_stack() {
             task_type: TaskType::Task,
             work_class: WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         svc_id,
     )
     .expect("task");
     let code = task.short_code.clone();
 
+    // KAIROS-T-0103 (A-0019): every repository has an owning team, so the
+    // repo is registered under `infra` here; the rollup section below
+    // re-homes it to exercise the "owned by the team" path.
+    let infra = svc
+        .create_team(&kairos_client::types_org::CreateTeamRequest {
+            name: "Infra".into(),
+            slug: "infra".into(),
+            team_type: None,
+        })
+        .await
+        .expect("owning team");
     let created = svc
         .create_forge_connection(&CreateForgeConnectionRequest {
             forge: "github".into(),
             repo_full_name: "acme/payments-api".into(),
             repo_url: "https://github.com/acme/payments-api".into(),
-            team_id: None,
+            team_id: Some(infra.id.clone()),
         })
         .await
         .expect("connecting the repo");
     let secret = created.webhook_secret.clone();
-    let hook_path = format!(
-        "/webhooks/github/acme/{}",
-        created.connection.id
-    );
+    let hook_path = format!("/webhooks/github/acme/{}", created.connection.id);
     let deliver = |path: String, body: String, signature: Option<String>, event: &str| {
         let url = format!("{}{path}", server.base_url);
         let http = http.clone();
@@ -215,7 +224,10 @@ async fn forge_webhook_ingestion_against_live_stack() {
     )
     .await;
     assert_eq!(response.status(), 200, "{:?}", response.text().await);
-    assert_eq!(link_state(&mut conn, task.id, "42").as_deref(), Some("open"));
+    assert_eq!(
+        link_state(&mut conn, task.id, "42").as_deref(),
+        Some("open")
+    );
 
     // =======================================================================
     // ORDERING SAFETY: merge, then replay the earlier "opened"
@@ -268,7 +280,10 @@ async fn forge_webhook_ingestion_against_live_stack() {
         svc.item_links(kairos_client::EntityKind::Document, &code)
             .await,
     );
-    assert!(matches!(err, kairos_client::Error::NotFound { .. }), "{err}");
+    assert!(
+        matches!(err, kairos_client::Error::NotFound { .. }),
+        "{err}"
+    );
 
     // =======================================================================
     // Authenticity failures are uniform, and change nothing
@@ -310,8 +325,8 @@ async fn forge_webhook_ingestion_against_live_stack() {
     // Understood-but-inactionable deliveries are 2xx no-ops
     // =======================================================================
     // An event type we do not consume.
-    let ping = json!({ "zen": "…", "repository": { "full_name": "acme/payments-api" } })
-        .to_string();
+    let ping =
+        json!({ "zen": "…", "repository": { "full_name": "acme/payments-api" } }).to_string();
     let response = deliver(
         hook_path.clone(),
         ping.clone(),
@@ -346,8 +361,8 @@ async fn forge_webhook_ingestion_against_live_stack() {
     // =======================================================================
     // Team rollup (KAIROS-T-0101): all three qualifying paths
     // =======================================================================
-    // The task carries no team_id and the connection no team, so nothing
-    // qualifies yet.
+    // The task carries no team_id and the repo is owned by `infra`, so
+    // nothing qualifies for `platform` yet.
     let team = svc
         .create_team(&kairos_client::types_org::CreateTeamRequest {
             name: "Platform".into(),
@@ -362,10 +377,10 @@ async fn forge_webhook_ingestion_against_live_stack() {
             .await
             .expect("rollup")
             .is_empty(),
-        "an unattributed task and repo qualify no links"
+        "an unattributed task and another team's repo qualify no links"
     );
 
-    // Path 3: attribute the REPO to the team.
+    // Path 3: re-home the REPO to the team (ownership, A-0019).
     svc.update_forge_connection(
         &created.connection.id,
         &kairos_client::types_forge::UpdateForgeConnectionRequest {
@@ -384,16 +399,16 @@ async fn forge_webhook_ingestion_against_live_stack() {
     assert_eq!(rollup[0].repo_full_name, "acme/payments-api");
 
     // Path 1: the task's own team_id qualifies it even with the repo
-    // attribution cleared.
+    // owned by another team again.
     svc.update_forge_connection(
         &created.connection.id,
         &kairos_client::types_forge::UpdateForgeConnectionRequest {
-            team_id: None,
-            clear_team: true,
+            team_id: Some(infra.id.clone()),
+            clear_team: false,
         },
     )
     .await
-    .expect("clearing the repo attribution");
+    .expect("re-homing the repo back to infra");
     let team_uuid: Uuid = team.id.parse().expect("uuid");
     diesel::update(kairos_db::schema::tasks::table.find(task.id))
         .set(kairos_db::schema::tasks::team_id.eq(Some(team_uuid)))
@@ -415,7 +430,10 @@ async fn forge_webhook_ingestion_against_live_stack() {
     );
     // Unknown team → 404.
     let err = rejection(svc.team_links(&Uuid::new_v4().to_string(), None).await);
-    assert!(matches!(err, kairos_client::Error::NotFound { .. }), "{err}");
+    assert!(
+        matches!(err, kairos_client::Error::NotFound { .. }),
+        "{err}"
+    );
 
     // =======================================================================
     // Re-editing a PR to drop the code removes the stale link

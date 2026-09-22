@@ -17,20 +17,21 @@
 
 pub mod boards;
 pub mod enums;
+pub mod forge;
 pub mod graph;
 pub mod items;
 pub mod public;
-pub mod forge;
+pub mod repositories;
 pub mod team_pages;
 pub mod teams;
 pub mod templates;
 
 pub use boards::*;
 pub use enums::*;
+pub use forge::*;
 pub use graph::*;
 pub use items::*;
 pub use public::*;
-pub use forge::*;
 pub use team_pages::*;
 pub use teams::*;
 pub use templates::*;

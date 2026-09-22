@@ -287,6 +287,7 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         user,
     )
@@ -368,6 +369,7 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
             created_by: user,
             updated_by: user,
         })

@@ -847,7 +847,7 @@ pub fn blocks_summary(
 ///
 /// 1. its item is a task with `team_id = {team}`;
 /// 2. its item sits on the team's delivery board;
-/// 3. its repository is attributed to the team (`forge_connections.team_id`).
+/// 3. its repository is OWNED by the team (`repositories.team_id`, A-0019).
 ///
 /// **Kept adjacent to [`team_work_documents`] on purpose**: paths 1 and 2
 /// are that function's exact predicate. If the definition of "this team's
@@ -868,14 +868,15 @@ pub fn team_link_rollup(
         "SELECT DISTINCT ON (l.id) \
              l.id, l.kind, l.external_id, l.title, l.url, l.state, l.author, \
              l.forge_updated_at, \
-             c.forge, c.repo_full_name, \
+             r.forge, r.repo_full_name, \
              d.short_code AS item_short_code, d.title AS item_title \
          FROM item_links l \
          JOIN forge_connections c ON c.id = l.connection_id AND c.deleted_at IS NULL \
+         JOIN repositories r ON r.id = c.repository_id \
          JOIN entity_directory d ON d.id = l.item_id \
          LEFT JOIN tasks t ON t.id = l.item_id AND t.deleted_at IS NULL \
          WHERE l.state = ANY($3) \
-           AND (t.team_id = $1 OR d.board_id = $2 OR c.team_id = $1) \
+           AND (t.team_id = $1 OR d.board_id = $2 OR r.team_id = $1) \
          ORDER BY l.id, l.forge_updated_at DESC \
          LIMIT $4",
     )

@@ -627,9 +627,11 @@ fn team_membership_implies_delivery_capabilities() {
              (is the stack up? `angreal services up`)"
         )
     });
-    sql_query(format!("DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"))
-        .execute(&mut admin_conn)
-        .expect("dropping scratch database");
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database");
     sql_query(format!("CREATE DATABASE {TEAM_SCRATCH_DB}"))
         .execute(&mut admin_conn)
         .expect("creating scratch database");
@@ -644,7 +646,12 @@ fn team_membership_implies_delivery_capabilities() {
         .expect("pinning search_path");
 
     let member = insert_user(&mut conn, "dex|member", "member@teamco.test", "Member");
-    let outsider = insert_user(&mut conn, "dex|outsider", "outsider@teamco.test", "Outsider");
+    let outsider = insert_user(
+        &mut conn,
+        "dex|outsider",
+        "outsider@teamco.test",
+        "Outsider",
+    );
 
     // A team, its member, and its delivery board.
     let team_id: Uuid = diesel::insert_into(schema::teams::table)
@@ -732,7 +739,9 @@ fn team_membership_implies_delivery_capabilities() {
     );
 
     drop(conn);
-    sql_query(format!("DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"))
-        .execute(&mut admin_conn)
-        .expect("dropping scratch database after test");
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {TEAM_SCRATCH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database after test");
 }

@@ -76,7 +76,10 @@ mod tests {
         // A different key or a different connection yields a different
         // secret — the property rotation-by-new-id depends on.
         assert_ne!(derive_secret("key-a", id), derive_secret("key-b", id));
-        assert_ne!(derive_secret("key-a", id), derive_secret("key-a", Uuid::new_v4()));
+        assert_ne!(
+            derive_secret("key-a", id),
+            derive_secret("key-a", Uuid::new_v4())
+        );
         // 32 bytes hex-encoded.
         assert_eq!(derive_secret("key-a", id).len(), 64);
     }

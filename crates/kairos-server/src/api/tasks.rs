@@ -177,6 +177,8 @@ pub(crate) async fn create_task(
                     task_type,
                     work_class,
                     team_id,
+                    // Routing by repository lands in KAIROS-T-0104.
+                    repository_id: None,
                 },
                 user,
             )

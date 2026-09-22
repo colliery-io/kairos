@@ -29,15 +29,14 @@ use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
     ListEnvelope, Pagination, SetLifecycleRequest, SetWorkClassRequest, Strategy, Task,
-    TransitionRequest,
-    UpdateContentRequest,
+    TransitionRequest, UpdateContentRequest,
 };
 use crate::types_meta::{
-    ActivityEntry, ActivityQuery, CreateMetadataDefinitionRequest, CreateRelationshipRequest,
-    CreateTemplateRequest, DeletedResponse, HistoryQuery, HistorySnapshot, HistoryVersion,
-    ChildrenProgressResponse, ItemMetadataResponse, ItemRelationshipsResponse, MetadataDefinition,
-    Relationship, Template,
-    TemplateDetail, UpdateMetadataDefinitionRequest, UpdateMetadataRequest, UpdateTemplateRequest,
+    ActivityEntry, ActivityQuery, ChildrenProgressResponse, CreateMetadataDefinitionRequest,
+    CreateRelationshipRequest, CreateTemplateRequest, DeletedResponse, HistoryQuery,
+    HistorySnapshot, HistoryVersion, ItemMetadataResponse, ItemRelationshipsResponse,
+    MetadataDefinition, Relationship, Template, TemplateDetail, UpdateMetadataDefinitionRequest,
+    UpdateMetadataRequest, UpdateTemplateRequest,
 };
 use crate::types_org::{
     AddBoardMemberRequest, AddOrgMemberRequest, AddStreamTeamRequest, AddTeamMemberRequest, Board,
@@ -49,11 +48,11 @@ use crate::types_org::{
     UpdateColumnRequest, UpdateOrgMemberRequest, UpdateStreamRequest, UpdateTeamRequest,
     WhoamiResponse,
 };
+use crate::types_search::{SearchRequest, SearchResponse};
 use crate::types_team_pages::{
     CreateTeamAnnouncementRequest, CreateTeamPageRequest, TeamAnnouncement, TeamPage,
     TeamWorkDocument, UpdateTeamPageRequest,
 };
-use crate::types_search::{SearchRequest, SearchResponse};
 
 /// Supplies the bearer token for each request. The CLI implements this
 /// with a refreshing OAuth credential cache (KAIROS-A-0010); tests use
@@ -954,8 +953,11 @@ impl KairosClient {
         &self,
         id: &str,
     ) -> Result<crate::types_forge::CreatedForgeConnection, Error> {
-        self.post_ok(&format!("/api/forge-connections/{id}/rotate"), &serde_json::json!({}))
-            .await
+        self.post_ok(
+            &format!("/api/forge-connections/{id}/rotate"),
+            &serde_json::json!({}),
+        )
+        .await
     }
 
     /// `GET /api/{family}/{short_code}/graph?depth=N` — the focal

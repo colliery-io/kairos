@@ -2,6 +2,11 @@
 //! KAIROS-I-0009): the CRUD behind `/api/forge-connections`, plus the
 //! ordering-safe link upsert the webhook endpoint (KAIROS-T-0099) calls.
 //!
+//! Since KAIROS-T-0103 (A-0019) a connection is the webhook wiring OF a
+//! [`Repository`]: repo identity and the owning team live there, and
+//! every read that needs a repo name or team joins through it. One live
+//! connection per repository.
+//!
 //! Every function operates in the CURRENT `search_path` tenant schema,
 //! the same convention as [`crate::items`] and [`crate::team_pages`].
 //!
@@ -20,9 +25,8 @@ use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use uuid::Uuid;
 
 use crate::models::enums::{Forge, LinkKind, LinkState};
-use crate::models::forge::{
-    ForgeConnection, ForgeConnectionChangeset, ItemLink, NewForgeConnection, NewItemLink,
-};
+use crate::models::forge::{ForgeConnection, ItemLink, NewForgeConnection, NewItemLink};
+use crate::models::repositories::Repository;
 
 /// Errors from the forge-connection services.
 #[derive(Debug, thiserror::Error)]
@@ -30,31 +34,50 @@ pub enum ForgeError {
     /// No live connection with this id.
     #[error("forge connection {0} does not exist")]
     ConnectionNotFound(Uuid),
-    /// A live connection already covers this `(forge, repo)`.
-    #[error("{forge} repository {repo:?} is already connected")]
-    RepoAlreadyConnected { forge: Forge, repo: String },
-    /// The named team does not exist (attribution target).
-    #[error("team {0} does not exist")]
-    TeamNotFound(Uuid),
+    /// A live connection already covers this repository.
+    #[error("repository {repo:?} already has a live connection")]
+    RepoAlreadyConnected { repo: String },
+    /// No live repository with this id (connection target).
+    #[error("repository {0} does not exist")]
+    RepositoryNotFound(Uuid),
+    /// The connection's forge must match its repository's (`other` repos
+    /// have no webhook dialect at all).
+    #[error("connection forge {connection} does not match repository forge {repository}")]
+    ForgeMismatch {
+        connection: Forge,
+        repository: Forge,
+    },
     #[error("database error: {0}")]
     Database(#[from] DieselError),
 }
 
-/// Every live connection, newest first.
-pub fn list_connections(conn: &mut PgConnection) -> Result<Vec<ForgeConnection>, ForgeError> {
-    use crate::schema::forge_connections::dsl;
-    Ok(dsl::forge_connections
-        .filter(dsl::deleted_at.is_null())
-        .order(dsl::created_at.desc())
-        .select(ForgeConnection::as_select())
-        .load(conn)?)
+/// A connection joined to its repository — the read shape the API renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionWithRepo {
+    pub connection: ForgeConnection,
+    pub repository: Repository,
+}
+
+/// Every live connection with its repository, newest first.
+pub fn list_connections(conn: &mut PgConnection) -> Result<Vec<ConnectionWithRepo>, ForgeError> {
+    use crate::schema::{forge_connections, repositories};
+    let rows: Vec<(ForgeConnection, Repository)> = forge_connections::table
+        .inner_join(repositories::table)
+        .filter(forge_connections::deleted_at.is_null())
+        .order(forge_connections::created_at.desc())
+        .select((ForgeConnection::as_select(), Repository::as_select()))
+        .load(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|(connection, repository)| ConnectionWithRepo {
+            connection,
+            repository,
+        })
+        .collect())
 }
 
 /// One live connection, or [`ForgeError::ConnectionNotFound`].
-pub fn load_connection(
-    conn: &mut PgConnection,
-    id: Uuid,
-) -> Result<ForgeConnection, ForgeError> {
+pub fn load_connection(conn: &mut PgConnection, id: Uuid) -> Result<ForgeConnection, ForgeError> {
     use crate::schema::forge_connections::dsl;
     dsl::forge_connections
         .filter(dsl::id.eq(id))
@@ -65,67 +88,85 @@ pub fn load_connection(
         .ok_or(ForgeError::ConnectionNotFound(id))
 }
 
-/// The live connection for a `(forge, repo_full_name)`, if any — the
-/// webhook path's lookup after it has resolved the tenant.
+/// One live connection with its repository.
+pub fn load_connection_with_repo(
+    conn: &mut PgConnection,
+    id: Uuid,
+) -> Result<ConnectionWithRepo, ForgeError> {
+    use crate::schema::{forge_connections, repositories};
+    let row: Option<(ForgeConnection, Repository)> = forge_connections::table
+        .inner_join(repositories::table)
+        .filter(forge_connections::id.eq(id))
+        .filter(forge_connections::deleted_at.is_null())
+        .select((ForgeConnection::as_select(), Repository::as_select()))
+        .first(conn)
+        .optional()?;
+    row.map(|(connection, repository)| ConnectionWithRepo {
+        connection,
+        repository,
+    })
+    .ok_or(ForgeError::ConnectionNotFound(id))
+}
+
+/// The live connection for a `(forge, repo_full_name)`, if any — resolved
+/// through the repository.
 pub fn find_connection_by_repo(
     conn: &mut PgConnection,
     forge: Forge,
     repo_full_name: &str,
 ) -> Result<Option<ForgeConnection>, ForgeError> {
+    use crate::schema::{forge_connections, repositories};
+    Ok(forge_connections::table
+        .inner_join(repositories::table)
+        .filter(repositories::forge.eq(forge))
+        .filter(repositories::repo_full_name.eq(repo_full_name))
+        .filter(repositories::deleted_at.is_null())
+        .filter(forge_connections::deleted_at.is_null())
+        .select(ForgeConnection::as_select())
+        .first(conn)
+        .optional()?)
+}
+
+/// The live connection of one repository, if any.
+pub fn find_connection_for_repository(
+    conn: &mut PgConnection,
+    repository_id: Uuid,
+) -> Result<Option<ForgeConnection>, ForgeError> {
     use crate::schema::forge_connections::dsl;
     Ok(dsl::forge_connections
-        .filter(dsl::forge.eq(forge))
-        .filter(dsl::repo_full_name.eq(repo_full_name))
+        .filter(dsl::repository_id.eq(repository_id))
         .filter(dsl::deleted_at.is_null())
         .select(ForgeConnection::as_select())
         .first(conn)
         .optional()?)
 }
 
-/// Register a repository. The `(forge, repo)` pair must be free among
-/// live connections.
+/// Wire a webhook connection onto a repository. The repository must be
+/// live, carry the same forge, and have no live connection yet.
 pub fn create_connection(
     conn: &mut PgConnection,
     input: NewForgeConnection,
 ) -> Result<ForgeConnection, ForgeError> {
-    if let Some(team_id) = input.team_id {
-        require_team(conn, team_id)?;
+    let repository = crate::repositories::load(conn, input.repository_id)
+        .map_err(|_| ForgeError::RepositoryNotFound(input.repository_id))?;
+    if repository.forge != input.forge {
+        return Err(ForgeError::ForgeMismatch {
+            connection: input.forge,
+            repository: repository.forge,
+        });
     }
-    let forge = input.forge;
-    let repo = input.repo_full_name.clone();
     diesel::insert_into(crate::schema::forge_connections::table)
         .values(input)
         .returning(ForgeConnection::as_returning())
         .get_result(conn)
         .map_err(|e| match &e {
             DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
-                ForgeError::RepoAlreadyConnected { forge, repo }
+                ForgeError::RepoAlreadyConnected {
+                    repo: repository.repo_full_name.clone(),
+                }
             }
             _ => ForgeError::Database(e),
         })
-}
-
-/// Re-attribute a connection to a team (or clear it with `Some(None)`).
-pub fn set_connection_team(
-    conn: &mut PgConnection,
-    id: Uuid,
-    team_id: Option<Uuid>,
-) -> Result<ForgeConnection, ForgeError> {
-    load_connection(conn, id)?;
-    if let Some(team_id) = team_id {
-        require_team(conn, team_id)?;
-    }
-    use crate::schema::forge_connections::dsl;
-    Ok(
-        diesel::update(dsl::forge_connections.filter(dsl::id.eq(id)))
-            .set(ForgeConnectionChangeset {
-                team_id: Some(team_id),
-                updated_at: Some(Utc::now()),
-                ..Default::default()
-            })
-            .returning(ForgeConnection::as_returning())
-            .get_result(conn)?,
-    )
 }
 
 /// Soft-delete a connection. Its links go with it (`ON DELETE CASCADE`
@@ -141,18 +182,6 @@ pub fn delete_connection(conn: &mut PgConnection, id: Uuid) -> Result<(), ForgeE
         ))
         .execute(conn)?;
     Ok(())
-}
-
-/// 422-worthy check that a live team exists.
-fn require_team(conn: &mut PgConnection, team_id: Uuid) -> Result<(), ForgeError> {
-    use crate::schema::teams::dsl;
-    let found: Option<Uuid> = dsl::teams
-        .filter(dsl::id.eq(team_id))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()?;
-    found.map(|_| ()).ok_or(ForgeError::TeamNotFound(team_id))
 }
 
 // ---------------------------------------------------------------------------
@@ -255,19 +284,16 @@ pub fn links_for_item(
     conn: &mut PgConnection,
     item_id: Uuid,
 ) -> Result<Vec<LinkWithRepo>, ForgeError> {
-    use crate::schema::{forge_connections, item_links};
+    use crate::schema::{forge_connections, item_links, repositories};
     let rows: Vec<(ItemLink, Forge, String)> = item_links::table
-        .inner_join(forge_connections::table)
+        .inner_join(forge_connections::table.inner_join(repositories::table))
         .filter(item_links::item_id.eq(item_id))
         .filter(forge_connections::deleted_at.is_null())
-        .order((
-            item_links::kind.desc(),
-            item_links::forge_updated_at.desc(),
-        ))
+        .order((item_links::kind.desc(), item_links::forge_updated_at.desc()))
         .select((
             ItemLink::as_select(),
-            forge_connections::forge,
-            forge_connections::repo_full_name,
+            repositories::forge,
+            repositories::repo_full_name,
         ))
         .load(conn)?;
     Ok(rows
@@ -288,9 +314,9 @@ pub fn links_for_items(
     states: &[LinkState],
     limit: i64,
 ) -> Result<Vec<LinkWithRepo>, ForgeError> {
-    use crate::schema::{forge_connections, item_links};
+    use crate::schema::{forge_connections, item_links, repositories};
     let rows: Vec<(ItemLink, Forge, String)> = item_links::table
-        .inner_join(forge_connections::table)
+        .inner_join(forge_connections::table.inner_join(repositories::table))
         .filter(item_links::item_id.eq_any(item_ids))
         .filter(item_links::state.eq_any(states))
         .filter(forge_connections::deleted_at.is_null())
@@ -298,8 +324,8 @@ pub fn links_for_items(
         .limit(limit)
         .select((
             ItemLink::as_select(),
-            forge_connections::forge,
-            forge_connections::repo_full_name,
+            repositories::forge,
+            repositories::repo_full_name,
         ))
         .load(conn)?;
     Ok(rows
@@ -312,27 +338,27 @@ pub fn links_for_items(
         .collect())
 }
 
-/// Links in the given states belonging to repositories attributed to a
-/// team — the rollup's repo-level path (a repo can carry team attribution
-/// even when an individual item does not).
+/// Links in the given states belonging to repositories OWNED by a team —
+/// the rollup's repo-level path (a repo carries its owner even when an
+/// individual item carries no team).
 pub fn links_for_connection_team(
     conn: &mut PgConnection,
     team_id: Uuid,
     states: &[LinkState],
     limit: i64,
 ) -> Result<Vec<LinkWithRepo>, ForgeError> {
-    use crate::schema::{forge_connections, item_links};
+    use crate::schema::{forge_connections, item_links, repositories};
     let rows: Vec<(ItemLink, Forge, String)> = item_links::table
-        .inner_join(forge_connections::table)
-        .filter(forge_connections::team_id.eq(team_id))
+        .inner_join(forge_connections::table.inner_join(repositories::table))
+        .filter(repositories::team_id.eq(team_id))
         .filter(item_links::state.eq_any(states))
         .filter(forge_connections::deleted_at.is_null())
         .order(item_links::forge_updated_at.desc())
         .limit(limit)
         .select((
             ItemLink::as_select(),
-            forge_connections::forge,
-            forge_connections::repo_full_name,
+            repositories::forge,
+            repositories::repo_full_name,
         ))
         .load(conn)?;
     Ok(rows

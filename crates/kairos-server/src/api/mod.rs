@@ -248,6 +248,9 @@ pub fn map_item_error(e: ItemError) -> ApiError {
         ItemError::TemplateNotFound(id) => {
             ApiError::validation(format!("template {id} does not exist"))
         }
+        ItemError::RepositoryNotFound(id) => {
+            ApiError::validation(format!("repository {id} does not exist"))
+        }
         ItemError::Database(e) => ApiError::internal(e),
     }
 }

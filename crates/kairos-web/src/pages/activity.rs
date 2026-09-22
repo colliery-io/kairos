@@ -379,16 +379,18 @@ pub fn ActivityPage() -> impl IntoView {
         async move {
             match team {
                 None => Ok(None),
-                Some((_, team_id)) => teams_api::team_members(auth, &team_id)
-                    .await
-                    .map(|members| {
-                        Some(
-                            members
-                                .into_iter()
-                                .map(|member| member.user_id)
-                                .collect::<std::collections::HashSet<_>>(),
-                        )
-                    }),
+                Some((_, team_id)) => {
+                    teams_api::team_members(auth, &team_id)
+                        .await
+                        .map(|members| {
+                            Some(
+                                members
+                                    .into_iter()
+                                    .map(|member| member.user_id)
+                                    .collect::<std::collections::HashSet<_>>(),
+                            )
+                        })
+                }
             }
         }
     });

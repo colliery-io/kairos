@@ -15,26 +15,24 @@ use uuid::Uuid;
 use super::enums::{Forge, LinkKind, LinkState};
 use crate::schema::{forge_connections, item_links};
 
-/// One repository wired up to this tenant (`forge_connections`). The
-/// webhook secret is NOT stored: it is derived from the deployment
-/// signing key and this row's id, so rotating means minting a new
-/// connection.
+/// The webhook wiring OF a repository (`forge_connections`, re-keyed on
+/// `repository_id` by KAIROS-T-0103 per A-0019). Repo identity and the
+/// owning team live on [`super::repositories::Repository`]; this row is
+/// the delivery endpoint. The webhook secret is NOT stored: it is derived
+/// from the deployment signing key and this row's id, so rotating means
+/// minting a new connection. `forge` is kept here (not only on the repo)
+/// because it is the webhook dialect and part of the delivery URL.
 #[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable)]
 #[diesel(table_name = forge_connections)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ForgeConnection {
     pub id: Uuid,
     pub forge: Forge,
-    /// `owner/repo` on GitHub, `group/subgroup/project` on GitLab.
-    pub repo_full_name: String,
-    pub repo_url: String,
-    /// Optional attribution so repo-level activity can roll up to a team
-    /// even when a work item carries no `team_id` (KAIROS-T-0101).
-    pub team_id: Option<Uuid>,
     pub created_by: Uuid,
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub repository_id: Uuid,
 }
 
 /// Insert for [`ForgeConnection`].
@@ -42,18 +40,15 @@ pub struct ForgeConnection {
 #[diesel(table_name = forge_connections)]
 pub struct NewForgeConnection {
     pub forge: Forge,
-    pub repo_full_name: String,
-    pub repo_url: String,
-    pub team_id: Option<Uuid>,
+    pub repository_id: Uuid,
     pub created_by: Uuid,
 }
 
-/// Partial update for [`ForgeConnection`] (team attribution is the only
-/// editable field; repo identity is fixed for a connection's lifetime).
+/// Partial update for [`ForgeConnection`] (nothing but liveness is
+/// editable; ownership moved to the repository in KAIROS-T-0103).
 #[derive(Debug, Clone, Default, AsChangeset)]
 #[diesel(table_name = forge_connections)]
 pub struct ForgeConnectionChangeset {
-    pub team_id: Option<Option<Uuid>>,
     pub deleted_at: Option<Option<DateTime<Utc>>>,
     pub updated_at: Option<DateTime<Utc>>,
 }

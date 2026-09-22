@@ -342,6 +342,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )
@@ -400,6 +401,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )
@@ -469,6 +471,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         widget_actor,
     )
@@ -506,6 +509,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )
@@ -546,6 +550,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )
@@ -577,6 +582,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )
@@ -611,6 +617,7 @@ async fn ws_events_against_live_stack() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: None,
+            repository_id: None,
         },
         alice_id,
     )

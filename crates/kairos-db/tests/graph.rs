@@ -256,6 +256,7 @@ fn relationship_graph_service() {
                 task_type: TaskType::Task,
                 work_class: kairos_db::models::enums::WorkClass::Planned,
                 team_id: None,
+                repository_id: None,
             },
             alice,
         )
@@ -743,9 +744,11 @@ fn children_progress_rollups() {
              (is the stack up? `angreal services up`)"
         )
     });
-    sql_query(format!("DROP DATABASE IF EXISTS {PROGRESS_DB} WITH (FORCE)"))
-        .execute(&mut admin_conn)
-        .expect("dropping scratch database");
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {PROGRESS_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database");
     sql_query(format!("CREATE DATABASE {PROGRESS_DB}"))
         .execute(&mut admin_conn)
         .expect("creating scratch database");
@@ -829,6 +832,7 @@ fn children_progress_rollups() {
                 task_type: TaskType::Task,
                 work_class: kairos_db::models::enums::WorkClass::Planned,
                 team_id: None,
+                repository_id: None,
             },
             alice,
         )
@@ -876,7 +880,10 @@ fn children_progress_rollups() {
     );
     assert!(rows.iter().all(|row| row.board_has_done));
     let (done, total) = kairos_core::items::children_progress_counts(
-        &rows.iter().map(|row| (row.is_done, row.count)).collect::<Vec<_>>(),
+        &rows
+            .iter()
+            .map(|row| (row.is_done, row.count))
+            .collect::<Vec<_>>(),
     );
     assert_eq!((done, total), (1, 3), "doc + soft-deleted child excluded");
 
@@ -888,8 +895,7 @@ fn children_progress_rollups() {
     );
 
     // ---- whole-board batch: every parent from ONE call -----------------------
-    let batch =
-        graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
+    let batch = graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
     let p1 = batch.get(&i1.id).expect("i1 present");
     assert_eq!((p1.done, p1.total, p1.has_done), (1, 3, true));
     let p2 = batch.get(&i2.id).expect("i2 present");
@@ -904,8 +910,7 @@ fn children_progress_rollups() {
         rows.iter().all(|row| !row.is_done && !row.board_has_done),
         "no done semantics anywhere"
     );
-    let batch =
-        graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
+    let batch = graph::board_children_progress(&mut conn, initiative_board).expect("board rollup");
     let p1 = batch.get(&i1.id).expect("i1 present");
     assert_eq!((p1.done, p1.total, p1.has_done), (0, 3, false));
 }
@@ -927,9 +932,11 @@ fn focal_subgraph_contract() {
              (is the stack up? `angreal services up`)"
         )
     });
-    sql_query(format!("DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"))
-        .execute(&mut admin_conn)
-        .expect("dropping scratch database");
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database");
     sql_query(format!("CREATE DATABASE {SUBGRAPH_DB}"))
         .execute(&mut admin_conn)
         .expect("creating scratch database");
@@ -998,6 +1005,7 @@ fn focal_subgraph_contract() {
                 task_type: TaskType::Task,
                 work_class: kairos_db::models::WorkClass::Planned,
                 team_id: None,
+                repository_id: None,
             },
             alice,
         )
@@ -1070,11 +1078,15 @@ fn focal_subgraph_contract() {
     };
     assert_eq!(edges.len(), 6, "live edges among visible: {edges:?}");
     assert_eq!(
-        edge(i1.id, t1.id, RelationshipType::Parent).expect("i1->t1").depth,
+        edge(i1.id, t1.id, RelationshipType::Parent)
+            .expect("i1->t1")
+            .depth,
         1
     );
     assert_eq!(
-        edge(t1.id, t3.id, RelationshipType::Blocks).expect("blocks").depth,
+        edge(t1.id, t3.id, RelationshipType::Blocks)
+            .expect("blocks")
+            .depth,
         1
     );
     assert_eq!(
@@ -1084,7 +1096,9 @@ fn focal_subgraph_contract() {
         2
     );
     assert_eq!(
-        edge(i1.id, d.id, RelationshipType::Supports).expect("supports").depth,
+        edge(i1.id, d.id, RelationshipType::Supports)
+            .expect("supports")
+            .depth,
         2
     );
     assert!(
@@ -1105,19 +1119,27 @@ fn focal_subgraph_contract() {
         (1, 0),
         "t2's edge is dead weight: only t1 counts"
     );
-    assert!(summary.get(&i1.id).is_none(), "no blocks edges, no entry");
+    assert!(!summary.contains_key(&i1.id), "no blocks edges, no entry");
 
     // --- depth 1 from T1: strict bound --------------------------------------
     let (near, near_edges) = graph::item_subgraph(&mut conn, t1.id, 1).expect("depth 1");
     assert_eq!(
-        near.iter().map(|n| n.id).collect::<std::collections::HashSet<_>>(),
+        near.iter()
+            .map(|n| n.id)
+            .collect::<std::collections::HashSet<_>>(),
         [t1.id, i1.id, t3.id].into_iter().collect(),
         "depth 1 = focus + direct neighbors"
     );
-    assert_eq!(near_edges.len(), 2, "only the two incident edges: {near_edges:?}");
+    assert_eq!(
+        near_edges.len(),
+        2,
+        "only the two incident edges: {near_edges:?}"
+    );
 
     drop(conn);
-    sql_query(format!("DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"))
-        .execute(&mut admin_conn)
-        .expect("dropping scratch database after test");
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database after test");
 }

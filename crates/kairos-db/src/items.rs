@@ -112,6 +112,9 @@ pub enum ItemError {
     /// No template with this id exists.
     #[error("template {0} does not exist")]
     TemplateNotFound(Uuid),
+    /// No live repository with this id (KAIROS-T-0103).
+    #[error("repository {0} does not exist")]
+    RepositoryNotFound(Uuid),
     /// Any other database error.
     #[error("database error: {0}")]
     Database(#[from] DieselError),
@@ -583,6 +586,10 @@ pub struct CreateTask<'a> {
     /// The Planned/Support lane (KAIROS-T-0077).
     pub work_class: WorkClass,
     pub team_id: Option<Uuid>,
+    /// The repository the task is issued against (KAIROS-A-0019). Plumbed
+    /// here; the repo -> team -> board routing rule is enforced by the
+    /// service layer above (KAIROS-T-0104).
+    pub repository_id: Option<Uuid>,
 }
 
 /// Create a task/bug/tech-debt item (see [`create_strategy`] for the
@@ -605,6 +612,7 @@ pub fn create_task(
                 task_type: input.task_type,
                 work_class: input.work_class,
                 team_id: input.team_id,
+                repository_id: input.repository_id,
                 created_by: actor,
                 updated_by: actor,
             })
@@ -668,6 +676,72 @@ pub fn set_task_work_class(
                 "work_class:{}->{}",
                 current.work_class.as_str(),
                 work_class.as_str()
+            ),
+        )?;
+        events::emit_item_event_by_id(conn, EventKind::ItemUpdated, "task", task_id, actor)?;
+        Ok(updated)
+    })
+}
+
+/// Bind a task to a repository, or clear it (KAIROS-T-0103, A-0019).
+/// Like [`set_task_work_class`] this is a routing field, not content:
+/// update + `activity_log` (`repository` action) + `item_updated` event,
+/// no `item_history` version bump. The repo -> team -> board consistency
+/// rule is the caller's (KAIROS-T-0104); this only checks the repository
+/// is live. Setting the value the task already has is a no-op.
+pub fn set_task_repository(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    repository_id: Option<Uuid>,
+    actor: Uuid,
+) -> Result<Task, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::tasks::dsl;
+        let current: Task = dsl::tasks
+            .filter(dsl::id.eq(task_id))
+            .filter(dsl::deleted_at.is_null())
+            .select(Task::as_select())
+            .first(conn)
+            .optional()?
+            .ok_or(ItemError::ItemNotFound {
+                entity_type: "task",
+                id: task_id,
+            })?;
+        if current.repository_id == repository_id {
+            return Ok(current);
+        }
+        if let Some(repo) = repository_id {
+            use crate::schema::repositories;
+            let live: Option<Uuid> = repositories::table
+                .filter(repositories::id.eq(repo))
+                .filter(repositories::deleted_at.is_null())
+                .select(repositories::id)
+                .first(conn)
+                .optional()?;
+            if live.is_none() {
+                return Err(ItemError::RepositoryNotFound(repo));
+            }
+        }
+        let updated: Task = diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
+            .set((
+                dsl::repository_id.eq(repository_id),
+                dsl::updated_by.eq(actor),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(Task::as_returning())
+            .get_result(conn)?;
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::Repository,
+            task_id,
+            "task",
+            format!(
+                "repository:{}->{}",
+                current
+                    .repository_id
+                    .map_or_else(|| "none".to_string(), |id| id.to_string()),
+                repository_id.map_or_else(|| "none".to_string(), |id| id.to_string())
             ),
         )?;
         events::emit_item_event_by_id(conn, EventKind::ItemUpdated, "task", task_id, actor)?;
@@ -741,7 +815,13 @@ pub fn set_document_lifecycle(
                 lifecycle.as_str()
             ),
         )?;
-        events::emit_item_event_by_id(conn, EventKind::ItemUpdated, "document", document_id, actor)?;
+        events::emit_item_event_by_id(
+            conn,
+            EventKind::ItemUpdated,
+            "document",
+            document_id,
+            actor,
+        )?;
         Ok(updated)
     })
 }

@@ -17,9 +17,11 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use kairos_client::types_forge as dto;
-use kairos_db::forge::{self, ForgeError};
+use kairos_db::forge::{self, ConnectionWithRepo, ForgeError};
 use kairos_db::models::enums::Forge;
-use kairos_db::models::forge::{ForgeConnection, NewForgeConnection};
+use kairos_db::models::forge::NewForgeConnection;
+use kairos_db::models::repositories::{NewRepository, RepositoryChangeset};
+use kairos_db::repositories::{self, RepositoryError};
 
 use super::super::{parse_enum, parse_opt_uuid, parse_uuid, require_capability};
 use crate::app::AppState;
@@ -43,7 +45,10 @@ pub fn router() -> Router<AppState> {
                 .patch(update_connection)
                 .delete(delete_connection),
         )
-        .route("/api/forge-connections/{id}/rotate", post(rotate_connection))
+        .route(
+            "/api/forge-connections/{id}/rotate",
+            post(rotate_connection),
+        )
 }
 
 /// [`ForgeError`] → HTTP.
@@ -52,24 +57,67 @@ fn map_error(e: ForgeError) -> ApiError {
         ForgeError::ConnectionNotFound(id) => {
             ApiError::not_found(format!("no live forge connection {id} exists"))
         }
-        ForgeError::RepoAlreadyConnected { forge, repo } => ApiError::conflict(format!(
-            "{forge} repository {repo:?} already has a live connection"
-        )),
-        ForgeError::TeamNotFound(id) => {
-            ApiError::validation(format!("team {id} does not exist"))
+        ForgeError::RepoAlreadyConnected { repo } => {
+            ApiError::conflict(format!("repository {repo:?} already has a live connection"))
         }
+        ForgeError::RepositoryNotFound(id) => {
+            ApiError::validation(format!("repository {id} does not exist"))
+        }
+        ForgeError::ForgeMismatch {
+            connection,
+            repository,
+        } => ApiError::validation(format!(
+            "connection forge {connection} does not match the repository's forge {repository}"
+        )),
         ForgeError::Database(e) => ApiError::internal(e),
     }
 }
 
-fn connection_dto(row: ForgeConnection) -> dto::ForgeConnection {
+/// [`RepositoryError`] → HTTP (the repository CRUD proper is KAIROS-T-0106;
+/// this covers the find-or-create behind connection setup).
+fn map_repo_error(e: RepositoryError) -> ApiError {
+    match e {
+        RepositoryError::NotFound(id) => {
+            ApiError::validation(format!("repository {id} does not exist"))
+        }
+        RepositoryError::SlugNotFound(slug) => {
+            ApiError::validation(format!("repository {slug:?} does not exist"))
+        }
+        RepositoryError::InvalidSlug(slug) => {
+            ApiError::validation(format!("invalid repository slug {slug:?}"))
+        }
+        RepositoryError::SlugTaken(slug) => {
+            ApiError::conflict(format!("repository slug {slug:?} is already taken"))
+        }
+        RepositoryError::AlreadyRegistered { forge, repo } => {
+            ApiError::conflict(format!("{forge} repository {repo:?} is already registered"))
+        }
+        RepositoryError::TeamNotFound(id) => {
+            ApiError::validation(format!("team {id} does not exist"))
+        }
+        RepositoryError::NoDeliveryBoard { team, count } => ApiError::validation(format!(
+            "team {team} has {count} live delivery boards; exactly one is needed"
+        )),
+        RepositoryError::InUse {
+            id,
+            tasks,
+            connections,
+        } => ApiError::conflict(format!(
+            "repository {id} is still referenced by {tasks} task(s) and {connections} connection(s)"
+        )),
+        RepositoryError::Database(e) => ApiError::internal(e),
+    }
+}
+
+fn connection_dto(row: ConnectionWithRepo) -> dto::ForgeConnection {
     dto::ForgeConnection {
-        id: row.id.to_string(),
-        forge: row.forge.to_string(),
-        repo_full_name: row.repo_full_name,
-        repo_url: row.repo_url,
-        team_id: row.team_id.map(|id| id.to_string()),
-        created_at: row.created_at.to_rfc3339(),
+        id: row.connection.id.to_string(),
+        forge: row.connection.forge.to_string(),
+        repo_full_name: row.repository.repo_full_name,
+        repo_url: row.repository.repo_url,
+        team_id: Some(row.repository.team_id.to_string()),
+        repository_id: row.repository.id.to_string(),
+        created_at: row.connection.created_at.to_rfc3339(),
     }
 }
 
@@ -149,7 +197,7 @@ pub(crate) async fn get_connection(
     let row = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let row = forge::load_connection(conn, id).map_err(map_error)?;
+            let row = forge::load_connection_with_repo(conn, id).map_err(map_error)?;
             Ok(connection_dto(row))
         })
         .await?;
@@ -179,6 +227,11 @@ pub(crate) async fn create_connection(
 ) -> Result<(StatusCode, Json<dto::CreatedForgeConnection>), ApiError> {
     let key = signing_key(&state)?;
     let forge_kind: Forge = parse_enum(&body.forge, "forge", Forge::ALL)?;
+    if matches!(forge_kind, Forge::Other) {
+        return Err(ApiError::validation(
+            "forge must be github or gitlab: 'other' repositories have no webhook dialect",
+        ));
+    }
     let team_id = parse_opt_uuid(body.team_id.as_deref(), "team_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -187,30 +240,68 @@ pub(crate) async fn create_connection(
         .blocking
         .run(&slug, move |conn| {
             require_capability(conn, &tenant.slug, None, user, MANAGE)?;
+            // KAIROS-T-0103: the connection hangs off a repository. Reuse a
+            // registered one by (forge, full name); otherwise register it
+            // here, which needs an owning team (A-0019). The dedicated
+            // repository API (KAIROS-T-0106) is the first-class path.
+            let repository =
+                match repositories::find_by_forge_name(conn, forge_kind, &body.repo_full_name)
+                    .map_err(map_repo_error)?
+                {
+                    Some(existing) => existing,
+                    None => {
+                        let Some(team_id) = team_id else {
+                            return Err(ApiError::validation(
+                                "team_id is required: the repository is not registered yet and \
+                             every repository has exactly one owning team (KAIROS-A-0019)",
+                            ));
+                        };
+                        repositories::create(
+                            conn,
+                            NewRepository {
+                                slug: kairos_core::repositories::slug_from_full_name(
+                                    &body.repo_full_name,
+                                ),
+                                forge: forge_kind,
+                                repo_full_name: body.repo_full_name.clone(),
+                                repo_url: body.repo_url.clone(),
+                                default_branch: "main".to_string(),
+                                team_id,
+                                description: String::new(),
+                                created_by: user,
+                                updated_by: user,
+                            },
+                        )
+                        .map_err(map_repo_error)?
+                    }
+                };
             let created = forge::create_connection(
                 conn,
                 NewForgeConnection {
                     forge: forge_kind,
-                    repo_full_name: body.repo_full_name.clone(),
-                    repo_url: body.repo_url.clone(),
-                    team_id,
+                    repository_id: repository.id,
                     created_by: user,
                 },
             )
             .map_err(map_error)?;
-            Ok(created)
+            Ok(ConnectionWithRepo {
+                connection: created,
+                repository,
+            })
         })
         .await?;
-    let id = created.id.to_string();
+    let id = created.connection.id.to_string();
+    let connection_id = created.connection.id;
     let response = dto::CreatedForgeConnection {
         webhook_url: webhook_url(&state, &url_slug, forge_kind, &id)?,
-        webhook_secret: derive_secret(&key, created.id),
+        webhook_secret: derive_secret(&key, connection_id),
         connection: connection_dto(created),
     };
     Ok((StatusCode::CREATED, Json(response)))
 }
 
-/// Re-attribute a connection to a team, or clear the attribution.
+/// Re-home the connected repository to another team (KAIROS-T-0103: the
+/// team lives on the repository and is required, so clearing is 422).
 #[utoipa::path(
     patch,
     path = "/api/forge-connections/{id}",
@@ -232,10 +323,13 @@ pub(crate) async fn update_connection(
     Json(body): Json<dto::UpdateForgeConnectionRequest>,
 ) -> Result<Json<dto::ForgeConnection>, ApiError> {
     let id = parse_uuid(&id, "id")?;
-    let team_id = if body.clear_team {
-        None
-    } else {
-        parse_opt_uuid(body.team_id.as_deref(), "team_id")?
+    if body.clear_team {
+        return Err(ApiError::validation(
+            "a repository always has an owning team (KAIROS-A-0019); pass a team_id to re-home it",
+        ));
+    }
+    let Some(team_id) = parse_opt_uuid(body.team_id.as_deref(), "team_id")? else {
+        return Err(ApiError::validation("team_id is required"));
     };
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -243,8 +337,21 @@ pub(crate) async fn update_connection(
         .blocking
         .run(&slug, move |conn| {
             require_capability(conn, &tenant.slug, None, user, MANAGE)?;
-            let row = forge::set_connection_team(conn, id, team_id).map_err(map_error)?;
-            Ok(connection_dto(row))
+            let current = forge::load_connection_with_repo(conn, id).map_err(map_error)?;
+            let repository = repositories::update(
+                conn,
+                current.repository.id,
+                RepositoryChangeset {
+                    team_id: Some(team_id),
+                    ..Default::default()
+                },
+                user,
+            )
+            .map_err(map_repo_error)?;
+            Ok(connection_dto(ConnectionWithRepo {
+                connection: current.connection,
+                repository,
+            }))
         })
         .await?;
     Ok(Json(row))
@@ -315,7 +422,7 @@ pub(crate) async fn rotate_connection(
         .blocking
         .run(&slug, move |conn| {
             require_capability(conn, &tenant.slug, None, user, MANAGE)?;
-            let old = forge::load_connection(conn, old_id).map_err(map_error)?;
+            let old = forge::load_connection_with_repo(conn, old_id).map_err(map_error)?;
             // Same repo, fresh id: the old connection goes away in the same
             // transaction so the partial unique index never sees two live
             // rows for one repo.
@@ -323,22 +430,24 @@ pub(crate) async fn rotate_connection(
             let created = forge::create_connection(
                 conn,
                 NewForgeConnection {
-                    forge: old.forge,
-                    repo_full_name: old.repo_full_name,
-                    repo_url: old.repo_url,
-                    team_id: old.team_id,
+                    forge: old.connection.forge,
+                    repository_id: old.repository.id,
                     created_by: user,
                 },
             )
             .map_err(map_error)?;
-            Ok(created)
+            Ok(ConnectionWithRepo {
+                connection: created,
+                repository: old.repository,
+            })
         })
         .await?;
-    let forge_kind = created.forge;
-    let new_id = created.id.to_string();
+    let forge_kind = created.connection.forge;
+    let new_id = created.connection.id.to_string();
+    let connection_id = created.connection.id;
     Ok(Json(dto::CreatedForgeConnection {
         webhook_url: webhook_url(&state, &url_slug, forge_kind, &new_id)?,
-        webhook_secret: derive_secret(&key, created.id),
+        webhook_secret: derive_secret(&key, connection_id),
         connection: connection_dto(created),
     }))
 }

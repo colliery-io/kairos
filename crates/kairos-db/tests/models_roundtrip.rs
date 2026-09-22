@@ -363,6 +363,7 @@ async fn models_round_trip() {
             task_type: TaskType::TechDebt,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: Some(team.id),
+            repository_id: None,
             created_by: user.id,
             updated_by: user.id,
         })

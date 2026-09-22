@@ -258,7 +258,8 @@ fn check_parent(
     team_id: Uuid,
     parent_id: Uuid,
 ) -> Result<(), TeamPageError> {
-    let parent = load_page(conn, team_id, parent_id).map_err(|_| TeamPageError::BadParent(parent_id))?;
+    let parent =
+        load_page(conn, team_id, parent_id).map_err(|_| TeamPageError::BadParent(parent_id))?;
     if parent.kind != TeamPageKind::Folder {
         return Err(TeamPageError::BadParent(parent_id));
     }

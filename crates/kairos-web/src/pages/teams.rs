@@ -443,13 +443,15 @@ fn AnnouncementsPanel(
 
     // `(my user id, org admin?, member of THIS team?)` once whoami lands.
     let identity = move || {
-        whoami.and_then(|resource| resource.get()).and_then(|result| {
-            result.ok().map(|me| {
-                let is_admin = me.organization.role == "admin";
-                let is_member = me.teams.iter().any(|t| t.id == team_id.get_value());
-                (me.user.id, is_admin, is_member)
+        whoami
+            .and_then(|resource| resource.get())
+            .and_then(|result| {
+                result.ok().map(|me| {
+                    let is_admin = me.organization.role == "admin";
+                    let is_member = me.teams.iter().any(|t| t.id == team_id.get_value());
+                    (me.user.id, is_admin, is_member)
+                })
             })
-        })
     };
 
     let post = move |_| {

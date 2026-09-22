@@ -269,9 +269,7 @@ fn ColumnsPanel(
             // The heuristic suggestion (KAIROS-T-0080): a column with no
             // outbound transitions is either terminal or misconfigured —
             // surface it, never act on it.
-            let is_dead_end = !transitions
-                .iter()
-                .any(|t| t.from_column_id == column.id);
+            let is_dead_end = !transitions.iter().any(|t| t.from_column_id == column.id);
             let column_id = StoredValue::new(column.id);
             let on_toggle_done = move |_| {
                 let board_id = board.get_value();

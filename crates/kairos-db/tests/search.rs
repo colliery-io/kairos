@@ -284,6 +284,7 @@ fn unified_search_pipeline() {
                     task_type,
                     work_class: kairos_db::models::enums::WorkClass::Planned,
                     team_id: team,
+                    repository_id: None,
                 },
                 alice,
             )

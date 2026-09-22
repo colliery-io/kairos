@@ -147,10 +147,12 @@ fn DocBody(
     // Breadcrumbs: team page, then every ancestor path prefix.
     let team_href = format!("/teams/{}", team.slug);
     let team_name = team.name.clone();
-    let mut crumb_views = vec![view! {
-        <Anchor href=team_href.clone()>{team_name}</Anchor>
-    }
-    .into_any()];
+    let mut crumb_views = vec![
+        view! {
+            <Anchor href=team_href.clone()>{team_name}</Anchor>
+        }
+        .into_any(),
+    ];
     let mut prefix = String::new();
     for (index, segment) in segments.iter().enumerate() {
         if !prefix.is_empty() {
@@ -465,9 +467,13 @@ fn StructurePanel(
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            let result =
-                api::rename_page(auth, &team_id.get_value(), &page_id.get_value(), &slug_value)
-                    .await;
+            let result = api::rename_page(
+                auth,
+                &team_id.get_value(),
+                &page_id.get_value(),
+                &slug_value,
+            )
+            .await;
             busy.set(false);
             match result {
                 Ok(_) => on_changed.run(()),
@@ -519,8 +525,7 @@ fn StructurePanel(
         let navigate = navigate.clone();
         let parent_href = parent_href.clone();
         leptos::task::spawn_local(async move {
-            let result =
-                api::delete_page(auth, &team_id.get_value(), &page_id.get_value()).await;
+            let result = api::delete_page(auth, &team_id.get_value(), &page_id.get_value()).await;
             busy.set(false);
             match result {
                 Ok(()) => navigate(&parent_href, Default::default()),

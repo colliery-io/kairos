@@ -45,10 +45,7 @@ use crate::app::AppState;
 use crate::forge::auth::{derive_secret, github_signature, secure_eq};
 
 pub fn router() -> Router<AppState> {
-    Router::new().route(
-        "/webhooks/{forge}/{tenant}/{connection_id}",
-        post(receive),
-    )
+    Router::new().route("/webhooks/{forge}/{tenant}/{connection_id}", post(receive))
 }
 
 /// The single response every authenticity failure produces.
@@ -98,9 +95,12 @@ pub(crate) async fn receive(
     body: Bytes,
 ) -> Response {
     // ---- routing + authenticity (uniform failures) -----------------------
+    // Only webhook-capable forges have a delivery route; `other` repos
+    // (KAIROS-T-0103) own tasks but never receive events.
     let Some(forge) = Forge::ALL
         .iter()
         .copied()
+        .filter(|f| !matches!(f, Forge::Other))
         .find(|f| f.as_str() == forge_segment)
     else {
         return rejected();
@@ -130,6 +130,7 @@ pub(crate) async fn receive(
             .get("x-gitlab-token")
             .and_then(|v| v.to_str().ok())
             .is_some_and(|presented| secure_eq(presented, &secret)),
+        Forge::Other => false,
     };
     if !verified {
         return rejected();
@@ -142,6 +143,7 @@ pub(crate) async fn receive(
     let event_type = match forge {
         Forge::Github => headers.get("x-github-event"),
         Forge::Gitlab => headers.get("x-gitlab-event"),
+        Forge::Other => None,
     }
     .and_then(|v| v.to_str().ok())
     .unwrap_or_default()
@@ -149,6 +151,7 @@ pub(crate) async fn receive(
     let parsed: Option<ForgeEvent> = match forge {
         Forge::Github => kairos_core::forge::parse_github(&event_type, raw),
         Forge::Gitlab => kairos_core::forge::parse_gitlab(&event_type, raw),
+        Forge::Other => None,
     };
     let Some(event) = parsed else {
         return accepted("event type not consumed", 0);
@@ -201,8 +204,7 @@ pub(crate) async fn receive(
                 // Unknown or foreign codes are IGNORED, not errors: a
                 // branch may legitimately name a code from another
                 // deployment.
-                let Some((item_id, item_type)) = crate::api::resolve_short_code(conn, code)?
-                else {
+                let Some((item_id, item_type)) = crate::api::resolve_short_code(conn, code)? else {
                     continue;
                 };
                 let advanced = forge::upsert_link(
@@ -231,9 +233,8 @@ pub(crate) async fn receive(
             // wrong. Only prune for PR events: a branch push carries no
             // authoritative list of the codes it once mentioned.
             if kind == LinkKind::PullRequest {
-                let previously =
-                    forge::linked_items(conn, connection.id, kind, &event.external_id)
-                        .map_err(crate::error::ApiError::internal)?;
+                let previously = forge::linked_items(conn, connection.id, kind, &event.external_id)
+                    .map_err(crate::error::ApiError::internal)?;
                 let still_named: Vec<Uuid> = codes
                     .iter()
                     .filter_map(|code| {
@@ -243,7 +244,10 @@ pub(crate) async fn receive(
                             .map(|(id, _)| id)
                     })
                     .collect();
-                for stale in previously.into_iter().filter(|id| !still_named.contains(id)) {
+                for stale in previously
+                    .into_iter()
+                    .filter(|id| !still_named.contains(id))
+                {
                     forge::delete_link(conn, connection.id, kind, &event.external_id, stale)
                         .map_err(crate::error::ApiError::internal)?;
                 }

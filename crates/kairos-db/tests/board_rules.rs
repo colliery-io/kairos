@@ -389,6 +389,7 @@ fn board_rules_lifecycle() {
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
             team_id: Some(team.id),
+            repository_id: None,
             created_by: actor_id,
             updated_by: actor_id,
         })

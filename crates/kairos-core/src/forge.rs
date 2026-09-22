@@ -128,7 +128,10 @@ pub fn parse_github(event_type: &str, body: &str) -> Option<ForgeEvent> {
                 match_text: branch.clone(),
                 external_id: branch,
                 state: LinkState::Open,
-                author: v["sender"]["login"].as_str().unwrap_or_default().to_string(),
+                author: v["sender"]["login"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 // `create` carries no timestamp; the delivery IS the event.
                 forge_updated_at: Utc::now(),
                 repo_full_name,
@@ -164,7 +167,10 @@ pub fn parse_gitlab(event_type: &str, body: &str) -> Option<ForgeEvent> {
                 title,
                 url: attrs["url"].as_str().unwrap_or_default().to_string(),
                 state,
-                author: v["user"]["username"].as_str().unwrap_or_default().to_string(),
+                author: v["user"]["username"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
                 forge_updated_at: parse_time(attrs["updated_at"].as_str())?,
                 repo_full_name,
             })
@@ -421,8 +427,7 @@ mod tests {
 
     #[test]
     fn gitlab_push_hook_branch_only() {
-        let event =
-            parse_gitlab("Push Hook", &fixture("gitlab_push.json")).expect("push event");
+        let event = parse_gitlab("Push Hook", &fixture("gitlab_push.json")).expect("push event");
         assert_eq!(event.kind, LinkKind::Branch);
         assert_eq!(event.external_id, "dylan/DEMO-T-0004-portal");
         // Tag pushes carry refs/tags and are ignored.
@@ -435,6 +440,9 @@ mod tests {
         // GitLab sends `2026-09-01 10:00:00 UTC` in places.
         let event = parse_gitlab("Merge Request Hook", &fixture("gitlab_mr_open.json"))
             .expect("MR with GitLab-style timestamp");
-        assert_eq!(event.forge_updated_at.to_rfc3339(), "2026-09-01T10:00:00+00:00");
+        assert_eq!(
+            event.forge_updated_at.to_rfc3339(),
+            "2026-09-01T10:00:00+00:00"
+        );
     }
 }

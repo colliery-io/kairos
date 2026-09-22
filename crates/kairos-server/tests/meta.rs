@@ -374,7 +374,10 @@ async fn meta_endpoints_against_live_stack() {
         .expect("initiative children progress");
     assert_eq!(progress.short_code, initiative_code);
     assert_eq!((progress.done, progress.total), (0, 1));
-    assert!(progress.has_done_columns, "seeded Completed is done-flagged");
+    assert!(
+        progress.has_done_columns,
+        "seeded Completed is done-flagged"
+    );
     assert_eq!(progress.by_column.len(), 1);
     assert!(!progress.by_column[0].is_done);
     assert_eq!(progress.by_column[0].count, 1);
@@ -483,12 +486,20 @@ async fn meta_endpoints_against_live_stack() {
         .blocks_summary
         .get(&t1_code)
         .expect("t1 has a blocks entry");
-    assert_eq!((t1_counts.blocked_by, t1_counts.blocks), (0, 1), "{board:?}");
+    assert_eq!(
+        (t1_counts.blocked_by, t1_counts.blocks),
+        (0, 1),
+        "{board:?}"
+    );
     let t2_counts = board
         .blocks_summary
         .get(&t2_code)
         .expect("t2 has a blocks entry");
-    assert_eq!((t2_counts.blocked_by, t2_counts.blocks), (1, 0), "{board:?}");
+    assert_eq!(
+        (t2_counts.blocked_by, t2_counts.blocks),
+        (1, 0),
+        "{board:?}"
+    );
     assert!(
         !board.blocks_summary.contains_key(&initiative_code),
         "no blocks edges, no entry (and the initiative is off this board)"

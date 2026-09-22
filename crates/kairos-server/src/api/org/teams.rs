@@ -42,14 +42,8 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/teams", get(list_teams).post(create_team))
         .route("/api/teams/by-slug/{slug}", get(get_team_by_slug))
-        .route(
-            "/api/teams/{id}/links",
-            get(list_team_links),
-        )
-        .route(
-            "/api/teams/{id}/work-documents",
-            get(list_work_documents),
-        )
+        .route("/api/teams/{id}/links", get(list_team_links))
+        .route("/api/teams/{id}/work-documents", get(list_work_documents))
         .route(
             "/api/teams/{id}",
             get(get_team).patch(update_team).delete(delete_team),
@@ -217,8 +211,8 @@ pub(crate) async fn get_team_by_slug(
                 .first(conn)
                 .optional()
                 .map_err(ApiError::internal)?;
-            let team = team
-                .ok_or_else(|| ApiError::not_found(format!("no team with slug {slug:?}")))?;
+            let team =
+                team.ok_or_else(|| ApiError::not_found(format!("no team with slug {slug:?}")))?;
             let board = delivery_board_of(conn, team.id)?;
             Ok(team_to_dto(team, board))
         })
@@ -275,9 +269,8 @@ pub(crate) async fn list_team_links(
             load_team(conn, team_id)?;
             let board = delivery_board_of(conn, team_id)?;
             let refs: Vec<&str> = states.iter().map(String::as_str).collect();
-            let rows =
-                kairos_db::graph::team_link_rollup(conn, team_id, board, &refs, limit)
-                    .map_err(ApiError::internal)?;
+            let rows = kairos_db::graph::team_link_rollup(conn, team_id, board, &refs, limit)
+                .map_err(ApiError::internal)?;
             Ok(rows
                 .into_iter()
                 .map(|row| kairos_client::types_forge::TeamLink {

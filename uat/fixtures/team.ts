@@ -3,6 +3,12 @@
 // Both use this code so the shape is identical in compose and --server
 // mode; J1 narrates each part as its own acceptance step, J3 runs it as
 // setup. Everything is ledgered in dependency order.
+//
+// J1 creates a NEW team. J3 cannot: a team whose delivery board has ever
+// held an item can never be deleted (soft-deleted rows still pin the
+// board — T-0010), so a self-cleaning journey that raises work must use an
+// EXISTING team (`onTeam`) and register only its repository and agent
+// there, both of which delete cleanly once the run's task is gone.
 import type { Persona } from '../personas';
 import { named } from '../run/context';
 import type { Ledger } from '../run/ledger';
@@ -23,6 +29,8 @@ export interface TeamFixture {
 export interface FixtureSteps {
   /** alice (CLI) creates the team; observe the scaffolded delivery board. */
   createTeam(): Promise<Observed>;
+  /** Use an existing team (by slug) instead of creating one. */
+  useTeam(slug: string): Promise<Observed>;
   /** alice (CLI) adds a user (by user id) to the team. */
   addMember(userId: string): Promise<void>;
   /** alice (CLI) registers the repository under the team. */
@@ -35,13 +43,21 @@ export interface FixtureSteps {
 
 /**
  * The fixture as separately callable parts so a journey can narrate each
- * one. `suffix` distinguishes multiple teams in one run.
+ * one. `suffix` distinguishes multiple fixtures in one run.
  */
 export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): FixtureSteps {
   const fixture: Partial<TeamFixture> = {};
-  const teamSlug = named(suffix);
   const repoSlug = named(`${suffix}-app`);
   const repoFullName = `acme/${repoSlug}`;
+
+  async function observeBoard(teamSlug: string): Promise<Observed> {
+    const api = await alice.api();
+    const board = await api.boardBySlug(`${teamSlug}-delivery`);
+    fixture.boardId = board.id;
+    fixture.boardSlug = board.slug;
+    fixture.columns = board.columns.map((c: any) => c.name);
+    return { team: teamSlug, board: board.slug, columns: fixture.columns, transitions: board.transitions.length };
+  }
 
   return {
     fixture,
@@ -49,6 +65,7 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
     async createTeam() {
       const cli = await alice.cli();
       const api = await alice.api();
+      const teamSlug = named(suffix);
       const team = await cli.json([
         'teams', 'create', '--name', `UAT ${suffix} (${teamSlug})`, '--slug', teamSlug, '--type', 'stream_aligned',
       ]);
@@ -59,16 +76,15 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
         label: teamSlug,
         delete: async () => { await api.delete(`/api/teams/${team.id}`); },
       });
-      const board = await api.boardBySlug(`${teamSlug}-delivery`);
-      fixture.boardId = board.id;
-      fixture.boardSlug = board.slug;
-      fixture.columns = board.columns.map((c: any) => c.name);
-      return {
-        team: team.slug,
-        board: board.slug,
-        columns: fixture.columns,
-        transitions: board.transitions.length,
-      };
+      return observeBoard(teamSlug);
+    },
+
+    async useTeam(slug: string) {
+      const api = await alice.api();
+      const team = await api.teamBySlug(slug);
+      fixture.teamId = team.id;
+      fixture.teamSlug = team.slug;
+      return observeBoard(team.slug);
     },
 
     async addMember(userId: string) {
@@ -84,7 +100,7 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
         '--forge', 'github',
         '--name', repoFullName,
         '--repo-url', `https://github.com/${repoFullName}`,
-        '--team', teamSlug,
+        '--team', fixture.teamSlug!,
         '--slug', repoSlug,
         '--description', 'Flutter app. Run `flutter test` before opening a PR; PRs need one review.',
       ]);
@@ -111,6 +127,11 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
       // Team membership is what gives the agent its board powers (A-0006
       // team-implied capabilities) and its repositories in whoami.
       await cli.ok(['teams', 'members', 'add', fixture.teamId!, '--user', sa.id]);
+      ledger.add({
+        kind: 'team-membership',
+        label: `${sa.name} on ${fixture.teamSlug}`,
+        delete: async () => { await api.delete(`/api/teams/${fixture.teamId}/members/${sa.id}`); },
+      });
       const key = await cli.json([
         'keys', 'create', '--service-account', sa.id, '--name', 'uat-run',
       ]);
@@ -120,7 +141,7 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
         label: key.prefix ?? key.id,
         delete: async () => { await api.delete(`/api/service-accounts/${sa.id}/keys/${key.id}`); },
       });
-      return { service_account: sa.name, key_prefix: key.prefix, team: teamSlug };
+      return { service_account: sa.name, key_prefix: key.prefix, team: fixture.teamSlug };
     },
 
     done() {
@@ -132,10 +153,14 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
   };
 }
 
-/** Run the whole fixture as setup (J3 under --server, or standalone). */
-export async function setupTeamRepoAgent(alice: Persona, ledger: Ledger, suffix = 'mobile'): Promise<TeamFixture> {
+/**
+ * The repository + agent on an EXISTING team, as one setup call (J3).
+ * The team comes from UAT_TEAM (default `platform`, the seed's team bob
+ * belongs to).
+ */
+export async function setupRepoAgentOnTeam(alice: Persona, ledger: Ledger, suffix = 'mobile'): Promise<TeamFixture> {
   const steps = teamFixture(alice, ledger, suffix);
-  await steps.createTeam();
+  await steps.useTeam(process.env.UAT_TEAM ?? 'platform');
   await steps.registerRepository();
   await steps.createAgent();
   return steps.done();

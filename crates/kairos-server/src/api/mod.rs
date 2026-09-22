@@ -189,6 +189,24 @@ pub fn resolve_short_code(
     .transpose()
 }
 
+/// The type of a live item by id (documents included), via the same
+/// directory view — for callers that hold an id, not a code
+/// (KAIROS-T-0111: the edge-permission check on an existing relationship).
+pub fn resolve_item_type(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError> {
+    let row: Option<DirectoryRow> =
+        sql_query("SELECT id, entity_type FROM entity_directory WHERE id = $1")
+            .bind::<SqlUuid, _>(id)
+            .get_result(conn)
+            .optional()
+            .map_err(ApiError::internal)?;
+    Ok(row.and_then(|row| {
+        ItemType::ALL
+            .iter()
+            .copied()
+            .find(|t| t.entity_type() == row.entity_type)
+    }))
+}
+
 /// The 404 for `/{short_code}` path segments that resolve to nothing.
 pub fn short_code_not_found(entity_type: &str, short_code: &str) -> ApiError {
     ApiError::not_found(format!(

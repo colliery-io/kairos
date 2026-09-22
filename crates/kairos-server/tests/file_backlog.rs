@@ -476,6 +476,204 @@ async fn file_backlog_against_live_stack() {
     );
 
     // =======================================================================
+    // The collaborative edges (KAIROS-T-0111): a filer links what she filed
+    // =======================================================================
+    // Two initiatives on the initiative board: one alice authored (she is
+    // its creator; the board is admin-managed so she holds no grant there),
+    // one bob's, standing in for "the other team's".
+    let initiative_board: String = {
+        use kairos_db::schema::boards::dsl;
+        diesel::sql_query("SET search_path TO org_acme, public")
+            .execute(&mut conn)
+            .expect("pinning search_path");
+        let id: Uuid = dsl::boards
+            .filter(dsl::board_level.eq(kairos_db::models::enums::BoardLevel::Initiative))
+            .filter(dsl::deleted_at.is_null())
+            .select(dsl::id)
+            .first(&mut conn)
+            .expect("initiative board");
+        id.to_string()
+    };
+    // Members cannot create initiatives on the admin-managed board; svc
+    // creates one and alice's authorship is established by a task she
+    // creates on her own team's board (web) instead.
+    let initiative_board_id = initiative_board.clone();
+    let foreign_initiative = svc
+        .create_initiative(&kairos_client::types::CreateInitiativeRequest {
+            board_id: initiative_board,
+            column_id: None,
+            title: "Platform's initiative".into(),
+            content: String::new(),
+            complexity: None,
+            bucket_type: None,
+        })
+        .await
+        .expect("svc creates an initiative");
+    let alice_own = alice
+        .create_task(&CreateTaskRequest {
+            board_id: Some(web.delivery_board_id.clone().expect("web board")),
+            column_id: None,
+            title: "Alice's own item".into(),
+            content: String::new(),
+            task_type: None,
+            work_class: None,
+            team_id: None,
+            repository_id: None,
+        })
+        .await
+        .expect("alice creates on her own team's board");
+    let edge = |source: &str, target: &str, relationship: &str| {
+        kairos_client::types_meta::CreateRelationshipRequest {
+            source_short_code: source.into(),
+            target_short_code: target.into(),
+            relationship: relationship.into(),
+        }
+    };
+    // blocks: filed task (source, alice created it) -> her own item: allowed.
+    let blocks = alice
+        .create_relationship(&edge(&filed.short_code, &alice_own.short_code, "blocks"))
+        .await
+        .expect("the filer marks what her filed task blocks");
+    // …and she may remove it again (same gate).
+    alice
+        .delete_relationship(&blocks.id)
+        .await
+        .expect("the filer removes her own edge");
+    // blocks the other way: her own item (she manages web) -> filed task: allowed.
+    alice
+        .create_relationship(&edge(&alice_own.short_code, &filed.short_code, "blocks"))
+        .await
+        .expect("manage on the source's board suffices");
+    // parent under the foreign initiative: no manage anywhere, not the author -> 403.
+    forbidden(
+        alice
+            .create_relationship(&edge(
+                &foreign_initiative.short_code,
+                &filed.short_code,
+                "parent",
+            ))
+            .await,
+        "parenting under another team's initiative",
+    );
+    // Two foreign items: 403.
+    forbidden(
+        alice
+            .create_relationship(&edge(
+                &foreign_initiative.short_code,
+                &by_carol.short_code,
+                "blocks",
+            ))
+            .await,
+        "linking two items she neither manages nor authored",
+    );
+    // Non-collaborative types stay org-admin even on her own items.
+    forbidden(
+        alice
+            .create_relationship(&edge(
+                &alice_own.short_code,
+                &filed.short_code,
+                "supersedes",
+            ))
+            .await,
+        "supersedes is admin-only",
+    );
+    // The same rule over MCP create_item's `parent`: foreign initiative refused
+    // BEFORE the task exists; a parent she authored is fine.
+    let tasks_before = svc
+        .list_tasks(kairos_client::types::Pagination {
+            limit: Some(200),
+            offset: None,
+        })
+        .await
+        .expect("count")
+        .total;
+    let mut mcp = McpSession::open(&server.base_url, &alice_token).await;
+    let (is_error, text) = mcp
+        .call(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Parented under a foreign initiative",
+                "repository": "payments-api",
+                "parent": foreign_initiative.short_code,
+            }),
+        )
+        .await;
+    assert!(is_error, "foreign parent refused: {text}");
+    let tasks_after = svc
+        .list_tasks(kairos_client::types::Pagination {
+            limit: Some(200),
+            offset: None,
+        })
+        .await
+        .expect("count")
+        .total;
+    assert_eq!(
+        tasks_before, tasks_after,
+        "a refused parent leaves no orphan task"
+    );
+    // An initiative alice AUTHORED (svc grants her manage_initiatives on the
+    // initiative board so she can create one; the edge rule then admits her
+    // as its creator even without manage on the filed task's board).
+    svc.add_board_member(
+        &initiative_board_id,
+        &AddBoardMemberRequest {
+            user_id: alice_id.to_string(),
+            capabilities: vec!["manage_initiatives".into()],
+        },
+    )
+    .await
+    .expect("grant manage_initiatives to alice");
+    let alice_initiative = alice
+        .create_initiative(&kairos_client::types::CreateInitiativeRequest {
+            board_id: initiative_board_id.clone(),
+            column_id: None,
+            title: "Alice's initiative".into(),
+            content: String::new(),
+            complexity: None,
+            bucket_type: None,
+        })
+        .await
+        .expect("alice creates her initiative");
+    let (is_error, text) = mcp
+        .call(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Parented under her own initiative",
+                "repository": "payments-api",
+                "parent": alice_initiative.short_code,
+            }),
+        )
+        .await;
+    assert!(!is_error, "own-authored parent allowed: {text}");
+    assert!(text.contains("parent edge created"), "{text}");
+    let (is_error, text) = mcp
+        .call(
+            "link_items",
+            json!({
+                "source": by_carol.short_code,
+                "target": alice_own.short_code,
+                "relationship": "blocks",
+            }),
+        )
+        .await;
+    // by_carol is carol's, but alice manages the TARGET's board (web).
+    assert!(
+        !is_error,
+        "MCP link_items blocks via manage on the target: {text}"
+    );
+    // get_item now shows the repository.
+    let (_, text) = mcp
+        .call("get_item", json!({ "short_code": filed.short_code }))
+        .await;
+    assert!(
+        text.contains("repository: payments-api (owner: platform)"),
+        "{text}"
+    );
+    drop(mcp);
+
+    // =======================================================================
     // file_backlog is computed: never grantable, never revocable
     // =======================================================================
     let err = rejection(

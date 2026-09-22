@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use diesel::prelude::*;
 
-use super::{require_org_admin, resolve_family_item};
+use super::{require_edge_capability, resolve_family_item};
 use crate::api::convert::IntoDto;
 use crate::api::{parse_enum, parse_uuid, resolve_short_code};
 use crate::app::AppState;
@@ -358,26 +358,36 @@ pub(crate) async fn create_relationship(
     Extension(tenant): Extension<TenantContext>,
     Json(body): Json<dto::CreateRelationshipRequest>,
 ) -> Result<(StatusCode, Json<dto::Relationship>), ApiError> {
-    require_org_admin(&tenant)?;
     let relationship = parse_enum(&body.relationship, "relationship", RelationshipType::ALL)?;
     let user = auth.user_id;
+    let tenant_ctx = tenant.clone();
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (source_id, _) =
-                resolve_short_code(conn, &body.source_short_code)?.ok_or_else(|| {
+            let (source_id, source_type) = resolve_short_code(conn, &body.source_short_code)?
+                .ok_or_else(|| {
                     ApiError::validation(format!(
                         "source_short_code {:?} does not name a live item",
                         body.source_short_code
                     ))
                 })?;
-            let (target_id, _) =
-                resolve_short_code(conn, &body.target_short_code)?.ok_or_else(|| {
+            let (target_id, target_type) = resolve_short_code(conn, &body.target_short_code)?
+                .ok_or_else(|| {
                     ApiError::validation(format!(
                         "target_short_code {:?} does not name a live item",
                         body.target_short_code
                     ))
                 })?;
+            // KAIROS-T-0111: collaborative edges (parent, blocks) by members
+            // who manage either end or authored the source; the rest admin.
+            require_edge_capability(
+                conn,
+                &tenant_ctx,
+                user,
+                relationship.as_str(),
+                (source_id, source_type),
+                (target_id, target_type),
+            )?;
             let created = graph::link_items(conn, source_id, target_id, relationship, user)
                 .map_err(map_link_error)?;
             Ok(created.into_dto())
@@ -406,9 +416,9 @@ pub(crate) async fn delete_relationship(
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<dto::DeletedResponse>, ApiError> {
-    require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "relationship id")?;
     let user = auth.user_id;
+    let tenant_ctx = tenant.clone();
     let deleted = state
         .blocking
         .run(&tenant.slug, move |conn| {
@@ -420,6 +430,19 @@ pub(crate) async fn delete_relationship(
                 .optional()
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
+            // KAIROS-T-0111: removing an edge is gated exactly like writing it.
+            let source_type = crate::api::resolve_item_type(conn, edge.source_id)?
+                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
+            let target_type = crate::api::resolve_item_type(conn, edge.target_id)?
+                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
+            require_edge_capability(
+                conn,
+                &tenant_ctx,
+                user,
+                edge.relationship.as_str(),
+                (edge.source_id, source_type),
+                (edge.target_id, target_type),
+            )?;
             graph::unlink_items(
                 conn,
                 edge.source_id,

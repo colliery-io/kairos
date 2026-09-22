@@ -118,6 +118,22 @@ pub fn is_computed(capability: &str) -> bool {
     COMPUTED_CAPABILITIES.contains(&capability)
 }
 
+/// Relationship types a NON-admin may write between items they can
+/// otherwise manage (KAIROS-T-0111 amending A-0006's "relationships are
+/// tenant-wide configuration"): `parent` and `blocks` are the day-to-day
+/// decomposition and dependency edges — an agent that just filed a task
+/// against another team's repository (A-0019 §4) must be able to hang it
+/// under its initiative and mark what it blocks. `supersedes`, `supports`
+/// and `informs` stay org-admin. The server's rule for a collaborative
+/// edge: manage on the SOURCE's board, or on the TARGET's board, or the
+/// caller CREATED the source item.
+pub const COLLABORATIVE_RELATIONSHIPS: &[&str] = &["parent", "blocks"];
+
+/// May a non-admin write `relationship` (see [`COLLABORATIVE_RELATIONSHIPS`])?
+pub fn is_collaborative_relationship(relationship: &str) -> bool {
+    COLLABORATIVE_RELATIONSHIPS.contains(&relationship)
+}
+
 // ---------------------------------------------------------------------------
 // Tenant-wide configuration policy (A-0006 "items not on boards")
 // ---------------------------------------------------------------------------

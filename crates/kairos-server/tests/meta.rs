@@ -233,13 +233,18 @@ async fn meta_endpoints_against_live_stack() {
     // ==========================================================================
     // Relationships: org-admin writes, typed 422s, grouped both-direction GET
     // ==========================================================================
-    // Non-admin cannot link (A-0006: relationships are tenant-wide config).
-    let parent_request = CreateRelationshipRequest {
-        source_short_code: initiative_code.clone(),
-        target_short_code: t1_code.clone(),
-        relationship: "parent".into(),
-    };
-    let err = rejection(alice.create_relationship(&parent_request).await);
+    // Non-admin cannot write a NON-collaborative edge (A-0006: relationships
+    // are tenant-wide config; KAIROS-T-0111 carves out parent/blocks for
+    // members who manage either end or authored the source).
+    let err = rejection(
+        alice
+            .create_relationship(&CreateRelationshipRequest {
+                source_short_code: initiative_code.clone(),
+                target_short_code: t1_code.clone(),
+                relationship: "informs".into(),
+            })
+            .await,
+    );
     match &err {
         Error::Forbidden { code, details, .. } => {
             assert_eq!(code, "FORBIDDEN");
@@ -248,8 +253,14 @@ async fn meta_endpoints_against_live_stack() {
         other => panic!("expected Forbidden, got {other}"),
     }
 
-    // Org admin links initiative -> task (parent).
-    let edge = svc
+    // A member who manages both boards links initiative -> task (parent) —
+    // the collaborative edge (KAIROS-T-0111).
+    let parent_request = CreateRelationshipRequest {
+        source_short_code: initiative_code.clone(),
+        target_short_code: t1_code.clone(),
+        relationship: "parent".into(),
+    };
+    let edge = alice
         .create_relationship(&parent_request)
         .await
         .expect("linking initiative -> task");
@@ -520,8 +531,10 @@ async fn meta_endpoints_against_live_stack() {
         .expect("raw unknown-family probe");
     assert_eq!(status, 404, "{body}");
 
-    // DELETE: non-admin 403; admin removes; edge disappears; repeat 404.
-    let err = rejection(alice.delete_relationship(&blocks_edge_id).await);
+    // DELETE: a member with no manage on either end and no authorship (bob)
+    // is 403 even for a collaborative edge (KAIROS-T-0111); admin removes;
+    // edge disappears; repeat 404.
+    let err = rejection(bob.delete_relationship(&blocks_edge_id).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
     let body = svc
         .delete_relationship(&blocks_edge_id)
@@ -1170,7 +1183,22 @@ async fn meta_endpoints_against_live_stack() {
         })
         .await
         .expect("combined filters");
-    assert_eq!(body.total, 2, "svc linked parent + blocks: {body:?}");
+    assert_eq!(
+        body.total, 1,
+        "svc linked blocks (alice linked parent, KAIROS-T-0111): {body:?}"
+    );
+    let body = bob
+        .activity(&ActivityQuery {
+            action: Some("relationship_add".into()),
+            actor_id: Some(alice_id.to_string()),
+            ..ActivityQuery::default()
+        })
+        .await
+        .expect("combined filters, alice");
+    assert_eq!(
+        body.total, 3,
+        "alice: two document supports edges + the parent edge: {body:?}"
+    );
     let body = bob
         .activity(&ActivityQuery {
             action: Some("relationship_remove".into()),

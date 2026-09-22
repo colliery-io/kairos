@@ -46,7 +46,7 @@ use kairos_db::models::templates::Template;
 use kairos_db::search::{SearchError, SearchResults};
 use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
-use crate::api::meta::{manage_capability, require_org_admin, validate_metadata_value};
+use crate::api::meta::{manage_capability, require_edge_capability, validate_metadata_value};
 use crate::api::{
     map_abac_error, map_board_error, map_graph_error, map_item_error, parse_enum,
     require_capability, resolve_short_code,
@@ -622,6 +622,8 @@ impl KairosMcp {
                 })
                 .transpose()?;
             let items = board_item_rows(conn, board.id, repository)?;
+            let repo_ids: Vec<Uuid> = items.iter().filter_map(|i| i.repository_id).collect();
+            let repo_slugs = repo_slug_map(conn, &repo_ids)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -633,8 +635,14 @@ impl KairosMcp {
                 out.push_str(&format!("\n## {} ({})\n", column.name, in_column.len()));
                 for item in in_column {
                     out.push_str(&format!(
-                        "- {} [{}] {}\n",
-                        item.short_code, item.kind, item.title
+                        "- {} [{}] {}{}\n",
+                        item.short_code,
+                        item.kind,
+                        item.title,
+                        item.repository_id
+                            .and_then(|id| repo_slugs.get(&id))
+                            .map(|slug| format!(" [repo:{slug}]"))
+                            .unwrap_or_default()
                     ));
                 }
             }
@@ -662,6 +670,12 @@ impl KairosMcp {
             }
             if let Some(work_class) = item.work_class {
                 out.push_str(&format!(" · lane: {work_class}"));
+            }
+            if item.item_type == ItemType::Task {
+                out.push_str(&format!(
+                    " · repository: {}",
+                    repo_label(conn, item.repository_id)?
+                ));
             }
             if let Some(lifecycle) = item.lifecycle {
                 out.push_str(&format!(" · lifecycle: {lifecycle}"));
@@ -834,7 +848,13 @@ impl KairosMcp {
                 core_search::validate(&request).map_err(|e| ApiError::validation(e.to_string()))?;
             }
             let results = search::execute_search(conn, &request).map_err(map_search_error)?;
-            Ok(render_search_results(&results))
+            let repo_ids: Vec<Uuid> = results
+                .tasks
+                .iter()
+                .filter_map(|t| t.repository_id)
+                .collect();
+            let repo_slugs = repo_slug_map(conn, &repo_ids)?;
+            Ok(render_search_results(&results, &repo_slugs))
         })
         .await
     }
@@ -849,9 +869,9 @@ impl KairosMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
-        let slug = tenant.slug.clone();
+        let tenant_ctx = tenant.clone();
         self.run_tool(&tenant, move |conn| {
-            create_item_impl(conn, &slug, user, &params)
+            create_item_impl(conn, &tenant_ctx, user, &params)
         })
         .await
     }
@@ -1007,7 +1027,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced; org-admin only (relationships are tenant-wide configuration)."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. `parent` and `blocks` may be written by anyone who manages either item's board or created the source item (so a task you filed against another team's repository can block your own item); the other types are org-admin only."
     )]
     pub async fn link_items(
         &self,
@@ -1015,15 +1035,21 @@ impl KairosMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
-        if let Err(e) = require_org_admin(&tenant) {
-            return Ok(tool_error(e));
-        }
         let user = auth.user_id;
+        let tenant_ctx = tenant.clone();
         self.run_tool(&tenant, move |conn| {
             let relationship =
                 parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
-            let source_id = require_live(conn, &params.source, "source")?;
-            let target_id = require_live(conn, &params.target, "target")?;
+            let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
+            let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
+            require_edge_capability(
+                conn,
+                &tenant_ctx,
+                user,
+                relationship.as_str(),
+                (source_id, source_type),
+                (target_id, target_type),
+            )?;
             graph::link_items(conn, source_id, target_id, relationship, user)
                 .map_err(map_link_error)?;
             Ok(format!(
@@ -1035,7 +1061,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Remove a relationship edge between two items (by short code and relationship type). Org-admin only."
+        description = "Remove a relationship edge between two items (by short code and relationship type). Gated exactly like link_items."
     )]
     pub async fn unlink_items(
         &self,
@@ -1043,15 +1069,21 @@ impl KairosMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;
-        if let Err(e) = require_org_admin(&tenant) {
-            return Ok(tool_error(e));
-        }
         let user = auth.user_id;
+        let tenant_ctx = tenant.clone();
         self.run_tool(&tenant, move |conn| {
             let relationship =
                 parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
-            let source_id = require_live(conn, &params.source, "source")?;
-            let target_id = require_live(conn, &params.target, "target")?;
+            let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
+            let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
+            require_edge_capability(
+                conn,
+                &tenant_ctx,
+                user,
+                relationship.as_str(),
+                (source_id, source_type),
+                (target_id, target_type),
+            )?;
             graph::unlink_items(conn, source_id, target_id, relationship, user)
                 .map_err(map_link_error)?;
             Ok(format!(
@@ -1214,6 +1246,8 @@ struct ItemView {
     task_type: Option<TaskType>,
     /// Planned/Support lane (KAIROS-T-0077; tasks only).
     work_class: Option<WorkClass>,
+    /// The bound repository (KAIROS-T-0111, A-0019; tasks only).
+    repository_id: Option<Uuid>,
     /// Editorial lifecycle (KAIROS-T-0078; documents only).
     lifecycle: Option<DocumentLifecycle>,
     complexity: Option<Complexity>,
@@ -1256,6 +1290,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: None,
                 work_class: None,
+                repository_id: None,
                 lifecycle: None,
                 complexity: None,
                 hypothesis: row.hypothesis,
@@ -1286,6 +1321,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: None,
                 work_class: None,
+                repository_id: None,
                 lifecycle: None,
                 complexity: row.complexity,
                 hypothesis: None,
@@ -1316,6 +1352,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: Some(row.column_id),
                 task_type: Some(row.task_type),
                 work_class: Some(row.work_class),
+                repository_id: row.repository_id,
                 lifecycle: None,
                 complexity: None,
                 hypothesis: None,
@@ -1346,6 +1383,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: None,
                 task_type: None,
                 work_class: None,
+                repository_id: None,
                 lifecycle: Some(row.lifecycle),
                 complexity: None,
                 hypothesis: None,
@@ -1376,6 +1414,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 column_id: row.column_id,
                 task_type: None,
                 work_class: None,
+                repository_id: None,
                 lifecycle: None,
                 complexity: None,
                 hypothesis: None,
@@ -1490,6 +1529,8 @@ struct BoardItemRow {
     column_id: Uuid,
     short_code: String,
     title: String,
+    /// The bound repository (tasks only; KAIROS-T-0111 renders it).
+    repository_id: Option<Uuid>,
     /// The type tag shown in listings (`task`/`bug`/`tech_debt` for tasks,
     /// the entity type otherwise).
     kind: String,
@@ -1524,6 +1565,7 @@ fn board_item_rows(
                 column_id,
                 short_code,
                 title,
+                repository_id: None,
                 kind: "strategy".to_string(),
             }),
     );
@@ -1547,6 +1589,7 @@ fn board_item_rows(
                 column_id,
                 short_code,
                 title,
+                repository_id: None,
                 kind: if is_bucket { "bucket" } else { "initiative" }.to_string(),
             }),
     );
@@ -1558,7 +1601,7 @@ fn board_item_rows(
     if let Some(repository) = repository {
         task_query = task_query.filter(tasks::repository_id.eq(repository));
     }
-    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass)> = task_query
+    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass, Option<Uuid>)> = task_query
         .order(tasks::short_code.asc())
         .select((
             tasks::column_id,
@@ -1566,26 +1609,24 @@ fn board_item_rows(
             tasks::title,
             tasks::task_type,
             tasks::work_class,
+            tasks::repository_id,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    rows.extend(
-        tasks
-            .into_iter()
-            .map(
-                |(column_id, short_code, title, task_type, work_class)| BoardItemRow {
-                    column_id,
-                    short_code,
-                    title,
-                    // The Support lane rides in `kind` (KAIROS-T-0077); Planned
-                    // stays unmarked as the default lane.
-                    kind: match work_class {
-                        WorkClass::Support => format!("{task_type} [support lane]"),
-                        WorkClass::Planned => task_type.to_string(),
-                    },
-                },
-            ),
-    );
+    rows.extend(tasks.into_iter().map(
+        |(column_id, short_code, title, task_type, work_class, repository_id)| BoardItemRow {
+            column_id,
+            short_code,
+            title,
+            repository_id,
+            // The Support lane rides in `kind` (KAIROS-T-0077); Planned
+            // stays unmarked as the default lane.
+            kind: match work_class {
+                WorkClass::Support => format!("{task_type} [support lane]"),
+                WorkClass::Planned => task_type.to_string(),
+            },
+        },
+    ));
 
     let adrs: Vec<(Option<Uuid>, String, String)> = adrs::table
         .filter(adrs::board_id.eq(board_id))
@@ -1601,6 +1642,7 @@ fn board_item_rows(
                     column_id,
                     short_code,
                     title,
+                    repository_id: None,
                     kind: "adr".to_string(),
                 })
             }),
@@ -1621,14 +1663,55 @@ fn column_item_counts(
     Ok(counts)
 }
 
-/// A live item's id by short code, with the offending field named on
-/// failure (422 `VALIDATION`, mirroring the REST relationship endpoints).
-fn require_live(conn: &mut PgConnection, short_code: &str, field: &str) -> Result<Uuid, ApiError> {
-    resolve_short_code(conn, short_code)?
-        .map(|(id, _)| id)
-        .ok_or_else(|| {
-            ApiError::validation(format!("{field} {short_code:?} does not name a live item"))
-        })
+/// Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
+/// compact listings print after a task.
+fn repo_slug_map(
+    conn: &mut PgConnection,
+    ids: &[Uuid],
+) -> Result<BTreeMap<Uuid, String>, ApiError> {
+    if ids.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    use kairos_db::schema::repositories::dsl;
+    let rows: Vec<(Uuid, String)> = dsl::repositories
+        .filter(dsl::id.eq_any(ids))
+        .filter(dsl::deleted_at.is_null())
+        .select((dsl::id, dsl::slug))
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    Ok(rows.into_iter().collect())
+}
+
+/// `slug (owner team)` for one task's repository, or `(none)`.
+fn repo_label(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiError> {
+    let Some(id) = repository_id else {
+        return Ok("(none)".to_string());
+    };
+    use kairos_db::schema::{repositories, teams};
+    let row: Option<(String, String)> = repositories::table
+        .inner_join(teams::table)
+        .filter(repositories::id.eq(id))
+        .filter(repositories::deleted_at.is_null())
+        .select((repositories::slug, teams::slug))
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?;
+    Ok(row.map_or_else(
+        || "(none)".to_string(),
+        |(slug, team)| format!("{slug} (owner: {team})"),
+    ))
+}
+
+/// A live item by short code WITH its type (the edge-permission check needs
+/// it); 422 `VALIDATION` naming the field otherwise, mirroring REST.
+fn require_live_typed(
+    conn: &mut PgConnection,
+    short_code: &str,
+    field: &str,
+) -> Result<(Uuid, ItemType), ApiError> {
+    resolve_short_code(conn, short_code)?.ok_or_else(|| {
+        ApiError::validation(format!("{field} {short_code:?} does not name a live item"))
+    })
 }
 
 /// An item's metadata values as compact `- slug: value` lines (ordered by
@@ -1893,10 +1976,11 @@ fn reject_field(
 /// service, then write the `parent`/`supports` edge when `parent` is given.
 fn create_item_impl(
     conn: &mut PgConnection,
-    slug: &str,
+    tenant: &TenantContext,
     user: Uuid,
     params: &CreateItemParams,
 ) -> Result<String, ApiError> {
+    let slug = tenant.slug.as_str();
     let item_type = match params.item_type.as_str() {
         "strategy" => ItemType::Strategy,
         "initiative" => ItemType::Initiative,
@@ -2044,6 +2128,31 @@ fn create_item_impl(
         (board, None)
     };
 
+    // KAIROS-T-0111: the `parent` edge is gated BEFORE the item is written
+    // (a refusal must leave no orphan), by the same rule as link_items —
+    // the target is the board the new item will sit on.
+    let parent = params
+        .parent
+        .as_deref()
+        .map(|parent_code| {
+            let (parent_id, parent_type) =
+                resolve_short_code(conn, parent_code)?.ok_or_else(|| {
+                    ApiError::validation(format!(
+                        "parent {parent_code:?} does not name a live item"
+                    ))
+                })?;
+            crate::api::meta::require_edge_capability_on(
+                conn,
+                tenant,
+                user,
+                RelationshipType::Parent.as_str(),
+                (parent_id, parent_type),
+                (Some(board.id), item_type),
+            )?;
+            Ok::<_, ApiError>((parent_code, parent_id))
+        })
+        .transpose()?;
+
     let (created_code, created_title, created_id) = match item_type {
         ItemType::Strategy => {
             let created = items::create_strategy(
@@ -2141,10 +2250,7 @@ fn create_item_impl(
         "Created {item_type} {created_code} — {created_title} (version 1) on board {}.",
         board.slug
     );
-    if let Some(parent_code) = params.parent.as_deref() {
-        let (parent_id, _) = resolve_short_code(conn, parent_code)?.ok_or_else(|| {
-            ApiError::validation(format!("parent {parent_code:?} does not name a live item"))
-        })?;
+    if let Some((parent_code, parent_id)) = parent {
         graph::link_items(conn, parent_id, created_id, RelationshipType::Parent, user)
             .map_err(map_graph_error)?;
         out.push_str(&format!("\nparent: {parent_code} (parent edge created)."));
@@ -2341,7 +2447,7 @@ fn map_search_error(e: SearchError) -> ApiError {
 
 /// Compact REQ-1.6 rendering: results grouped by type, one line per item
 /// (short code + title + a key field), full content via `get_item`.
-fn render_search_results(results: &SearchResults) -> String {
+fn render_search_results(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String {
     let shown = results.strategies.len()
         + results.initiatives.len()
         + results.tasks.len()
@@ -2368,8 +2474,14 @@ fn render_search_results(results: &SearchResults) -> String {
         out.push_str("\n## tasks\n");
         for row in &results.tasks {
             out.push_str(&format!(
-                "- {} — {} [{}]\n",
-                row.short_code, row.title, row.task_type
+                "- {} — {} [{}]{}\n",
+                row.short_code,
+                row.title,
+                row.task_type,
+                row.repository_id
+                    .and_then(|id| repo_slugs.get(&id))
+                    .map(|slug| format!(" [repo:{slug}]"))
+                    .unwrap_or_default()
             ));
         }
     }

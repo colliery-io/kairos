@@ -17,9 +17,12 @@
 //!   S-0005 "(org admin)" annotations apply to the writes: A-0006 says
 //!   only org admins can *create, modify, or delete* tenant-wide
 //!   configuration).
-//! - Relationship, metadata-definition, and template writes are org-admin
-//!   only ([`require_org_admin`] — checked against the membership role the
-//!   tenant middleware already resolved).
+//! - Metadata-definition and template writes are org-admin only
+//!   ([`require_org_admin`] — checked against the membership role the
+//!   tenant middleware already resolved). Relationship writes are org-admin
+//!   EXCEPT the collaborative `parent`/`blocks` edges, which a member may
+//!   write when they manage either end or authored the source
+//!   ([`require_edge_capability`], KAIROS-T-0111).
 //! - Item-metadata writes are gated by the item's `manage_<type>`
 //!   capability on its authorization board
 //!   ([`kairos_db::abac::resolve_authorization_board`]: own board for
@@ -81,6 +84,94 @@ pub fn require_org_admin(tenant: &TenantContext) -> Result<(), ApiError> {
         )
         .with_details(json!({ "required_role": "admin" })))
     }
+}
+
+/// Authorize writing (or removing) one relationship edge (KAIROS-T-0111,
+/// amending A-0006). Org admins may write any edge. For a COLLABORATIVE
+/// type (`parent`, `blocks` — [`kairos_core::abac::is_collaborative_relationship`])
+/// a member may write it when they hold `manage_<family>` on the source
+/// item's board, or on the target item's board, or they CREATED the source
+/// item — which is what lets a `file_backlog` filer (A-0019 §4) hang the
+/// task they just filed under their initiative and mark what it blocks.
+/// Every other type stays org-admin. One helper, shared by the HTTP
+/// relationship routes, MCP `link_items`/`unlink_items`, and the `parent`
+/// write inside MCP `create_item` — so the three cannot diverge.
+pub fn require_edge_capability(
+    conn: &mut PgConnection,
+    tenant: &TenantContext,
+    user: Uuid,
+    relationship: &str,
+    (source_id, source_type): (Uuid, ItemType),
+    (target_id, target_type): (Uuid, ItemType),
+) -> Result<(), ApiError> {
+    if tenant.role == OrgRole::Admin {
+        return Ok(());
+    }
+    if !kairos_core::abac::is_collaborative_relationship(relationship) {
+        return Err(ApiError::forbidden(format!(
+            "{relationship} relationships require the organization admin role; only [{}] \
+             may be written by members (KAIROS-T-0111)",
+            kairos_core::abac::COLLABORATIVE_RELATIONSHIPS.join(", ")
+        ))
+        .with_details(json!({ "required_role": "admin", "relationship": relationship })));
+    }
+    let target_board = kairos_db::abac::resolve_authorization_board(conn, target_id)
+        .map_err(super::map_abac_error)?;
+    require_edge_capability_on(
+        conn,
+        tenant,
+        user,
+        relationship,
+        (source_id, source_type),
+        (target_board, target_type),
+    )
+}
+
+/// [`require_edge_capability`] for a target that may not exist yet (MCP
+/// `create_item` writes the `parent` edge onto the item it is about to
+/// create): the target is identified by the board it WILL sit on and its
+/// type. The admin and non-collaborative arms are the caller's
+/// ([`require_edge_capability`] handles them; this is its shared core).
+pub fn require_edge_capability_on(
+    conn: &mut PgConnection,
+    tenant: &TenantContext,
+    user: Uuid,
+    relationship: &str,
+    (source_id, source_type): (Uuid, ItemType),
+    (target_board, target_type): (Option<Uuid>, ItemType),
+) -> Result<(), ApiError> {
+    if tenant.role == OrgRole::Admin {
+        return Ok(());
+    }
+    if !kairos_core::abac::is_collaborative_relationship(relationship) {
+        return Err(ApiError::forbidden(format!(
+            "{relationship} relationships require the organization admin role; only [{}] \
+             may be written by members (KAIROS-T-0111)",
+            kairos_core::abac::COLLABORATIVE_RELATIONSHIPS.join(", ")
+        ))
+        .with_details(json!({ "required_role": "admin", "relationship": relationship })));
+    }
+    let slug = tenant.slug.as_str();
+    let source_board = kairos_db::abac::resolve_authorization_board(conn, source_id)
+        .map_err(super::map_abac_error)?;
+    for (board, item_type) in [(source_board, source_type), (target_board, target_type)] {
+        if let Some(board) = board
+            && kairos_db::abac::authorize(conn, slug, board, user, manage_capability(item_type))
+                .map_err(super::map_abac_error)?
+        {
+            return Ok(());
+        }
+    }
+    if kairos_db::abac::item_created_by(conn, source_id).map_err(super::map_abac_error)?
+        == Some(user)
+    {
+        return Ok(());
+    }
+    Err(ApiError::forbidden(format!(
+        "a {relationship} edge needs manage_* on the source's or the target's board, or \
+         authorship of the source item"
+    ))
+    .with_details(json!({ "relationship": relationship })))
 }
 
 /// Map a plural `{entity_type}` path segment (the S-0005 family names, as

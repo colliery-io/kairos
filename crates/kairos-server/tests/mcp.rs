@@ -28,7 +28,8 @@
 //!   (REQ-1.5) → delete_item (confirm required; cascade listed) →
 //!   board_items reflects the delete;
 //! - ABAC parity (REQ-1.1): a non-admin member is FORBIDDEN from the
-//!   org-admin-gated link_items;
+//!   the org-admin-gated non-collaborative link_items (and MAY write the
+//!   collaborative blocks edge, KAIROS-T-0111);
 //! - NFR-1.3: the tool calls landed in `activity_log` exactly like API
 //!   calls (asserted straight from the scratch database).
 
@@ -430,7 +431,7 @@ async fn mcp_endpoint_against_live_stack() {
 
     // --- membership + boards + explicit capability grants (A-0006) ----------
     // alice is a plain MEMBER (no admin bypass): the write tools below prove
-    // the capability path, and link_items proves the org-admin denial.
+    // the capability path, and link_items(informs) proves the org-admin denial.
     let alice = user_id(&mut conn, "alice@kairos.test");
     diesel::insert_into(organization_members::table)
         .values(NewOrganizationMember {
@@ -687,14 +688,30 @@ async fn mcp_endpoint_against_live_stack() {
         "current content for reconciliation: {text}"
     );
 
-    // --- ABAC parity: link_items is org-admin-gated; alice is a member ------
+    // --- ABAC parity: non-collaborative link_items is org-admin-gated; alice
+    // is a member. The collaborative `blocks` (KAIROS-T-0111) she may write
+    // since she manages both boards.
     let text = session
         .call_err(
+            "link_items",
+            json!({"source": initiative_code, "target": task_code, "relationship": "informs"}),
+        )
+        .await;
+    assert!(text.contains("FORBIDDEN"), "{text}");
+    let text = session
+        .call_ok(
             "link_items",
             json!({"source": initiative_code, "target": task_code, "relationship": "blocks"}),
         )
         .await;
-    assert!(text.contains("FORBIDDEN"), "{text}");
+    assert!(text.contains("Linked"), "{text}");
+    let text = session
+        .call_ok(
+            "unlink_items",
+            json!({"source": initiative_code, "target": task_code, "relationship": "blocks"}),
+        )
+        .await;
+    assert!(text.contains("Unlinked"), "{text}");
 
     // --- delete_item: confirm required; cascade listed -----------------------
     let text = session
@@ -741,8 +758,10 @@ async fn mcp_endpoint_against_live_stack() {
     );
     assert_eq!(activity_count(&mut conn, alice, "transition"), 1);
     assert_eq!(activity_count(&mut conn, alice, "delete"), 1);
-    // The parent edge from create_item(parent) is a relationship_add row.
-    assert_eq!(activity_count(&mut conn, alice, "relationship_add"), 1);
+    // The parent edge from create_item(parent) plus the blocks edge above
+    // (KAIROS-T-0111) are relationship_add rows; the unlink one remove.
+    assert_eq!(activity_count(&mut conn, alice, "relationship_add"), 2);
+    assert_eq!(activity_count(&mut conn, alice, "relationship_remove"), 1);
 
     // --- repositories (KAIROS-T-0107, A-0019) --------------------------------
     // Give the delivery board an owning team, register a repo under it, and

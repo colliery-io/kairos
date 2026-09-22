@@ -412,3 +412,29 @@ pub fn resolve_authorization_board(
     }
     Ok(None)
 }
+
+/// Who created a live workflow item or document, if it exists
+/// (KAIROS-T-0111): the "I created the source" arm of the collaborative
+/// edge rule. Items span the five entity tables in one UUID space.
+pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<Uuid>, AbacError> {
+    use crate::schema::{adrs, documents, initiatives, strategies, tasks};
+    macro_rules! try_table {
+        ($table:ident) => {
+            if let Some(creator) = $table::table
+                .filter($table::id.eq(item_id))
+                .filter($table::deleted_at.is_null())
+                .select($table::created_by)
+                .first::<Uuid>(conn)
+                .optional()?
+            {
+                return Ok(Some(creator));
+            }
+        };
+    }
+    try_table!(strategies);
+    try_table!(initiatives);
+    try_table!(tasks);
+    try_table!(documents);
+    try_table!(adrs);
+    Ok(None)
+}

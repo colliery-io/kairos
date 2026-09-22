@@ -42,6 +42,20 @@ use delete::DeleteDialog;
 use editor::ContentEditor;
 use metadata::MetadataPanel;
 
+/// The Details | Graph tab targets for a resolved short code — `None`
+/// while the route param is still empty, so no anchor is ever emitted
+/// without its code (KAIROS-T-0124 #2: a first-frame click on a tab built
+/// from an empty param landed on `/items/?view=graph`).
+fn tab_hrefs(code: &str) -> Option<(String, String)> {
+    if code.is_empty() {
+        return None;
+    }
+    Some((
+        format!("/items/{code}"),
+        format!("/items/{code}?view=graph"),
+    ))
+}
+
 /// `/items/:code` — parse the family from the short code and hand off.
 #[component]
 pub fn ItemPage() -> impl IntoView {
@@ -54,11 +68,15 @@ pub fn ItemPage() -> impl IntoView {
             // `?view=` query param — plain history entries, so back and
             // refresh keep the choice with zero effect plumbing.
             let graph_mode = query.read().get("view").as_deref() == Some("graph");
+            // KAIROS-T-0124 #2: the param can be empty for a frame while
+            // the router settles — render nothing clickable until it is
+            // resolved, so no tab is ever built from an empty code.
+            let Some((details_href, graph_href)) = tab_hrefs(&code) else {
+                return view! { <Loading label="Loading item…"/> }.into_any();
+            };
             match Family::of_short_code(&code) {
                 Some(family) => {
                     let tabs = {
-                        let details_href = format!("/items/{code}");
-                        let graph_href = format!("/items/{code}?view=graph");
                         view! {
                             <Group gap="xs">
                                 <Anchor href=details_href>
@@ -519,8 +537,7 @@ fn board_power(
     })
 }
 
-/// The picker's "no repository" option value.
-const NO_REPOSITORY: &str = "(none)";
+use repositories::api::NO_REPOSITORY;
 
 /// The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
 /// owning team's repositories (or none). The server enforces the repo →
@@ -1011,6 +1028,17 @@ fn RelationshipGroupView(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// KAIROS-T-0124 #2: the tab anchors always carry the code — an empty
+    /// route param (first frame after navigation) yields no anchors at
+    /// all rather than `/items/?view=graph`.
+    #[test]
+    fn tab_hrefs_never_emit_an_empty_code() {
+        assert_eq!(tab_hrefs(""), None);
+        let (details, graph) = tab_hrefs("DEMO-T-0007").expect("resolved code");
+        assert_eq!(details, "/items/DEMO-T-0007");
+        assert_eq!(graph, "/items/DEMO-T-0007?view=graph");
+    }
 
     /// The summary reads from THIS item's side: an outgoing parent edge
     /// lists children; passive voice marks the incoming direction.

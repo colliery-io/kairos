@@ -89,6 +89,11 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await expect(repos.locator('[data-repo="platform-infra"]')).toBeVisible();
     await expect(repos.locator('[data-repo="portal-web"]')).toHaveCount(0);
     await expect(repos.locator('[data-repo="payments-api"]')).toContainText('webhooks');
+    // KAIROS-T-0124 #6a: the "how to work here" blurb agents read is shown
+    // to the humans on the team page too.
+    await expect(
+      repos.locator('[data-repo="payments-api"] .kairos-team__repo-description'),
+    ).toContainText('Rust/axum service');
   });
 
   // 2. Board chips + lens + group-by ----------------------------------------
@@ -179,6 +184,27 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     const card = page.locator('article.kairos-card', { hasText: filedCode });
     await expect(card).toBeVisible();
     await expect(card.locator('.kairos-card__repo[data-repo="payments-api"]')).toBeVisible();
+  });
+
+  // 3b. The New task modal's Repository select (KAIROS-T-0124 #6b) ----------
+  await test.step('the New task modal offers the team\'s repositories; the card carries the chip at once', async () => {
+    const title = `Picked in the modal ${RUN}`;
+    await page.getByRole('button', { name: 'New task', exact: true }).click();
+    const modal = page.locator('.cl-modal');
+    await expect(modal.locator('.cl-modal__title')).toHaveText('New task');
+    await modal.locator('input.cl-input').first().fill(title);
+    const picker = modal.locator('[data-testid="create-repository"] select');
+    await expect(picker).toBeVisible();
+    // "(none)" first, then the platform team's repositories (and only theirs).
+    await expect(picker.locator('option').first()).toHaveText('(none)');
+    await expect(picker.locator('option', { hasText: 'payments-api' })).toHaveCount(1);
+    await expect(picker.locator('option', { hasText: 'platform-infra' })).toHaveCount(1);
+    await expect(picker.locator('option', { hasText: 'portal-web' })).toHaveCount(0);
+    await picker.selectOption('payments-api');
+    await modal.getByRole('button', { name: 'Create' }).click();
+    const created = page.locator('article.kairos-card', { hasText: title });
+    await expect(created).toBeVisible({ timeout: 10_000 });
+    await expect(created.locator('.kairos-card__repo[data-repo="payments-api"]')).toBeVisible();
   });
 
   // 4. The picker re-homes within the team ------------------------------------

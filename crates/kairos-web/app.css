@@ -624,3 +624,9 @@ body {
 .kairos-card__blocks {
   text-decoration: none;
 }
+
+/* Team page Repositories rows (KAIROS-T-0124 #6a): the repository's "how to
+   work here" description wraps under its row, dimmed. */
+.kairos-team__repo-description {
+  overflow-wrap: anywhere;
+}

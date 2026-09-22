@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::api::{get_json, put_json};
 use crate::auth::Auth;
 
+/// The repository pickers' "no repository" option value (item page and
+/// the board's New task modal, KAIROS-T-0124 #6b).
+pub const NO_REPOSITORY: &str = "(none)";
+
 /// mirror of: `kairos_client::types_repositories::RepositoryRef` (partial —
 /// what cards and pickers show). Embedded on tasks by the server
 /// (KAIROS-T-0104).

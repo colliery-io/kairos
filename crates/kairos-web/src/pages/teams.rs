@@ -421,24 +421,36 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                 let open = format!("{} open", repo.open_tasks);
                                 let webhook = if repo.has_webhook { "webhooks" } else { "no webhooks" };
                                 let slug_attr = repo.slug.clone();
+                                // KAIROS-T-0124 #6a: the "how to work here"
+                                // blurb agents read over MCP is visible to the
+                                // humans on the team page too.
+                                let description = (!repo.description.trim().is_empty())
+                                    .then(|| repo.description.trim().to_string());
                                 view! {
-                                    <Group justify="between" wrap=true attr:data-repo=slug_attr>
-                                        <Group gap="sm" wrap=true>
-                                            <Pill color=aurora_dark::tokens::token::ICE>{repo.slug.clone()}</Pill>
-                                            <a
-                                                class="cl-anchor"
-                                                href=repo.repo_url.clone()
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                            >
-                                                {name}
-                                            </a>
+                                    <Stack gap="xs" attr:data-repo=slug_attr>
+                                        <Group justify="between" wrap=true>
+                                            <Group gap="sm" wrap=true>
+                                                <Pill color=aurora_dark::tokens::token::ICE>{repo.slug.clone()}</Pill>
+                                                <a
+                                                    class="cl-anchor"
+                                                    href=repo.repo_url.clone()
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                >
+                                                    {name}
+                                                </a>
+                                            </Group>
+                                            <Group gap="sm">
+                                                <Text dimmed=true size="xs">{open}</Text>
+                                                <Text dimmed=true size="xs">{webhook}</Text>
+                                            </Group>
                                         </Group>
-                                        <Group gap="sm">
-                                            <Text dimmed=true size="xs">{open}</Text>
-                                            <Text dimmed=true size="xs">{webhook}</Text>
-                                        </Group>
-                                    </Group>
+                                        {description.map(|text| view! {
+                                            <div class="kairos-team__repo-description">
+                                                <Text dimmed=true size="sm">{text}</Text>
+                                            </div>
+                                        })}
+                                    </Stack>
                                 }
                             }).collect_view()}
                         </Stack>

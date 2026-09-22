@@ -306,6 +306,10 @@ pub struct NewItem {
     pub work_class: Option<String>,
     /// task: the owning team (delivery boards carry one).
     pub team_id: Option<String>,
+    /// task: the repository to issue it against (slug, KAIROS-T-0124 #6b).
+    /// The server routes by it; `board_id` stays set alongside so the
+    /// column/lane placement is unchanged.
+    pub repository: Option<String>,
     /// adr: optional decision maker.
     pub decision_maker: Option<String>,
     /// adr: optional decision date (`YYYY-MM-DD`).
@@ -347,6 +351,9 @@ struct CreateTaskRequest<'a> {
     work_class: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
+    /// Slug or UUID (KAIROS-T-0115: `repository` is THE wire name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    repository: Option<&'a str>,
 }
 
 /// mirror of: `kairos_client::types::CreateAdrRequest`.
@@ -412,6 +419,7 @@ pub async fn create_item(
                     task_type: item.task_type.as_deref(),
                     work_class: item.work_class.as_deref(),
                     team_id: item.team_id.as_deref(),
+                    repository: item.repository.as_deref(),
                 },
             )
             .await?
@@ -594,6 +602,7 @@ mod tests {
             task_type: Some("bug"),
             work_class: Some("support"),
             team_id: None,
+            repository: None,
         })
         .expect("serializes");
         assert_eq!(
@@ -601,6 +610,26 @@ mod tests {
             serde_json::json!({"board_id": "b-1", "column_id": "c-1",
                                "title": "T", "content": "body", "task_type": "bug",
                                "work_class": "support"})
+        );
+
+        // KAIROS-T-0124 #6b: a picked repository rides as `repository`
+        // (the slug) next to the board — the server routes by it.
+        let bound = serde_json::to_value(CreateTaskRequest {
+            board_id: "b-1",
+            column_id: "c-1",
+            title: "T",
+            content: "",
+            task_type: None,
+            work_class: None,
+            team_id: Some("team-1"),
+            repository: Some("payments-api"),
+        })
+        .expect("serializes");
+        assert_eq!(
+            bound,
+            serde_json::json!({"board_id": "b-1", "column_id": "c-1",
+                               "title": "T", "content": "", "team_id": "team-1",
+                               "repository": "payments-api"})
         );
 
         let doc = serde_json::to_value(CreateDocumentRequest {

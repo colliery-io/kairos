@@ -49,21 +49,45 @@ export function cardIn(page: Page, columnName: string, code: string): Locator {
 }
 
 /**
- * Drag a card to a column and wait until it is there. A WS refetch can
- * re-render the board mid-drag and swallow the drop (the e2e drag spec's
- * deflake note), so one retry is allowed before it counts as a failure.
+ * Drag a card to a column and wait until it is there — once, no retry.
+ *
+ * KAIROS-T-0124 #8: `locator.dragTo` hovers the target AFTER the mouse is
+ * down, and a hover scrolls the target into view. When the board overflows
+ * the viewport (five 260px columns, two lanes) that scroll lands between
+ * `mousedown` and the first `mousemove`; Chromium then hit-tests the drag
+ * origin at the stale viewport point, finds no draggable element there and
+ * never starts the drag (no `dragstart`, no `drop` — nothing reaches the
+ * page). The second attempt only worked because the page was already
+ * scrolled. So: bring both ends into view first, press, and move to a point
+ * of the target that is on screen without scrolling again.
  */
 export async function dragCard(page: Page, code: string, toColumn: string): Promise<void> {
-  const target = cardIn(page, toColumn, code);
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await card(page, code).first().dragTo(column(page, toColumn));
-    try {
-      await expect(target).toBeVisible({ timeout: attempt === 0 ? 5_000 : 15_000 });
-      return;
-    } catch (err) {
-      if (attempt === 1) throw err;
-    }
-  }
+  const source = card(page, code).first();
+  const target = column(page, toColumn);
+  await target.scrollIntoViewIfNeeded();
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  if (!from) throw new Error(`card ${code} has no bounding box`);
+  const at = await visiblePoint(page, target, `column ${toColumn}`);
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y, { steps: 2 });
+  await page.mouse.up();
+  await expect(cardIn(page, toColumn, code)).toBeVisible({ timeout: 15_000 });
+}
+
+/** The centre of the part of `target` that is inside the viewport. */
+async function visiblePoint(page: Page, target: Locator, what: string): Promise<{ x: number; y: number }> {
+  const box = await target.boundingBox();
+  const viewport = page.viewportSize();
+  if (!box) throw new Error(`${what} has no bounding box`);
+  if (!viewport) throw new Error('the page has no viewport size');
+  const left = Math.max(box.x, 0);
+  const top = Math.max(box.y, 0);
+  const right = Math.min(box.x + box.width, viewport.width);
+  const bottom = Math.min(box.y + box.height, viewport.height);
+  if (right - left < 4 || bottom - top < 4) throw new Error(`${what} is not in the viewport`);
+  return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
 
 /** The column a card currently sits in, read from the DOM. */

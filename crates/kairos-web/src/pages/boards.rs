@@ -35,8 +35,10 @@ use leptos_router::NavigateOptions;
 use leptos_router::hooks::{query_signal_with_options, use_params_map};
 
 use super::copy_link;
+use super::repositories;
 use crate::auth::use_auth;
 use data::EntityKind;
+use repositories::api::NO_REPOSITORY;
 
 /// A short human line for a failed mutation (page-level `Banner`; load
 /// failures render `ErrorState` instead, which classifies internally).
@@ -1540,8 +1542,42 @@ fn CreateItemModal(
     let work_class = RwSignal::new("auto".to_string());
     let decision_maker = RwSignal::new(String::new());
     let decision_date = RwSignal::new(String::new());
+    // KAIROS-T-0124 #6b: the repository to issue the task against —
+    // "(none)" omits the field. The item page keeps its own picker for
+    // re-binding later.
+    let repository = RwSignal::new(NO_REPOSITORY.to_string());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<ApiError>);
+
+    // The owning team's repositories, loaded whenever the modal opens on
+    // a task board with a team (delivery boards). The select renders only
+    // when the team owns at least one.
+    let repos_team = StoredValue::new(team_id.clone());
+    let repos = LocalResource::new(move || {
+        let _ = auth.token();
+        let team = (open.get() && matches!(kind, EntityKind::Task))
+            .then(|| repos_team.get_value())
+            .flatten();
+        async move {
+            match team {
+                Some(team) => repositories::api::list_repositories(auth, Some(&team))
+                    .await
+                    .map(|list| list.into_iter().map(|r| r.slug).collect::<Vec<String>>()),
+                None => Ok(Vec::new()),
+            }
+        }
+    });
+    let repo_options = Memo::new(move |_| {
+        let slugs = repos
+            .get()
+            .and_then(|result| result.ok())
+            .unwrap_or_default();
+        (!slugs.is_empty()).then(|| {
+            std::iter::once(NO_REPOSITORY.to_string())
+                .chain(slugs)
+                .collect::<Vec<String>>()
+        })
+    });
 
     // A fresh form every time the modal opens.
     Effect::new(move |_| {
@@ -1554,6 +1590,7 @@ fn CreateItemModal(
             work_class.set("auto".to_string());
             decision_maker.set(String::new());
             decision_date.set(String::new());
+            repository.set(NO_REPOSITORY.to_string());
             busy.set(false);
             error.set(None);
         }
@@ -1575,6 +1612,7 @@ fn CreateItemModal(
                 task_type: Some(task_type.get_untracked()),
                 work_class: Some(work_class.get_untracked()).filter(|c| c != "auto"),
                 team_id: team_id.clone(),
+                repository: Some(repository.get_untracked()).filter(|r| r != NO_REPOSITORY),
                 decision_maker: opt(decision_maker.get_untracked()),
                 decision_date: opt(decision_date.get_untracked()),
             };
@@ -1624,6 +1662,12 @@ fn CreateItemModal(
                     // follows the type (support → Support lane).
                     <Select label="Lane" value=work_class
                         options=vec!["auto".into(), "planned".into(), "support".into()]/>
+                    // KAIROS-T-0124 #6b: only when the team owns a repository.
+                    {move || repo_options.get().map(|options| view! {
+                        <div data-testid="create-repository">
+                            <Select label="Repository" value=repository options/>
+                        </div>
+                    })}
                 })}
                 {matches!(kind, EntityKind::Adr).then(|| view! {
                     <Stack gap="sm">

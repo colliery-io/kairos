@@ -298,6 +298,46 @@ async fn repository_api_against_live_stack() {
         .await
         .expect("the owner edits");
     assert_eq!(edited.default_branch, "trunk");
+    // KAIROS-T-0112: re-homing needs the NEW owner's consent — bob (platform
+    // only) cannot push platform's repo onto web; an admin can.
+    let err = rejection(
+        bob.update_repository(
+            "acme-platform-infra",
+            &UpdateRepositoryRequest {
+                team: Some("web".into()),
+                ..Default::default()
+            },
+        )
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Forbidden { .. }),
+        "re-home needs manage on both teams: {err}"
+    );
+    // A task bound to it before the re-home is left STALE (still on
+    // platform's board) and the detail says so; binding attributes the team.
+    let pre = bob
+        .create_task(&CreateTaskRequest {
+            board_id: None,
+            column_id: None,
+            title: "Bound before the re-home".into(),
+            content: String::new(),
+            task_type: None,
+            work_class: None,
+            team_id: None,
+            repository_id: Some("acme-platform-infra".into()),
+        })
+        .await
+        .expect("task on infra");
+    assert_eq!(pre.team_id.as_deref(), Some(platform.id.as_str()));
+    assert_eq!(
+        alice
+            .get_repository("acme-platform-infra")
+            .await
+            .expect("detail")
+            .stale_tasks,
+        0
+    );
     let rehomed = svc
         .update_repository(
             "acme-platform-infra",
@@ -311,6 +351,33 @@ async fn repository_api_against_live_stack() {
         .expect("admin re-homes and renames");
     assert_eq!(rehomed.slug, "infra");
     assert_eq!(rehomed.team.slug, "web");
+    let detail = alice.get_repository("infra").await.expect("detail");
+    assert_eq!(detail.stale_tasks, 1, "the pre-bound task is now stale");
+    // Re-binding that task to the same repo re-checks the rule against ITS
+    // board (platform) and refuses: the repo now belongs to web.
+    let err = rejection(
+        bob.set_task_repository(&pre.short_code, Some("infra"))
+            .await,
+    );
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    // Unbinding it clears the staleness.
+    bob.set_task_repository(&pre.short_code, None)
+        .await
+        .expect("unbind the stale task");
+    assert_eq!(
+        alice
+            .get_repository("infra")
+            .await
+            .expect("detail")
+            .stale_tasks,
+        0
+    );
+    // A team that still owns repositories cannot be deleted (409, naming them).
+    let err = rejection(svc.delete_team(&web.id).await);
+    match &err {
+        Error::Conflict { message, .. } => assert!(message.contains("infra"), "{message}"),
+        other => panic!("expected Conflict, got {other}"),
+    }
     // Now alice (web) may edit it and bob (platform) may not.
     alice
         .update_repository(

@@ -79,6 +79,11 @@ pub struct RepositoryDetail {
     pub repository: Repository,
     /// The live forge connection's id, if any.
     pub connection_id: Option<String>,
+    /// Live tasks bound to this repository whose team or board no longer
+    /// match its owner (KAIROS-T-0112) — what a re-home leaves behind until
+    /// each task's next write; 0 when consistent.
+    #[serde(default)]
+    pub stale_tasks: i64,
     /// In-flight (`open`, `draft`) branches and pull requests on this
     /// repository, newest first, each with the work item it belongs to.
     pub in_flight: Vec<crate::types_forge::TeamLink>,

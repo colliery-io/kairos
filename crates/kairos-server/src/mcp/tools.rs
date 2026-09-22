@@ -474,6 +474,8 @@ impl KairosMcp {
             let repo = repositories::resolve(conn, &params.repository)
                 .map_err(crate::api::org::repositories::map_error)?;
             let repo_id = repo.id;
+            let stale = repositories::stale_tasks(conn, &repo)
+                .map_err(crate::api::org::repositories::map_error)?;
             let rendered = crate::api::org::repositories::render(conn, vec![repo])?.remove(0);
             let in_flight =
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
@@ -491,6 +493,11 @@ impl KairosMcp {
                 rendered.open_tasks,
                 if rendered.has_webhook { "connected" } else { "not connected" },
             );
+            if stale > 0 {
+                out.push_str(&format!(
+                    "- STALE: {stale} task(s) bound here sit on another team's board (a re-home left them); rebind or move them\n"
+                ));
+            }
             out.push_str("\n## How to work here\n");
             if rendered.description.trim().is_empty() {
                 out.push_str("(no description yet)\n");

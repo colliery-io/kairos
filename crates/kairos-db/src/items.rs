@@ -710,21 +710,26 @@ pub fn set_task_repository(
         if current.repository_id == repository_id {
             return Ok(current);
         }
-        if let Some(repo) = repository_id {
-            use crate::schema::repositories;
-            let live: Option<Uuid> = repositories::table
-                .filter(repositories::id.eq(repo))
-                .filter(repositories::deleted_at.is_null())
-                .select(repositories::id)
-                .first(conn)
-                .optional()?;
-            if live.is_none() {
-                return Err(ItemError::RepositoryNotFound(repo));
+        // KAIROS-T-0112: binding also attributes the task to the repository's
+        // owning team (create does the same via routing); clearing leaves
+        // the team as it was.
+        let owner: Option<Uuid> = match repository_id {
+            Some(repo) => {
+                use crate::schema::repositories;
+                let owner: Option<Uuid> = repositories::table
+                    .filter(repositories::id.eq(repo))
+                    .filter(repositories::deleted_at.is_null())
+                    .select(repositories::team_id)
+                    .first(conn)
+                    .optional()?;
+                Some(owner.ok_or(ItemError::RepositoryNotFound(repo))?)
             }
-        }
+            None => None,
+        };
         let updated: Task = diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
             .set((
                 dsl::repository_id.eq(repository_id),
+                dsl::team_id.eq(owner.or(current.team_id)),
                 dsl::updated_by.eq(actor),
                 dsl::updated_at.eq(diesel::dsl::now),
             ))

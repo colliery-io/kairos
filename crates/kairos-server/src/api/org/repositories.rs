@@ -88,6 +88,9 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
              {connections} live webhook connection(s); unbind them first"
         )),
         RepositoryError::Database(e) => ApiError::internal(e),
+        routing @ (RepositoryError::BoardMismatch { .. }
+        | RepositoryError::TeamMismatch { .. }
+        | RepositoryError::NothingToRouteBy) => ApiError::validation(routing.to_string()),
     }
 }
 
@@ -107,17 +110,16 @@ fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiErr
         .ok_or_else(|| ApiError::validation(format!("team {reference:?} does not exist")))
 }
 
-/// The team's live delivery board id, if any.
+/// The team's ONE live delivery board, or `None` when it has none or
+/// several — the same exactly-one semantics routing uses
+/// ([`repositories::delivery_board_for_team`]), so the directory, the
+/// manage gate and routing never disagree (KAIROS-T-0112).
 fn delivery_board_of(conn: &mut PgConnection, team_id: Uuid) -> Result<Option<Uuid>, ApiError> {
-    use kairos_db::schema::boards::dsl;
-    dsl::boards
-        .filter(dsl::team_id.eq(team_id))
-        .filter(dsl::board_level.eq(BoardLevel::Delivery))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)
+    match repositories::delivery_board_for_team(conn, team_id) {
+        Ok(board) => Ok(Some(board)),
+        Err(RepositoryError::NoDeliveryBoard { .. }) => Ok(None),
+        Err(e) => Err(map_error(e)),
+    }
 }
 
 /// Org admin, or `manage_tasks` on the team's delivery board (team
@@ -151,10 +153,14 @@ pub(crate) fn render(
     };
     let team_rows: Vec<Team> = teams::table
         .filter(teams::id.eq_any(&team_ids))
+        .filter(teams::deleted_at.is_null())
         .select(Team::as_select())
         .load(conn)
         .map_err(ApiError::internal)?;
     let by_team: HashMap<Uuid, Team> = team_rows.into_iter().map(|t| (t.id, t)).collect();
+    // One delivery board per team, with the SAME exactly-one semantics as
+    // routing: a team with two delivery boards shows none here rather than
+    // an arbitrary one (KAIROS-T-0112).
     let board_rows: Vec<(Uuid, Uuid)> = boards::table
         .filter(boards::team_id.eq_any(team_ids.iter().map(|id| Some(*id)).collect::<Vec<_>>()))
         .filter(boards::board_level.eq(BoardLevel::Delivery))
@@ -162,7 +168,14 @@ pub(crate) fn render(
         .select((boards::team_id.assume_not_null(), boards::id))
         .load(conn)
         .map_err(ApiError::internal)?;
-    let board_of: HashMap<Uuid, Uuid> = board_rows.into_iter().collect();
+    let mut board_count: HashMap<Uuid, usize> = HashMap::new();
+    for (team, _) in &board_rows {
+        *board_count.entry(*team).or_default() += 1;
+    }
+    let board_of: HashMap<Uuid, Uuid> = board_rows
+        .into_iter()
+        .filter(|(team, _)| board_count.get(team) == Some(&1))
+        .collect();
     let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
     let counts: HashMap<Uuid, (i64, bool)> = repositories::counts(conn, &ids)
         .map_err(map_error)?
@@ -266,6 +279,7 @@ pub(crate) async fn get_repository(
         .run(&tenant.slug, move |conn| {
             let repo = repositories::resolve(conn, &slug).map_err(map_error)?;
             let repo_id = repo.id;
+            let stale_tasks = repositories::stale_tasks(conn, &repo).map_err(map_error)?;
             let connection_id = kairos_db::forge::find_connection_for_repository(conn, repo_id)
                 .map_err(|e| ApiError::internal(e.to_string()))?
                 .map(|c| c.id.to_string());
@@ -290,6 +304,7 @@ pub(crate) async fn get_repository(
             Ok(dto::RepositoryDetail {
                 repository: render_one(conn, repo)?,
                 connection_id,
+                stale_tasks,
                 in_flight,
             })
         })
@@ -387,6 +402,13 @@ pub(crate) async fn update_repository(
                 .as_deref()
                 .map(|reference| resolve_team(conn, reference).map(|t| t.id))
                 .transpose()?;
+            // KAIROS-T-0112: re-homing needs the NEW owner's consent too —
+            // manage on both delivery boards (org admin bypasses both).
+            if let Some(new_team) = team_id
+                && new_team != current.team_id
+            {
+                require_manage_for_team(conn, &tenant_slug, user, new_team)?;
+            }
             let updated = repositories::update(
                 conn,
                 current.id,

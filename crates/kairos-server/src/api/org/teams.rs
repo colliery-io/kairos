@@ -71,17 +71,15 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
         .ok_or_else(|| ApiError::not_found(format!("no live team {team_id}")))
 }
 
-/// The team's live delivery board id, if any.
+/// The team's ONE live delivery board, if any (exactly-one semantics,
+/// shared with routing — KAIROS-T-0112).
 fn delivery_board_of(conn: &mut PgConnection, team_id: Uuid) -> Result<Option<Uuid>, ApiError> {
-    use kairos_db::schema::boards::dsl;
-    dsl::boards
-        .filter(dsl::team_id.eq(team_id))
-        .filter(dsl::board_level.eq(BoardLevel::Delivery))
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)
+    use kairos_db::repositories::{RepositoryError, delivery_board_for_team};
+    match delivery_board_for_team(conn, team_id) {
+        Ok(board) => Ok(Some(board)),
+        Err(RepositoryError::NoDeliveryBoard { .. }) => Ok(None),
+        Err(e) => Err(super::repositories::map_error(e)),
+    }
 }
 
 /// Insert one `activity_log` row for a team mutation.
@@ -530,6 +528,21 @@ pub(crate) async fn delete_team(
             use kairos_db::schema::teams::dsl;
             require_capability(conn, &slug, None, user, MANAGE)?;
             let team = load_team(conn, team_id)?;
+            // KAIROS-T-0112: a team that still OWNS repositories cannot go —
+            // symmetric with the repository delete guard; re-home them first.
+            let owned = kairos_db::repositories::list(conn, Some(team_id))
+                .map_err(super::repositories::map_error)?;
+            if !owned.is_empty() {
+                let slugs: Vec<&str> = owned.iter().map(|r| r.slug.as_str()).collect();
+                return Err(ApiError::conflict(format!(
+                    "team {:?} still owns {} repositor{}: [{}]; re-home them before removing the team",
+                    team.name,
+                    owned.len(),
+                    if owned.len() == 1 { "y" } else { "ies" },
+                    slugs.join(", ")
+                ))
+                .with_details(serde_json::json!({ "repositories": slugs })));
+            }
             let board = delivery_board_of(conn, team_id)?;
             if let Some(board_id) = board {
                 let item_count = count_board_items(conn, board_id)?;

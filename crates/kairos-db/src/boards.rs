@@ -739,3 +739,17 @@ fn count_items_in_column(conn: &mut PgConnection, column_id: Uuid) -> Result<u64
 
     Ok((strategies_count + initiatives_count + tasks_count + adrs_count) as u64)
 }
+
+/// The board's ENTRY column — lowest position, the one creation defaults
+/// to (KAIROS-T-0062) and the one `file_backlog` filing is confined to
+/// (KAIROS-T-0105). Defined once so both agree even if positions are not
+/// 0-based after a renumbering (KAIROS-T-0112).
+pub fn entry_column(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uuid>, DieselError> {
+    use crate::schema::board_columns;
+    board_columns::table
+        .filter(board_columns::board_id.eq(board_id))
+        .order(board_columns::position.asc())
+        .select(board_columns::id)
+        .first(conn)
+        .optional()
+}

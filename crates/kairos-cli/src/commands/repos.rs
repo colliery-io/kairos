@@ -163,6 +163,12 @@ impl ReposCommand {
                     "webhook:        {}",
                     detail.connection_id.as_deref().unwrap_or("not connected")
                 );
+                if detail.stale_tasks > 0 {
+                    println!(
+                        "stale tasks:    {} (bound here but on another team's board — re-home left them; each is re-checked on its next write)",
+                        detail.stale_tasks
+                    );
+                }
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");

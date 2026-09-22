@@ -544,10 +544,25 @@ pub(crate) async fn board_items(
                     groups[i].tasks.push(row.into_dto());
                 }
             }
-            // KAIROS-T-0104: embed the repository ref on every task, one
-            // query for the whole board.
-            for group in groups.iter_mut() {
-                attach_repositories(conn, &mut group.tasks).map_err(ApiError::internal)?;
+            // KAIROS-T-0104: embed the repository ref on every task — ONE
+            // query for the whole board (collect, attach, redistribute).
+            {
+                let mut all: Vec<kairos_client::types::Task> = groups
+                    .iter_mut()
+                    .flat_map(|g| std::mem::take(&mut g.tasks))
+                    .collect();
+                attach_repositories(conn, &mut all).map_err(ApiError::internal)?;
+                let mut by_column: HashMap<String, Vec<kairos_client::types::Task>> =
+                    HashMap::new();
+                for task in all {
+                    by_column
+                        .entry(task.column_id.clone())
+                        .or_default()
+                        .push(task);
+                }
+                for group in groups.iter_mut() {
+                    group.tasks = by_column.remove(&group.column.id).unwrap_or_default();
+                }
             }
             let adr_rows: Vec<Adr> = adrs::table
                 .filter(adrs::board_id.eq(board_id))

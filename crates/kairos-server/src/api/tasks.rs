@@ -43,95 +43,38 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-/// Where a new task lands (KAIROS-T-0104, A-0019 §2).
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TaskRoute {
-    pub board_id: Uuid,
-    pub team_id: Option<Uuid>,
-    pub repository_id: Option<Uuid>,
-}
+pub(crate) use kairos_db::repositories::TaskRoute;
 
-/// [`RepositoryError`] → HTTP for the routing paths.
+/// [`RepositoryError`] → HTTP for the routing paths (422 for every
+/// "you named something wrong", 500 for the database).
 pub(crate) fn map_repository_error(e: repositories::RepositoryError) -> ApiError {
     use repositories::RepositoryError as E;
     match e {
-        E::NotFound(id) => ApiError::validation(format!("repository {id} does not exist")),
-        E::SlugNotFound(slug) => {
-            ApiError::validation(format!("repository {slug:?} does not exist"))
-        }
-        E::NoDeliveryBoard { team, count } => ApiError::validation(format!(
-            "repository's owning team {team} has {count} live delivery boards; \
-             exactly one is needed to route the task"
-        )),
         E::Database(e) => ApiError::internal(e),
         other => ApiError::validation(other.to_string()),
     }
 }
 
-/// Resolve the routing triple for a task write from what the caller sent
-/// (A-0019 §2; I-0010 §D2):
-///
-/// 1. repository only → the repo's owning team and that team's delivery
-///    board;
-/// 2. repository + board → the board must BE that delivery board, and an
-///    explicit team must be the owning team (else 422);
-/// 3. no repository → today's behaviour exactly (`board_id` required).
-///
-/// One helper so the HTTP handler and the MCP `create_item` path agree —
-/// the class of divergence KAIROS-T-0096 recorded for `set_metadata`.
+/// The routing decision lives in `kairos_db::repositories::route_task`
+/// (KAIROS-T-0112); this is its HTTP error mapping, shared by the task
+/// handler, MCP `create_item`, and the board view.
 pub(crate) fn resolve_routing(
     conn: &mut PgConnection,
     board_id: Option<Uuid>,
     team_id: Option<Uuid>,
     repository: Option<&str>,
 ) -> Result<TaskRoute, ApiError> {
-    let Some(reference) = repository else {
-        let Some(board_id) = board_id else {
-            return Err(ApiError::validation(
-                "board_id is required unless repository_id is given (a repository routes \
-                 the task to its owning team's delivery board)",
-            ));
-        };
-        return Ok(TaskRoute {
-            board_id,
-            team_id,
-            repository_id: None,
-        });
-    };
-    let repo = repositories::resolve(conn, reference).map_err(map_repository_error)?;
-    let delivery_board =
-        repositories::delivery_board_for_team(conn, repo.team_id).map_err(map_repository_error)?;
-    if let Some(board_id) = board_id
-        && board_id != delivery_board
-    {
-        return Err(ApiError::validation(format!(
-            "repository {} belongs to team {}, whose delivery board is {delivery_board}, \
-             not {board_id}",
-            repo.slug, repo.team_id
-        )));
-    }
-    if let Some(team_id) = team_id
-        && team_id != repo.team_id
-    {
-        return Err(ApiError::validation(format!(
-            "repository {} belongs to team {}, not {team_id}",
-            repo.slug, repo.team_id
-        )));
-    }
-    Ok(TaskRoute {
-        board_id: delivery_board,
-        team_id: Some(repo.team_id),
-        repository_id: Some(repo.id),
-    })
+    repositories::route_task(conn, board_id, team_id, repository).map_err(map_repository_error)
 }
 
 /// Authorize a task CREATE (KAIROS-T-0105, A-0019 §4). `manage_tasks` on
 /// the target board as always; failing that, the computed `file_backlog`
 /// applies ONLY when all of: a repository routed the task, and the target
-/// column is the board's Backlog (position 0 — the default when no column
-/// is named). An explicitly requested non-Backlog column by a non-member
-/// is a 403, never silently re-routed. Shared by HTTP and MCP so the two
-/// entry points cannot diverge (the KAIROS-T-0096 lesson).
+/// column is the board's ENTRY column (the default when no column is
+/// named — [`boards::entry_column`], so explicit and defaulted agree).
+/// An explicitly requested non-entry column by a non-member is a 403,
+/// never silently re-routed. Shared by HTTP and MCP so the two entry
+/// points cannot diverge (the KAIROS-T-0096 lesson).
 pub(crate) fn require_task_create_capability(
     conn: &mut PgConnection,
     slug: &str,
@@ -145,22 +88,15 @@ pub(crate) fn require_task_create_capability(
     if manages {
         return Ok(());
     }
-    let targets_backlog = route.repository_id.is_some()
+    let targets_entry = route.repository_id.is_some()
         && match column_id {
             None => true,
             Some(column) => {
-                use kairos_db::schema::board_columns::dsl;
-                let position: Option<i32> = dsl::board_columns
-                    .filter(dsl::id.eq(column))
-                    .filter(dsl::board_id.eq(route.board_id))
-                    .select(dsl::position)
-                    .first(conn)
-                    .optional()
-                    .map_err(ApiError::internal)?;
-                position == Some(0)
+                boards::entry_column(conn, route.board_id).map_err(ApiError::internal)?
+                    == Some(column)
             }
         };
-    if targets_backlog {
+    if targets_entry {
         require_capability(
             conn,
             slug,

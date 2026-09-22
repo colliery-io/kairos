@@ -869,6 +869,23 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     let unbound_code = extract_code(&text, "ACME-T-");
+    // board + repository must agree (KAIROS-T-0112 covers the disagreement):
+    // the initiative board is not platform's delivery board.
+    let text = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Disagreeing board",
+                "repository": "payments-api",
+                "board": initiative_board.to_string(),
+            }),
+        )
+        .await;
+    assert!(
+        text.contains("VALIDATION") && text.contains("delivery board"),
+        "{text}"
+    );
     let text = session
         .call_ok(
             "board_items",

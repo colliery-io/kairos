@@ -28,7 +28,7 @@ Most Kairos implementation will be executed by AI agents working through Metis t
 
 ## Decision
 
-**Four test tiers against real infrastructure, driven exclusively through angreal tasks, with a mechanical completion gate for every agent-executed task.**
+**Four test tiers against real infrastructure, driven exclusively through angreal tasks, with a mechanical completion gate for every agent-executed task.** (Two further tiers were added by amendment: soak, 2026-07-08; UAT, 2026-09-22.)
 
 ### Tiers
 1. **Unit (`angreal test unit`)** — `cargo test` on pure logic, no I/O. Lives primarily in `kairos-core`: transition rule evaluation, ABAC capability matching, short-code generation, search-request validation, error mapping. Fast enough to run on every loop iteration.
@@ -36,6 +36,7 @@ Most Kairos implementation will be executed by AI agents working through Metis t
 3. **API integration (same task)** — boots the axum app against the compose stack (including the **Dex** test issuer, per A-0010) and exercises it through `kairos-client` with real tokens: auth middleware (expired/wrong-audience/no-membership), every endpoint family in S-0005, WS event delivery, and MCP tool round-trips through `/mcp` per S-0006.
 4. **E2E smoke (`angreal test e2e`, new task)** — full compose up, provision tenant, seed demo data, run the golden path (create strategy → initiative → decompose to tasks → transition → search → MCP session), plus a thin Playwright suite for the Leptos GUI's critical paths (login via Dex, board view, item create/transition, live WS update). Kept deliberately small; it gates releases, not every task.
 5. **Soak (`angreal test soak`, added at ratification 2026-07-08 per Dylan)** — a long-running run against the compose stack driven by a synthetic **workforce payload**: a configurable simulated organization (N teams, humans and agent service-accounts) executing a realistic operation mix — creates, edits (with deliberate 409 collisions), transitions, searches/traversals, MCP sessions, and WS subscribers — at sustained rate for hours. Pass criteria asserted continuously: flat error rate, p95 for common ops within the vision's 50ms budget, stable memory and connection-pool metrics, retention sweeper keeping history bounded (A-0004), and tenant-isolation invariants holding under concurrency. Runs nightly and pre-release; never part of the per-task gate.
+6. **UAT (`angreal test uat`, added 2026-09-22 per Dylan, KAIROS-I-0011)** — persona-driven user-acceptance journeys in `uat/`: a coding agent (a service account) over MCP and the real `kairos` CLI, engineers in the browser, admins over the CLI/API, each journey a story told once (serial, no retries) whose every acceptance step is narrated and records what was observed. Runs against the compose stack with a fresh seed by default, or against any deployment with `--server <url>` — journeys name everything they create `uat-<run>-…` and delete it in teardown; steps that need a fresh tenant or a deployment-admin token are skipped and say so. Every run renders `uat/reports/<run>/report.md` (+ `.json`): per journey a persona / step / observed / status table with screenshots and traces on failure — the artefact a product owner reads to accept a release. Journeys mirror the plugin skills' documented call sequences, so they double as the acceptance test of that documentation. A release/milestone gate like e2e, never part of the per-task gate; also run nightly in CI with the report uploaded.
 
 ### Fixtures
 A `seed-demo` operation (exposed as `angreal db seed`) provisions a demo tenant with users, teams, boards, and representative items. Integration tests and skill verification both consume it, so "a running Kairos with known data" is one command.
@@ -82,4 +83,4 @@ Plugin skills are verified as scenario runs against the compose stack with seede
 
 ### Neutral
 - `angreal test e2e` and `angreal db seed` are new tasks to add to the existing harness
-- Playwright is the only non-Rust test dependency; it's confined to the E2E tier
+- Playwright is the only non-Rust test dependency; it's confined to the E2E and UAT tiers (amended 2026-09-22)

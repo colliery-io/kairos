@@ -423,6 +423,60 @@ rejecting would make the forge retry forever. Redelivered or out-of-order events
 cannot regress state (a replayed "opened" will not un-merge a merged PR). Editing
 a PR to remove a short code removes that link.
 
+## User acceptance runs
+
+`angreal test uat` (KAIROS-A-0012 tier 6) walks Kairos the way people and
+agents use it: four persona journeys — an organisation is set up, a strategy
+is broken down to work on a board, a coding agent lands a PR in its
+repository, a web engineer files work into platform's Backlog and gets it —
+each crossing the surfaces the persona would really use (the browser, the
+real `kairos` CLI, MCP). Every run ends in a report a product owner can read:
+`uat/reports/<run>/report.md`, one persona / step / observed / status table
+per journey, with screenshots and traces on failure.
+
+### Run against the compose stack
+
+```sh
+angreal test uat                                # fresh seed, all journeys
+angreal test uat --journey planning,cross-team  # a subset
+angreal test uat --keep-running                 # leave the stack + :41080 server up
+```
+
+Destructive to the dev database's `demo` tenant, like `angreal test e2e`.
+
+### Run against a deployment
+
+```sh
+UAT_PERSONA_ALICE_EMAIL=… UAT_PERSONA_ALICE_PASSWORD=… \
+UAT_PERSONA_BOB_EMAIL=…   UAT_PERSONA_BOB_PASSWORD=… \
+UAT_PERSONA_CAROL_EMAIL=… UAT_PERSONA_CAROL_PASSWORD=… \
+UAT_TENANT=acme UAT_ISSUER=https://id.example.com/realms/acme \
+angreal test uat --server https://kairos.example.com
+```
+
+Non-destructive: everything a journey creates is named `uat-<run>-…` and
+deleted in teardown; steps that need a throwaway tenant or a deployment-admin
+token are skipped and the report says so. The deployment's IdP must offer a
+password login form (Dex, Keycloak with direct grants) and register
+`<server>/callback` for the `kairos-web` client.
+
+### Reference
+
+| Flag / variable | Meaning |
+|---|---|
+| `--server URL` | target a deployment instead of booting compose |
+| `--journey a,b` | journey ids: `smoke`, `onboarding`, `planning`, `agent-loop`, `cross-team` |
+| `--keep-running` | compose mode: keep the stack and server up (server logs to `target/uat-server.log`) |
+| `--headed`, `--report-dir` | show the browser; where the report lands |
+| `UAT_PERSONA_<ALICE\|BOB\|CAROL\|NEWHIRE>_EMAIL` / `_PASSWORD` | persona credentials (default: the seed users) |
+| `UAT_TENANT`, `UAT_ISSUER` | tenant slug and OIDC issuer for a deployment |
+| `UAT_TEAM` | the team bob belongs to, on which the agent journey registers its repository (default `platform`) |
+| `UAT_THEIR_REPO`, `UAT_MY_REPO` | the cross-team journey's two repositories (default `payments-api`, `portal-web`) |
+
+Journey-writing conventions live in `uat/README.md`. The nightly
+`uat-nightly` workflow runs the compose mode and uploads the report as an
+artefact; UAT is a release gate, not part of `angreal test all`.
+
 ## CI
 
 `.github/workflows/ci.yml` runs the KAIROS-A-0012 verification gates on every

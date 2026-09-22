@@ -1,0 +1,84 @@
+# Kairos UAT — KAIROS-A-0012 tier 6 (`angreal test uat`, KAIROS-I-0011): the
+# persona-driven user-acceptance journeys in uat/ against the compose stack
+# with a fresh seed, ending in a readable report.
+#
+# CI decision: like e2e, UAT is a release/milestone gate, not a per-push
+# one — it cycles the compose stack, builds the wasm bundle and the CLI,
+# boots a server and drives a real browser through four multi-persona
+# stories. It runs nightly (and on demand) so a regression in what a
+# *user* can do surfaces within a day, and the report is uploaded whatever
+# the outcome so the failing step can be read without re-running.
+
+name: uat-nightly
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:10 UTC daily — after the day's merges, before anyone's morning.
+    - cron: "10 4 * * *"
+
+concurrency:
+  group: uat-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  uat:
+    name: user-acceptance journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        run: |
+          rustup toolchain install
+          rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify Docker is available
+        run: |
+          docker version
+          docker compose version
+
+      - name: Install libpq (diesel postgres backend links against it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpq-dev
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install angreal
+        run: |
+          pip install "angreal==2.8.8"
+          angreal --version
+
+      - name: Set up Node.js
+        # The journeys run Playwright from uat/ (npx playwright test); the
+        # angreal task installs the npm deps + chromium itself, guarded.
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # `angreal test uat` drives compose up/down, builds the server, the
+      # CLI and the wasm bundle, seeds, boots the :41080 server and runs
+      # the journeys. Exit code propagates; the report is written either way.
+      - name: angreal test uat
+        run: angreal test uat --report-dir uat/reports/nightly
+
+      - name: Upload the UAT report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uat-report-${{ github.run_number }}
+          path: uat/reports/nightly/
+          if-no-files-found: warn
+          retention-days: 30

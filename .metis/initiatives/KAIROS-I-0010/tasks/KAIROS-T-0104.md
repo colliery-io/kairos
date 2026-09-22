@@ -3,15 +3,15 @@ id: task-repo-binding-create-time
 level: task
 title: "Task repo binding: create-time routing, board-consistency rule, set-repository endpoint, repo filter on board items and search"
 short_code: "KAIROS-T-0104"
-created_at: 2026-09-22T03:04:40.000000+00:00
-updated_at: 2026-09-22T03:04:40.000000+00:00
+created_at: 2026-09-22T03:04:40+00:00
+updated_at: 2026-09-22T03:47:54.465721+00:00
 parent: KAIROS-I-0010
-blocked_by: ["KAIROS-T-0103"]
+blocked_by: [KAIROS-T-0103]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -45,13 +45,17 @@ Making `board_id` optional touches every existing caller of `POST /api/tasks` (C
 
 ## Acceptance Criteria
 
-- [ ] Server integration tests: repo-only create lands on the owning team's delivery board with `team_id` set; repo + wrong board → 422 with the specified message; repo + wrong `team_id` → 422; neither board nor repo → 422; repo-less create unchanged.
-- [ ] `PUT …/repository` sets, re-homes (to a repo of the same team), rejects a repo of another team, clears with `null`; `activity_log` carries `task_repository_set`; `version` unchanged.
-- [ ] Board items and search filter by repository (slug and UUID); unknown slug → 404/422 consistently with existing filters.
-- [ ] `dto::Task.repository` present on get/list/board-items/search responses.
-- [ ] OpenAPI regenerated; kairos-client compiles with the new surface; existing client integration suite green.
-- [ ] fmt/clippy/unit/integration green.
+- [x] Server integration test `tests/task_repositories.rs`: repo-only create lands on the owner's delivery board with `team_id` set (slug and UUID); repo + wrong board → 422 naming repo, team and the right board; repo + wrong `team_id` → 422; neither → 422 "board_id is required unless repository_id is given"; repo-less create unchanged; unknown repo → 422.
+- [x] `PUT …/repository` sets, re-homes within the team, rejects another team's repo, clears with `null`; three `activity_log` rows with action `repository` (the enum variant, not a free-text `task_repository_set`); `version` unchanged; unknown code → 404.
+- [x] Board items `?repository=` (slug and UUID; unknown → 422) narrows tasks only; search `filter.repository_id` (UUID, like every sibling id filter — slug resolution for search lands on the MCP side in T-0107 where a conn is in hand); non-UUID → 400 like `filter.team_id`.
+- [x] `dto::Task.repository_id` on every carrier; embedded `dto::Task.repository` (`RepositoryRef`) on create/get/list/update/work-class/transition/set-repository/board-items/search via one batched `attach_repositories` query per response. WS event payloads carry `repository_id` only (pure conversion).
+- [x] `set_repository` registered in OpenAPI; kairos-client has `set_task_repository`, `board_items_for_repository`, `put_ok`, `types_repositories::{RepositoryRef, SetTaskRepositoryRequest}`; CLI `tasks create --repo` (board optional), `search --repo`.
+- [x] fmt, clippy `-D warnings` on core/db/client/server/cli/soak, `angreal test unit`, `angreal test integration` 35/35 green.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`cd206fb`). Notes for downstream:
+  - `crate::api::tasks::{resolve_routing, TaskRoute, map_repository_error}` are `pub(crate)` — T-0105 wraps the capability choice around `resolve_routing`; T-0107's `create_item_impl` MUST call it rather than re-implement.
+  - `convert::{attach_repositories, attach_repository, repository_ref}` are the enrichment helpers; anything new that renders tasks should call them.
+  - `kairos-web` keeps its own local `CreateTaskRequest` mirror sending `board_id` — untouched and wire-compatible; T-0109 adds `repository_id` there.
+  - All existing callers of `POST /api/tasks` (CLI, web, MCP, soak, e2e helpers) still send `board_id` — verified by grep, behaviour unchanged.

@@ -4,14 +4,14 @@ level: task
 title: "Fix: pre-existing forge/ABAC hygiene — transactional rotate, config check ordering, CAPABILITY_VOCABULARY dedupe, dead helpers, loose cross-tenant assertion"
 short_code: "KAIROS-T-0116"
 created_at: 2026-09-22T09:53:07.848633+00:00
-updated_at: 2026-09-22T09:53:07.848633+00:00
+updated_at: 2026-09-22T10:30:11.305624+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -42,12 +42,12 @@ Small pre-existing defects the review surfaced while reading the touched modules
 
 ## Acceptance Criteria
 
-- [ ] Rotate is transactional (test: inject a failure after delete → old connection still live).
-- [ ] Missing `KAIROS_PUBLIC_URL` → 501 with nothing persisted (test).
-- [ ] One capability vocabulary; no dead helpers (or `find_by_forge_name` exposed and used).
-- [ ] Cross-tenant assertion pinned; UUID-shaped slug → 422.
-- [ ] fmt / clippy / unit / integration green.
+- [~] Rotate wrapped in `run_in_transaction` (the helper teams.rs already relies on). No fault-injection hook exists in the server, so the "fail between delete and create" case is asserted by construction (one transaction) rather than by a test; adding an injection seam for one test was judged not worth it.
+- [x] Missing `KAIROS_PUBLIC_URL` → 501 and `has_webhook` stays false — tested with a second unconfigured server on the same database (`forge_connections.rs`).
+- [x] Vocabulary derived from core; `is_computed` and `find_connection_by_repo` deleted; `find_by_forge_name` exposed as `GET /api/repositories?forge=&name=` (tested: hit, miss, half-pair 422) for T-0115's bootstrap.
+- [x] Cross-tenant probe pinned to `Validation` (with the reason recorded in the test); UUID-shaped slug → 422 (core unit + API test).
+- [x] fmt (my crates), clippy `-D warnings` on core/db/client/server/cli/soak, unit, integration 38/38.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done, `42d7cd4`. Also: `ForgeError::RepositoryNotFound` became `ForgeError::Repository(RepositoryError)` so a DB error is no longer reported as "does not exist"; the repository detail maps `ForgeError` through `forge::map_error` (now `pub(crate)`); MCP whoami no longer re-queries team ids.

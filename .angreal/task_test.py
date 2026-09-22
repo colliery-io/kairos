@@ -8,6 +8,7 @@ share a single entry point:
   tier 2+3 integration -> `angreal test integration`
   tier 4  e2e smoke    -> `angreal test e2e`   (golden path + MCP + GUI Playwright)
   tier 5  soak         -> `angreal test soak`  (workforce driver, KAIROS-T-0046)
+  tier 6  uat          -> `angreal test uat`   (persona journeys, KAIROS-I-0011)
 
 plus the static gate that precedes them (CI gates 1+2, KAIROS-T-0114):
 
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 import angreal  # type: ignore
 
@@ -73,6 +75,13 @@ E2E_GUI_PORT = int(os.environ.get("KAIROS_E2E_GUI_PORT", "41080"))
 E2E_GUI_BASE_URL = f"http://localhost:{E2E_GUI_PORT}"
 E2E_DIR = PROJECT_ROOT / "e2e"
 WEB_DIST = PROJECT_ROOT / "crates" / "kairos-web" / "dist"
+
+# UAT tier (KAIROS-I-0011, A-0012 tier 6): persona journeys in uat/ against
+# the same :41080 GUI server the e2e leg boots (real in-browser PKCE), or
+# against any deployment via --server. alice is made a deployment admin so
+# the onboarding journey can prove tenant provisioning (compose only).
+UAT_DIR = PROJECT_ROOT / "uat"
+CLI_BIN = PROJECT_ROOT / "target" / "debug" / "kairos"
 
 
 def _integration_test_targets():
@@ -268,9 +277,11 @@ def integration(keep_running=False):
 
 
 def _e2e_phase(name, exit_code):
-    """Attribute a failed phase loudly; return the exit code unchanged."""
+    """Attribute a failed phase loudly; return the exit code unchanged. A
+    phase named `UAT: …` is attributed to the UAT tier."""
     if exit_code != 0:
-        print(f"E2E FAILED at phase: {name} (exit {exit_code})", file=sys.stderr)
+        tier = "UAT" if name.startswith("UAT") else "E2E"
+        print(f"{tier} FAILED at phase: {name} (exit {exit_code})", file=sys.stderr)
     return exit_code
 
 
@@ -293,51 +304,51 @@ def _wait_for_healthz(timeout_seconds=30):
     return _wait_for_url(f"{E2E_BASE_URL}/healthz", timeout_seconds)
 
 
-def _ensure_playwright():
-    """Make the e2e tier runnable from a clean checkout: install the npm
-    deps if node_modules is absent, then ensure the chromium browser
-    (npx playwright install is idempotent). Returns an exit code."""
+def _ensure_playwright(package_dir=E2E_DIR):
+    """Make a Playwright package (e2e/ or uat/) runnable from a clean
+    checkout: install the npm deps if node_modules is absent, then ensure
+    the chromium browser (npx playwright install is idempotent). Returns an
+    exit code."""
     if shutil.which("npm") is None or shutil.which("npx") is None:
         print(
-            "node/npm not found — the GUI smoke leg needs Node.js (npm + npx) "
+            "node/npm not found — the Playwright tiers need Node.js (npm + npx) "
             "on PATH. Install Node 18+ and re-run.",
             file=sys.stderr,
         )
         return 1
-    if not (E2E_DIR / "node_modules").exists():
-        print("Installing e2e npm dependencies (first run)...", flush=True)
-        code = subprocess.run(["npm", "install"], cwd=str(E2E_DIR)).returncode
+    if not (package_dir / "node_modules").exists():
+        print(f"Installing {package_dir.name} npm dependencies (first run)...", flush=True)
+        code = subprocess.run(["npm", "install"], cwd=str(package_dir)).returncode
         if code != 0:
             return code
     print("Ensuring the Playwright chromium browser...", flush=True)
     return subprocess.run(
-        ["npx", "playwright", "install", "chromium"], cwd=str(E2E_DIR)
+        ["npx", "playwright", "install", "chromium"], cwd=str(package_dir)
     ).returncode
 
 
-def _run_gui_smoke(env):
-    """The KAIROS-T-0045 GUI leg: build the SPA, reseed a clean demo
-    fixture, serve it on :41080 (the only redirect_uri Dex registers for
-    kairos-web → real in-browser PKCE), and run the Playwright smoke suite
-    headless. Returns an exit code; the caller attributes the phase."""
+def _prepare_gui_stack(env, phase):
+    """Shared by the e2e GUI leg and the UAT tier: build the SPA and reseed
+    a clean demo fixture. Returns an exit code (0 on success)."""
     print("Building the kairos-web bundle (angreal web build)...", flush=True)
     code = _web_build()
     if code != 0:
-        return _e2e_phase("GUI: web build", code)
+        return _e2e_phase(f"{phase}: web build", code)
 
-    print("Reseeding the demo tenant for the GUI smoke...", flush=True)
+    print(f"Reseeding the demo tenant for {phase}...", flush=True)
     code = subprocess.run(
         [str(SERVER_BIN), "seed-demo", "--force"],
         cwd=str(PROJECT_ROOT),
         env=env,
     ).returncode
     if code != 0:
-        return _e2e_phase("GUI: seed-demo", code)
+        return _e2e_phase(f"{phase}: seed-demo", code)
+    return 0
 
-    code = _ensure_playwright()
-    if code != 0:
-        return _e2e_phase("GUI: playwright install", code)
 
+def _gui_server_env(env, extra=None):
+    """Environment for the :41080 GUI server (the only redirect_uri Dex
+    registers for kairos-web, so in-browser PKCE is real)."""
     gui_env = env.copy()
     gui_env.update({
         "KAIROS_BIND_ADDR": f"127.0.0.1:{E2E_GUI_PORT}",
@@ -352,31 +363,76 @@ def _run_gui_smoke(env):
         "KAIROS_PUBLIC_URL": E2E_GUI_BASE_URL,
         "KAIROS_WEBHOOK_SIGNING_KEY": "e2e-webhook-signing-key",
     })
+    if extra:
+        gui_env.update(extra)
+    return gui_env
+
+
+def _stop_process(proc, label):
+    print(f"Stopping {label}...", flush=True)
+    proc.terminate()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _boot_gui_server(gui_env, log_path=None):
+    """Boot kairos-server on :41080 and wait for healthz. Returns
+    `(process, exit_code)`; a non-zero code means the boot failed (and the
+    process, if it started, has been stopped). With `log_path` the server
+    writes there instead of inheriting this shell's stdout — required when
+    it is meant to outlive the task (--keep-running), or the caller's
+    pipe never closes."""
     print(f"Booting the GUI server on {E2E_GUI_BASE_URL}...", flush=True)
+    output = open(log_path, "ab") if log_path else None
+    if output:
+        print(f"(server output -> {log_path})", flush=True)
     gui_server = subprocess.Popen(
         [str(SERVER_BIN), "serve"],
         cwd=str(PROJECT_ROOT),
         env=gui_env,
+        stdout=output,
+        stderr=subprocess.STDOUT if output else None,
     )
+    if not _wait_for_url(f"{E2E_GUI_BASE_URL}/healthz"):
+        state = gui_server.poll()
+        _stop_process(gui_server, "the GUI server")
+        return None, _e2e_phase(
+            f"GUI server boot (healthz never answered; process state: {state})",
+            1,
+        )
+    # `healthz` answering is NOT proof that OUR server answered it: if
+    # the port was already taken (a stray dev server), our process
+    # exits with "Address already in use" and the suite silently runs
+    # against whatever else is listening — usually a stale binary,
+    # producing a pile of baffling failures. Fail loudly instead.
+    if gui_server.poll() is not None:
+        return None, _e2e_phase(
+            f"GUI server exited immediately (code {gui_server.returncode}) — "
+            f"something else is already listening on {E2E_GUI_BASE_URL}; "
+            "stop it and re-run",
+            1,
+        )
+    return gui_server, 0
+
+
+def _run_gui_smoke(env):
+    """The KAIROS-T-0045 GUI leg: build the SPA, reseed a clean demo
+    fixture, serve it on :41080 (the only redirect_uri Dex registers for
+    kairos-web → real in-browser PKCE), and run the Playwright smoke suite
+    headless. Returns an exit code; the caller attributes the phase."""
+    code = _prepare_gui_stack(env, "GUI")
+    if code != 0:
+        return code
+    code = _ensure_playwright(E2E_DIR)
+    if code != 0:
+        return _e2e_phase("GUI: playwright install", code)
+    gui_server, code = _boot_gui_server(_gui_server_env(env))
+    if code != 0:
+        return code
     try:
-        if not _wait_for_url(f"{E2E_GUI_BASE_URL}/healthz"):
-            return _e2e_phase(
-                "GUI server boot (healthz never answered; "
-                f"process state: {gui_server.poll()})",
-                1,
-            )
-        # `healthz` answering is NOT proof that OUR server answered it: if
-        # the port was already taken (a stray dev server), our process
-        # exits with "Address already in use" and the suite silently runs
-        # against whatever else is listening — usually a stale binary,
-        # producing a pile of baffling failures. Fail loudly instead.
-        if gui_server.poll() is not None:
-            return _e2e_phase(
-                f"GUI server exited immediately (code {gui_server.returncode}) — "
-                f"something else is already listening on {E2E_GUI_BASE_URL}; "
-                "stop it and re-run",
-                1,
-            )
         print("Running the Playwright GUI smoke suite...", flush=True)
         pw_env = os.environ.copy()
         pw_env.update({
@@ -392,13 +448,7 @@ def _run_gui_smoke(env):
             ).returncode,
         )
     finally:
-        print("Stopping the GUI server...", flush=True)
-        gui_server.terminate()
-        try:
-            gui_server.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            gui_server.kill()
-            gui_server.wait()
+        _stop_process(gui_server, "the GUI server")
 
 
 @test()
@@ -727,6 +777,176 @@ def soak(duration=None, config=None):
             "use 'angreal services down -v' to stop them).",
             flush=True,
         )
+
+
+def _run_uat_suite(server_url, mode, journeys, headed, report_dir):
+    """Run the uat/ Playwright journeys against `server_url`. Returns the
+    Playwright exit code; the report path is printed by the reporter."""
+    code = _ensure_playwright(UAT_DIR)
+    if code != 0:
+        return _e2e_phase("UAT: playwright install", code)
+    pw_env = os.environ.copy()
+    pw_env.update({
+        "UAT_SERVER": server_url,
+        "UAT_ISSUER": os.environ.get("UAT_ISSUER", E2E_ISSUER),
+        "UAT_MODE": mode,
+        "UAT_KAIROS_BIN": str(CLI_BIN),
+    })
+    if headed:
+        pw_env["UAT_HEADED"] = "1"
+    if report_dir:
+        pw_env["UAT_REPORT_DIR"] = str(Path(report_dir).resolve())
+    args = ["npx", "playwright", "test"]
+    if journeys:
+        tags = "|".join(f"@{j.strip()}$" for j in journeys.split(",") if j.strip())
+        args += ["--grep", tags]
+    print(f"Running the UAT journeys against {server_url} ({mode} mode)...", flush=True)
+    return _e2e_phase(
+        "UAT: playwright test",
+        subprocess.run(args, cwd=str(UAT_DIR), env=pw_env).returncode,
+    )
+
+
+@test()
+@angreal.command(
+    name="uat",
+    about="run the user-acceptance journeys (compose stack by default, or --server URL)",
+    tool=angreal.ToolDescription(
+        """
+        KAIROS-A-0012 tier 6 — user-acceptance journeys (KAIROS-I-0011):
+        persona-driven stories in uat/ (an agent over MCP + the real
+        `kairos` CLI, engineers in the browser, admins over the CLI/API)
+        that end in a readable report: uat/reports/<run>/report.md +
+        report.json (override with --report-dir).
+
+        Default (compose mode — DESTRUCTIVE to the dev database's `demo`
+        tenant, like `test e2e`):
+          1. compose up (Postgres + Dex, --wait)
+          2. cargo build kairos-server + the `kairos` CLI; angreal web build
+          3. `kairos-server seed-demo --force`
+          4. boot kairos-server on :41080 (the only redirect_uri Dex
+             registers for kairos-web → real in-browser PKCE) with
+             KAIROS_SINGLE_TENANT=demo and alice as a deployment admin
+          5. `npx playwright test` in uat/
+          6. stop the server, compose down -v (unless --keep-running, which
+             leaves the stack + server up for a hand-run or a --server run)
+
+        --server URL: NON-destructive. No compose, no seed, no server boot;
+        the journeys run against URL with UAT_PERSONA_<NAME>_EMAIL/_PASSWORD
+        (defaults: the seed users), UAT_TENANT (demo) and UAT_ISSUER. Every
+        object a journey creates is named `uat-<run>-…` and deleted in
+        teardown; steps that need a fresh tenant / a deployment-admin token
+        are skipped and the report says so. The deployment must register
+        `<URL>/callback` as a redirect_uri for the `kairos-web` client.
+
+        --journey a,b   run only these journey ids (smoke, onboarding,
+                        planning, agent-loop, cross-team)
+        --headed        show the browser
+        --report-dir    where to write the report (default uat/reports/<run>)
+
+        Exit code: 0 only when every selected journey passes. Not part of
+        `test all` — this is a release/milestone gate, not a per-task one.
+
+        ## When to use
+        - Accepting a release or a milestone from the user's point of view
+        - Checking a deployment after an upgrade (--server)
+        """,
+        risk_level="destructive",
+    ),
+)
+@angreal.argument(
+    name="server",
+    long="server",
+    help="run against this deployment URL instead of booting the compose stack",
+    takes_value=True,
+    required=False,
+)
+@angreal.argument(
+    name="journey",
+    long="journey",
+    help="comma-separated journey ids to run (default: all)",
+    takes_value=True,
+    required=False,
+)
+@angreal.argument(
+    name="keep_running",
+    long="keep-running",
+    short="k",
+    help="compose mode: leave the stack and the :41080 server running afterwards",
+    takes_value=False,
+    is_flag=True,
+)
+@angreal.argument(
+    name="headed",
+    long="headed",
+    help="show the browser",
+    takes_value=False,
+    is_flag=True,
+)
+@angreal.argument(
+    name="report_dir",
+    long="report-dir",
+    help="directory for report.md/report.json (default uat/reports/<run>)",
+    takes_value=True,
+    required=False,
+)
+def uat(server=None, journey=None, keep_running=False, headed=False, report_dir=None):
+    """Persona journeys: compose up -> seed -> serve -> uat/ -> report."""
+    if server:
+        return _run_uat_suite(server.rstrip("/"), "server", journey, headed, report_dir)
+
+    print("Starting docker services for the UAT run...", flush=True)
+    exit_code = _e2e_phase("compose up", docker_up())
+    if exit_code != 0:
+        return exit_code
+
+    gui_server = None
+    try:
+        print("Building kairos-server and the kairos CLI...", flush=True)
+        exit_code = _e2e_phase(
+            "cargo build",
+            subprocess.run(
+                [
+                    "cargo", "build", "--quiet",
+                    "-p", "kairos-server", "--bin", "kairos-server",
+                    "-p", "kairos-cli", "--bin", "kairos",
+                ],
+                cwd=str(PROJECT_ROOT),
+            ).returncode,
+        )
+        if exit_code != 0:
+            return exit_code
+
+        env = os.environ.copy()
+        env.setdefault("DATABASE_URL", E2E_DATABASE_URL)
+        exit_code = _prepare_gui_stack(env, "UAT")
+        if exit_code != 0:
+            return exit_code
+
+        gui_server, exit_code = _boot_gui_server(
+            _gui_server_env(env, {"KAIROS_DEPLOYMENT_ADMINS": SOAK_DEPLOYMENT_ADMIN}),
+            log_path=(PROJECT_ROOT / "target" / "uat-server.log") if keep_running else None,
+        )
+        if exit_code != 0:
+            return exit_code
+
+        exit_code = _run_uat_suite(E2E_GUI_BASE_URL, "compose", journey, headed, report_dir)
+        if exit_code == 0:
+            print("UAT PASSED.", flush=True)
+        return exit_code
+    finally:
+        if keep_running:
+            print(
+                f"--keep-running: the compose stack and the server on {E2E_GUI_BASE_URL} "
+                "are still up (stop with `angreal services down`; the server logs to "
+                "target/uat-server.log — `pkill -f 'kairos-server serve'` to stop it).",
+                flush=True,
+            )
+        else:
+            if gui_server is not None:
+                _stop_process(gui_server, "the GUI server")
+            print("Tearing down services...", flush=True)
+            docker_down(remove_volumes=True)
 
 
 @test()

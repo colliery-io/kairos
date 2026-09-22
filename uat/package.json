@@ -1,0 +1,17 @@
+{
+  "name": "kairos-uat",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Kairos user-acceptance journeys (KAIROS-A-0012 tier 6, KAIROS-I-0011)",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "typecheck": "tsc --noEmit",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

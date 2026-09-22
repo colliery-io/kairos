@@ -4,14 +4,14 @@ level: task
 title: "MCP + client + CLI: list_repositories, get_repository, repository on create_item/board_items/search/whoami, kairos repos commands"
 short_code: "KAIROS-T-0107"
 created_at: 2026-09-22T03:04:49.197406+00:00
-updated_at: 2026-09-22T03:04:49.197406+00:00
+updated_at: 2026-09-22T04:32:02.529902+00:00
 parent: KAIROS-I-0010
-blocked_by: ["KAIROS-T-0104", "KAIROS-T-0105", "KAIROS-T-0106"]
+blocked_by: [KAIROS-T-0104, KAIROS-T-0105, KAIROS-T-0106]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,12 +51,15 @@ The MCP `create_item` path and the HTTP path must share the routing + capability
 
 ## Acceptance Criteria
 
-- [ ] MCP integration tests: `list_repositories`/`get_repository` shapes; `create_item` with `repository` and no `board` routes correctly; cross-team filing via MCP lands in Backlog; `board_items`/`search` with `repository` filter.
-- [ ] `whoami` (MCP) shows `repositories` and `implicit`.
-- [ ] `plugin/references/` regenerated and committed.
-- [ ] CLI commands exercised in the client/CLI integration suite (at least create/list/get/set-repo).
-- [ ] fmt/clippy/unit/integration green.
+- [x] `tests/mcp.rs`: `list_repositories` (all / `team` / unknown team), `get_repository` (slug, UUID, unknown, "How to work here" and "In flight" sections); `create_item` with `repository` and no `board` routes to the owner's board; `board_items` and `search` with `repository` narrow to the bound task only; unknown repo in the search filter → VALIDATION. Cross-team filing over MCP was already asserted in `tests/file_backlog.rs` (T-0105). Tool inventory assertion updated to 16.
+- [x] MCP `whoami` shows "My teams' repositories" and `file_backlog`; HTTP `whoami` DTO gains `repositories: [{id, slug, forge, repo_full_name, team_slug}]` for the plugin's bootstrap.
+- [~] `plugin/references/` holds the two rendered *review specs* (architecture-review, diataxis), not tool docs — nothing to regenerate. MCP tool descriptions are self-describing over `tools/list`; the plugin's `kairos` meta skill (T-0108) is where a prose tool reference would go.
+- [x] `kairos repos list|get|create|update|delete|bind|unbind` + `tasks create --repo` + `search --repo` exercised in `cli_tree_live.rs` (create, list, bind, get, `--repo` routing, unbind). `--repo-url` rather than `--url` (global flag collision).
+- [x] fmt, clippy `-D warnings` on the touched crates, `angreal test unit`, `angreal test integration` 37/37 green.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`85eefdb`). Notes for downstream:
+  - Task↔repo binding on the CLI lives under `kairos repos bind|unbind` (the tasks verbs are macro-generated; not worth widening the macro for one verb).
+  - MCP `search` with a `repository` filter defers `validate` until after the slug is resolved inside the tool (a filter carrying only `repository` is constraining once resolved). `search_to_core` no longer validates; the tool does, in both paths.
+  - T-0108 should point the session hook and skills at: `get_repository <slug>` (description + in-flight), `board_items {board, repository}`, `search {filter: {repository}}`, `create_item {repository, parent}`; and bootstrap at HTTP/MCP `whoami.repositories` + `list_repositories` for remote matching.

@@ -8,6 +8,7 @@ pub mod entities;
 pub mod keys;
 pub mod members;
 pub mod orgs;
+pub mod repos;
 pub mod search;
 pub mod service_accounts;
 pub mod streams;

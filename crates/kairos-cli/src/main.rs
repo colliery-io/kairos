@@ -44,6 +44,7 @@ use commands::entities::{
 use commands::keys::KeysCommand;
 use commands::members::MembersCommand;
 use commands::orgs::OrgsCommand;
+use commands::repos::ReposCommand;
 use commands::search::SearchArgs;
 use commands::service_accounts::ServiceAccountsCommand;
 use commands::streams::StreamsCommand;
@@ -133,6 +134,9 @@ enum Command {
     /// Teams and their membership
     #[command(subcommand)]
     Teams(TeamsCommand),
+    /// Repositories: the codebases tickets are issued against (KAIROS-A-0019)
+    #[command(subcommand)]
+    Repos(ReposCommand),
     /// Delivery streams and their teams
     #[command(subcommand)]
     Streams(StreamsCommand),
@@ -182,6 +186,7 @@ async fn run(command: Command) -> Result<(), CliError> {
         Command::Adrs(command) => command.run().await,
         Command::Search(args) => (*args).run().await,
         Command::Teams(command) => command.run().await,
+        Command::Repos(command) => command.run().await,
         Command::Streams(command) => command.run().await,
         Command::Members(command) => command.run().await,
         Command::ServiceAccounts(command) => command.run().await,

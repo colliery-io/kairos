@@ -420,6 +420,23 @@ pub struct WhoamiResponse {
     /// (KAIROS-T-0105): currently `file_backlog`.
     #[serde(default)]
     pub implicit: Vec<String>,
+    /// Repositories owned by the caller's teams (KAIROS-T-0107, A-0019).
+    #[serde(default)]
+    pub repositories: Vec<WhoamiRepository>,
+}
+
+/// One repository of [`WhoamiResponse::repositories`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct WhoamiRepository {
+    /// Repository id (UUID).
+    pub id: String,
+    pub slug: String,
+    /// `github|gitlab|other`.
+    pub forge: String,
+    /// `owner/repo`.
+    pub repo_full_name: String,
+    /// The owning team's slug.
+    pub team_slug: String,
 }
 
 /// One board on which the caller holds explicit capability grants

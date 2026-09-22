@@ -18,7 +18,8 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the 14-tool inventory;
+//! - tools/list is EXACTLY the 16-tool inventory (14 from S-0006 plus the
+//!   two repository tools of KAIROS-T-0107);
 //! - golden path: whoami → my_boards → create_item(initiative) →
 //!   create_item(task, parent) → get_item → edit_item → transition_item
 //!   (invalid first: INVALID_TRANSITION enumerating allowed targets,
@@ -515,6 +516,9 @@ async fn mcp_endpoint_against_live_stack() {
         "unlink_items",
         "set_metadata",
         "delete_item",
+        // KAIROS-T-0107 (A-0019): the repository directory.
+        "list_repositories",
+        "get_repository",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");
@@ -739,6 +743,142 @@ async fn mcp_endpoint_against_live_stack() {
     assert_eq!(activity_count(&mut conn, alice, "delete"), 1);
     // The parent edge from create_item(parent) is a relationship_add row.
     assert_eq!(activity_count(&mut conn, alice, "relationship_add"), 1);
+
+    // --- repositories (KAIROS-T-0107, A-0019) --------------------------------
+    // Give the delivery board an owning team, register a repo under it, and
+    // exercise the directory tools plus the `repository` filters. Cross-team
+    // filing over MCP is covered by tests/file_backlog.rs.
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let platform: kairos_db::models::teams::Team =
+        diesel::insert_into(kairos_db::schema::teams::table)
+            .values(kairos_db::models::teams::NewTeam {
+                name: "Platform".into(),
+                slug: "platform".into(),
+                team_type: kairos_db::models::enums::TeamType::Platform,
+            })
+            .returning(kairos_db::models::teams::Team::as_returning())
+            .get_result(&mut conn)
+            .expect("team");
+    diesel::update(boards::table.filter(boards::id.eq(delivery.id)))
+        .set(boards::team_id.eq(Some(platform.id)))
+        .execute(&mut conn)
+        .expect("owning the delivery board");
+    diesel::insert_into(kairos_db::schema::team_members::table)
+        .values(kairos_db::models::teams::NewTeamMember {
+            team_id: platform.id,
+            user_id: alice,
+        })
+        .execute(&mut conn)
+        .expect("alice → platform");
+    let payments = kairos_db::repositories::create(
+        &mut conn,
+        kairos_db::models::repositories::NewRepository {
+            slug: "payments-api".into(),
+            forge: kairos_db::models::enums::Forge::Github,
+            repo_full_name: "acme/payments-api".into(),
+            repo_url: "https://github.com/acme/payments-api".into(),
+            default_branch: "main".into(),
+            team_id: platform.id,
+            description: "Run `cargo test` before every PR.".into(),
+            created_by: alice,
+            updated_by: alice,
+        },
+    )
+    .expect("repo");
+    sql_query("SET search_path TO public")
+        .execute(&mut conn)
+        .expect("resetting search_path");
+
+    let text = session.call_ok("list_repositories", json!({})).await;
+    assert!(text.contains("payments-api"), "{text}");
+    assert!(text.contains("owner: platform"), "{text}");
+    assert!(
+        text.contains(&delivery.id.to_string()),
+        "board named: {text}"
+    );
+    let text = session
+        .call_ok("list_repositories", json!({"team": "platform"}))
+        .await;
+    assert!(text.contains("payments-api"), "{text}");
+    let text = session
+        .call_err("list_repositories", json!({"team": "nope"}))
+        .await;
+    assert!(text.contains("VALIDATION"), "{text}");
+
+    let text = session
+        .call_ok("get_repository", json!({"repository": "payments-api"}))
+        .await;
+    assert!(text.contains("## How to work here"), "{text}");
+    assert!(text.contains("Run `cargo test` before every PR."), "{text}");
+    assert!(text.contains("(nothing open)"), "{text}");
+    let text = session
+        .call_ok(
+            "get_repository",
+            json!({"repository": payments.id.to_string()}),
+        )
+        .await;
+    assert!(text.contains("acme/payments-api"), "by UUID: {text}");
+    let text = session
+        .call_err("get_repository", json!({"repository": "nope"}))
+        .await;
+    assert!(text.contains("NOT_FOUND"), "{text}");
+
+    // create_item with `repository` and no `board` routes to the owner's
+    // board and binds; the filters then find it and only it.
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Bound over MCP",
+                "repository": "payments-api",
+            }),
+        )
+        .await;
+    let bound_code = extract_code(&text, "ACME-T-");
+    assert!(text.contains("board platform-delivery"), "{text}");
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Unbound over MCP",
+                "board": "platform-delivery",
+            }),
+        )
+        .await;
+    let unbound_code = extract_code(&text, "ACME-T-");
+    let text = session
+        .call_ok(
+            "board_items",
+            json!({"board": "platform-delivery", "repository": "payments-api"}),
+        )
+        .await;
+    assert!(text.contains(&bound_code), "{text}");
+    assert!(
+        !text.contains(&unbound_code),
+        "the filter narrows tasks: {text}"
+    );
+    let text = session
+        .call_ok("search", json!({"filter": {"repository": "payments-api"}}))
+        .await;
+    assert!(text.contains(&bound_code), "{text}");
+    assert!(!text.contains(&unbound_code), "{text}");
+    let text = session
+        .call_err("search", json!({"filter": {"repository": "nope"}}))
+        .await;
+    assert!(text.contains("VALIDATION"), "{text}");
+
+    // whoami now lists my teams' repositories and the implicit capability.
+    let text = session.call_ok("whoami", json!({})).await;
+    assert!(text.contains("## My teams' repositories"), "{text}");
+    assert!(
+        text.contains("payments-api — acme/payments-api (owner: platform)"),
+        "{text}"
+    );
+    assert!(text.contains("file_backlog"), "{text}");
 
     // --- teardown ------------------------------------------------------------
     drop(conn);

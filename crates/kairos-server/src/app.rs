@@ -256,6 +256,19 @@ pub struct WhoamiResponse {
     /// (KAIROS-T-0105): currently `file_backlog` — create a task against
     /// another team's repository into that team's Backlog.
     pub implicit: Vec<&'static str>,
+    /// Repositories owned by the caller's teams (KAIROS-T-0107, A-0019).
+    pub repositories: Vec<WhoamiRepository>,
+}
+
+/// One repository of [`WhoamiResponse::repositories`].
+#[derive(Debug, serde::Serialize)]
+pub struct WhoamiRepository {
+    pub id: Uuid,
+    pub slug: String,
+    pub forge: String,
+    pub repo_full_name: String,
+    /// The owning team's slug.
+    pub team_slug: String,
 }
 
 /// The `user` object of [`WhoamiResponse`].
@@ -295,6 +308,24 @@ async fn whoami(
         .filter(schema::teams::deleted_at.is_null())
         .order(schema::teams::slug.asc())
         .select((schema::teams::id, schema::teams::slug, schema::teams::name))
+        .load(&mut *conn)
+        .await
+        .map_err(ApiError::internal)?;
+    // KAIROS-T-0107: the repositories my teams own (A-0019) — what the
+    // plugin's bootstrap matches a git remote against.
+    let team_ids: Vec<Uuid> = teams.iter().map(|(id, _, _)| *id).collect();
+    let repositories: Vec<(Uuid, String, String, String, String)> = schema::repositories::table
+        .inner_join(schema::teams::table)
+        .filter(schema::repositories::team_id.eq_any(&team_ids))
+        .filter(schema::repositories::deleted_at.is_null())
+        .order(schema::repositories::slug.asc())
+        .select((
+            schema::repositories::id,
+            schema::repositories::slug,
+            schema::repositories::forge,
+            schema::repositories::repo_full_name,
+            schema::teams::slug,
+        ))
         .load(&mut *conn)
         .await
         .map_err(ApiError::internal)?;
@@ -347,6 +378,18 @@ async fn whoami(
             role: tenant.role.as_str(),
         },
         implicit: kairos_core::abac::COMPUTED_CAPABILITIES.to_vec(),
+        repositories: repositories
+            .into_iter()
+            .map(
+                |(id, slug, forge, repo_full_name, team_slug)| WhoamiRepository {
+                    id,
+                    slug,
+                    forge,
+                    repo_full_name,
+                    team_slug,
+                },
+            )
+            .collect(),
         teams: teams
             .into_iter()
             .map(|(id, slug, name)| WhoamiTeam { id, slug, name })

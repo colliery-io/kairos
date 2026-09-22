@@ -517,6 +517,102 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "teams list failed: {stderr}");
     assert!(stdout.contains("Platform"), "{stdout}");
 
+    // --- repos create / list / get / bind / unbind (KAIROS-T-0107) ---------------
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "repos",
+            "create",
+            "--forge",
+            "github",
+            "--name",
+            "acme/payments-api",
+            "--repo-url",
+            "https://github.com/acme/payments-api",
+            "--team",
+            "platform",
+            "--slug",
+            "payments-api",
+            "--description",
+            "cargo test before every PR",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "repos create failed: {stderr}");
+    let repo: serde_json::Value = serde_json::from_str(&stdout).expect("repo DTO JSON");
+    assert_eq!(repo["slug"], "payments-api");
+    assert_eq!(repo["team"]["slug"], "platform");
+    assert_eq!(
+        repo["delivery_board_id"].as_str(),
+        Some(delivery_board_id.as_str())
+    );
+
+    let (code, stdout, stderr) = run_cli(config_dir.path(), &["repos", "list"]).await;
+    assert_eq!(code, 0, "repos list failed: {stderr}");
+    assert!(stdout.contains("payments-api"), "{stdout}");
+    assert!(stdout.contains("acme/payments-api"), "{stdout}");
+
+    // The golden-path task was deleted above; bind a fresh one.
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "tasks",
+            "create",
+            "--board",
+            &delivery_board_id,
+            "--title",
+            "To be bound",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "tasks create failed: {stderr}");
+    let to_bind: serde_json::Value = serde_json::from_str(&stdout).expect("task DTO JSON");
+    let bind_code = to_bind["short_code"]
+        .as_str()
+        .expect("short_code")
+        .to_string();
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["repos", "bind", &bind_code, "payments-api"],
+    )
+    .await;
+    assert_eq!(code, 0, "repos bind failed: {stderr}");
+    assert!(stdout.contains("bound to payments-api"), "{stdout}");
+
+    let (code, stdout, stderr) =
+        run_cli(config_dir.path(), &["repos", "get", "payments-api"]).await;
+    assert_eq!(code, 0, "repos get failed: {stderr}");
+    assert!(stdout.contains("cargo test before every PR"), "{stdout}");
+    assert!(stdout.contains("How to work here"), "{stdout}");
+
+    // A task created with --repo and no --board routes to the owner's board.
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "tasks",
+            "create",
+            "--repo",
+            "payments-api",
+            "--title",
+            "Routed by repo",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "tasks create --repo failed: {stderr}");
+    let routed: serde_json::Value = serde_json::from_str(&stdout).expect("task DTO JSON");
+    assert_eq!(
+        routed["board_id"].as_str(),
+        Some(delivery_board_id.as_str())
+    );
+    assert_eq!(routed["repository"]["slug"], "payments-api");
+
+    let (code, stdout, stderr) = run_cli(config_dir.path(), &["repos", "unbind", &bind_code]).await;
+    assert_eq!(code, 0, "repos unbind failed: {stderr}");
+    assert!(stdout.contains("unbound"), "{stdout}");
+
     // --- teardown ----------------------------------------------------------------
     drop(conn);
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))

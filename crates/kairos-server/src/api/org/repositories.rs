@@ -136,7 +136,7 @@ fn require_manage_for_team(
 
 /// Render repositories with their team, delivery board and counts — two
 /// batched queries for the whole list, never per row.
-fn render(
+pub(crate) fn render(
     conn: &mut PgConnection,
     rows: Vec<Repository>,
 ) -> Result<Vec<dto::Repository>, ApiError> {

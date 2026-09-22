@@ -44,7 +44,7 @@ use kairos_db::models::enums::{
 use kairos_db::models::items::{Adr, Document, Initiative, Strategy, Task};
 use kairos_db::models::templates::Template;
 use kairos_db::search::{SearchError, SearchResults};
-use kairos_db::{GraphError, abac, boards, graph, items, search};
+use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
 use crate::api::meta::{manage_capability, require_org_admin, validate_metadata_value};
 use crate::api::{
@@ -62,6 +62,20 @@ use super::service::{KairosMcp, tool_error, tool_text};
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+pub struct ListRepositoriesParams {
+    /// Only this team's repositories (slug or UUID).
+    pub team: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct GetRepositoryParams {
+    /// The repository, by slug (e.g. "payments-api") or UUID.
+    pub repository: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct MyBoardsParams {
     /// Restrict to one board level: strategy | initiative | delivery | adr.
     pub level: Option<String>,
@@ -74,6 +88,9 @@ pub struct BoardItemsParams {
     pub board: String,
     /// Restrict to one column, by name (e.g. "In Progress") or UUID.
     pub column: Option<String>,
+    /// Restrict the TASKS to those issued against this repository (slug
+    /// or UUID). Your repo's queue on a multi-repo team board.
+    pub repository: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -122,6 +139,8 @@ pub struct SearchFilterParams {
     pub column_id: Option<String>,
     /// Restrict to tasks of this team (UUID).
     pub team_id: Option<String>,
+    /// Restrict to tasks issued against this repository (slug or UUID).
+    pub repository: Option<String>,
     /// Restrict to task types: task | bug | tech_debt | support.
     pub task_type: Option<Vec<String>>,
     /// Restrict to Planned/Support lanes: planned | support
@@ -301,7 +320,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Who am I in this Kairos organization: identity, org role, teams, and the boards where I hold write capabilities. Call this first to establish working context."
+        description = "Who am I in this Kairos organization: identity, org role, teams, my teams' repositories, the boards where I hold write capabilities, and the implicit capabilities every member has. Call this first to establish working context."
     )]
     pub async fn whoami(
         &self,
@@ -343,6 +362,31 @@ impl KairosMcp {
             for (slug, name, team_type) in member_teams {
                 out.push_str(&format!("- {slug} — {name} ({team_type})\n"));
             }
+            // KAIROS-T-0107: the repositories my teams own — where my
+            // tickets are issued and executed (A-0019).
+            {
+                use kairos_db::schema::repositories as repos;
+                let my_team_ids: Vec<Uuid> = team_members::table
+                    .filter(team_members::user_id.eq(user_id))
+                    .select(team_members::team_id)
+                    .load(conn)
+                    .map_err(ApiError::internal)?;
+                let mine: Vec<(String, String, String)> = repos::table
+                    .inner_join(teams::table)
+                    .filter(repos::team_id.eq_any(&my_team_ids))
+                    .filter(repos::deleted_at.is_null())
+                    .order(repos::slug.asc())
+                    .select((repos::slug, repos::repo_full_name, teams::slug))
+                    .load(conn)
+                    .map_err(ApiError::internal)?;
+                out.push_str("\n## My teams' repositories\n");
+                if mine.is_empty() {
+                    out.push_str("(none — see list_repositories for the whole directory)\n");
+                }
+                for (slug, full_name, team) in mine {
+                    out.push_str(&format!("- {slug} — {full_name} (owner: {team})\n"));
+                }
+            }
             out.push_str("\n## Board capabilities\n");
             if is_admin {
                 out.push_str("- org admin: implicit full access on every board\n");
@@ -364,6 +408,112 @@ impl KairosMcp {
                  it lands in their Backlog for triage.\n",
                 kairos_core::abac::COMPUTED_CAPABILITIES.join(", ")
             ));
+            Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Directory of repositories in this organization (KAIROS-A-0019): for each, its slug, forge and full name, the ONE owning team, the delivery board tasks filed against it land on, open task count, and whether webhooks are connected. Call before filing work against a codebase you are not checked out in, or to find who owns a repo. Optional `team` (slug or UUID) narrows to one team's repositories."
+    )]
+    pub async fn list_repositories(
+        &self,
+        Parameters(params): Parameters<ListRepositoriesParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        self.run_tool(&tenant, move |conn| {
+            let team_id = params
+                .team
+                .as_deref()
+                .map(|reference| team_by_ref(conn, reference).map(|t| t.id))
+                .transpose()?;
+            let rows = repositories::list(conn, team_id)
+                .map_err(crate::api::org::repositories::map_error)?;
+            let rendered = crate::api::org::repositories::render(conn, rows)?;
+            let mut out = String::from("# Repositories\n");
+            if rendered.is_empty() {
+                out.push_str(
+                    "(none registered — an org admin or a team member registers one with \
+                     POST /api/repositories or `kairos repos create`)\n",
+                );
+            }
+            for repo in rendered {
+                out.push_str(&format!(
+                    "- {} — {} {} · owner: {} · board: {} · open tasks: {}{}\n",
+                    repo.slug,
+                    repo.forge,
+                    repo.repo_full_name,
+                    repo.team.slug,
+                    repo.delivery_board_id
+                        .as_deref()
+                        .unwrap_or("(no delivery board)"),
+                    repo.open_tasks,
+                    if repo.has_webhook {
+                        " · webhooks connected"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "One repository in full: owner team, delivery board, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID."
+    )]
+    pub async fn get_repository(
+        &self,
+        Parameters(params): Parameters<GetRepositoryParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        self.run_tool(&tenant, move |conn| {
+            let repo = repositories::resolve(conn, &params.repository)
+                .map_err(crate::api::org::repositories::map_error)?;
+            let repo_id = repo.id;
+            let rendered = crate::api::org::repositories::render(conn, vec![repo])?.remove(0);
+            let in_flight =
+                graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
+                    .map_err(ApiError::internal)?;
+            let mut out = format!(
+                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- delivery board: {}\n- open tasks: {}\n- webhooks: {}\n",
+                rendered.slug,
+                rendered.forge,
+                rendered.repo_full_name,
+                rendered.repo_url,
+                rendered.default_branch,
+                rendered.team.slug,
+                rendered.team.name,
+                rendered.delivery_board_id.as_deref().unwrap_or("(none)"),
+                rendered.open_tasks,
+                if rendered.has_webhook { "connected" } else { "not connected" },
+            );
+            out.push_str("\n## How to work here\n");
+            if rendered.description.trim().is_empty() {
+                out.push_str("(no description yet)\n");
+            } else {
+                out.push_str(&rendered.description);
+                out.push('\n');
+            }
+            out.push_str("\n## In flight\n");
+            if in_flight.is_empty() {
+                out.push_str("(nothing open)\n");
+            }
+            for link in in_flight {
+                out.push_str(&format!(
+                    "- {} {} [{}] {} — {} ({} {})\n",
+                    link.kind,
+                    link.external_id,
+                    link.state,
+                    link.title,
+                    link.item_short_code,
+                    link.item_title,
+                    link.url
+                ));
+            }
             Ok(out)
         })
         .await
@@ -447,7 +597,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue."
     )]
     pub async fn board_items(
         &self,
@@ -462,7 +612,16 @@ impl KairosMcp {
                 let target = resolve_column(&columns, wanted)?;
                 columns.retain(|c| c.id == target);
             }
-            let items = board_item_rows(conn, board.id)?;
+            let repository = params
+                .repository
+                .as_deref()
+                .map(|reference| {
+                    repositories::resolve(conn, reference)
+                        .map(|r| r.id)
+                        .map_err(crate::api::tasks::map_repository_error)
+                })
+                .transpose()?;
+            let items = board_item_rows(conn, board.id, repository)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -651,11 +810,29 @@ impl KairosMcp {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
-        let request = match search_to_core(&params) {
+        let mut request = match search_to_core(&params) {
             Ok(request) => request,
             Err(e) => return Ok(tool_error(e)),
         };
+        let repository = params.filter.as_ref().and_then(|f| f.repository.clone());
+        if repository.is_none()
+            && let Err(e) = core_search::validate(&request)
+        {
+            // Invalid requests never cost a connection checkout.
+            return Ok(tool_error(ApiError::validation(e.to_string())));
+        }
         self.run_tool(&tenant, move |conn| {
+            // KAIROS-T-0107: the slug-or-UUID repository filter needs a conn
+            // to resolve, so it joins the core filter here — then validate.
+            if let Some(reference) = repository.as_deref() {
+                let repo = repositories::resolve(conn, reference)
+                    .map_err(crate::api::tasks::map_repository_error)?;
+                request
+                    .filter
+                    .get_or_insert_with(Default::default)
+                    .repository_id = Some(repo.id);
+                core_search::validate(&request).map_err(|e| ApiError::validation(e.to_string()))?;
+            }
             let results = search::execute_search(conn, &request).map_err(map_search_error)?;
             Ok(render_search_results(&results))
         })
@@ -1244,6 +1421,28 @@ fn board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiEr
         .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
 }
 
+/// Resolve a team by UUID or slug; 422 otherwise (a filter value).
+fn team_by_ref(
+    conn: &mut PgConnection,
+    reference: &str,
+) -> Result<kairos_db::models::teams::Team, ApiError> {
+    use kairos_db::models::teams::Team;
+    use kairos_db::schema::teams;
+    let mut query = teams::table
+        .filter(teams::deleted_at.is_null())
+        .select(Team::as_select())
+        .into_boxed();
+    query = match Uuid::parse_str(reference) {
+        Ok(id) => query.filter(teams::id.eq(id)),
+        Err(_) => query.filter(teams::slug.eq(reference)),
+    };
+    query
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::validation(format!("team {reference:?} does not exist")))
+}
+
 /// A board row by id (must exist — callers hold a FK to it).
 fn board_by_id(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError> {
     use kairos_db::schema::boards;
@@ -1298,7 +1497,12 @@ struct BoardItemRow {
 
 /// Every live item placed on a board (strategies, initiatives, tasks, and
 /// on-board ADRs — documents have no placement), unified for listing.
-fn board_item_rows(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardItemRow>, ApiError> {
+/// `repository` (KAIROS-T-0107) narrows the TASKS only.
+fn board_item_rows(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    repository: Option<Uuid>,
+) -> Result<Vec<BoardItemRow>, ApiError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
     let mut rows: Vec<BoardItemRow> = Vec::new();
@@ -1347,9 +1551,14 @@ fn board_item_rows(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardI
             }),
     );
 
-    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass)> = tasks::table
+    let mut task_query = tasks::table
         .filter(tasks::board_id.eq(board_id))
         .filter(tasks::deleted_at.is_null())
+        .into_boxed();
+    if let Some(repository) = repository {
+        task_query = task_query.filter(tasks::repository_id.eq(repository));
+    }
+    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass)> = task_query
         .order(tasks::short_code.asc())
         .select((
             tasks::column_id,
@@ -1406,7 +1615,7 @@ fn column_item_counts(
     board_id: Uuid,
 ) -> Result<HashMap<Uuid, i64>, ApiError> {
     let mut counts: HashMap<Uuid, i64> = HashMap::new();
-    for row in board_item_rows(conn, board_id)? {
+    for row in board_item_rows(conn, board_id, None)? {
         *counts.entry(row.column_id).or_default() += 1;
     }
     Ok(counts)
@@ -2023,8 +2232,8 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
                     .as_deref()
                     .map(|v| uuid_field(v, "filter.team_id"))
                     .transpose()?,
-                // Slug-or-UUID `repository` on the MCP filter lands in
-                // KAIROS-T-0107; the core filter is by id.
+                // Resolved from the slug-or-UUID `repository` inside the
+                // tool (a conn is needed); see `search`.
                 repository_id: None,
                 task_type: filter
                     .task_type
@@ -2112,7 +2321,9 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
         limit: params.limit,
         offset: params.offset,
     };
-    core_search::validate(&request).map_err(|e| ApiError::validation(e.to_string()))?;
+    // Validation happens in the `search` tool: a slug-or-UUID `repository`
+    // filter (KAIROS-T-0107) is resolved with a connection first, and a
+    // filter carrying only that must not be rejected as unconstraining.
     Ok(request)
 }
 

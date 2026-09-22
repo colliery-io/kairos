@@ -70,6 +70,7 @@ No native Postgres libraries are required — the CLI links only the shared
 kairos login --url https://<tenant>.kairos.example   # device flow: prints a code + URL
 kairos whoami         # confirm who you are authenticated as
 kairos boards list    # see the boards you can work with
+kairos repos list     # the repositories tickets are issued against, and who owns them
 ```
 
 Credentials are cached per deployment; after `login`, commands default to
@@ -255,20 +256,90 @@ exactly once); revocation and expiry take effect immediately on the next request
 service accounts can never be org admins or deployment admins; rotate by minting a
 new key and revoking the old one; never commit a key to source control.
 
+## Repositories — where tickets are issued and executed
+
+Boards and delivery streams plan the work; a **repository** is the unit a ticket
+is issued against and executed in (KAIROS-A-0019). Every repository has
+**exactly one owning team**, and a task binds to **at most one repository** —
+work that spans codebases is split into one task per repo joined by `blocks`
+edges. That binding is what routes a ticket: filing a task against a repository
+puts it on the owning team's delivery board.
+
+An agent working in a checkout is scoped to that checkout's repository (the
+plugin's `/kairos:bootstrap` detects it from the git remote — see
+`plugin/README.md`): its queue is the team board narrowed to the repo, tasks it
+creates carry the repo, and `get_repository` gives it the team's *"how to work
+here"* description and the repo's in-flight pull requests.
+
+**Register a repository.** Any member of the owning team may (org admins may
+for any team). `team` is a slug or UUID; `slug` defaults to one derived from the
+full name; `description` is the blurb agents read before working in it.
+
+```sh
+kairos repos create --forge github --name acme/payments-api \
+  --repo-url https://github.com/acme/payments-api --team platform \
+  --slug payments-api --description "cargo test before every PR"
+
+# or
+curl -X POST https://<host>/api/repositories -H "Authorization: Bearer <token>" \
+  -H 'Content-Type: application/json' \
+  -d '{"forge":"github","repo_full_name":"acme/payments-api",
+       "repo_url":"https://github.com/acme/payments-api","team":"platform",
+       "slug":"payments-api"}'
+```
+
+`kairos repos list [--team <slug>]` and `kairos repos get <slug>` read the
+directory (open tenant-wide); `kairos repos update <slug> --team <other>`
+re-homes a repository (its tasks are untouched and re-checked on their next
+write); `kairos repos delete <slug> --confirm` is org-admin only and refused with
+`409` while tasks or a webhook connection still reference it. The GUI has the
+same surface under *Admin → Repositories*, a **Repositories** panel on each team
+page, and a repository lens (filter and group-by) on delivery boards.
+
+**File a task against a repository** — yours or another team's:
+
+```sh
+kairos tasks create --repo payments-api --title "Bulk invoice export endpoint"
+# → lands on platform's delivery board; --board is not needed
+kairos repos bind DEMO-T-0042 payments-api      # bind an existing task
+kairos repos unbind DEMO-T-0042
+```
+
+**Cross-team filing.** Any member of the organization — human or service
+account — may create a task against **another team's** repository. It lands in
+that team's **Backlog** and nothing else: the filer cannot move it out of
+Backlog, edit it, delete it, or change its metadata — the owning team's triage
+is the gate. This is the computed `file_backlog` capability every member holds
+on every delivery board (`whoami` lists it under `implicit`); it is never
+granted or revoked. A pull request the filer later opens in that repository
+naming the short code links itself to the ticket through the team's webhook
+(below). From an agent session the recipe is in the `/kairos` router skill:
+`list_repositories` → `get_repository` → `create_item` with `repository` and
+`parent`, then `link_items` `blocks` back to your own item.
+
+**Upgrade notes (KAIROS-I-0010).** Two API contracts changed: `POST
+/api/tasks` no longer requires `board_id` (a `repository_id` routes the task;
+neither → `422`), and `POST /api/forge-connections` takes `{"repository":
+<slug|uuid>}` for a *registered* repository instead of the repo fields and an
+optional `team_id` (`PATCH` on a connection is gone — ownership is edited on the
+repository). Existing forge connections are migrated into repositories
+automatically; a live connection with no team fails the migration and names
+itself so an operator can attribute it first.
+
 ## Git forge integration (GitHub / GitLab)
 
 Kairos associates work items with the branches and pull/merge requests that
 reference them (KAIROS-I-0009). A short code anywhere in a **branch name**, **PR
 title**, or **PR description** creates the link — `dylan/DEMO-T-0002-fix-auth`,
 `Fix login (DEMO-T-0002)`, and a description mentioning `DEMO-T-0002` all work.
-Links appear in a **Development** panel on the item and roll up to an **In
-flight** panel on the owning team's page.
+Links appear in a **Development** panel on the item, on the repository's detail,
+and roll up to an **In flight** panel on the owning team's page.
 
-This is deliberately *not* a service catalog: no ownership graph, no
-dependencies, no in-repo manifest. Kairos records links; the forge remains the
-source of truth. **Nothing is written back** to the forge, and PR state never
-moves cards — board columns are configurable per KAIROS-A-0002, so there is no
-universal "In Progress" to target.
+This is deliberately *not* a service catalog: no dependency graph, no in-repo
+manifest. Kairos records links; the forge remains the source of truth.
+**Nothing is written back** to the forge, and PR state never moves cards —
+board columns are configurable per KAIROS-A-0002, so there is no universal "In
+Progress" to target.
 
 **Prerequisites.** Kairos must be **reachable from the forge** — webhooks are
 inbound. That is ordinary for a deployed ingress; for local development you need
@@ -285,20 +356,18 @@ off. The signing key is deployment-wide: webhook secrets are **derived** from it
 per connection rather than stored, so a database compromise alone yields no
 webhook secrets — but treat the key like any other deployment secret.
 
-**1. Connect a repository** (org admin). The response contains the delivery URL
-and the secret, and the secret is shown **exactly once**:
+**1. Connect a registered repository** (org admin; register it first, above).
+The repository's forge is the webhook dialect (`other`-forge repositories own
+tasks but cannot be connected). The response contains the delivery URL and the
+secret, and the secret is shown **exactly once** — the GUI's *Admin →
+Repositories → Connect webhook* does the same:
 
 ```sh
 curl -X POST https://<host>/api/forge-connections \
   -H "Authorization: Bearer <your-admin-token>" \
   -H 'Content-Type: application/json' \
-  -d '{"forge":"github","repo_full_name":"acme/payments-api",
-       "repo_url":"https://github.com/acme/payments-api",
-       "team_id":"<optional team uuid>"}'
+  -d '{"repository":"payments-api"}'
 ```
-
-Setting `team_id` attributes the whole repository to a team, so its activity
-reaches that team's In flight panel even for work items that carry no team.
 
 **2. Add the webhook in the forge:**
 
@@ -311,7 +380,8 @@ reaches that team's In flight panel even for work items that carry no team.
 
 **3. Use it.** Name the short code in your branch (the convention worth adopting
 team-wide) and the link appears when the branch is pushed or the PR opened;
-merging updates it live.
+merging updates it live. Activity on a repository rolls up to its owning team's
+In flight panel even for work items that carry no team.
 
 **Rotation and removal:**
 
@@ -320,6 +390,7 @@ merging updates it live.
 # so update both fields in the forge:
 curl -X POST https://<host>/api/forge-connections/<id>/rotate -H "Authorization: Bearer <admin>"
 
+# Disconnect the webhook; the repository (and its tasks) stay:
 curl -X DELETE https://<host>/api/forge-connections/<id> -H "Authorization: Bearer <admin>"
 ```
 

@@ -22,6 +22,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
 import {
   createForgeConnection,
+  createRepository,
   deliverGithubWebhook,
   githubPullRequest,
 } from '../helpers/api';
@@ -74,7 +75,14 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
 
   // 3. A real signed delivery, watched live --------------------------------
   const token = await mintToken({ server: GUI, email: 'alice@kairos.test' });
-  const connection = await createForgeConnection(GUI, token, REPO);
+  // KAIROS-T-0106: the repository is registered first (under platform),
+  // then its webhooks are connected by slug.
+  const checkout = await createRepository(GUI, token, {
+    slug: 'checkout-api',
+    repoFullName: REPO,
+    team: 'platform',
+  });
+  const connection = await createForgeConnection(GUI, token, checkout.slug);
 
   await test.step('a signed delivery appears without a reload', async () => {
     const opened = githubPullRequest({

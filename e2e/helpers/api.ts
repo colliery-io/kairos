@@ -203,22 +203,122 @@ export interface ForgeConnection {
   webhookSecret: string;
 }
 
-/** Register a repository and capture its delivery URL + secret (shown once). */
+/** A registered repository (KAIROS-A-0019), as /api/repositories returns it. */
+export interface Repository {
+  id: string;
+  slug: string;
+  teamSlug: string;
+  deliveryBoardId: string | null;
+  openTasks: number;
+  hasWebhook: boolean;
+}
+
+function toRepository(body: any): Repository {
+  return {
+    id: body.id,
+    slug: body.slug,
+    teamSlug: body.team.slug,
+    deliveryBoardId: body.delivery_board_id ?? null,
+    openTasks: body.open_tasks,
+    hasWebhook: body.has_webhook,
+  };
+}
+
+/**
+ * Register a repository under its owning team (org admin, or a member of
+ * that team) — KAIROS-T-0106. `team` is a slug or UUID.
+ */
+export async function createRepository(
+  server: string,
+  token: string,
+  opts: { slug?: string; forge?: string; repoFullName: string; team: string; description?: string },
+): Promise<Repository> {
+  const res = await fetch(`${server}/api/repositories`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      slug: opts.slug ?? null,
+      forge: opts.forge ?? 'github',
+      repo_full_name: opts.repoFullName,
+      repo_url: `https://github.com/${opts.repoFullName}`,
+      team: opts.team,
+      description: opts.description ?? null,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`create repository -> ${res.status}: ${await res.text()}`);
+  }
+  return toRepository(await res.json());
+}
+
+/** The repository directory, optionally one team's. */
+export async function listRepositories(
+  server: string,
+  token: string,
+  team?: string,
+): Promise<Repository[]> {
+  const query = team ? `?team=${encodeURIComponent(team)}` : '';
+  const res = await fetch(`${server}/api/repositories${query}`, { headers: bearer(token) });
+  if (!res.ok) {
+    throw new Error(`list repositories -> ${res.status}: ${await res.text()}`);
+  }
+  return ((await res.json()) as any[]).map(toRepository);
+}
+
+/**
+ * Create a task over the API. With `repository` and no `boardId` the task
+ * routes to the repository's owning team's delivery board (KAIROS-T-0104).
+ * Returns the raw task DTO.
+ */
+export async function createTask(
+  server: string,
+  token: string,
+  opts: { title: string; boardId?: string; repository?: string; content?: string },
+): Promise<any> {
+  const res = await fetch(`${server}/api/tasks`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({
+      board_id: opts.boardId ?? null,
+      repository_id: opts.repository ?? null,
+      title: opts.title,
+      content: opts.content ?? '',
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`create task -> ${res.status}: ${await res.text()}`);
+  }
+  return res.json();
+}
+
+/** Raw status of a task transition — for negative assertions. */
+export async function tryTransitionTask(
+  server: string,
+  token: string,
+  shortCode: string,
+  toColumnId: string,
+): Promise<number> {
+  const res = await fetch(`${server}/api/tasks/${shortCode}/transition`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ to_column_id: toColumnId }),
+  });
+  return res.status;
+}
+
+/**
+ * Connect webhooks for a REGISTERED repository (slug or UUID) and capture
+ * its delivery URL + secret (shown once) — the KAIROS-T-0106 re-key.
+ */
 export async function createForgeConnection(
   server: string,
   token: string,
-  repoFullName: string,
-  teamId?: string,
+  repository: string,
 ): Promise<ForgeConnection> {
   const res = await fetch(`${server}/api/forge-connections`, {
     method: 'POST',
     headers: { ...bearer(token), 'content-type': 'application/json' },
-    body: JSON.stringify({
-      forge: 'github',
-      repo_full_name: repoFullName,
-      repo_url: `https://github.com/${repoFullName}`,
-      team_id: teamId ?? null,
-    }),
+    body: JSON.stringify({ repository }),
   });
   if (!res.ok) {
     throw new Error(`create connection -> ${res.status}: ${await res.text()}`);

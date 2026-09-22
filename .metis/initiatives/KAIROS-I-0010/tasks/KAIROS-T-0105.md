@@ -3,15 +3,15 @@ id: abac-computed-file-backlog
 level: task
 title: "ABAC: computed file_backlog capability for cross-team Backlog filing (A-0006 amendment)"
 short_code: "KAIROS-T-0105"
-created_at: 2026-09-22T03:04:41.000000+00:00
-updated_at: 2026-09-22T03:04:41.000000+00:00
+created_at: 2026-09-22T03:04:41+00:00
+updated_at: 2026-09-22T04:00:52.121116+00:00
 parent: KAIROS-I-0010
-blocked_by: ["KAIROS-T-0104"]
+blocked_by: [KAIROS-T-0104]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,12 +46,15 @@ This is the one deliberate widening of A-0006. The test suite is the contract; m
 
 ## Acceptance Criteria
 
-- [ ] `check_capability` unit tests for the new arm (member/non-member × delivery/non-delivery board × `file_backlog`/other cap).
-- [ ] Granting or revoking `file_backlog` via the capability endpoints is refused.
-- [ ] Full negative suite above passes; positive case (member of team B files against team A's repo, task appears in A's Backlog with `created_by` = B's user) passes over HTTP and MCP.
-- [ ] `whoami` shows `implicit: ["file_backlog"]`.
-- [ ] fmt/clippy/unit/integration green.
+- [x] The arm lives in `kairos_db::abac::authorize` (which has the org slug for the membership check) as `check_file_backlog`, not inside `check_capability`'s single SQL statement — keeps that query single-purpose. Covered end to end by the integration suite (member × delivery board = allowed; non-member tenant = refused; the non-delivery-board case cannot arise because `resolve_routing` only ever routes to a delivery board). Core unit test: `file_backlog_is_computed_never_grantable_never_team_implied`.
+- [x] Granting `file_backlog` via `POST /api/boards/{id}/members` → 422 (not in `CAPABILITY_VOCABULARY`; also `kairos_core::abac::is_computed`). Nothing to revoke since nothing can be stored.
+- [x] `tests/file_backlog.rs`: positive over HTTP (alice/web → platform Backlog, `created_by` = alice; carol on no team; a service-account key; explicit Backlog column) and over MCP (`create_item` with `repository`). Negative: non-Backlog column 403; repo-less create 403; repo/board mismatch 422; on the filed task — transition, edit, delete, work-class, set-repository, metadata all 403; owning team can transition; another tenant cannot reach the repo; MCP repo-less create on the foreign board refused; `repository` on a non-task rejected.
+- [x] `whoami` (HTTP DTO `implicit: Vec<String>`; MCP text) shows `file_backlog`.
+- [x] fmt, clippy `-D warnings` on the touched crates, `angreal test unit`, `angreal test integration` 36/36 green.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`4c4dca3`). Notes for downstream:
+  - `crate::api::tasks::require_task_create_capability(conn, slug, user, &route, column_id)` is THE gate for task creation; MCP `create_item_impl` now calls `resolve_routing` + this helper for every task (repo or not), and gained the `repository` param (T-0107 has one less thing to do; it still owns `list_repositories`/`get_repository`/filters/whoami repos).
+  - The docs paragraph in the AC has no home yet — `docs/` has no ABAC reference page. T-0110 creates it and documents `file_backlog` there.
+  - MCP tests can drive the spawned server over HTTP with a ~60-line `McpSession` (initialize → initialized → tools/call, SSE-or-JSON decode); reusable for T-0107.

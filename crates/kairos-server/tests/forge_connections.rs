@@ -202,6 +202,53 @@ async fn forge_connection_lifecycle_against_live_stack() {
     assert_eq!(fetched.repository.repo_full_name, "acme/payments-api");
 
     // =======================================================================
+    // Prerequisites are checked BEFORE any write (KAIROS-T-0116)
+    // =======================================================================
+    // A second server on the same database with no KAIROS_PUBLIC_URL: the
+    // connect must 501 and persist NOTHING (it used to persist, then 501).
+    let mut unconfigured = base_config(&scratch_url);
+    unconfigured.public_url = None;
+    let dark = spawn_server(app::router(app::state_with(
+        unconfigured,
+        pool.clone(),
+        auth.clone(),
+    )))
+    .await;
+    let dark_svc = dark.client(&svc_token, "acme");
+    let second = svc
+        .create_repository(&CreateRepositoryRequest {
+            slug: Some("ledger".into()),
+            forge: "github".into(),
+            repo_full_name: "acme/ledger".into(),
+            repo_url: "https://github.com/acme/ledger".into(),
+            default_branch: None,
+            team: platform.id.clone(),
+            description: None,
+        })
+        .await
+        .expect("a second repo");
+    let err = rejection(
+        dark_svc
+            .create_forge_connection(&CreateForgeConnectionRequest {
+                repository: second.slug.clone(),
+            })
+            .await,
+    );
+    assert!(
+        matches!(&err, Error::Other { status: 501, .. }),
+        "unconfigured public URL is a 501: {err}"
+    );
+    assert!(
+        !svc.get_repository(&second.slug)
+            .await
+            .expect("detail")
+            .repository
+            .has_webhook,
+        "nothing was persisted before the 501"
+    );
+    drop(dark);
+
+    // =======================================================================
     // One live connection per repo; validation
     // =======================================================================
     let err = rejection(svc.create_forge_connection(&request).await);

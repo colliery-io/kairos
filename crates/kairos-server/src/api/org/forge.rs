@@ -54,7 +54,7 @@ pub fn router() -> Router<AppState> {
 }
 
 /// [`ForgeError`] → HTTP.
-fn map_error(e: ForgeError) -> ApiError {
+pub(crate) fn map_error(e: ForgeError) -> ApiError {
     match e {
         ForgeError::ConnectionNotFound(id) => {
             ApiError::not_found(format!("no live forge connection {id} exists"))
@@ -62,9 +62,7 @@ fn map_error(e: ForgeError) -> ApiError {
         ForgeError::RepoAlreadyConnected { repo } => {
             ApiError::conflict(format!("repository {repo:?} already has a live connection"))
         }
-        ForgeError::RepositoryNotFound(id) => {
-            ApiError::validation(format!("repository {id} does not exist"))
-        }
+        ForgeError::Repository(e) => super::repositories::map_error(e),
         ForgeError::ForgeMismatch {
             connection,
             repository,
@@ -99,6 +97,19 @@ fn signing_key(state: &AppState) -> Result<String, ApiError> {
     })
 }
 
+/// The deployment's externally reachable base URL, or the 501 that says it
+/// is not configured — checked up front by every write that will need it.
+fn public_url(state: &AppState) -> Result<String, ApiError> {
+    state.config.public_url.clone().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_IMPLEMENTED,
+            "PUBLIC_URL_NOT_CONFIGURED",
+            "this deployment has no KAIROS_PUBLIC_URL set, so it cannot state \
+             the externally reachable webhook URL; set it and restart",
+        )
+    })
+}
+
 /// The delivery URL an operator pastes into the forge.
 fn webhook_url(
     state: &AppState,
@@ -106,14 +117,7 @@ fn webhook_url(
     forge: Forge,
     connection_id: &str,
 ) -> Result<String, ApiError> {
-    let base = state.config.public_url.clone().ok_or_else(|| {
-        ApiError::new(
-            StatusCode::NOT_IMPLEMENTED,
-            "PUBLIC_URL_NOT_CONFIGURED",
-            "this deployment has no KAIROS_PUBLIC_URL set, so it cannot state \
-             the externally reachable webhook URL; set it and restart",
-        )
-    })?;
+    let base = public_url(state)?;
     Ok(format!("{base}/webhooks/{forge}/{tenant}/{connection_id}"))
 }
 
@@ -192,6 +196,10 @@ pub(crate) async fn create_connection(
     Json(body): Json<dto::CreateForgeConnectionRequest>,
 ) -> Result<(StatusCode, Json<dto::CreatedForgeConnection>), ApiError> {
     let key = signing_key(&state)?;
+    // Both deployment prerequisites are checked BEFORE anything is written
+    // (KAIROS-T-0116): a missing public URL used to persist the connection
+    // and then 501.
+    public_url(&state)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let url_slug = slug.clone();
@@ -291,6 +299,7 @@ pub(crate) async fn rotate_connection(
     Path(id): Path<String>,
 ) -> Result<Json<dto::CreatedForgeConnection>, ApiError> {
     let key = signing_key(&state)?;
+    public_url(&state)?;
     let old_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -299,23 +308,27 @@ pub(crate) async fn rotate_connection(
         .blocking
         .run(&slug, move |conn| {
             require_capability(conn, &tenant.slug, None, user, MANAGE)?;
-            let old = forge::load_connection_with_repo(conn, old_id).map_err(map_error)?;
-            // Same repo, fresh id: the old connection goes away in the same
-            // transaction so the partial unique index never sees two live
-            // rows for one repo.
-            forge::delete_connection(conn, old_id).map_err(map_error)?;
-            let created = forge::create_connection(
-                conn,
-                NewForgeConnection {
-                    forge: old.connection.forge,
-                    repository_id: old.repository.id,
-                    created_by: user,
-                },
-            )
-            .map_err(map_error)?;
-            Ok(ConnectionWithRepo {
-                connection: created,
-                repository: old.repository,
+            // Same repo, fresh id: delete + create in ONE transaction
+            // (`run_in_transaction` — the pool's `run` wraps nothing,
+            // KAIROS-T-0116) so the partial unique index never sees two live
+            // rows for one repo AND a failure between the two leaves the old
+            // connection live.
+            super::run_in_transaction(conn, |conn| {
+                let old = forge::load_connection_with_repo(conn, old_id).map_err(map_error)?;
+                forge::delete_connection(conn, old_id).map_err(map_error)?;
+                let created = forge::create_connection(
+                    conn,
+                    NewForgeConnection {
+                        forge: old.connection.forge,
+                        repository_id: old.repository.id,
+                        created_by: user,
+                    },
+                )
+                .map_err(map_error)?;
+                Ok(ConnectionWithRepo {
+                    connection: created,
+                    repository: old.repository,
+                })
             })
         })
         .await?;

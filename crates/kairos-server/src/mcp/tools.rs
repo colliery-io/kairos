@@ -335,14 +335,15 @@ impl KairosMcp {
                 board_member_capabilities as caps, boards, team_members, teams,
             };
 
-            let member_teams: Vec<(String, String, TeamType)> = team_members::table
+            let member_teams: Vec<(Uuid, String, String, TeamType)> = team_members::table
                 .inner_join(teams::table)
                 .filter(team_members::user_id.eq(user_id))
                 .filter(teams::deleted_at.is_null())
                 .order(teams::slug.asc())
-                .select((teams::slug, teams::name, teams::team_type))
+                .select((teams::id, teams::slug, teams::name, teams::team_type))
                 .load(conn)
                 .map_err(ApiError::internal)?;
+            let my_team_ids: Vec<Uuid> = member_teams.iter().map(|(id, ..)| *id).collect();
 
             let grants: Vec<(String, String, String)> = caps::table
                 .inner_join(boards::table)
@@ -359,18 +360,13 @@ impl KairosMcp {
             if member_teams.is_empty() {
                 out.push_str("(none)\n");
             }
-            for (slug, name, team_type) in member_teams {
+            for (_, slug, name, team_type) in member_teams {
                 out.push_str(&format!("- {slug} — {name} ({team_type})\n"));
             }
             // KAIROS-T-0107: the repositories my teams own — where my
             // tickets are issued and executed (A-0019).
             {
                 use kairos_db::schema::repositories as repos;
-                let my_team_ids: Vec<Uuid> = team_members::table
-                    .filter(team_members::user_id.eq(user_id))
-                    .select(team_members::team_id)
-                    .load(conn)
-                    .map_err(ApiError::internal)?;
                 let mine: Vec<(String, String, String)> = repos::table
                     .inner_join(teams::table)
                     .filter(repos::team_id.eq_any(&my_team_ids))

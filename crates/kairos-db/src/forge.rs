@@ -37,9 +37,10 @@ pub enum ForgeError {
     /// A live connection already covers this repository.
     #[error("repository {repo:?} already has a live connection")]
     RepoAlreadyConnected { repo: String },
-    /// No live repository with this id (connection target).
-    #[error("repository {0} does not exist")]
-    RepositoryNotFound(Uuid),
+    /// The repository lookup failed (not found, or a database error) —
+    /// carried whole so the API maps it precisely (KAIROS-T-0116).
+    #[error(transparent)]
+    Repository(#[from] crate::repositories::RepositoryError),
     /// The connection's forge must match its repository's (`other` repos
     /// have no webhook dialect at all).
     #[error("connection forge {connection} does not match repository forge {repository}")]
@@ -108,25 +109,6 @@ pub fn load_connection_with_repo(
     .ok_or(ForgeError::ConnectionNotFound(id))
 }
 
-/// The live connection for a `(forge, repo_full_name)`, if any — resolved
-/// through the repository.
-pub fn find_connection_by_repo(
-    conn: &mut PgConnection,
-    forge: Forge,
-    repo_full_name: &str,
-) -> Result<Option<ForgeConnection>, ForgeError> {
-    use crate::schema::{forge_connections, repositories};
-    Ok(forge_connections::table
-        .inner_join(repositories::table)
-        .filter(repositories::forge.eq(forge))
-        .filter(repositories::repo_full_name.eq(repo_full_name))
-        .filter(repositories::deleted_at.is_null())
-        .filter(forge_connections::deleted_at.is_null())
-        .select(ForgeConnection::as_select())
-        .first(conn)
-        .optional()?)
-}
-
 /// The live connection of one repository, if any.
 pub fn find_connection_for_repository(
     conn: &mut PgConnection,
@@ -147,8 +129,7 @@ pub fn create_connection(
     conn: &mut PgConnection,
     input: NewForgeConnection,
 ) -> Result<ForgeConnection, ForgeError> {
-    let repository = crate::repositories::load(conn, input.repository_id)
-        .map_err(|_| ForgeError::RepositoryNotFound(input.repository_id))?;
+    let repository = crate::repositories::load(conn, input.repository_id)?;
     if repository.forge != input.forge {
         return Err(ForgeError::ForgeMismatch {
             connection: input.forge,

@@ -222,6 +222,12 @@ fn render_one(conn: &mut PgConnection, repo: Repository) -> Result<dto::Reposito
 pub(crate) struct ListRepositoriesQuery {
     /// Only this team's repositories (UUID or slug).
     pub team: Option<String>,
+    /// With `name`: the ONE repository registered under this forge
+    /// (`github|gitlab|other`) and full name — how a checkout matches its
+    /// git remote (KAIROS-T-0116). Returns an empty list when unknown.
+    pub forge: Option<String>,
+    /// `owner/repo`, paired with `forge`.
+    pub name: Option<String>,
 }
 
 /// The repository directory (open tenant-wide), by slug. `?team=` narrows
@@ -244,6 +250,17 @@ pub(crate) async fn list_repositories(
     let rows = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            if let (Some(forge), Some(name)) = (query.forge.as_deref(), query.name.as_deref()) {
+                let forge: Forge = parse_enum(forge, "forge", Forge::ALL)?;
+                let found =
+                    repositories::find_by_forge_name(conn, forge, name).map_err(map_error)?;
+                return render(conn, found.into_iter().collect());
+            }
+            if query.forge.is_some() != query.name.is_some() {
+                return Err(ApiError::validation(
+                    "forge and name are looked up together; pass both or neither",
+                ));
+            }
             let team_id = query
                 .team
                 .as_deref()
@@ -281,7 +298,7 @@ pub(crate) async fn get_repository(
             let repo_id = repo.id;
             let stale_tasks = repositories::stale_tasks(conn, &repo).map_err(map_error)?;
             let connection_id = kairos_db::forge::find_connection_for_repository(conn, repo_id)
-                .map_err(|e| ApiError::internal(e.to_string()))?
+                .map_err(super::forge::map_error)?
                 .map(|c| c.id.to_string());
             let in_flight =
                 kairos_db::graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 100)

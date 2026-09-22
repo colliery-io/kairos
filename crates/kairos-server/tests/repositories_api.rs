@@ -185,6 +185,47 @@ async fn repository_api_against_live_stack() {
         .expect("admin registers for platform");
     assert_eq!(infra.slug, "acme-platform-infra", "derived slug");
 
+    // Lookup by (forge, name) — how bootstrap matches a git remote
+    // (KAIROS-T-0116); unknown → empty, half a pair → 422.
+    let (status, body) = alice
+        .raw_request(
+            reqwest::Method::GET,
+            "/api/repositories?forge=github&name=acme%2Fpayments-api",
+            None,
+        )
+        .await
+        .expect("lookup");
+    assert_eq!(status, 200);
+    assert_eq!(body[0]["slug"], "payments-api", "{body}");
+    let (status, body) = alice
+        .raw_request(
+            reqwest::Method::GET,
+            "/api/repositories?forge=github&name=acme%2Fnope",
+            None,
+        )
+        .await
+        .expect("lookup miss");
+    assert_eq!(status, 200);
+    assert_eq!(body.as_array().map(Vec::len), Some(0), "{body}");
+    let (status, _) = alice
+        .raw_request(reqwest::Method::GET, "/api/repositories?forge=github", None)
+        .await
+        .expect("half a pair");
+    assert_eq!(status, 422);
+    // A UUID-shaped slug would be unreachable by slug → refused.
+    let err = rejection(
+        svc.create_repository(&request(
+            Some("0193a1c2-0000-7000-8000-000000000003"),
+            "acme/uuidish",
+            "platform",
+        ))
+        .await,
+    );
+    assert!(
+        matches!(err, Error::Validation { .. }),
+        "uuid-shaped slug: {err}"
+    );
+
     // Validation and conflicts.
     let err = rejection(
         svc.create_repository(&request(Some("Bad Slug"), "acme/x", "platform"))

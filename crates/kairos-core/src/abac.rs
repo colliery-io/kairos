@@ -109,14 +109,10 @@ pub fn team_implies(required: &str) -> bool {
 /// a delivery board. Nothing past Backlog is opened by it.
 pub const FILE_BACKLOG: &str = "file_backlog";
 
-/// Every capability that is COMPUTED rather than granted — refused by the
-/// grant/revoke endpoints, reported by `whoami` under `implicit`.
+/// Every capability that is COMPUTED rather than granted — never in the
+/// grantable vocabulary (so grant/revoke refuse it), reported by `whoami`
+/// under `implicit`.
 pub const COMPUTED_CAPABILITIES: &[&str] = &[FILE_BACKLOG];
-
-/// Is `capability` computed (never stored)?
-pub fn is_computed(capability: &str) -> bool {
-    COMPUTED_CAPABILITIES.contains(&capability)
-}
 
 /// Relationship types a NON-admin may write between items they can
 /// otherwise manage (KAIROS-T-0111 amending A-0006's "relationships are
@@ -408,7 +404,7 @@ mod tests {
 
     #[test]
     fn file_backlog_is_computed_never_grantable_never_team_implied() {
-        assert!(is_computed(FILE_BACKLOG));
+        assert!(COMPUTED_CAPABILITIES.contains(&FILE_BACKLOG));
         // Not in the grantable vocabulary: no grant row can ever carry it,
         // and no family glob resolves to it (the bare `*` matches every
         // string by construction — moot, since a `*` holder already has
@@ -423,7 +419,7 @@ mod tests {
         // Not implied by team membership either — it is tenant-wide.
         assert!(!team_implies(FILE_BACKLOG));
         for capability in CAPABILITIES {
-            assert!(!is_computed(capability));
+            assert!(!COMPUTED_CAPABILITIES.contains(capability));
         }
     }
 }

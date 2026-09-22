@@ -57,24 +57,16 @@ pub fn router() -> Router<AppState> {
 // ---------------------------------------------------------------------------
 
 /// The fixed A-0006 capability vocabulary plus its glob forms — the values
-/// a grant may carry. The ABAC layer stores free text (extensible by
-/// design); the API layer is where the vocabulary is enforced.
-pub const CAPABILITY_VOCABULARY: &[&str] = &[
-    "manage_strategies",
-    "manage_initiatives",
-    "manage_tasks",
-    "manage_documents",
-    "manage_adrs",
-    "transition_items",
-    "configure_boards",
-    "configure_templates",
-    "configure_metadata",
-    "manage_members",
-    "*",
-    "manage_*",
-    "configure_*",
-    "transition_*",
-];
+/// a grant may carry. ONE source of truth: `kairos_core::abac::{CAPABILITIES,
+/// GLOBS}` (KAIROS-T-0116 removed the duplicated list). The ABAC layer
+/// stores free text (extensible by design); the API layer is where the
+/// vocabulary is enforced.
+fn capability_vocabulary() -> impl Iterator<Item = &'static str> {
+    kairos_core::abac::CAPABILITIES
+        .iter()
+        .chain(kairos_core::abac::GLOBS.iter())
+        .copied()
+}
 
 /// 422 `VALIDATION` unless every entry is in the A-0006 vocabulary (list
 /// must be non-empty).
@@ -85,10 +77,10 @@ pub fn validate_capabilities(capabilities: &[String]) -> Result<(), ApiError> {
         ));
     }
     for capability in capabilities {
-        if !CAPABILITY_VOCABULARY.contains(&capability.as_str()) {
+        if !capability_vocabulary().any(|known| known == capability.as_str()) {
             return Err(ApiError::validation(format!(
                 "unknown capability {capability:?}; allowed: [{}]",
-                CAPABILITY_VOCABULARY.join(", ")
+                capability_vocabulary().collect::<Vec<_>>().join(", ")
             )));
         }
     }

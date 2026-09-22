@@ -467,11 +467,11 @@ async fn file_backlog_against_live_stack() {
         .expect("the owning team triages it");
     // Another tenant's member cannot reach into acme at all.
     let err = rejection(globex_alice.create_task(&filing).await);
+    // alice IS a globex member, so the tenant middleware admits her there and
+    // the repository lookup runs in globex's schema — where the slug does
+    // not exist: a 422 from routing, never a leak (KAIROS-T-0116 pinned it).
     assert!(
-        matches!(
-            err,
-            Error::Validation { .. } | Error::Forbidden { .. } | Error::NotFound { .. }
-        ),
+        matches!(err, Error::Validation { .. }),
         "another tenant never sees acme's repositories: {err}"
     );
 

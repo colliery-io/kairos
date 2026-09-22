@@ -14,6 +14,19 @@ pub fn is_valid_slug(slug: &str) -> bool {
             .iter()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
         && bytes[0] != b'-'
+        // A UUID-shaped slug would be unreachable by slug: references are
+        // parsed as ids first (KAIROS-T-0116).
+        && !looks_like_uuid(slug)
+}
+
+/// `8-4-4-4-12` lowercase hex — the canonical UUID text form.
+fn looks_like_uuid(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    parts.len() == 5
+        && [8, 4, 4, 4, 12]
+            .iter()
+            .zip(&parts)
+            .all(|(len, part)| part.len() == *len && part.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 /// Derive a slug from a forge full name (`acme/payments-api` ->
@@ -57,6 +70,8 @@ mod tests {
         assert!(!is_valid_slug("under_score"));
         assert!(!is_valid_slug("dot.name"));
         assert!(!is_valid_slug(&"a".repeat(64)));
+        assert!(!is_valid_slug("0193a1c2-0000-7000-8000-000000000003"));
+        assert!(is_valid_slug("0193a1c2-0000-7000-8000-00000000000x"));
     }
 
     #[test]

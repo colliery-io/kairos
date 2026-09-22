@@ -19,7 +19,8 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
 
 - `meta/` — `kairos` (the `/kairos` router), `grilling` (model-invoked), `grill-me`,
   `handoff`, `writing-great-skills` (the normative authoring reference), `bootstrap`
-  (wires a repo to a deployment; writes `.claude/kairos.local.md`)
+  (wires a repo to a deployment — detects the repository from the git remote — and writes
+  `.claude/kairos.local.md`)
 - `workflow/` — `to-initiative`, `decompose`, `triage` (user-invoked), `implement`
   (model-invoked per KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
@@ -36,9 +37,23 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 `hooks/hooks.json` registers `hooks/session_start.py` (python3, stdlib only) for SessionStart.
 It reads `.claude/kairos.local.md` (absent → silent no-op), probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
-call `my_boards`/`board_items` over the **authenticated MCP connection** for live board state.
+pull live state over the **authenticated MCP connection**: with a `repository` wired
+(KAIROS-A-0019) that is `get_repository` + `board_items` narrowed to the repository — the
+session's queue; without one, `my_boards`/`board_items` as before. Its pure parts are unit
+tested (`hooks/test_session_start.py`, part of `angreal test unit`).
 Hooks cannot drive the client's OAuth flow (KAIROS-A-0011) and tokens live with the MCP client
 (KAIROS-A-0014), so the hook deliberately never authenticates; offline degrades to a note.
+
+## Sessions are scoped to a repository
+
+`/kairos:bootstrap` records the checkout's repository (`repository:` in
+`.claude/kairos.local.md`, matched from `git remote get-url origin` against the tenant's
+directory). Every repository has exactly one owning team, and a task is issued against at most
+one repository — that binding routes it to the owning team's delivery board. `implement` works
+only this repository's tickets, `decompose` binds every task it creates, `triage` grooms this
+repo's slice by default, and `code-review` flags a PR whose ticket is bound elsewhere. Work for
+another team's codebase is **filed** against their repository (it lands in their Backlog —
+recipe in the `/kairos` router skill), never implemented from here.
 
 ## `.mcp.json` is a template
 

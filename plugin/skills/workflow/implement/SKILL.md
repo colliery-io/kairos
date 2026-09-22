@@ -9,7 +9,9 @@ Execute one Kairos task from Todo to Completed.
 
 ## Pick up
 
-Given a short code, `get_item` it. Given nothing, `my_boards` → the user's delivery board → `board_items` on Todo → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting.
+This session is scoped to one **repository** — the `repository` in the SessionStart context (`.claude/kairos.local.md`, KAIROS-A-0019). Given a short code, `get_item` it. Given nothing, `board_items` on the team board with `repository=<this repo>` → Todo → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
+
+**Stay in your repository.** If the item's `repository` differs from this checkout's, stop: say which repository it belongs to and that it must be implemented from that checkout (or by that team), and pick something else. Never implement another codebase's ticket from here. An item with no `repository` on a multi-repo team: bind it first (`kairos repos bind <code> <slug>` / `PUT /api/tasks/{code}/repository`) so the work is attributed, then proceed.
 
 The task must be workable: acceptance criteria present and independently verifiable, blockers resolved. When it isn't, stop, note the gap on the item, and tell the lead it needs `/kairos:triage` — surface the gap rather than quietly filling it yourself.
 
@@ -29,7 +31,7 @@ The task transitions Active → Completed **only** when all of these hold, with 
 2. **Every acceptance criterion demonstrated, not asserted**: for each criterion, `edit_item` the command you ran and the observed output onto the item as evidence.
 3. **New behavior carries new tests.**
 
-Then review the diff (the `code-review` skill), commit to the current branch, and `transition_item` to **Completed**.
+Then review the diff (the `code-review` skill), commit to the current branch, and `transition_item` to **Completed**. When the work needs a change in ANOTHER repository (an API the other team must add, a client to update), do not stall: file it against that repository with `create_item` (`item_type: task`, `repository: <their slug>`, `parent: <this task's initiative>`) and `link_items` it as `blocks` this task — it lands in their Backlog for triage (the `kairos` skill has the recipe).
 
 ## Blocked
 

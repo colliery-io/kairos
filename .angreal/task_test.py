@@ -122,8 +122,15 @@ def _integration_test_targets():
     ),
 )
 def unit():
-    """Run unit tests for all workspace crates."""
-    return run_cargo_command(["test", "--workspace", "--lib", "--bins"])
+    """Run unit tests for all workspace crates, then the plugin hook's
+    stdlib unit tests (KAIROS-T-0108)."""
+    code = run_cargo_command(["test", "--workspace", "--lib", "--bins"])
+    if code:
+        return code
+    hook_tests = os.path.join(PROJECT_ROOT, "plugin", "hooks", "test_session_start.py")
+    return subprocess.run(
+        [sys.executable, "-m", "unittest", hook_tests], cwd=PROJECT_ROOT, check=False
+    ).returncode
 
 
 @test()

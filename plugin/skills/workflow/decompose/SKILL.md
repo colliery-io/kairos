@@ -43,16 +43,18 @@ Iterate until the user approves the breakdown.
 
 ### 5. Publish the tasks to Kairos
 
-Find the team's delivery board with `my_boards` (the session context may already name it); if more than one could hold the work, ask the user which.
+Every task is issued against **one repository** (KAIROS-A-0019): the repo an agent will implement it in. Default to the session's `repository` (SessionStart context). When the initiative spans repositories, decide per slice — ask the user which repo each slice lands in (a slice that "touches both" is two slices, one per repo, joined by a `blocks` edge). Use `list_repositories` to see the directory when another team's repo is involved; a task filed against another team's repository lands in THEIR Backlog for triage (any member may do this).
+
+A repository routes the task to its owning team's delivery board, so `board` is not needed; only when the session has no repository, find the board with `my_boards` (if more than one could hold the work, ask the user which) and pass `board` instead.
 
 Publish in dependency order — blockers first — so every blocking edge names a real short code. For each approved slice:
 
-- `create_item(item_type: task, board: <delivery board>, parent: <initiative short code>, title: ..., content: ...)` using the **Task body template**. The `parent` edge links the task to its initiative — the body carries no parent section.
+- `create_item(item_type: task, repository: <slug>, parent: <initiative short code>, title: ..., content: ...)` using the **Task body template** (`board: <delivery board>` instead of `repository` only when nothing is wired). The `parent` edge links the task to its initiative — the body carries no parent section.
 - For each of its blockers: `link_items(source: <blocker short code>, target: <this task's short code>, relationship: blocks)`.
 
 Columns and blocking edges are native to Kairos — new tasks land in the board's entry column, and that's where they belong; leave them for the team to pull. The initiative itself stays untouched: decompose only adds children.
 
-Finish by listing the created short codes in dependency order.
+Finish by listing the created short codes in dependency order, each with its repository (and, for another team's repo, a note that it awaits that team's triage).
 
 ## Reference
 

@@ -1,13 +1,13 @@
 ---
 name: bootstrap
-description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, board discovery, and .claude/kairos.local.md.
+description: Wire this repo and engineer to a Kairos deployment — MCP endpoint config, auth check, repository detection from the git remote, board discovery, and .claude/kairos.local.md.
 argument-hint: "[deployment URL]"
 disable-model-invocation: true
 ---
 
 # Bootstrap
 
-Connect the current repo to a Kairos deployment so every other kairos skill (and the SessionStart hook) has a board to work against. Idempotent: re-running updates the existing configuration in place.
+Connect the current repo to a Kairos deployment so every other kairos skill (and the SessionStart hook) knows which **repository** this checkout is — the unit tickets are issued against and executed in (KAIROS-A-0019) — and which boards plan its work. Idempotent: re-running updates the existing configuration in place.
 
 ## 1. Gather the deployment
 
@@ -55,12 +55,32 @@ For **non-interactive** contexts (CI, headless agents) where no browser is avail
 
 Once connected:
 
-1. `whoami` — confirms auth; gives the user's name/email, org, teams, and the boards where they hold capabilities.
-2. `my_boards` — boards grouped by level; the user's delivery boards include column names and per-column item counts.
+1. `whoami` — confirms auth; gives the user's name/email, org, teams, the repositories their teams own, and the boards where they hold capabilities.
+2. **Detect this repository** (below).
+3. `my_boards` — boards grouped by level; the user's delivery boards include column names and per-column item counts.
+
+### Detect this repository
+
+Run `git remote get-url origin`. Normalize the remote to `(forge, full_name)`:
+
+| Remote | forge | full_name |
+|---|---|---|
+| `git@github.com:acme/payments-api.git` | `github` | `acme/payments-api` |
+| `https://github.com/acme/payments-api` | `github` | `acme/payments-api` |
+| `git@gitlab.com:acme/portal/web.git` | `gitlab` | `acme/portal/web` |
+| `https://gitlab.example.com/acme/web.git` | `gitlab` (any host containing `gitlab`) | `acme/web` |
+| anything else | `other` | path after the host, `.git` stripped |
+
+Strip a trailing `.git` and any leading `/`. Then match: first `whoami`'s `repositories` (the user's own teams'), then `list_repositories` (the whole directory), on `forge` + `full_name`.
+
+- **Found** → its `slug` is the repository; its owning team's delivery board is the **team board**, and that team is the **delivery stream** default. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
+- **Not found** → offer to register it with `POST /api/repositories` / `kairos repos create` (any member of the owning team may). Use the user's single team as the owner; if they are on several, ask which; if they are on none, say an org admin or a team member must register it and leave `repository:` empty.
+- **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped.
 
 From the results pick, confirming with the user whenever there is more than one candidate:
 
-- **delivery stream / team board** — the delivery-level board the user works from
+- **repository** — the slug detected above
+- **delivery stream / team board** — the repository's owning team's delivery board; without a repository, the delivery-level board the user works from
 - **initiative board** — the default initiative-level board new initiatives land on
 
 If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; ask an org admin for team/board membership). Do not fail the bootstrap.
@@ -73,6 +93,7 @@ Per-repo wiring read by the SessionStart hook and skills (KAIROS-A-0014). Create
 ---
 deployment_url: https://acme.kairos.example
 tenant: acme
+repository: payments-api
 delivery_stream: platform
 team_board: Platform Delivery
 initiative_board: Platform Initiatives
@@ -81,11 +102,13 @@ initiative_board: Platform Initiatives
 # Kairos wiring for this repo
 
 Connected as alice@acme.example (org: Acme Inc, team: platform).
-Boards discovered 2026-07-10 via whoami/my_boards. Re-run /kairos:bootstrap
-after team or board changes. <Note anything missing and what unblocks it.>
+Repository payments-api (github acme/payments-api, owned by platform) matched
+from the origin remote; boards derived from it 2026-09-22. Re-run
+/kairos:bootstrap after remote, team or board changes. <Note anything
+missing and what unblocks it.>
 ```
 
-Frontmatter keys are exactly: `deployment_url`, `tenant`, `delivery_stream`, `team_board`, `initiative_board`. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
+Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); the three board keys are derived from its owning team when it is set and are still written so older skills keep working. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
 
 Then ensure it is gitignored — it is org-specific wiring, not for the repo's history (tokens live with the MCP client, never in this file). If `.gitignore` does not already cover it, append:
 
@@ -95,4 +118,4 @@ Then ensure it is gitignored — it is org-specific wiring, not for the repo's h
 
 ## 5. Report
 
-Tell the user: config path(s) written, deployment/tenant, who they are connected as, the boards chosen, and — if anything was skipped (offline, unauthenticated, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls live board state automatically.
+Tell the user: config path(s) written, deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, unregistered remote, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.

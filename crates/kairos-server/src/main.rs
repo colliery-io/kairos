@@ -177,13 +177,14 @@ fn seed_demo(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
             }
             println!(
                 "seeded tenant '{}' (schema {}): {} users (alice=org admin, bob, carol), \
-                 {} teams, {} boards, {} delivery stream(s), {} strategy, {} initiatives \
-                 (2 buckets), {} tasks, {} document, {} ADRs, {} relationship edges, \
+                 {} teams, {} repositories, {} boards, {} delivery stream(s), {} strategy, \
+                 {} initiatives (2 buckets), {} tasks, {} document, {} ADRs, {} relationship edges, \
                  {} metadata stamp(s)",
                 report.slug,
                 report.schema,
                 report.users,
                 report.teams,
+                report.repositories,
                 report.boards,
                 report.streams,
                 report.strategies,

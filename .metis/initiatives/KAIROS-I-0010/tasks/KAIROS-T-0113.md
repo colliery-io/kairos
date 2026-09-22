@@ -4,14 +4,14 @@ level: task
 title: "Fix: repositories migration hardening — slug collision handling, SQL/Rust slug parity, populated backfill and down-migration tests"
 short_code: "KAIROS-T-0113"
 created_at: 2026-09-22T09:53:02.350168+00:00
-updated_at: 2026-09-22T09:53:02.350168+00:00
+updated_at: 2026-09-22T10:16:29.942171+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -34,6 +34,8 @@ The `2026-09-22-000000_repositories` migration has a real failure mode the upgra
 2. **Rust parity**: `slug_from_full_name` documents that the SQL mirrors it; add a core unit test table of full names → slugs and a db integration test that inserts the same names into a pre-migration-shaped scratch tenant and asserts the migrated slugs equal the Rust derivation.
 3. **Populated backfill test** (`crates/kairos-db/tests/tenant_provisioning.rs` upgrade-path block, or a new `repositories_migration.rs`): simulate the pre-migration shape WITH rows — live connections (two colliding across forges, one mixed-case), a soft-deleted one with no team, a link on each — run `migrate_all_tenants`, assert: repositories created with the expected slugs, `repository_id` set on every connection incl. soft-deleted, links still resolve through the join, the team-less LIVE connection variant RAISEs with its id.
 4. **down.sql executed**: the same test runs the down migration (via `diesel_migrations` revert or by executing the file) and asserts the old columns are restored with the right values, then re-runs up to prove re-runnability.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

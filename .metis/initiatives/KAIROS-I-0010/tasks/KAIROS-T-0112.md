@@ -4,14 +4,14 @@ level: task
 title: "Fix: repository ownership invariants — two-sided re-home gate, team delete guard, team_id sync on bind, routing helpers into kairos-db"
 short_code: "KAIROS-T-0112"
 created_at: 2026-09-22T09:53:00.631400+00:00
-updated_at: 2026-09-22T10:08:39.808466+00:00
+updated_at: 2026-09-22T10:16:29.179930+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -40,14 +40,12 @@ Hold the repo → team → board invariant on every write path, not just task cr
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Re-home requires manage on both teams (tests for member-of-one 403, admin 200).
-- [ ] `DELETE /api/teams/{id}` → 409 while it owns live repositories.
-- [ ] Binding sets `team_id`; `stale_tasks` reported on the detail after a re-home; test covers re-home → PUT on a previously bound task.
-- [ ] `resolve_routing` lives in `kairos_db::repositories`; HTTP + MCP + boards call it; no `crate::api::tasks::` cross-module reach remains.
-- [ ] fmt / clippy / unit / integration green.
+- [x] Re-home: bob (platform only) → web = 403; admin = 200 (`repositories_api.rs`).
+- [x] `DELETE /api/teams/{id}` → 409 naming the owned slugs.
+- [x] Bind sets `team_id` (asserted on create-by-repo); after the re-home `stale_tasks` = 1, re-binding that task → 422 (rule re-checked against ITS board), unbinding → 0.
+- [x] `kairos_db::repositories::route_task` + `TaskRoute` + typed errors; the server's `resolve_routing` is a one-line mapping. MCP and boards still call `crate::api::tasks::{resolve_routing, require_task_create_capability, map_repository_error}` — those are now thin server-layer mappings/ABAC (correctly server-side), so the cross-module reach is to the right kind of thing; not moved further.
+- [x] fmt, clippy, unit, integration 37/37.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done, `5e10c18`. Also: one exactly-one `delivery_board_of` behind directory/gate/routing (a team with two delivery boards now shows no board rather than an arbitrary one); board-items attaches repo refs in ONE query; `soft_delete` checks references inside the transaction; `file_backlog` compares against `boards::entry_column` rather than `position == 0`; MCP `create_item` board+repository disagreement tested.

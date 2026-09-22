@@ -4,14 +4,14 @@ level: task
 title: "Fix: web — stale repo lens state, group-by from effective selection, keyed repo lanes, shared power memo, projection tests, a11y, clippy backlog"
 short_code: "KAIROS-T-0114"
 created_at: 2026-09-22T09:53:04.194205+00:00
-updated_at: 2026-09-22T10:21:48.212872+00:00
+updated_at: 2026-09-22T10:41:41.991351+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

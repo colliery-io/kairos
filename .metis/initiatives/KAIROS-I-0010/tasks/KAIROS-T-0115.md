@@ -4,14 +4,14 @@ level: task
 title: "Fix: e2e, plugin and docs coherence — de-flaked slugs, bob proves the team gate, blocks edge asserted, router sync, recipe placement, wire naming, README split"
 short_code: "KAIROS-T-0115"
 created_at: 2026-09-22T09:53:06.058473+00:00
-updated_at: 2026-09-22T09:53:06.058473+00:00
+updated_at: 2026-09-22T10:41:30.762191+00:00
 parent: KAIROS-I-0010
 blocked_by: [KAIROS-T-0111]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,11 +48,17 @@ Make the prose and the specs say exactly what the code does. `repositories.spec.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test e2e` green twice in a row (proves the retry/slug story) with bob transitioning and the blocks edge asserted as carol.
-- [ ] Every MCP tool/param named in the skills exists; router bullets match skill behaviour; `implement` carries the recipe.
-- [ ] `repository` is the reference field name everywhere on the wire (alias kept); README + OpenAPI updated.
-- [ ] README Repositories section passes a Diataxis read: no mode mixing under one heading.
+- [x] `angreal test e2e` green twice in a row (11/11 both runs; the runner re-seeds, so the per-run suffix is what covers an in-run Playwright retry) with bob transitioning and the blocks edge asserted as carol (plus a `supports` edge refused).
+- [x] Every MCP tool/param named in the skills exists; router bullets match skill behaviour; `implement` carries the recipe (`CROSS-TEAM-FILING.md`), the router and `plugin/README.md` point at it.
+- [x] `repository` is the reference field name on `POST /api/tasks` and `filter` of `POST /api/search` (slug|UUID, `repository_id` alias kept one release); README updated; OpenAPI is derived from the utoipa schemas so it follows automatically (no snapshot to regenerate).
+- [x] README Repositories section split into "Why repositories" / "How to" / "Reference" / "Upgrade notes".
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `a657da4`.
+
+- Wire: `CreateTaskRequest.repository` + `SearchFilter.repository` (alias `repository_id`); HTTP search resolves the reference in the blocking closure and validates after injection (a repository-only filter is now constraining, as in MCP). `kairos search --repo` and `kairos tasks create --repo` take slug|UUID. Integration test probes both spellings on create and search, unknown slug → 422.
+- e2e: per-run `RUN` suffix for `billing-worker-*` / `notifier-*`; bob (non-admin platform member) proves the team gate; carol files a web-side task against `portal-web` and links `blocks` (201), `supports` refused (403); polled card-count compare; dropped the seed-coupled remainder-lane and `/demo/` webhook-path assertions. New helper `tryCreateRelationship`.
+- Plugin: recipe moved to `implement/CROSS-TEAM-FILING.md`; router synced; implement/triage/code-review read the repo from `get_item`, bind via `kairos repos bind`; bootstrap matches by `list_repositories` / `GET /api/repositories?forge=&name=`; hook test fixtures use slugs.
+- Docs: README section split; `plugin/README.md` pointer; initiative D5/D6/D8 carry "as built" notes.
+- Gates: fmt, `cargo clippy --workspace --all-targets -D warnings`, `angreal test unit`, `angreal test integration` (38/38), `angreal test e2e` ×2 (11/11).

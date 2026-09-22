@@ -227,8 +227,11 @@ gains `repository: { slug, … }` and drops the three moved fields; the
 - `whoami` adds `repositories: [ … ]` for the caller's teams.
 - kairos-client: `list_repositories`, `get_repository`, `create_repository`,
   `update_repository`, `delete_repository`, `set_task_repository`; types
-  updated. CLI: `kairos repos list|get|create|update|delete`, `kairos tasks
-  set-repo <code> <slug>`, `--repo` on `kairos tasks create/list`.
+  updated. CLI: `kairos repos list|get|create|update|delete|bind|unbind`,
+  `--repo` on `kairos tasks create` and `kairos search` (slug or UUID).
+- *As built (T-0115):* the create/search wire field is `repository`
+  (slug|UUID, resolved in the handler); `repository_id` stays a serde alias
+  for one release. `set-repo` shipped as `kairos repos bind|unbind`.
 
 ### D6. Plugin (`plugin/`)
 
@@ -255,7 +258,14 @@ gains `repository: { slug, … }` and drops the three moved fields; the
   against another team's repo" recipe: `list_repositories` → `get_repository`
   (read the description) → `create_item` with `repository` + `parent`/`blocks`
   → tell the user the short code and that it sits in the other team's Backlog.
-- `plugin/references/` rendered tool docs regenerated.
+- *As built (T-0115):* the recipe lives at
+  `skills/workflow/implement/CROSS-TEAM-FILING.md` (the router only points at
+  it); skills read the item's repo from `get_item` and bind via
+  `kairos repos bind`; bootstrap matches the remote with `list_repositories`
+  or `GET /api/repositories?forge=&name=` and registers via `kairos repos
+  create`. `plugin/references/` holds methodology references (diataxis,
+  architecture-review), not rendered tool docs, so there was nothing to
+  regenerate; the MCP tool descriptions are the reference.
 
 ### D7. GUI (kairos-web)
 
@@ -280,6 +290,11 @@ gains `repository: { slug, … }` and drops the three moved fields; the
 - Seeded fixtures per D1.
 - Docs: operator guide "Repositories and forge connections" replaces the
   forge setup page; plugin README `bootstrap` section; MCP tool reference.
+- *As built (T-0115):* `repositories.spec` uses per-run slugs, bob (platform
+  member, non-admin) proves the team gate, carol's `blocks` edge is asserted
+  (and a `supports` edge refused). Docs live in `README.md` ("Repositories" —
+  why / how-to / reference / upgrade notes) rather than a separate operator
+  guide; `plugin/README.md` points at the recipe file.
 
 ### Open points for Dylan's second pass
 
@@ -323,4 +338,17 @@ Phase gates:
   fail-loud backfill). Decomposed into T-0103 … T-0110 along D1–D8:
   T-0103 schema → {T-0104 routing → T-0105 ABAC, T-0106 repo API} →
   T-0107 MCP/CLI → T-0108 plugin; T-0109 GUI after T-0104+T-0106;
-  T-0110 e2e/docs last. → active; Ralph loop started.
+  T-0110 e2e/docs last. → active; Ralph loop started.- 2026-09-22: T-0103 … T-0110 completed in order (`f4f3330` schema,
+  `cd206fb` routing, `204eebb` file_backlog, `4231b84` repo API, `85eefdb`
+  MCP/CLI, `4a9f39c` plugin, `795e3e6` GUI, `7192431`+`b8eb956` e2e/docs).
+- 2026-09-22: Deep-dive review (four-agent pass over the delivered code)
+  produced six fix tickets T-0111 … T-0116; all completed: `21f8a05`
+  collaborative edges + parent gate + repo in MCP reads (T-0111); `5e10c18`
+  ownership invariants on every write path (T-0112); `e6ac54e`
+  collision-safe backfill + populated/down migration tests (T-0113);
+  `231aa25` web lens/lanes/picker/clippy backlog + `angreal test lint`
+  (T-0114); `a657da4` e2e/plugin/docs coherence + `repository` wire name
+  (T-0115); `42d7cd4` forge/ABAC hygiene (T-0116). D5/D6/D8 above carry
+  "as built" notes where the delivery diverged from the design. Gates at
+  HEAD: fmt, workspace clippy `-D warnings`, unit, integration 38/38, e2e
+  11/11 (twice). Initiative left **active** for Dylan's review.

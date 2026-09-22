@@ -48,10 +48,22 @@ export function cardIn(page: Page, columnName: string, code: string): Locator {
   return column(page, columnName).locator('article.kairos-card', { hasText: code });
 }
 
-/** Drag a card to a column and wait until it is there. */
+/**
+ * Drag a card to a column and wait until it is there. A WS refetch can
+ * re-render the board mid-drag and swallow the drop (the e2e drag spec's
+ * deflake note), so one retry is allowed before it counts as a failure.
+ */
 export async function dragCard(page: Page, code: string, toColumn: string): Promise<void> {
-  await card(page, code).first().dragTo(column(page, toColumn));
-  await expect(cardIn(page, toColumn, code)).toBeVisible({ timeout: 15_000 });
+  const target = cardIn(page, toColumn, code);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await card(page, code).first().dragTo(column(page, toColumn));
+    try {
+      await expect(target).toBeVisible({ timeout: attempt === 0 ? 5_000 : 15_000 });
+      return;
+    } catch (err) {
+      if (attempt === 1) throw err;
+    }
+  }
 }
 
 /** The column a card currently sits in, read from the DOM. */

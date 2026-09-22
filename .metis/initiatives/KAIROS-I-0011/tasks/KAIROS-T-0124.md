@@ -4,14 +4,14 @@ level: task
 title: "Fix: web — item tab anchors on first render, repo description on the team page, repository picker in New task, swallowed first drop after navigation"
 short_code: "KAIROS-T-0124"
 created_at: 2026-09-22T12:12:45.354667+00:00
-updated_at: 2026-09-22T12:13:39.315115+00:00
+updated_at: 2026-09-22T12:48:16.005584+00:00
 parent: KAIROS-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -41,6 +41,8 @@ Close UAT findings #2, #6 and #8 in `crates/kairos-web`.
 ### Dependencies
 
 None (T-0125 consumes the results).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

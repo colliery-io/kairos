@@ -439,3 +439,16 @@ the report for the journey attached to the task's status update.
   product actually promises. Follow-ups deferred as listed in the design:
   storage-state login capture for IdPs without a password form, a rendered
   manual checklist from the same narration.
+- 2026-09-22 (fix round): Dylan: "make fixes, I need to think through #7".
+  T-0123 `3cba74b` (MCP: `## Development` on get_item, delivery board as
+  slug, Backlog-only refusal text), T-0124 `7a7ca93` (web: tab hrefs never
+  from an empty code, repo description on the team page, Repository select
+  in New task; #8 root-caused to Playwright's `dragTo` hovering — and
+  scrolling — the target between mousedown and mousemove on an overflowing
+  board, so Chromium never starts the drag: fixed in the UAT driver, not
+  the GUI), T-0125 `f625fa2` (journeys assert the real behaviour, no
+  workarounds). Findings status: #1–#6, #8 **fixed**; **#7 open — Dylan
+  deciding** (teams undeletable once their board held an item; J3 runs on
+  an existing team meanwhile). Recorded runs: compose `muco84aq` 5/5 (0
+  skipped), server `muco8qgq` 5/5 (2 skipped); e2e 11/11; integration
+  38/38. Initiative left **active** for review.

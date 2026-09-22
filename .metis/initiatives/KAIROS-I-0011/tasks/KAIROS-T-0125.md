@@ -4,14 +4,14 @@ level: task
 title: "Fix: UAT journeys assert the real behaviour — drop the workarounds for the fixed findings, full runs in both modes"
 short_code: "KAIROS-T-0125"
 created_at: 2026-09-22T12:12:48.100683+00:00
-updated_at: 2026-09-22T12:12:48.100683+00:00
+updated_at: 2026-09-22T12:48:18.386193+00:00
 parent: KAIROS-I-0011
-blocked_by: ["KAIROS-T-0123", "KAIROS-T-0124"]
+blocked_by: [KAIROS-T-0123, KAIROS-T-0124]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -46,9 +46,9 @@ T-0123, T-0124.
 
 ## Acceptance Criteria
 
-- [ ] No journey reads `/api/*/links`, resolves a board id from `get_repository`, or retries a drag.
-- [ ] Both full runs green; run ids in the initiative log; findings list updated.
+- [x] Grep-clean: no `/links` read, no board-id resolution, no drag retry in `uat/`.
+- [x] Compose `muco84aq`: 5/5, 0 skipped (cross-team 12s → 2.1s); server `muco8qgq`: 5/5, 2 skipped. `angreal test integration` 38/38 (T-0123's deferred gate). Initiative findings list updated.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `f625fa2`.

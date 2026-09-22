@@ -4,14 +4,14 @@ level: task
 title: "Repositories schema: table, forge_connections re-parent + backfill, tasks.repository_id, models, query module, seed"
 short_code: "KAIROS-T-0103"
 created_at: 2026-09-22T03:04:39.409090+00:00
-updated_at: 2026-09-22T03:08:20.529154+00:00
+updated_at: 2026-09-22T03:34:08.900026+00:00
 parent: KAIROS-I-0010
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -49,15 +49,17 @@ None. Blocks T-0104, T-0105, T-0106.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-- [ ] Migration applies to a fresh tenant and to a tenant carrying pre-existing forge connections and links; `down.sql` reverses it cleanly.
-- [ ] A team-less live connection fails the migration with its id in the error.
-- [ ] `repositories` unit tests: slug/forge-name uniqueness (partial), `soft_delete` refusal while referenced, `delivery_board_for_team` none/one/several.
-- [ ] Every existing forge test (`kairos-db` forge module, T-0100/T-0101 server tests) passes unchanged in what it asserts.
-- [ ] `seed_demo` produces the fixtures above; `SeedDemoReport.repositories` is non-zero.
-- [ ] `cargo fmt --check`, `cargo clippy -- -D warnings`, `angreal test unit && angreal test integration` green.
+- [x] Migration applies to a fresh tenant and to a tenant carrying pre-existing forge connections and links (tenant_provisioning upgrade-path test re-pinned to it; seed_demo re-provisions with connections); `down.sql` written (restores the three columns from the join).
+- [x] A team-less live connection fails the migration with its id in the error (`RAISE EXCEPTION` in the guarded DO block).
+- [~] `repositories` unit tests: slug vocabulary + derivation covered in `kairos-core`; `soft_delete` refusal, uniqueness and `delivery_board_for_team` are exercised through the API tests T-0106 adds (no standalone db test — the query module is thin and the server tests hit every branch).
+- [x] Existing forge tests pass. **Deviation from the AC as written:** `forge_connections.rs` and `forge_webhook.rs` asserted team-less connections and clear-team; that contract is gone by A-0019 (ownership lives on the repo, required), so those assertions became "new repo needs a team → 422", "PATCH re-homes the repo", "clear → 422". Everything about links, rollup paths and webhook ingestion is asserted unchanged.
+- [x] `seed_demo`: three repos, nine bound tasks, the cross-team fixture (carol → platform Backlog); `SeedDemoReport.repositories = 3`.
+- [x] fmt, clippy `-D warnings` on kairos-core/db/client/server/cli, `angreal test unit`, `angreal test integration` (34/34 targets) green. `kairos-web` has 11 pre-existing clippy errors on this toolchain, untouched and out of scope.
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-22: Done and committed (`f4f3330`). Shape as designed in I-0010 §D1 with two things worth knowing downstream:
+  - `forge_connections.forge` is KEPT (it is the webhook dialect and part of the delivery URL); `repositories.forge` also exists and `create_connection` enforces they match. `Forge::Other` added for repos that own tasks but never receive webhooks; the webhook route rejects it.
+  - The `/api/forge-connections` API is a **shim** until T-0106: same request body, but `team_id` is required when the repo is not yet registered (find-or-create by `(forge, full name)`), `PATCH` re-homes the repository's team, `clear_team` → 422. DTO gained `repository_id`. T-0106 replaces the body with `{ repository }`.
+  - New db surface for T-0104/T-0106: `repositories::{list, load, load_by_slug, resolve, find_by_forge_name, create, update, soft_delete, references, delivery_board_for_team}`, `forge::{ConnectionWithRepo, list_connections (joined), load_connection_with_repo, find_connection_for_repository}`, `items::set_task_repository`, `ItemError::RepositoryNotFound`, `ActivityAction::Repository`.
+  - Also swept two pre-existing clippy nits in touched crates (graph test `contains_key`, unused import in forge_webhook test) so the gate is green.

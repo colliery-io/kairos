@@ -683,9 +683,21 @@ impl KairosMcp {
     ) -> Result<CallToolResult, ErrorData> {
         let (_, tenant) = Self::caller(&context)?;
         self.run_tool(&tenant, move |conn| {
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::IncludeArchived)?;
 
             let mut out = format!("# {} — {}\n", item.short_code, item.title);
+            // Before anything else: an agent that cannot tell retired work
+            // from live work will try to act on it and be refused by every
+            // write path, with no idea why (KAIROS-A-0020).
+            if let Some(archived_at) = item.archived_at {
+                out.push_str(&format!(
+                    "\n> **ARCHIVED** {} — this work has been put away. It is \
+                     readable for reference and audit, but it is not on a \
+                     board and every write to it will be refused. Restore it \
+                     first if it needs to move.\n\n",
+                    archived_at.format("%Y-%m-%dT%H:%M:%SZ")
+                ));
+            }
             out.push_str(&format!("- type: {}", item.item_type));
             if let Some(task_type) = item.task_type {
                 out.push_str(&format!(" ({task_type})"));
@@ -801,7 +813,7 @@ impl KairosMcp {
         let (_, tenant) = Self::caller(&context)?;
         self.run_tool(&tenant, move |conn| {
             use kairos_db::schema::{item_history, users};
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::IncludeArchived)?;
 
             if let Some(version) = params.version {
                 let snapshot: Option<(String, String)> = item_history::table
@@ -848,6 +860,14 @@ impl KairosMcp {
                 "# History of {} (current version {})\n",
                 item.short_code, item.version
             );
+            if let Some(archived_at) = item.archived_at {
+                out.push_str(&format!(
+                    "\n> **ARCHIVED** {} — this is the history of work that \
+                     has been put away. The versions below are what it said; \
+                     it has not changed since.\n\n",
+                    archived_at.format("%Y-%m-%dT%H:%M:%SZ")
+                ));
+            }
             for (version, editor, edited_at) in rows {
                 let editor = editors.get(&editor).map_or("unknown", String::as_str);
                 out.push_str(&format!(
@@ -933,7 +953,7 @@ impl KairosMcp {
         let user = auth.user_id;
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             authorize_item_write(conn, &slug, user, &item)?;
             let update = items::ContentUpdate {
                 new_title: params.title.as_deref(),
@@ -969,7 +989,7 @@ impl KairosMcp {
             // One retry on a version race (S-0006 edit_item semantics):
             // the read-modify-write below re-reads on the second attempt.
             for attempt in 0..2 {
-                let item = load_item(conn, &params.short_code)?;
+                let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
                 authorize_item_write(conn, &slug, user, &item)?;
                 let occurrences = item.content.matches(&params.search).count();
                 if occurrences == 0 {
@@ -1024,7 +1044,7 @@ impl KairosMcp {
         let user = auth.user_id;
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
                     "{} {} is not a task; only tasks live on per-team delivery boards. \
@@ -1085,7 +1105,7 @@ impl KairosMcp {
         let user = auth.user_id;
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let (board_id, from_column_id) = match (item.board_id, item.column_id) {
                 (Some(board_id), Some(column_id)) => (board_id, column_id),
                 _ => {
@@ -1222,7 +1242,7 @@ impl KairosMcp {
             use kairos_db::models::templates::{MetadataDefinition, NewItemMetadata};
             use kairos_db::schema::{item_metadata, metadata_definitions as definitions};
 
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             authorize_item_write(conn, &slug, user, &item)?;
 
             // Phase 1 — resolve + validate every entry (no writes yet); a
@@ -1322,7 +1342,7 @@ impl KairosMcp {
                      AND cascades to all descendants reachable via parent edges",
                 ));
             }
-            let item = load_item(conn, &params.short_code)?;
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             authorize_item_write(conn, &slug, user, &item)?;
             let outcome = items::soft_delete_item(conn, item.item_type, item.id, user)
                 .map_err(map_item_error)?;
@@ -1370,24 +1390,39 @@ struct ItemView {
     decision_maker: Option<String>,
     decision_date: Option<NaiveDate>,
     updated_at: DateTime<Utc>,
+    /// Set when this work has been put away (KAIROS-A-0020). Rendered as a
+    /// banner so an agent knows not to try to act on it.
+    archived_at: Option<DateTime<Utc>>,
 }
 
-/// Resolve a short code to a live item and load its [`ItemView`]; 404
-/// `NOT_FOUND` otherwise (mirrors the REST 404 contract).
-fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiError> {
+/// Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
+/// otherwise (mirrors the REST 404 contract).
+///
+/// `liveness` is enforced by the resolution step alone — it is authoritative,
+/// so the per-table loads below carry no `deleted_at` filter of their own. A
+/// `LiveOnly` caller never reaches them for an archived row, and a second
+/// filter would only be a place for the two to disagree.
+fn load_item(
+    conn: &mut PgConnection,
+    short_code: &str,
+    liveness: Liveness,
+) -> Result<ItemView, ApiError> {
     use kairos_db::schema::{adrs, documents, initiatives, strategies, tasks};
 
-    let (id, item_type) =
-        resolve_short_code(conn, short_code, Liveness::LiveOnly)?.ok_or_else(|| {
+    let missing = || match liveness {
+        Liveness::LiveOnly => {
             ApiError::not_found(format!("no live item with short code {short_code:?}"))
-        })?;
-    let missing = || ApiError::not_found(format!("no live item with short code {short_code:?}"));
+        }
+        Liveness::IncludeArchived => {
+            ApiError::not_found(format!("no item with short code {short_code:?}"))
+        }
+    };
+    let (id, item_type) = resolve_short_code(conn, short_code, liveness)?.ok_or_else(missing)?;
 
     let view = match item_type {
         ItemType::Strategy => {
             let row: Strategy = strategies::table
                 .filter(strategies::id.eq(id))
-                .filter(strategies::deleted_at.is_null())
                 .select(Strategy::as_select())
                 .first(conn)
                 .optional()
@@ -1413,12 +1448,12 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 decision_maker: None,
                 decision_date: None,
                 updated_at: row.updated_at,
+                archived_at: row.deleted_at,
             }
         }
         ItemType::Initiative => {
             let row: Initiative = initiatives::table
                 .filter(initiatives::id.eq(id))
-                .filter(initiatives::deleted_at.is_null())
                 .select(Initiative::as_select())
                 .first(conn)
                 .optional()
@@ -1444,12 +1479,12 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 decision_maker: None,
                 decision_date: None,
                 updated_at: row.updated_at,
+                archived_at: row.deleted_at,
             }
         }
         ItemType::Task => {
             let row: Task = tasks::table
                 .filter(tasks::id.eq(id))
-                .filter(tasks::deleted_at.is_null())
                 .select(Task::as_select())
                 .first(conn)
                 .optional()
@@ -1475,12 +1510,12 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 decision_maker: None,
                 decision_date: None,
                 updated_at: row.updated_at,
+                archived_at: row.deleted_at,
             }
         }
         ItemType::Document => {
             let row: Document = documents::table
                 .filter(documents::id.eq(id))
-                .filter(documents::deleted_at.is_null())
                 .select(Document::as_select())
                 .first(conn)
                 .optional()
@@ -1506,12 +1541,12 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 decision_maker: None,
                 decision_date: None,
                 updated_at: row.updated_at,
+                archived_at: row.deleted_at,
             }
         }
         ItemType::Adr => {
             let row: Adr = adrs::table
                 .filter(adrs::id.eq(id))
-                .filter(adrs::deleted_at.is_null())
                 .select(Adr::as_select())
                 .first(conn)
                 .optional()
@@ -1537,6 +1572,7 @@ fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiE
                 decision_maker: row.decision_maker,
                 decision_date: row.decision_date,
                 updated_at: row.updated_at,
+                archived_at: row.deleted_at,
             }
         }
     };

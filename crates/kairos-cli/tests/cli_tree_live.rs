@@ -499,8 +499,23 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "confirmed delete failed: {stderr}");
     assert_eq!(stdout.trim(), format!("Deleted {task_code}"));
 
-    let (code, _, stderr) = run_cli(config_dir.path(), &["tasks", "get", &task_code]).await;
-    assert_eq!(code, 1, "a deleted task must 404: {stderr}");
+    // An archived task still reads (KAIROS-A-0020, KAIROS-T-0155), and the
+    // banner is what stops someone quoting a retired ticket as current.
+    let (code, stdout, stderr) = run_cli(config_dir.path(), &["tasks", "get", &task_code]).await;
+    assert_eq!(code, 0, "an archived task is still readable: {stderr}");
+    assert!(
+        stdout.contains("ARCHIVED"),
+        "the archived banner is not optional: {stdout}"
+    );
+    assert!(stdout.contains(&task_code), "{stdout}");
+
+    // …but it is out of the way: gone from the default listing.
+    let (code, stdout, stderr) = run_cli(config_dir.path(), &["tasks", "list"]).await;
+    assert_eq!(code, 0, "tasks list failed: {stderr}");
+    assert!(
+        !stdout.contains(&task_code),
+        "archived work stays out of default listings: {stdout}"
+    );
 
     // --- members list / orgs show / teams list ----------------------------------
     let (code, stdout, stderr) = run_cli(config_dir.path(), &["members", "list"]).await;

@@ -744,9 +744,46 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(!text.contains(&task_code), "{text}");
 
-    // ...and the deleted item is now NOT_FOUND (REQ-1.1 code parity).
+    // ...but the archived item is still READABLE, and says so loudly
+    // (KAIROS-A-0020, KAIROS-T-0155). An agent that cannot tell retired
+    // work from live work will try to act on it and be refused with no
+    // idea why, so the banner comes before anything else in the render.
     let text = session
-        .call_err("get_item", json!({"short_code": task_code}))
+        .call_ok("get_item", json!({"short_code": task_code}))
+        .await;
+    assert!(
+        text.contains("ARCHIVED"),
+        "the banner is not optional: {text}"
+    );
+    assert!(
+        text.contains(&task_code),
+        "archived work is readable by short code: {text}"
+    );
+
+    // Its history reads too — the audit answer the whole ADR exists for.
+    let text = session
+        .call_ok("get_history", json!({"short_code": task_code}))
+        .await;
+    assert!(text.contains("ARCHIVED"), "{text}");
+    assert!(text.contains("v1"), "the versions are intact: {text}");
+
+    // …and every write to it is still refused: archived work is read-only
+    // by construction, because the write tools keep resolving LiveOnly.
+    let text = session
+        .call_err(
+            "transition_item",
+            json!({"short_code": task_code, "to_column": "Todo"}),
+        )
+        .await;
+    assert!(
+        text.contains("NOT_FOUND"),
+        "archived work is read-only: {text}"
+    );
+
+    // An unknown code is still a plain NOT_FOUND — the 404 now means
+    // "no such thing" rather than "put away".
+    let text = session
+        .call_err("get_item", json!({"short_code": "ACME-T-9999"}))
         .await;
     assert!(text.contains("NOT_FOUND"), "{text}");
 

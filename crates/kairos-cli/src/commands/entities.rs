@@ -181,6 +181,11 @@ pub trait EntityView: serde::Serialize + utoipa::ToSchema {
     fn version(&self) -> i32;
     fn content(&self) -> &str;
     fn column_id(&self) -> Option<&str>;
+    /// When this work was put away, if it was (KAIROS-A-0020). `get`
+    /// prints a banner for it: archived work reads normally, so without
+    /// one there is nothing to tell a reader they are looking at a record
+    /// rather than at live work.
+    fn archived_at(&self) -> Option<&str>;
     /// One `list` table row, matching [`Self::HEADERS`].
     fn table_row(&self) -> Vec<String>;
     /// `(label, value)` detail lines for `get` (content rendered
@@ -210,6 +215,9 @@ impl EntityView for Strategy {
     }
     fn column_id(&self) -> Option<&str> {
         Some(&self.column_id)
+    }
+    fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
     }
     fn table_row(&self) -> Vec<String> {
         vec![
@@ -251,6 +259,9 @@ impl EntityView for Initiative {
     }
     fn column_id(&self) -> Option<&str> {
         Some(&self.column_id)
+    }
+    fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
     }
     fn table_row(&self) -> Vec<String> {
         vec![
@@ -295,6 +306,9 @@ impl EntityView for Task {
     fn column_id(&self) -> Option<&str> {
         Some(&self.column_id)
     }
+    fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
+    }
     fn table_row(&self) -> Vec<String> {
         vec![
             self.short_code.clone(),
@@ -337,6 +351,9 @@ impl EntityView for Document {
     fn column_id(&self) -> Option<&str> {
         None
     }
+    fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
+    }
     fn table_row(&self) -> Vec<String> {
         vec![
             self.short_code.clone(),
@@ -376,6 +393,9 @@ impl EntityView for Adr {
     }
     fn column_id(&self) -> Option<&str> {
         self.column_id.as_deref()
+    }
+    fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
     }
     fn table_row(&self) -> Vec<String> {
         vec![
@@ -432,6 +452,9 @@ pub fn emit_get<T: EntityView>(common: &Common, item: &T) -> Result<(), CliError
         return print_json(item);
     }
     println!("{}: {}", item.short_code(), item.title());
+    if let Some(archived_at) = item.archived_at() {
+        println!("  ARCHIVED: {archived_at} — put away; readable, but not on a board");
+    }
     for (label, value) in item.fields() {
         println!("  {label}: {value}");
     }

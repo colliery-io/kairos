@@ -4,14 +4,14 @@ level: task
 title: "Live-only board guard + move_task in kairos-db, POST /api/tasks/{code}/move with two-sided ABAC, client method, ItemMoved event"
 short_code: "KAIROS-T-0127"
 created_at: 2026-09-23T01:50:41.169488+00:00
-updated_at: 2026-09-23T01:50:41.169488+00:00
+updated_at: 2026-09-23T02:09:36.956168+00:00
 parent: KAIROS-I-0012
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -44,10 +44,15 @@ None.
 
 ## Acceptance Criteria
 
-- [ ] `DELETE /api/teams/{id}` and `/api/boards/{id}` succeed once the board has no live cards; refusal lists live short codes.
-- [ ] `POST /api/tasks/{code}/move` moves a task to another delivery board's entry column with `team_id` updated, `board_move` activity, `ItemMoved` WS event; two-sided `manage_tasks`; T-0104 rule enforced with a message naming the owner board.
-- [ ] fmt, workspace clippy `-D warnings`, `angreal test unit`, `angreal test integration` green; OpenAPI test passes.
+- [x] Both succeed once the board holds no live cards; the 422 names them ("still holds N live card(s): [CODE, …]") with `details.items`. SCIM group delete follows the same rule.
+- [x] All of it, proven in `tests/task_move.rs` (ABAC ladder: no grants → 403, source-only → 403, both → 200, admin by slug → 200) and `tests/board_move.rs`; the `item_moved` pair asserted over a real socket in `ws_events.rs`.
+- [x] `angreal test lint` clean, `angreal test unit` green, `angreal test integration` 40/40 (two new targets); the OpenAPI set-equality test passes with the new path registered.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `fb6eb45`.
+
+- `move_task` emits TWO `item_moved` events (source board then target) rather than one: a thin event carries a single `board_id`, and both boards' subscribers must refetch. Documented on `EventKind::ItemMoved`.
+- No migration needed: `activity_log.action` is plain TEXT with no CHECK (only a comment listing the actions, which I extended). The `assert_text_enum!` unit test pins the vocabulary and needed `board_move` added.
+- The repository guard (T-0112, 409) fires before the board guard (422) on team delete — a disbanding team re-homes or retires its repositories first. Pinned in the test.
+- Events go over NOTIFY, not a table, so the db-layer test asserts placement/activity and leaves the event assertions to `ws_events.rs`.

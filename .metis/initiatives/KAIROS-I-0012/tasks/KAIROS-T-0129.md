@@ -4,14 +4,14 @@ level: task
 title: "GUI: Board select on the item page's Board panel, ItemMoved live refetch on board views; e2e move step"
 short_code: "KAIROS-T-0129"
 created_at: 2026-09-23T01:50:47.503279+00:00
-updated_at: 2026-09-23T01:50:47.503279+00:00
+updated_at: 2026-09-23T02:09:39.672404+00:00
 parent: KAIROS-I-0012
-blocked_by: ["KAIROS-T-0127"]
+blocked_by: [KAIROS-T-0127]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -40,6 +40,8 @@ I-0012 D2 (GUI) + D4 (e2e): a person moves a task to another delivery board from
 ### Dependencies
 
 T-0127.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -1,8 +1,7 @@
-// KAIROS-T-0164 / KAIROS-T-0163 — archived work on the GUI: read it, read
-// its history, restore it, FIND it, and see it as a neighbour
-// (KAIROS-A-0020: archived means hidden by default, not gone).
+// KAIROS-T-0164 — the archived item page: read it, read its history,
+// restore it (KAIROS-A-0020: archived means hidden by default, not gone).
 //
-// Four journeys:
+// Two journeys:
 //
 //   1. an ordinary archived task — the item page renders it with the
 //      put-away banner instead of an error, every write affordance is
@@ -11,13 +10,7 @@
 //   2. an archived card in a column that has since been REMOVED — the
 //      page still names the column it was put away in (KAIROS-T-0161:
 //      the fact the column soft delete exists to preserve), and Restore
-//      is refused with a message that NAMES what is gone;
-//   3. (T-0163) the /search toggle: off by default and the hit stays
-//      hidden; on, and the same search finds it MARKED;
-//   4. (T-0163, carrying T-0158's GUI scope) an archived neighbour is
-//      marked in the Relationships panel and drawn marked on the graph
-//      canvas — while the children rollup above it stays live-only,
-//      which is correct rather than inconsistent.
+//      is refused with a message that NAMES what is gone.
 //
 // **Fixture discipline.** The suite is serial over ONE seeded stack and
 // other specs count boards, tiles and cards, so this spec creates no
@@ -116,11 +109,7 @@ test('an archived item reads, its history reads, and it can be restored', async 
     await expect(banner).toContainText('hidden from boards');
     // The state is badged next to the short code, in the same words —
     // never bare "archived", which is the document lifecycle's word.
-    // `.first()` since KAIROS-T-0163: the badge is shared with the
-    // Relationships panel, which now marks archived NEIGHBOURS too, so
-    // the class is no longer unique on an item page. Document order puts
-    // the header badge first.
-    await expect(page.locator('.kairos-archived-badge').first()).toContainText(
+    await expect(page.locator('.kairos-archived-badge')).toContainText(
       'put away',
     );
     // The content is there. That is the audit answer.
@@ -264,9 +253,7 @@ test('every family renders archived, and the two "archived"s read apart', async 
     await expect(page.locator('.kairos-lifecycle-badge')).toContainText(
       'lifecycle: archived',
     );
-    // The header badge — this document's put-away parent task carries
-    // one too, in the Relationships panel (KAIROS-T-0163).
-    await expect(page.locator('.kairos-archived-badge').first()).toContainText(
+    await expect(page.locator('.kairos-archived-badge')).toContainText(
       'put away',
     );
     await expect(
@@ -320,149 +307,4 @@ test('an archived card still names the column it was put away in', async ({
       page.locator('[data-testid="archived-banner"]').first(),
     ).toBeVisible();
   });
-});
-
-/** A one-lexeme, alphabetic-only probe word — Postgres full-text search
- *  stems it to a single token, and a fresh one per run keeps the hit on
- *  page 1 of the results however many times the stack is re-driven. */
-function probeWord(): string {
-  const letters = 'abcdefghijklmnopqrstuvwxyz';
-  const tail = Array.from(
-    { length: 8 },
-    () => letters[Math.floor(Math.random() * letters.length)],
-  ).join('');
-  return `putaway${tail}`;
-}
-
-test('search can ask for put-away work, and marks what it finds', async ({
-  page,
-}) => {
-  const token = await mintToken();
-  const board = await deliveryBoard(token);
-  const probe = probeWord();
-
-  const task = await createTask(
-    token,
-    board.id,
-    board.columns[0].id,
-    `E2E ${probe} finished and put away`,
-  );
-  await api(token, 'DELETE', `/api/tasks/${task.short_code}`);
-
-  await test.step('login via Dex as alice', () => login(page));
-  await page.goto('/search');
-
-  const toggle = page.locator('[data-testid="include-put-away"]');
-  const query = page.locator('.cl-field', { hasText: 'Text query' }).locator('input');
-  const search = page.getByRole('button', { name: 'Search', exact: true });
-
-  await test.step('the toggle is visible, labelled, and off', async () => {
-    // "Visible for audit" means discoverable without reading the docs:
-    // a labelled switch on the page, not a URL-only parameter.
-    await expect(toggle).toBeVisible();
-    await expect(toggle).toContainText('Include work that has been put away');
-    await expect(toggle.locator('.cl-switch--on')).toHaveCount(0);
-  });
-
-  await test.step('with the toggle off, put-away work stays hidden', async () => {
-    await query.fill(probe);
-    await search.click();
-    await expect(page.getByText('No matches')).toBeVisible();
-  });
-
-  await test.step('asking for it finds it, marked apart from live work', async () => {
-    await toggle.locator('.cl-switch').click();
-    await expect(toggle.locator('.cl-switch--on')).toHaveCount(1);
-    await search.click();
-
-    const row = page.locator('tr.kairos-search__hit--put-away', {
-      hasText: task.short_code,
-    });
-    await expect(row).toBeVisible();
-    // The words are the item page's words — never a bare "archived",
-    // which is the document lifecycle's (KAIROS-T-0078).
-    await expect(row.locator('.kairos-archived-badge')).toContainText('put away');
-    await expect(
-      page.locator('.cl-panel__caption', { hasText: 'put away' }).first(),
-    ).toBeVisible();
-  });
-
-  await test.step('and the hit leads to a real page', async () => {
-    await page
-      .locator('tr.kairos-search__hit--put-away', { hasText: task.short_code })
-      .getByRole('link', { name: task.short_code })
-      .click();
-    await page.waitForURL(new RegExp(`/items/${task.short_code}$`));
-    await expect(
-      page.locator('[data-testid="archived-banner"]').first(),
-    ).toBeVisible();
-  });
-});
-
-test('an archived neighbour is marked in the panel and on the canvas', async ({
-  page,
-}) => {
-  const token = await mintToken();
-  const boards = (await api(token, 'GET', '/api/boards?limit=100')).items as any[];
-  const initiativeBoard = boards.find((b) => b.board_level === 'initiative');
-  if (!initiativeBoard) throw new Error('no initiative board in the seed');
-  const initiativeEntry = (
-    await api(token, 'GET', `/api/boards/${initiativeBoard.id}`)
-  ).columns[0];
-  const delivery = await deliveryBoard(token);
-
-  const parent = await api(token, 'POST', '/api/initiatives', {
-    board_id: initiativeBoard.id,
-    column_id: initiativeEntry.id,
-    title: 'E2E: an initiative with one child that finished',
-    content: 'Containment is a fact about the record.',
-  });
-  const child = await createTask(
-    token,
-    delivery.id,
-    delivery.columns[0].id,
-    'E2E: the child that was put away',
-  );
-  await api(token, 'POST', '/api/relationships', {
-    source_short_code: parent.short_code,
-    target_short_code: child.short_code,
-    relationship: 'parent',
-  });
-  // Only the CHILD goes away: the parent has to stay live so the panel
-  // and the canvas render as they do for ordinary work.
-  await api(token, 'DELETE', `/api/tasks/${child.short_code}`);
-
-  await test.step('login via Dex as alice', () => login(page));
-
-  await test.step('the Relationships panel marks it, and says why the counts differ', async () => {
-    await page.goto(`/items/${parent.short_code}`);
-    const panel = page.locator('.cl-panel', {
-      has: page.locator('.cl-panel__title', { hasText: 'Relationships' }),
-    });
-    await expect(panel).toContainText(child.short_code);
-    await expect(panel.locator('.kairos-archived-badge')).toContainText(
-      'put away',
-    );
-    // ADR-20 rule 5: the rollup above stays live-only, and the panel
-    // makes the difference legible instead of reconciling it away.
-    await expect(panel).toContainText('containment is a fact about the record');
-  });
-
-  await test.step('the graph draws it, marked', async () => {
-    await page.goto(`/search/relationships/${parent.short_code}`);
-    await expect(
-      page.locator('.kairos-graph__node--focus .kairos-graph__code'),
-    ).toHaveText(parent.short_code);
-    const putAway = page.locator('.kairos-graph__node--put-away', {
-      has: page.locator('.kairos-graph__code', { hasText: child.short_code }),
-    });
-    await expect(putAway).toHaveCount(1);
-    await expect(putAway.locator('.kairos-graph__put-away')).toHaveText(
-      'put away',
-    );
-  });
-
-  // Nothing visible stays behind: the parent goes away too (the child is
-  // already archived, so the cascade finds nothing live to take).
-  await api(token, 'DELETE', `/api/initiatives/${parent.short_code}`);
 });

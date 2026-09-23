@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T12:55:58Z | 276 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T12:58:47Z | 276 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -2228,12 +2228,12 @@
 - pub `router` function L34-42 — `() -> Router<AppState>` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
 -  `MANAGE` variable L32 — `: &str` — The A-0006 manage capability for this family.
 -  `load` function L45-59 — `(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result<Adr, A...` — Load the live ADR with this short code, or 404.
--  `list_adrs` function L76-112 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
--  `get_adr` function L125-137 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
--  `create_adr` function L152-192 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
--  `update_adr` function L209-246 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
--  `delete_adr` function L261-284 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
--  `transition_adr` function L302-322 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `list_adrs` function L76-115 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `get_adr` function L128-140 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `create_adr` function L155-195 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `update_adr` function L212-249 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `delete_adr` function L264-287 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+-  `transition_adr` function L305-325 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `ITEM_NOT_ON_BOARD` (T-0010's typed error).
 
 #### crates/kairos-server/src/api/cascade.rs
 
@@ -2294,23 +2294,23 @@
 -  `set_lifecycle` function L78-104 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
 -  `load` function L107-125 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Doc...` — Load the live document with this short code, or 404.
 -  `authorization_board` function L130-135 — `( conn: &mut PgConnection, document_id: uuid::Uuid, ) -> Result<Option<uuid::Uui...` — The board that authorizes writes to this document: its parent workflow
--  `list_documents` function L155-191 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — pre-checks make a link failure after create unreachable in practice.
--  `get_document` function L204-216 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — pre-checks make a link failure after create unreachable in practice.
--  `create_document` function L233-293 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
--  `update_document` function L310-348 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
--  `delete_document` function L363-387 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
+-  `list_documents` function L155-194 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — pre-checks make a link failure after create unreachable in practice.
+-  `get_document` function L207-219 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — pre-checks make a link failure after create unreachable in practice.
+-  `create_document` function L236-296 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
+-  `update_document` function L313-351 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
+-  `delete_document` function L366-390 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — pre-checks make a link failure after create unreachable in practice.
 
 #### crates/kairos-server/src/api/initiatives.rs
 
 - pub `router` function L30-46 — `() -> Router<AppState>` — T-0018 handler pattern.
 -  `MANAGE` variable L28 — `: &str` — The A-0006 manage capability for this family.
 -  `load` function L49-67 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ini...` — Load the live initiative with this short code, or 404.
--  `list_initiatives` function L84-120 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — T-0018 handler pattern.
--  `get_initiative` function L133-145 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — T-0018 handler pattern.
--  `create_initiative` function L160-201 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
--  `update_initiative` function L218-256 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
--  `delete_initiative` function L272-295 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
--  `transition_initiative` function L312-339 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
+-  `list_initiatives` function L84-123 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — T-0018 handler pattern.
+-  `get_initiative` function L136-148 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — T-0018 handler pattern.
+-  `create_initiative` function L163-204 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
+-  `update_initiative` function L221-259 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
+-  `delete_initiative` function L275-298 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
+-  `transition_initiative` function L315-342 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
 
 #### crates/kairos-server/src/api/mod.rs
 
@@ -2380,12 +2380,12 @@
 - pub `router` function L29-45 — `() -> Router<AppState>` — T-0018 handler pattern; see [`super`] for the shared conventions.
 -  `MANAGE` variable L27 — `: &str` — The A-0006 manage capability for this family.
 -  `load` function L48-66 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Str...` — Load the live strategy with this short code, or 404.
--  `list_strategies` function L83-119 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — T-0018 handler pattern; see [`super`] for the shared conventions.
--  `get_strategy` function L132-144 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — T-0018 handler pattern; see [`super`] for the shared conventions.
--  `create_strategy` function L158-188 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
--  `update_strategy` function L205-242 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
--  `delete_strategy` function L257-280 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
--  `transition_strategy` function L297-324 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `list_strategies` function L83-122 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `get_strategy` function L135-147 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `create_strategy` function L161-191 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `update_strategy` function L208-245 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `delete_strategy` function L260-283 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
+-  `transition_strategy` function L300-327 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern; see [`super`] for the shared conventions.
 
 #### crates/kairos-server/src/api/tasks.rs
 
@@ -2395,16 +2395,16 @@
 -  `resolve_routing` function L62-69 — `( conn: &mut PgConnection, board_id: Option<Uuid>, team_id: Option<Uuid>, reposi...` — The routing decision lives in `kairos_db::repositories::route_task`
 -  `require_task_create_capability` function L79-111 — `( conn: &mut PgConnection, slug: &str, user: Uuid, route: &TaskRoute, column_id:...` — Authorize a task CREATE (KAIROS-T-0105, A-0019 §4).
 -  `load` function L117-131 — `(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result<Task, ...` — Load the task with this short code, or 404.
--  `list_tasks` function L148-187 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — handler pattern.
--  `get_task` function L200-213 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — handler pattern.
--  `create_task` function L228-282 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `update_task` function L299-339 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `delete_task` function L354-377 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `set_work_class` function L395-416 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `set_repository` function L435-463 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `move_task` function L483-507 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
--  `board_id_by_ref` function L510-525 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — A live board by slug or UUID; 404 otherwise.
--  `transition_task` function L542-562 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `list_tasks` function L148-190 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — handler pattern.
+-  `get_task` function L203-216 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — handler pattern.
+-  `create_task` function L231-285 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `update_task` function L302-342 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `delete_task` function L357-380 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `set_work_class` function L398-419 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `set_repository` function L438-466 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `move_task` function L486-510 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
+-  `board_id_by_ref` function L513-528 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — A live board by slug or UUID; 404 otherwise.
+-  `transition_task` function L545-565 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — handler pattern.
 
 ### crates/kairos-server/src/api/meta
 
@@ -2542,20 +2542,20 @@
 -  `update_board` function L379-430 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 -  `delete_board` function L447-498 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 -  `BoardItemsQuery` struct L506-515 — `{ repository: Option<String>, include_deleted: bool }` — Query of `GET /api/boards/{id}/items` (KAIROS-T-0104).
--  `board_items` function L538-730 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `list_columns` function L747-764 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_column` function L781-802 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `update_column` function L822-871 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_column` function L892-916 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `list_transitions` function L933-950 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_transition` function L967-997 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_transition` function L1014-1049 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `capabilities_of` function L1056-1069 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<Vec<String...` — The `capabilities` a user holds on a board, sorted.
--  `board_member_view` function L1072-1084 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<dto::Board...` — One user's `BoardMember` view (joins `public.users` for identity).
--  `list_board_members` function L1098-1153 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
--  `add_board_member` function L1171-1197 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `replace_capabilities` function L1218-1255 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
--  `remove_board_member` function L1274-1306 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `board_items` function L538-728 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `list_columns` function L745-762 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_column` function L779-800 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `update_column` function L820-869 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_column` function L890-914 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `list_transitions` function L931-948 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_transition` function L965-995 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_transition` function L1012-1047 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `capabilities_of` function L1054-1067 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<Vec<String...` — The `capabilities` a user holds on a board, sorted.
+-  `board_member_view` function L1070-1082 — `( conn: &mut PgConnection, board_id: Uuid, user_id: Uuid, ) -> Result<dto::Board...` — One user's `BoardMember` view (joins `public.users` for identity).
+-  `list_board_members` function L1096-1151 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — capability writes require `manage_members`.
+-  `add_board_member` function L1169-1195 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `replace_capabilities` function L1216-1253 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
+-  `remove_board_member` function L1272-1304 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — capability writes require `manage_members`.
 
 #### crates/kairos-server/src/api/org/forge.rs
 
@@ -2983,31 +2983,35 @@
 -  `column_label` function L1819-1828 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
 -  `resolve_column` function L1832-1849 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
 -  `BoardItemRow` struct L1852-1864 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
--  `board_item_rows` function L1875-2021 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
--  `column_item_counts` function L2026-2035 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
--  `repo_slug_map` function L2039-2054 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
--  `repo_label` function L2057-2074 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
--  `require_live_typed` function L2078-2086 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
--  `metadata_lines` function L2090-2103 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
--  `ChainRow` struct L2106-2115 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
--  `parent_chain` function L2128-2152 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
--  `relationship_lines` function L2163-2221 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
--  `line` function L2171-2178 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
--  `map_update_error` function L2232-2260 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
--  `map_link_error` function L2270-2285 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
--  `level_of` function L2292-2300 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
--  `default_board_for` function L2304-2326 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
--  `resolve_template` function L2329-2360 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
--  `reject_field` function L2364-2376 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
--  `create_item_impl` function L2381-2664 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
--  `field_invalid` function L2672-2674 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
--  `uuid_field` function L2676-2679 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
--  `timestamp_field` function L2681-2690 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
--  `enum_field` function L2694-2705 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
--  `search_to_core` function L2709-2839 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
--  `map_search_error` function L2843-2851 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
--  `archived_marker` function L2857-2863 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
--  `render_search_results` function L2867-2939 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
+-  `BoardStrategySelect` type L1871 — `= (Uuid, String, String, Option<DateTime<Utc>>)` — What each family's board listing selects.
+-  `BoardInitiativeSelect` type L1872 — `= (Uuid, String, String, bool, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `BoardTaskSelect` type L1873-1881 — `= ( Uuid, String, String, TaskType, WorkClass, Option<Uuid>, Option<DateTime<Utc...` — `activity_log` writes as the API path).
+-  `BoardAdrSelect` type L1882 — `= (Option<Uuid>, String, String, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `board_item_rows` function L1893-2029 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
+-  `column_item_counts` function L2034-2043 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
+-  `repo_slug_map` function L2047-2062 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
+-  `repo_label` function L2065-2082 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
+-  `require_live_typed` function L2086-2094 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
+-  `metadata_lines` function L2098-2111 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
+-  `ChainRow` struct L2114-2123 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
+-  `parent_chain` function L2136-2160 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
+-  `relationship_lines` function L2171-2229 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
+-  `line` function L2179-2186 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
+-  `map_update_error` function L2240-2268 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
+-  `map_link_error` function L2278-2293 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
+-  `level_of` function L2300-2308 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
+-  `default_board_for` function L2312-2334 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
+-  `resolve_template` function L2337-2368 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
+-  `reject_field` function L2372-2384 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
+-  `create_item_impl` function L2389-2672 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
+-  `field_invalid` function L2680-2682 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
+-  `uuid_field` function L2684-2687 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
+-  `timestamp_field` function L2689-2698 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
+-  `enum_field` function L2702-2713 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
+-  `search_to_core` function L2717-2847 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
+-  `map_search_error` function L2851-2859 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
+-  `archived_marker` function L2865-2871 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
+-  `render_search_results` function L2875-2947 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
 
 ### crates/kairos-server/src/middleware
 
@@ -3309,9 +3313,11 @@
 -  `user_id` function L79-85 — `(conn: &mut PgConnection, email: &str) -> Uuid` — never touched (shared-services discipline).
 -  `board_id` function L87-94 — `(conn: &mut PgConnection, level: BoardLevel) -> Uuid` — never touched (shared-services discipline).
 -  `uuid` function L96-98 — `(s: &str) -> Uuid` — never touched (shared-services discipline).
--  `board_short_codes` function L102-116 — `(client: &KairosClient, board: Uuid) -> Vec<String>` — Every short code on a board, across all four board-bound families and
--  `search_short_codes` function L119-134 — `(client: &KairosClient, request: SearchRequest) -> Vec<String>` — Every short code a search request returns, across the five groups.
--  `archived_work_is_absent_from_every_default_listing` function L137-550 — `()` — never touched (shared-services discipline).
+-  `board_codes_marked` function L102-145 — `( client: &KairosClient, board: Uuid, include_deleted: bool, ) -> Vec<(String, b...` — Every short code on a board, across all four board-bound families and
+-  `board_short_codes` function L148-154 — `(client: &KairosClient, board: Uuid) -> Vec<String>` — Every short code on a board's DEFAULT (live) listing.
+-  `search_short_codes` function L157-172 — `(client: &KairosClient, request: SearchRequest) -> Vec<String>` — Every short code a search request returns, across the five groups.
+-  `archived_work_is_absent_from_every_default_listing` function L175-773 — `()` — never touched (shared-services discipline).
+-  `both` macro L662-672 — `-` — never touched (shared-services discipline).
 
 #### crates/kairos-server/tests/cascade_preview.rs
 

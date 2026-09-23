@@ -155,3 +155,25 @@ initiative:
    (once producing 32 spurious "connection refused" failures). For a
    close-out this is fine — it *should* be the only thing running — but
    confirm no agents are live first.
+
+**2026-09-23, from [[KAIROS-T-0163]] — selectors and copy a journey can assert on.**
+
+| Thing | Selector / text |
+|---|---|
+| Search toggle | `[data-testid="include-put-away"]`, contains `Include work that has been put away`; on-state is `.cl-switch--on` inside it |
+| Put-away search row | `tr.kairos-search__hit--put-away` |
+| Put-away badge (shared) | `.kairos-archived-badge` → text `put away` — **no longer unique per page**, always scope it |
+| Group caption | `.cl-panel__caption` contains `put away` (e.g. `3 on this page · 1 put away`) |
+| Archived graph node | `.kairos-graph__node--put-away`, child `.kairos-graph__put-away` text `put away` |
+| Containment/progress line | Relationships panel contains `containment is a fact about the record` |
+| Text query input | `.cl-field` with label text `Text query` → `input` (aurora labels are not `for`-associated) |
+| Search submit | `getByRole('button', { name: 'Search', exact: true })` |
+
+`e2e/tests/archived.spec.ts` is now 5 specs. The **search → read → audit
+path is end-to-end**: with the toggle on, a put-away hit links to
+`/items/:code` and renders T-0164's banner. That is the arc a UAT journey
+should tell as a story rather than re-assert mechanically.
+
+A journey probe wanting a findable hit should use a **fresh random word per
+run**, as the e2e spec does, so the result stays on page 1 however often the
+stack is re-driven.

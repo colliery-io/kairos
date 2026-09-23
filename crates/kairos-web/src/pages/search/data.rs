@@ -64,14 +64,9 @@ pub struct SearchRequest {
     pub offset: Option<i64>,
 }
 
-/// `skip_serializing_if` for a `bool` that is only interesting when set.
-fn is_false(flag: &bool) -> bool {
-    !*flag
-}
-
 /// mirror of: `kairos_client::types_search::SearchFilter` (partial — only
-/// the filter-builder fields; `team_id`/`is_bucket` aren't in the T-0042
-/// builder).
+/// the filter-builder fields; `team_id`/`is_bucket`/`include_deleted`
+/// aren't in the T-0042 builder).
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct SearchFilter {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,20 +83,6 @@ pub struct SearchFilter {
     pub created_after: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_before: Option<String>,
-    /// Ask for archived — "put away" in this GUI's words (ADR-20,
-    /// KAIROS-T-0163) — work as well as live work. **Nothing to do with
-    /// a document's editorial `lifecycle: archived`** (KAIROS-T-0078),
-    /// which is not a visibility state and is not expressible here;
-    /// whoever eventually renames one of the two will trip over this
-    /// field, hence the note.
-    ///
-    /// The server types it as a plain `bool` (`#[serde(default)]`), but
-    /// the mirror omits it while false so an ordinary search sends the
-    /// byte-identical body it sent before this field existed. Since
-    /// KAIROS-T-0157 the flag is *constraining* on its own, so a filter
-    /// carrying only this is a valid request rather than a 400.
-    #[serde(skip_serializing_if = "is_false")]
-    pub include_deleted: bool,
 }
 
 impl SearchFilter {
@@ -170,13 +151,6 @@ pub struct Hit {
     pub is_bucket: Option<bool>,
     /// RFC 3339.
     pub created_at: String,
-    /// When this hit was put away, RFC 3339; **absent while it is live**,
-    /// so presence is the marker (KAIROS-T-0157 / ADR-20). A hit can only
-    /// be here at all when `filter.include_deleted` asked for it, but the
-    /// row still has to say so — an unmarked archived hit is worse than a
-    /// missing one, because the reader acts on it.
-    #[serde(default)]
-    pub archived_at: Option<String>,
 }
 
 /// `POST /api/search`.
@@ -280,12 +254,6 @@ pub struct RelatedItem {
     pub short_code: String,
     pub entity_type: String,
     pub title: String,
-    /// When this neighbour was put away, RFC 3339; absent while live
-    /// (KAIROS-T-0158). Relationship lists are archived-INCLUSIVE, so
-    /// without this the manage panel would offer to unlink an edge whose
-    /// far end is archived while showing it as ordinary live work.
-    #[serde(default)]
-    pub archived_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_meta::CreateRelationshipRequest`.
@@ -366,7 +334,6 @@ mod tests {
                 metadata: Some(BTreeMap::from([("priority".into(), "critical".into())])),
                 created_after: Some("2026-01-01T00:00:00Z".into()),
                 created_before: Some("2026-03-01T00:00:00Z".into()),
-                include_deleted: true,
             }),
             traverse: Some(SearchTraverse {
                 from: SearchTraverseFrom {
@@ -391,8 +358,7 @@ mod tests {
                     "task_type": ["bug", "tech_debt"],
                     "metadata": {"priority": "critical"},
                     "created_after": "2026-01-01T00:00:00Z",
-                    "created_before": "2026-03-01T00:00:00Z",
-                    "include_deleted": true
+                    "created_before": "2026-03-01T00:00:00Z"
                 },
                 "traverse": {
                     "from": {"short_code": "DEMO-S-0001"},
@@ -409,35 +375,6 @@ mod tests {
         // which the page never sends — see `SearchPage::build_request`).
         let empty = serde_json::to_value(SearchRequest::default()).expect("serializes");
         assert_eq!(empty, serde_json::json!({}));
-    }
-
-    /// KAIROS-T-0163: the put-away toggle is expressible on its own —
-    /// `include_deleted` alone makes the filter constraining (so it is
-    /// sent, not dropped), and while OFF it does not appear on the wire
-    /// at all, which is what keeps a default search byte-identical to
-    /// the one this page sent before the toggle existed.
-    #[test]
-    fn include_deleted_is_expressible_and_silent_when_off() {
-        let asked = SearchFilter {
-            include_deleted: true,
-            ..SearchFilter::default()
-        };
-        assert!(!asked.is_empty(), "the flag alone constrains the search");
-        assert_eq!(
-            serde_json::to_value(&asked).expect("serializes"),
-            serde_json::json!({"include_deleted": true})
-        );
-
-        let off = SearchFilter {
-            entity_type: Some(vec!["task".into()]),
-            ..SearchFilter::default()
-        };
-        assert_eq!(
-            serde_json::to_value(&off).expect("serializes"),
-            serde_json::json!({"entity_type": ["task"]}),
-            "an unasked search says nothing about archived work"
-        );
-        assert!(SearchFilter::default().is_empty());
     }
 
     /// The response mirror decodes a realistic grouped body — typed extra
@@ -481,33 +418,6 @@ mod tests {
         assert!(response.results.strategies.is_empty());
         assert!(response.results.documents.is_empty());
         assert!(response.results.adrs.is_empty());
-        // Live hits carry no marker — the field is absent, not null.
-        assert_eq!(response.results.tasks[0].archived_at, None);
-    }
-
-    /// KAIROS-T-0157 marks archived hits on the wire; the mirror has to
-    /// carry the field or the result list silently renders them as live
-    /// (the partial-struct trap — nothing fails to build).
-    #[test]
-    fn an_archived_hit_arrives_marked() {
-        let body = serde_json::json!({
-            "results": {"tasks": [{
-                "id": "t", "short_code": "DEMO-T-0009",
-                "title": "Finished work, put away",
-                "content": "", "board_id": "b", "column_id": "c",
-                "task_type": "task", "team_id": null, "version": 1,
-                "created_by": "u", "updated_by": "u",
-                "created_at": "2026-07-01T10:00:00Z",
-                "updated_at": "2026-07-01T10:00:00Z",
-                "archived_at": "2026-09-23T11:30:07.479107Z"
-            }]},
-            "total": 1, "limit": 25, "offset": 0
-        });
-        let response: SearchResponse = serde_json::from_value(body).expect("mirror decodes");
-        assert_eq!(
-            response.results.tasks[0].archived_at.as_deref(),
-            Some("2026-09-23T11:30:07.479107Z")
-        );
     }
 
     /// The relationships mirror decodes the T-0020 grouped shape, and
@@ -530,11 +440,6 @@ mod tests {
                 {"relationship": "parent", "items": [
                     {"relationship_id": "e3", "id": "z", "short_code": "DEMO-S-0001",
                      "entity_type": "strategy", "title": "Self-serve customer onboarding"}
-                ]},
-                {"relationship": "blocks", "items": [
-                    {"relationship_id": "e4", "id": "w", "short_code": "DEMO-T-0099",
-                     "entity_type": "task", "title": "The blocker that finished",
-                     "archived_at": "2026-09-23T11:30:07.479107Z"}
                 ]}
             ]
         });
@@ -543,13 +448,6 @@ mod tests {
         assert_eq!(rels.group("parent", false)[0].short_code, "DEMO-S-0001");
         assert_eq!(rels.group("supports", true)[0].entity_type, "document");
         assert!(rels.group("blocks", true).is_empty());
-        // KAIROS-T-0158: archived neighbours ride along, marked — a live
-        // one carries no `archived_at` at all.
-        assert_eq!(rels.group("parent", false)[0].archived_at, None);
-        assert_eq!(
-            rels.group("blocks", false)[0].archived_at.as_deref(),
-            Some("2026-09-23T11:30:07.479107Z")
-        );
     }
 }
 
@@ -569,16 +467,8 @@ pub struct GraphNode {
     pub status: String,
     /// Hop distance from the focus (0 = the focus).
     pub depth: i32,
-    /// Total edge count; `+N` = degree − edges shown. Archived
-    /// neighbours count, because they are drawn (KAIROS-T-0158) — the
-    /// arithmetic already balances, so do not "fix" it.
+    /// Total live-edge count; `+N` = degree − edges shown.
     pub degree: i64,
-    /// When this node was put away, RFC 3339; absent while live
-    /// (KAIROS-T-0158). The subgraph is archived-INCLUSIVE so the paths
-    /// THROUGH an archived node survive; drawing such a node as live is
-    /// the one wrong answer.
-    #[serde(default)]
-    pub archived_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_graph::GraphEdge`.
@@ -628,11 +518,6 @@ mod graph_tests {
                 "id": "n1", "short_code": "DEMO-T-0002", "entity_type": "task",
                 "title": "Password-less email auth", "status": "Todo",
                 "depth": 0, "degree": 3
-            }, {
-                "id": "n2", "short_code": "DEMO-I-0001", "entity_type": "initiative",
-                "title": "Sign-up overhaul", "status": "Done",
-                "depth": 1, "degree": 4,
-                "archived_at": "2026-09-23T11:30:07.479107Z"
             }],
             "edges": [{
                 "source_id": "n2", "target_id": "n1",
@@ -643,11 +528,5 @@ mod graph_tests {
         assert_eq!(decoded.focus, "DEMO-T-0002");
         assert_eq!(decoded.nodes[0].degree, 3);
         assert_eq!(decoded.edges[0].relationship, "parent");
-        // KAIROS-T-0158: an archived node is drawn, so it must be marked.
-        assert_eq!(decoded.nodes[0].archived_at, None);
-        assert_eq!(
-            decoded.nodes[1].archived_at.as_deref(),
-            Some("2026-09-23T11:30:07.479107Z")
-        );
     }
 }

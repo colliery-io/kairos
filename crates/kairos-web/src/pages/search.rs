@@ -73,9 +73,6 @@ pub fn SearchPage() -> impl IntoView {
     let created_before = RwSignal::new(String::new());
     let meta_rows: RwSignal<Vec<MetaRow>> = RwSignal::new(Vec::new());
     let next_meta_id = StoredValue::new(0usize);
-    // ADR-20 rule 3: default listings hide archived work, so this starts
-    // OFF and the page sends nothing about it until someone asks.
-    let include_put_away = RwSignal::new(false);
     let traverse_on = RwSignal::new(false);
     let t_from = RwSignal::new(String::new());
     let t_rel_flags: [RwSignal<bool>; 5] = std::array::from_fn(|i| RwSignal::new(i == 0));
@@ -182,11 +179,6 @@ pub fn SearchPage() -> impl IntoView {
         if !metadata.is_empty() {
             filter.metadata = Some(metadata);
         }
-        // KAIROS-T-0163 / ADR-20 rule 2: archived work stays searchable
-        // when asked for explicitly, composing with everything above —
-        // and since KAIROS-T-0157 the flag constrains on its own, so
-        // "just show me what's been put away" is a complete search.
-        filter.include_deleted = include_put_away.get();
 
         let traverse = if traverse_on.get() {
             let from = t_from.get().trim().to_uppercase();
@@ -282,31 +274,6 @@ pub fn SearchPage() -> impl IntoView {
                         </Button>
                     </Group>
                     <Divider/>
-                    // KAIROS-T-0163 / ADR-20: the audit switch. It sits
-                    // above the filters, labelled, because "visible for
-                    // audit" means discoverable by someone who never read
-                    // the docs — a URL-only parameter would not be.
-                    //
-                    // The copy says "put away", never a bare "archived":
-                    // a document's editorial `lifecycle: archived`
-                    // (KAIROS-T-0078) is an unrelated state that can land
-                    // in these same results while the document is
-                    // perfectly live. Nothing is renamed here — this
-                    // comment is the record of the collision for whoever
-                    // eventually does (KAIROS-A-0020, Neutral).
-                    <div data-testid="include-put-away">
-                        <Stack gap="xs">
-                            <Switch
-                                checked=include_put_away
-                                label="Include work that has been put away"
-                            />
-                            <Text dimmed=true size="xs">
-                                "Off by default: put-away (archived) work is hidden from \
-                                 boards, queues and search until it is asked for. It is \
-                                 still readable — hits are marked below."
-                            </Text>
-                        </Stack>
-                    </div>
                     <Stack gap="xs">
                         <Text dimmed=true size="xs">"Entity types"</Text>
                         <Group gap="xs" wrap=true>{entity_chips}</Group>
@@ -490,14 +457,6 @@ pub fn SearchPage() -> impl IntoView {
 fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) -> impl IntoView {
     (!hits.is_empty()).then(|| {
         let count = hits.len();
-        // KAIROS-T-0163: say how much of this page is put-away work
-        // before the reader scans the rows, not after.
-        let put_away = hits.iter().filter(|hit| hit.archived_at.is_some()).count();
-        let caption = if put_away > 0 {
-            format!("{count} on this page · {put_away} put away")
-        } else {
-            format!("{count} on this page")
-        };
         let rows = hits
             .into_iter()
             .map(|hit| {
@@ -514,22 +473,8 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
                 });
                 let bucket_pill = (hit.is_bucket == Some(true))
                     .then(|| view! { <Pill color=token::MUTED>"bucket"</Pill> });
-                // The ADR-20 state, in the words the item page uses
-                // (KAIROS-T-0164). Never a bare "archived": a document
-                // hit can be editorially `lifecycle: archived` and still
-                // be live work (KAIROS-T-0078) — two different states,
-                // and this list shows documents.
-                let put_away_badge = hit.archived_at.clone().map(|when| {
-                    let title = format!("Put away on {}", crate::pages::item::put_away_when(&when));
-                    view! {
-                        <span class="kairos-archived-badge" title=title>
-                            <Pill color=token::GOLD>"put away"</Pill>
-                        </span>
-                    }
-                });
-                let is_put_away = hit.archived_at.is_some();
                 view! {
-                    <tr class:kairos-search__hit--put-away=is_put_away>
+                    <tr>
                         <td>
                             <Anchor href=detail>
                                 <span class="cl-mono">{hit.short_code.clone()}</span>
@@ -538,7 +483,6 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
                         <td>
                             <Group gap="sm">
                                 <Text size="sm">{hit.title.clone()}</Text>
-                                {put_away_badge}
                                 {task_pill}
                                 {bucket_pill}
                             </Group>
@@ -550,7 +494,7 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
             })
             .collect_view();
         view! {
-            <Panel title=title caption=caption>
+            <Panel title=title caption=format!("{count} on this page")>
                 <Group gap="sm">
                     <Pill color=entity_color(entity)>{entity}</Pill>
                 </Group>

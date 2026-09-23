@@ -4,14 +4,14 @@ level: initiative
 title: "Team Lifecycle - Delete a Team Once Its Board Is Clear, Move Tasks Between Delivery Boards"
 short_code: "KAIROS-I-0012"
 created_at: 2026-09-23T01:49:01.122765+00:00
-updated_at: 2026-09-23T01:49:58.650287+00:00
+updated_at: 2026-09-23T01:51:51.555536+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -174,6 +174,9 @@ Gates per task as usual (fmt, workspace clippy, unit, integration, e2e /
 UAT where touched).
 
 ## Progress Log
+
+- 2026-09-22: Dylan: "go" → ready → decompose into T-0127 … T-0130 per the
+  Implementation Plan; → active; Ralph loop started.
 
 - 2026-09-22: Created from UAT finding #7 after Dylan's rule ("all cards
   must be archived or moved to delete a team"); three decisions taken via

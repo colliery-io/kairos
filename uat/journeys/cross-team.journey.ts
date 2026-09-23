@@ -12,7 +12,7 @@
 import { expect } from '@playwright/test';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
-import { cardIn, column, dragCard, openBoard, openItem, panel } from '../surfaces/gui';
+import { card, cardIn, dragCard, openBoard, openItem, panel } from '../surfaces/gui';
 import { shortCodes } from '../surfaces/mcp';
 
 const THEIR_REPO = process.env.UAT_THEIR_REPO ?? 'payments-api';
@@ -27,6 +27,7 @@ journey(
     const bob = cast.human('bob');
     const carol = cast.human('carol');
     let theirBoard = '';
+    let carolBoard = '';
     let filed = '';
     let mine = '';
 
@@ -100,12 +101,12 @@ journey(
     await step(carol, 'sees her own task marked blocked by the platform task', async () => {
       const page = await carol.gui();
       const myBoard = (await (await alice.api()).task(mine)).board_id;
-      const slug = (await (await alice.api()).get(`/api/boards/${myBoard}`)).slug;
-      await openBoard(page, slug);
+      carolBoard = (await (await alice.api()).get(`/api/boards/${myBoard}`)).slug;
+      await openBoard(page, carolBoard);
       await expect(cardIn(page, 'Backlog', mine).locator('.cl-pill', { hasText: 'blocked by 1' })).toBeVisible();
       await openItem(page, mine);
       await expect(panel(page, 'Relationships').getByText(filed)).toBeVisible();
-      await openBoard(page, slug);
+      await openBoard(page, carolBoard);
       return { my_task: mine, badge: 'blocked by 1', names: filed };
     });
 
@@ -135,6 +136,66 @@ journey(
       const me = await (await carol.api()).whoami();
       expect(row.created_by).toBe(me.user.id);
       return { task: filed, created_by: me.user.email };
+    });
+
+    // The seam has a second shape: work that landed on the wrong side of it
+    // is MOVED, not recreated (KAIROS-I-0012). It runs last because it
+    // unbinds the repository the search step above depends on.
+    await step(bob, 'has no board to move it to — the control is not offered to a one-team member', async () => {
+      const page = await bob.gui();
+      await openItem(page, filed);
+      // Two-sided: bob manages platform only, so there is nowhere he may
+      // push this card. The GUI hides the control rather than dangling it.
+      await expect(page.locator('[data-testid="move-board"]')).toHaveCount(0);
+      return { board_select_offered: false };
+    });
+
+    await step(alice, `tries to move the ticket to the web board while it is still bound to ${THEIR_REPO}`, async () => {
+      const page = await alice.gui();
+      await openItem(page, filed);
+      const control = page.locator('[data-testid="move-board"]');
+      await expect(control).toBeVisible();
+      await control.locator('select').selectOption(carolBoard);
+      await control.getByRole('button', { name: 'Move board' }).click();
+      const refusal = control.locator('.cl-alert');
+      await expect(refusal).toContainText('REPOSITORY_OWNER_MISMATCH', { timeout: 10_000 });
+      await expect(refusal).toContainText(THEIR_REPO);
+      return { refused: (await refusal.innerText()).replace(/\s+/g, ' ').slice(0, 150) };
+    });
+
+    await step(alice, 'unbinds the repository, and the same move goes through', async () => {
+      const page = await alice.gui();
+      const repoControl = page.locator('[data-testid="repository-control"]');
+      await repoControl.locator('select').selectOption('(none)');
+      await repoControl.getByRole('button', { name: 'Set repository' }).click();
+      await expect(page.locator('.cl-pill', { hasText: `repo: ${THEIR_REPO}` })).toHaveCount(0, { timeout: 10_000 });
+      const control = page.locator('[data-testid="move-board"]');
+      await control.locator('select').selectOption(carolBoard);
+      await control.getByRole('button', { name: 'Move board' }).click();
+      await expect(page.getByText(/Moved to /)).toBeVisible({ timeout: 10_000 });
+      await openBoard(page, theirBoard);
+      await expect(card(page, filed)).toHaveCount(0);
+      return { task: filed, unbound_from: THEIR_REPO, moved_to: carolBoard };
+    });
+
+    await step(carol, 'finds it on her board but cannot push it back — platform\'s board is not hers to write', async () => {
+      const mcp = await carol.mcp();
+      const onMyBoard = await mcp.call('board_items', { board: carolBoard });
+      expect(shortCodes(onMyBoard)).toContain(filed);
+      const refusal = await mcp.refused('move_item', { short_code: filed, to_board: theirBoard });
+      expect(refusal).toContain('FORBIDDEN');
+      return { found_on: carolBoard, refused: refusal.split('\n')[0].slice(0, 150) };
+    });
+
+    await step(alice, 'moves it back as org admin, and it lands in the entry column', async () => {
+      const mcp = await alice.mcp();
+      const text = await mcp.call('move_item', { short_code: filed, to_board: theirBoard });
+      expect(text).toContain(`Moved ${filed}`);
+      expect(text).toContain(theirBoard);
+      const item = await mcp.call('get_item', { short_code: filed });
+      expect(item).toContain(`board: ${theirBoard}`);
+      expect(item).toContain('Backlog');
+      return { tool_said: text.trim().slice(0, 140) };
     });
   },
 );

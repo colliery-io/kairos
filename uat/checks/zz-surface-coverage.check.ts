@@ -17,19 +17,15 @@ import { surfaceUsage } from '../run/coverage';
 import { COVERAGE } from '../run/reporter';
 
 /**
- * Surfaces no journey touches yet, each with the reason. This map is the
- * to-do list: a task that covers a surface deletes its entry, and what
- * survives has to be a reason a reader can disagree with — never
- * "pending" once KAIROS-I-0013 is finished.
+ * Surfaces no journey exercises, each with the reason.
+ *
+ * Empty, and that is the bar: KAIROS-I-0013 gave every MCP tool and every
+ * CLI noun a persona who would really use it, rather than a paragraph
+ * explaining why nobody does. An entry here is a claim you are willing to
+ * defend — "pending <ticket>" while one is open, a real reason otherwise.
+ * The gate also fails on STALE entries, so this map cannot rot quietly.
  */
-const ALLOW: Record<string, string> = {
-  'mcp:search': 'pending KAIROS-T-0136 (folded into an existing journey)',
-  'cli:adrs': 'pending KAIROS-T-0136 (a step, or a reason)',
-  'cli:orgs': 'pending KAIROS-T-0136 (a step, or a reason)',
-  'cli:strategies': 'pending KAIROS-T-0136 (a step, or a reason)',
-  'cli:initiatives': 'pending KAIROS-T-0136 (a step, or a reason)',
-  'cli:admin': 'pending KAIROS-T-0136 (a step, or a reason)',
-};
+const ALLOW: Record<string, string> = {};
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +48,16 @@ test('every MCP tool and CLI noun is exercised by a journey, or allow-listed wit
   test.skip(
     missing.length > 0,
     `filtered run: coverage needs every journey, missing [${missing.join(', ')}]`,
+  );
+  // Neither can a deployment run: `step.composeOnly` steps are skipped
+  // there by design (tenant provisioning needs a throwaway tenant and a
+  // deployment-admin token), so surfaces only those steps reach — today
+  // `kairos admin` — would read as uncovered when they are simply not
+  // applicable. Coverage is a property of the SUITE, measured where the
+  // suite runs whole.
+  test.skip(
+    runContext().mode !== 'compose',
+    'deployment run: compose-only steps are skipped, so coverage is not measurable here',
   );
 
   const cast = new Cast(browser);

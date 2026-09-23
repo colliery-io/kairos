@@ -22,16 +22,16 @@ journey(
     const team = teamFixture(alice, ledger, 'mobile');
 
     await step.composeOnly(alice, 'provisions a new tenant as deployment admin', 'needs a deployment-admin token and a throwaway tenant', async () => {
-      const api = await alice.api();
+      const cli = await alice.cli();
       const slug = named('tenant').replace(/[^a-z0-9_-]/g, '-');
-      const created = await api.post('/api/admin/tenants', { slug, name: `UAT tenant ${slug}` });
+      const created = await cli.json(['admin', 'tenants', 'create', '--slug', slug, '--name', `UAT tenant ${slug}`]);
       ledger.add({
         kind: 'tenant',
         label: slug,
-        delete: async () => { await api.delete(`/api/admin/tenants/${slug}?confirm=true`); },
+        delete: async () => { await cli.ok(['admin', 'tenants', 'delete', slug, '--confirm']); },
       });
-      const listed = await api.get('/api/admin/tenants');
-      const slugs = (Array.isArray(listed) ? listed : listed.items ?? []).map((t: any) => t.slug);
+      const listed = await cli.json(['admin', 'tenants', 'list', '--limit', '100']);
+      const slugs = (listed.items ?? listed).map((t: any) => t.slug);
       expect(slugs).toContain(slug);
       return { tenant: slug, initial_admin: created.initial_admin?.email ?? created.initial_admin };
     });

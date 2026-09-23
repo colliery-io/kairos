@@ -146,6 +146,26 @@ journey(
       return { children: childCodes, payments_api_hits_from_this_run: mine };
     });
 
+    await step(alice, 'checks the plan from the terminal and records the decision behind it as an ADR', async () => {
+      const cli = await alice.cli();
+      const api = await alice.api();
+      const strategyRow = await cli.json(['strategies', 'get', strategy]);
+      expect(strategyRow.short_code).toBe(strategy);
+      const initiatives = await cli.json(['initiatives', 'list', '--limit', '100']);
+      const codes = (initiatives.items ?? initiatives).map((i: any) => i.short_code);
+      expect(codes).toContain(initiative);
+      // Flight Levels: the decision that shaped this initiative belongs on
+      // the record next to it, not in someone's head.
+      const adrBoard = await api.boardBySlug('adrs');
+      const adr = await cli.json([
+        'adrs', 'create', '--board', adrBoard.id,
+        '--title', named('decision: CSV before JSON for exports'),
+        '--content', 'CSV first: finance already consumes it. JSON when the portal needs it.',
+      ]);
+      ledger.add({ kind: 'adr', label: adr.short_code, delete: async () => { await api.delete(`/api/adrs/${adr.short_code}`); } });
+      return { strategy, initiatives_listed: codes.length, adr: adr.short_code };
+    });
+
     let note = '';
     await step(alice, 'attaches a design note to the initiative from the CLI', async () => {
       const cli = await alice.cli();

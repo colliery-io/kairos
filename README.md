@@ -467,13 +467,21 @@ a PR to remove a short code removes that link.
 ## User acceptance runs
 
 `angreal test uat` (KAIROS-A-0012 tier 6) walks Kairos the way people and
-agents use it: four persona journeys — an organisation is set up, a strategy
-is broken down to work on a board, a coding agent lands a PR in its
-repository, a web engineer files work into platform's Backlog and gets it —
-each crossing the surfaces the persona would really use (the browser, the
-real `kairos` CLI, MCP). Every run ends in a report a product owner can read:
+agents use it: seven persona journeys — an organisation is set up, a
+strategy is broken down to work on a board, a coding agent lands a PR in
+its repository, a web engineer files work into platform's Backlog and gets
+it, an edit goes wrong and the audit trail puts it right, a team writes
+down how it works, an admin shapes a new team's board — each crossing the
+surfaces the persona would really use (the browser, the real `kairos` CLI,
+MCP). Every run ends in a report a product owner can read:
 `uat/reports/<run>/report.md`, one persona / step / observed / status table
 per journey, with screenshots and traces on failure.
+
+A run also **fails when a surface exists that no journey exercises**: the
+suite asks the deployment what MCP tools and CLI nouns it offers and
+compares that against what the journeys actually ran (`uat/README.md` has
+the details). Today that is 17/17 tools and 16/16 nouns with nothing
+allow-listed.
 
 ### Run against the compose stack
 
@@ -506,7 +514,7 @@ password login form (Dex, Keycloak with direct grants) and register
 | Flag / variable | Meaning |
 |---|---|
 | `--server URL` | target a deployment instead of booting compose |
-| `--journey a,b` | journey ids: `smoke`, `onboarding`, `planning`, `agent-loop`, `cross-team` |
+| `--journey a,b` | journey ids: `smoke`, `onboarding`, `planning`, `agent-loop`, `cross-team`, `audit-trail`, `team-knowledge`, `board-setup` (a filtered run cannot measure coverage, so the gate is skipped) |
 | `--keep-running` | compose mode: keep the stack and server up (server logs to `target/uat-server.log`) |
 | `--headed`, `--report-dir` | show the browser; where the report lands |
 | `UAT_PERSONA_<ALICE\|BOB\|CAROL\|NEWHIRE>_EMAIL` / `_PASSWORD` | persona credentials (default: the seed users) |

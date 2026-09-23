@@ -154,9 +154,14 @@ journey(
       const versions = [...history.matchAll(/v(\d+)/g)].map((m) => Number(m[1]));
       expect(Math.max(...versions)).toBeGreaterThanOrEqual(6);
       expect(history).toContain(bob.credentials.email.split('@')[0]);
+      // And the repaired task is findable by what it says now, not by
+      // what it said when it was wrong.
+      const found = await mcp.call('search', { q: '45 days' });
+      expect(found).toContain(code);
       return {
         content_now: task.content.slice(0, 60),
         versions_on_the_ledger: Math.max(...versions),
+        found_by_current_text: true,
         mistake_still_on_the_record: true,
       };
     });

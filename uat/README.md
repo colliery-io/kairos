@@ -119,9 +119,12 @@ while a ticket is open, a permanent entry needs a real reason. The gate
 also fails on **stale** entries (a surface that is covered now, or no
 longer exists), so the map cannot rot quietly.
 
-A filtered run (`--journey planning`) cannot speak for the product, so the
-gate does not run and the report says `Not measured` rather than going
-silent.
+The gate needs a whole compose run to speak. A filtered run (`--journey
+planning`) has not exercised the product; a `--server` run skips its
+compose-only steps by design (tenant provisioning needs a throwaway tenant
+and a deployment-admin token), so a surface only those steps reach would
+read as uncovered when it is simply not applicable. In both cases the gate
+skips and the report says `Not measured` rather than going silent.
 
 **Adding a surface to the product?** Cover it in the journey where a
 persona would really meet it. If no persona would, say so in `ALLOW`.

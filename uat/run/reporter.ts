@@ -140,7 +140,9 @@ export default class UatReporter implements Reporter {
       lines.push('');
       if (!coverage || coverage.skipped || !coverage.mcp) {
         lines.push(
-          '_Not measured: the gate needs every journey, and this run was filtered._',
+          '_Not measured: the gate needs a whole compose run. A filtered run, ' +
+            'or a deployment run whose compose-only steps are skipped, cannot ' +
+            'speak for the product._',
         );
       } else {
         lines.push(

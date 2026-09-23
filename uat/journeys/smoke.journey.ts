@@ -18,7 +18,13 @@ journey('smoke', 'Alice reaches Kairos on every surface', { humans: ['alice'] },
     const cli = await alice.cli();
     const me = await cli.json(['whoami']);
     expect(me.user?.email ?? me.email).toBe(alice.credentials.email);
-    return { identity: me.user?.email ?? me.email, org_role: me.organization?.role };
+    const org = await cli.json(['orgs', 'show']);
+    expect(org.slug ?? org.organization?.slug).toBeTruthy();
+    return {
+      identity: me.user?.email ?? me.email,
+      org_role: me.organization?.role,
+      organization: org.slug ?? org.organization?.slug,
+    };
   });
 
   await step(alice, 'opens an MCP session and calls whoami', async () => {

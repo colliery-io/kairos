@@ -21,7 +21,6 @@ initiative_id: diataxis-documentation-a-book
 
 # Diataxis Documentation - A Book Kairos Does Not Have Yet Initiative
 
-# Diataxis Documentation - A Book Kairos Does Not Have Yet Initiative
 
 ## Context
 

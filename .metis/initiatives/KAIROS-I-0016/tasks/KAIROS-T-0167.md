@@ -4,14 +4,14 @@ level: task
 title: "Scaffold the mdBook and publish it to Pages"
 short_code: "KAIROS-T-0167"
 created_at: 2026-09-23T22:11:06.422985+00:00
-updated_at: 2026-09-23T22:11:06.422985+00:00
+updated_at: 2026-09-23T22:27:15.769353+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0166]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -90,6 +90,8 @@ why.
 Angreal is how everything in this repo is run, so the book gets a task:
 `angreal docs build` and `angreal docs serve`. Follow the existing task
 modules in `.angreal/`.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

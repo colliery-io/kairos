@@ -4,14 +4,14 @@ level: task
 title: "Promote KAIROS-S-0008 out of discovery, so the gate is settled before it is used"
 short_code: "KAIROS-T-0166"
 created_at: 2026-09-23T22:11:02.981917+00:00
-updated_at: 2026-09-23T22:25:18.276609+00:00
+updated_at: 2026-09-23T22:27:12.045565+00:00
 parent: KAIROS-I-0016
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,6 +51,8 @@ Read it against what the initiative is about to do and check three things:
 
 Then transition the spec. Specification phases are adjacent-only, same as
 the other document types, so it may take more than one hop.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

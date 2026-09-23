@@ -125,3 +125,33 @@ rather than redo, and check the closing step's
 - A restore puts back only the item asked for; `still_archived_short_codes`
   names the descendants that stayed away, and the GUI surfaces that in the
   success notice — worth a step in the journey.
+
+**2026-09-23, from [[KAIROS-T-0157]].**
+
+- **A seventh stale "archived = gone" assertion**, already fixed:
+  `uat/journeys/operations.journey.ts` asserted `404` on GET for every
+  cascaded child, stale since T-0154. Rewritten to `200` + `archived_at`.
+  Its note about the `--include-deleted` + `--query` no-op is also corrected
+  — that combination now works.
+- **A tidy-up for this task**: `archived_marker()` exists in
+  `mcp/tools.rs` (T-0157), and T-0158 landed two inline copies of the same
+  three lines in the same file concurrently. Collapse them.
+- MCP tool count is **17 → 17** after T-0157 (`include_deleted` is a new
+  argument on an existing tool, not a new tool). `restore_item`
+  ([[KAIROS-T-0160]]) is still the 18th the drift gate is waiting on, so the
+  gate reads **17/18** until a journey exercises restore.
+
+## Operational hazards for whoever runs this close-out
+
+**The shared working tree bites in two ways**, both learned during this
+initiative:
+
+1. **`git add` does not isolate concurrent agents.** The git index is
+   genuinely shared — another agent's staged files can land in your commit.
+   It happened twice here. Commit through a private index:
+   `GIT_INDEX_FILE=/tmp/x.index git add <paths> && GIT_INDEX_FILE=/tmp/x.index git commit …`
+2. **`angreal test integration` and `angreal test uat` tear the compose
+   stack down including the volume**, which kills any other run in flight
+   (once producing 32 spurious "connection refused" failures). For a
+   close-out this is fine — it *should* be the only thing running — but
+   confirm no agents are live first.

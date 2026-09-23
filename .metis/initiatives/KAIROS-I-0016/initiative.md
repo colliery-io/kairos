@@ -409,3 +409,70 @@ Status Update.
   invisible to whoever wrote the page.** You cannot notice the absence of a
   case you never thought of. Every remaining reference task in this initiative
   gets an independent review, not a self-review.
+
+- 2026-09-23: **All twelve tasks complete.** The book is live at
+  **https://colliery-io.github.io/kairos/** — 36 pages: 1 tutorial, 12 how-to,
+  17 reference (8 written, 9 generated), 5 explanation. `SUMMARY.md` has 35
+  uncommented entries; the one commented line is the deferred Kubernetes
+  tutorial.
+
+  Gates: `angreal docs build` clean, zero broken file links and zero broken
+  anchors across all 36 pages, `angreal test lint` clean, `actionlint` clean,
+  `render-openapi.py --check` passing, `release.yml` untouched, docs publish
+  green.
+
+- 2026-09-23: **What writing the documentation found that testing had not.**
+  Eight defects, filed rather than papered over. The pattern is worth naming:
+  **R4 forces someone to enumerate a surface, and enumerating a surface is when
+  you notice what is missing from it.**
+
+  - [[KAIROS-T-0177]] — Compose silently drops the two variables Google
+    Workspace deployments *require*. `.env.example` explains both at length;
+    the compose file forwards neither; the server reads both.
+  - [[KAIROS-T-0178]] — MCP `create_item` lags the CLI, so an initiative
+    created over MCP can never be a bucket.
+  - [[KAIROS-T-0180]] — the amd64-only image blocks **every** ARM evaluation,
+    including a local `kind` cluster on the most common laptop. Recorded at
+    release time as an accepted limitation; it only survived contact with
+    somebody following the documented path.
+  - [[KAIROS-T-0182]] — `configure_templates` and `configure_metadata` can be
+    granted, display as granted, and authorise nothing. Two of the four
+    non-`manage_*` capabilities are enforced and two are not, which is why it
+    was invisible.
+  - [[KAIROS-T-0183]] — `manage_*` also grants `manage_members`, so a glob that
+    reads as a work-item family grants board administration.
+  - [[KAIROS-T-0184]] — four SCIM defects, two breaking real integrations: a
+    `userName` PUT refused forever on an Okta-shaped deployment, and a
+    soft-deleted team **permanently burning its slug**.
+  - Two stale doc comments corrected in passing: "the 14 frozen tools" (there
+    are 18) and `ThinEvent.event` listing 7 of 9 values.
+
+- 2026-09-23: **What the process found, for the next documentation initiative.**
+
+  - **Independent review is not optional for reference pages.** A self-review
+    passed every structural rule (R1–R3) and was weak on exactly R4/R6; the
+    independent pass then found six defects, one blocking. Later the full
+    review found seven blocking, and **every one was a missing refusal or an
+    under-stated `details`** — you cannot notice the absence of a case you
+    never thought of. Evidence, twice, not principle.
+  - **Exemptions are where mode-mixing survives.** The only two pages this plan
+    exempted from reclassification were the two nobody had reviewed, and one of
+    them ([[KAIROS-T-0179]]) was 20% how-to.
+  - **Generated reference strains R1, not R4.** Generation beats a human on
+    completeness precisely because it is mechanical; what it fails is
+    predictable structure. Measured: one page came to 3694 lines, complete and
+    unnavigable.
+  - **E6 is what finds missing reference pages.** Forbidding an explanation page
+    from being a fact's only home forces the question "where does this live?",
+    which is how [[KAIROS-T-0176]] was discovered.
+  - **Two pages faithful to two sources can contradict each other.** The
+    capability vocabulary says what may be granted; the handler annotations say
+    what is enforced. Both were right; the product was wrong.
+  - **`git add` does not isolate concurrent agents**, and a private
+    `GIT_INDEX_FILE` built from a stale tree is worse — it silently reverts.
+    The recipe needs `git read-tree HEAD` immediately before staging, and for a
+    file several agents edit, building the blob from `HEAD` plus your own lines
+    via `hash-object` + `update-index --cacheinfo`. It caught live reverts three
+    times.
+
+**Ready for review.** The initiative is not transitioned — Dylan reviews.

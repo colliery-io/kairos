@@ -28,8 +28,8 @@ use crate::error::Error;
 use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
-    ListEnvelope, Pagination, SetLifecycleRequest, SetWorkClassRequest, Strategy, Task,
-    TransitionRequest, UpdateContentRequest,
+    ListEnvelope, Pagination, RestoreResponse, SetLifecycleRequest, SetWorkClassRequest, Strategy,
+    Task, TransitionRequest, UpdateContentRequest,
 };
 use crate::types_meta::{
     ActivityEntry, ActivityQuery, ChildrenProgressResponse, CreateMetadataDefinitionRequest,
@@ -321,7 +321,8 @@ impl KairosClient {
 /// The five entity CRUD families (S-0005; KAIROS-T-0018 contracts).
 macro_rules! entity_family {
     ($family:literal, $dto:ty, $create_req:ty,
-     $list:ident, $get:ident, $create:ident, $update:ident, $delete:ident) => {
+     $list:ident, $get:ident, $create:ident, $update:ident, $delete:ident,
+     $restore:ident) => {
         #[doc = concat!("`GET /api/", $family, "` — list (tenant-open read).")]
         pub async fn $list(&self, page: Pagination) -> Result<ListEnvelope<$dto>, Error> {
             self.get_query(concat!("/api/", $family), &page).await
@@ -358,6 +359,17 @@ macro_rules! entity_family {
             self.delete(&format!(concat!("/api/", $family, "/{}"), short_code))
                 .await
         }
+
+        #[doc = concat!("`POST /api/", $family, "/{short_code}/restore` — put archived ",
+                                "work back (KAIROS-A-0020). 422 `RESTORE_BLOCKED` when its ",
+                                "board, column, team or repository is gone.")]
+        pub async fn $restore(&self, short_code: &str) -> Result<RestoreResponse, Error> {
+            self.post_ok(
+                &format!(concat!("/api/", $family, "/{}/restore"), short_code),
+                &(),
+            )
+            .await
+        }
     };
 }
 
@@ -392,7 +404,8 @@ impl KairosClient {
         get_strategy,
         create_strategy,
         update_strategy,
-        delete_strategy
+        delete_strategy,
+        restore_strategy
     );
     entity_transition!("strategies", Strategy, transition_strategy);
 
@@ -404,7 +417,8 @@ impl KairosClient {
         get_initiative,
         create_initiative,
         update_initiative,
-        delete_initiative
+        delete_initiative,
+        restore_initiative
     );
     entity_transition!("initiatives", Initiative, transition_initiative);
 
@@ -416,7 +430,8 @@ impl KairosClient {
         get_task,
         create_task,
         update_task,
-        delete_task
+        delete_task,
+        restore_task
     );
     entity_transition!("tasks", Task, transition_task);
 
@@ -491,7 +506,8 @@ impl KairosClient {
         get_document,
         create_document,
         update_document,
-        delete_document
+        delete_document,
+        restore_document
     );
 
     entity_family!(
@@ -502,7 +518,8 @@ impl KairosClient {
         get_adr,
         create_adr,
         update_adr,
-        delete_adr
+        delete_adr,
+        restore_adr
     );
     entity_transition!("adrs", Adr, transition_adr);
 

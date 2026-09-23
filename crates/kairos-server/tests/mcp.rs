@@ -18,8 +18,9 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the 16-tool inventory (14 from S-0006 plus the
-//!   two repository tools of KAIROS-T-0107);
+//! - tools/list is EXACTLY the inventory: 14 from S-0006, the two
+//!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012) and
+//!   `restore_item` (KAIROS-A-0020);
 //! - golden path: whoami → my_boards → create_item(initiative) →
 //!   create_item(task, parent) → get_item → edit_item → transition_item
 //!   (invalid first: INVALID_TRANSITION enumerating allowed targets,
@@ -519,6 +520,8 @@ async fn mcp_endpoint_against_live_stack() {
         "unlink_items",
         "set_metadata",
         "delete_item",
+        // KAIROS-A-0020 / T-0160: put archived work back.
+        "restore_item",
         // KAIROS-T-0107 (A-0019): the repository directory.
         "list_repositories",
         "get_repository",

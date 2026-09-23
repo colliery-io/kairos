@@ -428,6 +428,23 @@ pub struct DeleteResponse {
     pub cascaded_short_codes: Vec<String>,
 }
 
+/// Response of `POST /api/{entity_type}/{short_code}/restore`
+/// (KAIROS-T-0160, KAIROS-A-0020): the archived item is live again.
+///
+/// A restore deliberately does NOT un-cascade — a cascade delete was an act
+/// on a subtree, and resurrecting descendants would undo decisions nobody
+/// asked to revisit. The descendants still away are named here instead, so
+/// "I restored it and half of it is missing" is answered before it is asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RestoreResponse {
+    /// The restored item's short code.
+    pub short_code: String,
+    /// How many of its descendants are still archived.
+    pub still_archived_count: i64,
+    /// Their short codes, sorted — restore them with further calls.
+    pub still_archived_short_codes: Vec<String>,
+}
+
 /// Response of `GET /api/{entity_type}/{short_code}/cascade-preview`
 /// (KAIROS-T-0051) — the AUTHORITATIVE KAIROS-A-0001 descendant set a
 /// soft-delete of this item WOULD cascade to, computed WITHOUT deleting.

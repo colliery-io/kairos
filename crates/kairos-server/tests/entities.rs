@@ -788,6 +788,42 @@ async fn entity_endpoints_against_live_stack() {
         "archived work is read-only: {err}"
     );
 
+    // --- restore: the way out of read-only (KAIROS-T-0160) ------------------
+    let restored = alice
+        .restore_task(&task_bug_code)
+        .await
+        .expect("restoring an archived task");
+    assert_eq!(restored.short_code, task_bug_code);
+    assert_eq!(
+        restored.still_archived_count, 0,
+        "a leaf has nothing below it"
+    );
+    let live_again = alice.get_task(&task_bug_code).await.expect("get restored");
+    assert!(
+        live_again.archived_at.is_none(),
+        "a restored item is not archived any more"
+    );
+    let listed = alice
+        .list_tasks(Pagination::default())
+        .await
+        .expect("listing tasks");
+    assert!(
+        listed.items.iter().any(|t| t.short_code == task_bug_code),
+        "a restored item is back in the default listing"
+    );
+    // Restoring something that is already live is a mistake worth hearing
+    // about, not a silent success.
+    let err = rejection(alice.restore_task(&task_bug_code).await);
+    assert!(
+        matches!(err, Error::NotFound { .. }),
+        "restoring a live item is refused: {err}"
+    );
+    // Put it back the way the rest of the test expects to find it.
+    alice
+        .delete_task(&task_bug_code)
+        .await
+        .expect("re-archiving");
+
     // =======================================================================
     // ADRs: board + off-board, ITEM_NOT_ON_BOARD, transitions
     // =======================================================================
@@ -1105,6 +1141,34 @@ async fn entity_endpoints_against_live_stack() {
         !listed.items.iter().any(|t| t.short_code == task_bob_code),
         "a cascade-archived child still leaves the default listing"
     );
+
+    // Restoring the parent deliberately does NOT un-cascade: the subtree
+    // was archived by a decision nobody asked to revisit, so the children
+    // stay away and are NAMED, rather than silently resurrected or silently
+    // omitted (KAIROS-T-0160).
+    let restored = alice
+        .restore_initiative(&initiative_code)
+        .await
+        .expect("restoring the cascade root");
+    assert_eq!(restored.still_archived_count, 1, "{restored:?}");
+    assert_eq!(
+        restored.still_archived_short_codes,
+        vec![task_bob_code.clone()]
+    );
+    assert!(
+        alice
+            .get_task(&task_bob_code)
+            .await
+            .expect("child still readable")
+            .archived_at
+            .is_some(),
+        "the child is still archived after the parent came back"
+    );
+    // …and restoring the child then works, because its home is intact.
+    alice
+        .restore_task(&task_bob_code)
+        .await
+        .expect("restoring the child separately");
 
     // =======================================================================
     // 404 matrix: unknown short codes across every family and verb

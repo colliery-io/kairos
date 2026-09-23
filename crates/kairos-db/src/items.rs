@@ -1273,3 +1273,294 @@ pub fn soft_delete_item(
         })
     })
 }
+
+/// The short code of an ARCHIVED row of this type, or `None` if the id is
+/// unknown or the row is already live (restoring a live item is a no-op the
+/// caller should hear about, not silently succeed at).
+fn archived_short_code(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+) -> Result<Option<String>, DieselError> {
+    macro_rules! archived_in {
+        ($table:ident) => {{
+            use crate::schema::$table::dsl;
+            dsl::$table
+                .filter(dsl::id.eq(item_id))
+                .filter(dsl::deleted_at.is_not_null())
+                .select(dsl::short_code)
+                .first::<String>(conn)
+                .optional()
+        }};
+    }
+    match item_type {
+        ItemType::Strategy => archived_in!(strategies),
+        ItemType::Initiative => archived_in!(initiatives),
+        ItemType::Task => archived_in!(tasks),
+        ItemType::Document => archived_in!(documents),
+        ItemType::Adr => archived_in!(adrs),
+    }
+}
+
+/// The short code of an archived row with this id in ANY of the five
+/// tables (the descendant set spans them).
+fn any_archived_short_code(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+) -> Result<Option<String>, DieselError> {
+    for item_type in ItemType::ALL.iter().copied() {
+        if let Some(code) = archived_short_code(conn, item_type, item_id)? {
+            return Ok(Some(code));
+        }
+    }
+    Ok(None)
+}
+
+/// Clear `deleted_at` on one row.
+fn restore_row(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+    actor: Uuid,
+) -> Result<(), DieselError> {
+    macro_rules! restore_in {
+        ($table:ident) => {{
+            use crate::schema::$table::dsl;
+            diesel::update(dsl::$table.filter(dsl::id.eq(item_id)))
+                .set((
+                    dsl::deleted_at.eq(None::<chrono::DateTime<chrono::Utc>>),
+                    dsl::updated_by.eq(actor),
+                    dsl::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+                .map(|_| ())
+        }};
+    }
+    match item_type {
+        ItemType::Strategy => restore_in!(strategies),
+        ItemType::Initiative => restore_in!(initiatives),
+        ItemType::Task => restore_in!(tasks),
+        ItemType::Document => restore_in!(documents),
+        ItemType::Adr => restore_in!(adrs),
+    }
+}
+
+/// Everything an archived item needs back before it can be live, that is
+/// itself gone. Empty = the restore may proceed.
+///
+/// Documents have no placement of their own (they hang off a parent via
+/// `supports`), so nothing here applies to them.
+fn restore_blockers(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+) -> Result<Vec<String>, DieselError> {
+    use crate::schema::{
+        adrs, board_columns, boards, initiatives, repositories, strategies, tasks, teams,
+    };
+
+    let mut missing = Vec::new();
+
+    // (board, column) placement, per family.
+    let placement: Option<(Option<Uuid>, Option<Uuid>)> = match item_type {
+        ItemType::Strategy => strategies::table
+            .filter(strategies::id.eq(item_id))
+            .select((strategies::board_id, strategies::column_id))
+            .first::<(Uuid, Uuid)>(conn)
+            .optional()?
+            .map(|(b, c)| (Some(b), Some(c))),
+        ItemType::Initiative => initiatives::table
+            .filter(initiatives::id.eq(item_id))
+            .select((initiatives::board_id, initiatives::column_id))
+            .first::<(Uuid, Uuid)>(conn)
+            .optional()?
+            .map(|(b, c)| (Some(b), Some(c))),
+        ItemType::Task => tasks::table
+            .filter(tasks::id.eq(item_id))
+            .select((tasks::board_id, tasks::column_id))
+            .first::<(Uuid, Uuid)>(conn)
+            .optional()?
+            .map(|(b, c)| (Some(b), Some(c))),
+        // ADRs may be off-board; documents are never on one.
+        ItemType::Adr => adrs::table
+            .filter(adrs::id.eq(item_id))
+            .select((adrs::board_id, adrs::column_id))
+            .first::<(Option<Uuid>, Option<Uuid>)>(conn)
+            .optional()?,
+        ItemType::Document => None,
+    };
+
+    if let Some((board_id, column_id)) = placement {
+        if let Some(board_id) = board_id {
+            let board_live: Option<Uuid> = boards::table
+                .filter(boards::id.eq(board_id))
+                .filter(boards::deleted_at.is_null())
+                .select(boards::id)
+                .first(conn)
+                .optional()?;
+            if board_live.is_none() {
+                missing.push("its board (deleted)".to_string());
+            }
+        }
+        if let Some(column_id) = column_id {
+            // KAIROS-T-0161 made this detectable: the column row survives
+            // a removal with `deleted_at` set, so this is a clean check
+            // rather than a foreign-key error at write time.
+            let column_live: Option<Uuid> = board_columns::table
+                .filter(board_columns::id.eq(column_id))
+                .filter(board_columns::deleted_at.is_null())
+                .select(board_columns::id)
+                .first(conn)
+                .optional()?;
+            if column_live.is_none() {
+                missing.push("its board column (removed)".to_string());
+            }
+        }
+    }
+
+    // A task additionally carries an owning team and possibly a repository.
+    if item_type == ItemType::Task {
+        let bindings: Option<(Option<Uuid>, Option<Uuid>)> = tasks::table
+            .filter(tasks::id.eq(item_id))
+            .select((tasks::team_id, tasks::repository_id))
+            .first(conn)
+            .optional()?;
+        if let Some((team_id, repository_id)) = bindings {
+            if let Some(team_id) = team_id {
+                let team_live: Option<Uuid> = teams::table
+                    .filter(teams::id.eq(team_id))
+                    .filter(teams::deleted_at.is_null())
+                    .select(teams::id)
+                    .first(conn)
+                    .optional()?;
+                if team_live.is_none() {
+                    missing.push("its owning team (deleted)".to_string());
+                }
+            }
+            if let Some(repository_id) = repository_id {
+                let repo_live: Option<Uuid> = repositories::table
+                    .filter(repositories::id.eq(repository_id))
+                    .filter(repositories::deleted_at.is_null())
+                    .select(repositories::id)
+                    .first(conn)
+                    .optional()?;
+                if repo_live.is_none() {
+                    missing.push("its repository (retired)".to_string());
+                }
+            }
+        }
+    }
+
+    Ok(missing)
+}
+
+/// What a [`restore_item`] put back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreOutcome {
+    /// The restored item's short code.
+    pub short_code: String,
+    /// Archived descendants that were NOT restored, sorted — see
+    /// [`restore_item`] for why they are left alone, and named.
+    pub still_archived_descendants: Vec<String>,
+}
+
+/// Why a restore was refused: everything missing that the item needs in
+/// order to be live again, named so the caller can act (KAIROS-T-0160).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreBlockers {
+    /// Human-readable, one per missing thing ("board", "column", ...).
+    pub missing: Vec<String>,
+}
+
+/// Put an archived item back (KAIROS-A-0020): clear `deleted_at` on the
+/// named item and nothing else.
+///
+/// # Why this does not un-cascade
+///
+/// A cascade delete is a deliberate act on a subtree; a restore is almost
+/// always "I need this one thing back". Resurrecting descendants would
+/// undo decisions nobody asked to revisit, and would do it invisibly. So
+/// the archived descendants stay archived and are NAMED in the outcome,
+/// the same way every other guard in this codebase names what it did not
+/// do. Restoring them is another call.
+///
+/// # Why it refuses instead of re-homing
+///
+/// An item's board, column, owning team or repository may have been
+/// retired while it was away. Silently moving it somewhere else would
+/// destroy the placement the record is evidence of. Instead the refusal
+/// names what is missing ([`RestoreBlockers`]) and the caller moves the
+/// item deliberately.
+pub fn restore_item(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+    actor: Uuid,
+) -> Result<Result<RestoreOutcome, RestoreBlockers>, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::item_relationships;
+
+        let short_code =
+            archived_short_code(conn, item_type, item_id)?.ok_or(ItemError::ItemNotFound {
+                entity_type: item_type.entity_type(),
+                id: item_id,
+            })?;
+
+        let missing = restore_blockers(conn, item_type, item_id)?;
+        if !missing.is_empty() {
+            return Ok(Err(RestoreBlockers { missing }));
+        }
+
+        restore_row(conn, item_type, item_id, actor)?;
+
+        // Name the descendants still away, so "I restored it and half of it
+        // is missing" is answered before it is asked.
+        let edges: Vec<rules::ParentEdge> = item_relationships::table
+            .filter(item_relationships::relationship.eq(RelationshipType::Parent))
+            .select((item_relationships::source_id, item_relationships::target_id))
+            .load::<(Uuid, Uuid)>(conn)?
+            .into_iter()
+            .map(|(parent_id, child_id)| rules::ParentEdge {
+                parent_id,
+                child_id,
+            })
+            .collect();
+        let mut still_archived_descendants = Vec::new();
+        for descendant in rules::cascade_descendants(item_id, &edges) {
+            if let Some(code) = any_archived_short_code(conn, descendant)? {
+                still_archived_descendants.push(code);
+            }
+        }
+        still_archived_descendants.sort();
+
+        let details = if still_archived_descendants.is_empty() {
+            format!("short_code:{short_code} still_archived:0")
+        } else {
+            format!(
+                "short_code:{short_code} still_archived:{} descendants:{}",
+                still_archived_descendants.len(),
+                still_archived_descendants.join(",")
+            )
+        };
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::Restore,
+            item_id,
+            item_type.entity_type(),
+            details,
+        )?;
+        events::emit_item_event_by_id(
+            conn,
+            EventKind::ItemRestored,
+            item_type.entity_type(),
+            item_id,
+            actor,
+        )?;
+
+        Ok(Ok(RestoreOutcome {
+            short_code,
+            still_archived_descendants,
+        }))
+    })
+}

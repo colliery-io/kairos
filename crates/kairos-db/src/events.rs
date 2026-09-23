@@ -67,6 +67,11 @@ pub enum EventKind {
     ItemMoved,
     /// An item was soft-deleted.
     ItemDeleted,
+    /// An archived item was put back (KAIROS-A-0020). Distinct from
+    /// `ItemCreated`: the item and its history existed all along, so a
+    /// client that treats this as a create would show a new card with an
+    /// old version number.
+    ItemRestored,
     /// A relationship edge touching the item was added or removed.
     RelationshipChanged,
     /// The item's metadata values changed.
@@ -85,6 +90,7 @@ impl EventKind {
             EventKind::ItemTransitioned => "item_transitioned",
             EventKind::ItemMoved => "item_moved",
             EventKind::ItemDeleted => "item_deleted",
+            EventKind::ItemRestored => "item_restored",
             EventKind::RelationshipChanged => "relationship_changed",
             EventKind::MetadataChanged => "metadata_changed",
             EventKind::ItemLinksChanged => "item_links_changed",

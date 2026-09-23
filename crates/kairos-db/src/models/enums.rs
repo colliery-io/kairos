@@ -256,6 +256,7 @@ text_enum! {
         Lifecycle => "lifecycle",
         Repository => "repository",
         BoardMove => "board_move",
+        Restore => "restore",
     }
 }
 
@@ -391,6 +392,7 @@ mod tests {
                 "lifecycle",
                 "repository",
                 "board_move",
+                "restore",
             ]
         );
     }

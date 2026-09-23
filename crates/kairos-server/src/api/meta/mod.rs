@@ -42,6 +42,7 @@ pub mod definitions;
 pub mod history;
 pub mod metadata;
 pub mod relationships;
+pub mod restore;
 pub mod templates;
 
 use axum::Router;
@@ -63,6 +64,7 @@ use crate::middleware::tenant::TenantContext;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(relationships::router())
+        .merge(restore::router())
         .merge(metadata::router())
         .merge(definitions::router())
         .merge(templates::router())

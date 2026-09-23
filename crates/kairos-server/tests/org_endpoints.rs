@@ -565,6 +565,47 @@ async fn org_and_admin_endpoints_against_live_stack() {
     let err = rejection(svc.remove_column(&strategy_board, &retired.id).await);
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
+    // KAIROS-T-0160: the parked strategy's home is now gone, so restoring
+    // it is refused — and the refusal NAMES what is missing rather than
+    // quietly re-homing it, because the column it was put away in is the
+    // placement the record is evidence of.
+    let err = rejection(svc.restore_strategy(&parked.short_code).await);
+    match &err {
+        Error::Other {
+            status,
+            code,
+            details,
+            message,
+        } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "RESTORE_BLOCKED");
+            let missing = details["missing"]
+                .as_array()
+                .expect("details.missing is a list")
+                .iter()
+                .map(|v| v.as_str().unwrap_or_default().to_string())
+                .collect::<Vec<_>>();
+            assert!(
+                missing.iter().any(|m| m.contains("column")),
+                "the refusal names the removed column: {missing:?}"
+            );
+            assert!(
+                message.contains(&parked.short_code),
+                "the refusal names the item too: {message}"
+            );
+        }
+        other => panic!("expected 422 RESTORE_BLOCKED, got {other}"),
+    }
+    // …and it is still readable, which is what makes the refusal humane:
+    // the record is there to look at, it just cannot go back where it was.
+    assert!(
+        svc.get_strategy(&parked.short_code)
+            .await
+            .expect("a blocked-from-restore item is still readable")
+            .archived_at
+            .is_some()
+    );
+
     // Board CRUD: create from defaults, delete only when empty.
     let sandbox = svc
         .create_board(&CreateBoardRequest {

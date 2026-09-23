@@ -303,6 +303,13 @@ pub struct SetMetadataParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+pub struct RestoreItemParams {
+    /// The archived item's short code.
+    pub short_code: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct DeleteItemParams {
     /// The item's short code.
     pub short_code: String,
@@ -1360,6 +1367,56 @@ impl KairosMcp {
         })
         .await
     }
+
+    #[tool(
+        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade delete was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists."
+    )]
+    pub async fn restore_item(
+        &self,
+        Parameters(params): Parameters<RestoreItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::IncludeArchived)?;
+            if item.archived_at.is_none() {
+                return Err(ApiError::validation(format!(
+                    "{} is not archived; there is nothing to restore",
+                    item.short_code
+                )));
+            }
+            authorize_item_write(conn, &slug, user, &item)?;
+            match items::restore_item(conn, item.item_type, item.id, user).map_err(map_item_error)?
+            {
+                Ok(outcome) => {
+                    let mut out = format!("Restored {}; it is on its board again.\n", outcome.short_code);
+                    if outcome.still_archived_descendants.is_empty() {
+                        out.push_str("Nothing below it is still archived.\n");
+                    } else {
+                        out.push_str(&format!(
+                            "Still archived below it ({}): {}\nRestore them separately if you need them.\n",
+                            outcome.still_archived_descendants.len(),
+                            outcome.still_archived_descendants.join(", ")
+                        ));
+                    }
+                    Ok(out)
+                }
+                Err(blocked) => Err(ApiError::unprocessable(
+                    "RESTORE_BLOCKED",
+                    format!(
+                        "{} cannot be restored because {} is gone; move it \
+                         somewhere that still exists, or restore what it needs \
+                         first",
+                        item.short_code,
+                        blocked.missing.join(" and ")
+                    ),
+                )),
+            }
+        })
+        .await
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1978,7 +2035,7 @@ fn parent_chain(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>,
         let parent: Option<ChainRow> = sql_query(
             "SELECT d.id, d.short_code, d.title \
              FROM item_relationships r \
-             JOIN entity_directory d ON d.id = r.source_id \
+             JOIN entity_directory d ON d.id = r.source_id AND d.deleted_at IS NULL \
              WHERE r.target_id = $1 AND r.relationship = 'parent' \
              ORDER BY r.created_at ASC LIMIT 1",
         )

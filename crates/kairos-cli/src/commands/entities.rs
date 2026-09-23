@@ -11,8 +11,8 @@ use clap::Args;
 
 use kairos_client::types::{
     Adr, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest,
-    CreateTaskRequest, DeleteResponse, Document, Initiative, ListEnvelope, Pagination, Strategy,
-    Task, UpdateContentRequest,
+    CreateTaskRequest, DeleteResponse, Document, Initiative, ListEnvelope, Pagination,
+    RestoreResponse, Strategy, Task, UpdateContentRequest,
 };
 
 use crate::context::{Common, client, print_json};
@@ -517,6 +517,26 @@ pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
     Ok(())
 }
 
+/// `restore` output: what came back, and what deliberately did not.
+pub fn emit_restored(common: &Common, response: &RestoreResponse) -> Result<(), CliError> {
+    if common.json {
+        return print_json(response);
+    }
+    println!("Restored {}", response.short_code);
+    if response.still_archived_count > 0 {
+        // Named, not silently omitted: a cascade delete archived these, and
+        // a restore deliberately does not resurrect a subtree nobody asked
+        // to revisit (KAIROS-T-0160).
+        println!(
+            "  still archived below it ({}): {}",
+            response.still_archived_count,
+            response.still_archived_short_codes.join(", ")
+        );
+        println!("  restore them separately if you need them");
+    }
+    Ok(())
+}
+
 pub fn emit_deleted(common: &Common, response: &DeleteResponse) -> Result<(), CliError> {
     if common.json {
         return print_json(response);
@@ -744,7 +764,7 @@ macro_rules! entity_family_cli {
     (
         $enum_name:ident, $noun:literal, $create_args:ty,
         list = $list:ident, get = $get:ident, create = $create_fn:ident,
-        update = $update:ident, delete = $delete:ident
+        update = $update:ident, delete = $delete:ident, restore = $restore:ident
         $(, transition($transition_variant:ident) = $transition_fn:ident)?
         $(, board_move($move_variant:ident) = $move_fn:ident)?
     ) => {
@@ -777,6 +797,9 @@ macro_rules! entity_family_cli {
             #[command(about = concat!("Soft-delete a ", $noun,
                                       " and cascade to its children (requires --confirm)"))]
             Delete(DeleteArgs),
+            #[command(about = concat!("Put an archived ", $noun,
+                                      " back on its board (its archived children stay archived)"))]
+            Restore(GetArgs),
         }
 
         impl $enum_name {
@@ -827,6 +850,11 @@ macro_rules! entity_family_cli {
                         let response = client.$delete(&args.short_code).await?;
                         emit_deleted(&args.common, &response)
                     }
+                    Self::Restore(args) => {
+                        let client = client(&args.common)?;
+                        let response = client.$restore(&args.short_code).await?;
+                        emit_restored(&args.common, &response)
+                    }
                 }
             }
         }
@@ -842,6 +870,7 @@ entity_family_cli!(
     create = create_strategy,
     update = update_strategy,
     delete = delete_strategy,
+    restore = restore_strategy,
     transition(Transition) = transition_strategy
 );
 
@@ -854,6 +883,7 @@ entity_family_cli!(
     create = create_initiative,
     update = update_initiative,
     delete = delete_initiative,
+    restore = restore_initiative,
     transition(Transition) = transition_initiative
 );
 
@@ -866,6 +896,7 @@ entity_family_cli!(
     create = create_task,
     update = update_task,
     delete = delete_task,
+    restore = restore_task,
     transition(Transition) = transition_task,
     board_move(Move) = move_task
 );
@@ -878,7 +909,8 @@ entity_family_cli!(
     get = get_document,
     create = create_document,
     update = update_document,
-    delete = delete_document
+    delete = delete_document,
+    restore = restore_document
 );
 
 entity_family_cli!(
@@ -890,6 +922,7 @@ entity_family_cli!(
     create = create_adr,
     update = update_adr,
     delete = delete_adr,
+    restore = restore_adr,
     transition(Transition) = transition_adr
 );
 

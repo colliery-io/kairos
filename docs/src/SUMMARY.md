@@ -41,8 +41,8 @@ checklist.
 
 # Reference
 
-<!-- - [CLI](reference/cli.md) -->
-<!-- - [Configuration](reference/configuration.md) -->
+- [CLI](reference/cli.md)
+- [Configuration](reference/configuration.md)
 <!-- - [MCP tools](reference/mcp-tools.md) -->
 - [REST API](reference/rest-api.md)
   - [Work items](reference/rest/work-items.md)

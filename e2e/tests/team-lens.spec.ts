@@ -19,6 +19,7 @@
 // holds its token in memory only (A-0015).
 
 import { test, expect, type Page } from '@playwright/test';
+import { dragTo } from '../helpers/drag';
 
 const navbar = (page: Page) => page.locator('.cl-appshell__navbar');
 
@@ -135,7 +136,7 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     await expect(card).toBeVisible();
     // Implied transition_items: draggable, and the drop lands.
     await expect(card).toHaveAttribute('draggable', 'true');
-    await card.dragTo(todo);
+    await dragTo(page, card, todo);
     await expect(
       todo.locator('article.kairos-card', { hasText: createdTitle }),
     ).toBeVisible({ timeout: 15_000 });

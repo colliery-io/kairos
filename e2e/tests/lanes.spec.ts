@@ -23,6 +23,7 @@
 // because a column name matches one section per lane.
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { dragTo } from '../helpers/drag';
 
 type Lane = 'planned' | 'support';
 
@@ -70,6 +71,13 @@ test('lanes: support renders above planned; drags and the lane control move card
     await expect(lanes.first()).toHaveClass(/kairos-board__lane--support/);
     await expect(lanes.last()).toHaveClass(/kairos-board__lane--planned/);
 
+    // KAIROS-T-0126: columns are fluid — the default five fit the 1280px
+    // desktop viewport without a horizontal scroll in either lane.
+    for (const lane of await page.locator('.kairos-board').all()) {
+      const overflow = await lane.evaluate((el) => el.scrollWidth - el.clientWidth);
+      expect(overflow, 'board row must not scroll horizontally').toBe(0);
+    }
+
     // The seeded support REQUEST (type support, lane support).
     const request = cardIn(page, 'Active', 'support', 'Customer cannot reset password');
     await expect(request).toBeVisible();
@@ -106,7 +114,7 @@ test('lanes: support renders above planned; drags and the lane control move card
     await expect(async () => {
       const card = cardIn(page, 'Backlog', 'support', createdTitle);
       if (await card.isVisible()) {
-        await card.dragTo(column(page, 'Backlog', 'planned'), { timeout: 2_000 });
+        await dragTo(page, card, column(page, 'Backlog', 'planned'));
       }
       await expect(
         cardIn(page, 'Backlog', 'planned', createdTitle),
@@ -120,7 +128,7 @@ test('lanes: support renders above planned; drags and the lane control move card
     await expect(async () => {
       const card = cardIn(page, 'Backlog', 'planned', createdTitle);
       if (await card.isVisible()) {
-        await card.dragTo(column(page, 'Todo', 'planned'), { timeout: 2_000 });
+        await dragTo(page, card, column(page, 'Todo', 'planned'));
       }
       await expect(cardIn(page, 'Todo', 'planned', createdTitle)).toBeVisible({
         timeout: 5_000,
@@ -133,7 +141,7 @@ test('lanes: support renders above planned; drags and the lane control move card
     await expect(async () => {
       const card = cardIn(page, 'Todo', 'planned', createdTitle);
       if (await card.isVisible()) {
-        await card.dragTo(column(page, 'Active', 'support'), { timeout: 2_000 });
+        await dragTo(page, card, column(page, 'Active', 'support'));
       }
       await expect(
         cardIn(page, 'Active', 'support', createdTitle),

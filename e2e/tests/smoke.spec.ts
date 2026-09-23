@@ -23,6 +23,7 @@
 // clicking in-app links — never page.goto, which would drop the session.
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { dragTo } from '../helpers/drag';
 import { mintToken } from '../helpers/auth';
 import {
   pickMovableTask,
@@ -120,7 +121,7 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await expect(async () => {
       const card = cardIn(page, 'Backlog', createdTitle);
       if (await card.isVisible()) {
-        await card.dragTo(column(page, 'Todo', 'planned'), { timeout: 2_000 });
+        await dragTo(page, card, column(page, 'Todo', 'planned'));
       }
       await expect(cardIn(page, 'Todo', createdTitle)).toBeVisible({
         timeout: 5_000,

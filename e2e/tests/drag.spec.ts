@@ -15,6 +15,7 @@
 // listens for (verified in KAIROS-T-0064's status updates).
 
 import { test, expect, type Locator, type Page } from '@playwright/test';
+import { dragTo } from '../helpers/drag';
 
 const CARD = 'Welcome-email trigger';
 
@@ -56,14 +57,14 @@ test('drag and drop: legal move lands, illegal move is refused', async ({ page }
 
   // 3. Legal drag: Backlog → Todo -------------------------------------------
   await test.step('drag to Todo (legal) — card lands', async () => {
-    await cardIn(page, 'Backlog').dragTo(column(page, 'Todo'));
+    await dragTo(page, cardIn(page, 'Backlog'), column(page, 'Todo'));
     await expect(cardIn(page, 'Todo')).toBeVisible({ timeout: 15_000 });
     await expect(cardIn(page, 'Backlog')).toHaveCount(0);
   });
 
   // 4. Illegal drag: Todo → Backlog is not a configured transition ----------
   await test.step('drag back to Backlog (illegal) — drop refused', async () => {
-    await cardIn(page, 'Todo').dragTo(column(page, 'Backlog'));
+    await dragTo(page, cardIn(page, 'Todo'), column(page, 'Backlog'));
     // Nothing to await server-side (no request should fire): give the UI a
     // beat, then assert the card did not move.
     await page.waitForTimeout(1_000);

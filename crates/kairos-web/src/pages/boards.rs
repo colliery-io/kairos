@@ -1421,7 +1421,7 @@ fn ItemCard(
             }
             on:dragend=move |_| drag.set(None)
         >
-            <Group justify="between">
+            <Group justify="between" wrap=true>
                 <Group gap="xs">
                     // The identifier IS the detail link (KAIROS-T-0076);
                     // `cl-mono` keeps the code scrapeable and mono-set.

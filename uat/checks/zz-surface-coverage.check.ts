@@ -24,11 +24,7 @@ import { COVERAGE } from '../run/reporter';
  */
 const ALLOW: Record<string, string> = {
   'mcp:search': 'pending KAIROS-T-0136 (folded into an existing journey)',
-  'mcp:set_metadata': 'pending KAIROS-T-0135 (board-setup)',
-  'mcp:delete_item': 'pending KAIROS-T-0135 (board-setup)',
   'cli:adrs': 'pending KAIROS-T-0136 (a step, or a reason)',
-  'cli:boards': 'pending KAIROS-T-0135 (board-setup)',
-  'cli:streams': 'pending KAIROS-T-0135 (board-setup)',
   'cli:orgs': 'pending KAIROS-T-0136 (a step, or a reason)',
   'cli:strategies': 'pending KAIROS-T-0136 (a step, or a reason)',
   'cli:initiatives': 'pending KAIROS-T-0136 (a step, or a reason)',

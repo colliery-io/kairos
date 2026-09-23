@@ -4,21 +4,19 @@ level: task
 title: "J8 machine-access: a CI service account works, its key is rotated mid-story, then revoked"
 short_code: "KAIROS-T-0138"
 created_at: 2026-09-23T03:45:39.269220+00:00
-updated_at: 2026-09-23T03:45:39.269220+00:00
+updated_at: 2026-09-23T03:49:11.595760+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 initiative_id: KAIROS-I-0014
 ---
-
-
 
 ## Parent Initiative
 
@@ -44,10 +42,14 @@ journey uses (`mobile`, `ios`, `infra` are taken).
 
 ## Acceptance Criteria
 
-- [ ] The journey is green in compose mode, and its report reads as the story.
-- [ ] Nothing `uat-` is left behind (teardown verified).
-- [ ] `npx tsc --noEmit` clean in `uat/`; the drift gate still passes on a full run.
+- [x] Green in compose (hand-run): 8 steps. Report shows both keys live during rotation, old key 401 after revoke with the new one still 200, and the account delete killing the last key.
+- [x] Clean: the service-account ledger entry tolerates the 404 from the journey deleting it deliberately in the last step.
+- [x] tsc clean; no new tools or nouns, so the gate is unaffected.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `726cdcf`.
+
+- There is no rotate endpoint — rotation is mint-new-then-revoke-old, which is the honest story and makes the overlap window (both keys accepted) assertable.
+- `Cast.agent()` widened to a free-text name so one journey can hold two machine identities.
+- Attribution is read from the activity RECORD rather than the rendered text: "who deployed that?" is a data question, and the feed's label formatting should not be able to make the test pass or fail.

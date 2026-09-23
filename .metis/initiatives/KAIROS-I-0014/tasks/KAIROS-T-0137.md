@@ -4,14 +4,14 @@ level: task
 title: "J13 first-week: a newcomer reads the boards overview, progress rollups, team in-flight and their repo queue, writing nothing"
 short_code: "KAIROS-T-0137"
 created_at: 2026-09-23T03:45:36.451332+00:00
-updated_at: 2026-09-23T03:46:46.035039+00:00
+updated_at: 2026-09-23T03:49:07.555170+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,8 @@ KAIROS-I-0013 (T-0133 and T-0134 in particular).
 
 If a journey needs a team of its own, give the fixture a suffix no other
 journey uses (`mobile`, `ios`, `infra` are taken).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

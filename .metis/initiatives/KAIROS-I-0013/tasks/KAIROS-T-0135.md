@@ -4,14 +4,14 @@ level: task
 title: "J7 board-setup: a Review column and its transitions, a metadata field stamped and searched, a delivery stream, delete_item"
 short_code: "KAIROS-T-0135"
 created_at: 2026-09-23T02:59:20.090100+00:00
-updated_at: 2026-09-23T03:07:17.564957+00:00
+updated_at: 2026-09-23T03:19:29.815841+00:00
 parent: KAIROS-I-0013
 blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -50,10 +50,14 @@ T-0131.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey board-setup` green in both modes; report shows the new column, the stamped field found by search, the stream, and the drag through the new transition.
-- [ ] Those four ALLOW entries gone, full run green.
-- [ ] No `uat-` leftovers (team included).
+- [x] Green (hand-run; `--server` parity in T-0136's full runs): 9 steps — columns "…, Completed, Review" with 9 transitions, the field stamped and found by `--metadata`, the stream attached, and the Active → Review drag.
+- [x] `mcp:set_metadata`, `mcp:delete_item`, `cli:boards`, `cli:streams` deleted from ALLOW.
+- [x] Card deleted in-journey (live_cards_left: 0), then the ledger unwinds stream → metadata definition → team.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `1160a3d`.
+
+- Ran green on the first complete attempt; the one fix was a selector: `hasText` is a substring match and several captions on the transitions panel mention "To", so From/To are selected by exact label.
+- Suffix `infra` (not `mobile`/`ios`, which J1 and J3 use) so the team slugs never collide inside one run.
+- The final step deletes the card deliberately: it leaves the board clear, which is what lets the ledger delete the team at all (KAIROS-I-0012's rule) — the two initiatives' stories join up here.

@@ -226,4 +226,37 @@ in compose mode, and the final task runs both modes end to end.
 - 2026-09-22: Created from Dylan's "make sure our uat harness has expanded
   to match" after a coverage measurement (9/17 MCP tools, 7 CLI nouns and
   four product areas untouched). Scope and the mechanical gate decided via
-  AskUserQuestion; design D1–D6 written against the measured gaps.
+  AskUserQuestion; design D1–D6 written against the measured gaps.- 2026-09-22: All six tasks completed. `aa28130` the drift gate (T-0131),
+  `c184a89` cross-team gains the move surfaces (T-0132), `9e3be95` J5
+  audit-trail (T-0133), `71a09dd` J6 team-knowledge (T-0134), `1160a3d`
+  J7 board-setup (T-0135), `ec9174e` close-out (T-0136).
+
+  **Where coverage landed:** `ALLOW` is `{}` — **MCP 17/17 tools, CLI
+  16/16 nouns, 0 allow-listed**. Every surface got a persona who would
+  really use it rather than a paragraph explaining why nobody does; the
+  residue the design expected (adrs, admin, strategies, initiatives,
+  orgs, search) all turned into honest steps.
+
+  **Verified:** compose `mudjfjka` 8/8 journeys with the gate green;
+  server `mudjeuf9` 8/8 with 2 compose-only steps skipped; `angreal test
+  e2e` 11/11.
+
+  **What the work found:**
+  1. `zz-` in a filename does NOT order a Playwright test last — it sorts
+     by path, and `checks/` precedes `journeys/`, so the gate ran first
+     and skipped every time. Fixed with a dependent project.
+  2. A module-level registry loses records: Playwright restarts the
+     worker between projects and after any failure. The ledger is a file.
+  3. The gate's own rule was wrong for `--server`: compose-only steps are
+     skipped there, so `cli:admin` read as uncovered. Coverage is a
+     property of the suite, measured where the suite runs whole — it now
+     skips outside compose mode. The gate caught this itself on its first
+     run with an empty allow-list.
+  4. Product finding (open): `kairos tasks create --board` takes a UUID
+     while `tasks move --to-board` and `--repo` accept a slug. Small CLI
+     inconsistency, worth a ticket.
+  5. The GUI hides the board select when a caller has no eligible target
+     (bob, one team) — correct, and now pinned by a step so nobody
+     "fixes" it into a dead control.
+
+  Initiative left **active** for Dylan's review.

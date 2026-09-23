@@ -4,14 +4,14 @@ level: task
 title: "J6 team-knowledge: team directory, a page written and merged after a 409, an announcement, charter refusal, my_boards"
 short_code: "KAIROS-T-0134"
 created_at: 2026-09-23T02:59:16.521209+00:00
-updated_at: 2026-09-23T03:07:15.027670+00:00
+updated_at: 2026-09-23T03:17:54.530977+00:00
 parent: KAIROS-I-0013
 blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -50,10 +50,14 @@ T-0131.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey team-knowledge` green in both modes; report shows the page, the merge, the announcement and the refusal.
-- [ ] `mcp:my_boards` gone from ALLOW, full run green.
-- [ ] No `uat-` leftovers (pages and announcements deleted).
+- [x] Green (hand-run; `--server` parity in T-0136's full runs): 8 steps — directory, page edit, the "Edit conflict" → "Take theirs" walk, the announcement seen by alice, carol offered zero write controls, `my_boards`.
+- [x] `mcp:my_boards` deleted from ALLOW.
+- [x] The announcement is ledgered and deleted, and the seeded page's original text is restored in teardown.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `71a09dd`.
+
+- **Cast correction:** the task named carol as the competing writer. She cannot be — she is not a platform member, and the API refuses her (403 "editing this team's pages requires team membership"), which is precisely what the last step asserts. alice (org admin) writes instead.
+- The journey edits the SEEDED page rather than creating a throwaway, so teardown restores its original content; without that a repeated `--server` run would accumulate edits on a live deployment's docs. The version climbing across local runs (v2 → v7) is what made this obvious.
+- Selector notes: the team directory is a grid of `a.kairos-board-tile[href="/teams/<slug>"]`, not text links; the conflict dialog is `[role="dialog"]`; "Take theirs" loads the server copy into the TEXTAREA (it does not return to view mode).

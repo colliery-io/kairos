@@ -4,14 +4,14 @@ level: initiative
 title: "UAT Coverage Catches Up - Four Journeys and a Drift Gate"
 short_code: "KAIROS-I-0013"
 created_at: 2026-09-23T02:57:02.226240+00:00
-updated_at: 2026-09-23T02:58:07.196712+00:00
+updated_at: 2026-09-23T03:00:35.749502+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -218,6 +218,10 @@ Gates per task: `npx tsc --noEmit` in `uat/`, the touched journeys green
 in compose mode, and the final task runs both modes end to end.
 
 ## Progress Log
+
+- 2026-09-22: Dylan: "go" → ready → decompose into T-0131 … T-0136 per the
+  Implementation Plan; → active; Ralph loop started. (GUI routes stay out of
+  the gate — flagged to Dylan when the design was presented, not objected to.)
 
 - 2026-09-22: Created from Dylan's "make sure our uat harness has expanded
   to match" after a coverage measurement (9/17 MCP tools, 7 CLI nouns and

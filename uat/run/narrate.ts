@@ -8,6 +8,7 @@ import path from 'node:path';
 import { Cast, type Persona } from '../personas';
 import type { Human } from '../personas/credentials';
 import { runContext, type Mode } from './context';
+import { recordJourney } from './coverage';
 import { Ledger, type TeardownFailure } from './ledger';
 
 export type Observed = Record<string, string | number | boolean | string[] | undefined>;
@@ -67,6 +68,7 @@ export function journey(
   body: (scope: JourneyScope) => Promise<void>,
 ): void {
   test(`${title} @${id}`, async ({ browser }, testInfo) => {
+    recordJourney(id);
     const ctx = runContext();
     fs.mkdirSync(ctx.reportDir, { recursive: true });
     const cast = new Cast(browser as Browser);

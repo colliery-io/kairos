@@ -88,3 +88,40 @@ Conventions:
 - `retries: 0` on purpose. A journey narrates one run.
 
 `npm run typecheck` (`tsc --noEmit`) is the static gate for this package.
+
+## Coverage: the drift gate
+
+The suite fails when a surface exists that no journey exercises. It caught
+nothing on the day it was written — it exists because coverage had already
+fallen behind the product twice.
+
+`checks/zz-surface-coverage.check.ts` runs after every journey (its own
+Playwright project, `dependencies: ['journeys']`) and:
+
+1. asks the **deployment** what exists — MCP `tools/list`, and
+   `kairos --help` for the CLI nouns — so a surface shipped today shows up
+   in the gate today, with no list to remember to update;
+2. subtracts what the run **actually exercised**. `McpSession` and `Cli`
+   record every tool and noun they execute to `reports/<run>/surfaces.jsonl`
+   — a file, not a variable, because Playwright restarts the worker between
+   projects and after any failure, and in-memory records would vanish with
+   it;
+3. subtracts `ALLOW`, and fails naming whatever is left.
+
+```ts
+const ALLOW: Record<string, string> = {
+  'cli:adrs': 'no persona authors an ADR; the e2e lifecycle spec covers the family',
+};
+```
+
+An `ALLOW` entry is a claim you are willing to defend — "pending" is fine
+while a ticket is open, a permanent entry needs a real reason. The gate
+also fails on **stale** entries (a surface that is covered now, or no
+longer exists), so the map cannot rot quietly.
+
+A filtered run (`--journey planning`) cannot speak for the product, so the
+gate does not run and the report says `Not measured` rather than going
+silent.
+
+**Adding a surface to the product?** Cover it in the journey where a
+persona would really meet it. If no persona would, say so in `ALLOW`.

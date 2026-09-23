@@ -15,6 +15,18 @@ interface JourneyResult {
   error?: string;
 }
 
+export const COVERAGE = 'uat-coverage';
+
+interface CoverageResult {
+  mcp?: { offered: number; exercised: number };
+  cli?: { offered: number; exercised: number };
+  allowed?: string[];
+  uncovered?: string[];
+  stale?: string[];
+  skipped?: boolean;
+  status: string;
+}
+
 const ICON: Record<string, string> = { passed: '✅', failed: '❌', skipped: '⏭️', timedOut: '❌', interrupted: '❌' };
 
 function md(value: unknown): string {
@@ -37,6 +49,7 @@ function observedText(step: StepRecord): string {
 
 export default class UatReporter implements Reporter {
   private readonly journeys: JourneyResult[] = [];
+  private coverage: CoverageResult | undefined;
   private startedAt = new Date();
 
   onBegin(_config: FullConfig): void {
@@ -44,6 +57,16 @@ export default class UatReporter implements Reporter {
   }
 
   onTestEnd(test: TestCase, result: TestResult): void {
+    // The coverage gate is not a journey; it renders as its own section.
+    const coverage = result.attachments.find((a) => a.name === COVERAGE && a.body);
+    if (coverage) {
+      this.coverage = { ...JSON.parse(coverage.body!.toString('utf8')), status: result.status };
+      return;
+    }
+    if (test.title.startsWith('every MCP tool')) {
+      this.coverage = { skipped: result.status === 'skipped', status: result.status };
+      return;
+    }
     const attachment = result.attachments.find((a) => a.name === ATTACHMENT && a.body);
     const title = test.title.replace(/\s+@[\w-]+$/, '');
     const id = test.title.match(/@([\w-]+)$/)?.[1] ?? title;
@@ -110,6 +133,35 @@ export default class UatReporter implements Reporter {
       }
     }
 
+    // Always present, so a filtered run cannot read as "no gate here".
+    {
+      const coverage = this.coverage;
+      lines.push(`## Surface coverage   ${coverage ? (ICON[coverage.status] ?? coverage.status) : '⏭️'}`);
+      lines.push('');
+      if (!coverage || coverage.skipped || !coverage.mcp) {
+        lines.push(
+          '_Not measured: the gate needs every journey, and this run was filtered._',
+        );
+      } else {
+        lines.push(
+          `MCP ${coverage.mcp.exercised}/${coverage.mcp.offered} tools, ` +
+            `CLI ${coverage.cli!.exercised}/${coverage.cli!.offered} nouns, ` +
+            `${(coverage.allowed ?? []).length} allow-listed.`,
+        );
+        for (const [heading, rows] of [
+          ['Allow-listed (no journey touches these yet)', coverage.allowed ?? []],
+          ['UNCOVERED — needs a step or a reason', coverage.uncovered ?? []],
+          ['Stale allow-list entries — delete them', coverage.stale ?? []],
+        ] as const) {
+          if (!rows.length) continue;
+          lines.push('');
+          lines.push(`${heading}:`);
+          for (const row of rows) lines.push(`- ${row}`);
+        }
+      }
+      lines.push('');
+    }
+
     const mdPath = path.join(ctx.reportDir, 'report.md');
     const jsonPath = path.join(ctx.reportDir, 'report.json');
     fs.writeFileSync(mdPath, lines.join('\n'));
@@ -123,6 +175,7 @@ export default class UatReporter implements Reporter {
           mode: ctx.mode,
           tenant: ctx.tenant,
           result: result.status,
+          coverage: this.coverage,
           journeys: this.journeys,
         },
         null,

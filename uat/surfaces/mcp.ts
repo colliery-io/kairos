@@ -3,6 +3,7 @@
 // the same wire the plugin's skills speak. Tool results come back as the
 // text the skills read; small parsers below pick out the lines they key on.
 import { runContext } from '../run/context';
+import { recordSurface } from '../run/coverage';
 
 function rpcMessage(body: string): any {
   try {
@@ -84,6 +85,7 @@ export class McpSession {
    * `McpToolError` carrying the text, so a journey can assert on a refusal.
    */
   async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
+    recordSurface('mcp', name);
     await this.initialize();
     const res = await this.post({
       jsonrpc: '2.0',
@@ -101,6 +103,20 @@ export class McpSession {
       .join('\n');
     if (result.isError) throw new McpToolError(name, text);
     return text;
+  }
+
+  /**
+   * The tool names this deployment offers (`tools/list`). The coverage
+   * gate asks the server rather than hard-coding a list, so a tool added
+   * to the product shows up here the day it ships.
+   */
+  async listTools(): Promise<string[]> {
+    await this.initialize();
+    const res = await this.post({ jsonrpc: '2.0', id: this.nextId++, method: 'tools/list' });
+    if (res.status !== 200) throw new Error(`tools/list HTTP ${res.status}: ${res.text}`);
+    const message = rpcMessage(res.text);
+    if (message.error) throw new Error(`tools/list error: ${JSON.stringify(message.error)}`);
+    return ((message.result?.tools ?? []) as any[]).map((t) => t.name as string).sort();
   }
 
   /** `call` that returns the refusal text instead of throwing. */

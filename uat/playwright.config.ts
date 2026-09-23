@@ -9,8 +9,11 @@ import { runContext } from './run/context';
 const ctx = runContext();
 
 export default defineConfig({
-  testDir: './journeys',
-  testMatch: /.*\.journey\.ts/,
+  // Journeys, then the checks/ gate — its `zz-` name sorts it last, so it
+  // sees everything the journeys recorded (KAIROS-I-0013).
+  testDir: '.',
+  testMatch: [/journeys\/.*\.journey\.ts/, /checks\/.*\.check\.ts/],
+  testIgnore: [/node_modules/, /reports/, /test-results/],
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -27,5 +30,21 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Two projects, not one, purely for ORDER: the coverage gate reads what
+  // the journeys recorded, so it must run after all of them. File-name
+  // ordering cannot express that (`checks/` sorts before `journeys/`), a
+  // project dependency can.
+  projects: [
+    {
+      name: 'journeys',
+      testMatch: /journeys\/.*\.journey\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'checks',
+      testMatch: /checks\/.*\.check\.ts/,
+      dependencies: ['journeys'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
 });

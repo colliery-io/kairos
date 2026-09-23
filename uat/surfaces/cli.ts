@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { runContext } from '../run/context';
+import { recordSurface } from '../run/coverage';
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +60,7 @@ export class Cli {
 
   /** Run `kairos <args>`; resolves whatever the exit code (see `ok`). */
   async run(args: string[]): Promise<CliResult> {
+    recordSurface('cli', args[0]);
     const ctx = runContext();
     try {
       const { stdout, stderr } = await execFileAsync(ctx.kairosBin, args, {
@@ -72,6 +74,26 @@ export class Cli {
       }
       throw err;
     }
+  }
+
+  /**
+   * The top-level nouns this binary offers, read from `kairos --help`.
+   * The coverage gate asks the binary rather than hard-coding a list, so
+   * a new noun shows up the day it ships. `login`/`logout`/`help` are
+   * excluded: the journeys authenticate by writing the credential store
+   * (the device grant is interactive), so no persona can run them.
+   */
+  async nouns(): Promise<string[]> {
+    const { stdout } = await execFileAsync(runContext().kairosBin, ['--help'], {
+      env: { ...process.env, NO_COLOR: '1' },
+    });
+    const block = stdout.split(/^Commands:$/m)[1] ?? '';
+    const names = block
+      .split('\n')
+      .map((line) => line.match(/^\s{2,}([a-z][a-z-]*)\s{2,}\S/)?.[1])
+      .filter((name): name is string => !!name);
+    const interactive = new Set(['login', 'logout', 'help']);
+    return [...new Set(names.filter((n) => !interactive.has(n)))].sort();
   }
 
   /** Run and require exit 0; returns stdout. */

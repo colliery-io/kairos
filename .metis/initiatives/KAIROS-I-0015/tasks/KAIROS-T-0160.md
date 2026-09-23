@@ -4,14 +4,14 @@ level: task
 title: "Un-archive: restore a put-away item on API, MCP and CLI"
 short_code: "KAIROS-T-0160"
 created_at: 2026-09-23T11:29:58.054515+00:00
-updated_at: 2026-09-23T11:29:58.054515+00:00
+updated_at: 2026-09-23T12:04:40.213641+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0154]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -75,6 +75,8 @@ it was archived at.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] `POST /api/{family}/{code}/restore` works for all five families and
       returns the live item.
 - [ ] It requires the same capability as deleting, and a test proves a user
@@ -98,3 +100,61 @@ now a **detectable** refusal rather than a foreign-key error: the column row
 survives with `deleted_at` set, and `kairos_db::items::resolve_column`
 already refuses a removed column with `ColumnNotOnBoard`. So the
 refuse-and-name guard has a clean signal to read.
+**2026-09-23 — done.** Commit `f8b0847`.
+
+`items::restore_item` in `kairos-db` returns
+`Result<Result<RestoreOutcome, RestoreBlockers>, ItemError>` — the inner
+`Err` is a *refusal to act*, not a failure, and keeping it out of
+`ItemError` stops it being mapped to a generic 422 somewhere later.
+
+### Surfaces
+
+- **API**: one wildcard route, `POST /api/{entity_type}/{short_code}/restore`
+  in a new `api/meta/restore.rs` — not five per-family routes. The verb is
+  identical across families and the segment resolves exactly as
+  `/history`'s does. Registered in `api::openapi::ApiDoc` (the
+  `registered_routes_and_spec_paths_match_exactly` test catches omissions —
+  T-0162's agent hit it before I did).
+- **MCP**: `restore_item`. **Tool count 17 → 18**, so the UAT drift gate
+  fails until [[KAIROS-T-0165]] covers it. Expected.
+- **CLI**: `restore` verb on the entity-family macro (a verb, not a noun —
+  the gate's noun count is unaffected), with `emit_restored`.
+- New `ActivityAction::Restore` and `EventKind::ItemRestored`. The event is
+  deliberately NOT `ItemCreated`: a client treating a restore as a create
+  would render a new card carrying an old version number.
+
+### Two decisions that look like omissions
+
+- **No un-cascade.** Restoring a parent leaves its archived descendants
+  archived and names them. A cascade delete was an act on a subtree;
+  resurrecting it would undo decisions nobody asked to revisit, invisibly.
+- **Refuse, never re-home.** If the board, column, owning team or repository
+  is gone, 422 `RESTORE_BLOCKED` with `details.missing`. Re-homing would
+  destroy the placement the record is evidence of. [[KAIROS-T-0161]] is what
+  makes this clean — a removed column survives as a soft-deleted row, so it
+  is a check rather than a foreign-key violation.
+
+Restoring an already-live item is refused, since it almost always means the
+caller has the wrong short code.
+
+### Tests
+
+- `entities.rs` — restore a leaf, assert it is live and back in the default
+  listing; restore a cascade root and assert `still_archived_count == 1`
+  naming the child, the child is still archived, and restoring the child
+  separately works.
+- `org_endpoints.rs` — the case the refusal exists for: a strategy archived,
+  then its column removed. `RESTORE_BLOCKED`, `details.missing` names the
+  column, the message names the item, **and the item is still readable** —
+  which is what makes the refusal humane rather than a dead end.
+- `mcp.rs` — `restore_item` added to the exact tool inventory.
+
+Gates: `angreal test lint` green, `angreal test unit` green, 47/47
+integration binaries green across kairos-db, kairos-server and kairos-cli.
+
+### For [[KAIROS-T-0162]]
+
+Its deferred criteria are now unblocked: the refuse → find → restore →
+clear → re-archive → retire path is reachable, and
+`details.items[].archived` is the handle for "which of these need restoring
+first".

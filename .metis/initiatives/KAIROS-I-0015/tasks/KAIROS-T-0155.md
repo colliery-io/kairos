@@ -4,14 +4,14 @@ level: task
 title: "MCP and CLI read archived work, marked as archived"
 short_code: "KAIROS-T-0155"
 created_at: 2026-09-23T11:29:46.726462+00:00
-updated_at: 2026-09-23T11:50:52.897680+00:00
+updated_at: 2026-09-23T11:58:10.521261+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0154]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -62,6 +62,8 @@ product can be made consistent in one pass later.
 
 No new MCP tool and no new CLI noun, so the UAT gate's 17/17 and 16/16 are
 unaffected by this task.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

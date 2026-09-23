@@ -4,14 +4,14 @@ level: task
 title: "UAT drift gate: runtime surface registry, zz-surface-coverage check, ALLOW map, report section"
 short_code: "KAIROS-T-0131"
 created_at: 2026-09-23T02:59:06.893124+00:00
-updated_at: 2026-09-23T02:59:06.893124+00:00
+updated_at: 2026-09-23T03:07:04.157023+00:00
 parent: KAIROS-I-0013
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -46,11 +46,16 @@ None.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat` is green with the seeded ALLOW, and its report's Surface coverage section lists every allow-listed surface with a reason.
-- [ ] Deleting one ALLOW entry (e.g. `mcp:my_boards`) makes the run FAIL naming that surface; restoring it passes. (Demonstrate in the status update; leave the entry in.)
-- [ ] `angreal test uat --journey smoke` skips the check with the filtered-run reason rather than failing.
-- [ ] `npx tsc --noEmit` clean in `uat/`.
+- [x] Run `mudisuhf`: green, "MCP 9/17 tools, CLI 9/16 nouns, 15 allow-listed" with every entry and its reason listed.
+- [x] Removing `mcp:my_boards` failed the run with "these surfaces exist but no journey exercises them: mcp:my_boards"; restored and green again.
+- [x] Run `mudiu9e4` (`--journey smoke`): passes, section reads "Not measured: the gate needs every journey, and this run was filtered."
+- [x] `npx tsc --noEmit` clean; `uat/README.md` has a "Coverage: the drift gate" section.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `aa28130`.
+
+- **Two design corrections found by running it.** (1) The registry had to move from a module-level Set to a per-run JSONL file: Playwright starts a fresh worker for a dependent project AND after any test failure, so in-memory records would vanish and the gate would invent gaps. (2) `zz-` in the filename does not order it last — Playwright sorts by path, and `checks/` sorts before `journeys/`, so the gate ran FIRST and skipped every time. Fixed with two projects and `dependencies: ['journeys']`, which is the only way to express "after everything".
+- The gate also fails on STALE allow-list entries (covered now, or gone from the product) — without that the map rots into a list of lies.
+- A filtered run excludes the check entirely (angreal maps `--journey` to `--grep`, and the check carries no ``), so the report prints the section unconditionally and says "Not measured" rather than going silent.
+- Tooling gotcha repeated from earlier tasks: perl ate `${title}` in `narrate.ts`'s `test()` template, blanking every journey title. Use Edit for TS template strings.

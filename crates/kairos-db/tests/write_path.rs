@@ -22,9 +22,10 @@
 //! - template-stamped documents copy the template content and its
 //!   `template_metadata` defaults into `item_metadata` (KAIROS-A-0003)
 //! - soft-delete cascades over `parent` edges (strategy → initiative →
-//!   task, plus a document child), excludes everything from
-//!   `searchable_items`/`entity_directory`, and records ONE activity row
-//!   with the cascade count + short codes
+//!   task, plus a document child), drops everything out of the DEFAULT
+//!   `searchable_items`/`entity_directory` surface while leaving the rows
+//!   reachable to a caller that asks past the default (KAIROS-A-0020), and
+//!   records ONE activity row with the cascade count + short codes
 
 use std::sync::{Arc, Barrier};
 
@@ -134,8 +135,29 @@ struct CountRow {
     n: i64,
 }
 
-/// How many rows of `searchable_items` / `entity_directory` carry this id.
+/// How many LIVE rows of `searchable_items` / `entity_directory` carry
+/// this id — the default read surface, which is what every listing shows.
+///
+/// The `deleted_at IS NULL` is spelled out here because since
+/// KAIROS-T-0156 the views no longer apply it themselves (KAIROS-A-0020:
+/// archived is a visibility default, and a view that has already dropped
+/// the rows leaves callers nothing to widen). This helper therefore
+/// measures the same thing it always did, but now it says so.
 fn view_count(conn: &mut PgConnection, view: &str, id: Uuid) -> i64 {
+    let row: CountRow = sql_query(format!(
+        "SELECT count(*) AS n FROM {view} WHERE id = $1 AND deleted_at IS NULL"
+    ))
+    .bind::<diesel::sql_types::Uuid, _>(id)
+    .get_result(conn)
+    .unwrap_or_else(|e| panic!("querying {view}: {e}"));
+    row.n
+}
+
+/// How many rows of the view carry this id REGARDLESS of liveness — the
+/// wide mode `--include-deleted` widens into. Before KAIROS-T-0156 this
+/// could only ever return 0 for an archived item, whatever the caller
+/// asked for.
+fn view_count_any(conn: &mut PgConnection, view: &str, id: Uuid) -> i64 {
     let row: CountRow = sql_query(format!("SELECT count(*) AS n FROM {view} WHERE id = $1"))
         .bind::<diesel::sql_types::Uuid, _>(id)
         .get_result(conn)
@@ -738,16 +760,33 @@ fn write_path_lifecycle() {
         "the whole parent-edge subtree is cascaded"
     );
 
+    // Archived means hidden by default, not gone (KAIROS-A-0020). These
+    // two assertions used to read "excluded from the view" full stop —
+    // KAIROS-T-0156 split that into the two halves it had conflated: the
+    // default surface still hides the rows, and the row is still THERE to
+    // be asked for. Both halves matter. The first is the entire
+    // user-visible purpose of archiving; the second is what lets an
+    // auditor ever ask "what did that ticket say?".
     for id in cascade_set {
         assert_eq!(
             view_count(&mut conn, "searchable_items", id),
             0,
-            "soft-deleted items are excluded from searchable_items"
+            "soft-deleted items are excluded from the DEFAULT searchable_items surface"
         );
         assert_eq!(
             view_count(&mut conn, "entity_directory", id),
             0,
-            "soft-deleted items are excluded from entity_directory"
+            "soft-deleted items are excluded from the DEFAULT entity_directory surface"
+        );
+        assert_eq!(
+            view_count_any(&mut conn, "searchable_items", id),
+            1,
+            "but the row is still in searchable_items, carrying its deleted_at"
+        );
+        assert_eq!(
+            view_count_any(&mut conn, "entity_directory", id),
+            1,
+            "but the row is still in entity_directory, carrying its deleted_at"
         );
     }
     // Unrelated items are untouched (a task from the concurrent batch and

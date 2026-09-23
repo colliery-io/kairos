@@ -177,19 +177,16 @@ pub enum Liveness {
     IncludeArchived,
 }
 
-/// The five entity tables as one directory, without the liveness filter the
-/// `entity_directory` view applies. KAIROS-T-0156 moves that filter out of
-/// the view itself, at which point this can collapse back into it.
-const DIRECTORY_UNION: &str = "\
-    SELECT id, short_code, 'strategy' AS entity_type FROM strategies \
-    UNION ALL SELECT id, short_code, 'initiative' FROM initiatives \
-    UNION ALL SELECT id, short_code, 'task' FROM tasks \
-    UNION ALL SELECT id, short_code, 'document' FROM documents \
-    UNION ALL SELECT id, short_code, 'adr' FROM adrs";
-
 /// Resolve a short code to `(id, entity_type)` across all five entity
 /// tables. `Ok(None)` = unknown, or archived when `liveness` is
 /// [`Liveness::LiveOnly`].
+///
+/// Both modes read `entity_directory`. Between KAIROS-T-0154 and
+/// KAIROS-T-0156 the archived mode had to re-derive the directory from the
+/// five base tables by hand, because the view filtered `deleted_at IS NULL`
+/// in its own body and so could not be asked about the rows it had already
+/// dropped. T-0156 moved that predicate out here, where it is a mode rather
+/// than a fact, and the duplicate UNION went with it.
 pub fn resolve_short_code(
     conn: &mut PgConnection,
     short_code: &str,
@@ -197,10 +194,11 @@ pub fn resolve_short_code(
 ) -> Result<Option<(Uuid, ItemType)>, ApiError> {
     let sql = match liveness {
         Liveness::LiveOnly => {
-            "SELECT id, entity_type FROM entity_directory WHERE short_code = $1".to_string()
+            "SELECT id, entity_type FROM entity_directory \
+             WHERE short_code = $1 AND deleted_at IS NULL"
         }
         Liveness::IncludeArchived => {
-            format!("SELECT id, entity_type FROM ({DIRECTORY_UNION}) d WHERE short_code = $1")
+            "SELECT id, entity_type FROM entity_directory WHERE short_code = $1"
         }
     };
     let row: Option<DirectoryRow> = sql_query(sql)
@@ -227,13 +225,17 @@ pub fn resolve_short_code(
 /// The type of a live item by id (documents included), via the same
 /// directory view — for callers that hold an id, not a code
 /// (KAIROS-T-0111: the edge-permission check on an existing relationship).
+/// [`Liveness::LiveOnly`] is not a parameter here on purpose: the one
+/// caller is a permission check guarding a WRITE, and writes see live rows
+/// only (KAIROS-I-0015 D5).
 pub fn resolve_item_type(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError> {
-    let row: Option<DirectoryRow> =
-        sql_query("SELECT id, entity_type FROM entity_directory WHERE id = $1")
-            .bind::<SqlUuid, _>(id)
-            .get_result(conn)
-            .optional()
-            .map_err(ApiError::internal)?;
+    let row: Option<DirectoryRow> = sql_query(
+        "SELECT id, entity_type FROM entity_directory WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind::<SqlUuid, _>(id)
+    .get_result(conn)
+    .optional()
+    .map_err(ApiError::internal)?;
     Ok(row.and_then(|row| {
         ItemType::ALL
             .iter()

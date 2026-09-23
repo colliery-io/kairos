@@ -11,7 +11,8 @@
 //! # Pipeline (A-0007 execution order)
 //!
 //! 1. **Traverse** (if present): resolve the root through
-//!    `entity_directory` (unknown or soft-deleted roots are the typed
+//!    `entity_directory` under an explicit `deleted_at IS NULL` (unknown
+//!    or soft-deleted roots are the typed
 //!    [`SearchError::TraverseRootNotFound`]), then walk
 //!    `item_relationships` with a recursive CTE — parameterized
 //!    relationship types, direction (`outbound`/`inbound`/`both`), and
@@ -26,10 +27,14 @@
 //!    view using `websearch_to_tsquery('english', $q)` — chosen over
 //!    `plainto_tsquery` because it accepts arbitrary end-user input without
 //!    ever erroring and supports quoted phrases, `OR`, and `-negation`.
-//!    The view is the search surface (S-0004) and filters `deleted_at IS
-//!    NULL`, so full-text search only ever matches live items — even with
-//!    `include_deleted` (which governs filter/traverse/hydration
-//!    visibility, not the text index).
+//!    The view is the search surface (S-0004). Since KAIROS-T-0156 it
+//!    reports `deleted_at` rather than filtering on it, and this query
+//!    spells its own `deleted_at IS NULL` — so full-text search still only
+//!    ever matches live items, even with `include_deleted`. That is not a
+//!    property of the view any more but a choice made here, and
+//!    KAIROS-T-0157 is where the choice changes: the flag will govern this
+//!    branch too, which is what finally makes `--include-deleted` mean
+//!    something alongside a text query.
 //! 3. **Metadata filter** (if present): one pre-pass query over
 //!    `item_metadata`/`metadata_definitions` (pairs unnested server-side)
 //!    returning ids that satisfy EVERY entry; values use the T-0011 LIKE
@@ -37,9 +42,11 @@
 //! 4. **Candidate set**: the intersection of the sets above (whichever are
 //!    present). No set ⇒ pure structural filtering.
 //! 5. **Type resolution + partition**: candidates resolve to `(id,
-//!    entity_type)` via `entity_directory`; with `include_deleted` the same
-//!    UNION shape runs against the base tables without the `deleted_at`
-//!    filter (the view would silently drop deleted candidates).
+//!    entity_type)` via `entity_directory`, with `deleted_at IS NULL`
+//!    appended unless `include_deleted` asks for the wider set. One query
+//!    either way since KAIROS-T-0156 — the hand-rolled base-table UNION
+//!    that used to stand in for the wide mode is gone, because the view
+//!    can now answer it.
 //! 6. **Hydrate**: at most one typed `SELECT … WHERE id = ANY(…)` per
 //!    entity type — **bounded at 5 queries regardless of result size**
 //!    ([`SearchStats::hydration_queries`] proves it) — carrying the
@@ -86,7 +93,7 @@ pub enum SearchError {
     #[error(transparent)]
     Invalid(#[from] SearchValidationError),
     /// `traverse.from` names no live entity (unknown, or soft-deleted —
-    /// roots resolve through `entity_directory`).
+    /// roots resolve live-only through `entity_directory`).
     #[error("traverse root {reference} does not exist")]
     TraverseRootNotFound {
         /// The submitted `short_code` or `id`, for the error envelope.
@@ -263,6 +270,9 @@ struct IdRow {
 }
 
 /// Resolve `traverse.from` to a live entity id via `entity_directory`.
+/// Live-only, stated here rather than inherited from the view
+/// (KAIROS-T-0156); KAIROS-T-0157 is where `include_deleted` reaches this
+/// lookup, so a traverse can start from archived work.
 fn resolve_root(
     conn: &mut PgConnection,
     from: &TraverseFrom,
@@ -270,16 +280,18 @@ fn resolve_root(
 ) -> Result<Uuid, SearchError> {
     stats.total_queries += 1;
     let row: Option<IdRow> = match (&from.short_code, from.id) {
-        (Some(short_code), None) => {
-            sql_query("SELECT id FROM entity_directory WHERE short_code = $1")
-                .bind::<Text, _>(short_code)
+        (Some(short_code), None) => sql_query(
+            "SELECT id FROM entity_directory WHERE short_code = $1 AND deleted_at IS NULL",
+        )
+        .bind::<Text, _>(short_code)
+        .get_result(conn)
+        .optional()?,
+        (None, Some(id)) => {
+            sql_query("SELECT id FROM entity_directory WHERE id = $1 AND deleted_at IS NULL")
+                .bind::<SqlUuid, _>(id)
                 .get_result(conn)
                 .optional()?
         }
-        (None, Some(id)) => sql_query("SELECT id FROM entity_directory WHERE id = $1")
-            .bind::<SqlUuid, _>(id)
-            .get_result(conn)
-            .optional()?,
         // validate() enforces exactly-one before we get here.
         _ => unreachable!("validated traverse.from names exactly one reference"),
     };
@@ -348,6 +360,9 @@ fn traverse_ids(
 }
 
 /// Full-text match via the `searchable_items` view (module docs, step 2).
+/// Live-only, and deliberately so for now: KAIROS-T-0156 moved the filter
+/// here from the view without changing what search returns, leaving
+/// KAIROS-T-0157 a single predicate to make conditional.
 fn text_match_ids(
     conn: &mut PgConnection,
     q: &str,
@@ -355,7 +370,8 @@ fn text_match_ids(
 ) -> Result<HashSet<Uuid>, SearchError> {
     stats.total_queries += 1;
     let rows: Vec<IdRow> = sql_query(
-        "SELECT id FROM searchable_items WHERE tsv @@ websearch_to_tsquery('english', $1)",
+        "SELECT id FROM searchable_items \
+         WHERE tsv @@ websearch_to_tsquery('english', $1) AND deleted_at IS NULL",
     )
     .bind::<Text, _>(q)
     .load(conn)?;
@@ -425,9 +441,11 @@ fn parse_entity_type(value: &str) -> Result<ItemType, SearchError> {
 }
 
 /// Resolve candidate ids to `(id, entity_type)` and partition by type
-/// (module docs, step 5). Live-only via `entity_directory`; with
-/// `include_deleted` the same UNION shape runs directly against the base
-/// tables so soft-deleted candidates keep their type.
+/// (module docs, step 5). Both modes are now the same query against
+/// `entity_directory`, differing only in whether it says `deleted_at IS
+/// NULL` — before KAIROS-T-0156 the wide mode had to re-derive the
+/// directory from the five base tables, because the view had already
+/// dropped the rows it was asking about.
 fn partition_by_type(
     conn: &mut PgConnection,
     ids: &HashSet<Uuid>,
@@ -440,17 +458,10 @@ fn partition_by_type(
     }
 
     let sql = if include_deleted {
-        "SELECT id, 'strategy' AS entity_type FROM strategies WHERE id = ANY($1)
-         UNION ALL
-         SELECT id, 'initiative' FROM initiatives WHERE id = ANY($1)
-         UNION ALL
-         SELECT id, 'task' FROM tasks WHERE id = ANY($1)
-         UNION ALL
-         SELECT id, 'document' FROM documents WHERE id = ANY($1)
-         UNION ALL
-         SELECT id, 'adr' FROM adrs WHERE id = ANY($1)"
-    } else {
         "SELECT id, entity_type FROM entity_directory WHERE id = ANY($1)"
+    } else {
+        "SELECT id, entity_type FROM entity_directory \
+         WHERE id = ANY($1) AND deleted_at IS NULL"
     };
 
     stats.total_queries += 1;

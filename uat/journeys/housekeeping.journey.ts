@@ -5,12 +5,25 @@
 // Archiving IS soft delete here — there is no separate Archived state
 // (KAIROS-I-0012 §D1, Dylan's rule: "all cards must be archived or
 // moved"). That makes this journey the one that proves the two halves of
-// that decision actually hold together — and it found that only one half
-// holds. A put-away card stops obstructing the guards, as intended. But
-// the item and its version history become unreachable (404), so what the
-// ticket SAID is gone from every surface; only the activity trail, which
-// records that it existed and who touched it, survives. The journey
-// asserts that as it is rather than as we assumed. See KAIROS-T-0151.
+// that decision actually hold together.
+//
+// When this journey was first written only one half held. A put-away card
+// stopped obstructing the guards, as intended — but the item and its
+// version history also became unreachable (404), so what the ticket SAID
+// was gone from every surface and only the activity trail survived. The
+// journey asserted that as it was rather than as we assumed, and the
+// finding became KAIROS-T-0151 and then KAIROS-A-0020: **archived means
+// this is old, so it is hidden by default, and nothing more.**
+//
+// The steps below now assert both halves of that ruling, because it is
+// the pair that matters and each alone is a different product:
+//
+//  - hidden — the card is off the board, out of the MCP queue, out of the
+//    listings (KAIROS-T-0156 moved that filter from two database views
+//    into every call site, which is the change this end-to-end walk
+//    guards);
+//  - not gone — the item and its history still answer, marked archived,
+//    so "what did that ticket say?" has an answer about finished work.
 import { expect } from '@playwright/test';
 import { teamFixture } from '../fixtures/team';
 import { named } from '../run/context';
@@ -60,33 +73,51 @@ journey(
       return { archived: shipped, still_on_the_board: stillOpen };
     });
 
-    await step(alice, 'finds the archived work gone from the API entirely — only the activity trail remembers it', async () => {
+    await step(alice, 'finds the archived work off every default listing, but still able to answer for itself', async () => {
       const mcp = await alice.mcp();
       const queue = await mcp.call('board_items', { board: team.fixture.boardSlug });
       expect(shortCodes(queue)).not.toContain(shipped[0]);
 
       const api = await alice.api();
-      // What archiving actually does today, asserted as it is rather than
-      // as KAIROS-I-0012 assumed: the item AND its version history become
-      // unreachable (404), not merely hidden from the queue. The rows are
-      // still in the database — the retention sweeper prunes on its own
-      // schedule — but nothing serves them, so "what did that ticket say?"
-      // has no answer once it is put away. See the task's Status Update.
+      // HIDDEN. Not just off the board — off the task list too, and not
+      // counted by it either. A listing that hides the row while still
+      // counting it leaks the same fact, one number at a time. These are
+      // the surfaces KAIROS-T-0156 put at risk by moving the liveness
+      // filter out of `entity_directory`/`searchable_items` and into each
+      // call site: a consumer that forgets its filter does not error, it
+      // just quietly grows rows that should not be there.
+      const list = await api.get('/api/tasks?limit=200');
+      const listedCodes = ((list.items ?? list) as any[]).map((t: any) => t.short_code);
+      expect(listedCodes).not.toContain(shipped[0]);
+      expect(listedCodes).toContain(stillOpen);
+
+      // NOT GONE. KAIROS-A-0020 rule 1: the item and its version history
+      // both still answer, and the item says of itself that it is
+      // archived. Until KAIROS-T-0154 both 404'd, which made archiving
+      // indistinguishable from erasure to every caller — and lost the
+      // audit answer at exactly the moment the work became audit
+      // material. The `archived_at` assertion is what stops this reading
+      // as "archiving did nothing".
       const item = await api.raw('GET', `/api/tasks/${shipped[0]}`);
       const history = await api.raw('GET', `/api/tasks/${shipped[0]}/history`);
-      expect(item.status).toBe(404);
-      expect(history.status).toBe(404);
+      expect(item.status).toBe(200);
+      expect(history.status).toBe(200);
+      expect(item.body?.archived_at, 'a served archived item must say so').toBeTruthy();
+      expect(item.body?.title, 'and it must still carry what the ticket said').toBeTruthy();
 
-      // The activity log is what survives, and it is thinner: it records
-      // THAT the work existed and what happened to it, not what it said.
+      // The activity log remains the thinner record alongside it: it says
+      // THAT the work existed and what happened to it, never what it said.
+      // That is now a complement to the item rather than a replacement.
       const feed = await api.get('/api/activity?limit=200');
       const rows = (feed.items ?? feed) as any[];
       const mentions = rows.filter((r: any) => (r.details ?? '').includes(shipped[0])).length;
       expect(mentions).toBeGreaterThan(0);
       return {
         off_the_queue: true,
+        off_the_task_list: true,
         item_after_archiving: item.status,
         history_after_archiving: history.status,
+        marked_archived: Boolean(item.body?.archived_at),
         activity_rows_naming_it: mentions,
       };
     });

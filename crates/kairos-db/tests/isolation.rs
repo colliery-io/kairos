@@ -195,17 +195,21 @@ fn count_where_id(conn: &mut PgConnection, table: &str, column: &str, id: Uuid) 
 
 /// The id `entity_directory` resolves for `short_code` in the CURRENT tenant
 /// schema, or `None` — this IS the "get item by short code" read surface.
+/// Live-only, stated rather than inherited: since KAIROS-T-0156 the view
+/// reports `deleted_at` instead of filtering on it, and this test is about
+/// TENANT isolation, so it asks the same default question it always did.
 fn directory_id_by_code(conn: &mut PgConnection, short_code: &str) -> Option<Uuid> {
     #[derive(QueryableByName)]
     struct IdRow {
         #[diesel(sql_type = diesel::sql_types::Uuid)]
         id: Uuid,
     }
-    let row: Option<IdRow> = sql_query("SELECT id FROM entity_directory WHERE short_code = $1")
-        .bind::<Text, _>(short_code)
-        .get_result(conn)
-        .optional()
-        .expect("querying entity_directory");
+    let row: Option<IdRow> =
+        sql_query("SELECT id FROM entity_directory WHERE short_code = $1 AND deleted_at IS NULL")
+            .bind::<Text, _>(short_code)
+            .get_result(conn)
+            .optional()
+            .expect("querying entity_directory");
     row.map(|r| r.id)
 }
 
@@ -974,7 +978,8 @@ mod pool_stress {
                     // must carry THIS tenant's marker and never the other's.
                     let hits: Vec<TitleRow> = sql_query(
                         "SELECT title FROM searchable_items \
-                         WHERE tsv @@ websearch_to_tsquery('english', 'stress')",
+                         WHERE tsv @@ websearch_to_tsquery('english', 'stress') \
+                           AND deleted_at IS NULL",
                     )
                     .load(&mut *conn)
                     .await

@@ -7,14 +7,26 @@
 //! ([`kairos_core::graph::check_link`]) and cycle detection over loaded
 //! edges ([`kairos_core::graph::would_create_cycle`]). This module is the
 //! SQL side of the same contract: it resolves both UUIDs to entity types
-//! through the `entity_directory` view (which filters `deleted_at IS
-//! NULL`, so soft-deleted items are typed [`GraphError::ItemNotFound`]),
+//! through the `entity_directory` view under an explicit `deleted_at IS
+//! NULL` (so soft-deleted items are typed [`GraphError::ItemNotFound`]),
 //! loads the relationship's existing edges for the cycle check (`parent`
 //! and `blocks` only), inserts, and writes `activity_log`.
 //!
 //! Every public function operates in the CURRENT `search_path` tenant
 //! schema and runs in its own transaction (same conventions as
 //! [`crate::items`]).
+//!
+//! # Liveness (KAIROS-T-0156)
+//!
+//! `entity_directory` used to filter `deleted_at IS NULL` in its own body,
+//! so every query here was live-only whether it said so or not. Under
+//! KAIROS-A-0020 archiving is a visibility DEFAULT, and a default has to be
+//! something a caller can widen — so the view now reports `deleted_at` and
+//! each query states its own mode. **Every `entity_directory` join in this
+//! module is live-only and says so**, which keeps the graph's behaviour
+//! exactly as it was. Making `neighbors_of` report archived neighbours,
+//! marked, is KAIROS-T-0158's deliberate change, not a side effect of the
+//! view losing its filter.
 //!
 //! # Audit rows (KAIROS-A-0004 / S-0004)
 //!
@@ -52,7 +64,7 @@ use crate::models::graph::{ItemRelationship, NewActivityLogEntry, NewItemRelatio
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
     /// No live item with this id exists in any entity table (unknown id or
-    /// soft-deleted — `entity_directory` filters `deleted_at IS NULL`).
+    /// soft-deleted — every lookup here spells `deleted_at IS NULL`).
     #[error("item {0} does not exist")]
     ItemNotFound(Uuid),
     /// An item cannot be related to itself (mirrors the DDL `CHECK
@@ -130,16 +142,20 @@ struct DirectoryRow {
 
 /// Resolve a UUID to its live entity type and short code via
 /// `entity_directory` (KAIROS-A-0001's answer to "what is entity X?").
-/// `None` = unknown id or soft-deleted.
+/// Live-only: `None` = unknown id or soft-deleted. Linking archived work
+/// stays refused — an edge is a write, and writes see live rows only
+/// (KAIROS-I-0015 D5).
 fn resolve_entity(
     conn: &mut PgConnection,
     id: Uuid,
 ) -> Result<Option<(ItemType, String)>, GraphError> {
-    let row: Option<DirectoryRow> =
-        sql_query("SELECT entity_type, short_code FROM entity_directory WHERE id = $1")
-            .bind::<SqlUuid, _>(id)
-            .get_result(conn)
-            .optional()?;
+    let row: Option<DirectoryRow> = sql_query(
+        "SELECT entity_type, short_code FROM entity_directory \
+         WHERE id = $1 AND deleted_at IS NULL",
+    )
+    .bind::<SqlUuid, _>(id)
+    .get_result(conn)
+    .optional()?;
     row.map(|row| Ok((parse_entity_type(&row.entity_type)?, row.short_code)))
         .transpose()
 }
@@ -398,8 +414,10 @@ impl NeighborRow {
 /// `own_column`, hydrating the OTHER end (`other_column`) through
 /// `entity_directory`. Each query is backed by the matching S-0004 index
 /// (`idx_item_relationships_source` / `idx_item_relationships_target`).
-/// Soft-deleted neighbors drop out (the view filters them), matching every
-/// other read path.
+/// **Live-only**: soft-deleted neighbors drop out, matching every other
+/// read path. KAIROS-T-0158 is where that stops being the whole story —
+/// it makes archived neighbours reportable, marked, because losing them
+/// silently degrades the LIVE side of the record.
 fn neighbors_of(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -409,7 +427,8 @@ fn neighbors_of(
     let rows: Vec<NeighborRow> = sql_query(format!(
         "SELECT r.relationship, d.id, d.short_code, d.entity_type, d.title \
          FROM item_relationships r \
-         JOIN entity_directory d ON d.id = r.{other_column} \
+         JOIN entity_directory d \
+           ON d.id = r.{other_column} AND d.deleted_at IS NULL \
          WHERE r.{own_column} = $1 \
          ORDER BY r.relationship ASC, r.created_at ASC, d.short_code ASC"
     ))
@@ -598,7 +617,7 @@ pub fn team_work_documents(
              p.entity_type AS parent_type \
          FROM item_relationships r \
          JOIN documents d ON d.id = r.target_id AND d.deleted_at IS NULL \
-         JOIN entity_directory p ON p.id = r.source_id \
+         JOIN entity_directory p ON p.id = r.source_id AND p.deleted_at IS NULL \
          LEFT JOIN tasks t ON t.id = r.source_id AND t.deleted_at IS NULL \
          WHERE r.relationship = 'supports' \
            AND (t.team_id = $1 OR p.board_id = $2) \
@@ -706,7 +725,8 @@ pub fn item_subgraph(
         visited.iter().map(|row| (row.id, row.depth)).collect();
     let ids: Vec<Uuid> = visited.iter().map(|row| row.id).collect();
 
-    // 2. Hydrate LIVE nodes: entity_directory (live-only) for identity,
+    // 2. Hydrate LIVE nodes: entity_directory under an explicit
+    //    `deleted_at IS NULL` for identity,
     //    a per-family union for status, and a live-neighbor count for
     //    degree. Soft-deleted ids simply drop out here, and edges to them
     //    drop out in step 3 because both endpoints must hydrate.
@@ -735,10 +755,11 @@ pub fn item_subgraph(
                     JOIN entity_directory other
                       ON other.id = CASE WHEN r.source_id = d.id
                                          THEN r.target_id ELSE r.source_id END
+                     AND other.deleted_at IS NULL
                     WHERE r.source_id = d.id OR r.target_id = d.id) AS degree
          FROM entity_directory d
          JOIN status_of s ON s.id = d.id
-         WHERE d.id = ANY($1)",
+         WHERE d.id = ANY($1) AND d.deleted_at IS NULL",
     )
     .bind::<Array<SqlUuid>, _>(&ids)
     .load(conn)?;
@@ -809,7 +830,7 @@ struct BlocksRow {
 
 /// Blocked-by/blocks counts for a set of items in ONE grouped query
 /// (never per item — the T-0080 rollup discipline). Soft-deleted
-/// neighbors are excluded via the live-only `entity_directory` join.
+/// neighbors are excluded by the join's own `deleted_at IS NULL`.
 /// Items with no live blocks edges simply have no entry.
 pub fn blocks_summary(
     conn: &mut PgConnection,
@@ -826,6 +847,7 @@ pub fn blocks_summary(
          JOIN entity_directory other
            ON other.id = CASE WHEN r.source_id = n.id
                               THEN r.target_id ELSE r.source_id END
+          AND other.deleted_at IS NULL
          GROUP BY n.id",
     )
     .bind::<Array<SqlUuid>, _>(ids)
@@ -875,7 +897,7 @@ pub fn team_link_rollup(
          FROM item_links l \
          JOIN forge_connections c ON c.id = l.connection_id AND c.deleted_at IS NULL \
          JOIN repositories r ON r.id = c.repository_id \
-         JOIN entity_directory d ON d.id = l.item_id \
+         JOIN entity_directory d ON d.id = l.item_id AND d.deleted_at IS NULL \
          LEFT JOIN tasks t ON t.id = l.item_id AND t.deleted_at IS NULL \
          WHERE l.state = ANY($3) \
            AND (t.team_id = $1 OR d.board_id = $2 OR r.team_id = $1) \
@@ -936,7 +958,7 @@ pub fn repository_link_rollup(
          FROM item_links l \
          JOIN forge_connections c ON c.id = l.connection_id AND c.deleted_at IS NULL \
          JOIN repositories r ON r.id = c.repository_id \
-         JOIN entity_directory d ON d.id = l.item_id \
+         JOIN entity_directory d ON d.id = l.item_id AND d.deleted_at IS NULL \
          WHERE r.id = $1 AND l.state = ANY($2) \
          ORDER BY l.forge_updated_at DESC \
          LIMIT $3",

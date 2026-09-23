@@ -80,8 +80,14 @@ const EXPECTED_SEQUENCES: [&str; 5] = [
     "seq_task_code",
 ];
 
-/// Every named index in the S-0004 tenant DDL (partial + GIN included).
-const EXPECTED_INDEXES: [&str; 21] = [
+/// Every named index a freshly provisioned tenant carries: the S-0004
+/// tenant DDL (partial + GIN included) plus the ones later migrations add.
+/// `board_columns_live_*` are KAIROS-T-0161's partial unique indexes; they
+/// are asserted here because the fleet-upgrade block below is re-pinned to
+/// the newest migration on every schema wave and so stops covering them.
+const EXPECTED_INDEXES: [&str; 23] = [
+    "board_columns_live_name_key",
+    "board_columns_live_position_key",
     "idx_activity_log_actor",
     "idx_activity_log_entity",
     "idx_activity_log_time",
@@ -278,6 +284,21 @@ fn tenant_provisioning_lifecycle() {
         "org_acme should contain exactly the expected tenant tables"
     );
     assert_eq!(schema_views(&mut conn, "org_acme"), EXPECTED_VIEWS);
+    // Both directory views REPORT liveness rather than enforcing it
+    // (KAIROS-T-0156 / KAIROS-A-0020) — the column is what gives
+    // "show me archived work" something to widen, and its absence is the
+    // shape of the bug that made `--include-deleted` a no-op next to `q`.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT table_name::text AS name FROM information_schema.columns \
+             WHERE table_schema = $1 AND column_name = 'deleted_at' \
+               AND table_name IN ('entity_directory', 'searchable_items')",
+            "org_acme",
+        ),
+        EXPECTED_VIEWS,
+        "a freshly provisioned tenant's directory views expose deleted_at"
+    );
     assert_eq!(schema_sequences(&mut conn, "org_acme"), EXPECTED_SEQUENCES);
     let indexes = schema_indexes(&mut conn, "org_acme");
     for index in EXPECTED_INDEXES {
@@ -474,31 +495,36 @@ fn tenant_provisioning_lifecycle() {
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
     // that predates the NEWEST tenant migration (currently
-    // `board_columns_soft_delete`, KAIROS-T-0161): revert its DDL (the down
+    // `views_expose_deleted_at`, KAIROS-T-0156): revert its DDL (the down
     // migration's shape) and drop its bookkeeping row in widgets only, then
     // fleet-migrate and expect exactly that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
     // to remove by deriving the target from the embedded migration list.
-    // Dropping the column takes the two partial indexes with it (their
-    // predicates reference it), so the pre-T-0161 shape is exactly the
-    // table-wide UNIQUE constraints put back.
-    sql_query("ALTER TABLE org_widgets.board_columns DROP COLUMN deleted_at")
+    // The pre-T-0156 shape is the two directory views filtering
+    // `deleted_at IS NULL` in their own bodies instead of reporting it.
+    sql_query("DROP VIEW org_widgets.searchable_items")
         .execute(&mut conn)
-        .expect("dropping board_columns.deleted_at in widgets to simulate an old tenant");
+        .expect("dropping widgets' searchable_items to simulate an old tenant");
     sql_query(
-        "ALTER TABLE org_widgets.board_columns \
-             ADD CONSTRAINT board_columns_board_id_position_key UNIQUE (board_id, position)",
+        "CREATE VIEW org_widgets.searchable_items AS \
+             SELECT id, short_code, 'strategy' AS entity_type, title, content, \
+                    to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')) AS tsv \
+             FROM org_widgets.strategies WHERE deleted_at IS NULL",
     )
     .execute(&mut conn)
-    .expect("restoring the table-wide position UNIQUE in widgets");
+    .expect("restoring the pre-T-0156 searchable_items in widgets");
+    sql_query("DROP VIEW org_widgets.entity_directory")
+        .execute(&mut conn)
+        .expect("dropping widgets' entity_directory to simulate an old tenant");
     sql_query(
-        "ALTER TABLE org_widgets.board_columns \
-             ADD CONSTRAINT board_columns_board_id_name_key UNIQUE (board_id, name)",
+        "CREATE VIEW org_widgets.entity_directory AS \
+             SELECT id, short_code, 'strategy' AS entity_type, title, board_id \
+             FROM org_widgets.strategies WHERE deleted_at IS NULL",
     )
     .execute(&mut conn)
-    .expect("restoring the table-wide name UNIQUE in widgets");
+    .expect("restoring the pre-T-0156 entity_directory in widgets");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -529,35 +555,30 @@ fn tenant_provisioning_lifecycle() {
         count(
             &mut conn,
             "SELECT count(*) FROM information_schema.columns \
-             WHERE table_schema = 'org_widgets' AND table_name = 'board_columns' \
+             WHERE table_schema = 'org_widgets' \
+               AND table_name IN ('entity_directory', 'searchable_items') \
                AND column_name = 'deleted_at'"
         ),
-        1,
-        "board_columns.deleted_at is back in widgets after the fleet upgrade"
+        2,
+        "both directory views report deleted_at in widgets after the fleet upgrade"
     );
-    assert_eq!(
-        names(
-            &mut conn,
-            "SELECT indexname::text AS name FROM pg_indexes \
-             WHERE schemaname = $1 AND tablename = 'board_columns' \
-               AND indexname LIKE 'board_columns_live_%'",
-            "org_widgets",
-        ),
-        [
-            "board_columns_live_name_key",
-            "board_columns_live_position_key"
-        ],
-        "and the table-wide UNIQUE constraints became live-only partial indexes"
-    );
-    assert_eq!(
-        count(
-            &mut conn,
-            "SELECT count(*) FROM pg_constraint \
-             WHERE conrelid = 'org_widgets.board_columns'::regclass AND contype = 'u'"
-        ),
-        0,
-        "the old table-wide UNIQUE constraints are gone"
-    );
+    // The stub views the revert put back covered strategies only, so this
+    // also proves the re-applied migration rebuilt the WHOLE view rather
+    // than patching what it found: an upgraded tenant ends up with the same
+    // five-branch directory a freshly provisioned one gets.
+    for view in ["entity_directory", "searchable_items"] {
+        assert_eq!(
+            count(
+                &mut conn,
+                &format!(
+                    "SELECT count(*) FROM information_schema.view_table_usage \
+                     WHERE view_schema = 'org_widgets' AND view_name = '{view}'"
+                )
+            ),
+            5,
+            "{view} reads all five entity tables after the fleet upgrade"
+        );
+    }
 
     // ---- drop-tenant -------------------------------------------------------
     // Without --confirm: refused, nothing removed.

@@ -90,3 +90,11 @@ it was archived at.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from other tasks
+
+**2026-09-23, from [[KAIROS-T-0161]].** "Restore into a removed column" is
+now a **detectable** refusal rather than a foreign-key error: the column row
+survives with `deleted_at` set, and `kairos_db::items::resolve_column`
+already refuses a removed column with `ColumnNotOnBoard`. So the
+refuse-and-name guard has a clean signal to read.

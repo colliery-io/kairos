@@ -79,3 +79,22 @@ read as different things.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from other tasks
+
+**2026-09-23, from [[KAIROS-T-0161]] — a gap this task must close.**
+`crates/kairos-web/src/pages/item.rs:469-474` resolves an item's column name
+out of `BoardDetail.columns`, which T-0161 made **live-only**. So an
+archived card sitting in a column that has since been removed renders
+"unknown column" — which is exactly the audit fact the column soft-delete
+was designed to preserve, lost again at the last surface.
+
+MCP solved it with an unfiltered `column_label` lookup (`mcp/tools.rs`); the
+GUI has no equivalent. Two options, decide when implementing:
+
+- a `column_name` on the item DTO (simplest for this page, one more
+  denormalised field on the wire), or
+- `deleted_at` on the column DTO, with the board page filtering it out
+  (keeps one source of truth, touches the board page too).
+
+Prefer the second unless it turns out the board page cannot cheaply filter.

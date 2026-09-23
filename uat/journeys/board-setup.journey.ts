@@ -162,6 +162,13 @@ journey(
 
     await step(bob, 'retires the card, which clears the board for the team to be wound down', async () => {
       const mcp = await bob.mcp();
+      // The stamp has to come off first, and that is a product fact rather
+      // than a tidiness preference: once the card is deleted its metadata
+      // row is unreachable (`set_metadata` answers "no live item", and
+      // there is no route that clears it) but still counted, so the
+      // definition can never be retired again — `?include_deleted=true`
+      // and `?force=true` are both refused. See KAIROS-T-0152.
+      await mcp.call('set_metadata', { short_code: code, values: { [fieldSlug]: null } });
       await mcp.call('delete_item', { short_code: code, confirm: true });
       const api = await alice.api();
       const board = await api.get(`/api/boards/${team.fixture.boardId}/items`);

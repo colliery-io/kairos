@@ -246,3 +246,58 @@ leftovers; the close-out task runs both modes end to end.
   First draft framed it as an API/GUI coverage gate; Dylan clarified he
   meant user journeys, so the machinery was dropped and the initiative is
   six stories the product supports and the suite does not yet tell.
+- 2026-09-22: Dylan extended the scope — *"keep adding uat stories until
+  we've covered from new user to mature org"* — so the six became twelve
+  and the suite is ordered as an arc rather than a set.
+- 2026-09-23: **All twelve journeys written, green and committed**
+  (KAIROS-T-0137..0148), three of them in parallel by subagents. The suite
+  is 20 journeys. Close-out (KAIROS-T-0149) done:
+
+  | Run | Mode | Result |
+  |---|---|---|
+  | `mudz86xn` | compose, fresh seed | 20 journeys, 20 passed, 0 failed |
+  | `mudz23wx` | `--server` | 20 journeys, 20 passed, 8 compose-only steps skipped |
+  | — | `angreal test e2e` | 10/10 golden path + MCP, 11 passed GUI smoke |
+
+  Surface coverage: **MCP 17/17 tools, CLI 16/16 nouns, 0 allow-listed.**
+
+- 2026-09-23: **What the twelve journeys found.** Every one of these is a
+  place the product and the story disagreed, and in almost all of them the
+  product turned out to be right — the story was rewritten:
+  - **KAIROS-T-0152** (filed, bug): a soft-deleted item's metadata value
+    can be neither read nor cleared, yet still counts against
+    `DEFINITION_IN_USE` — one deleted card makes a field permanently
+    unretirable. Found by the close-out, because the suite was leaking one
+    definition per run while passing.
+  - **KAIROS-T-0151** (filed, bug): an archived item and its `/history`
+    both 404. Only the activity trail survives, so "what did that ticket
+    say?" has no answer once the work is put away. Same shape as T-0152:
+    rows that live on in the database with no surface serving them.
+  - **KAIROS-T-0150** (filed, tech-debt): `kairos tasks create --board` is
+    UUID-only while `move --to-board` and `--repo` take slugs.
+  - **A metadata definition cannot be retired while anything references
+    it** (`409 DEFINITION_IN_USE`). J11's planned ending — "alice retires
+    the field, the item keeps its stamped value" — is not reachable; the
+    story became the better one, taking the field off the *template* so new
+    work stops collecting it while old work keeps what it has.
+  - **ADRs are org-level**, so a team member cannot record one
+    (`manage_adrs`); and **the editorial lifecycle is a document concept** —
+    an ADR being superseded moves its board *column*, not a lifecycle.
+  - **Draft → Decided is not a legal transition**; the graph insists on
+    Discussion in between, and says so with the allowed targets.
+  - **`task_type` is immutable**, so "a request becomes a bug" is really a
+    bug raised *from* the request.
+  - **Strategy traverse is blind to standing buckets**, and
+    **`--include-deleted` is not combinable with `--query`**.
+  - **A single-tenant deployment cannot exercise the cross-tenant seam**,
+    which is why J18 is compose-only and the drift gate skips under
+    `--server` rather than reporting a false uncovered surface.
+- 2026-09-23: **Harness lesson worth keeping.** Two full runs passed while
+  leaving residue, because journeys that retire their own work had those
+  deletes reported as leaks (a 404 at teardown) — noise that buried the one
+  real leak. `uat/run/ledger.ts` now treats a 404 as done. Also: `flock`
+  does not exist on macOS, so the shared-stack lock I gave the parallel
+  agents silently did nothing and all three raced; `until mkdir …` is the
+  portable form.
+
+**Ready for review.** The initiative is not transitioned — Dylan reviews.

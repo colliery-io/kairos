@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T03:24:45Z | 261 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T10:39:57Z | 273 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -294,8 +294,20 @@
     │   ├── audit-trail.journey.ts
     │   ├── board-setup.journey.ts
     │   ├── cross-team.journey.ts
+    │   ├── decision-record.journey.ts
+    │   ├── explorer.journey.ts
+    │   ├── first-week.journey.ts
+    │   ├── growing-team.journey.ts
+    │   ├── housekeeping.journey.ts
+    │   ├── incident.journey.ts
+    │   ├── machine-access.journey.ts
+    │   ├── new-kind-of-work.journey.ts
     │   ├── onboarding.journey.ts
+    │   ├── operations.journey.ts
     │   ├── planning.journey.ts
+    │   ├── quarterly-review.journey.ts
+    │   ├── reorg.journey.ts
+    │   ├── second-tenant.journey.ts
     │   ├── smoke.journey.ts
     │   └── team-knowledge.journey.ts
     ├── personas/
@@ -4683,10 +4695,56 @@
 
 -  `field` function L60-63 — `const field = (label: string)`
 
+#### uat/journeys/decision-record.journey.ts
+
+-  `adrColumn` function L26-30 — `function adrColumn(page: Page, name: string): Locator`
+-  `relationshipGroup` function L33-35 — `function relationshipGroup(page: Page, label: string): Locator`
+-  `columnId` function L46-50 — `const columnId = (name: string): string`
+-  `state` function L237-240 — `const state = (code: string)`
+
+#### uat/journeys/explorer.journey.ts
+
+-  `chips` function L20-26 — `function chips(page: Page, heading: string): Locator`
+-  `field` function L29-31 — `function field(page: Page, label: string): Locator`
+-  `drawn` function L34-38 — `function drawn(page: Page): Promise<string[]>`
+-  `node` function L41-45 — `function node(page: Page, code: string): Locator`
+-  `codesIn` function L48-54 — `function codesIn(results: any): string[]`
+
+#### uat/journeys/growing-team.journey.ts
+
+-  `ledgerTask` function L42-54 — `function ledgerTask(code: string): Promise<void>`
+
+#### uat/journeys/incident.journey.ts
+
+-  `Lane` type L27 — `= 'planned' | 'support'`
+-  `laneColumn` function L29-33 — `function laneColumn(page: Page, lane: Lane, name: string): Locator`
+-  `laneCard` function L35-37 — `function laneCard(page: Page, lane: Lane, columnName: string, code: string): Loc...`
+-  `dragInLane` function L41-59 — `function dragInLane(page: Page, code: string, lane: Lane, toColumn: string): Pro...`
+
+#### uat/journeys/machine-access.journey.ts
+
+-  `machine` function L72 — `const machine = ()`
+
+#### uat/journeys/new-kind-of-work.journey.ts
+
+-  `field` function L21-23 — `function field(scope: Locator, page: Page, label: string): Locator`
+
+#### uat/journeys/operations.journey.ts
+
+-  `sample` function L19-23 — `function sample(text: string, needle: string): number | undefined`
+-  `probe` function L34 — `const probe = (path: string)`
+-  `forget` function L110-115 — `const forget = (family: string, code: string)`
+-  `search` function L201-202 — `const search = (extra: string[])`
+
 #### uat/journeys/planning.journey.ts
 
 -  `createFromHeader` function L13-24 — `function createFromHeader(page: Page, kind: string, title: string): Promise<stri...`
 -  `columnOfCard` function L192-196 — `function columnOfCard(page: Page, code: string): Promise<string>`
+
+#### uat/journeys/quarterly-review.journey.ts
+
+-  `readBadge` function L22-28 — `function readBadge(text: string): { done: number; total: number }`
+-  `bandOf` function L45-46 — `const bandOf = (label: string)`
 
 ### uat/personas
 
@@ -4712,14 +4770,14 @@
 - pub `gui` method L72-81 — `gui(): Promise<Page>`
 - pub `openPage` method L84-86 — `openPage(): Page | undefined`
 - pub `close` method L88-95 — `close(keepTraceAs?: string): Promise<void>`
-- pub `Cast` class L98-152 — `-`
+- pub `Cast` class L98-159 — `-`
 - pub `constructor` method L101 — `constructor(private readonly browser: Browser)`
 - pub `human` method L104-112 — `human(name: Human): Persona`
 - pub `hasHuman` method L115-117 — `hasHuman(name: Human): boolean`
-- pub `agent` method L120-124 — `agent(name: PersonaName, apiKey: string): Persona`
-- pub `prepare` method L130-132 — `prepare(humans: Human[]): Promise<void>`
-- pub `all` method L134-136 — `all(): Persona[]`
-- pub `closeAll` method L139-151 — `closeAll(failedJourneyId?: string): Promise<string[]>`
+- pub `agent` method L122-131 — `agent(name: string, apiKey: string): Persona`
+- pub `prepare` method L137-139 — `prepare(humans: Human[]): Promise<void>`
+- pub `all` method L141-143 — `all(): Persona[]`
+- pub `closeAll` method L146-158 — `closeAll(failedJourneyId?: string): Promise<string[]>`
 
 ### uat/run
 

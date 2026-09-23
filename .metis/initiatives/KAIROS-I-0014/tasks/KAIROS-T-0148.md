@@ -4,14 +4,14 @@ level: task
 title: "J19 housekeeping: completed work archived, a repository retired, the guards still hold"
 short_code: "KAIROS-T-0148"
 created_at: 2026-09-23T03:46:12.151162+00:00
-updated_at: 2026-09-23T10:34:27.566234+00:00
+updated_at: 2026-09-23T10:36:59.370236+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,6 +39,8 @@ KAIROS-I-0013 (T-0133 and T-0134 in particular).
 
 If a journey needs a team of its own, give the fixture a suffix no other
 journey uses (`mobile`, `ios`, `infra` are taken).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

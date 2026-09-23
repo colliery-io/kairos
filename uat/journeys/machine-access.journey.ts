@@ -34,15 +34,9 @@ journey(
       ledger.add({
         kind: 'service-account',
         label: account.name,
-        // The last step retires the account as part of the story, so
-        // teardown tolerates it being gone already rather than reporting
-        // a failure for work the journey did on purpose.
-        delete: async () => {
-          const res = await api.raw('DELETE', `/api/service-accounts/${accountId}`);
-          if (res.status !== 404 && (res.status < 200 || res.status >= 300)) {
-            throw new Error(`DELETE service account -> ${res.status}`);
-          }
-        },
+        // The last step retires the account as part of the story; teardown
+        // treats an already-gone entry as done (see `ledger.ts`).
+        delete: async () => { await api.delete(`/api/service-accounts/${accountId}`); },
       });
       const key = await cli.json(['keys', 'create', '--service-account', accountId, '--name', 'primary']);
       firstKey = key.key;

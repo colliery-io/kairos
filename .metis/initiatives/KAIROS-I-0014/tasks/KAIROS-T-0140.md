@@ -4,14 +4,14 @@ level: task
 title: "J10 decision-record: an ADR is decided, a later one supersedes it"
 short_code: "KAIROS-T-0140"
 created_at: 2026-09-23T03:45:47.607868+00:00
-updated_at: 2026-09-23T10:27:55.684374+00:00
+updated_at: 2026-09-23T10:32:49.731774+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

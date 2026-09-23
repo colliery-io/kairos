@@ -4,14 +4,14 @@ level: task
 title: "GUI: fluid board columns — columns share the lane width instead of fixed 260px, so a five-column board fits a laptop viewport"
 short_code: "KAIROS-T-0126"
 created_at: 2026-09-23T01:14:11.106744+00:00
-updated_at: 2026-09-23T01:14:11.106744+00:00
+updated_at: 2026-09-23T01:23:36.057269+00:00
 parent: KAIROS-I-0011
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

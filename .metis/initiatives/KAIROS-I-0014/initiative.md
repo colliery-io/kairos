@@ -4,14 +4,14 @@ level: initiative
 title: "More User Journeys - The Stories the UAT Tier Does Not Tell Yet"
 short_code: "KAIROS-I-0014"
 created_at: 2026-09-23T03:40:55.286890+00:00
-updated_at: 2026-09-23T03:42:44.251409+00:00
+updated_at: 2026-09-23T03:46:37.734227+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/design"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -138,6 +138,65 @@ is "the thing a new person needs is where they would look for it".
 *Catches:* read paths, which nothing else tests because every other
 journey writes.
 
+### The arc: new user → mature org
+
+Dylan (2026-09-22): *"keep adding uat stories until we've covered from new
+user to mature org."* The journeys are ordered by where an organisation is
+in its life, and the suite should read as that arc end to end. Waves 1–2
+above cover the first half; these cover what happens once Kairos is load
+bearing.
+
+**J14 `growing-team` — "Someone joins, someone leaves"**
+A new member is added, granted capabilities on a board, does a piece of
+work; then a member leaves — removed from the team, their in-flight work
+reassigned, and the org-admin guard that refuses removing the LAST admin.
+
+*Catches:* work orphaned by an offboarding, and the last-admin guard.
+
+**J15 `reorg` — "Two teams become one"**
+The mature-org event nothing tests: a team is wound down and its work
+absorbed. Repositories re-homed to the surviving team, live cards moved
+board to board, the old team deleted once it is clear (KAIROS-I-0012's
+rule under real load), and the agents scoped to the moved repository still
+find their queue afterwards.
+
+*Catches:* routing that goes stale after a re-home — a task bound to a
+moved repository sitting on a board its owner no longer holds.
+
+**J16 `quarterly-review` — "The leadership team reads the whole portfolio"**
+Strategy → initiatives across several teams, progress rollups, the blocked
+chain surfaced at the Initiative Board Review, and a stream's view of who
+is working on what. Read-heavy, across every level at once, which is the
+only way the flight-level story is actually exercised.
+
+*Catches:* rollups that disagree with the boards they summarise.
+
+**J17 `incident` — "Something breaks on a Friday"**
+An unplanned support request arrives into the Support lane, is triaged
+ahead of planned work, becomes a bug bound to a repository, is fixed with
+a PR that links back, and closes — the unplanned-work path (KAIROS-T-0077
+lanes + work_class) that the planned-work journeys never touch.
+
+*Catches:* lane handling under a real transition sequence, and a support
+item that never reaches the team's rollup.
+
+**J18 `second-tenant` — "The deployment hosts more than one organisation"**
+An operator provisions a second tenant, seeds it minimally, and proves the
+seam: a member of one cannot see or reach the other's work through any
+surface (GUI, API, MCP, CLI). Compose-only.
+
+*Catches:* tenant isolation as a PERSON experiences it, rather than as the
+integration suite's negative tests.
+
+**J19 `housekeeping` — "Old work is put away"**
+The end of the arc: completed work archived (soft delete), a board's
+history growing, the retention posture checked, and a repository retired
+once nothing references it. What a two-year-old organisation does every
+quarter.
+
+*Catches:* archive-then-delete interactions with the guards added in
+KAIROS-I-0012.
+
 ### Conventions (unchanged)
 
 Existing harness: `journey()` / `step(persona, …)`, the ledger for
@@ -159,17 +218,24 @@ J3 `ios`, J7 `infra` are taken).
 
 ## Implementation Plan **[REQUIRED]**
 
-One task per journey, in this order (each independent; the order is by how
-much each would embarrass us if broken):
+One task per journey. The order walks the arc rather than the risk, so a
+half-finished initiative still reads as a coherent stretch of an
+organisation's life:
 
-1. **J8 machine-access**
-2. **J12 operations**
-3. **J9 explorer**
-4. **J10 decision-record**
-5. **J11 new-kind-of-work**
-6. **J13 first-week**
-7. **Close out:** both full runs recorded, READMEs updated to list the
-   journeys, the drift gate still green.
+1. **J13 first-week** (a newcomer reads)
+2. **J8 machine-access** (the first machine principal)
+3. **J9 explorer** (asking where work came from)
+4. **J10 decision-record** (decisions accumulate)
+5. **J11 new-kind-of-work** (process evolves)
+6. **J17 incident** (unplanned work arrives)
+7. **J14 growing-team** (people join and leave)
+8. **J15 reorg** (teams merge)
+9. **J16 quarterly-review** (the portfolio is read)
+10. **J12 operations** (the deployment is tended)
+11. **J18 second-tenant** (a second organisation arrives)
+12. **J19 housekeeping** (old work is put away)
+13. **Close out:** both full runs recorded, READMEs updated with the arc,
+    the drift gate still green.
 
 Gates per task: `npx tsc --noEmit`, the journey green in compose, no
 leftovers; the close-out task runs both modes end to end.

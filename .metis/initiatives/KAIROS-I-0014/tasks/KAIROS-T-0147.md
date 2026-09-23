@@ -4,14 +4,14 @@ level: task
 title: "J18 second-tenant: an operator provisions a second organisation and the seam holds on every surface"
 short_code: "KAIROS-T-0147"
 created_at: 2026-09-23T03:46:09.329932+00:00
-updated_at: 2026-09-23T10:32:00.428245+00:00
+updated_at: 2026-09-23T10:36:38.545874+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

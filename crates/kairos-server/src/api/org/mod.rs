@@ -113,9 +113,16 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
 /// on the T-0010 argument that a deleted item still holds the FK and
 /// would orphan on restore — but no restore path exists, so the rule made
 /// every team permanent once a card had touched its board. Deleted items
-/// keep their FK to the (also soft-deleted) board; a future restore
-/// feature must refuse while the board is gone. `remove_column` keeps
-/// counting soft-deleted rows: re-parenting rows is a different invariant.
+/// keep their FK to the (also soft-deleted) board; a restore must refuse
+/// while the board is gone.
+///
+/// `remove_column` used to be the exception that counted archived rows
+/// too, because `column_id` has no `ON DELETE` clause and a hard delete
+/// would simply have failed. KAIROS-T-0161 removed the exception by
+/// removing its cause: a column is soft-deleted now, so the FK survives
+/// and `count_items_in_column` asks the same question this does — is
+/// there still LIVE work here? (ADR-20 rule 5.) The two counts differ
+/// only in scope, a column versus a whole board.
 pub fn count_live_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result<i64, ApiError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 

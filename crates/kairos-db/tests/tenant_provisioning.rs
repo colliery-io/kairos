@@ -473,29 +473,32 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `repositories`,
-    // KAIROS-T-0103): revert its DDL (the down migration's shape) and drop
-    // its bookkeeping row in widgets only, then fleet-migrate and expect
-    // exactly that one migration to re-apply.
+    // that predates the NEWEST tenant migration (currently
+    // `board_columns_soft_delete`, KAIROS-T-0161): revert its DDL (the down
+    // migration's shape) and drop its bookkeeping row in widgets only, then
+    // fleet-migrate and expect exactly that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
     // to remove by deriving the target from the embedded migration list.
-    sql_query("ALTER TABLE org_widgets.tasks DROP COLUMN repository_id")
+    // Dropping the column takes the two partial indexes with it (their
+    // predicates reference it), so the pre-T-0161 shape is exactly the
+    // table-wide UNIQUE constraints put back.
+    sql_query("ALTER TABLE org_widgets.board_columns DROP COLUMN deleted_at")
         .execute(&mut conn)
-        .expect("dropping tasks.repository_id in widgets to simulate an old tenant");
+        .expect("dropping board_columns.deleted_at in widgets to simulate an old tenant");
     sql_query(
-        "ALTER TABLE org_widgets.forge_connections \
-             DROP COLUMN repository_id, \
-             ADD COLUMN repo_full_name TEXT NOT NULL, \
-             ADD COLUMN repo_url TEXT NOT NULL, \
-             ADD COLUMN team_id UUID REFERENCES org_widgets.teams(id)",
+        "ALTER TABLE org_widgets.board_columns \
+             ADD CONSTRAINT board_columns_board_id_position_key UNIQUE (board_id, position)",
     )
     .execute(&mut conn)
-    .expect("restoring pre-repositories forge_connections shape in widgets");
-    sql_query("DROP TABLE org_widgets.repositories")
-        .execute(&mut conn)
-        .expect("dropping repositories in widgets to simulate an old tenant");
+    .expect("restoring the table-wide position UNIQUE in widgets");
+    sql_query(
+        "ALTER TABLE org_widgets.board_columns \
+             ADD CONSTRAINT board_columns_board_id_name_key UNIQUE (board_id, name)",
+    )
+    .execute(&mut conn)
+    .expect("restoring the table-wide name UNIQUE in widgets");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -525,21 +528,35 @@ fn tenant_provisioning_lifecycle() {
     assert_eq!(
         count(
             &mut conn,
-            "SELECT count(*) FROM information_schema.tables \
-             WHERE table_schema = 'org_widgets' AND table_name = 'repositories'"
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'org_widgets' AND table_name = 'board_columns' \
+               AND column_name = 'deleted_at'"
         ),
         1,
-        "repositories is back in widgets after the fleet upgrade"
+        "board_columns.deleted_at is back in widgets after the fleet upgrade"
+    );
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT indexname::text AS name FROM pg_indexes \
+             WHERE schemaname = $1 AND tablename = 'board_columns' \
+               AND indexname LIKE 'board_columns_live_%'",
+            "org_widgets",
+        ),
+        [
+            "board_columns_live_name_key",
+            "board_columns_live_position_key"
+        ],
+        "and the table-wide UNIQUE constraints became live-only partial indexes"
     );
     assert_eq!(
         count(
             &mut conn,
-            "SELECT count(*) FROM information_schema.columns \
-             WHERE table_schema = 'org_widgets' AND table_name = 'forge_connections' \
-               AND column_name IN ('repository_id', 'repo_full_name')"
+            "SELECT count(*) FROM pg_constraint \
+             WHERE conrelid = 'org_widgets.board_columns'::regclass AND contype = 'u'"
         ),
-        1,
-        "forge_connections is re-keyed on repository_id (old columns gone) after the fleet upgrade"
+        0,
+        "the old table-wide UNIQUE constraints are gone"
     );
 
     // ---- drop-tenant -------------------------------------------------------

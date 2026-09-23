@@ -64,6 +64,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         is_done -> Bool,
+        deleted_at -> Nullable<Timestamptz>,
     }
 }
 

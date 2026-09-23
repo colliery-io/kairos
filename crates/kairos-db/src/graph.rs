@@ -479,7 +479,8 @@ pub fn children_progress(
         "SELECT bc.id AS column_id, bc.name AS column_name, bc.board_id, \
                 bc.is_done, \
                 EXISTS(SELECT 1 FROM board_columns d \
-                       WHERE d.board_id = bc.board_id AND d.is_done) AS board_has_done, \
+                       WHERE d.board_id = bc.board_id AND d.is_done \
+                         AND d.deleted_at IS NULL) AS board_has_done, \
                 COUNT(*) AS count \
          FROM item_relationships r \
          JOIN ({CHILD_COLUMNS_SQL}) c ON c.id = r.target_id \
@@ -524,7 +525,8 @@ pub fn board_children_progress(
     let rows: Vec<BoardProgressRow> = sql_query(format!(
         "SELECT r.source_id AS parent_id, bc.is_done, \
                 EXISTS(SELECT 1 FROM board_columns d \
-                       WHERE d.board_id = bc.board_id AND d.is_done) AS board_has_done, \
+                       WHERE d.board_id = bc.board_id AND d.is_done \
+                         AND d.deleted_at IS NULL) AS board_has_done, \
                 COUNT(*) AS count \
          FROM item_relationships r \
          JOIN ({CHILD_COLUMNS_SQL}) c ON c.id = r.target_id \

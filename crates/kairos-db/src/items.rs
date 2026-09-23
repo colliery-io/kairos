@@ -248,8 +248,8 @@ fn finish_create(
 }
 
 /// Resolve an item's column placement on `board_id`: an explicit
-/// `column_id` is validated to belong to the board; `None` defaults to the
-/// board's first column (position order, i.e. position 0).
+/// `column_id` is validated to belong to the board and still be live;
+/// `None` defaults to the board's first LIVE column (position order).
 fn resolve_column(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -267,10 +267,14 @@ fn resolve_column(
         return Err(ItemError::BoardNotFound(board_id));
     }
 
+    // Live columns only: a removed column (KAIROS-T-0161) is not a column
+    // of the board any more, so nothing new may land in it — naming one
+    // reads as "not on this board", which is what it is.
     match column_id {
         Some(column_id) => board_columns::table
             .filter(board_columns::id.eq(column_id))
             .filter(board_columns::board_id.eq(board_id))
+            .filter(board_columns::deleted_at.is_null())
             .select(board_columns::id)
             .first(conn)
             .optional()?
@@ -280,6 +284,7 @@ fn resolve_column(
             }),
         None => board_columns::table
             .filter(board_columns::board_id.eq(board_id))
+            .filter(board_columns::deleted_at.is_null())
             .order(board_columns::position.asc())
             .select(board_columns::id)
             .first(conn)

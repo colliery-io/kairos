@@ -24,6 +24,12 @@ use kairos_db::{migrate_all_tenants, provision_tenant, run_public_migrations};
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 const SCRATCH_DB: &str = "kairos_repositories_migration_test";
 const DOWN_SQL: &str = include_str!("../migrations/tenant/2026-09-22-000000_repositories/down.sql");
+/// The diesel bookkeeping version of the migration above — its directory
+/// timestamp with the separators stripped. Named rather than taken as
+/// `max(version)`: this test reverts exactly ONE migration, and
+/// "the newest one" stopped being this one as soon as a later tenant
+/// migration landed (KAIROS-T-0161's was the first to prove it).
+const REPOSITORIES_VERSION: &str = "20260922000000";
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())
@@ -70,12 +76,14 @@ fn revert_repositories_migration(conn: &mut PgConnection) {
         .execute(conn)
         .expect("pinning search_path");
     conn.batch_execute(DOWN_SQL).expect("running down.sql");
-    sql_query(
-        "DELETE FROM org_acme.__diesel_schema_migrations \
-         WHERE version = (SELECT max(version) FROM org_acme.__diesel_schema_migrations)",
-    )
-    .execute(conn)
-    .expect("forgetting the repositories migration");
+    let forgotten = sql_query("DELETE FROM org_acme.__diesel_schema_migrations WHERE version = $1")
+        .bind::<Text, _>(REPOSITORIES_VERSION)
+        .execute(conn)
+        .expect("forgetting the repositories migration");
+    assert_eq!(
+        forgotten, 1,
+        "the repositories migration must have been applied to org_acme"
+    );
     sql_query("SET search_path TO public")
         .execute(conn)
         .expect("resetting search_path");

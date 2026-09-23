@@ -117,9 +117,19 @@ fn log_activity(
     Ok(())
 }
 
-/// Load a board's columns and transition edges as core rule inputs.
-/// Errors with [`BoardError::BoardNotFound`] if the board does not exist or
-/// is soft-deleted.
+/// Load a board's LIVE columns and the transition edges between them, as
+/// core rule inputs. Errors with [`BoardError::BoardNotFound`] if the board
+/// does not exist or is soft-deleted.
+///
+/// A removed column (KAIROS-T-0161) is not part of the board any more, so
+/// it must not reach the rules: it would render, it would be offered as a
+/// transition target, and `check_add_column` would refuse its name to the
+/// admin who just removed it. Its edges are still in `board_transitions` —
+/// the `ON DELETE CASCADE` that used to sweep them away never fires on a
+/// soft delete — so they are **filtered here** against the live column set
+/// rather than deleted. That is deliberate: removing a column no longer
+/// destroys the board's wiring, so a future restore has something to
+/// restore to.
 fn load_board_rules(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -138,6 +148,7 @@ fn load_board_rules(
 
     let columns: Vec<rules::Column> = board_columns::table
         .filter(board_columns::board_id.eq(board_id))
+        .filter(board_columns::deleted_at.is_null())
         .order(board_columns::position.asc())
         .select((
             board_columns::id,
@@ -149,6 +160,7 @@ fn load_board_rules(
         .map(|(id, name, position)| rules::Column { id, name, position })
         .collect();
 
+    let live: std::collections::HashSet<Uuid> = columns.iter().map(|c| c.id).collect();
     let transitions: Vec<rules::Transition> = board_transitions::table
         .filter(board_transitions::board_id.eq(board_id))
         .select((
@@ -157,6 +169,7 @@ fn load_board_rules(
         ))
         .load::<(Uuid, Uuid)>(conn)?
         .into_iter()
+        .filter(|(from, to)| live.contains(from) && live.contains(to))
         .map(|(from_column_id, to_column_id)| rules::Transition {
             from_column_id,
             to_column_id,
@@ -677,11 +690,20 @@ pub fn rename_column(
     })
 }
 
-/// Remove a column. Only allowed when NO workflow item (strategy,
-/// initiative, task, or ADR — soft-deleted rows included, since they still
-/// reference the column) occupies it
-/// ([`kairos_core::board::check_remove_column`]); its transition edges are
-/// removed with it (`ON DELETE CASCADE`).
+/// Remove a column: a SOFT delete (KAIROS-T-0161), allowed when no LIVE
+/// workflow item (strategy, initiative, task, or ADR) occupies it
+/// ([`kairos_core::board::check_remove_column`]).
+///
+/// Archived cards may stay behind, and that is the whole point. They hold
+/// a `NOT NULL` FK to this column with no `ON DELETE` clause, so a hard
+/// delete was never available while one existed — the column was pinned
+/// open forever by work nobody could see any more. Keeping the row instead
+/// satisfies the FK and keeps each archived card's answer to "which column
+/// was this in when it was put away?" (ADR-20: archived means hidden, not
+/// gone).
+///
+/// Its transition edges survive too — nothing cascades off a soft delete —
+/// and [`load_board_rules`] filters them out of the live graph instead.
 pub fn remove_column(
     conn: &mut PgConnection,
     column_id: Uuid,
@@ -696,7 +718,11 @@ pub fn remove_column(
         rules::check_remove_column(&columns, column_id, item_count)?;
         let name = column_name(&columns, column_id)?;
 
-        diesel::delete(board_columns::table.filter(board_columns::id.eq(column_id)))
+        diesel::update(board_columns::table.filter(board_columns::id.eq(column_id)))
+            .set((
+                board_columns::deleted_at.eq(diesel::dsl::now),
+                board_columns::updated_at.eq(diesel::dsl::now),
+            ))
             .execute(conn)?;
 
         log_activity(
@@ -726,12 +752,18 @@ pub fn reorder_columns(
         let (columns, _) = load_board_rules(conn, board_id)?;
         let assignments = rules::check_reorder_columns(&columns, new_order)?;
 
-        // UNIQUE (board_id, position) is not deferrable, so park every
+        // The live-position unique index is not deferrable, so park every
         // column on a distinct negative position first, then assign the
-        // final 0..n order.
-        diesel::update(board_columns::table.filter(board_columns::board_id.eq(board_id)))
-            .set(board_columns::position.eq(board_columns::position * -1 - 1))
-            .execute(conn)?;
+        // final 0..n order. LIVE columns only: a removed column keeps the
+        // position it had, and negating it twice would eventually collide
+        // it back onto a live one (KAIROS-T-0161).
+        diesel::update(
+            board_columns::table
+                .filter(board_columns::board_id.eq(board_id))
+                .filter(board_columns::deleted_at.is_null()),
+        )
+        .set(board_columns::position.eq(board_columns::position * -1 - 1))
+        .execute(conn)?;
         for (column_id, position) in &assignments {
             diesel::update(board_columns::table.filter(board_columns::id.eq(column_id)))
                 .set((
@@ -851,37 +883,52 @@ pub fn dead_end_columns(
     Ok(rules::dead_end_columns(&columns, &transitions))
 }
 
-/// The `board_id` of a column, or [`BoardError::ColumnNotFound`].
+/// The `board_id` of a LIVE column, or [`BoardError::ColumnNotFound`] —
+/// which is also the answer for a removed one: it is no longer a column of
+/// the board, so it cannot be renamed, re-removed or flagged done.
 fn column_board_id(conn: &mut PgConnection, column_id: Uuid) -> Result<Uuid, BoardError> {
     use crate::schema::board_columns;
     board_columns::table
         .filter(board_columns::id.eq(column_id))
+        .filter(board_columns::deleted_at.is_null())
         .select(board_columns::board_id)
         .first(conn)
         .optional()?
         .ok_or(BoardError::ColumnNotFound(column_id))
 }
 
-/// How many workflow items reference `column_id` across every entity table.
-/// Soft-deleted rows count too: they still hold the FK, so removing the
-/// column would fail (and would orphan their placement on restore).
+/// How many LIVE workflow items occupy `column_id`, across every entity
+/// table — the count [`remove_column`] refuses on.
+///
+/// Archived rows are excluded (KAIROS-T-0161). They used to count, on the
+/// argument that a soft-deleted row still holds the FK and a hard delete
+/// would therefore fail — which was true, and which made one archived card
+/// enough to pin a column open permanently. Removal is a soft delete now,
+/// so the FK is no longer the obstacle it was, and the question the guard
+/// asks is the ADR-20 one that every other guard asks: is there still LIVE
+/// work here? (Compare `count_live_board_items` in
+/// `kairos-server/api/org/mod.rs`, which asks it of a whole board.)
 fn count_items_in_column(conn: &mut PgConnection, column_id: Uuid) -> Result<u64, BoardError> {
     use crate::schema::{adrs, initiatives, strategies, tasks};
 
     let strategies_count: i64 = strategies::table
         .filter(strategies::column_id.eq(column_id))
+        .filter(strategies::deleted_at.is_null())
         .count()
         .get_result(conn)?;
     let initiatives_count: i64 = initiatives::table
         .filter(initiatives::column_id.eq(column_id))
+        .filter(initiatives::deleted_at.is_null())
         .count()
         .get_result(conn)?;
     let tasks_count: i64 = tasks::table
         .filter(tasks::column_id.eq(column_id))
+        .filter(tasks::deleted_at.is_null())
         .count()
         .get_result(conn)?;
     let adrs_count: i64 = adrs::table
         .filter(adrs::column_id.eq(column_id))
+        .filter(adrs::deleted_at.is_null())
         .count()
         .get_result(conn)?;
 
@@ -896,6 +943,7 @@ pub fn entry_column(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uu
     use crate::schema::board_columns;
     board_columns::table
         .filter(board_columns::board_id.eq(board_id))
+        .filter(board_columns::deleted_at.is_null())
         .order(board_columns::position.asc())
         .select(board_columns::id)
         .first(conn)

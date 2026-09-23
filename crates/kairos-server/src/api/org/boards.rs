@@ -80,25 +80,45 @@ pub fn router() -> Router<AppState> {
 // Shared loading
 // ---------------------------------------------------------------------------
 
-/// Columns of a board in position order.
+/// LIVE columns of a board in position order. A removed column
+/// (KAIROS-T-0161) keeps its row so the archived cards in it still know
+/// where they were put away, but it is not part of the board any more and
+/// must not render on one.
 fn load_columns(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError> {
     use kairos_db::schema::board_columns::dsl;
     dsl::board_columns
         .filter(dsl::board_id.eq(board_id))
+        .filter(dsl::deleted_at.is_null())
         .order(dsl::position.asc())
         .select(BoardColumn::as_select())
         .load(conn)
         .map_err(ApiError::internal)
 }
 
-/// Transition edges of a board.
+/// Transition edges of a board, between LIVE columns.
+///
+/// Removing a column used to cascade its edges away (the `ON DELETE
+/// CASCADE` on `board_transitions`); a soft delete cascades nothing, so
+/// the edges are filtered here instead. The board's wiring therefore
+/// survives a column removal, which is the better behaviour and the reason
+/// this is a filter rather than a delete (KAIROS-T-0161).
 fn load_transitions(
     conn: &mut PgConnection,
     board_id: Uuid,
 ) -> Result<Vec<BoardTransition>, ApiError> {
+    use kairos_db::schema::board_columns;
     use kairos_db::schema::board_transitions::dsl;
+
+    let live = || {
+        board_columns::table
+            .filter(board_columns::board_id.eq(board_id))
+            .filter(board_columns::deleted_at.is_null())
+            .select(board_columns::id)
+    };
     dsl::board_transitions
         .filter(dsl::board_id.eq(board_id))
+        .filter(dsl::from_column_id.eq_any(live()))
+        .filter(dsl::to_column_id.eq_any(live()))
         .select(BoardTransition::as_select())
         .load(conn)
         .map_err(ApiError::internal)
@@ -115,8 +135,8 @@ fn board_detail(conn: &mut PgConnection, board: Board) -> Result<dto::BoardDetai
     })
 }
 
-/// A column of `board_id` by id, or 404 (also 404 when the column belongs
-/// to a different board — path scoping).
+/// A LIVE column of `board_id` by id, or 404 (also 404 when the column
+/// belongs to a different board — path scoping — or has been removed).
 fn load_column_of_board(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -126,6 +146,7 @@ fn load_column_of_board(
     dsl::board_columns
         .filter(dsl::id.eq(column_id))
         .filter(dsl::board_id.eq(board_id))
+        .filter(dsl::deleted_at.is_null())
         .select(BoardColumn::as_select())
         .first(conn)
         .optional()
@@ -772,8 +793,10 @@ pub(crate) async fn update_column(
     Ok(Json(updated))
 }
 
-/// Remove a column. Only allowed when no item occupies it — the T-0010
-/// rule surfaces as 422 `COLUMN_NOT_EMPTY`. Requires `configure_boards`.
+/// Remove a column — a soft delete (KAIROS-T-0161). Only allowed when no
+/// LIVE item occupies it; the T-0010 rule surfaces as 422
+/// `COLUMN_NOT_EMPTY`. Archived cards may stay behind and keep reporting
+/// the column they were put away in. Requires `configure_boards`.
 #[utoipa::path(
     delete,
     path = "/api/boards/{id}/columns/{col_id}",
@@ -783,7 +806,7 @@ pub(crate) async fn update_column(
         ("col_id" = String, Path, description = "Column id (UUID)"),
     ),
     responses(
-        (status = 200, description = "Removed (its transition edges cascade)", body = dto::OrgDeleteResponse),
+        (status = 200, description = "Removed (soft: archived cards keep its name; its transition edges are kept but no longer apply)", body = dto::OrgDeleteResponse),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board/column", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "COLUMN_NOT_EMPTY (details.item_count)", body = kairos_client::types::ErrorEnvelope),

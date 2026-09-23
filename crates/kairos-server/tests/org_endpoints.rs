@@ -508,6 +508,63 @@ async fn org_and_admin_endpoints_against_live_stack() {
         .await
         .expect("removing the empty column");
 
+    // KAIROS-T-0161: archived cards no longer pin a column open. Park a
+    // strategy in a column of its own, archive it, and the removal that
+    // used to be impossible outright (NOT NULL FK, no ON DELETE clause)
+    // goes through.
+    let retired = svc
+        .add_column(
+            &strategy_board,
+            &CreateColumnRequest {
+                name: "Retired".into(),
+                position: 6,
+            },
+        )
+        .await
+        .expect("adding Retired");
+    let parked = svc
+        .create_strategy(&CreateStrategyRequest {
+            board_id: strategy_board.clone(),
+            column_id: Some(retired.id.clone()),
+            title: "Finished bet".into(),
+            content: "# Done".into(),
+            hypothesis: None,
+        })
+        .await
+        .expect("creating a strategy in Retired");
+    let err = rejection(svc.remove_column(&strategy_board, &retired.id).await);
+    match &err {
+        Error::Other {
+            status,
+            code,
+            details,
+            ..
+        } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "COLUMN_NOT_EMPTY");
+            assert_eq!(details["item_count"], 1);
+        }
+        other => panic!("expected 422 COLUMN_NOT_EMPTY, got {other}"),
+    }
+    svc.delete_strategy(&parked.short_code)
+        .await
+        .expect("archiving the strategy");
+    svc.remove_column(&strategy_board, &retired.id)
+        .await
+        .expect("a column whose only occupant is archived can be removed");
+    let detail = svc
+        .get_board(&strategy_board)
+        .await
+        .expect("re-reading the board");
+    assert!(
+        !detail.columns.iter().any(|c| c.name == "Retired"),
+        "a removed column must not render on a live board"
+    );
+    // It is not a column of the board any more, so the second removal is
+    // a 404 rather than a second soft delete.
+    let err = rejection(svc.remove_column(&strategy_board, &retired.id).await);
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+
     // Board CRUD: create from defaults, delete only when empty.
     let sandbox = svc
         .create_board(&CreateBoardRequest {

@@ -74,6 +74,12 @@ pub struct BoardColumn {
     /// Occupants count as completed for children-progress rollups
     /// (KAIROS-T-0080). Admin-set; the dead-end heuristic only suggests.
     pub is_done: bool,
+    /// Soft delete (KAIROS-T-0161, ADR-20 one level down). A removed
+    /// column stops being part of the board — it does not render, it is
+    /// not a transition endpoint, nothing new lands in it — but the row
+    /// stays, because the archived cards still holding its FK would
+    /// otherwise lose the name of the column they were put away in.
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// Insert for [`BoardColumn`].
@@ -93,6 +99,7 @@ pub struct BoardColumnChangeset {
     pub name: Option<String>,
     pub position: Option<i32>,
     pub is_done: Option<bool>,
+    pub deleted_at: Option<Option<DateTime<Utc>>>,
     pub updated_at: Option<DateTime<Utc>>,
 }
 

@@ -62,24 +62,38 @@ fn board_id_by_slug(conn: &mut PgConnection, slug: &str) -> Uuid {
         .unwrap_or_else(|e| panic!("board {slug:?} not found: {e}"))
 }
 
-/// The column named `name` on `board`.
+/// The LIVE column named `name` on `board`. Names are unique per board
+/// only among live columns (KAIROS-T-0161), so the filter is what makes
+/// this single-valued once a column has been removed and re-added.
 fn column_id_by_name(conn: &mut PgConnection, board: Uuid, name: &str) -> Uuid {
     schema::board_columns::table
         .filter(schema::board_columns::board_id.eq(board))
         .filter(schema::board_columns::name.eq(name))
+        .filter(schema::board_columns::deleted_at.is_null())
         .select(schema::board_columns::id)
         .first(conn)
         .unwrap_or_else(|e| panic!("column {name:?} not found: {e}"))
 }
 
-/// Column names of `board` in position order.
+/// Live column names of `board` in position order — what the board is.
 fn column_names(conn: &mut PgConnection, board: Uuid) -> Vec<String> {
     schema::board_columns::table
         .filter(schema::board_columns::board_id.eq(board))
+        .filter(schema::board_columns::deleted_at.is_null())
         .order(schema::board_columns::position.asc())
         .select(schema::board_columns::name)
         .load(conn)
         .expect("loading columns")
+}
+
+/// The name stored on a column row, removed ones included — the audit
+/// lookup an archived card depends on (KAIROS-T-0161).
+fn column_name_of(conn: &mut PgConnection, column: Uuid) -> String {
+    schema::board_columns::table
+        .filter(schema::board_columns::id.eq(column))
+        .select(schema::board_columns::name)
+        .first(conn)
+        .unwrap_or_else(|e| panic!("column {column} row is gone: {e}"))
 }
 
 #[derive(QueryableByName)]
@@ -88,7 +102,10 @@ struct NameRow {
     name: String,
 }
 
-/// Transition pairs `"From -> To"` for a board (current search_path schema).
+/// Transition pairs `"From -> To"` for a board (current search_path
+/// schema) — every stored row, whether or not both endpoints are still
+/// live. Use [`live_transition_pairs`] for the graph the board actually
+/// runs on.
 fn transition_pairs(conn: &mut PgConnection, board: Uuid) -> BTreeSet<String> {
     sql_query(
         "SELECT (f.name || ' -> ' || t.name)::text AS name \
@@ -96,6 +113,26 @@ fn transition_pairs(conn: &mut PgConnection, board: Uuid) -> BTreeSet<String> {
          JOIN board_columns f ON f.id = tr.from_column_id \
          JOIN board_columns t ON t.id = tr.to_column_id \
          WHERE tr.board_id = $1::uuid",
+    )
+    .bind::<Text, _>(board.to_string())
+    .load::<NameRow>(conn)
+    .expect("loading transitions")
+    .into_iter()
+    .map(|r| r.name)
+    .collect()
+}
+
+/// Transition pairs between LIVE columns only — the edges a move is
+/// actually validated against (KAIROS-T-0161: a soft-deleted column
+/// cascades nothing, so its edges are filtered, not deleted).
+fn live_transition_pairs(conn: &mut PgConnection, board: Uuid) -> BTreeSet<String> {
+    sql_query(
+        "SELECT (f.name || ' -> ' || t.name)::text AS name \
+         FROM board_transitions tr \
+         JOIN board_columns f ON f.id = tr.from_column_id \
+         JOIN board_columns t ON t.id = tr.to_column_id \
+         WHERE tr.board_id = $1::uuid \
+           AND f.deleted_at IS NULL AND t.deleted_at IS NULL",
     )
     .bind::<Text, _>(board.to_string())
     .load::<NameRow>(conn)
@@ -578,16 +615,43 @@ fn board_rules_lifecycle() {
         ]
     );
 
-    // Removing an EMPTY column succeeds; its transition edges cascade away.
+    // Removing an EMPTY column succeeds. KAIROS-T-0161: removal is a soft
+    // delete, so the row and its transition edges both survive — the board
+    // simply stops counting them.
     boards::remove_column(&mut conn, spike.id, actor_id).expect("removing empty Parking Lot");
     assert_eq!(
         column_names(&mut conn, strategy_board),
         ["Draft", "Review", "Active", "Monitoring", "Completed"]
     );
-    assert!(
-        !transition_pairs(&mut conn, strategy_board).contains("Parking Lot -> Draft"),
-        "the removed column's transitions were removed with it"
+    assert_eq!(
+        column_name_of(&mut conn, spike.id),
+        "Parking Lot",
+        "the removed column's row survives, name intact"
     );
+    assert!(
+        transition_pairs(&mut conn, strategy_board).contains("Parking Lot -> Draft"),
+        "removing a column must no longer destroy the board's wiring"
+    );
+    assert!(
+        !live_transition_pairs(&mut conn, strategy_board).contains("Parking Lot -> Draft"),
+        "but the edge is filtered out of the live graph"
+    );
+    let err = boards::transition_strategy(&mut conn, strategy_id, spike.id, actor_id)
+        .expect_err("a removed column is not a legal transition target");
+    assert!(
+        matches!(
+            err,
+            BoardError::Transition(TransitionError::UnknownToColumn(id)) if id == spike.id
+        ),
+        "expected UnknownToColumn, got {err:?}"
+    );
+    // Its name and position are free again — the uniqueness that matters
+    // is uniqueness among the columns the board HAS, which is why the DDL
+    // constraints became partial indexes. Position 0 is the one the
+    // removed row still occupies.
+    let spike_again = boards::add_column(&mut conn, strategy_board, "Parking Lot", 0, actor_id)
+        .expect("re-adding a column under the removed one's name and position");
+    boards::remove_column(&mut conn, spike_again.id, actor_id).expect("and removing it again");
     assert_eq!(
         dead_end_names(&mut conn, strategy_board),
         ["Monitoring", "Completed"]
@@ -603,7 +667,84 @@ fn board_rules_lifecycle() {
             "transition_remove:Monitoring->Completed",
             "columns_reorder:Parking Lot,Draft,Review,Active,Monitoring,Completed",
             "column_remove:Parking Lot",
+            "column_add:Parking Lot@0",
+            "column_remove:Parking Lot",
         ]
+    );
+
+    // ---- KAIROS-T-0161: an archived card stops pinning its column open ----
+    // The delivery board's Blocked column, holding one live task and one
+    // archived one. Removal must refuse while the live card is there and
+    // succeed once it is not — and afterwards the archived card must still
+    // be able to say which column it was put away in (ADR-20: archived
+    // means hidden, not gone).
+    boards::transition_task(&mut conn, task_id, blocked, actor_id).expect("Todo -> Blocked");
+    let archived_task: Uuid = diesel::insert_into(schema::tasks::table)
+        .values(NewTask {
+            short_code: "T-0002".into(),
+            title: "Finished work, put away".into(),
+            content: "".into(),
+            board_id: delivery.id,
+            column_id: blocked,
+            task_type: TaskType::Task,
+            work_class: kairos_db::models::enums::WorkClass::Planned,
+            team_id: Some(team.id),
+            repository_id: None,
+            created_by: actor_id,
+            updated_by: actor_id,
+        })
+        .returning(schema::tasks::id)
+        .get_result(&mut conn)
+        .expect("inserting the card that will be archived");
+    diesel::update(schema::tasks::table.filter(schema::tasks::id.eq(archived_task)))
+        .set(schema::tasks::deleted_at.eq(diesel::dsl::now))
+        .execute(&mut conn)
+        .expect("archiving it");
+
+    let err = boards::remove_column(&mut conn, blocked, actor_id)
+        .expect_err("a live card still blocks removal");
+    match err {
+        BoardError::Rule(ColumnRuleError::ColumnNotEmpty { column, item_count }) => {
+            assert_eq!(column.name, "Blocked");
+            assert_eq!(
+                item_count, 1,
+                "only the live card counts; archived work is not live work"
+            );
+        }
+        other => panic!("expected ColumnNotEmpty, got {other:?}"),
+    }
+
+    // Move the live card out. The archived one stays behind, holding the
+    // NOT NULL FK that used to make this removal impossible outright.
+    boards::transition_task(&mut conn, task_id, todo, actor_id).expect("Blocked -> Todo");
+    boards::remove_column(&mut conn, blocked, actor_id)
+        .expect("a column whose only occupants are archived can be removed");
+
+    assert_eq!(
+        column_names(&mut conn, delivery.id),
+        ["Backlog", "Todo", "Active", "Completed"],
+        "the removed column is gone from the live board"
+    );
+    let placement: Uuid = schema::tasks::table
+        .filter(schema::tasks::id.eq(archived_task))
+        .select(schema::tasks::column_id)
+        .first(&mut conn)
+        .expect("the archived card kept its placement");
+    assert_eq!(placement, blocked);
+    assert_eq!(
+        column_name_of(&mut conn, blocked),
+        "Blocked",
+        "and the column it was put away in still has a name to report"
+    );
+    // Todo <-> Blocked survived as rows, and the live graph no longer
+    // offers either direction.
+    assert!(
+        transition_pairs(&mut conn, delivery.id).contains("Todo -> Blocked"),
+        "the edges were filtered, not cascaded away"
+    );
+    assert!(
+        !live_transition_pairs(&mut conn, delivery.id).contains("Todo -> Blocked"),
+        "but Blocked is not reachable any more"
     );
 
     // Clean up the scratch database.

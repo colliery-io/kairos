@@ -204,12 +204,15 @@ pub fn demo_tenant_exists(conn: &mut PgConnection) -> Result<bool, SeedError> {
     Ok(row.present)
 }
 
-/// A board column's id by board + name (seeded default columns).
+/// A live board column's id by board + name (seeded default columns).
+/// Names are unique per board only among live columns (KAIROS-T-0161), so
+/// the liveness filter is what makes this lookup single-valued.
 fn column_id(conn: &mut PgConnection, board_id: Uuid, name: &str) -> Result<Uuid, SeedError> {
     use crate::schema::board_columns;
     Ok(board_columns::table
         .filter(board_columns::board_id.eq(board_id))
         .filter(board_columns::name.eq(name))
+        .filter(board_columns::deleted_at.is_null())
         .select(board_columns::id)
         .first(conn)?)
 }

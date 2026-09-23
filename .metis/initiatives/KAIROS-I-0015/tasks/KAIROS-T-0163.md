@@ -70,3 +70,25 @@ entity-type chips already on the page.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from [[KAIROS-T-0164]] — the GUI vocabulary is settled
+
+**2026-09-23.** T-0164 resolved the "archived" collision on the item page,
+and this task must match it rather than invent a second answer.
+
+- **Call the ADR-20 state "put away"** in all user-facing copy. Never a bare
+  "archived" anywhere a document's editorial `lifecycle:` badge can also
+  appear — that is the collision (KAIROS-T-0078's
+  `draft|review|published|archived`, which is unrelated to `deleted_at`).
+- `.kairos-archived-badge` is the shared class: **solid** gold outline for
+  the put-away state; the **dashed** badge is the editorial one.
+- Wire names: entity DTOs carry `archived_at` (absent while live). Board
+  columns carry `removed_at`, and only when asked for
+  (`GET /api/boards/{id}?include_removed_columns=true`).
+- Search result DTOs live in `crates/kairos-client/src/types_search.rs`.
+  **Confirm a search hit actually carries `archived_at` before designing a
+  marker for the result list** — [[KAIROS-T-0157]] is editing that file, and
+  whether hits are marked is its acceptance criterion, not an assumption
+  this task may make.
+- Linking works now: any archived hit can link to `/items/:code` or
+  `/activity/history/:code` and get a real page rather than an error.

@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
+  - "#phase/completed"
   - "#bug"
 
 
@@ -74,3 +74,22 @@ and we're by default limiting its visibility; nothing more."* Recorded as
 the table — archiving is a visibility default, not a permission boundary.
 [[KAIROS-T-0152]] is the same decision's other half and should be implemented
 with this, not after it.
+
+**2026-09-23 — fixed.** Closed by [[KAIROS-I-0015]], implementing
+[[KAIROS-A-0020]].
+
+- [[KAIROS-T-0154]] (`7517465`) — `GET /api/{family}/{short_code}` and
+  `/history` serve archived work, marked with `archived_at`.
+- [[KAIROS-T-0155]] (`2582fa3`) — MCP `get_item` / `get_history` and the CLI
+  do the same, with a banner.
+- [[KAIROS-T-0164]] (`9a3519b`) — `/items/:code` and
+  `/activity/history/:code` render it in the browser, verified for all five
+  families in the e2e GUI leg.
+
+The journey that found it (`uat/journeys/housekeeping.journey.ts`) has been
+rewritten from asserting 404 to asserting the audit answer.
+
+Note the original finding was half right in a way worth keeping: the
+activity trail was never the *only* thing that survived — the rows were
+always in the database, and `item_history` was never liveness-filtered at
+all. Nothing served them. The fix was resolution, not storage.

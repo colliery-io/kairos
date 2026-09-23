@@ -96,3 +96,32 @@ two green runs had hidden.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from other tasks
+
+**2026-09-23, from [[KAIROS-T-0156]].** `uat/journeys/housekeeping.journey.ts`
+was **already rewritten** — it had gone red the moment T-0154 landed, since
+it still asserted 404 on the item and its history. It now asserts both
+halves of ADR-20: off the MCP queue AND off `/api/tasks` (codes *and*
+count), but 200 with `archived_at` set on both item and history. Verify
+rather than redo, and check the closing step's
+`content_of_archived_work: 'not retrievable'` was updated with it.
+
+**2026-09-23, from [[KAIROS-T-0164]] — copy and e2e discipline.**
+
+- Use **"put away"** for the ADR-20 state in any narration, never a bare
+  "archived" beside a document's `lifecycle:` badge.
+- `e2e/tests/archived.spec.ts` already covers the browser leg (3 specs, all
+  five families, the both-senses document, and a removed column). The new
+  UAT journey should tell a *story* rather than duplicate it.
+- **Fixture hazard, learned the hard way:** `smoke` and `team-lens` each
+  assert exactly 5 board tiles, and a second live delivery board on a team
+  makes `POST /api/tasks` routing ambiguous (422). An early draft of the e2e
+  spec created its own board and broke three unrelated specs. **Create
+  nothing that stays visible.** Archived items and removed columns are
+  invisible by construction, so they are safe residue.
+- A-0001 cascades along **parent** edges only, so a document attached by
+  `supports` must be archived in its own right.
+- A restore puts back only the item asked for; `still_archived_short_codes`
+  names the descendants that stayed away, and the GUI surfaces that in the
+  success notice — worth a step in the journey.

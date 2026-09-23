@@ -4,14 +4,14 @@ level: task
 title: "J16 quarterly-review: the portfolio read across strategy, initiatives, streams and blocked chains"
 short_code: "KAIROS-T-0145"
 created_at: 2026-09-23T03:46:03.461308+00:00
-updated_at: 2026-09-23T10:22:02.469202+00:00
+updated_at: 2026-09-23T10:27:24.835398+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,8 +39,6 @@ KAIROS-I-0013 (T-0133 and T-0134 in particular).
 
 If a journey needs a team of its own, give the fixture a suffix no other
 journey uses (`mobile`, `ios`, `infra` are taken).
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -256,6 +256,47 @@ exactly once); revocation and expiry take effect immediately on the next request
 service accounts can never be org admins or deployment admins; rotate by minting a
 new key and revoking the old one; never commit a key to source control.
 
+## Teams — and winding one down
+
+A team owns a delivery board (created with it) and any number of
+repositories. Disbanding one is deliberate: Kairos refuses the delete while
+anything still points at the team, and says what.
+
+```sh
+kairos teams delete <team-id> --confirm
+# 409 — it still owns repositories: re-home or retire them
+kairos repos update payments-api --team platform
+# 422 — its board still holds live cards, named in the message:
+#   team "Mobile"'s delivery board still holds 2 live card(s):
+#   [DEMO-T-0041, DEMO-T-0043]; move them to another board
+#   (POST /api/tasks/{code}/move) or delete them, then retry
+kairos tasks move DEMO-T-0041 --to-board platform-delivery
+kairos tasks delete DEMO-T-0043 --confirm     # "archived" — history is kept
+kairos teams delete <team-id> --confirm       # now it goes
+```
+
+A **deleted card no longer blocks a team** (a soft delete is the archive:
+the card, its history and its activity stay in the database, and its board
+is soft-deleted with the team). Before KAIROS-I-0012 they did block, which
+made a team permanent once any card had touched its board.
+
+**Moving a task between delivery boards** is the other half:
+
+| Surface | How |
+|---|---|
+| CLI | `kairos tasks move <code> --to-board <slug\|uuid>` |
+| API | `POST /api/tasks/{code}/move` with `{"board": "<slug\|uuid>"}` |
+| MCP | `move_item {short_code, to_board}` — agents move a mis-filed ticket rather than recreating it |
+| GUI | the **Board** select on the item page's Board panel |
+
+The task lands in the target board's entry column and takes on that
+board's team. You need `manage_tasks` on **both** boards (org admins
+bypass, as everywhere) — pushing work onto another team's board is their
+call as much as yours; a cross-team *request* still goes through
+`file_backlog` instead. A task bound to a repository may only move to that
+repository's owning team's board: re-home the repository, or unbind the
+task first (`kairos repos unbind <code>`).
+
 ## Repositories — where tickets are issued and executed
 
 ### Why repositories
@@ -470,7 +511,7 @@ password login form (Dex, Keycloak with direct grants) and register
 | `--headed`, `--report-dir` | show the browser; where the report lands |
 | `UAT_PERSONA_<ALICE\|BOB\|CAROL\|NEWHIRE>_EMAIL` / `_PASSWORD` | persona credentials (default: the seed users) |
 | `UAT_TENANT`, `UAT_ISSUER` | tenant slug and OIDC issuer for a deployment |
-| `UAT_TEAM` | the team bob belongs to, on which the agent journey registers its repository (default `platform`) |
+| `UAT_TEAM` | an existing team to hang the agent journey's repository on, when the credentials cannot create teams (default `platform`; unused by default since the journeys create their own) |
 | `UAT_THEIR_REPO`, `UAT_MY_REPO` | the cross-team journey's two repositories (default `payments-api`, `portal-web`) |
 
 Journey-writing conventions live in `uat/README.md`. The nightly

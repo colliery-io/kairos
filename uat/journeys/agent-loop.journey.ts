@@ -1,16 +1,16 @@
 // J3 — "An agent picks up a ticket in its repository and lands a PR"
-// (KAIROS-I-0011 D4). The agent persona is a service account on bob's
-// team (UAT_TEAM, default `platform`), which registers one repository for
-// this run — the J1 fixture minus the team, because a team whose board has
-// held an item can never be deleted and this journey must clean up after
-// itself. The agent makes exactly the MCP/CLI calls the plugin's
-// `implement` skill documents: whoami →
+// (KAIROS-I-0011 D4). The agent persona is a service account on a team
+// created for this run, which owns one repository — the whole J1 fixture.
+// (It ran on an existing team until KAIROS-I-0012 made a team deletable
+// again once its board holds no live cards; now the ledger deletes the
+// task and the team goes with it.) The agent makes exactly the MCP/CLI
+// calls the plugin's `implement` skill documents: whoami →
 // list_repositories → get_repository → board_items narrowed to the repo →
 // get_item → transition_item. bob, a human on the team, raises the ticket
 // in the GUI and watches the PR arrive; the forge speaks through signed
 // webhooks on a connection alice creates for the repo.
 import { expect } from '@playwright/test';
-import { setupRepoAgentOnTeam, type TeamFixture } from '../fixtures/team';
+import { setupTeamRepoAgent, type TeamFixture } from '../fixtures/team';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
 import { createForgeConnection, deliverGithubWebhook, githubPullRequest, type ForgeConnection } from '../surfaces/forge';
@@ -28,11 +28,13 @@ journey(
     let connection: ForgeConnection;
     let code = '';
 
-    await step(alice, "registers this run's repository on bob's team, with a coding agent and a forge webhook (setup)", async () => {
-      team = await setupRepoAgentOnTeam(alice, ledger, 'mobile');
+    await step(alice, 'sets up a team with a repository, a coding agent and a forge webhook (setup)', async () => {
+      team = await setupTeamRepoAgent(alice, ledger, 'ios');
       const api = await alice.api();
-      const me = await (await bob.api()).whoami();
-      expect((me.teams as any[]).map((t) => t.slug)).toContain(team.teamSlug);
+      // bob is the human on this team: the one who raises the ticket below.
+      const members = (await api.get('/api/members?limit=100')).items ?? [];
+      const bobRow = members.find((m: any) => m.email === bob.credentials.email);
+      await (await alice.cli()).ok(['teams', 'members', 'add', team.teamId, '--user', bobRow.user_id]);
       connection = await createForgeConnection(api, team.repoSlug);
       ledger.add({ kind: 'forge-connection', label: team.repoSlug, delete: async () => { await api.delete(`/api/forge-connections/${connection.id}`); } });
       return { team: team.teamSlug, repository: team.repoSlug, board: team.boardSlug, webhook: new URL(connection.webhookUrl).pathname };

@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
 import { teamFixture } from '../fixtures/team';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
-import { openTeam, panel } from '../surfaces/gui';
+import { cardIn, openBoard, openTeam, panel } from '../surfaces/gui';
 
 journey(
   'onboarding',
@@ -103,12 +103,64 @@ journey(
       };
     });
 
-    await step(alice, 'is refused when deleting the team while it still owns the repository', async () => {
+    // The other half of onboarding: a team can also be wound down, and
+    // Kairos says exactly what is in the way (KAIROS-I-0012).
+    let parked = '';
+    await step(alice, 'parks a task on the new team\'s board, then is refused the team delete — it still owns the repository', async () => {
+      const cli = await alice.cli();
+      const created = await cli.json([
+        'tasks', 'create', '--board', team.fixture.boardId!, '--title', named('task: pilot build pipeline'),
+      ]);
+      parked = created.short_code;
       const api = await alice.api();
+      ledger.add({ kind: 'task', label: parked, delete: async () => { await api.delete(`/api/tasks/${parked}`); } });
       const res = await api.raw('DELETE', `/api/teams/${team.fixture.teamId}`);
       expect(res.status).toBe(409);
-      return { status: res.status, message: res.body?.error?.message ?? res.body?.message ?? JSON.stringify(res.body).slice(0, 120) };
+      const message = res.body?.error?.message ?? '';
+      expect(message).toContain(team.fixture.repoSlug!);
+      return { parked, status: res.status, message: message.slice(0, 150) };
     });
-    // Teardown (ledger, reverse order): key → service account → repository → team → tenant.
+
+    await step(alice, 're-homes the repository to platform, and is refused again — now the board names the card in the way', async () => {
+      const cli = await alice.cli();
+      const rehomed = await cli.json(['repos', 'update', team.fixture.repoSlug!, '--team', 'platform']);
+      expect(rehomed.team?.slug ?? rehomed.team_id).toBeTruthy();
+      const api = await alice.api();
+      const res = await api.raw('DELETE', `/api/teams/${team.fixture.teamId}`);
+      expect(res.status).toBe(422);
+      const message = res.body?.error?.message ?? '';
+      expect(message).toContain(parked);
+      expect(res.body?.error?.details?.items).toContain(parked);
+      return {
+        repository_now_owned_by: 'platform',
+        status: res.status,
+        blocked_by: res.body?.error?.details?.items,
+        message: message.slice(0, 150),
+      };
+    });
+
+    await step(alice, 'moves the card to the platform board, which clears the way', async () => {
+      const cli = await alice.cli();
+      const moved = await cli.json(['tasks', 'move', parked, '--to-board', 'platform-delivery']);
+      const api = await alice.api();
+      const board = await api.get(`/api/boards/${moved.board_id}`);
+      expect(board.slug).toBe('platform-delivery');
+      return {
+        task: parked,
+        now_on: board.slug,
+        column: board.columns.find((c: any) => c.id === moved.column_id)?.name,
+      };
+    });
+
+    await step(newhire, 'sees the moved task arrive on the platform board without reloading', async () => {
+      const page = await newhire.gui();
+      await openBoard(page, 'platform-delivery');
+      await expect(cardIn(page, 'Backlog', parked)).toBeVisible({ timeout: 15_000 });
+      return { task: parked, board: 'platform-delivery', column: 'Backlog' };
+    });
+    // Teardown (ledger, reverse order): the moved task → key → service
+    // account → repository → team. The team delete now SUCCEEDS: its board
+    // is clear and it owns nothing — the whole point of KAIROS-I-0012.
+    // (A teardown failure would be reported in this journey's report.)
   },
 );

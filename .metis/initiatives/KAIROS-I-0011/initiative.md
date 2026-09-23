@@ -422,10 +422,11 @@ the report for the journey attached to the task's status update.
   6. The team page's Repositories panel does not show the description
      agents read; the New task modal has no repository picker (binding
      happens on the item page).
-  7. Design constraint learned: a team whose delivery board ever held an
-     item can never be deleted (soft-deleted rows pin the board, T-0010) —
-     J3 therefore runs on an existing team; J1 creates one but raises no
-     work on it.
+  7. *Fixed by KAIROS-I-0012:* a team whose delivery board ever held an
+     item could never be deleted (soft-deleted rows pinned the board,
+     T-0010). The guard now counts LIVE cards, and a task can be moved to
+     another delivery board, so a team winds down by moving or archiving
+     its cards. J3 is back on a fresh team; J1 walks the wind-down.
   8. The first HTML5 drop after a board navigation is swallowed reliably
      enough that `dragCard` retries once (Todo→Active in J4 every run).
 
@@ -447,9 +448,9 @@ the report for the journey attached to the task's status update.
   scrolling — the target between mousedown and mousemove on an overflowing
   board, so Chromium never starts the drag: fixed in the UAT driver, not
   the GUI), T-0125 `f625fa2` (journeys assert the real behaviour, no
-  workarounds). Findings status: #1–#6, #8 **fixed**; **#7 open — Dylan
-  deciding** (teams undeletable once their board held an item; J3 runs on
-  an existing team meanwhile). Recorded runs: compose `muco84aq` 5/5 (0
+  workarounds). Findings status: #1–#6, #8 **fixed** here; #7 **fixed by KAIROS-I-0012**
+  (Dylan, later the same day: "all cards must be archived or moved to
+  delete a team"). Recorded runs: compose `muco84aq` 5/5 (0
   skipped), server `muco8qgq` 5/5 (2 skipped); e2e 11/11; integration
   38/38. Initiative left **active** for review.
 - 2026-09-22: Dylan: "fluid column across sounds great" → T-0126 `f051dbf`:
@@ -457,4 +458,4 @@ the report for the journey attached to the task's status update.
   border-box), titles wrap, pills wrap under the code; e2e asserts no
   horizontal scroll at 1280px and every e2e drag now uses the scroll-safe
   driver (`e2e/helpers/drag.ts`). Gates: lint, web 72/72, e2e 11/11, UAT
-  compose `mudf590b` 5/5. #7 still open — Dylan deciding.
+  compose `mudf590b` 5/5. (#7 closed afterwards by KAIROS-I-0012.)

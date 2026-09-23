@@ -154,9 +154,23 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
 }
 
 /**
- * The repository + agent on an EXISTING team, as one setup call (J3).
- * The team comes from UAT_TEAM (default `platform`, the seed's team bob
- * belongs to).
+ * A fresh team with its repository and coding agent, as one setup call
+ * (J3). Since KAIROS-I-0012 the team is deletable again once its board
+ * holds no live cards, so a journey that raises work on it can still
+ * clean up: the ledger deletes the task before the team.
+ */
+export async function setupTeamRepoAgent(alice: Persona, ledger: Ledger, suffix = 'mobile'): Promise<TeamFixture> {
+  const steps = teamFixture(alice, ledger, suffix);
+  await steps.createTeam();
+  await steps.registerRepository();
+  await steps.createAgent();
+  return steps.done();
+}
+
+/**
+ * The repository + agent on an EXISTING team (UAT_TEAM, default
+ * `platform`) — kept for a deployment where the caller may not create
+ * teams.
  */
 export async function setupRepoAgentOnTeam(alice: Persona, ledger: Ledger, suffix = 'mobile'): Promise<TeamFixture> {
   const steps = teamFixture(alice, ledger, suffix);

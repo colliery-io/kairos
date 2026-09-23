@@ -88,3 +88,36 @@ bending the page.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from other tasks
+
+**2026-09-23, from [[KAIROS-T-0169]] — a review that must be re-run.** Its
+delegated `diataxis-review` did not return, and the agent said so plainly
+rather than claiming it passed. `reference/mcp-tools.md`, `glossary.md`,
+`events.md` and `scim.md` have had fact-level scrutiny but **less mode-level
+scrutiny than the other pages**. Re-run `diataxis-review` over those four
+specifically; treat the rest of the book's reviews as done.
+
+**From [[KAIROS-T-0168]]:** the README's CLI section is now **the stale copy** —
+it predates `restore`, `--include-deleted`, `repos`, `service-accounts`,
+`keys` and `tasks move`. Reducing the README to a pointer (D9) fixes this by
+construction, but verify rather than assume.
+
+**From [[KAIROS-T-0170]]:** `SUMMARY.md` is **not** generated. If a future
+endpoint group appears, `angreal docs api` writes the page and no sidebar
+entry, and `--check` will not catch it. Worth stating in the link check.
+
+**From [[KAIROS-T-0171]]:** one cosmetic **S3** finding was deliberately
+declined and left here — sidebar entries are bare noun phrases while the H1s
+carry the mode signal. The spine wording is the initiative's D4 design and
+`SUMMARY.md` was shared with four concurrent tasks, so churning it mid-flight
+was the wrong trade. Decide it once, now that nothing else is editing the file.
+
+**Ten "Related guides" links 404 by design** while how-to was unwritten
+(recorded in T-0168/T-0169's Status Updates so they are not rediscovered as
+defects). They should resolve once [[KAIROS-T-0172]] and [[KAIROS-T-0173]]
+land — verify.
+
+**Two tickets were filed outside this initiative** and are not this task's
+work: [[KAIROS-T-0177]] (Compose drops the two variables Google Workspace
+requires) and [[KAIROS-T-0178]] (MCP `create_item` lags the CLI).

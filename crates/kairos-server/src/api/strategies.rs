@@ -15,7 +15,7 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    clamp_pagination, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
+    Liveness, clamp_pagination, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
     require_capability, short_code_not_found,
 };
 use crate::app::AppState;
@@ -45,11 +45,19 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Load the live strategy with this short code, or 404.
-fn load(conn: &mut PgConnection, short_code: &str) -> Result<Strategy, ApiError> {
+fn load(
+    conn: &mut PgConnection,
+    short_code: &str,
+    liveness: Liveness,
+) -> Result<Strategy, ApiError> {
     use kairos_db::schema::strategies::dsl;
-    dsl::strategies
+    let mut query = dsl::strategies
         .filter(dsl::short_code.eq(short_code))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .select(Strategy::as_select())
         .first(conn)
         .optional()
@@ -121,7 +129,7 @@ pub(crate) async fn get_strategy(
     let strategy = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::IncludeArchived)?.into_dto())
         })
         .await?;
     Ok(Json(strategy))
@@ -198,7 +206,7 @@ pub(crate) async fn update_strategy(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let strategy = load(conn, &short_code)?;
+            let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(strategy.board_id), user, MANAGE)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
@@ -206,13 +214,13 @@ pub(crate) async fn update_strategy(
                 expected_version: body.version,
             };
             match items::update_item_content(conn, ItemType::Strategy, strategy.id, update, user) {
-                Ok(_) => Ok(load(conn, &short_code)?.into_dto()),
+                Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
                 Err(items::ItemError::VersionConflict {
                     expected_version,
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
                         "version mismatch: expected {expected_version}, current is {current_version}"
                     ))
@@ -249,7 +257,7 @@ pub(crate) async fn delete_strategy(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let strategy = load(conn, &short_code)?;
+            let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(strategy.board_id), user, MANAGE)?;
             let outcome = items::soft_delete_item(conn, ItemType::Strategy, strategy.id, user)
                 .map_err(map_item_error)?;
@@ -291,7 +299,7 @@ pub(crate) async fn transition_strategy(
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let strategy = load(conn, &short_code)?;
+            let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(
                 conn,
                 &slug,
@@ -301,7 +309,7 @@ pub(crate) async fn transition_strategy(
             )?;
             boards::transition_strategy(conn, strategy.id, to_column_id, user)
                 .map_err(map_board_error)?;
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
         })
         .await?;
     Ok(Json(transitioned))

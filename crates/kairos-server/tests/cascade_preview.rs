@@ -239,21 +239,38 @@ async fn cascade_preview_matches_actual_cascade() {
         "the preview named EXACTLY the descendants the delete cascaded to"
     );
 
-    // The cascade actually removed the descendants (they now 404).
+    // The cascade archived the descendants: they are off the boards, and
+    // marked, but still readable (KAIROS-A-0020). The preview's promise is
+    // about what the delete takes out of circulation, not about erasure —
+    // which is the useful reading, since a cascade archives work nobody
+    // chose to archive individually.
     for (kind, code) in [
         (EntityKind::Initiative, &initiative.short_code),
         (EntityKind::Task, &task.short_code),
     ] {
-        let err = match kind {
-            EntityKind::Initiative => svc.get_initiative(code).await.err(),
-            EntityKind::Task => svc.get_task(code).await.err(),
+        let archived_at = match kind {
+            EntityKind::Initiative => {
+                svc.get_initiative(code)
+                    .await
+                    .expect("cascaded descendant is still retrievable")
+                    .archived_at
+            }
+            EntityKind::Task => {
+                svc.get_task(code)
+                    .await
+                    .expect("cascaded descendant is still retrievable")
+                    .archived_at
+            }
             _ => unreachable!(),
-        }
-        .expect("cascaded descendant is gone");
-        assert!(matches!(err, Error::NotFound { .. }), "{err}");
+        };
+        assert!(
+            archived_at.is_some(),
+            "{code} was cascaded, so it must be marked archived"
+        );
     }
 
-    // Previewing a soft-deleted item is a 404 (no live root).
+    // Previewing an archived item is still a 404: the preview answers "what
+    // would this delete take out?", and archived work is already out.
     let err = svc
         .cascade_preview(EntityKind::Strategy, &strategy.short_code)
         .await

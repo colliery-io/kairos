@@ -54,7 +54,7 @@ use kairos_db::models::templates::{ItemMetadata, MetadataDefinition};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{resolve_short_code, short_code_not_found};
+use super::{Liveness, resolve_short_code, short_code_not_found};
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
@@ -198,14 +198,20 @@ pub fn manage_capability(item_type: ItemType) -> &'static str {
     }
 }
 
-/// Resolve an `{entity_type}/{short_code}` path pair to a live item: the
-/// family must be one of the five plural names (404 otherwise — it is a
-/// path segment) and the short code must name a live item of exactly that
-/// type (404 otherwise, same as the per-family routes).
+/// Resolve an `{entity_type}/{short_code}` path pair to an item: the family
+/// must be one of the five plural names (404 otherwise — it is a path
+/// segment) and the short code must name an item of exactly that type (404
+/// otherwise, same as the per-family routes).
+///
+/// `liveness` decides whether archived work resolves (KAIROS-A-0020). The
+/// read paths that exist to answer "what did this say?" — history above all
+/// — pass [`Liveness::IncludeArchived`]; everything that writes passes
+/// [`Liveness::LiveOnly`].
 pub fn resolve_family_item(
     conn: &mut PgConnection,
     family: &str,
     short_code: &str,
+    liveness: Liveness,
 ) -> Result<(Uuid, ItemType), ApiError> {
     let item_type = item_type_of_family(family).ok_or_else(|| {
         ApiError::not_found(format!(
@@ -213,7 +219,7 @@ pub fn resolve_family_item(
              strategies, initiatives, tasks, documents, adrs"
         ))
     })?;
-    resolve_short_code(conn, short_code)?
+    resolve_short_code(conn, short_code, liveness)?
         .filter(|(_, resolved)| *resolved == item_type)
         .ok_or_else(|| short_code_not_found(item_type.entity_type(), short_code))
 }

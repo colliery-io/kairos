@@ -31,8 +31,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    clamp_pagination, map_abac_error, map_graph_error, map_item_error, parse_enum, parse_opt_uuid,
-    require_capability, resolve_short_code, short_code_not_found,
+    Liveness, clamp_pagination, map_abac_error, map_graph_error, map_item_error, parse_enum,
+    parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -92,7 +92,7 @@ pub(crate) async fn set_lifecycle(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let document = load(conn, &short_code)?;
+            let document = load(conn, &short_code, Liveness::LiveOnly)?;
             let board = authorization_board(conn, document.id)?;
             require_capability(conn, &slug, board, user, MANAGE)?;
             let updated = items::set_document_lifecycle(conn, document.id, lifecycle, user)
@@ -104,11 +104,19 @@ pub(crate) async fn set_lifecycle(
 }
 
 /// Load the live document with this short code, or 404.
-fn load(conn: &mut PgConnection, short_code: &str) -> Result<Document, ApiError> {
+fn load(
+    conn: &mut PgConnection,
+    short_code: &str,
+    liveness: Liveness,
+) -> Result<Document, ApiError> {
     use kairos_db::schema::documents::dsl;
-    dsl::documents
+    let mut query = dsl::documents
         .filter(dsl::short_code.eq(short_code))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .select(Document::as_select())
         .first(conn)
         .optional()
@@ -190,7 +198,7 @@ pub(crate) async fn get_document(
     let document = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::IncludeArchived)?.into_dto())
         })
         .await?;
     Ok(Json(document))
@@ -229,12 +237,14 @@ pub(crate) async fn create_document(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (parent_id, parent_type) = resolve_short_code(conn, &parent_short_code)?
-                .ok_or_else(|| {
-                    ApiError::validation(format!(
-                        "parent_short_code {parent_short_code:?} does not name a live item"
-                    ))
-                })?;
+            let (parent_id, parent_type) =
+                resolve_short_code(conn, &parent_short_code, Liveness::LiveOnly)?.ok_or_else(
+                    || {
+                        ApiError::validation(format!(
+                            "parent_short_code {parent_short_code:?} does not name a live item"
+                        ))
+                    },
+                )?;
             if !matches!(
                 parent_type,
                 ItemType::Strategy | ItemType::Initiative | ItemType::Task
@@ -298,7 +308,7 @@ pub(crate) async fn update_document(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let document = load(conn, &short_code)?;
+            let document = load(conn, &short_code, Liveness::LiveOnly)?;
             let board = authorization_board(conn, document.id)?;
             require_capability(conn, &slug, board, user, MANAGE)?;
             let update = items::ContentUpdate {
@@ -307,13 +317,13 @@ pub(crate) async fn update_document(
                 expected_version: body.version,
             };
             match items::update_item_content(conn, ItemType::Document, document.id, update, user) {
-                Ok(_) => Ok(load(conn, &short_code)?.into_dto()),
+                Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
                 Err(items::ItemError::VersionConflict {
                     expected_version,
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
                         "version mismatch: expected {expected_version}, current is {current_version}"
                     ))
@@ -350,7 +360,7 @@ pub(crate) async fn delete_document(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let document = load(conn, &short_code)?;
+            let document = load(conn, &short_code, Liveness::LiveOnly)?;
             let board = authorization_board(conn, document.id)?;
             require_capability(conn, &slug, board, user, MANAGE)?;
             let outcome = items::soft_delete_item(conn, ItemType::Document, document.id, user)

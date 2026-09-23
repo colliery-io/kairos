@@ -16,8 +16,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    clamp_pagination, map_board_error, map_item_error, parse_enum, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, clamp_pagination, map_board_error, map_item_error, parse_enum, parse_opt_uuid,
+    parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -46,11 +46,19 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Load the live initiative with this short code, or 404.
-fn load(conn: &mut PgConnection, short_code: &str) -> Result<Initiative, ApiError> {
+fn load(
+    conn: &mut PgConnection,
+    short_code: &str,
+    liveness: Liveness,
+) -> Result<Initiative, ApiError> {
     use kairos_db::schema::initiatives::dsl;
-    dsl::initiatives
+    let mut query = dsl::initiatives
         .filter(dsl::short_code.eq(short_code))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .select(Initiative::as_select())
         .first(conn)
         .optional()
@@ -122,7 +130,7 @@ pub(crate) async fn get_initiative(
     let initiative = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::IncludeArchived)?.into_dto())
         })
         .await?;
     Ok(Json(initiative))
@@ -211,7 +219,7 @@ pub(crate) async fn update_initiative(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let initiative = load(conn, &short_code)?;
+            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(initiative.board_id), user, MANAGE)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
@@ -220,13 +228,13 @@ pub(crate) async fn update_initiative(
             };
             match items::update_item_content(conn, ItemType::Initiative, initiative.id, update, user)
             {
-                Ok(_) => Ok(load(conn, &short_code)?.into_dto()),
+                Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
                 Err(items::ItemError::VersionConflict {
                     expected_version,
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
                         "version mismatch: expected {expected_version}, current is {current_version}"
                     ))
@@ -264,7 +272,7 @@ pub(crate) async fn delete_initiative(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let initiative = load(conn, &short_code)?;
+            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(initiative.board_id), user, MANAGE)?;
             let outcome = items::soft_delete_item(conn, ItemType::Initiative, initiative.id, user)
                 .map_err(map_item_error)?;
@@ -306,7 +314,7 @@ pub(crate) async fn transition_initiative(
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let initiative = load(conn, &short_code)?;
+            let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(
                 conn,
                 &slug,
@@ -316,7 +324,7 @@ pub(crate) async fn transition_initiative(
             )?;
             boards::transition_initiative(conn, initiative.id, to_column_id, user)
                 .map_err(map_board_error)?;
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
         })
         .await?;
     Ok(Json(transitioned))

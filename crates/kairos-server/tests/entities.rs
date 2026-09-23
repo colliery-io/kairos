@@ -729,10 +729,63 @@ async fn entity_endpoints_against_live_stack() {
         .await
         .expect("deleting bug task");
     assert_eq!(body.cascade_count, 0);
-    let err = rejection(alice.get_task(&task_bug_code).await);
+
+    // …and archiving is a visibility default, not a disappearance
+    // (KAIROS-A-0020, KAIROS-T-0154). This assertion used to read
+    // "soft-deleted rows 404", which was the bug: a system of record that
+    // cannot say what its own archived record said.
+    let archived = alice
+        .get_task(&task_bug_code)
+        .await
+        .expect("an archived task is still retrievable by short code");
+    assert_eq!(archived.short_code, task_bug_code);
+    assert!(
+        !archived.content.is_empty() || !archived.title.is_empty(),
+        "the content is what archiving used to destroy"
+    );
+    assert!(
+        archived.archived_at.is_some(),
+        "an archived item must say so — an auditor may never mistake it for live work"
+    );
+
+    // Its version history survives too, which is the whole audit answer:
+    // copy-forward history (KAIROS-A-0004) exists to reconstruct what a
+    // record said, and it used to go dark exactly when that mattered.
+    let history = alice
+        .history(EntityKind::Task, &task_bug_code, None, None)
+        .await
+        .expect("an archived task's history is still retrievable");
+    assert!(
+        history.total > 0,
+        "history rows were always intact; only resolution hid them"
+    );
+
+    // But it is OUT OF THE WAY: gone from the default list, and still
+    // refused by every write path (read-only by construction — the mutating
+    // handlers keep passing Liveness::LiveOnly).
+    let listed = alice
+        .list_tasks(Pagination::default())
+        .await
+        .expect("listing tasks");
+    assert!(
+        !listed.items.iter().any(|t| t.short_code == task_bug_code),
+        "archived work must stay out of default listings"
+    );
+    let err = rejection(
+        alice
+            .update_task(
+                &task_bug_code,
+                &UpdateContentRequest {
+                    title: Some("edit an archived thing".into()),
+                    content: archived.content.clone(),
+                    version: archived.version,
+                },
+            )
+            .await,
+    );
     assert!(
         matches!(err, Error::NotFound { .. }),
-        "soft-deleted rows 404: {err}"
+        "archived work is read-only: {err}"
     );
 
     // =======================================================================
@@ -1032,10 +1085,25 @@ async fn entity_endpoints_against_live_stack() {
     assert_eq!(body.short_code, initiative_code);
     assert_eq!(body.cascade_count, 1);
     assert_eq!(body.cascaded_short_codes[0], task_bob_code);
-    let err = rejection(alice.get_task(&task_bob_code).await);
+    // The cascade archives the child, and archiving is a visibility default
+    // (KAIROS-A-0020): the child comes off the board, but what it said is
+    // still answerable — which matters most here, since nobody chose to
+    // archive this one directly.
+    let cascaded = alice
+        .get_task(&task_bob_code)
+        .await
+        .expect("a cascade-archived child is still retrievable");
     assert!(
-        matches!(err, Error::NotFound { .. }),
-        "cascaded child 404s: {err}"
+        cascaded.archived_at.is_some(),
+        "a cascaded child is marked archived"
+    );
+    let listed = alice
+        .list_tasks(Pagination::default())
+        .await
+        .expect("listing tasks");
+    assert!(
+        !listed.items.iter().any(|t| t.short_code == task_bob_code),
+        "a cascade-archived child still leaves the default listing"
     );
 
     // =======================================================================

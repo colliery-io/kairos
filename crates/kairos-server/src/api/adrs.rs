@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    clamp_pagination, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
+    Liveness, clamp_pagination, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
     require_capability, short_code_not_found,
 };
 use crate::app::AppState;
@@ -42,11 +42,15 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Load the live ADR with this short code, or 404.
-fn load(conn: &mut PgConnection, short_code: &str) -> Result<Adr, ApiError> {
+fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result<Adr, ApiError> {
     use kairos_db::schema::adrs::dsl;
-    dsl::adrs
+    let mut query = dsl::adrs
         .filter(dsl::short_code.eq(short_code))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .select(Adr::as_select())
         .first(conn)
         .optional()
@@ -118,7 +122,7 @@ pub(crate) async fn get_adr(
     let adr = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::IncludeArchived)?.into_dto())
         })
         .await?;
     Ok(Json(adr))
@@ -206,7 +210,7 @@ pub(crate) async fn update_adr(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let adr = load(conn, &short_code)?;
+            let adr = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, adr.board_id, user, MANAGE)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
@@ -214,13 +218,13 @@ pub(crate) async fn update_adr(
                 expected_version: body.version,
             };
             match items::update_item_content(conn, ItemType::Adr, adr.id, update, user) {
-                Ok(_) => Ok(load(conn, &short_code)?.into_dto()),
+                Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
                 Err(items::ItemError::VersionConflict {
                     expected_version,
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
                         "version mismatch: expected {expected_version}, current is {current_version}"
                     ))
@@ -257,7 +261,7 @@ pub(crate) async fn delete_adr(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let adr = load(conn, &short_code)?;
+            let adr = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, adr.board_id, user, MANAGE)?;
             let outcome = items::soft_delete_item(conn, ItemType::Adr, adr.id, user)
                 .map_err(map_item_error)?;
@@ -300,10 +304,10 @@ pub(crate) async fn transition_adr(
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let adr = load(conn, &short_code)?;
+            let adr = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, adr.board_id, user, "transition_items")?;
             boards::transition_adr(conn, adr.id, to_column_id, user).map_err(map_board_error)?;
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
         })
         .await?;
     Ok(Json(transitioned))

@@ -23,6 +23,7 @@ use uuid::Uuid;
 use super::{
     item_metadata_response, manage_capability, resolve_family_item, validate_metadata_value,
 };
+use crate::api::Liveness;
 use crate::api::{map_abac_error, require_capability};
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -58,7 +59,8 @@ pub(crate) async fn get_metadata(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
             item_metadata_response(conn, item_id, &short_code)
         })
         .await?;
@@ -97,7 +99,8 @@ pub(crate) async fn update_metadata(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, item_type) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, item_type) =
+                resolve_family_item(conn, &family, &short_code, Liveness::LiveOnly)?;
             let board = abac::resolve_authorization_board(conn, item_id).map_err(map_abac_error)?;
             require_capability(conn, &slug, board, user, manage_capability(item_type))?;
 

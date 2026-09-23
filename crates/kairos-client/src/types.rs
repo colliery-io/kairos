@@ -50,6 +50,12 @@ pub struct Strategy {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// When this work was put away, RFC 3339; absent while it is live.
+    /// Archiving hides work from default listings and nothing more
+    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// auditor never mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// An initiative (Flight Level 2), as returned by `/api/initiatives`.
@@ -82,6 +88,12 @@ pub struct Initiative {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// When this work was put away, RFC 3339; absent while it is live.
+    /// Archiving hides work from default listings and nothing more
+    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// auditor never mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
@@ -124,6 +136,12 @@ pub struct Task {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// When this work was put away, RFC 3339; absent while it is live.
+    /// Archiving hides work from default listings and nothing more
+    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// auditor never mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// A supporting document, as returned by `/api/documents`. Documents do not
@@ -156,6 +174,12 @@ pub struct Document {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// When this work was put away, RFC 3339; absent while it is live.
+    /// Archiving hides work from default listings and nothing more
+    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// auditor never mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// An Architecture Decision Record, as returned by `/api/adrs`. Board
@@ -186,6 +210,12 @@ pub struct Adr {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// When this work was put away, RFC 3339; absent while it is live.
+    /// Archiving hides work from default listings and nothing more
+    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// auditor never mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

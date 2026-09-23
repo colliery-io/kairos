@@ -204,7 +204,9 @@ pub(crate) async fn receive(
                 // Unknown or foreign codes are IGNORED, not errors: a
                 // branch may legitimately name a code from another
                 // deployment.
-                let Some((item_id, item_type)) = crate::api::resolve_short_code(conn, code)? else {
+                let Some((item_id, item_type)) =
+                    crate::api::resolve_short_code(conn, code, crate::api::Liveness::LiveOnly)?
+                else {
                     continue;
                 };
                 let advanced = forge::upsert_link(
@@ -238,7 +240,7 @@ pub(crate) async fn receive(
                 let still_named: Vec<Uuid> = codes
                     .iter()
                     .filter_map(|code| {
-                        crate::api::resolve_short_code(conn, code)
+                        crate::api::resolve_short_code(conn, code, crate::api::Liveness::LiveOnly)
                             .ok()
                             .flatten()
                             .map(|(id, _)| id)

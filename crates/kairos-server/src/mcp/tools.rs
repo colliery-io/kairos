@@ -48,7 +48,7 @@ use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
 use crate::api::meta::{manage_capability, require_edge_capability, validate_metadata_value};
 use crate::api::{
-    map_abac_error, map_board_error, map_graph_error, map_item_error, parse_enum,
+    Liveness, map_abac_error, map_board_error, map_graph_error, map_item_error, parse_enum,
     require_capability, resolve_short_code,
 };
 use crate::error::ApiError;
@@ -705,11 +705,11 @@ impl KairosMcp {
             out.push('\n');
             if let (Some(board_id), Some(column_id)) = (item.board_id, item.column_id) {
                 let board = board_by_id(conn, board_id)?;
-                let column = board_columns(conn, board_id)?
-                    .into_iter()
-                    .find(|c| c.id == column_id)
-                    .map(|c| c.name)
-                    .unwrap_or_default();
+                // `column_label`, not `board_columns`: an archived card may
+                // sit in a column that has since been removed, and the
+                // column it was put away in is exactly what this line is
+                // for (KAIROS-T-0161).
+                let column = column_label(conn, column_id)?;
                 out.push_str(&format!("- board: {} / column: {column}\n", board.slug));
             }
             out.push_str(&format!("- version: {}\n", item.version));
@@ -1377,9 +1377,10 @@ struct ItemView {
 fn load_item(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiError> {
     use kairos_db::schema::{adrs, documents, initiatives, strategies, tasks};
 
-    let (id, item_type) = resolve_short_code(conn, short_code)?.ok_or_else(|| {
-        ApiError::not_found(format!("no live item with short code {short_code:?}"))
-    })?;
+    let (id, item_type) =
+        resolve_short_code(conn, short_code, Liveness::LiveOnly)?.ok_or_else(|| {
+            ApiError::not_found(format!("no live item with short code {short_code:?}"))
+        })?;
     let missing = || ApiError::not_found(format!("no live item with short code {short_code:?}"));
 
     let view = match item_type {
@@ -1662,15 +1663,35 @@ fn board_by_id(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiErro
         .map_err(ApiError::internal)
 }
 
-/// A board's columns in position order.
+/// A board's LIVE columns in position order — what the board is now, so
+/// a removed column (KAIROS-T-0161) is neither listed nor resolvable as a
+/// transition target.
 fn board_columns(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError> {
     use kairos_db::schema::board_columns;
     board_columns::table
         .filter(board_columns::board_id.eq(board_id))
+        .filter(board_columns::deleted_at.is_null())
         .order(board_columns::position.asc())
         .select(BoardColumn::as_select())
         .load(conn)
         .map_err(ApiError::internal)
+}
+
+/// The name of ANY column, removed ones included — the audit answer, not
+/// the board view. An archived card keeps a `NOT NULL` FK to the column it
+/// was put away in (KAIROS-T-0161), and "which column was this in?" has to
+/// stay answerable for it, so this deliberately does not filter on
+/// `deleted_at`. Use [`board_columns`] for anything that renders or
+/// validates a live board.
+fn column_label(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError> {
+    use kairos_db::schema::board_columns;
+    board_columns::table
+        .filter(board_columns::id.eq(column_id))
+        .select(board_columns::name)
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)
+        .map(Option::unwrap_or_default)
 }
 
 /// Resolve a column reference (UUID or case-insensitive name) against a
@@ -1879,7 +1900,7 @@ fn require_live_typed(
     short_code: &str,
     field: &str,
 ) -> Result<(Uuid, ItemType), ApiError> {
-    resolve_short_code(conn, short_code)?.ok_or_else(|| {
+    resolve_short_code(conn, short_code, Liveness::LiveOnly)?.ok_or_else(|| {
         ApiError::validation(format!("{field} {short_code:?} does not name a live item"))
     })
 }
@@ -2205,7 +2226,8 @@ fn create_item_impl(
                  the document is attached via a supports edge",
             )
         })?;
-        let (parent_id, parent_type) = resolve_short_code(conn, parent_code)?.ok_or_else(|| {
+        let (parent_id, parent_type) = resolve_short_code(conn, parent_code, Liveness::LiveOnly)?
+            .ok_or_else(|| {
             ApiError::validation(format!("parent {parent_code:?} does not name a live item"))
         })?;
         if !matches!(
@@ -2306,7 +2328,7 @@ fn create_item_impl(
         .as_deref()
         .map(|parent_code| {
             let (parent_id, parent_type) =
-                resolve_short_code(conn, parent_code)?.ok_or_else(|| {
+                resolve_short_code(conn, parent_code, Liveness::LiveOnly)?.ok_or_else(|| {
                     ApiError::validation(format!(
                         "parent {parent_code:?} does not name a live item"
                     ))

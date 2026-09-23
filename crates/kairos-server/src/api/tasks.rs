@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use super::convert::{IntoDto, attach_repositories, attach_repository};
 use super::{
-    clamp_pagination, map_board_error, map_item_error, parse_enum, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, clamp_pagination, map_board_error, map_item_error, parse_enum, parse_opt_uuid,
+    parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -110,12 +110,19 @@ pub(crate) fn require_task_create_capability(
     }
 }
 
-/// Load the live task with this short code, or 404.
-fn load(conn: &mut PgConnection, short_code: &str) -> Result<Task, ApiError> {
+/// Load the task with this short code, or 404. Archived work is served only
+/// when the caller asks for it (KAIROS-A-0020) — every write path passes
+/// [`Liveness::LiveOnly`], which is what keeps archived work read-only
+/// without a second guard.
+fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result<Task, ApiError> {
     use kairos_db::schema::tasks::dsl;
-    dsl::tasks
+    let mut query = dsl::tasks
         .filter(dsl::short_code.eq(short_code))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .select(Task::as_select())
         .first(conn)
         .optional()
@@ -189,7 +196,7 @@ pub(crate) async fn get_task(
     let task = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?.into_dto();
+            let task = load(conn, &short_code, Liveness::IncludeArchived)?.into_dto();
             attach_repository(conn, task).map_err(ApiError::internal)
         })
         .await?;
@@ -292,7 +299,7 @@ pub(crate) async fn update_task(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
@@ -301,7 +308,7 @@ pub(crate) async fn update_task(
             };
             match items::update_item_content(conn, ItemType::Task, task.id, update, user) {
                 Ok(_) => {
-                    let task = load(conn, &short_code)?.into_dto();
+                    let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     attach_repository(conn, task).map_err(ApiError::internal)
                 }
                 Err(items::ItemError::VersionConflict {
@@ -309,7 +316,7 @@ pub(crate) async fn update_task(
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
                         "version mismatch: expected {expected_version}, current is {current_version}"
                     ))
@@ -346,7 +353,7 @@ pub(crate) async fn delete_task(
     let outcome = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             let outcome = items::soft_delete_item(conn, ItemType::Task, task.id, user)
                 .map_err(map_item_error)?;
@@ -389,7 +396,7 @@ pub(crate) async fn set_work_class(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
             let updated = items::set_task_work_class(conn, task.id, work_class, user)
                 .map_err(map_item_error)?;
@@ -428,7 +435,7 @@ pub(crate) async fn set_repository(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             let repository_id = match body.repository.as_deref() {
                 None => None,
@@ -476,14 +483,14 @@ pub(crate) async fn move_task(
     let moved = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             let target = board_id_by_ref(conn, &body.board)?;
             // Two-sided, like edges and re-homing: the work leaves one team's
             // board and lands on another's.
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             require_capability(conn, &slug, Some(target), user, MANAGE)?;
             boards::move_task(conn, task.id, target, user).map_err(map_board_error)?;
-            let moved = load(conn, &short_code)?.into_dto();
+            let moved = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
             attach_repository(conn, moved).map_err(ApiError::internal)
         })
         .await?;
@@ -536,10 +543,10 @@ pub(crate) async fn transition_task(
     let transitioned = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let task = load(conn, &short_code)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
             boards::transition_task(conn, task.id, to_column_id, user).map_err(map_board_error)?;
-            Ok(load(conn, &short_code)?.into_dto())
+            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
         })
         .await?;
     Ok(Json(transitioned))

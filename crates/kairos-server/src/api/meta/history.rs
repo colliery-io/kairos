@@ -17,6 +17,7 @@ use kairos_db::models::graph::ItemHistory;
 use serde_json::Value;
 
 use super::resolve_family_item;
+use crate::api::Liveness;
 use crate::api::clamp_pagination;
 use crate::api::convert::IntoDto;
 use crate::app::AppState;
@@ -57,7 +58,8 @@ pub(crate) async fn get_history(
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::item_history as history;
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
 
             if let Some(version) = query.version {
                 let snapshot: ItemHistory = history::table

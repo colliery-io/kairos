@@ -160,19 +160,54 @@ struct DirectoryRow {
     entity_type: String,
 }
 
+/// Whether a lookup may return work that has been archived.
+///
+/// Archiving is a visibility default and nothing more (KAIROS-A-0020), so
+/// the question "may I see put-away work?" belongs at the call site rather
+/// than buried in a query. Every listing and every write path names
+/// [`Liveness::LiveOnly`] explicitly: a reviewer checking that this
+/// initiative changed no default behaviour can do it by looking for call
+/// sites that say anything else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Liveness {
+    /// Live rows only.
+    LiveOnly,
+    /// Archived rows too. Callers that pass this MUST mark what they serve
+    /// — an auditor may never mistake archived work for live work.
+    IncludeArchived,
+}
+
+/// The five entity tables as one directory, without the liveness filter the
+/// `entity_directory` view applies. KAIROS-T-0156 moves that filter out of
+/// the view itself, at which point this can collapse back into it.
+const DIRECTORY_UNION: &str = "\
+    SELECT id, short_code, 'strategy' AS entity_type FROM strategies \
+    UNION ALL SELECT id, short_code, 'initiative' FROM initiatives \
+    UNION ALL SELECT id, short_code, 'task' FROM tasks \
+    UNION ALL SELECT id, short_code, 'document' FROM documents \
+    UNION ALL SELECT id, short_code, 'adr' FROM adrs";
+
 /// Resolve a short code to `(id, entity_type)` across all five entity
-/// tables via the `entity_directory` view (live rows only). `Ok(None)` =
-/// unknown or soft-deleted.
+/// tables. `Ok(None)` = unknown, or archived when `liveness` is
+/// [`Liveness::LiveOnly`].
 pub fn resolve_short_code(
     conn: &mut PgConnection,
     short_code: &str,
+    liveness: Liveness,
 ) -> Result<Option<(Uuid, ItemType)>, ApiError> {
-    let row: Option<DirectoryRow> =
-        sql_query("SELECT id, entity_type FROM entity_directory WHERE short_code = $1")
-            .bind::<Text, _>(short_code)
-            .get_result(conn)
-            .optional()
-            .map_err(ApiError::internal)?;
+    let sql = match liveness {
+        Liveness::LiveOnly => {
+            "SELECT id, entity_type FROM entity_directory WHERE short_code = $1".to_string()
+        }
+        Liveness::IncludeArchived => {
+            format!("SELECT id, entity_type FROM ({DIRECTORY_UNION}) d WHERE short_code = $1")
+        }
+    };
+    let row: Option<DirectoryRow> = sql_query(sql)
+        .bind::<Text, _>(short_code)
+        .get_result(conn)
+        .optional()
+        .map_err(ApiError::internal)?;
     row.map(|row| {
         ItemType::ALL
             .iter()
@@ -208,10 +243,13 @@ pub fn resolve_item_type(conn: &mut PgConnection, id: Uuid) -> Result<Option<Ite
 }
 
 /// The 404 for `/{short_code}` path segments that resolve to nothing.
+///
+/// It used to say "no live …", which was accurate while archiving hid work
+/// from every surface. Under KAIROS-A-0020 a reader can ask for archived
+/// work, so a 404 now means the code is unknown outright — claiming
+/// otherwise would send someone looking for an item that never existed.
 pub fn short_code_not_found(entity_type: &str, short_code: &str) -> ApiError {
-    ApiError::not_found(format!(
-        "no live {entity_type} with short code {short_code:?}"
-    ))
+    ApiError::not_found(format!("no {entity_type} with short code {short_code:?}"))
 }
 
 // ---------------------------------------------------------------------------

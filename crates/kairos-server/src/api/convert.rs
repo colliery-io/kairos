@@ -43,6 +43,7 @@ impl IntoDto<dto::Strategy> for Strategy {
             updated_by: self.updated_by.to_string(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            archived_at: self.deleted_at.map(timestamp),
         }
     }
 }
@@ -64,6 +65,7 @@ impl IntoDto<dto::Initiative> for Initiative {
             updated_by: self.updated_by.to_string(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            archived_at: self.deleted_at.map(timestamp),
         }
     }
 }
@@ -89,6 +91,7 @@ impl IntoDto<dto::Task> for Task {
             updated_by: self.updated_by.to_string(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            archived_at: self.deleted_at.map(timestamp),
         }
     }
 }
@@ -107,6 +110,7 @@ impl IntoDto<dto::Document> for Document {
             updated_by: self.updated_by.to_string(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            archived_at: self.deleted_at.map(timestamp),
         }
     }
 }
@@ -127,6 +131,7 @@ impl IntoDto<dto::Adr> for Adr {
             updated_by: self.updated_by.to_string(),
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
+            archived_at: self.deleted_at.map(timestamp),
         }
     }
 }

@@ -24,6 +24,7 @@ use kairos_db::items;
 
 use super::map_item_error;
 use super::meta::resolve_family_item;
+use crate::api::Liveness;
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
@@ -58,7 +59,8 @@ pub(crate) async fn cascade_preview(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, item_type) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, item_type) =
+                resolve_family_item(conn, &family, &short_code, Liveness::LiveOnly)?;
             let preview =
                 items::preview_cascade(conn, item_type, item_id).map_err(map_item_error)?;
             Ok(dto::CascadePreviewResponse {

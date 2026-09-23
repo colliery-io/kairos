@@ -25,7 +25,7 @@ use diesel::prelude::*;
 
 use super::{require_edge_capability, resolve_family_item};
 use crate::api::convert::IntoDto;
-use crate::api::{parse_enum, parse_uuid, resolve_short_code};
+use crate::api::{Liveness, parse_enum, parse_uuid, resolve_short_code};
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
@@ -73,7 +73,8 @@ pub(crate) async fn get_children_progress(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
             let rows = graph::children_progress(conn, item_id).map_err(ApiError::internal)?;
             let (done, total) = kairos_core::items::children_progress_counts(
                 &rows
@@ -128,7 +129,8 @@ pub(crate) async fn get_item_links(
     let rows = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
             let links =
                 kairos_db::forge::links_for_item(conn, item_id).map_err(ApiError::internal)?;
             Ok(links
@@ -192,7 +194,8 @@ pub(crate) async fn get_item_graph(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
             let (nodes, edges) =
                 graph::item_subgraph(conn, item_id, depth).map_err(ApiError::internal)?;
             Ok(graph_dto::GraphResponse {
@@ -300,7 +303,8 @@ pub(crate) async fn get_relationships(
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let (item_id, _) = resolve_family_item(conn, &family, &short_code)?;
+            let (item_id, _) =
+                resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
             let relationships =
                 graph::relationships_for(conn, item_id).map_err(ApiError::internal)?;
 
@@ -361,38 +365,41 @@ pub(crate) async fn create_relationship(
     let relationship = parse_enum(&body.relationship, "relationship", RelationshipType::ALL)?;
     let user = auth.user_id;
     let tenant_ctx = tenant.clone();
-    let created = state
-        .blocking
-        .run(&tenant.slug, move |conn| {
-            let (source_id, source_type) = resolve_short_code(conn, &body.source_short_code)?
-                .ok_or_else(|| {
-                    ApiError::validation(format!(
-                        "source_short_code {:?} does not name a live item",
-                        body.source_short_code
-                    ))
-                })?;
-            let (target_id, target_type) = resolve_short_code(conn, &body.target_short_code)?
-                .ok_or_else(|| {
-                    ApiError::validation(format!(
-                        "target_short_code {:?} does not name a live item",
-                        body.target_short_code
-                    ))
-                })?;
-            // KAIROS-T-0111: collaborative edges (parent, blocks) by members
-            // who manage either end or authored the source; the rest admin.
-            require_edge_capability(
-                conn,
-                &tenant_ctx,
-                user,
-                relationship.as_str(),
-                (source_id, source_type),
-                (target_id, target_type),
-            )?;
-            let created = graph::link_items(conn, source_id, target_id, relationship, user)
-                .map_err(map_link_error)?;
-            Ok(created.into_dto())
-        })
-        .await?;
+    let created =
+        state
+            .blocking
+            .run(&tenant.slug, move |conn| {
+                let (source_id, source_type) =
+                    resolve_short_code(conn, &body.source_short_code, Liveness::LiveOnly)?
+                        .ok_or_else(|| {
+                            ApiError::validation(format!(
+                                "source_short_code {:?} does not name a live item",
+                                body.source_short_code
+                            ))
+                        })?;
+                let (target_id, target_type) =
+                    resolve_short_code(conn, &body.target_short_code, Liveness::LiveOnly)?
+                        .ok_or_else(|| {
+                            ApiError::validation(format!(
+                                "target_short_code {:?} does not name a live item",
+                                body.target_short_code
+                            ))
+                        })?;
+                // KAIROS-T-0111: collaborative edges (parent, blocks) by members
+                // who manage either end or authored the source; the rest admin.
+                require_edge_capability(
+                    conn,
+                    &tenant_ctx,
+                    user,
+                    relationship.as_str(),
+                    (source_id, source_type),
+                    (target_id, target_type),
+                )?;
+                let created = graph::link_items(conn, source_id, target_id, relationship, user)
+                    .map_err(map_link_error)?;
+                Ok(created.into_dto())
+            })
+            .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 

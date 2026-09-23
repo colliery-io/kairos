@@ -475,4 +475,16 @@ Status Update.
     via `hash-object` + `update-index --cacheinfo`. It caught live reverts three
     times.
 
+### One task remains open, and is blocked
+
+**[[KAIROS-T-0181]]** (the Kubernetes tutorial) is `todo` and **blocked on
+[[KAIROS-T-0180]]**, which is a product defect outside this initiative: the
+published image is `linux/amd64` only, so the lesson cannot be completed on an
+ARM machine and therefore cannot be written to the tutorial contract (T1
+promises a guaranteed result; T6 promises it works every time).
+
+It is left open deliberately rather than closed or quietly dropped. Eleven of
+twelve tasks are complete and the book is live; this one unblocks the moment the
+image is multi-arch.
+
 **Ready for review.** The initiative is not transitioned — Dylan reviews.

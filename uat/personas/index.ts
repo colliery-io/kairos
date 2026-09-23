@@ -116,9 +116,16 @@ export class Cast {
     return credentialsFor(name) !== null;
   }
 
-  /** A service-account persona from an API key a journey minted. */
-  agent(name: PersonaName, apiKey: string): Persona {
-    const persona = new Persona(name, ROLES[name] ?? 'service account', this.browser, { apiKey });
+  /** A service-account persona from an API key a journey minted. The
+   * name is free text: a journey may hold two machine identities at once
+   * (a rotation), and they need distinct rows in the report. */
+  agent(name: string, apiKey: string): Persona {
+    const persona = new Persona(
+      name as PersonaName,
+      ROLES[name as PersonaName] ?? 'service account',
+      this.browser,
+      { apiKey },
+    );
     this.members.set(name, persona);
     return persona;
   }

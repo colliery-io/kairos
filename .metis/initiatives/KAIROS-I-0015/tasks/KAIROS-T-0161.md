@@ -4,14 +4,14 @@ level: task
 title: "board_columns gets its own deleted_at so an archived card stops pinning a column"
 short_code: "KAIROS-T-0161"
 created_at: 2026-09-23T11:30:00.321284+00:00
-updated_at: 2026-09-23T11:30:00.321284+00:00
+updated_at: 2026-09-23T12:03:23.077509+00:00
 parent: KAIROS-I-0015
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,6 +74,10 @@ Contrast worth preserving in a comment: `count_live_board_items`
 at `org/mod.rs:108-118` explains the distinction that no longer applies once
 columns are soft-deletable. Update that note rather than leaving it to
 contradict the new behaviour.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

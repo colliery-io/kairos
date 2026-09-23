@@ -467,15 +467,36 @@ a PR to remove a short code removes that link.
 ## User acceptance runs
 
 `angreal test uat` (KAIROS-A-0012 tier 6) walks Kairos the way people and
-agents use it: seven persona journeys — an organisation is set up, a
-strategy is broken down to work on a board, a coding agent lands a PR in
-its repository, a web engineer files work into platform's Backlog and gets
-it, an edit goes wrong and the audit trail puts it right, a team writes
-down how it works, an admin shapes a new team's board — each crossing the
-surfaces the persona would really use (the browser, the real `kairos` CLI,
-MCP). Every run ends in a report a product owner can read:
-`uat/reports/<run>/report.md`, one persona / step / observed / status table
-per journey, with screenshots and traces on failure.
+agents use it, and the journeys are ordered as an **arc**: what an
+organisation does on day one, then in its first quarter, then once Kairos
+is load bearing. Each crosses the surfaces its persona would really use —
+the browser, the real `kairos` CLI, MCP — and each run ends in a report a
+product owner can read (`uat/reports/<run>/report.md`: one persona / step /
+observed / status table per journey, with screenshots and traces on
+failure).
+
+| # | Journey | The story |
+|---|---|---|
+| — | `smoke` | alice reaches Kairos on every surface (the "is it up?" journey) |
+| 1 | `onboarding` | an organisation is set up and a new engineer finds their team |
+| 2 | `first-week` | a newcomer reads their way around, writing nothing |
+| 3 | `machine-access` | a CI system works, rotates its key, then loses it |
+| 4 | `planning` | a strategy is broken down until it is work on a board |
+| 5 | `agent-loop` | an agent picks up a ticket in its repository and lands a PR |
+| 6 | `cross-team` | a web engineer needs something from platform and gets it |
+| 7 | `explorer` | someone asks where a piece of work came from |
+| 8 | `decision-record` | a decision is made, then superseded |
+| 9 | `audit-trail` | an edit goes wrong and the record puts it right |
+| 10 | `team-knowledge` | a team writes down how it works |
+| 11 | `new-kind-of-work` | a team makes support requests first-class |
+| 12 | `incident` | something breaks on a Friday |
+| 13 | `board-setup` | an admin shapes a new team's board |
+| 14 | `growing-team` | someone joins, someone leaves |
+| 15 | `reorg` | two teams become one |
+| 16 | `quarterly-review` | the leadership team reads the whole portfolio |
+| 17 | `operations` | an operator checks the deployment, then deletes something big |
+| 18 | `second-tenant` | the deployment hosts more than one organisation |
+| 19 | `housekeeping` | old work is put away |
 
 A run also **fails when a surface exists that no journey exercises**: the
 suite asks the deployment what MCP tools and CLI nouns it offers and
@@ -514,7 +535,7 @@ password login form (Dex, Keycloak with direct grants) and register
 | Flag / variable | Meaning |
 |---|---|
 | `--server URL` | target a deployment instead of booting compose |
-| `--journey a,b` | journey ids: `smoke`, `onboarding`, `planning`, `agent-loop`, `cross-team`, `audit-trail`, `team-knowledge`, `board-setup` (a filtered run cannot measure coverage, so the gate is skipped) |
+| `--journey a,b` | journey ids — the `Journey` column of the arc table above (a filtered run cannot measure coverage, so the gate is skipped) |
 | `--keep-running` | compose mode: keep the stack and server up (server logs to `target/uat-server.log`) |
 | `--headed`, `--report-dir` | show the browser; where the report lands |
 | `UAT_PERSONA_<ALICE\|BOB\|CAROL\|NEWHIRE>_EMAIL` / `_PASSWORD` | persona credentials (default: the seed users) |

@@ -128,3 +128,20 @@ skips and the report says `Not measured` rather than going silent.
 
 **Adding a surface to the product?** Cover it in the journey where a
 persona would really meet it. If no persona would, say so in `ALLOW`.
+
+## The arc
+
+The journeys are ordered as an organisation's life, not as a feature list
+(KAIROS-I-0014). Day one is `onboarding`; `first-week` is the newcomer who
+only reads; `machine-access` is the first thing that is not a person;
+`planning`, `agent-loop` and `cross-team` are the working quarter;
+`explorer`, `decision-record` and `audit-trail` are what happens when
+somebody asks a question about work already done; `team-knowledge`,
+`new-kind-of-work`, `incident` and `board-setup` are a team shaping how it
+works; `growing-team`, `reorg` and `quarterly-review` are the org changing
+shape around the work; `operations`, `second-tenant` and `housekeeping` are
+a deployment that has been load bearing for a while.
+
+Reading them in order is the fastest way to understand what Kairos claims
+to do. Writing a new one: find where in that life it belongs, and put it
+there.

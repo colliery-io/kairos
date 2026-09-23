@@ -4,14 +4,14 @@ level: task
 title: "MCP move_item, CLI tasks move --to-board, plugin skill lines for moving tasks"
 short_code: "KAIROS-T-0128"
 created_at: 2026-09-23T01:50:44.017809+00:00
-updated_at: 2026-09-23T01:50:44.017809+00:00
+updated_at: 2026-09-23T02:22:52.870703+00:00
 parent: KAIROS-I-0012
-blocked_by: ["KAIROS-T-0127"]
+blocked_by: [KAIROS-T-0127]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -42,10 +42,14 @@ T-0127.
 
 ## Acceptance Criteria
 
-- [ ] `move_item` works over MCP with the documented text; a filer without powers on both boards gets the explained refusal.
-- [ ] `kairos tasks move DEMO-T-0001 --to-board web-delivery --json` prints the moved task.
-- [ ] Skills mention the move; fmt/clippy/unit/integration green.
+- [x] `move_item` returns "Moved <code>: <from> -> <to> / <entry column>."; a non-task is refused and pointed at `transition_item`; bob (file_backlog only) gets the Backlog explanation. Probed in tests/mcp.rs.
+- [x] The verb exists on tasks only (`kairos initiatives move` fails to parse), `--to-board` is required, and `--json` prints the Task DTO. CLI parse tests in main.rs.
+- [x] `triage` gained a "Wrong team" outcome and `implement` a "moved, not recreated" paragraph, both with the repository-binding caveat; `angreal test lint`, `angreal test unit`, `angreal test integration` 40/40.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `06c5347`.
+
+- The CLI verb rides a new optional `board_move(Move)` clause on `entity_family_cli!`, mirroring `transition(Transition)`; only the tasks invocation passes it. `emit_moved` takes `&Task` directly rather than widening `EntityView` with a `board_id()` accessor for four families that never move.
+- `tests/mcp.rs` pins the tool surface, so `move_item` had to be added there AND to the S-0006 table; adding a second delivery board to that test also forced the existing bare `create_item` probes to name a board (the "multiple delivery boards" validation), which is the product behaving correctly.
+- The `/kairos` router skill enumerates recipes, not tools, so it needed no change.

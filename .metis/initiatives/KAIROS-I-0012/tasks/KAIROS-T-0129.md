@@ -4,14 +4,14 @@ level: task
 title: "GUI: Board select on the item page's Board panel, ItemMoved live refetch on board views; e2e move step"
 short_code: "KAIROS-T-0129"
 created_at: 2026-09-23T01:50:47.503279+00:00
-updated_at: 2026-09-23T02:09:39.672404+00:00
+updated_at: 2026-09-23T02:23:35.071379+00:00
 parent: KAIROS-I-0012
 blocked_by: [KAIROS-T-0127]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -13,6 +13,8 @@ This session is scoped to one **repository** — the `repository` in the Session
 
 **Stay in your repository.** `get_item` prints the task's `repository: <slug> (owner: <team>)`; if it differs from this checkout's, stop: say which repository it belongs to and that it must be implemented from that checkout (or by that team), and pick something else. Never implement another codebase's ticket from here. An item with no `repository` on a multi-repo team: bind it first — there is no MCP tool for binding, so ask the user to run `kairos repos bind <code> <slug>` (or do it if the CLI is authenticated in this session) — then proceed.
 
+**A task on the wrong board is moved, not recreated.** When a ticket is on this board but is really another team's work, `move_item` it to their delivery board (`to_board`) — recreating it there throws away its history, its edges and its author. You need `manage_tasks` on both boards; if the tool refuses, name the board it belongs on and ask the lead. A repository-bound task already sits on its owner's board and can only move once the binding is removed.
+
 The task must be workable: acceptance criteria present and independently verifiable, blockers resolved. When it isn't, stop, note the gap on the item, and tell the lead it needs `/kairos:triage` — surface the gap rather than quietly filling it yourself.
 
 `transition_item` to **Active** before the first change.

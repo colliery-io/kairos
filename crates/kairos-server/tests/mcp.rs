@@ -513,6 +513,8 @@ async fn mcp_endpoint_against_live_stack() {
         "update_item",
         "edit_item",
         "transition_item",
+        // KAIROS-I-0012: move a task to another delivery board.
+        "move_item",
         "link_items",
         "unlink_items",
         "set_metadata",
@@ -1024,6 +1026,69 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
         )
         .await;
+    assert!(text.contains("file_backlog"), "{text}");
+
+    // --- KAIROS-T-0128: move_item (the I-0012 board move) -------------------
+    // A second delivery board to move to, with alice able to manage both.
+    let web_board = kairos_db::boards::create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Web Delivery",
+        "web-delivery",
+        None,
+        None,
+    )
+    .expect("creating the web delivery board");
+    abac::grant_capability(&mut conn, web_board.id, alice, "manage_tasks", alice)
+        .expect("granting manage_tasks on web");
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Moves house", "board": "platform-delivery"}),
+        )
+        .await;
+    let movable = extract_code(&text, "ACME-T-");
+    let text = session
+        .call_ok(
+            "move_item",
+            json!({"short_code": movable, "to_board": "web-delivery"}),
+        )
+        .await;
+    assert!(
+        text.contains(&format!(
+            "Moved {movable}: platform-delivery -> web-delivery /"
+        )),
+        "{text}"
+    );
+    let text = session
+        .call_ok("get_item", json!({"short_code": movable}))
+        .await;
+    assert!(text.contains("board: web-delivery"), "{text}");
+    // Only tasks: an initiative is told to use transition_item instead.
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "initiative", "title": "Stays put"}),
+        )
+        .await;
+    let other = extract_code(&text, "ACME-I-");
+    let text = session
+        .call_err(
+            "move_item",
+            json!({"short_code": other, "to_board": "web-delivery"}),
+        )
+        .await;
+    assert!(text.contains("is not a task"), "{text}");
+    assert!(text.contains("transition_item"), "{text}");
+    // Two-sided: bob may manage neither board, and the refusal explains the
+    // Backlog rule he DOES hold (KAIROS-T-0123).
+    let text = bob_session
+        .call_err(
+            "move_item",
+            json!({"short_code": movable, "to_board": "platform-delivery"}),
+        )
+        .await;
+    assert!(text.contains("FORBIDDEN"), "{text}");
     assert!(text.contains("file_backlog"), "{text}");
 
     // --- teardown ------------------------------------------------------------

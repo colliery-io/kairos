@@ -260,6 +260,16 @@ pub struct TransitionItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+pub struct MoveItemParams {
+    /// The task's short code (e.g. "ACME-T-0012").
+    pub short_code: String,
+    /// The delivery board to move it to, by slug (e.g. "web-delivery") or
+    /// UUID. It lands in that board's entry column.
+    pub to_board: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
 pub struct LinkItemsParams {
     /// Source item's short code (edge direction: source -> target).
     pub source: String,
@@ -998,6 +1008,67 @@ impl KairosMcp {
                 }
             }
             unreachable!("edit_item loop returns within two attempts");
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. A task bound to a repository may only move to that repository's owning team's board: unbind it first (`kairos repos unbind`) or pick that board. To move an item between COLUMNS of its own board, use `transition_item`."
+    )]
+    pub async fn move_item(
+        &self,
+        Parameters(params): Parameters<MoveItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code)?;
+            if item.item_type != ItemType::Task {
+                return Err(ApiError::validation(format!(
+                    "{} {} is not a task; only tasks live on per-team delivery boards. \
+                     Use transition_item to move an item between columns of its own board",
+                    item.item_type, item.short_code
+                )));
+            }
+            let from_board_id = item.board_id.ok_or_else(|| {
+                ApiError::unprocessable(
+                    "ITEM_NOT_ON_BOARD",
+                    format!("task {} is not placed on a board", item.short_code),
+                )
+            })?;
+            let target = board_by_ref(conn, &params.to_board)?;
+            // Two-sided, like link_items and re-homing: the work leaves one
+            // team's board and lands on another's.
+            require_capability_explained(
+                conn,
+                &slug,
+                Some(from_board_id),
+                user,
+                "manage_tasks",
+                &item.short_code,
+            )?;
+            require_capability_explained(
+                conn,
+                &slug,
+                Some(target.id),
+                user,
+                "manage_tasks",
+                &item.short_code,
+            )?;
+            let from_board = board_by_ref(conn, &from_board_id.to_string())?;
+            let moved =
+                boards::move_task(conn, item.id, target.id, user).map_err(map_board_error)?;
+            let column = board_columns(conn, target.id)?
+                .into_iter()
+                .find(|c| c.id == moved.column_id)
+                .map(|c| c.name)
+                .unwrap_or_default();
+            Ok(format!(
+                "Moved {}: {} -> {} / {}.",
+                item.short_code, from_board.slug, target.slug, column
+            ))
         })
         .await
     }

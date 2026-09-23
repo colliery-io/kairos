@@ -536,6 +536,40 @@ mod tests {
             "documents must not offer transition"
         );
 
+        // KAIROS-I-0012: tasks (and only tasks) move between delivery boards.
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "tasks",
+            "move",
+            "ACME-T-0001",
+            "--to-board",
+            "web-delivery",
+        ])
+        .expect("tasks move parses");
+        match cli.command {
+            Command::Tasks(TasksCommand::Move(args)) => {
+                assert_eq!(args.short_code, "ACME-T-0001");
+                assert_eq!(args.to_board, "web-delivery");
+            }
+            _ => panic!("expected tasks move"),
+        }
+        assert!(
+            Cli::try_parse_from(["kairos", "tasks", "move", "ACME-T-0001"]).is_err(),
+            "--to-board is required"
+        );
+        assert!(
+            Cli::try_parse_from([
+                "kairos",
+                "initiatives",
+                "move",
+                "ACME-I-0001",
+                "--to-board",
+                "web-delivery"
+            ])
+            .is_err(),
+            "only tasks live on per-team boards"
+        );
+
         // Boards, search (filters + traverse + escape hatch), teams/streams
         // nesting, members, admin tenants.
         assert!(Cli::try_parse_from(["kairos", "boards", "list", "--json"]).is_ok());

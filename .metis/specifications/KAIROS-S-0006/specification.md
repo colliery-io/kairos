@@ -65,6 +65,7 @@ Inside: item CRUD, transitions, relationships, metadata values, search/traverse,
 | `update_item` | `short_code`, `title?`, `content`, `version` | Full-content update under optimistic concurrency; on 409 returns current version + content for reconciliation |
 | `edit_item` | `short_code`, `search`, `replace`, `replace_all?` | Server-side read-modify-write: applies search/replace to current content, submits with current version, retries once on race; errors if `search` not found or ambiguous (when `replace_all` false) |
 | `transition_item` | `short_code`, `to_column` (name or id) | Resolves column by name on the item's board, validates against `board_transitions`; on invalid transition returns the allowed target columns |
+| `move_item` | `short_code`, `to_board` (slug or id) | Tasks only (KAIROS-I-0012): moves a task to another DELIVERY board, landing in its entry column and following its team; needs `manage_tasks` on BOTH boards; a repository-bound task may only move to its owning team's board |
 | `link_items` | `source`, `target`, `relationship` (parent\|supports\|informs\|supersedes\|blocks) | Creates the edge (org-admin-gated relationships enforced server-side per A-0006) |
 | `unlink_items` | `source`, `target`, `relationship` | Removes the edge |
 | `set_metadata` | `short_code`, `values` (map of definition slug → value) | Validates against metadata definitions (A-0003); returns resulting metadata set |

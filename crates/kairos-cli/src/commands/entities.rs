@@ -126,6 +126,21 @@ pub struct TransitionArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos tasks move` (KAIROS-I-0012).
+#[derive(Args, Debug)]
+pub struct MoveArgs {
+    /// The task's short code (e.g. ACME-T-0001)
+    pub short_code: String,
+    /// Target delivery board (slug or UUID). The task lands in that
+    /// board's entry column and follows its team; you need `manage_tasks`
+    /// on both boards. A task bound to a repository may only move to that
+    /// repository's owning team's board — unbind it first otherwise.
+    #[arg(long = "to-board", value_name = "BOARD")]
+    pub to_board: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of the `delete` verbs (soft delete, KAIROS-A-0001 cascade).
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
@@ -465,6 +480,20 @@ pub fn emit_transitioned<T: EntityView>(common: &Common, item: &T) -> Result<(),
     Ok(())
 }
 
+/// Render a board move (KAIROS-I-0012). Tasks only — they are the one
+/// family on per-team boards — so this takes the DTO directly rather than
+/// widening [`EntityView`] with a board accessor.
+pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
+    if common.json {
+        return print_json(task);
+    }
+    println!(
+        "Moved task {} to board {} (column {})",
+        task.short_code, task.board_id, task.column_id
+    );
+    Ok(())
+}
+
 pub fn emit_deleted(common: &Common, response: &DeleteResponse) -> Result<(), CliError> {
     if common.json {
         return print_json(response);
@@ -685,13 +714,16 @@ impl AdrCreateArgs {
 /// Generate the per-family `Subcommand` enum and its `run` dispatcher over
 /// the corresponding `KairosClient` methods. The optional
 /// `transition(Transition) = method` argument adds the transition verb
-/// (documents have no transition endpoint in S-0005).
+/// (documents have no transition endpoint in S-0005); the optional
+/// `board_move(Move) = method` adds the board move (tasks only — they are
+/// the one family on per-team boards, KAIROS-I-0012).
 macro_rules! entity_family_cli {
     (
         $enum_name:ident, $noun:literal, $create_args:ty,
         list = $list:ident, get = $get:ident, create = $create_fn:ident,
         update = $update:ident, delete = $delete:ident
         $(, transition($transition_variant:ident) = $transition_fn:ident)?
+        $(, board_move($move_variant:ident) = $move_fn:ident)?
     ) => {
         #[doc = concat!("Operations on ", $noun, "s.")]
         #[derive(clap::Subcommand, Debug)]
@@ -713,6 +745,11 @@ macro_rules! entity_family_cli {
             #[command(about = concat!("Move a ", $noun, " to another board column ",
                                       "(an invalid move lists the allowed targets)"))]
             $transition_variant(TransitionArgs),
+            )?
+            $(
+            #[command(about = concat!("Move a ", $noun, " to another delivery board ",
+                                      "(it lands in that board's entry column)"))]
+            $move_variant(MoveArgs),
             )?
             #[command(about = concat!("Soft-delete a ", $noun,
                                       " and cascade to its children (requires --confirm)"))]
@@ -752,6 +789,13 @@ macro_rules! entity_family_cli {
                             .$transition_fn(&args.short_code, &args.to_column)
                             .await?;
                         emit_transitioned(&args.common, &item)
+                    }
+                    )?
+                    $(
+                    Self::$move_variant(args) => {
+                        let client = client(&args.common)?;
+                        let item = client.$move_fn(&args.short_code, &args.to_board).await?;
+                        emit_moved(&args.common, &item)
                     }
                     )?
                     Self::Delete(args) => {
@@ -799,7 +843,8 @@ entity_family_cli!(
     create = create_task,
     update = update_task,
     delete = delete_task,
-    transition(Transition) = transition_task
+    transition(Transition) = transition_task,
+    board_move(Move) = move_task
 );
 
 entity_family_cli!(

@@ -29,15 +29,15 @@ checklist.
 
 ## For people doing the work
 
-<!-- - [Set up a board](how-to/set-up-a-board.md) -->
-<!-- - [Move work between boards](how-to/move-work-between-boards.md) -->
-<!-- - [Wind down a team](how-to/wind-down-a-team.md) -->
-<!-- - [Find archived work](how-to/find-archived-work.md) -->
+- [Set up a board](how-to/set-up-a-board.md)
+- [Move work between boards](how-to/move-work-between-boards.md)
+- [Wind down a team](how-to/wind-down-a-team.md)
+- [Find archived work](how-to/find-archived-work.md)
 
 ## For agent authors
 
-<!-- - [Give an agent machine access](how-to/give-an-agent-machine-access.md) -->
-<!-- - [Connect over MCP](how-to/connect-over-mcp.md) -->
+- [Give an agent machine access](how-to/give-an-agent-machine-access.md)
+- [Connect over MCP](how-to/connect-over-mcp.md)
 
 # Reference
 

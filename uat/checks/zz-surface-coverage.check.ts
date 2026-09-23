@@ -23,7 +23,6 @@ import { COVERAGE } from '../run/reporter';
  * "pending" once KAIROS-I-0013 is finished.
  */
 const ALLOW: Record<string, string> = {
-  'mcp:my_boards': 'pending KAIROS-T-0134 (team-knowledge)',
   'mcp:search': 'pending KAIROS-T-0136 (folded into an existing journey)',
   'mcp:set_metadata': 'pending KAIROS-T-0135 (board-setup)',
   'mcp:delete_item': 'pending KAIROS-T-0135 (board-setup)',

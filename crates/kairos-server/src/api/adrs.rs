@@ -20,7 +20,7 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_pagination, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
+    Liveness, clamp_list, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
     require_capability, short_code_not_found,
 };
 use crate::app::AppState;
@@ -59,11 +59,15 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 }
 
 /// List ADRs (open tenant-wide, S-0005 list envelope).
+///
+/// `?include_deleted=true` widens the listing to archived work, each row
+/// marked with `archived_at` (KAIROS-A-0020 rule 2). Default false: rule 3
+/// is that a listing nobody asked hides put-away work.
 #[utoipa::path(
     get,
     path = "/api/adrs",
     tag = "adrs",
-    params(dto::Pagination),
+    params(dto::ListQuery),
     responses(
         (status = 200, description = "Page of ADRs", body = dto::ListEnvelope<dto::Adr>),
         (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
@@ -72,20 +76,27 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 pub(crate) async fn list_adrs(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto::Pagination>,
+    Query(query): Query<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Adr>>, ApiError> {
-    let (limit, offset) = clamp_pagination(&pagination);
+    let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::adrs::dsl;
-            let total: i64 = dsl::adrs
-                .filter(dsl::deleted_at.is_null())
+            // ONE predicate, applied to both the count and the page
+            // (KAIROS-T-0159): the two can never disagree.
+            let visible = || {
+                let mut query = dsl::adrs.into_boxed();
+                if liveness == Liveness::LiveOnly {
+                    query = query.filter(dsl::deleted_at.is_null());
+                }
+                query
+            };
+            let total: i64 = visible()
                 .count()
                 .get_result(conn)
                 .map_err(ApiError::internal)?;
-            let rows: Vec<Adr> = dsl::adrs
-                .filter(dsl::deleted_at.is_null())
+            let rows: Vec<Adr> = visible()
                 .order(dsl::short_code.asc())
                 .limit(limit)
                 .offset(offset)

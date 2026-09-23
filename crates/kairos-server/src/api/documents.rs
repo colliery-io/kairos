@@ -31,7 +31,7 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_pagination, map_abac_error, map_graph_error, map_item_error, parse_enum,
+    Liveness, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
     parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
 };
 use crate::app::AppState;
@@ -135,11 +135,18 @@ fn authorization_board(
 }
 
 /// List documents (open tenant-wide, S-0005 list envelope).
+///
+/// `?include_deleted=true` widens the listing to archived work, each row
+/// marked with `archived_at` (KAIROS-A-0020 rule 2). Default false: rule 3
+/// is that a listing nobody asked hides put-away work. Note this is the
+/// `deleted_at` sense of archived, not the editorial `lifecycle` value of
+/// the same name (KAIROS-T-0078) — a published document can be
+/// editorially archived and perfectly live.
 #[utoipa::path(
     get,
     path = "/api/documents",
     tag = "documents",
-    params(dto::Pagination),
+    params(dto::ListQuery),
     responses(
         (status = 200, description = "Page of documents", body = dto::ListEnvelope<dto::Document>),
         (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
@@ -148,20 +155,27 @@ fn authorization_board(
 pub(crate) async fn list_documents(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto::Pagination>,
+    Query(query): Query<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Document>>, ApiError> {
-    let (limit, offset) = clamp_pagination(&pagination);
+    let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::documents::dsl;
-            let total: i64 = dsl::documents
-                .filter(dsl::deleted_at.is_null())
+            // ONE predicate, applied to both the count and the page
+            // (KAIROS-T-0159): the two can never disagree.
+            let visible = || {
+                let mut query = dsl::documents.into_boxed();
+                if liveness == Liveness::LiveOnly {
+                    query = query.filter(dsl::deleted_at.is_null());
+                }
+                query
+            };
+            let total: i64 = visible()
                 .count()
                 .get_result(conn)
                 .map_err(ApiError::internal)?;
-            let rows: Vec<Document> = dsl::documents
-                .filter(dsl::deleted_at.is_null())
+            let rows: Vec<Document> = visible()
                 .order(dsl::short_code.asc())
                 .limit(limit)
                 .offset(offset)

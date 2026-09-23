@@ -395,7 +395,9 @@ pub struct MoveTaskRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ListEnvelope<T: ToSchema> {
     pub items: Vec<T>,
-    /// Total live rows (ignoring pagination).
+    /// Rows matching the request, ignoring pagination. Live rows only
+    /// unless the request asked for archived work as well — `total` and
+    /// `items` always answer the same question (KAIROS-T-0159).
     pub total: i64,
     /// The applied limit.
     pub limit: i64,
@@ -414,6 +416,55 @@ pub struct Pagination {
     /// Rows to skip (default 0).
     #[serde(default)]
     pub offset: Option<i64>,
+}
+
+/// `?limit=&offset=&include_deleted=` — the query of the five entity
+/// family lists: S-0005 pagination plus the KAIROS-A-0020 archived opt-in.
+///
+/// Separate from [`Pagination`] on purpose. The other paginated listings
+/// (boards, teams, members, tenants, templates, streams) have no archived
+/// mode, and a shared struct would advertise a parameter they ignore —
+/// which is how an auditor comes to believe they asked for archived work
+/// and got none.
+///
+/// [`From<Pagination>`] makes every existing `Pagination` call site mean
+/// exactly what it meant before: live rows only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ListQuery {
+    /// Page size (default 50, max 200).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Rows to skip (default 0).
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Include archived (put-away) rows, each marked with `archived_at`
+    /// (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing
+    /// nobody asked hides them. `total` widens with the page, never
+    /// independently of it.
+    #[serde(default)]
+    pub include_deleted: bool,
+}
+
+impl ListQuery {
+    /// The archived-inclusive whole-family listing. Sugar for the one
+    /// interesting non-default: `ListQuery::default()` stays live-only.
+    pub fn including_archived() -> Self {
+        Self {
+            include_deleted: true,
+            ..Self::default()
+        }
+    }
+}
+
+impl From<Pagination> for ListQuery {
+    fn from(page: Pagination) -> Self {
+        Self {
+            limit: page.limit,
+            offset: page.offset,
+            include_deleted: false,
+        }
+    }
 }
 
 /// Response of `DELETE /api/{family}/{short_code}` — the soft delete and

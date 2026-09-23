@@ -28,8 +28,8 @@ use crate::error::Error;
 use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
     CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
-    ListEnvelope, Pagination, RestoreResponse, SetLifecycleRequest, SetWorkClassRequest, Strategy,
-    Task, TransitionRequest, UpdateContentRequest,
+    ListEnvelope, ListQuery, Pagination, RestoreResponse, SetLifecycleRequest, SetWorkClassRequest,
+    Strategy, Task, TransitionRequest, UpdateContentRequest,
 };
 use crate::types_meta::{
     ActivityEntry, ActivityQuery, ChildrenProgressResponse, CreateMetadataDefinitionRequest,
@@ -323,9 +323,16 @@ macro_rules! entity_family {
     ($family:literal, $dto:ty, $create_req:ty,
      $list:ident, $get:ident, $create:ident, $update:ident, $delete:ident,
      $restore:ident) => {
-        #[doc = concat!("`GET /api/", $family, "` — list (tenant-open read).")]
-        pub async fn $list(&self, page: Pagination) -> Result<ListEnvelope<$dto>, Error> {
-            self.get_query(concat!("/api/", $family), &page).await
+        #[doc = concat!("`GET /api/", $family, "` — list (tenant-open read).\n\n",
+                                "Takes a [`Pagination`] for the live-only listing or a ",
+                                "[`ListQuery`] to widen it to archived work (KAIROS-T-0159); ",
+                                "`total` always counts whatever the page shows.")]
+        pub async fn $list(
+            &self,
+            query: impl Into<ListQuery>,
+        ) -> Result<ListEnvelope<$dto>, Error> {
+            self.get_query(concat!("/api/", $family), &query.into())
+                .await
         }
 
         #[doc = concat!("`GET /api/", $family, "/{short_code}`.")]
@@ -559,6 +566,21 @@ impl KairosClient {
     /// `GET /api/boards/{id}/items` — every live item grouped by column.
     pub async fn board_items(&self, board_id: &str) -> Result<BoardItemsResponse, Error> {
         self.get(&format!("/api/boards/{board_id}/items")).await
+    }
+
+    /// `GET /api/boards/{id}/items?include_deleted=true` — the board as it
+    /// was, archived cards included and each marked with `archived_at`
+    /// (KAIROS-A-0020 rule 2). Not a board view: the put-away cards still
+    /// carry the column they were put away in, so this answers "what was
+    /// in Done last quarter?", not "what is on the board now?".
+    pub async fn board_items_including_archived(
+        &self,
+        board_id: &str,
+    ) -> Result<BoardItemsResponse, Error> {
+        self.get(&format!(
+            "/api/boards/{board_id}/items?include_deleted=true"
+        ))
+        .await
     }
 
     /// `GET /api/boards/{id}/columns`.

@@ -58,7 +58,7 @@ use common::{
 };
 use kairos_client::types::{
     CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest,
-    CreateTaskRequest, Pagination,
+    CreateTaskRequest, ListQuery, Pagination,
 };
 use kairos_client::types_search::{
     SearchFilter, SearchRequest, SearchTraverse, SearchTraverseFrom,
@@ -98,21 +98,59 @@ fn uuid(s: &str) -> Uuid {
 }
 
 /// Every short code on a board, across all four board-bound families and
-/// every column.
-async fn board_short_codes(client: &KairosClient, board: Uuid) -> Vec<String> {
-    let items = client
-        .board_items(&board.to_string())
-        .await
-        .expect("board items");
-    let mut codes: Vec<String> = Vec::new();
+/// every column, each paired with whether it came back MARKED archived.
+async fn board_codes_marked(
+    client: &KairosClient,
+    board: Uuid,
+    include_deleted: bool,
+) -> Vec<(String, bool)> {
+    let id = board.to_string();
+    let items = if include_deleted {
+        client.board_items_including_archived(&id).await
+    } else {
+        client.board_items(&id).await
+    }
+    .expect("board items");
+    let mut codes: Vec<(String, bool)> = Vec::new();
     for column in &items.columns {
-        codes.extend(column.strategies.iter().map(|i| i.short_code.clone()));
-        codes.extend(column.initiatives.iter().map(|i| i.short_code.clone()));
-        codes.extend(column.tasks.iter().map(|i| i.short_code.clone()));
-        codes.extend(column.adrs.iter().map(|i| i.short_code.clone()));
+        let mark =
+            |code: &String, archived_at: &Option<String>| (code.clone(), archived_at.is_some());
+        codes.extend(
+            column
+                .strategies
+                .iter()
+                .map(|i| mark(&i.short_code, &i.archived_at)),
+        );
+        codes.extend(
+            column
+                .initiatives
+                .iter()
+                .map(|i| mark(&i.short_code, &i.archived_at)),
+        );
+        codes.extend(
+            column
+                .tasks
+                .iter()
+                .map(|i| mark(&i.short_code, &i.archived_at)),
+        );
+        codes.extend(
+            column
+                .adrs
+                .iter()
+                .map(|i| mark(&i.short_code, &i.archived_at)),
+        );
     }
     codes.sort();
     codes
+}
+
+/// Every short code on a board's DEFAULT (live) listing.
+async fn board_short_codes(client: &KairosClient, board: Uuid) -> Vec<String> {
+    board_codes_marked(client, board, false)
+        .await
+        .into_iter()
+        .map(|(code, _)| code)
+        .collect()
 }
 
 /// Every short code a search request returns, across the five groups.
@@ -545,6 +583,188 @@ async fn archived_work_is_absent_from_every_default_listing() {
             "{code} is hidden from the listings AND still readable, marked archived"
         );
     }
+
+    // === 6. the opt-in on the five family lists (KAIROS-T-0159) ==========
+    // Sections 2 and 5 together say "hidden, but not gone". They do not say
+    // that a reader can get the hidden rows back from the SAME surface that
+    // hid them, one short code at a time being a poor substitute for a
+    // listing. `?include_deleted=true` is that surface.
+    //
+    // The invariant that matters most here is not presence but AGREEMENT:
+    // `total` and the page are two queries, and a list that reports two
+    // rows while returning one is a worse bug than the one this fixes. So
+    // every leg below asserts both numbers, in both modes.
+    let wide = ListQuery {
+        limit: Some(200),
+        offset: Some(0),
+        include_deleted: true,
+    };
+    let widened: Vec<(String, bool, i64)> = {
+        let mut rows = Vec::new();
+        let s = svc.list_strategies(wide).await.expect("list strategies");
+        rows.extend(
+            s.items
+                .iter()
+                .map(|i| (i.short_code.clone(), i.archived_at.is_some(), s.total)),
+        );
+        let i = svc.list_initiatives(wide).await.expect("list initiatives");
+        rows.extend(
+            i.items
+                .iter()
+                .map(|x| (x.short_code.clone(), x.archived_at.is_some(), i.total)),
+        );
+        let t = svc.list_tasks(wide).await.expect("list tasks");
+        rows.extend(
+            t.items
+                .iter()
+                .map(|x| (x.short_code.clone(), x.archived_at.is_some(), t.total)),
+        );
+        let d = svc.list_documents(wide).await.expect("list documents");
+        rows.extend(
+            d.items
+                .iter()
+                .map(|x| (x.short_code.clone(), x.archived_at.is_some(), d.total)),
+        );
+        let a = svc.list_adrs(wide).await.expect("list adrs");
+        rows.extend(
+            a.items
+                .iter()
+                .map(|x| (x.short_code.clone(), x.archived_at.is_some(), a.total)),
+        );
+        rows
+    };
+    for code in archived.iter().chain(live.iter()) {
+        assert!(
+            widened.iter().any(|(listed, _, _)| listed == code),
+            "{code} must be in its family list when archived work is asked for: {widened:?}"
+        );
+    }
+    // Marked, not disguised: a widened listing that did not say which rows
+    // were put away would be worse than one that hid them, because the
+    // reader would act on the archived ones.
+    for (code, is_marked, _) in &widened {
+        assert_eq!(
+            *is_marked,
+            archived.contains(code),
+            "{code} carries archived_at iff it is archived: {widened:?}"
+        );
+    }
+    for (_, _, family_total) in &widened {
+        assert_eq!(
+            *family_total, 2,
+            "the widened count is the widened page: one live row and one archived one"
+        );
+    }
+    // ...and the count is the page, family by family, under BOTH settings.
+    // Asserted family by family rather than collected first, because the
+    // five envelopes are five different types.
+    macro_rules! count_matches_page {
+        ($label:literal, $method:ident) => {{
+            let live = svc.$method(page).await.expect($label);
+            assert_eq!(
+                live.items.len() as i64,
+                live.total,
+                concat!(
+                    $label,
+                    ": the default count and the default page must agree"
+                )
+            );
+            let all = svc.$method(wide).await.expect($label);
+            assert_eq!(
+                all.items.len() as i64,
+                all.total,
+                concat!(
+                    $label,
+                    ": the widened count and the widened page must agree"
+                )
+            );
+        }};
+    }
+    count_matches_page!("strategies", list_strategies);
+    count_matches_page!("initiatives", list_initiatives);
+    count_matches_page!("tasks", list_tasks);
+    count_matches_page!("documents", list_documents);
+    count_matches_page!("adrs", list_adrs);
+
+    // === 7. the opt-in on the board ======================================
+    // Same rule, the other surface. An archived card keeps the column it
+    // was put away in, so this is the audit view of a board rather than a
+    // board — "what was in Done last quarter?".
+    for board in [strategy_board, initiative_board, delivery_board, adr_board] {
+        let widened_board = board_codes_marked(&svc, board, true).await;
+        for (code, is_marked) in &widened_board {
+            assert_eq!(
+                *is_marked,
+                archived.contains(code),
+                "board {board} marks exactly its archived cards: {widened_board:?}"
+            );
+        }
+        let widened_codes: Vec<&String> = widened_board.iter().map(|(code, _)| code).collect();
+        let default_codes = board_short_codes(&svc, board).await;
+        // Every live card is still there, and at least one archived card
+        // came back — so this is a widening of the same board, not a
+        // different query that happens to return rows.
+        for code in &default_codes {
+            assert!(
+                widened_codes.contains(&code),
+                "the widened board dropped live {code}: {widened_board:?}"
+            );
+        }
+        assert!(
+            widened_codes.len() > default_codes.len(),
+            "board {board} has an archived card that only the opt-in reaches: {widened_board:?}"
+        );
+    }
+
+    // === 8. the default is a no-op, byte for byte =======================
+    // The whole of KAIROS-I-0015 rests on the claim that a caller who does
+    // not know the parameter exists sees exactly what it always saw.
+    // Sections 1-3 prove that archived rows stay out; this proves that
+    // ASKING for the default changes nothing either — the same request,
+    // written the two ways, produces the same bytes.
+    for family in ["strategies", "initiatives", "tasks", "documents", "adrs"] {
+        let (status, implicit) = svc
+            .raw_request(
+                reqwest::Method::GET,
+                &format!("/api/{family}?limit=200"),
+                None,
+            )
+            .await
+            .expect("default listing");
+        assert_eq!(status, 200, "{family} default listing");
+        let (_, explicit) = svc
+            .raw_request(
+                reqwest::Method::GET,
+                &format!("/api/{family}?limit=200&include_deleted=false"),
+                None,
+            )
+            .await
+            .expect("explicitly live-only listing");
+        assert_eq!(
+            implicit, explicit,
+            "{family}: omitting include_deleted and passing false are the SAME request"
+        );
+    }
+    let (_, board_implicit) = svc
+        .raw_request(
+            reqwest::Method::GET,
+            &format!("/api/boards/{delivery_board}/items"),
+            None,
+        )
+        .await
+        .expect("default board items");
+    let (_, board_explicit) = svc
+        .raw_request(
+            reqwest::Method::GET,
+            &format!("/api/boards/{delivery_board}/items?include_deleted=false"),
+            None,
+        )
+        .await
+        .expect("explicitly live-only board items");
+    assert_eq!(
+        board_implicit, board_explicit,
+        "the board's default and its explicit live-only mode are the SAME request"
+    );
 
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);
 }

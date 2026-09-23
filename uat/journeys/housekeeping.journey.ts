@@ -122,6 +122,43 @@ journey(
       };
     });
 
+    await step(alice, 'gets the quarter back by asking for it, on the list and on the board', async () => {
+      // KAIROS-T-0159. One short code at a time is a poor substitute for a
+      // listing, and "what shipped last quarter?" is a listing question.
+      // The same surfaces that hid the work hand it back when asked —
+      // marked, so nobody mistakes a closed quarter for an open one.
+      const api = await alice.api();
+      const wide = await api.get('/api/tasks?limit=200&include_deleted=true');
+      const wideRows = (wide.items ?? wide) as any[];
+      const wideCodes = wideRows.map((t: any) => t.short_code);
+      for (const code of shipped) expect(wideCodes).toContain(code);
+      expect(wideCodes, 'the live work is still there too').toContain(stillOpen);
+      // The count must widen WITH the page. A list that says 40 and shows
+      // 12 is a worse answer than one that showed nothing.
+      expect(wide.total, 'the widened count is the widened page').toBe(wideRows.length);
+      // Marked, not disguised.
+      for (const row of wideRows) {
+        if (shipped.includes(row.short_code)) expect(row.archived_at).toBeTruthy();
+        if (row.short_code === stillOpen) expect(row.archived_at).toBeFalsy();
+      }
+
+      // ...and the same argument on the board, over MCP, where an agent
+      // reads it. The marker is the whole point here: an agent that cannot
+      // tell put-away work from live work will pick it up and start on it.
+      const mcp = await alice.mcp();
+      const widened = await mcp.call('board_items', { board: team.fixture.boardSlug, include_deleted: true });
+      const widenedCodes = shortCodes(widened);
+      for (const code of shipped) expect(widenedCodes).toContain(code);
+      expect(widened, 'archived cards are rendered marked').toContain('[archived]');
+
+      return {
+        archived_work_relisted: shipped.length,
+        widened_total: wide.total,
+        widened_page: wideRows.length,
+        board_marks_archived: true,
+      };
+    });
+
     await step(alice, 'cannot retire the repository yet — a live ticket still points at it', async () => {
       const api = await alice.api();
       const res = await api.raw('DELETE', `/api/repositories/${team.fixture.repoSlug}`);

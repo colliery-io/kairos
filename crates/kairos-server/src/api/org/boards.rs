@@ -507,11 +507,24 @@ pub(crate) struct BoardItemsQuery {
     /// Narrow the TASKS to those bound to this repository (slug or UUID).
     /// Other entity types are unaffected. Unknown repository → 422.
     pub repository: Option<String>,
+    /// Include archived (put-away) cards, each marked with `archived_at`
+    /// (KAIROS-A-0020 rule 2). Default false — a board is a live board
+    /// unless the reader says otherwise (rule 3).
+    #[serde(default)]
+    pub include_deleted: bool,
 }
 
 /// All live items on the board, grouped by column (columns in position
 /// order; every entity type — strategies, initiatives, tasks, ADRs). Open
 /// tenant-wide. `?repository=` narrows the tasks (KAIROS-T-0104).
+///
+/// `?include_deleted=true` adds the archived cards back, in the column
+/// each was put away in and marked with `archived_at` (KAIROS-T-0159).
+/// That is an audit view, not a board view — "what was in Done last
+/// quarter?" rather than "what is on the board now?". The children-
+/// progress rollup and the blocks summary are deliberately NOT widened by
+/// it: ADR-20 rule 5 says archived work is not live work, so the counts
+/// keep counting live rows however the listing is asked for.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/items",
@@ -535,7 +548,14 @@ pub(crate) async fn board_items(
             use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
             let board = load_board(conn, board_id)?;
-            let columns = load_columns(conn, board_id)?;
+            // An archived card keeps a NOT NULL FK to the column it was
+            // put away in, and that column may itself have been removed
+            // since (KAIROS-T-0161). Widening the cards without widening
+            // the columns would drop exactly the oldest audit rows on the
+            // floor — and silently, since a card whose column is missing
+            // from `index_of` is simply never bucketed.
+            let columns = load_columns_including_removed(conn, board_id, query.include_deleted)?;
+            let live_only = !query.include_deleted;
             let repository_filter: Option<Uuid> = query
                 .repository
                 .as_deref()
@@ -566,9 +586,13 @@ pub(crate) async fn board_items(
             // stays ONE grouped query for the whole board.
             let mut item_codes: Vec<(Uuid, String)> = Vec::new();
 
-            let strategy_rows: Vec<Strategy> = strategies::table
+            let mut strategy_query = strategies::table
                 .filter(strategies::board_id.eq(board_id))
-                .filter(strategies::deleted_at.is_null())
+                .into_boxed();
+            if live_only {
+                strategy_query = strategy_query.filter(strategies::deleted_at.is_null());
+            }
+            let strategy_rows: Vec<Strategy> = strategy_query
                 .order(strategies::short_code.asc())
                 .select(Strategy::as_select())
                 .load(conn)
@@ -579,9 +603,13 @@ pub(crate) async fn board_items(
                     groups[i].strategies.push(row.into_dto());
                 }
             }
-            let initiative_rows: Vec<Initiative> = initiatives::table
+            let mut initiative_query = initiatives::table
                 .filter(initiatives::board_id.eq(board_id))
-                .filter(initiatives::deleted_at.is_null())
+                .into_boxed();
+            if live_only {
+                initiative_query = initiative_query.filter(initiatives::deleted_at.is_null());
+            }
+            let initiative_rows: Vec<Initiative> = initiative_query
                 .order(initiatives::short_code.asc())
                 .select(Initiative::as_select())
                 .load(conn)
@@ -594,8 +622,10 @@ pub(crate) async fn board_items(
             }
             let mut task_query = tasks::table
                 .filter(tasks::board_id.eq(board_id))
-                .filter(tasks::deleted_at.is_null())
                 .into_boxed();
+            if live_only {
+                task_query = task_query.filter(tasks::deleted_at.is_null());
+            }
             if let Some(repository_id) = repository_filter {
                 task_query = task_query.filter(tasks::repository_id.eq(repository_id));
             }
@@ -630,9 +660,11 @@ pub(crate) async fn board_items(
                     group.tasks = by_column.remove(&group.column.id).unwrap_or_default();
                 }
             }
-            let adr_rows: Vec<Adr> = adrs::table
-                .filter(adrs::board_id.eq(board_id))
-                .filter(adrs::deleted_at.is_null())
+            let mut adr_query = adrs::table.filter(adrs::board_id.eq(board_id)).into_boxed();
+            if live_only {
+                adr_query = adr_query.filter(adrs::deleted_at.is_null());
+            }
+            let adr_rows: Vec<Adr> = adr_query
                 .order(adrs::short_code.asc())
                 .select(Adr::as_select())
                 .load(conn)

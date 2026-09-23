@@ -341,6 +341,22 @@ fn tenant_provisioning_lifecycle() {
         Vec::<String>::new(),
         "no idx_*_tsv index is partial in a freshly provisioned tenant"
     );
+    // KAIROS-T-0159, the same argument one surface over: the three
+    // `idx_*_board` indexes are whole, so a board listing that asks for its
+    // archived cards is still O(board) rather than O(tenant). `idx_*_column`
+    // stays partial on purpose — nothing queries by column, and a narrow
+    // index left available to the planner costs the default path nothing.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT indexname::text AS name FROM pg_indexes \
+             WHERE schemaname = $1 AND indexname LIKE 'idx\\_%\\_board' \
+               AND indexdef LIKE '%WHERE%'",
+            "org_acme",
+        ),
+        Vec::<String>::new(),
+        "no idx_*_board index is partial in a freshly provisioned tenant"
+    );
 
     // system_board_defaults seeded with all FOUR level configs (A-0002).
     assert_eq!(
@@ -529,9 +545,9 @@ fn tenant_provisioning_lifecycle() {
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
     // that predates the NEWEST tenant migration (currently
-    // `tsv_indexes_cover_archived`, KAIROS-T-0157): revert its DDL (the down
-    // migration's shape) and drop its bookkeeping row in widgets only, then
-    // fleet-migrate and expect exactly that one migration to re-apply.
+    // `board_indexes_cover_archived`, KAIROS-T-0159): revert its DDL (the
+    // down migration's shape) and drop its bookkeeping row in widgets only,
+    // then fleet-migrate and expect exactly that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
@@ -540,20 +556,25 @@ fn tenant_provisioning_lifecycle() {
     // freshly-provisioned assertions rather than deleting it; T-0156's
     // five-table view check moved there when this block stopped covering it.
     //
-    // The pre-T-0157 shape is the five full-text indexes being partial,
+    // The pre-T-0159 shape is the three board indexes being partial,
     // `WHERE deleted_at IS NULL`. Only strategies is reverted: one index is
     // enough to prove the migration re-applies, and the post-condition below
-    // checks all five.
-    sql_query("DROP INDEX org_widgets.idx_strategies_tsv")
+    // checks all three.
+    //
+    // T-0157's evidence did not vanish with the re-pin — its
+    // freshly-provisioned assertion above (no partial `idx_*_tsv`) is the
+    // durable half, and the upgrade-path post-condition for it is kept
+    // below, since an upgraded tenant is exactly where a missed index
+    // hides.
+    sql_query("DROP INDEX org_widgets.idx_strategies_board")
         .execute(&mut conn)
-        .expect("dropping widgets' idx_strategies_tsv to simulate an old tenant");
+        .expect("dropping widgets' idx_strategies_board to simulate an old tenant");
     sql_query(
-        "CREATE INDEX idx_strategies_tsv ON org_widgets.strategies \
-             USING GIN (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) \
+        "CREATE INDEX idx_strategies_board ON org_widgets.strategies (board_id) \
              WHERE deleted_at IS NULL",
     )
     .execute(&mut conn)
-    .expect("restoring the pre-T-0157 partial idx_strategies_tsv in widgets");
+    .expect("restoring the pre-T-0159 partial idx_strategies_board in widgets");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -605,6 +626,19 @@ fn tenant_provisioning_lifecycle() {
         ),
         5,
         "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
+    );
+    // KAIROS-T-0159: and so are the three board indexes — an existing
+    // tenant's audit view of a board is index-backed, not a table scan it
+    // inherits for the rest of its life.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_indexes \
+             WHERE schemaname = 'org_widgets' AND indexname LIKE 'idx\\_%\\_board' \
+               AND indexdef NOT LIKE '%WHERE%'"
+        ),
+        3,
+        "all three idx_*_board indexes are non-partial in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

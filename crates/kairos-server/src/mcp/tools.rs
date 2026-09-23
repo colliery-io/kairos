@@ -93,6 +93,11 @@ pub struct BoardItemsParams {
     /// Restrict the TASKS to those issued against this repository (slug
     /// or UUID). Your repo's queue on a multi-repo team board.
     pub repository: Option<String>,
+    /// Include archived (put-away) cards, each marked `[archived]`.
+    /// Default false — the board as it stands. Ask for this when the
+    /// question is historical ("what was in Done last quarter?"), never
+    /// to decide what to work on next.
+    pub include_deleted: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -156,7 +161,9 @@ pub struct SearchFilterParams {
     pub created_after: Option<String>,
     /// Only items created strictly before this RFC 3339 instant.
     pub created_before: Option<String>,
-    /// Include soft-deleted items (default false).
+    /// Include archived (soft-deleted) items (default false). Composes with
+    /// everything, `q` and `traverse` included; archived hits come back
+    /// marked `[archived]`.
     #[serde(default)]
     pub include_deleted: bool,
 }
@@ -628,7 +635,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]."
     )]
     pub async fn board_items(
         &self,
@@ -638,7 +645,15 @@ impl KairosMcp {
         let (_, tenant) = Self::caller(&context)?;
         self.run_tool(&tenant, move |conn| {
             let board = board_by_ref(conn, &params.board)?;
-            let mut columns = board_columns(conn, board.id)?;
+            let liveness = if params.include_deleted.unwrap_or(false) {
+                Liveness::IncludeArchived
+            } else {
+                Liveness::LiveOnly
+            };
+            // Removed columns come back only with the archived cards that
+            // still point at them (KAIROS-T-0161) — otherwise those cards
+            // would be fetched and then silently never rendered.
+            let mut columns = board_columns_including_removed(conn, board.id, liveness)?;
             if let Some(wanted) = &params.column {
                 let target = resolve_column(&columns, wanted)?;
                 columns.retain(|c| c.id == target);
@@ -652,7 +667,7 @@ impl KairosMcp {
                         .map_err(crate::api::tasks::map_repository_error)
                 })
                 .transpose()?;
-            let items = board_item_rows(conn, board.id, repository)?;
+            let items = board_item_rows(conn, board.id, repository, liveness)?;
             let repo_ids: Vec<Uuid> = items.iter().filter_map(|i| i.repository_id).collect();
             let repo_slugs = repo_slug_map(conn, &repo_ids)?;
 
@@ -665,15 +680,19 @@ impl KairosMcp {
                     items.iter().filter(|i| i.column_id == column.id).collect();
                 out.push_str(&format!("\n## {} ({})\n", column.name, in_column.len()));
                 for item in in_column {
+                    // The marker is not decoration: an agent that cannot
+                    // tell put-away work from live work will pick one up
+                    // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}\n",
+                        "- {} [{}] {}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
                         item.repository_id
                             .and_then(|id| repo_slugs.get(&id))
                             .map(|slug| format!(" [repo:{slug}]"))
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
+                        if item.archived { " [archived]" } else { "" }
                     ));
                 }
             }
@@ -1762,10 +1781,29 @@ fn board_by_id(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiErro
 /// a removed column (KAIROS-T-0161) is neither listed nor resolvable as a
 /// transition target.
 fn board_columns(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError> {
+    board_columns_including_removed(conn, board_id, Liveness::LiveOnly)
+}
+
+/// A board's columns in position order, removed ones included when the
+/// caller is showing archived cards (KAIROS-T-0159).
+///
+/// The only reason to pass [`Liveness::IncludeArchived`] is that archived
+/// cards keep a `NOT NULL` FK to the column they were put away in, and
+/// that column may since have been removed. Anything that renders or
+/// validates a LIVE board calls [`board_columns`] instead.
+fn board_columns_including_removed(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    liveness: Liveness,
+) -> Result<Vec<BoardColumn>, ApiError> {
     use kairos_db::schema::board_columns;
-    board_columns::table
+    let mut query = board_columns::table
         .filter(board_columns::board_id.eq(board_id))
-        .filter(board_columns::deleted_at.is_null())
+        .into_boxed();
+    if liveness == Liveness::LiveOnly {
+        query = query.filter(board_columns::deleted_at.is_null());
+    }
+    query
         .order(board_columns::position.asc())
         .select(BoardColumn::as_select())
         .load(conn)
@@ -1820,74 +1858,115 @@ struct BoardItemRow {
     /// The type tag shown in listings (`task`/`bug`/`tech_debt` for tasks,
     /// the entity type otherwise).
     kind: String,
+    /// Put away (KAIROS-A-0020). Only ever true when the caller asked for
+    /// archived rows, and the renderer MUST mark it.
+    archived: bool,
 }
 
-/// Every live item placed on a board (strategies, initiatives, tasks, and
+/// What each family's board listing selects. The trailing
+/// `Option<DateTime<Utc>>` is `deleted_at`, selected in BOTH modes rather
+/// than only the widened one: the live mode must still be able to prove
+/// it served nothing archived, and a marker that is only fetched when it
+/// might be set is a marker nobody checks (KAIROS-T-0159).
+type BoardStrategySelect = (Uuid, String, String, Option<DateTime<Utc>>);
+type BoardInitiativeSelect = (Uuid, String, String, bool, Option<DateTime<Utc>>);
+type BoardTaskSelect = (
+    Uuid,
+    String,
+    String,
+    TaskType,
+    WorkClass,
+    Option<Uuid>,
+    Option<DateTime<Utc>>,
+);
+type BoardAdrSelect = (Option<Uuid>, String, String, Option<DateTime<Utc>>);
+
+/// Every item placed on a board (strategies, initiatives, tasks, and
 /// on-board ADRs — documents have no placement), unified for listing.
 /// `repository` (KAIROS-T-0107) narrows the TASKS only.
+///
+/// `liveness` is a parameter rather than a constant so that the one caller
+/// that wants the audit view — MCP `board_items` with `include_deleted` —
+/// can have it without `list_boards`' per-column counts silently widening
+/// too: those count live work (ADR-20 rule 5) and pass
+/// [`Liveness::LiveOnly`].
 fn board_item_rows(
     conn: &mut PgConnection,
     board_id: Uuid,
     repository: Option<Uuid>,
+    liveness: Liveness,
 ) -> Result<Vec<BoardItemRow>, ApiError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
+    let live_only = liveness == Liveness::LiveOnly;
     let mut rows: Vec<BoardItemRow> = Vec::new();
-    let strategies: Vec<(Uuid, String, String)> = strategies::table
+    let mut strategy_query = strategies::table
         .filter(strategies::board_id.eq(board_id))
-        .filter(strategies::deleted_at.is_null())
+        .into_boxed();
+    if live_only {
+        strategy_query = strategy_query.filter(strategies::deleted_at.is_null());
+    }
+    let strategies: Vec<BoardStrategySelect> = strategy_query
         .order(strategies::short_code.asc())
         .select((
             strategies::column_id,
             strategies::short_code,
             strategies::title,
+            strategies::deleted_at,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(
         strategies
             .into_iter()
-            .map(|(column_id, short_code, title)| BoardItemRow {
+            .map(|(column_id, short_code, title, deleted_at)| BoardItemRow {
                 column_id,
                 short_code,
                 title,
                 repository_id: None,
                 kind: "strategy".to_string(),
+                archived: deleted_at.is_some(),
             }),
     );
 
-    let initiatives: Vec<(Uuid, String, String, bool)> = initiatives::table
+    let mut initiative_query = initiatives::table
         .filter(initiatives::board_id.eq(board_id))
-        .filter(initiatives::deleted_at.is_null())
+        .into_boxed();
+    if live_only {
+        initiative_query = initiative_query.filter(initiatives::deleted_at.is_null());
+    }
+    let initiatives: Vec<BoardInitiativeSelect> = initiative_query
         .order(initiatives::short_code.asc())
         .select((
             initiatives::column_id,
             initiatives::short_code,
             initiatives::title,
             initiatives::is_bucket,
+            initiatives::deleted_at,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
-    rows.extend(
-        initiatives
-            .into_iter()
-            .map(|(column_id, short_code, title, is_bucket)| BoardItemRow {
-                column_id,
-                short_code,
-                title,
-                repository_id: None,
-                kind: if is_bucket { "bucket" } else { "initiative" }.to_string(),
-            }),
-    );
+    rows.extend(initiatives.into_iter().map(
+        |(column_id, short_code, title, is_bucket, deleted_at)| BoardItemRow {
+            column_id,
+            short_code,
+            title,
+            repository_id: None,
+            kind: if is_bucket { "bucket" } else { "initiative" }.to_string(),
+            archived: deleted_at.is_some(),
+        },
+    ));
 
     let mut task_query = tasks::table
         .filter(tasks::board_id.eq(board_id))
-        .filter(tasks::deleted_at.is_null())
         .into_boxed();
+    if live_only {
+        task_query = task_query.filter(tasks::deleted_at.is_null());
+    }
     if let Some(repository) = repository {
         task_query = task_query.filter(tasks::repository_id.eq(repository));
     }
-    let tasks: Vec<(Uuid, String, String, TaskType, WorkClass, Option<Uuid>)> = task_query
+    let tasks: Vec<BoardTaskSelect> = task_query
         .order(tasks::short_code.asc())
         .select((
             tasks::column_id,
@@ -1896,40 +1975,52 @@ fn board_item_rows(
             tasks::task_type,
             tasks::work_class,
             tasks::repository_id,
+            tasks::deleted_at,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(tasks.into_iter().map(
-        |(column_id, short_code, title, task_type, work_class, repository_id)| BoardItemRow {
-            column_id,
-            short_code,
-            title,
-            repository_id,
-            // The Support lane rides in `kind` (KAIROS-T-0077); Planned
-            // stays unmarked as the default lane.
-            kind: match work_class {
-                WorkClass::Support => format!("{task_type} [support lane]"),
-                WorkClass::Planned => task_type.to_string(),
-            },
+        |(column_id, short_code, title, task_type, work_class, repository_id, deleted_at)| {
+            BoardItemRow {
+                column_id,
+                short_code,
+                title,
+                repository_id,
+                // The Support lane rides in `kind` (KAIROS-T-0077); Planned
+                // stays unmarked as the default lane.
+                kind: match work_class {
+                    WorkClass::Support => format!("{task_type} [support lane]"),
+                    WorkClass::Planned => task_type.to_string(),
+                },
+                archived: deleted_at.is_some(),
+            }
         },
     ));
 
-    let adrs: Vec<(Option<Uuid>, String, String)> = adrs::table
-        .filter(adrs::board_id.eq(board_id))
-        .filter(adrs::deleted_at.is_null())
+    let mut adr_query = adrs::table.filter(adrs::board_id.eq(board_id)).into_boxed();
+    if live_only {
+        adr_query = adr_query.filter(adrs::deleted_at.is_null());
+    }
+    let adrs: Vec<BoardAdrSelect> = adr_query
         .order(adrs::short_code.asc())
-        .select((adrs::column_id, adrs::short_code, adrs::title))
+        .select((
+            adrs::column_id,
+            adrs::short_code,
+            adrs::title,
+            adrs::deleted_at,
+        ))
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(
         adrs.into_iter()
-            .filter_map(|(column_id, short_code, title)| {
+            .filter_map(|(column_id, short_code, title, deleted_at)| {
                 column_id.map(|column_id| BoardItemRow {
                     column_id,
                     short_code,
                     title,
                     repository_id: None,
                     kind: "adr".to_string(),
+                    archived: deleted_at.is_some(),
                 })
             }),
     );
@@ -1937,13 +2028,15 @@ fn board_item_rows(
     Ok(rows)
 }
 
-/// Per-column live item counts for one board.
+/// Per-column LIVE item counts for one board — what `list_boards` prints
+/// beside each column name. Archived work is not live work (ADR-20 rule
+/// 5), so this stays live-only however `board_items` is asked for.
 fn column_item_counts(
     conn: &mut PgConnection,
     board_id: Uuid,
 ) -> Result<HashMap<Uuid, i64>, ApiError> {
     let mut counts: HashMap<Uuid, i64> = HashMap::new();
-    for row in board_item_rows(conn, board_id, None)? {
+    for row in board_item_rows(conn, board_id, None, Liveness::LiveOnly)? {
         *counts.entry(row.column_id).or_default() += 1;
     }
     Ok(counts)
@@ -2765,6 +2858,18 @@ fn map_search_error(e: SearchError) -> ApiError {
     }
 }
 
+/// `" [archived]"` for a row that has been put away, empty otherwise
+/// (KAIROS-A-0020, KAIROS-T-0157). `include_deleted` mixes archived hits in
+/// with live ones, and an agent that cannot tell them apart will try to
+/// write to retired work and be refused with no idea why.
+fn archived_marker(deleted_at: Option<DateTime<Utc>>) -> &'static str {
+    if deleted_at.is_some() {
+        " [archived]"
+    } else {
+        ""
+    }
+}
+
 /// Compact REQ-1.6 rendering: results grouped by type, one line per item
 /// (short code + title + a key field), full content via `get_item`.
 fn render_search_results(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String {
@@ -2780,41 +2885,62 @@ fn render_search_results(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, St
     if !results.strategies.is_empty() {
         out.push_str("\n## strategies\n");
         for row in &results.strategies {
-            out.push_str(&format!("- {} — {}\n", row.short_code, row.title));
+            out.push_str(&format!(
+                "- {} — {}{}\n",
+                row.short_code,
+                row.title,
+                archived_marker(row.deleted_at)
+            ));
         }
     }
     if !results.initiatives.is_empty() {
         out.push_str("\n## initiatives\n");
         for row in &results.initiatives {
             let bucket = if row.is_bucket { " [bucket]" } else { "" };
-            out.push_str(&format!("- {} — {}{bucket}\n", row.short_code, row.title));
+            out.push_str(&format!(
+                "- {} — {}{bucket}{}\n",
+                row.short_code,
+                row.title,
+                archived_marker(row.deleted_at)
+            ));
         }
     }
     if !results.tasks.is_empty() {
         out.push_str("\n## tasks\n");
         for row in &results.tasks {
             out.push_str(&format!(
-                "- {} — {} [{}]{}\n",
+                "- {} — {} [{}]{}{}\n",
                 row.short_code,
                 row.title,
                 row.task_type,
                 row.repository_id
                     .and_then(|id| repo_slugs.get(&id))
                     .map(|slug| format!(" [repo:{slug}]"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                archived_marker(row.deleted_at)
             ));
         }
     }
     if !results.documents.is_empty() {
         out.push_str("\n## documents\n");
         for row in &results.documents {
-            out.push_str(&format!("- {} — {}\n", row.short_code, row.title));
+            out.push_str(&format!(
+                "- {} — {}{}\n",
+                row.short_code,
+                row.title,
+                archived_marker(row.deleted_at)
+            ));
         }
     }
     if !results.adrs.is_empty() {
         out.push_str("\n## adrs\n");
         for row in &results.adrs {
-            out.push_str(&format!("- {} — {}\n", row.short_code, row.title));
+            out.push_str(&format!(
+                "- {} — {}{}\n",
+                row.short_code,
+                row.title,
+                archived_marker(row.deleted_at)
+            ));
         }
     }
     out

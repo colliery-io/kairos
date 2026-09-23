@@ -11,7 +11,7 @@ use clap::Args;
 
 use kairos_client::types::{
     Adr, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest,
-    CreateTaskRequest, DeleteResponse, Document, Initiative, ListEnvelope, Pagination,
+    CreateTaskRequest, DeleteResponse, Document, Initiative, ListEnvelope, ListQuery, Pagination,
     RestoreResponse, Strategy, Task, UpdateContentRequest,
 };
 
@@ -41,6 +41,40 @@ impl ListArgs {
         Pagination {
             limit: self.limit,
             offset: self.offset,
+        }
+    }
+}
+
+// Deliberately NOT [`ListArgs`], which the org nouns (boards, teams,
+// members, streams, tenants) share and which have no archived mode. A flag
+// on the shared struct would appear on those verbs too and do nothing —
+// worse than absent, because the reader would believe they had asked.
+//
+// The doc comment below is user-facing: clap renders it as this verb's
+// long help.
+/// `?limit=&offset=&include_deleted=` flags for the entity `list` verbs.
+#[derive(Args, Debug)]
+pub struct EntityListArgs {
+    /// Page size (server default 50, max 200)
+    #[arg(long)]
+    pub limit: Option<i64>,
+    /// Rows to skip
+    #[arg(long)]
+    pub offset: Option<i64>,
+    /// Also list archived (put-away) work, marked `[archived]` in the
+    /// CODE column. Default: live work only
+    #[arg(long)]
+    pub include_deleted: bool,
+    #[command(flatten)]
+    pub common: Common,
+}
+
+impl EntityListArgs {
+    pub fn query(&self) -> ListQuery {
+        ListQuery {
+            limit: self.limit,
+            offset: self.offset,
+            include_deleted: self.include_deleted,
         }
     }
 }
@@ -436,7 +470,17 @@ pub fn emit_list<T: EntityView>(
     } else {
         let mut table = Table::new(T::HEADERS);
         for item in &envelope.items {
-            table.row(item.table_row());
+            let mut row = item.table_row();
+            // Marked in place rather than in a column of its own: a
+            // default listing holds no archived rows, so its table is
+            // exactly what it was before --include-deleted existed, and a
+            // widened one still cannot be misread (KAIROS-A-0020 rule 2).
+            if item.archived_at().is_some()
+                && let Some(code) = row.first_mut()
+            {
+                code.push_str(" [archived]");
+            }
+            table.row(row);
         }
         print!("{}", table.render());
     }
@@ -774,8 +818,9 @@ macro_rules! entity_family_cli {
             // clap cannot evaluate `#[doc = concat!(..)]` (the tokens reach
             // the derive unexpanded), so per-verb help goes through
             // `command(about = ..)`, which clap emits as an expression.
-            #[command(about = concat!("List ", $noun, "s (paginated)"))]
-            List(ListArgs),
+            #[command(about = concat!("List ", $noun,
+                                      "s (paginated; --include-deleted adds archived work)"))]
+            List(EntityListArgs),
             #[command(about = concat!("Show one ", $noun,
                                       ", including its markdown content"))]
             Get(GetArgs),
@@ -807,7 +852,7 @@ macro_rules! entity_family_cli {
                 match self {
                     Self::List(args) => {
                         let client = client(&args.common)?;
-                        let envelope = client.$list(args.page()).await?;
+                        let envelope = client.$list(args.query()).await?;
                         emit_list(&args.common, &envelope)
                     }
                     Self::Get(args) => {

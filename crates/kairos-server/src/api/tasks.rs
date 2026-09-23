@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use super::convert::{IntoDto, attach_repositories, attach_repository};
 use super::{
-    Liveness, clamp_pagination, map_board_error, map_item_error, parse_enum, parse_opt_uuid,
-    parse_uuid, require_capability, short_code_not_found,
+    Liveness, clamp_list, map_board_error, map_item_error, parse_enum, parse_opt_uuid, parse_uuid,
+    require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -131,11 +131,15 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 }
 
 /// List tasks (open tenant-wide, S-0005 list envelope).
+///
+/// `?include_deleted=true` widens the listing to archived work, each row
+/// marked with `archived_at` (KAIROS-A-0020 rule 2). Default false: rule 3
+/// is that a listing nobody asked hides put-away work.
 #[utoipa::path(
     get,
     path = "/api/tasks",
     tag = "tasks",
-    params(dto::Pagination),
+    params(dto::ListQuery),
     responses(
         (status = 200, description = "Page of tasks", body = dto::ListEnvelope<dto::Task>),
         (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
@@ -144,20 +148,28 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 pub(crate) async fn list_tasks(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto::Pagination>,
+    Query(query): Query<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Task>>, ApiError> {
-    let (limit, offset) = clamp_pagination(&pagination);
+    let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::tasks::dsl;
-            let total: i64 = dsl::tasks
-                .filter(dsl::deleted_at.is_null())
+            // ONE predicate, applied to both the count and the page: a
+            // list that reports 40 and returns 12 is a worse bug than the
+            // one the opt-in exists to fix (KAIROS-T-0159).
+            let visible = || {
+                let mut query = dsl::tasks.into_boxed();
+                if liveness == Liveness::LiveOnly {
+                    query = query.filter(dsl::deleted_at.is_null());
+                }
+                query
+            };
+            let total: i64 = visible()
                 .count()
                 .get_result(conn)
                 .map_err(ApiError::internal)?;
-            let rows: Vec<Task> = dsl::tasks
-                .filter(dsl::deleted_at.is_null())
+            let rows: Vec<Task> = visible()
                 .order(dsl::short_code.asc())
                 .limit(limit)
                 .offset(offset)

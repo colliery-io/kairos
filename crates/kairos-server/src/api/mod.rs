@@ -89,6 +89,25 @@ pub fn clamp_pagination(pagination: &dto::Pagination) -> (i64, i64) {
     (limit, offset)
 }
 
+/// Clamp an entity-family list query to `(limit, offset, liveness)`.
+///
+/// The liveness comes back beside the page bounds rather than being read
+/// separately at each call site, because the one way to get KAIROS-T-0159
+/// wrong is for the `count` and the paged `load` to disagree about which
+/// rows exist. One value, used twice, cannot.
+pub fn clamp_list(query: &dto::ListQuery) -> (i64, i64, Liveness) {
+    let (limit, offset) = clamp_pagination(&dto::Pagination {
+        limit: query.limit,
+        offset: query.offset,
+    });
+    let liveness = if query.include_deleted {
+        Liveness::IncludeArchived
+    } else {
+        Liveness::LiveOnly
+    };
+    (limit, offset, liveness)
+}
+
 // ---------------------------------------------------------------------------
 // Body parsing helpers (wire strings → typed values, 422 VALIDATION)
 // ---------------------------------------------------------------------------

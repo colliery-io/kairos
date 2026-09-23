@@ -4,14 +4,14 @@ level: task
 title: "UAT: J3 back on a fresh team, J1 move + refused-until-deleted step; README team deletion; I-0011 finding #7 closed"
 short_code: "KAIROS-T-0130"
 created_at: 2026-09-23T01:50:50.493748+00:00
-updated_at: 2026-09-23T01:50:50.493748+00:00
+updated_at: 2026-09-23T02:28:30.310080+00:00
 parent: KAIROS-I-0012
-blocked_by: ["KAIROS-T-0127", "KAIROS-T-0128", "KAIROS-T-0129"]
+blocked_by: [KAIROS-T-0127, KAIROS-T-0128, KAIROS-T-0129]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -43,10 +43,14 @@ T-0127, T-0128, T-0129.
 
 ## Acceptance Criteria
 
-- [ ] J3 runs on a fresh team in both modes with no `uat-` leftovers (teams included).
-- [ ] J1 shows: refused naming the live card → moved → team gone.
-- [ ] README updated; I-0011 finding #7 marked fixed; both full runs green with run ids logged.
+- [x] `agent-loop` uses `setupTeamRepoAgent` again; after full runs in both modes `kairos teams list` shows no `uat-` rows (nor repositories, service accounts or items).
+- [x] J1 steps 9–12: refused 409 (owns the repository) → re-home → refused 422 naming the card in `details.items` → `kairos tasks move` → bob sees it arrive live → teardown deletes the team.
+- [x] README gained "Teams — and winding one down"; I-0011 finding #7 marked fixed by I-0012; compose `mudhg8lk` 5/5, server `mudhgu2v` 5/5.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `3d867a0`.
+
+- The wind-down story had to follow the guards' real order: the repository guard (409) fires BEFORE the board guard (422), so the journey re-homes the repository first and only then sees the card named. Writing it the other way round failed, which is the journey doing its job.
+- J1 and J3 both created a `uat-<run>-mobile` team and collided on the slug; J3 now uses the `ios` suffix.
+- `setupRepoAgentOnTeam` kept (not deleted) for `--server` targets whose credentials cannot create teams; `UAT_TEAM` re-documented as that fallback.

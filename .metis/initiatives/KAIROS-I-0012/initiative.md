@@ -182,4 +182,25 @@ UAT where touched).
   must be archived or moved to delete a team"); three decisions taken via
   AskUserQuestion; design D1–D5 written against the code (no restore path
   exists; team delete already soft-deletes the board; no board-move API on
-  any surface).
+  any surface).- 2026-09-22: All four tasks completed. `fb6eb45` live-only guard + move
+  in kairos-db/API/client (T-0127), `06c5347` MCP `move_item` + CLI
+  `kairos tasks move` + skills (T-0128), `1927749` GUI Board select and
+  live `item_moved` on both boards (T-0129), `3d867a0` UAT journeys +
+  README "Teams — and winding one down" (T-0130).
+
+  **The rule now:** a team deletes once it owns no repositories (409
+  names them) and its board holds no LIVE cards (422 names them, in
+  `details.items`). "Archived" is the existing soft delete — history and
+  activity stay, the board is soft-deleted with the team. Moving a task
+  between delivery boards exists on all four surfaces and needs
+  `manage_tasks` on BOTH boards; a repository-bound task may only move to
+  its owner's board.
+
+  **Verified:** `angreal test lint`, `angreal test unit`, `angreal test
+  integration` 40/40 (two new targets: `board_move.rs`, `task_move.rs`;
+  `ws_events.rs` asserts the `item_moved` pair over a real socket),
+  `cargo test -p kairos-web --lib` 74/74, `angreal test e2e` 11/11, UAT
+  compose `mudhg8lk` 5/5 and server `mudhgu2v` 5/5 with zero `uat-`
+  leftovers — teams included, which is the finding this initiative
+  closes (KAIROS-I-0011 #7). Initiative left **active** for Dylan's
+  review.

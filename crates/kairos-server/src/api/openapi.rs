@@ -32,8 +32,9 @@
 //! # WebSocket channel
 //!
 //! OpenAPI covers the REST surface only. The `GET /ws/events` push
-//! channel (A-0005 §5) is documented in `docs/api/events.md` and in the
-//! [`crate::ws`] module docs; the spec's `info.description` points there.
+//! channel (A-0005 §5) is documented in `docs/src/reference/events.md` and
+//! in the [`crate::ws`] module docs; the spec's `info.description` points
+//! there.
 
 use std::sync::LazyLock;
 
@@ -57,7 +58,7 @@ use crate::app::AppState;
             `X-Tenant` header, or single-tenant mode) unless noted. \
             Real-time change notifications are NOT part of this spec: the \
             `GET /ws/events` WebSocket channel is documented in \
-            `docs/api/events.md` (OpenAPI covers the REST surface only).",
+            `docs/src/reference/events.md` (OpenAPI covers the REST surface only).",
     ),
     paths(
         // Entity families (KAIROS-T-0018).

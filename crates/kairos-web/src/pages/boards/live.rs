@@ -1,5 +1,5 @@
 //! `/ws/events` live updates for the board view (KAIROS-T-0040, contract
-//! per docs/api/events.md / KAIROS-A-0005 §5).
+//! per docs/src/reference/events.md / KAIROS-A-0005 §5).
 //!
 //! The server pushes thin change notifications; the view reacts by
 //! re-fetching through REST (never by patching local state — conventions
@@ -139,7 +139,7 @@ fn subscribe(
 
 /// The `ws(s)://…/ws/events?access_token=…` URL for the current origin.
 /// Browser WS clients cannot set the Authorization header — the query
-/// parameter is the documented fallback (docs/api/events.md).
+/// parameter is the documented fallback (docs/src/reference/events.md).
 fn events_url(token: &str) -> Option<String> {
     let location = web_sys::window()?.location();
     let protocol = location.protocol().ok()?;

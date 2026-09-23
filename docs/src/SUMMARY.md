@@ -43,7 +43,7 @@ checklist.
 
 - [CLI](reference/cli.md)
 - [Configuration](reference/configuration.md)
-<!-- - [MCP tools](reference/mcp-tools.md) -->
+- [MCP tools](reference/mcp-tools.md)
 - [REST API](reference/rest-api.md)
   - [Work items](reference/rest/work-items.md)
   - [Across any work item](reference/rest/across-any-work-item.md)
@@ -53,9 +53,9 @@ checklist.
   - [Machine access](reference/rest/machine-access.md)
   - [The deployment itself](reference/rest/the-deployment-itself.md)
   - [Schemas](reference/rest/schemas.md)
-<!-- - [Events](reference/events.md) -->
-<!-- - [SCIM](reference/scim.md) -->
-<!-- - [Glossary](reference/glossary.md) -->
+- [Events](reference/events.md)
+- [SCIM](reference/scim.md)
+- [Glossary](reference/glossary.md)
 
 # Explanation
 

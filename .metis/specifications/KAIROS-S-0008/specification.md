@@ -4,14 +4,14 @@ level: specification
 title: "Diataxis Documentation Spec"
 short_code: "KAIROS-S-0008"
 created_at: 2026-07-08T11:29:16.756278+00:00
-updated_at: 2026-07-08T11:29:16.756278+00:00
+updated_at: 2026-09-23T22:26:44.952903+00:00
 parent: KAIROS-I-0002
 blocked_by: []
 archived: false
 
 tags:
   - "#specification"
-  - "#phase/discovery"
+  - "#phase/published"
 
 
 exit_criteria_met: false
@@ -82,6 +82,14 @@ Criteria (cite as R1–R6):
 - **R5**: Examples, if present, illustrate usage of the described item and remain brief; they never grow into procedures or lessons.
 - **R6**: Accurate and current: matches the product version it claims to document; version/applicability is stated where behavior differs.
 
+**Generated reference pages** (rendered from an OpenAPI document, a schema, or
+`--help` output) are reviewed as reference like any other: the rules apply to
+the *output*, not to the generator, and a reviewer must not waive them because
+a page is machine-made. Generation usually satisfies R3, R4 and R6 better than
+a human can. The rule it most often fails is **R1** — a generator emits its
+source's ordering, which is rarely the product's own structure, so the page is
+complete and still unnavigable. Review a generated page for R1 first.
+
 ### 2.4 Explanation (understanding-oriented)
 
 - **User**: a reader at leisure (not mid-task) who wants to understand: why it is this way, how it fits together, what the trade-offs are.
@@ -95,6 +103,15 @@ Criteria (cite as E1–E6):
 - **E4**: Readable away from the product: contains no required steps and no material the reader must execute to follow the argument.
 - **E5**: Considers alternatives or multiple perspectives where they exist, and may take a position — marked as such.
 - **E6**: Contains no canonical facts that exist only here: specifics (limits, defaults, signatures) are cited from or delegated to reference.
+
+**A page explaining a recorded decision** (an ADR, a design note) is
+explanation, and the mode fits it unusually well: E2 wants rationale, E5 wants
+the alternatives marked as such, and a decision record already carries both.
+Two cautions. E6 still binds — the field names, defaults and error codes the
+decision produced belong in reference, and the explanation cites them; a page
+that is the only home for both the argument and the facts has silently become
+reference too. And E1 still applies: name the page for the topic a reader is
+thinking about, not for the decision's identifier.
 
 ## 3. Classification heuristics
 

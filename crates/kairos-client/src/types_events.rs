@@ -18,7 +18,13 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ThinEvent {
     /// `item_created|item_updated|item_transitioned|item_moved|item_deleted|`
-    /// `relationship_changed|metadata_changed`.
+    /// `item_restored|relationship_changed|metadata_changed|item_links_changed`.
+    ///
+    /// The authoritative list is `kairos_db::events::EventKind::as_str`; this
+    /// comment is what an SDK consumer reads, so it had drifted two values
+    /// behind (`item_restored`, `item_links_changed`). Note `item_restored` is
+    /// deliberately distinct from `item_created`: treating it as a create
+    /// renders a new card carrying an old version number.
     pub event: String,
     /// `strategy|initiative|task|document|adr`.
     pub entity_type: String,

@@ -21,7 +21,6 @@ initiative_id: archived-work-stays-readable
 
 # Archived Work Stays Readable - Implementing ADR-20 Across Every Surface Initiative
 
-# Archived Work Stays Readable - Implementing ADR-20 Across Every Surface Initiative
 
 ## Context
 

@@ -4,14 +4,14 @@ level: task
 title: "ABAC resolves an authorization board for archived items"
 short_code: "KAIROS-T-0153"
 created_at: 2026-09-23T11:29:41.623149+00:00
-updated_at: 2026-09-23T11:29:41.623149+00:00
+updated_at: 2026-09-23T11:36:04.499552+00:00
 parent: KAIROS-I-0015
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -54,6 +54,8 @@ Do not touch the *mutating* paths' liveness checks (`items.rs:325/650/702/792`)
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] `resolve_authorization_board` returns the owning board for an archived
       strategy, initiative, task, document and ADR.
 - [ ] A test proves a non-admin team member resolves the *same* capability
@@ -65,3 +67,26 @@ Do not touch the *mutating* paths' liveness checks (`items.rs:325/650/702/792`)
 ## Status Updates
 
 *To be added during implementation*
+**2026-09-23 — done.** Commit `a50d82c`.
+
+Removed the `deleted_at` filter from four lookups in
+`crates/kairos-db/src/abac.rs`: the `try_table!` macro in
+`board_of_workflow_item`, its ADR arm, the document check in
+`resolve_authorization_board`, and the macro in `item_created_by`. Doc
+comments rewritten to say why, so the filters do not get restored by someone
+tidying up.
+
+No surface behaviour changes yet — nothing serves archived work until
+[[KAIROS-T-0154]].
+
+Test: `archived_items_resolve_the_same_capabilities_as_live_ones` in
+`crates/kairos-db/tests/abac.rs`. It records what a plain team member may do
+while a task is live, archives it, and asserts the capability set is
+**identical** — then asserts the converse, since a lookup that stops asking
+about liveness could just as easily widen access: an outsider still holds
+nothing. `cargo test -p kairos-db --test abac` → 3 passed.
+
+Gotcha for later tasks in this initiative: a hand-inserted board has **no
+columns**, so `first_column` panics with `board has columns: NotFound`. Test
+setup must insert a `NewBoardColumn` itself, unlike the provisioned default
+boards which come seeded.

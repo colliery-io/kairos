@@ -1,19 +1,15 @@
 # `GET /ws/events` — the WebSocket event channel
 
-> **Why this page exists**: the Kairos REST surface is fully specified by
-> OpenAPI (`GET /api/openapi.json`, aggregated per KAIROS-A-0005 §6 by
-> `crates/kairos-server/src/api/openapi.rs`). OpenAPI does not model
-> WebSockets, so the one push channel is documented here instead
-> (AsyncAPI-style companion section, per A-0005 §6). Contract:
-> KAIROS-A-0005 §5 / KAIROS-S-0005 "Event Push"; implementation:
-> KAIROS-T-0022 (`crates/kairos-server/src/ws.rs`).
+Kairos 0.1.0. This is the deployment's only push channel; the rest of the HTTP
+surface is specified by OpenAPI (`GET /api/openapi.json`), which does not model
+WebSockets, so the channel is described here instead. Implementation:
+`crates/kairos-server/src/ws.rs`.
 
 ## Purpose
 
-The UI must not poll. The server pushes **thin change notifications** —
-never content — whenever something in the tenant changes. Clients react
-by re-fetching the affected resource through the REST API, so
-consistency and authorization stay in one place (the REST handlers).
+The server pushes **thin change notifications** — never content — whenever
+something in the tenant changes. Clients react by re-fetching the affected
+resource through the REST API.
 
 ## Connecting
 
@@ -53,13 +49,30 @@ One JSON object per WebSocket text message
 
 | Field | Meaning |
 |---|---|
-| `event` | `item_created` \| `item_updated` \| `item_transitioned` \| `item_deleted` \| `relationship_changed` \| `metadata_changed` |
+| `event` | One of the nine values in the table below |
 | `entity_type` | `strategy` \| `initiative` \| `task` \| `document` \| `adr` |
 | `short_code` | The affected item — re-fetch it via the REST API |
 | `board_id` | The item's board (UUID); `null` for off-board items (documents, unplaced ADRs) |
 | `column_id` | The item's (new) column (UUID); omitted when not applicable |
 | `actor` | The acting user's id (UUID) |
 | `occurred_at` | RFC 3339 timestamp |
+
+### The `event` vocabulary
+
+Nine values. A client that does not recognise one should re-fetch the item and
+otherwise ignore it.
+
+| `event` | Emitted when |
+|---|---|
+| `item_created` | An item was created |
+| `item_updated` | An item's content changed (an edit, or a rollback) |
+| `item_transitioned` | An item moved to another column of its own board |
+| `item_moved` | A task moved to another delivery board. Emitted **twice**: once for the board it left (`board_id` = the source, no `column_id`) and once for the board it joined, so both boards' subscribers re-fetch |
+| `item_deleted` | An item was soft-deleted (put away) |
+| `item_restored` | An archived item was put back. **Distinct from `item_created`**: the item and its history existed all along, so a client that treats this as a create shows a new card carrying an old version number |
+| `relationship_changed` | A relationship edge touching the item was added or removed |
+| `metadata_changed` | The item's metadata values changed |
+| `item_links_changed` | The item's forge links (branches, pull or merge requests) changed |
 
 Events carry **no payloads**: fetch the new state through the REST
 endpoints in the OpenAPI spec.
@@ -82,6 +95,13 @@ Optionally filter the stream to one board
   skips the lagged events.
 - Clients reconcile by re-fetching through the REST API after any
   (re)connect.
-- Fan-out is PostgreSQL `LISTEN/NOTIFY` (`kairos_events` channel),
-  emitted by the mutating services on commit — stateless per request,
-  no broker, scales past one server node unchanged.
+- Fan-out is PostgreSQL `LISTEN/NOTIFY` on the `kairos_events` channel,
+  emitted inside the mutating transaction, so PostgreSQL delivers the
+  notification on commit and drops it on rollback.
+
+## Related reading
+
+- [Errors](errors.md) — the `401`, `403` and `404` this endpoint returns before
+  the upgrade
+- [REST API](rest-api.md) — the endpoints a client re-fetches through
+- [Glossary](glossary.md)

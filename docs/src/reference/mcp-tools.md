@@ -18,7 +18,7 @@ These hold for every tool.
 | Item identity | Items are named by short code, e.g. `ACME-T-0012`, in every input and every output. |
 | Board and team references | A `board`, `to_board`, `team` or `repository` argument accepts either a slug or a UUID. A `column` or `to_column` argument accepts either a column name, case-insensitively, or a UUID. |
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
-| Errors | A refusal comes back as an MCP tool error whose text carries the same stable code as the REST API's error envelope. |
+| Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](errors.md) for what each code's `details` carries. |
 | Audit | Writes are recorded in the activity log by the same code path as the REST API. |
 
 ### Refusal codes
@@ -107,6 +107,9 @@ The items on a board, grouped by column: short code, type and title.
 | `column` | string | no | all columns | Column name or UUID. |
 | `repository` | string | no | all | Narrow the tasks to those issued against this repository. Slug or UUID. |
 | `include_deleted` | boolean | no | `false` | Add archived cards back, each marked `[archived]`, in the column they were put away in. Columns that have since been removed appear only when this is true, and only carrying archived cards. |
+
+A removed column can be named as `column` only while `include_deleted` is
+true; otherwise it is not among the board's columns and is refused as unknown.
 
 Refuses: `NOT_FOUND` for an unknown or archived board; `VALIDATION` for a
 `column` that is not on that board, and the refusal lists the board's columns,
@@ -242,12 +245,15 @@ the CLI's `create` verbs accept — an initiative created over MCP is never a
 bucket, and an ADR created over MCP carries no decision date. Both fields are
 readable through `get_item` and settable through the REST API.
 
-Refuses: `VALIDATION` for an unknown `item_type`; for a type-specific argument
-passed with the wrong `item_type`, naming the type it belongs to; for a document
-without `parent`, or whose parent is not a strategy, initiative or task; for a
-`parent` that does not name a live item; for an unknown template; when no live
-board of the required level exists; when several do, listing their slugs; and
-for an unknown `repository`. `NOT_FOUND` for an unknown `board`. `FORBIDDEN` when the caller
+Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
+`work_class` or `complexity` outside its vocabulary; for a type-specific
+argument passed with the wrong `item_type`, naming the type it belongs to; for a
+document without `parent`, or whose parent is not a strategy, initiative or
+task; for a `parent` that does not name a live item; for an unknown template,
+and for a template *name* that matches more than one template, which asks for
+the id or slug instead; when no live board of the required level exists; when
+several do, listing their slugs; and for an unknown `repository`.
+`NOT_FOUND` for an unknown `board`. `FORBIDDEN` when the caller
 lacks `manage_<type>` on the resolved board, or lacks the capability to write
 the requested `parent` edge — the edge is gated before the item is written, so
 a refusal leaves no orphan.
@@ -398,8 +404,10 @@ Deleted items remain retrievable by short code and searchable with
 `include_deleted`; they are hidden from default listings. "Deleted" and
 "archived" name the same act — see the [Glossary](glossary.md).
 
-Refuses: `VALIDATION` when `confirm` is `false`; `NOT_FOUND` for an unknown
-short code or an already-archived item; `FORBIDDEN` without `manage_<type>` on
+Refuses: `VALIDATION` when `confirm` is `false` — checked before the short code
+is looked up, so such a call never reports an unknown item; `NOT_FOUND` for an
+unknown short code or an already-archived item; `FORBIDDEN` without
+`manage_<type>` on
 the item's authorization board. An *absent* `confirm` is a schema violation
 rather than a refusal — it is a required field, so the call is rejected before
 the tool body runs and carries no Kairos error code.

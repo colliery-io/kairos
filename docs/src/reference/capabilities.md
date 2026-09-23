@@ -45,21 +45,32 @@ tenant-wide.
 
 ## Globs
 
-A stored grant may be a glob. These are the four that the vocabulary
-recognises as conventional, though matching is general — any grant containing
-`*` is treated as a pattern.
+A stored grant may be a glob. These four are the whole glob vocabulary: they
+are the only patterns a grant may carry.
 
 | Grant | Satisfies |
 |---|---|
 | `*` | Every capability |
-| `manage_*` | `manage_strategies`, `manage_initiatives`, `manage_tasks`, `manage_documents`, `manage_adrs` |
+| `manage_*` | `manage_strategies`, `manage_initiatives`, `manage_tasks`, `manage_documents`, `manage_adrs`, **and `manage_members`** |
 | `configure_*` | `configure_boards`, `configure_templates`, `configure_metadata` |
 | `transition_*` | `transition_items` |
+
+`manage_*` covers `manage_members` because the match is textual, not
+family-aware: `manage_members` begins with `manage_`. A grant of `manage_*` is
+therefore a grant of board administration, including granting and revoking
+other members' capabilities. To give someone every work-item capability
+*without* that, grant the five `manage_<type>` names individually.
 
 ### Matching rules
 
 `*` matches any sequence of characters, including an empty one. Every other
 character matches itself. Matching is **case-sensitive**.
+
+The API accepts only the fourteen values in the two tables above as a stored
+grant; anything else — including a pattern such as `manage_*s` — is refused at
+grant time with `VALIDATION`. The matcher itself is general, and the rules
+below describe it, because it is the matcher that decides authorisation and it
+is mirrored in SQL as well as in Rust.
 
 The rule worth stating precisely, because it is the one that surprises people:
 **`%` and `_` are literal.** The check is implemented as a SQL `LIKE` whose
@@ -81,7 +92,7 @@ cannot carry them; grant and revoke refuse them. `whoami` reports them under
 
 | Capability | How it is satisfied |
 |---|---|
-| `file_backlog` | Any member of the tenant, on any delivery board. Permits creating a **task** that lands in that board's Backlog at position 0. Nothing past Backlog is opened by it. |
+| `file_backlog` | Any member of the tenant, on any live **delivery** board. Permits creating a **task** that is issued against a repository that board's team owns and lands in that board's entry column. Nothing past the entry column is opened by it, and it is never consulted for a create that names no repository. |
 
 Two further implications are computed the same way — by the authorisation
 check rather than by a stored row:

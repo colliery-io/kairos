@@ -30,13 +30,42 @@ say; the table below states which do.
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `UNAUTHORIZED` | 401 | No token, or a token that does not verify | — |
-| `FORBIDDEN` | 403 | Authenticated, but lacks the required capability | `required_capability`, `board_id` (null = the org-admin-only fallback applied) |
-| `MEMBERSHIP_REQUIRED` | 403 | Authenticated against the issuer, but not a member of this tenant | — |
+| `FORBIDDEN` | 403 | Authenticated, but not allowed | one of four shapes — see below |
+| `MEMBERSHIP_REQUIRED` | 403 | Authenticated against the issuer, but not a member of this tenant | `organization` — the slug that was resolved |
 | `NOT_FOUND` | 404 | The thing the call is about does not exist | — |
 | `TENANT_NOT_FOUND` | 404 | The request host resolves to no provisioned tenant | — |
-| `CONFLICT` | 409 | Optimistic-concurrency conflict: the submitted `version` is stale | `current` — the full current entity, so a client can reconcile |
-| `VALIDATION` | 422 | A body or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault |
+| `CONFLICT` | 409 | A state conflict. Usually optimistic concurrency: the submitted `version` is stale. Also emitted where a create collides with an existing row, or a delete is blocked by what still points at the entity | `current` — the full current entity — on a version conflict **only**; see below |
+| `VALIDATION` | 422, or **400** on `POST /api/search` | A body or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`) |
 | `INTERNAL` | 500 | Server fault; the message is logged, not returned in detail | — |
+
+**`VALIDATION` is 422 everywhere except `POST /api/search`**, which answers
+**400** for every rejection `kairos_core::search::validate` and the DTO
+conversion produce — a blank `q`, an inverted date range, a bad `limit` or
+`offset`, a missing or over-cap `traverse.depth`, a malformed UUID or
+timestamp, an out-of-vocabulary enum value, an unknown field. The code is the
+same; the status is not. Branch on the code.
+
+**`FORBIDDEN`'s `details` has four shapes**, and which one arrives depends on
+what kind of gate refused:
+
+| Shape | Emitted by |
+|---|---|
+| `required_capability`, `board_id` (null = the org-admin-only fallback applied) | a board capability check |
+| `required_capability`, `board_id`, `held: "file_backlog"` | an MCP write refused to a cross-team filer, whose message states the Backlog-only rule |
+| `required_role: "admin"`, and `relationship` when an edge was at fault | tenant-wide configuration: templates, metadata definitions, and non-collaborative relationship types |
+| `relationship` | a `parent`/`blocks` edge where the caller manages neither board and did not create the source |
+| `required: "deployment_admin"` | the cross-tenant provisioning routes, which are not scoped to any organization |
+
+**`CONFLICT` is not only optimistic concurrency.** `details.current` is present
+only on a version conflict; a client that reads it unconditionally will find
+nothing on the others. The other 409s and what they carry instead:
+
+| Condition | `details` |
+|---|---|
+| Deleting a team that still owns repositories | `repositories` — the slugs to re-home |
+| Registering a repository whose slug is taken | — |
+| Registering a repository already registered for that forge | — |
+| `DEFINITION_IN_USE` (its own code; see below) | its own fields |
 
 **The distinction to internalise**, because it decides how a client branches:
 **a reference that does not resolve is `VALIDATION`; the call's own subject not
@@ -52,10 +81,10 @@ A client applying the general rule would branch wrongly here.
 
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
-| `INVALID_TRANSITION` | 422 | The move is not an edge in the board's transition graph | `allowed_targets` — the columns reachable from the current one |
+| `INVALID_TRANSITION` | 422 | The move is not an edge in the board's transition graph | `from` and `to` (`id`, `name` each) and `allowed_targets` — the columns reachable from the current one, as `id`/`name` pairs |
 | `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition (an off-board ADR) | — |
-| `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count |
-| `BOARD_NOT_EMPTY` | 422 | The board still holds live items | the blocking short codes |
+| `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count — and `column` (`id`, `name`) |
+| `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` |
 | `DUPLICATE_COLUMN_NAME` | 422 | A live column of that board already has the name | — |
 | `DUPLICATE_COLUMN_POSITION` | 422 | A live column of that board already holds the position | — |
 | `DUPLICATE_TRANSITION` | 422 | That edge already exists | — |
@@ -67,7 +96,7 @@ A client applying the general rule would branch wrongly here.
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
-| `REPOSITORY_OWNER_MISMATCH` | 422 | The task's repository is owned by a team other than the target board's | — |
+| `REPOSITORY_OWNER_MISMATCH` | 422 | The task's repository is owned by a team other than the target board's | `repository` and `owner_board_id` — null when the owner has no single delivery board, in which case the binding must be cleared rather than followed |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to | `missing` — a list naming each thing that is gone |
 
 ### Relationships
@@ -82,7 +111,7 @@ A client applying the general rule would branch wrongly here.
 
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
-| `DEFINITION_IN_USE` | **409** | The metadata definition is still referenced | `item_values`, `template_fields` (counts) and `items`, `templates` (which ones — an archived carrier is marked, and still blocks) |
+| `DEFINITION_IN_USE` | **409** | The metadata definition is still referenced | `item_values`, `template_fields` (the true counts) and `items`, `templates` (which ones). Each `items` entry is `{short_code, archived}` — an archived carrier is marked, and still blocks. `items` is **capped at 20**, so a definition stamped on thousands of items names twenty of them and counts the rest |
 | `SLUG_CONFLICT` | 422 | The slug is taken | — |
 | `PROTECTED_PAGE` | 422 | The team page is protected and cannot be removed | — |
 | `FOLDER_NOT_EMPTY` | 422 | The team-page folder still has children | — |
@@ -96,11 +125,15 @@ reports a state conflict rather than a malformed request.
 
 | Code | Status | Meaning |
 |---|---|---|
-| `WEBHOOK_REJECTED` | 401 | A forge webhook failed signature verification |
+| `WEBHOOK_REJECTED` | 401 | A forge webhook failed signature verification, or named an unknown tenant or connection — one indistinguishable refusal for all of them |
 | `FORGE_NOT_CONFIGURED` | 501 | The operation needs a forge connection the tenant has not set up |
 | `PUBLIC_URL_NOT_CONFIGURED` | 501 | The operation needs a publicly reachable URL the deployment has not been given |
 | `IDP_UNREACHABLE` | 502 | The OIDC issuer could not be reached |
 | `WEB_DIST_MISSING` | 503 | The GUI bundle is absent from the running binary |
+
+`WEBHOOK_REJECTED` is served from `/webhooks/{forge}/{tenant}/{connection_id}`
+rather than `/api`, and its envelope carries `code` and `message` only — no
+`details` key at all.
 
 ## What archived work refuses
 

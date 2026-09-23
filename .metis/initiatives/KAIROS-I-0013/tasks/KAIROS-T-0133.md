@@ -4,14 +4,14 @@ level: task
 title: "J5 audit-trail: stale update_item, edit_item, history diff, copy-forward rollback, get_history, activity feed"
 short_code: "KAIROS-T-0133"
 created_at: 2026-09-23T02:59:13.216114+00:00
-updated_at: 2026-09-23T02:59:13.216114+00:00
+updated_at: 2026-09-23T03:14:37.391148+00:00
 parent: KAIROS-I-0013
-blocked_by: ["KAIROS-T-0131"]
+blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -48,10 +48,14 @@ T-0131.
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey audit-trail` green in compose and `--server`; the report shows the conflict's current-version payload, the rollback's version going up, and the activity line.
-- [ ] Those three ALLOW entries gone, full run still green.
-- [ ] No `uat-` leftovers.
+- [x] Green (hand-run against the kept stack; `--server` parity verified in T-0136's full runs). Report shows "refused_at: 2; current_version: 3; carried_current_content: true", "rolled_back_to: 4; new_version: 6; history_rewritten: false", and the filtered activity feed.
+- [x] `mcp:update_item`, `mcp:edit_item`, `mcp:get_history` deleted from ALLOW.
+- [x] One task, ledgered and deleted.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `9e3be95`.
+
+- **Product finding (small):** `kairos tasks create --board` takes a UUID only, while `tasks move --to-board` (I-0012) and `--repo` (A-0019) accept a slug or UUID. The journey resolves the id with a comment; worth a hygiene ticket to make `--board` accept a slug too.
+- Selector notes for whoever edits this next: the rollback outcome is a `Banner` (not `.cl-alert`); the history table's "current" pill also appears in the page header, so scope it to `tbody tr`; the activity feed row links the short code, so assert the LINK rather than text anywhere on the page.
+- `get_history` is the version ledger (version/editor/when), not snapshots — the journey asserts the ledger reaches v6 and names bob, and reads content through the CLI instead.

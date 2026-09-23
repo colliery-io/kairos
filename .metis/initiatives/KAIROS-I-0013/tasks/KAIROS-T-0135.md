@@ -4,14 +4,14 @@ level: task
 title: "J7 board-setup: a Review column and its transitions, a metadata field stamped and searched, a delivery stream, delete_item"
 short_code: "KAIROS-T-0135"
 created_at: 2026-09-23T02:59:20.090100+00:00
-updated_at: 2026-09-23T02:59:20.090100+00:00
+updated_at: 2026-09-23T03:07:17.564957+00:00
 parent: KAIROS-I-0013
-blocked_by: ["KAIROS-T-0131"]
+blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -45,6 +45,8 @@ Runs on its own fresh team via `fixtures/team.ts::teamFixture` (suffix `platform
 ### Dependencies
 
 T-0131.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

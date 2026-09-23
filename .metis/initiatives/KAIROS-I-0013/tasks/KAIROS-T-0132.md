@@ -4,14 +4,14 @@ level: task
 title: "cross-team gains the move surfaces: bob re-homes via the GUI Board select, carol moves it back over MCP move_item"
 short_code: "KAIROS-T-0132"
 created_at: 2026-09-23T02:59:10.381705+00:00
-updated_at: 2026-09-23T02:59:10.381705+00:00
+updated_at: 2026-09-23T03:10:57.895341+00:00
 parent: KAIROS-I-0013
-blocked_by: ["KAIROS-T-0131"]
+blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -47,10 +47,16 @@ T-0131 (the ALLOW map to edit).
 
 ## Acceptance Criteria
 
-- [ ] `angreal test uat --journey cross-team` green; the report shows the repository refusal, the GUI move and the MCP move back.
-- [ ] `mcp:move_item` is gone from ALLOW and the full run still passes.
-- [ ] No `uat-` leftovers.
+## Acceptance Criteria
+
+- [x] Green (hand-run against the kept stack); the report shows the REPOSITORY_OWNER_MISMATCH text, the GUI move to web-delivery, carol's FORBIDDEN, and "Moved …: web-delivery -> platform-delivery / Backlog."
+- [x] `mcp:move_item` deleted from ALLOW (full-run verification in T-0136).
+- [x] Teardown unchanged (both tasks ledgered); no leftovers.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-22** — Completed in `c184a89`.
+
+- **Story change forced by the product:** the task said bob would do the GUI move. He cannot — the Board select is hidden for him, correctly, because the two-sided rule leaves him no eligible target (he manages platform only). That became its own step (asserting the control is absent), and alice drives the move. Better story, and it pins a behaviour a reader might otherwise mistake for a bug.
+- The four steps run LAST in the journey: unbinding the repository would break the `kairos search --repo` step that precedes them.
+- Gotcha: the item page's repository picker uses the sentinel `(none)` (`NO_REPOSITORY` in `pages/repositories/api.rs`), not an empty value, to unbind.

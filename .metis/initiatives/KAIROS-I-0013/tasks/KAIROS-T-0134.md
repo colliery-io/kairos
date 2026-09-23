@@ -4,14 +4,14 @@ level: task
 title: "J6 team-knowledge: team directory, a page written and merged after a 409, an announcement, charter refusal, my_boards"
 short_code: "KAIROS-T-0134"
 created_at: 2026-09-23T02:59:16.521209+00:00
-updated_at: 2026-09-23T02:59:16.521209+00:00
+updated_at: 2026-09-23T03:07:15.027670+00:00
 parent: KAIROS-I-0013
-blocked_by: ["KAIROS-T-0131"]
+blocked_by: [KAIROS-T-0131]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -45,6 +45,8 @@ Cast: bob (platform member, the author), carol (non-member, the negative case), 
 ### Dependencies
 
 T-0131.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

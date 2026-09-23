@@ -4,14 +4,14 @@ level: task
 title: "Archived-aware resolution: item GET and history stop 404ing"
 short_code: "KAIROS-T-0154"
 created_at: 2026-09-23T11:29:44.212632+00:00
-updated_at: 2026-09-23T11:29:44.212632+00:00
+updated_at: 2026-09-23T11:38:52.988918+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0153]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ against the base tables. [[KAIROS-T-0156]] fixes the view.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] `GET /api/{family}/{short_code}` returns an archived item with
       `archived_at` set, for all five families.
 - [ ] `GET /api/{family}/{short_code}/history` returns its versions.
@@ -87,3 +89,59 @@ against the base tables. [[KAIROS-T-0156]] fixes the view.
 ## Status Updates
 
 *To be added during implementation*
+**2026-09-23 — done.** Commit `7517465`.
+
+`Liveness` is an enum in `api/mod.rs`, not a bool, so every call site names
+its intention. Threaded through `resolve_short_code`, `resolve_family_item`
+(`api/meta/mod.rs`) and the five `load()` fns. `short_code_not_found` no
+longer claims "live".
+
+**Exactly six call sites pass `IncludeArchived`**, all reads: the five
+GET-by-short-code handlers and `/history`. Everything else names
+`LiveOnly` — which is the reviewable form of "no default behaviour
+changed".
+
+`entity_directory` is still live-only, so `IncludeArchived` resolution runs
+against a `DIRECTORY_UNION` const over the five base tables.
+**[[KAIROS-T-0156]] should collapse that back into the view** once the view
+exposes `deleted_at` — the const exists only because the view cannot answer
+yet.
+
+### Two decisions taken while implementing
+
+- **Reading an archived item's metadata and relationships is included**
+  (`api/meta/metadata.rs:61`, `api/meta/relationships.rs:76/131/195/303`),
+  though the task listed only item GET and history. Serving the item while
+  its metadata 404s is precisely the partial rollout the initiative warns
+  about. Writing them stays `LiveOnly`. What the graph *returns* (archived
+  neighbours) is still [[KAIROS-T-0158]]'s question — this is only about
+  the focal item resolving.
+- **`cascade-preview` stays `LiveOnly`.** It answers "what would this delete
+  take out of circulation?", and archived work is already out.
+
+### Wire
+
+`archived_at` (RFC 3339, `skip_serializing_if = "Option::is_none"`) on all
+five DTOs in `kairos-client/src/types.rs`, filled from `deleted_at` in
+`api/convert.rs`. Absent while live.
+
+### Tests
+
+Two existing assertions encoded the old contract and were **rewritten, not
+deleted** — they are the clearest statement of what changed:
+
+- `crates/kairos-server/tests/entities.rs` asserted *"soft-deleted rows
+  404"*. Now: retrievable, `archived_at` set, history non-empty, absent from
+  the default list, and PATCH refused.
+- `crates/kairos-server/tests/cascade_preview.rs` asserted a cascaded
+  descendant *"is gone"*. Now: retrievable and marked. This is the more
+  important of the two — a cascade archives work nobody chose to archive.
+
+`cargo test -p kairos-server --no-fail-fast` → all 24 binaries green.
+
+### Note for whoever runs tests during this initiative
+
+`org_endpoints` failed once mid-run with `items.columns.len() == 5` while
+[[KAIROS-T-0161]] was mid-edit in the same working tree. It passed on the
+next run. If a board-columns-shaped assertion fails, check whether T-0161 is
+in flight before chasing it.

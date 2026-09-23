@@ -452,3 +452,9 @@ the report for the journey attached to the task's status update.
   an existing team meanwhile). Recorded runs: compose `muco84aq` 5/5 (0
   skipped), server `muco8qgq` 5/5 (2 skipped); e2e 11/11; integration
   38/38. Initiative left **active** for review.
+- 2026-09-22: Dylan: "fluid column across sounds great" → T-0126 `f051dbf`:
+  board columns share the lane width (`flex: 1 1 0`, 180px floor,
+  border-box), titles wrap, pills wrap under the code; e2e asserts no
+  horizontal scroll at 1280px and every e2e drag now uses the scroll-safe
+  driver (`e2e/helpers/drag.ts`). Gates: lint, web 72/72, e2e 11/11, UAT
+  compose `mudf590b` 5/5. #7 still open — Dylan deciding.

@@ -418,3 +418,86 @@ touching a default listing, the `housekeeping` journey green in compose.
   mutating path already loads live-only (`items.rs:325/650/702/792`), so
   leaving those call sites alone *is* the freeze — recorded in D5 so nobody
   later "fixes" the inconsistency.
+
+- 2026-09-23: **All thirteen tasks complete.** Close-out (KAIROS-T-0165):
+
+  | Run | Mode | Result |
+  |---|---|---|
+  | `mue4t6ai` | compose, fresh seed | 21 journeys, 21 passed, no teardown residue |
+  | `mue4ud4b` | `--server` | 21 journeys, 21 passed, 8 compose-only steps skipped |
+  | — | `angreal test e2e` | 10/10 golden path + MCP, 16 GUI specs |
+  | — | `cargo test --workspace --test '*'` | 41/41 binaries |
+
+  Surface coverage: **MCP 18/18 tools, CLI 16/16 nouns, 0 allow-listed.**
+
+  Closes [[KAIROS-T-0151]] (archived content unreachable) and
+  [[KAIROS-T-0152]] (a deleted item's metadata pinning its definition).
+
+- 2026-09-23: **What the implementation found that the design did not.**
+  Each of these is a place the code knew something the survey did not:
+
+  - **The column guard was a foreign key, not a policy.** `column_id` is
+    `NOT NULL REFERENCES board_columns(id)` with no `ON DELETE` clause, so
+    dropping the count filter would have turned a clean 422 into an FK
+    violation. Giving `board_columns` its own `deleted_at` also required
+    converting two composite `UNIQUE`s into **partial unique indexes** —
+    otherwise a removed column's name and position stay reserved forever.
+    That is the general landmine for any future soft delete under a
+    composite unique.
+  - **The graph was already broken, not merely narrow.** `item_subgraph`
+    walks `item_relationships` directly, so it already hopped *through*
+    archived work; hydration then deleted the middle of each path, leaving
+    the far side floating with no route back to the focus. An archived root
+    dropped out of its own subgraph. Omitting archived nodes was not a
+    smaller picture — it was a wrong one.
+  - **The benchmark that justified the index change was wrong twice.** Two
+    successive corpora measured nothing: the first had every row matching
+    the search term, the second keyed `deleted_at` off the same counter as
+    the board so whole boards had no archived rows. Only the third — a
+    selective term, uniform scatter — produced real numbers. Worth
+    remembering that a plausible benchmark is the easiest thing to get
+    wrong in this codebase.
+  - **The graph explorer had been rendering black-on-black since T-0089.**
+    Its CSS referenced five custom properties aurora-dark does not define;
+    an undefined var invalidates the declaration and `fill` inherits.
+    `angreal web lint` bans raw colour literals, so a plausible-looking
+    token name that does not exist passes clean. Found only because a new
+    marker was correct and invisible.
+  - **Widening the cards without widening the columns silently drops the
+    oldest audit rows.** Both board listings bucket by column id; an
+    archived card whose column was removed is fetched and then never
+    rendered, with no error.
+  - **Seven assertions across four test binaries and two UAT journeys
+    encoded "archived = gone".** Each was rewritten rather than deleted —
+    they are the clearest record of what changed. The count is the best
+    argument that the decision was worth making explicit.
+
+- 2026-09-23: **Process findings, for the next parallel run.**
+
+  - **The git index is shared between agents in one tree, and `git add` does
+    not isolate them.** Staged hunks were swept into the wrong commit three
+    times. The workaround — committing through a private `GIT_INDEX_FILE` —
+    then caused a worse failure: an index built before another agent's
+    commit wrote a tree that **silently reverted seven files** of already
+    landed work (`c38e565` over `0089ddc`, restored in `388256d`). Git saw
+    an ordinary change and raised nothing. The recipe needs a third step:
+    `git read-tree HEAD` into the private index immediately before staging,
+    and `git reset` to resync the shared one afterwards. Verify with
+    `git show --stat` that a commit contains only the intended paths **and**
+    that files owned by others are absent entirely.
+  - **`angreal test integration` and `angreal test uat` tear the compose
+    stack down including the volume**, killing any concurrent run — once
+    producing 32 spurious "connection refused" failures that looked like
+    real breakage. Agents sharing a tree must use specific
+    `cargo test -p <crate> --test <name>` binaries instead.
+  - **`embed_migrations!` expands at compile time and cargo does not know it
+    depends on the migration files.** Adding a migration directory does not
+    trigger a rebuild; `touch crates/kairos-db/src/migrations.rs` is needed,
+    or the test fails as though the migration was never written.
+  - The `tenant_provisioning.rs` fleet-upgrade block is pinned to the newest
+    tenant migration and was re-pinned three times in this initiative.
+    **Carry the previous migration's evidence forward into
+    `EXPECTED_INDEXES` when re-pinning**, or each re-pin silently deletes
+    the last one's only coverage. Root cause is KAIROS-T-0093.
+
+**Ready for review.** The initiative is not transitioned — Dylan reviews.

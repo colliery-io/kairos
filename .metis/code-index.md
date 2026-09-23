@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T12:58:47Z | 276 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T13:12:52Z | 276 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -2177,7 +2177,7 @@
 -  `board_columns` function L202-214 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
 -  `board_transitions` function L217-232 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
 -  `transitions` function L234-236 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
--  `tenant_provisioning_lifecycle` function L239-655 — `()` — `system_board_defaults` rows are seeded.
+-  `tenant_provisioning_lifecycle` function L239-689 — `()` — `system_board_defaults` rows are seeded.
 
 #### crates/kairos-db/tests/write_path.rs
 
@@ -3316,8 +3316,8 @@
 -  `board_codes_marked` function L102-145 — `( client: &KairosClient, board: Uuid, include_deleted: bool, ) -> Vec<(String, b...` — Every short code on a board, across all four board-bound families and
 -  `board_short_codes` function L148-154 — `(client: &KairosClient, board: Uuid) -> Vec<String>` — Every short code on a board's DEFAULT (live) listing.
 -  `search_short_codes` function L157-172 — `(client: &KairosClient, request: SearchRequest) -> Vec<String>` — Every short code a search request returns, across the five groups.
--  `archived_work_is_absent_from_every_default_listing` function L175-773 — `()` — never touched (shared-services discipline).
--  `both` macro L662-672 — `-` — never touched (shared-services discipline).
+-  `archived_work_is_absent_from_every_default_listing` function L175-770 — `()` — never touched (shared-services discipline).
+-  `count_matches_page` macro L661-682 — `-` — never touched (shared-services discipline).
 
 #### crates/kairos-server/tests/cascade_preview.rs
 
@@ -4076,29 +4076,29 @@
 -  `ItemLoaded` function L178-326 — `( item: ItemDetail, family: Family, on_saved: Callback<i32>, on_moved: Callback<...` — The loaded page: header + actions, the editor column, and the facts /
 -  `manage_capability` function L333-341 — `(family: Family) -> &'static str` — The capability that putting an item BACK asks for: the same
 -  `restore_power` function L349-370 — `( family: Family, board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>...` — May the signed-in user restore THIS item? The shared whoami mirror
--  `put_away_when` function L375-383 — `(rfc3339: &str) -> String` — `2026-09-23T11:30:07.479107Z` → `2026-09-23 11:30 UTC` (display only;
--  `ArchivedBanner` function L398-451 — `( family: Family, #[prop(into)] code: String, /// The entity UUID — the activi...` — The unmistakable marker on an archived item (KAIROS-T-0164, ADR-20).
--  `RestoreControl` function L458-550 — `( family: Family, #[prop(into)] code: String, can_restore: Memo<bool>, on_restor...` — The Restore action (KAIROS-T-0160's endpoint): visible only to someone
--  `lifecycle_color` function L555-561 — `(state: &str) -> &'static str` — The badge color of a document lifecycle state (KAIROS-T-0078):
--  `LifecyclePanel` function L568-629 — `( #[prop(into)] code: String, current: String, /// The document is archived in t...` — The lifecycle control (KAIROS-T-0078, documents only): a
--  `ChildrenProgressBar` function L637-676 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The children rollup under the header (KAIROS-T-0080): a segmented bar
--  `TypeFacts` function L680-719 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
--  `BoardPanel` function L727-830 — `( family: Family, #[prop(into)] code: String, /// The page's shared board read (...` — Board/column display: documents never sit on boards; ADRs may not; the
--  `board_power` function L837-858 — `( board_slug: String, team_id: Option<String>, kind: Option<boards::data::Entity...` — One board power as a memo over the shell's shared whoami identity
--  `RepositoryControl` function L866-1007 — `( code: String, /// The board's slug — for the client-side capability mirror. ...` — The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
--  `THIS_BOARD` variable L1012 — `: &str` — The board picker's "stay put" option — the default, so a board move is
--  `MoveBoardControl` function L1026-1129 — `( code: String, /// The board the task sits on now — the source half of the ru...` — Move a task to another DELIVERY board (KAIROS-I-0012 D2): a team
--  `MoveControl` function L1138-1286 — `( family: Family, code: String, board: api::BoardInfo, column_id: Option<String>...` — The keyboard-accessible transition path (KAIROS-T-0075) plus the lane
--  `RelationshipsPanel` function L1291-1329 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
--  `link_state_color` function L1334-1341 — `(state: &str) -> &'static str` — The accent for a forge link's state (KAIROS-T-0100).
--  `DevelopmentPanel` function L1347-1418 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Branches and pull/merge requests for this item (KAIROS-T-0100).
--  `relationship_label` function L1425-1444 — `(relationship: &str, outgoing: bool) -> String` — The human name of one relationship group, read from THIS item's side —
--  `RelationshipGroupView` function L1448-1468 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
--  `tests` module L1471-1524 — `-` — warning ([`delete`], A-0001).
--  `tab_hrefs_never_emit_an_empty_code` function L1478-1483 — `()` — KAIROS-T-0124 #2: the tab anchors always carry the code — an empty
--  `put_away_when_reads_as_a_moment` function L1489-1499 — `()` — The banner says WHEN, in something a person reads (KAIROS-T-0164):
--  `restore_asks_for_the_archive_capability` function L1504-1510 — `()` — Restoring asks for the same `manage_<family>` the archive asked
--  `relationship_labels_read_from_the_items_side` function L1515-1523 — `()` — The summary reads from THIS item's side: an outgoing parent edge
+-  `put_away_when` function L379-387 — `(rfc3339: &str) -> String` — `2026-09-23T11:30:07.479107Z` → `2026-09-23 11:30 UTC` (display only;
+-  `ArchivedBanner` function L402-455 — `( family: Family, #[prop(into)] code: String, /// The entity UUID — the activi...` — The unmistakable marker on an archived item (KAIROS-T-0164, ADR-20).
+-  `RestoreControl` function L462-554 — `( family: Family, #[prop(into)] code: String, can_restore: Memo<bool>, on_restor...` — The Restore action (KAIROS-T-0160's endpoint): visible only to someone
+-  `lifecycle_color` function L559-565 — `(state: &str) -> &'static str` — The badge color of a document lifecycle state (KAIROS-T-0078):
+-  `LifecyclePanel` function L572-633 — `( #[prop(into)] code: String, current: String, /// The document is archived in t...` — The lifecycle control (KAIROS-T-0078, documents only): a
+-  `ChildrenProgressBar` function L647-686 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — The children rollup under the header (KAIROS-T-0080): a segmented bar
+-  `TypeFacts` function L690-729 — `(item: ItemDetail) -> impl IntoView` — The type-specific facts as pills (each family's extra columns).
+-  `BoardPanel` function L737-840 — `( family: Family, #[prop(into)] code: String, /// The page's shared board read (...` — Board/column display: documents never sit on boards; ADRs may not; the
+-  `board_power` function L847-868 — `( board_slug: String, team_id: Option<String>, kind: Option<boards::data::Entity...` — One board power as a memo over the shell's shared whoami identity
+-  `RepositoryControl` function L876-1017 — `( code: String, /// The board's slug — for the client-side capability mirror. ...` — The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
+-  `THIS_BOARD` variable L1022 — `: &str` — The board picker's "stay put" option — the default, so a board move is
+-  `MoveBoardControl` function L1036-1139 — `( code: String, /// The board the task sits on now — the source half of the ru...` — Move a task to another DELIVERY board (KAIROS-I-0012 D2): a team
+-  `MoveControl` function L1148-1296 — `( family: Family, code: String, board: api::BoardInfo, column_id: Option<String>...` — The keyboard-accessible transition path (KAIROS-T-0075) plus the lane
+-  `RelationshipsPanel` function L1305-1364 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Relationships summary: both directions, grouped, every neighbor linked
+-  `link_state_color` function L1369-1376 — `(state: &str) -> &'static str` — The accent for a forge link's state (KAIROS-T-0100).
+-  `DevelopmentPanel` function L1382-1453 — `(family: Family, #[prop(into)] code: String) -> impl IntoView` — Branches and pull/merge requests for this item (KAIROS-T-0100).
+-  `relationship_label` function L1460-1479 — `(relationship: &str, outgoing: bool) -> String` — The human name of one relationship group, read from THIS item's side —
+-  `RelationshipGroupView` function L1483-1523 — `( group: RelationshipGroup, #[prop(into)] direction: String, ) -> impl IntoView` — One direction of one relationship type, neighbors linked.
+-  `tests` module L1526-1579 — `-` — warning ([`delete`], A-0001).
+-  `tab_hrefs_never_emit_an_empty_code` function L1533-1538 — `()` — KAIROS-T-0124 #2: the tab anchors always carry the code — an empty
+-  `put_away_when_reads_as_a_moment` function L1544-1554 — `()` — The banner says WHEN, in something a person reads (KAIROS-T-0164):
+-  `restore_asks_for_the_archive_capability` function L1559-1565 — `()` — Restoring asks for the same `manage_<family>` the archive asked
+-  `relationship_labels_read_from_the_items_side` function L1570-1578 — `()` — The summary reads from THIS item's side: an outgoing parent edge
 
 #### crates/kairos-web/src/pages/repositories.rs
 
@@ -4110,14 +4110,14 @@
 - pub `graph` module L13 — `-` — component is standalone so the item-detail task can also embed it.
 - pub `graph_layout` module L14 — `-` — component is standalone so the item-detail task can also embed it.
 - pub `relationships` module L15 — `-` — component is standalone so the item-detail task can also embed it.
-- pub `SearchPage` function L63-452 — `() -> impl IntoView` — `/search` — the unified search page.
+- pub `SearchPage` function L63-485 — `() -> impl IntoView` — `/search` — the unified search page.
 -  `ENTITY_TYPES` variable L30 — `: [&str; 5]` — The entity-type vocabulary (S-0005 `filter.entity_type`).
 -  `TASK_TYPES` variable L33 — `: [&str; 3]` — The task-type vocabulary (S-0005 `filter.task_type`).
 -  `RELATIONSHIPS` variable L36 — `: [&str; 5]` — The relationship vocabulary (S-0005 `traverse.relationships`).
 -  `ANY` variable L39 — `: &str` — The "no board/column selected" option.
 -  `entity_color` function L42-51 — `(entity_type: &str) -> &'static str` — A data-driven accent per entity type (token constants only).
 -  `MetaRow` struct L55-59 — `{ id: usize, key: RwSignal<String>, value: RwSignal<String> }` — One dynamic metadata `key = value` filter row.
--  `ResultGroup` function L457-515 — `(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) -> impl IntoVi...` — One entity-type result group: a panel with linked rows (omitted when
+-  `ResultGroup` function L490-571 — `(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) -> impl IntoVi...` — One entity-type result group: a panel with linked rows (omitted when
 
 #### crates/kairos-web/src/pages/teams.rs
 
@@ -4392,65 +4392,66 @@
 - pub `ChildColumnProgress` struct L249-253 — `{ column_name: String, is_done: bool, count: i64 }` — mirror of: `kairos_client::types_meta::ChildColumnProgress` (partial).
 - pub `ItemRelationships` struct L258-263 — `{ outgoing: Vec<RelationshipGroup>, incoming: Vec<RelationshipGroup> }` — mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`
 - pub `RelationshipGroup` struct L267-270 — `{ relationship: String, items: Vec<RelatedItem> }` — mirror of: `kairos_client::types_meta::RelationshipGroup` (partial).
-- pub `RelatedItem` struct L274-278 — `{ short_code: String, entity_type: String, title: String }` — mirror of: `kairos_client::types_meta::RelatedItem` (partial).
-- pub `TemplateSummary` struct L282-285 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
-- pub `TemplateDetail` struct L289-295 — `{ id: String, name: String, content: String, metadata: Vec<TemplateField> }` — mirror of: `kairos_client::types_meta::TemplateDetail` (partial).
-- pub `TemplateField` struct L299-309 — `{ slug: String, name: String, field_type: String, enum_options: Vec<String>, def...` — mirror of: `kairos_client::types_meta::TemplateMetadataField` (partial).
-- pub `DeleteOutcome` struct L314-319 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
-- pub `CascadePreview` struct L326-331 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
-- pub `CurrentVersion` struct L340-344 — `{ version: i32, title: String, content: String }` — The server-current entity carried by a 409 in `details.current`
-- pub `SaveError` enum L377-383 — `Conflict | Api` — Outcome of a content save: a version conflict is not a dead end — it
-- pub `fetch_item` function L390-392 — `(auth: Auth, family: Family, code: String) -> Result<ItemDetail, ApiError>` — `GET /api/{family}/{short_code}` → the entity, whichever family.
-- pub `fetch_board` function L404-410 — `(auth: Auth, board_id: String) -> Result<BoardInfo, ApiError>` — `GET /api/boards/{id}?include_removed_columns=true` → board name/slug +
-- pub `fetch_definitions` function L416-429 — `( auth: Auth, family: Family, ) -> Result<Vec<MetadataDefinition>, ApiError>` — `GET /api/metadata-definitions?entity_type=…` — ONLY the definitions
-- pub `set_lifecycle` function L434-442 — `(auth: Auth, code: &str, lifecycle: &str) -> Result<(), ApiError>` — `PATCH /api/documents/{short_code}/lifecycle` — set the editorial
-- pub `fetch_metadata` function L445-456 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<MetadataValue>, ApiE...` — `GET /api/{family}/{short_code}/metadata` → the item's current values.
-- pub `fetch_children_progress` function L460-470 — `( auth: Auth, family: Family, code: String, ) -> Result<ChildrenProgress, ApiErr...` — `GET /api/{family}/{short_code}/children-progress` → the direct
-- pub `fetch_relationships` function L474-484 — `( auth: Auth, family: Family, code: String, ) -> Result<ItemRelationships, ApiEr...` — `GET /api/{family}/{short_code}/relationships` → both directions,
-- pub `fetch_cascade_preview` function L490-500 — `( auth: Auth, family: Family, code: String, ) -> Result<CascadePreview, ApiError...` — `GET /api/{family}/{short_code}/cascade-preview` → the AUTHORITATIVE
-- pub `fetch_archived_by` function L531-552 — `(auth: Auth, item_id: String) -> Option<String>` — Who archived this item, best-effort (KAIROS-T-0164).
-- pub `fetch_templates` function L555-558 — `(auth: Auth) -> Result<Vec<TemplateSummary>, ApiError>` — `GET /api/templates` → the picker's list.
-- pub `fetch_template_detail` function L561-563 — `(auth: Auth, id: String) -> Result<TemplateDetail, ApiError>` — `GET /api/templates/{id}` → content preview + declared metadata fields.
-- pub `update_content` function L581-596 — `( auth: Auth, family: Family, code: &str, title: &str, content: &str, version: i...` — `PATCH /api/{family}/{short_code}` — the A-0004 optimistic-concurrency
-- pub `update_metadata` function L641-655 — `( auth: Auth, family: Family, code: &str, values: BTreeMap<String, Option<String...` — `PATCH /api/{family}/{short_code}/metadata`: definition slug → value
-- pub `CreateDocumentBody` struct L661-665 — `{ title: String, template_id: String, parent_short_code: String }` — Body of `POST /api/documents` (mirror of:
-- pub `create_document` function L669-674 — `( auth: Auth, body: &CreateDocumentBody, ) -> Result<ItemDetail, ApiError>` — `POST /api/documents` — create-from-template, attached to a workflow
-- pub `move_task` function L691-698 — `(auth: Auth, code: &str, board: &str) -> Result<ItemDetail, ApiError>` — `POST /api/tasks/{short_code}/move` — re-home a task onto another
-- pub `RestoreOutcome` struct L704-709 — `{ short_code: String, still_archived_count: i64, still_archived_short_codes: Vec...` — mirror of: `kairos_client::types::RestoreResponse` (KAIROS-T-0160).
-- pub `RestoreError` enum L714-722 — `Blocked | Api` — Outcome of a restore attempt.
-- pub `restore_item` function L728-767 — `( auth: Auth, family: Family, code: &str, ) -> Result<RestoreOutcome, RestoreErr...` — `POST /api/{family}/{short_code}/restore` — put an archived item back
-- pub `delete_item` function L771-778 — `( auth: Auth, family: Family, code: &str, ) -> Result<DeleteOutcome, ApiError>` — `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
-- pub `error_text` function L782-795 — `(error: &ApiError) -> String` — One-line text for a *write* failure (loads use `<ErrorState/>`; writes
-- pub `ItemLink` struct L883-898 — `{ kind: String, external_id: String, title: String, url: String, state: String, ...` — mirror of: `kairos_client::types_forge::ItemLink` (partial — the
-- pub `fetch_links` function L902-908 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<ItemLink>, ApiError>` — `GET /api/{family}/{code}/links` — server-ordered (PRs first, newest
+- pub `RelatedItem` struct L274-292 — `{ short_code: String, entity_type: String, title: String, archived_at: Option<St...` — mirror of: `kairos_client::types_meta::RelatedItem` (partial).
+- pub `TemplateSummary` struct L296-299 — `{ id: String, name: String }` — mirror of: `kairos_client::types_meta::Template` (partial).
+- pub `TemplateDetail` struct L303-309 — `{ id: String, name: String, content: String, metadata: Vec<TemplateField> }` — mirror of: `kairos_client::types_meta::TemplateDetail` (partial).
+- pub `TemplateField` struct L313-323 — `{ slug: String, name: String, field_type: String, enum_options: Vec<String>, def...` — mirror of: `kairos_client::types_meta::TemplateMetadataField` (partial).
+- pub `DeleteOutcome` struct L328-333 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
+- pub `CascadePreview` struct L340-345 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
+- pub `CurrentVersion` struct L354-358 — `{ version: i32, title: String, content: String }` — The server-current entity carried by a 409 in `details.current`
+- pub `SaveError` enum L391-397 — `Conflict | Api` — Outcome of a content save: a version conflict is not a dead end — it
+- pub `fetch_item` function L404-406 — `(auth: Auth, family: Family, code: String) -> Result<ItemDetail, ApiError>` — `GET /api/{family}/{short_code}` → the entity, whichever family.
+- pub `fetch_board` function L418-424 — `(auth: Auth, board_id: String) -> Result<BoardInfo, ApiError>` — `GET /api/boards/{id}?include_removed_columns=true` → board name/slug +
+- pub `fetch_definitions` function L430-443 — `( auth: Auth, family: Family, ) -> Result<Vec<MetadataDefinition>, ApiError>` — `GET /api/metadata-definitions?entity_type=…` — ONLY the definitions
+- pub `set_lifecycle` function L448-456 — `(auth: Auth, code: &str, lifecycle: &str) -> Result<(), ApiError>` — `PATCH /api/documents/{short_code}/lifecycle` — set the editorial
+- pub `fetch_metadata` function L459-470 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<MetadataValue>, ApiE...` — `GET /api/{family}/{short_code}/metadata` → the item's current values.
+- pub `fetch_children_progress` function L474-484 — `( auth: Auth, family: Family, code: String, ) -> Result<ChildrenProgress, ApiErr...` — `GET /api/{family}/{short_code}/children-progress` → the direct
+- pub `fetch_relationships` function L488-498 — `( auth: Auth, family: Family, code: String, ) -> Result<ItemRelationships, ApiEr...` — `GET /api/{family}/{short_code}/relationships` → both directions,
+- pub `fetch_cascade_preview` function L504-514 — `( auth: Auth, family: Family, code: String, ) -> Result<CascadePreview, ApiError...` — `GET /api/{family}/{short_code}/cascade-preview` → the AUTHORITATIVE
+- pub `fetch_archived_by` function L545-566 — `(auth: Auth, item_id: String) -> Option<String>` — Who archived this item, best-effort (KAIROS-T-0164).
+- pub `fetch_templates` function L569-572 — `(auth: Auth) -> Result<Vec<TemplateSummary>, ApiError>` — `GET /api/templates` → the picker's list.
+- pub `fetch_template_detail` function L575-577 — `(auth: Auth, id: String) -> Result<TemplateDetail, ApiError>` — `GET /api/templates/{id}` → content preview + declared metadata fields.
+- pub `update_content` function L595-610 — `( auth: Auth, family: Family, code: &str, title: &str, content: &str, version: i...` — `PATCH /api/{family}/{short_code}` — the A-0004 optimistic-concurrency
+- pub `update_metadata` function L655-669 — `( auth: Auth, family: Family, code: &str, values: BTreeMap<String, Option<String...` — `PATCH /api/{family}/{short_code}/metadata`: definition slug → value
+- pub `CreateDocumentBody` struct L675-679 — `{ title: String, template_id: String, parent_short_code: String }` — Body of `POST /api/documents` (mirror of:
+- pub `create_document` function L683-688 — `( auth: Auth, body: &CreateDocumentBody, ) -> Result<ItemDetail, ApiError>` — `POST /api/documents` — create-from-template, attached to a workflow
+- pub `move_task` function L705-712 — `(auth: Auth, code: &str, board: &str) -> Result<ItemDetail, ApiError>` — `POST /api/tasks/{short_code}/move` — re-home a task onto another
+- pub `RestoreOutcome` struct L718-723 — `{ short_code: String, still_archived_count: i64, still_archived_short_codes: Vec...` — mirror of: `kairos_client::types::RestoreResponse` (KAIROS-T-0160).
+- pub `RestoreError` enum L728-736 — `Blocked | Api` — Outcome of a restore attempt.
+- pub `restore_item` function L742-781 — `( auth: Auth, family: Family, code: &str, ) -> Result<RestoreOutcome, RestoreErr...` — `POST /api/{family}/{short_code}/restore` — put an archived item back
+- pub `delete_item` function L785-792 — `( auth: Auth, family: Family, code: &str, ) -> Result<DeleteOutcome, ApiError>` — `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
+- pub `error_text` function L796-809 — `(error: &ApiError) -> String` — One-line text for a *write* failure (loads use `<ErrorState/>`; writes
+- pub `ItemLink` struct L897-912 — `{ kind: String, external_id: String, title: String, url: String, state: String, ...` — mirror of: `kairos_client::types_forge::ItemLink` (partial — the
+- pub `fetch_links` function L916-922 — `( auth: Auth, family: Family, code: String, ) -> Result<Vec<ItemLink>, ApiError>` — `GET /api/{family}/{code}/links` — server-ordered (PRs first, newest
 -  `Family` type L42-104 — `= Family` — flattening the conflict into an `ApiError`.
--  `DetailedErrorEnvelope` struct L349-351 — `{ error: DetailedErrorBody }` — mirror of: `kairos_client::types::ErrorEnvelope` — with `details`, which
--  `DetailedErrorBody` struct L355-360 — `{ code: String, message: String, details: ErrorDetails }` — mirror of: `kairos_client::types::ErrorBody` (partial, + details).
--  `ErrorDetails` struct L365-372 — `{ current: Option<CurrentVersion>, missing: Vec<String> }` — The structured extras this page understands (`current` on 409,
--  `Body` struct L436-438 — `{ lifecycle: &'a str }` — flattening the conflict into an `ApiError`.
--  `ArchiveEvent` struct L510-512 — `{ actor_id: String }` — mirror of: `kairos_client::types_meta::ActivityEntry` (partial — the
--  `MemberName` struct L516-519 — `{ user_id: String, display_name: String }` — mirror of: `kairos_client::types_org::OrgMember` (partial).
--  `UpdateContentBody` struct L572-576 — `{ title: &'a str, content: &'a str, version: i32 }` — Body of the content PATCH (mirror of:
--  `patch_versioned` function L602-637 — `( auth: Auth, path: &str, body: &B, ) -> Result<T, SaveError>` — The A-0004 versioned PATCH, generically: 409 parses `details.current`
--  `Body` struct L648-650 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
--  `MoveTaskBody` struct L680-682 — `{ board: &'a str }` — Body of `POST /api/tasks/{short_code}/move` (mirror of:
--  `Verb` enum L806-810 — `Post | Patch | Delete` — The verbs this module drives directly.
--  `send` function L813-836 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<gloo_net::ht...` — Build + send one authenticated JSON request; no status handling yet.
--  `send_json` function L840-858 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<T, ApiError>` — One authenticated JSON round-trip with the standard status handling
--  `error_from` function L862-874 — `(status: u16, response: gloo_net::http::Response) -> ApiError` — Non-2xx → `ApiError` via the S-0005 envelope (the `api.rs` mapping,
--  `tests` module L911-1209 — `-` — flattening the conflict into an `ApiError`.
--  `item_link_mirror_decodes_server_shape` function L916-933 — `()` — `ItemLink` decodes the KAIROS-T-0100 wire shape.
--  `family_parses_from_short_codes` function L938-954 — `()` — Short-code → family across all five letters, multi-segment
--  `item_mirror_decodes_task_shape` function L958-981 — `()` — The union mirror decodes a full Task body (field-name lock).
--  `board_mirror_decodes_transitions_and_team` function L987-1008 — `()` — The board mirror decodes the `GET /api/boards/{id}` shape the move
--  `item_mirror_decodes_document_shape` function L1012-1030 — `()` — The union mirror decodes a Document body (no board fields at all).
--  `conflict_envelope_extracts_current` function L1035-1069 — `()` — The 409 envelope parse finds `details.current` whether it is the
--  `move_body_serializes_and_response_carries_new_placement` function L1075-1101 — `()` — The move body carries the target board under the exact wire name
--  `item_mirror_decodes_the_archived_state` function L1107-1128 — `()` — KAIROS-T-0154/T-0164: an ARCHIVED item is served by short code
--  `board_mirror_decodes_a_removed_column` function L1135-1156 — `()` — KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board
--  `restore_response_and_refusal_decode` function L1162-1192 — `()` — The restore contract (KAIROS-T-0160): the 200 reports what stayed
--  `metadata_body_serializes_null_clears` function L1197-1208 — `()` — The metadata PATCH body serializes `None` as JSON null (the A-0003
--  `Body` struct L1199-1201 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
+-  `DetailedErrorEnvelope` struct L363-365 — `{ error: DetailedErrorBody }` — mirror of: `kairos_client::types::ErrorEnvelope` — with `details`, which
+-  `DetailedErrorBody` struct L369-374 — `{ code: String, message: String, details: ErrorDetails }` — mirror of: `kairos_client::types::ErrorBody` (partial, + details).
+-  `ErrorDetails` struct L379-386 — `{ current: Option<CurrentVersion>, missing: Vec<String> }` — The structured extras this page understands (`current` on 409,
+-  `Body` struct L450-452 — `{ lifecycle: &'a str }` — flattening the conflict into an `ApiError`.
+-  `ArchiveEvent` struct L524-526 — `{ actor_id: String }` — mirror of: `kairos_client::types_meta::ActivityEntry` (partial — the
+-  `MemberName` struct L530-533 — `{ user_id: String, display_name: String }` — mirror of: `kairos_client::types_org::OrgMember` (partial).
+-  `UpdateContentBody` struct L586-590 — `{ title: &'a str, content: &'a str, version: i32 }` — Body of the content PATCH (mirror of:
+-  `patch_versioned` function L616-651 — `( auth: Auth, path: &str, body: &B, ) -> Result<T, SaveError>` — The A-0004 versioned PATCH, generically: 409 parses `details.current`
+-  `Body` struct L662-664 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
+-  `MoveTaskBody` struct L694-696 — `{ board: &'a str }` — Body of `POST /api/tasks/{short_code}/move` (mirror of:
+-  `Verb` enum L820-824 — `Post | Patch | Delete` — The verbs this module drives directly.
+-  `send` function L827-850 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<gloo_net::ht...` — Build + send one authenticated JSON request; no status handling yet.
+-  `send_json` function L854-872 — `( auth: Auth, verb: Verb, path: &str, body: Option<&B>, ) -> Result<T, ApiError>` — One authenticated JSON round-trip with the standard status handling
+-  `error_from` function L876-888 — `(status: u16, response: gloo_net::http::Response) -> ApiError` — Non-2xx → `ApiError` via the S-0005 envelope (the `api.rs` mapping,
+-  `tests` module L925-1250 — `-` — flattening the conflict into an `ApiError`.
+-  `item_link_mirror_decodes_server_shape` function L930-947 — `()` — `ItemLink` decodes the KAIROS-T-0100 wire shape.
+-  `family_parses_from_short_codes` function L952-968 — `()` — Short-code → family across all five letters, multi-segment
+-  `item_mirror_decodes_task_shape` function L972-995 — `()` — The union mirror decodes a full Task body (field-name lock).
+-  `board_mirror_decodes_transitions_and_team` function L1001-1022 — `()` — The board mirror decodes the `GET /api/boards/{id}` shape the move
+-  `item_mirror_decodes_document_shape` function L1026-1044 — `()` — The union mirror decodes a Document body (no board fields at all).
+-  `conflict_envelope_extracts_current` function L1049-1083 — `()` — The 409 envelope parse finds `details.current` whether it is the
+-  `move_body_serializes_and_response_carries_new_placement` function L1089-1115 — `()` — The move body carries the target board under the exact wire name
+-  `item_mirror_decodes_the_archived_state` function L1121-1142 — `()` — KAIROS-T-0154/T-0164: an ARCHIVED item is served by short code
+-  `related_item_mirror_carries_the_archived_marker` function L1150-1169 — `()` — KAIROS-T-0158/T-0163: relationship lists are archived-inclusive
+-  `board_mirror_decodes_a_removed_column` function L1176-1197 — `()` — KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board
+-  `restore_response_and_refusal_decode` function L1203-1233 — `()` — The restore contract (KAIROS-T-0160): the 200 reports what stayed
+-  `metadata_body_serializes_null_clears` function L1238-1249 — `()` — The metadata PATCH body serializes `None` as JSON null (the A-0003
+-  `Body` struct L1240-1242 — `{ values: BTreeMap<String, Option<String>> }` — flattening the conflict into an `ApiError`.
 
 #### crates/kairos-web/src/pages/item/create_doc.rs
 
@@ -4508,52 +4509,55 @@
 
 - pub `family_of` function L27-38 — `(short_code: &str) -> Option<&'static str>` — The API family (plural path segment) for a short code's type letter
 - pub `SearchRequest` struct L54-65 — `{ q: Option<String>, filter: Option<SearchFilter>, traverse: Option<SearchTraver...` — mirror of: `kairos_client::types_search::SearchRequest` (partial —
-- pub `SearchFilter` struct L71-86 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — mirror of: `kairos_client::types_search::SearchFilter` (partial — only
-- pub `is_empty` function L92-94 — `(&self) -> bool` — Does this filter constrain anything? (An all-`None` filter is
-- pub `SearchTraverse` struct L99-104 — `{ from: SearchTraverseFrom, relationships: Vec<String>, direction: String, depth...` — mirror of: `kairos_client::types_search::SearchTraverse`.
-- pub `SearchTraverseFrom` struct L109-111 — `{ short_code: String }` — mirror of: `kairos_client::types_search::SearchTraverseFrom` (partial —
-- pub `SearchResponse` struct L115-120 — `{ results: SearchResultGroups, total: i64, limit: i64, offset: i64 }` — mirror of: `kairos_client::types_search::SearchResponse`.
-- pub `SearchResultGroups` struct L126-137 — `{ strategies: Vec<Hit>, initiatives: Vec<Hit>, tasks: Vec<Hit>, documents: Vec<H...` — mirror of: `kairos_client::types_search::SearchResultGroups` (partial —
-- pub `Hit` struct L143-154 — `{ short_code: String, title: String, task_type: Option<String>, is_bucket: Optio...` — One result row.
-- pub `search` function L157-159 — `(auth: Auth, request: &SearchRequest) -> Result<SearchResponse, ApiError>` — `POST /api/search`.
-- pub `BoardList` struct L167-169 — `{ items: Vec<Board> }` — mirror of: `kairos_client::types::ListEnvelope<Board>` (partial).
-- pub `Board` struct L173-177 — `{ id: String, slug: String, board_level: String }` — mirror of: `kairos_client::types_org::Board` (partial).
-- pub `BoardColumns` struct L182-184 — `{ columns: Vec<BoardColumn> }` — mirror of: `kairos_client::types_org::BoardDetail` (partial — only the
-- pub `BoardColumn` struct L188-191 — `{ id: String, name: String }` — mirror of: `kairos_client::types_org::BoardColumn` (partial).
-- pub `boards` function L194-198 — `(auth: Auth) -> Result<Vec<Board>, ApiError>` — `GET /api/boards` (first page is plenty — a tenant has a handful).
-- pub `board_columns` function L201-205 — `(auth: Auth, board_id: &str) -> Result<Vec<BoardColumn>, ApiError>` — `GET /api/boards/{id}` → its columns, in position order.
-- pub `ItemRelationships` struct L213-222 — `{ outgoing: Vec<RelationshipGroup>, incoming: Vec<RelationshipGroup> }` — mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`.
-- pub `group` function L228-239 — `(&self, relationship: &str, outgoing: bool) -> Vec<RelatedItem>` — The neighbors of one relationship type in one direction.
-- pub `RelationshipGroup` struct L244-247 — `{ relationship: String, items: Vec<RelatedItem> }` — mirror of: `kairos_client::types_meta::RelationshipGroup`.
-- pub `RelatedItem` struct L252-257 — `{ relationship_id: String, short_code: String, entity_type: String, title: Strin...` — mirror of: `kairos_client::types_meta::RelatedItem` (partial — `id` is
-- pub `CreateRelationship` struct L261-265 — `{ source_short_code: String, target_short_code: String, relationship: String }` — mirror of: `kairos_client::types_meta::CreateRelationshipRequest`.
-- pub `CreatedRelationship` struct L269-271 — `{ id: String }` — mirror of: `kairos_client::types_meta::Relationship` (partial).
-- pub `DeletedRelationship` struct L275-277 — `{ id: String }` — mirror of: `kairos_client::types_meta::DeletedResponse` (partial).
-- pub `relationships` function L280-283 — `(auth: Auth, short_code: &str) -> Result<ItemRelationships, ApiError>` — `GET /api/{family}/{short_code}/relationships`.
-- pub `create_relationship` function L287-292 — `( auth: Auth, request: &CreateRelationship, ) -> Result<CreatedRelationship, Api...` — `POST /api/relationships` (org admin; the typed 422s — `RELATIONSHIP_RULE`,
-- pub `delete_relationship` function L295-300 — `( auth: Auth, relationship_id: &str, ) -> Result<DeletedRelationship, ApiError>` — `DELETE /api/relationships/{id}` (org admin).
-- pub `GraphNode` struct L460-472 — `{ id: String, short_code: String, entity_type: String, title: String, status: St...` — mirror of: `kairos_client::types_graph::GraphNode`.
-- pub `GraphEdge` struct L476-482 — `{ source_id: String, target_id: String, relationship: String, depth: i32 }` — mirror of: `kairos_client::types_graph::GraphEdge`.
-- pub `GraphResponse` struct L486-491 — `{ focus: String, depth: u32, nodes: Vec<GraphNode>, edges: Vec<GraphEdge> }` — mirror of: `kairos_client::types_graph::GraphResponse`.
-- pub `item_graph` function L494-505 — `( auth: Auth, short_code: &str, depth: Option<u32>, ) -> Result<GraphResponse, A...` — `GET /api/{family}/{code}/graph?depth=N` — the focal subgraph.
+- pub `SearchFilter` struct L76-105 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — mirror of: `kairos_client::types_search::SearchFilter` (partial — only
+- pub `is_empty` function L111-113 — `(&self) -> bool` — Does this filter constrain anything? (An all-`None` filter is
+- pub `SearchTraverse` struct L118-123 — `{ from: SearchTraverseFrom, relationships: Vec<String>, direction: String, depth...` — mirror of: `kairos_client::types_search::SearchTraverse`.
+- pub `SearchTraverseFrom` struct L128-130 — `{ short_code: String }` — mirror of: `kairos_client::types_search::SearchTraverseFrom` (partial —
+- pub `SearchResponse` struct L134-139 — `{ results: SearchResultGroups, total: i64, limit: i64, offset: i64 }` — mirror of: `kairos_client::types_search::SearchResponse`.
+- pub `SearchResultGroups` struct L145-156 — `{ strategies: Vec<Hit>, initiatives: Vec<Hit>, tasks: Vec<Hit>, documents: Vec<H...` — mirror of: `kairos_client::types_search::SearchResultGroups` (partial —
+- pub `Hit` struct L162-180 — `{ short_code: String, title: String, task_type: Option<String>, is_bucket: Optio...` — One result row.
+- pub `search` function L183-185 — `(auth: Auth, request: &SearchRequest) -> Result<SearchResponse, ApiError>` — `POST /api/search`.
+- pub `BoardList` struct L193-195 — `{ items: Vec<Board> }` — mirror of: `kairos_client::types::ListEnvelope<Board>` (partial).
+- pub `Board` struct L199-203 — `{ id: String, slug: String, board_level: String }` — mirror of: `kairos_client::types_org::Board` (partial).
+- pub `BoardColumns` struct L208-210 — `{ columns: Vec<BoardColumn> }` — mirror of: `kairos_client::types_org::BoardDetail` (partial — only the
+- pub `BoardColumn` struct L214-217 — `{ id: String, name: String }` — mirror of: `kairos_client::types_org::BoardColumn` (partial).
+- pub `boards` function L220-224 — `(auth: Auth) -> Result<Vec<Board>, ApiError>` — `GET /api/boards` (first page is plenty — a tenant has a handful).
+- pub `board_columns` function L227-231 — `(auth: Auth, board_id: &str) -> Result<Vec<BoardColumn>, ApiError>` — `GET /api/boards/{id}` → its columns, in position order.
+- pub `ItemRelationships` struct L239-248 — `{ outgoing: Vec<RelationshipGroup>, incoming: Vec<RelationshipGroup> }` — mirror of: `kairos_client::types_meta::ItemRelationshipsResponse`.
+- pub `group` function L254-265 — `(&self, relationship: &str, outgoing: bool) -> Vec<RelatedItem>` — The neighbors of one relationship type in one direction.
+- pub `RelationshipGroup` struct L270-273 — `{ relationship: String, items: Vec<RelatedItem> }` — mirror of: `kairos_client::types_meta::RelationshipGroup`.
+- pub `RelatedItem` struct L278-289 — `{ relationship_id: String, short_code: String, entity_type: String, title: Strin...` — mirror of: `kairos_client::types_meta::RelatedItem` (partial — `id` is
+- pub `CreateRelationship` struct L293-297 — `{ source_short_code: String, target_short_code: String, relationship: String }` — mirror of: `kairos_client::types_meta::CreateRelationshipRequest`.
+- pub `CreatedRelationship` struct L301-303 — `{ id: String }` — mirror of: `kairos_client::types_meta::Relationship` (partial).
+- pub `DeletedRelationship` struct L307-309 — `{ id: String }` — mirror of: `kairos_client::types_meta::DeletedResponse` (partial).
+- pub `relationships` function L312-315 — `(auth: Auth, short_code: &str) -> Result<ItemRelationships, ApiError>` — `GET /api/{family}/{short_code}/relationships`.
+- pub `create_relationship` function L319-324 — `( auth: Auth, request: &CreateRelationship, ) -> Result<CreatedRelationship, Api...` — `POST /api/relationships` (org admin; the typed 422s — `RELATIONSHIP_RULE`,
+- pub `delete_relationship` function L327-332 — `( auth: Auth, relationship_id: &str, ) -> Result<DeletedRelationship, ApiError>` — `DELETE /api/relationships/{id}` (org admin).
+- pub `GraphNode` struct L562-582 — `{ id: String, short_code: String, entity_type: String, title: String, status: St...` — mirror of: `kairos_client::types_graph::GraphNode`.
+- pub `GraphEdge` struct L586-592 — `{ source_id: String, target_id: String, relationship: String, depth: i32 }` — mirror of: `kairos_client::types_graph::GraphEdge`.
+- pub `GraphResponse` struct L596-601 — `{ focus: String, depth: u32, nodes: Vec<GraphNode>, edges: Vec<GraphEdge> }` — mirror of: `kairos_client::types_graph::GraphResponse`.
+- pub `item_graph` function L604-615 — `( auth: Auth, short_code: &str, depth: Option<u32>, ) -> Result<GraphResponse, A...` — `GET /api/{family}/{code}/graph?depth=N` — the focal subgraph.
 -  `family_or_err` function L41-44 — `(short_code: &str) -> Result<&'static str, ApiError>` — [`family_of`] as an [`ApiError`] for fetchers that need a family.
--  `SearchFilter` type L88-95 — `= SearchFilter` — run on the host (`cargo test -p kairos-web`).
--  `ItemRelationships` type L224-240 — `= ItemRelationships` — run on the host (`cargo test -p kairos-web`).
--  `tests` module L307-452 — `-` — run on the host (`cargo test -p kairos-web`).
--  `family_of_maps_type_letters` function L312-321 — `()` — Type letters map to the S-0004 families; junk maps to none.
--  `search_request_serializes_s0005_field_names` function L326-378 — `()` — The request mirror serializes the exact S-0005 field names (the
--  `search_response_mirror_decodes_server_shape` function L383-421 — `()` — The response mirror decodes a realistic grouped body — typed extra
--  `relationships_mirror_decodes_server_shape` function L426-451 — `()` — The relationships mirror decodes the T-0020 grouped shape, and
--  `graph_tests` module L508-532 — `-` — run on the host (`cargo test -p kairos-web`).
--  `graph_response_mirror_decodes_server_shape` function L513-531 — `()` — `GraphResponse` decodes the KAIROS-T-0088 wire shape.
+-  `is_false` function L68-70 — `(flag: &bool) -> bool` — `skip_serializing_if` for a `bool` that is only interesting when set.
+-  `SearchFilter` type L107-114 — `= SearchFilter` — run on the host (`cargo test -p kairos-web`).
+-  `ItemRelationships` type L250-266 — `= ItemRelationships` — run on the host (`cargo test -p kairos-web`).
+-  `tests` module L339-554 — `-` — run on the host (`cargo test -p kairos-web`).
+-  `family_of_maps_type_letters` function L344-353 — `()` — Type letters map to the S-0004 families; junk maps to none.
+-  `search_request_serializes_s0005_field_names` function L358-412 — `()` — The request mirror serializes the exact S-0005 field names (the
+-  `include_deleted_is_expressible_and_silent_when_off` function L420-441 — `()` — KAIROS-T-0163: the put-away toggle is expressible on its own —
+-  `search_response_mirror_decodes_server_shape` function L446-486 — `()` — The response mirror decodes a realistic grouped body — typed extra
+-  `an_archived_hit_arrives_marked` function L492-511 — `()` — KAIROS-T-0157 marks archived hits on the wire; the mirror has to
+-  `relationships_mirror_decodes_server_shape` function L516-553 — `()` — The relationships mirror decodes the T-0020 grouped shape, and
+-  `graph_tests` module L618-653 — `-` — run on the host (`cargo test -p kairos-web`).
+-  `graph_response_mirror_decodes_server_shape` function L623-652 — `()` — `GraphResponse` decodes the KAIROS-T-0088 wire shape.
 
 #### crates/kairos-web/src/pages/search/graph.rs
 
-- pub `GraphView` function L65-493 — `(#[prop(into)] short_code: String) -> impl IntoView` — The focal graph, standalone: `short_code` is its only input (T-0090
--  `column_of` function L33-40 — `(entity_type: &str) -> Option<Column>` — The canvas column of an entity type; documents/ADRs return `None` and
--  `clip` function L43-50 — `(title: &str, max: usize) -> String` — Truncate a title for its node box (SVG text does not wrap).
--  `PanelRow` struct L54-60 — `{ direction: String, entity_type: String, short_code: String, title: String, sta...` — One row of the supporting-material side panel.
--  `ManagePanel` function L499-662 — `(#[prop(into)] short_code: String, on_changed: Callback<()>) -> impl IntoView` — Org-admin link/unlink (ported from the old explorer): the focus item's
+- pub `GraphView` function L76-531 — `(#[prop(into)] short_code: String) -> impl IntoView` — The focal graph, standalone: `short_code` is its only input (T-0090
+-  `column_of` function L37-44 — `(entity_type: &str) -> Option<Column>` — The canvas column of an entity type; documents/ADRs return `None` and
+-  `clip` function L47-54 — `(title: &str, max: usize) -> String` — Truncate a title for its node box (SVG text does not wrap).
+-  `PanelRow` struct L58-71 — `{ direction: String, entity_type: String, short_code: String, title: String, sta...` — One row of the supporting-material side panel.
+-  `ManagePanel` function L537-711 — `(#[prop(into)] short_code: String, on_changed: Callback<()>) -> impl IntoView` — Org-admin link/unlink (ported from the old explorer): the focus item's
 
 #### crates/kairos-web/src/pages/search/graph_layout.rs
 
@@ -4698,12 +4702,13 @@
 
 #### e2e/tests/archived.spec.ts
 
--  `bearer` function L32 — `const bearer = (token: string)`
--  `api` function L34-52 — `function api( token: string, method: string, path: string, body?: unknown, ): Pr...`
--  `deliveryBoard` function L55-60 — `function deliveryBoard(token: string): Promise<any>`
--  `createTask` function L62-74 — `function createTask( token: string, boardId: string, columnId: string, title: st...`
--  `login` function L76-85 — `function login(page: Page): Promise<void>`
--  `entryOf` function L170-175 — `const entryOf = (level: string)`
+-  `bearer` function L39 — `const bearer = (token: string)`
+-  `api` function L41-59 — `function api( token: string, method: string, path: string, body?: unknown, ): Pr...`
+-  `deliveryBoard` function L62-67 — `function deliveryBoard(token: string): Promise<any>`
+-  `createTask` function L69-81 — `function createTask( token: string, boardId: string, columnId: string, title: st...`
+-  `login` function L83-92 — `function login(page: Page): Promise<void>`
+-  `entryOf` function L181-186 — `const entryOf = (level: string)`
+-  `probeWord` function L328-335 — `function probeWord(): string`
 
 #### e2e/tests/drag.spec.ts
 

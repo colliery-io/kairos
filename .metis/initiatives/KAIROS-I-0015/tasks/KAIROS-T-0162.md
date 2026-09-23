@@ -4,14 +4,14 @@ level: task
 title: "DEFINITION_IN_USE names the work carrying the field instead of counting it"
 short_code: "KAIROS-T-0162"
 created_at: 2026-09-23T11:30:02.612710+00:00
-updated_at: 2026-09-23T11:30:02.612710+00:00
+updated_at: 2026-09-23T12:09:20.088732+00:00
 parent: KAIROS-I-0015
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

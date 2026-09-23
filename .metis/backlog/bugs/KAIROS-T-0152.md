@@ -63,12 +63,13 @@ deleting a card permanently blocks the definition it carried.
 
 ## Acceptance Criteria
 
-- [ ] The `DEFINITION_IN_USE` count ignores values on soft-deleted items, so
-      a field whose only carriers are archived can be retired.
-- [ ] Deleting an item releases — or stops counting — its metadata values by
-      the same rule the board, team and repository guards already use.
-- [ ] The refusal names live carriers rather than a bare count, so an admin
-      who is refused can find the work that is actually blocking them.
+- [ ] `set_metadata` reaches an archived item, so a stamped value can always
+      be cleared by someone who is refused ([[KAIROS-A-0020]] rule 1).
+- [ ] The `DEFINITION_IN_USE` refusal **names** the carrying items, archived
+      ones marked as such, rather than returning a bare count — the way
+      `live_board_item_codes` does for the team guard.
+- [ ] A field whose carriers have all been cleared can actually be retired,
+      whether or not those carriers were archived.
 - [ ] `uat/journeys/board-setup.journey.ts` drops its defensive
       `set_metadata … null` and still tears down clean.
 
@@ -89,8 +90,28 @@ they are not counted.
 Sits next to [[KAIROS-T-0151]]: both are the same underlying shape, a
 soft-deleted item's rows surviving in the database with no surface serving
 them. T-0151 is about not being able to *read* them; this is about them
-still being *binding*. Worth deciding together — what does archiving mean,
-and which guards are allowed to count archived rows?
+still being *binding*.
+
+**Decided (2026-09-23, [[KAIROS-A-0020]]): archived means hidden by default,
+nothing more.** That changes the shape of this fix. The trap here is not
+that the guard counts an archived carrier — it is that the carrier is
+*unreachable*, so being refused leaves the admin with nowhere to go. Once
+T-0151 lands and archived work is retrievable and editable, counting it is
+defensible: the admin is refused, told which archived work carries the
+field, and can go and clear it.
+
+So the minimum fix is no longer "stop counting archived rows". It is:
+
+1. `set_metadata` (and the equivalent write path) must reach an archived
+   item, since archiving is not a write boundary either — it only limits
+   default visibility.
+2. The `DEFINITION_IN_USE` refusal must **name** the carrying items rather
+   than return a bare count, the way `live_board_item_codes` does for the
+   team guard. A count the user cannot act on is the actual defect.
+
+Whether archived carriers should additionally stop counting is then a
+genuine product choice rather than a forced one, and cheap either way.
+Implement alongside T-0151, not after it.
 
 ## Status Updates
 

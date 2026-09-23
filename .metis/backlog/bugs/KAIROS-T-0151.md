@@ -56,9 +56,21 @@ I would not pick (3) silently: the decision was argued on the basis that nothing
 
 ## Acceptance Criteria
 
-- [ ] A decision recorded in the I-0012 initiative or A-0004: serve it, gate it, or document the limit.
-- [ ] If served: `uat/journeys/housekeeping.journey.ts` step 3 flips from asserting 404 to asserting the content is retrievable, and its narration and header comment are rewritten.
+- [x] A decision recorded: **serve it** — see [[KAIROS-A-0020]].
+- [ ] An archived item is retrievable by short code, marked as archived, on every surface (API, MCP, CLI, GUI).
+- [ ] Its `/history` is retrievable on the same terms.
+- [ ] Default listings are unchanged — boards, queues and directories still hide it.
+- [ ] No permission gate: whoever could read the work before can read it after.
+- [ ] `uat/journeys/housekeeping.journey.ts` step 3 flips from asserting 404 to asserting the content is retrievable, and its narration and header comment are rewritten.
 
 ## Status Updates
 
 **2026-09-23** — Found by the `housekeeping` UAT journey (KAIROS-T-0148), which was written to prove the I-0012 archiving decision holds end to end. The journey asserts today's behaviour and names this ticket, so it will need editing when this is resolved either way.
+
+**2026-09-23 — decided.** Dylan: *"Archived items should still be visible /
+grabbable for audit and search. Archived just is intended to say this is old
+and we're by default limiting its visibility; nothing more."* Recorded as
+**[[KAIROS-A-0020]]**, which also rules out the admin-only option that was on
+the table — archiving is a visibility default, not a permission boundary.
+[[KAIROS-T-0152]] is the same decision's other half and should be implemented
+with this, not after it.

@@ -27,8 +27,8 @@ Codes an agent can receive, and what each means.
 
 | Code | Meaning |
 |---|---|
-| `NOT_FOUND` | A short code, board or repository named as the subject of the call does not exist, or an `unlink_items` edge does not exist. On a write tool it also means the item exists but is archived: writes resolve live items only, and the message reads `no live item with short code …`. |
-| `VALIDATION` | An argument is malformed, an enum value is outside its vocabulary, an argument does not apply to the item type, or something named as a *filter or reference* — a team, a repository filter, a parent, a metadata definition, a column — does not exist. A reference that does not resolve is `VALIDATION`; the call's own subject not existing is `NOT_FOUND`. |
+| `NOT_FOUND` | A short code, board or repository named as the subject of the call does not exist; an `unlink_items` edge does not exist; or a `search` `traverse.from` does not resolve. On a write tool it also means the item exists but is archived: writes resolve live items only, and the message reads `no live item with short code …`. |
+| `VALIDATION` | An argument is malformed, an enum value is outside its vocabulary, an argument does not apply to the item type, or something named as a *filter or reference* — a team, a repository filter, a parent, a metadata definition, a column — does not exist. A reference that does not resolve is `VALIDATION`; the call's own subject not existing is `NOT_FOUND`. **One exception:** `search`'s `traverse.from` is a reference and still answers `NOT_FOUND`, because a traversal's root is the subject of that traversal. |
 | `FORBIDDEN` | The principal lacks the required board capability. The message names the capability. For a cross-team filer holding only the computed `file_backlog` capability, the message states the Backlog-only rule instead of the bare capability name. |
 | `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. |
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
@@ -123,8 +123,10 @@ supporting documents.
 | `short_code` | string | yes | — | The item's short code. |
 
 Archived items are returned, marked with the instant they were put away. The
-column shown for an archived card is a stored label, because the column itself
-may since have been removed.
+column reported for an archived card is the name of the column it was put away
+in, which may since have been removed from the board: a removed column is
+soft-deleted rather than dropped, and this lookup deliberately ignores that so
+"which column was this in?" stays answerable.
 
 Refuses: `NOT_FOUND` only when the short code names nothing at all.
 
@@ -184,7 +186,7 @@ are compact and grouped by type.
 | `from` | string | yes | — | The starting item's short code. |
 | `relationships` | array of string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. Must not be empty. |
 | `direction` | string | yes | — | `outbound`, `inbound`, `both`. |
-| `depth` | integer | yes for traversal | — | 1–10. |
+| `depth` | integer | no in the schema | — | 1–10. Optional in the schema, but a traversal without it is refused: the field is deliberately not defaulted so that a missing depth is a typed refusal rather than a silent choice. |
 
 `sort`:
 
@@ -195,11 +197,15 @@ are compact and grouped by type.
 
 Refuses: `VALIDATION` for a blank `q`, an empty enum array, a blank metadata
 key, an inverted date range, a `limit` outside 1–100, a negative `offset`, a
-`depth` of 0 or above 10, an empty `relationships`, or a request with no query,
-no constraining filter and no traversal, and for an unknown
-`filter.repository`. Every request except one carrying `filter.repository` is
-validated before a database connection is taken; that one filter needs a
-connection to resolve the slug, so it is validated afterwards.
+missing `traverse.depth`, a `depth` of 0 or above 10, an empty
+`relationships`, a request with no query, no constraining filter and no
+traversal, or an unknown `filter.repository`. `NOT_FOUND` for a `traverse.from`
+that does not resolve — the one reference on this surface that answers
+`NOT_FOUND` rather than `VALIDATION`.
+
+Every request except one carrying `filter.repository` is validated before a
+database connection is taken; that one filter needs a connection to resolve the
+slug, so it is validated afterwards.
 
 ## Writing content
 
@@ -336,7 +342,8 @@ or archived `to_board`; `VALIDATION` when the item is not a task;
 `NO_ENTRY_COLUMN`; `REPOSITORY_OWNER_MISMATCH` when the task is bound to a
 repository owned by another team — the binding must be cleared first.
 
-To move an item between columns of its own board, use `transition_item`.
+Column-to-column moves on an item's own board are `transition_item`, not this
+tool.
 
 ## Relationships
 
@@ -355,10 +362,11 @@ or who created the source item — so a task filed against another team's
 repository can block the filer's own item. The other three types are org-admin
 only.
 
-Refuses: `VALIDATION` for a `relationship` outside the vocabulary, and for a
-`source` or `target` that does not name a live item; `FORBIDDEN` when the edge
-rule's gate is not met; `RELATIONSHIP_RULE` when that relationship is not
-allowed between those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
+Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
+`source` or `target` that does not name a live item, and for a self-link where
+`source` and `target` are the same item; `FORBIDDEN` when the edge rule's gate
+is not met; `RELATIONSHIP_RULE` when that relationship is not allowed between
+those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
 
 ### `unlink_items`
 
@@ -390,9 +398,11 @@ Deleted items remain retrievable by short code and searchable with
 `include_deleted`; they are hidden from default listings. "Deleted" and
 "archived" name the same act — see the [Glossary](glossary.md).
 
-Refuses: `VALIDATION` when `confirm` is absent or false; `NOT_FOUND` for an
-unknown short code or an already-archived item; `FORBIDDEN` without
-`manage_<type>` on the item's authorization board.
+Refuses: `VALIDATION` when `confirm` is `false`; `NOT_FOUND` for an unknown
+short code or an already-archived item; `FORBIDDEN` without `manage_<type>` on
+the item's authorization board. An *absent* `confirm` is a schema violation
+rather than a refusal — it is a required field, so the call is rejected before
+the tool body runs and carries no Kairos error code.
 
 ### `restore_item`
 
@@ -409,6 +419,15 @@ Refuses: `NOT_FOUND` for an unknown short code; `VALIDATION` when the item is
 not archived; `FORBIDDEN` without `manage_<type>` on the item's authorization
 board; `RESTORE_BLOCKED` when the item's board, column, owning team or
 repository has since been removed, naming what is missing.
+
+## Related reading
+
+- [Archiving](../explanation/archiving.md) — why archiving is not a permission
+  boundary
+- [Capabilities and access](../explanation/capabilities-and-access.md) — the
+  capability vocabulary and the cross-team filing rule
+- [Glossary](glossary.md)
+- [REST API](rest-api.md)
 
 ## Related guides
 

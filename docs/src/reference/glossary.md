@@ -44,8 +44,8 @@ way.
 
 ## board
 
-Three kinds of board exist, distinguished by the board's **level**:
-`strategy`, `initiative`, `delivery`, `adr`.
+Four board **levels** exist — `strategy`, `initiative`, `delivery`, `adr` —
+grouping into three kinds of board.
 
 - **Flight-level boards** — a strategy board and an initiative board hold
   Flight Level 3 and Flight Level 2 work. A tenant is provisioned with one of
@@ -84,9 +84,10 @@ org-admin bypass are not enumerated here — see
 ## column
 
 A named position on a board. Columns are ordered, and a board's transition
-graph says which column-to-column moves are legal. A column can be removed;
-put-away cards that still point at a removed column carry its name as a stored
-label.
+graph says which column-to-column moves are legal. A column can be removed,
+which soft-deletes it rather than dropping it: put-away cards still point at it,
+so its name remains readable as the answer to "which column was this in?" even
+though it no longer appears on the board.
 
 ## complexity
 
@@ -159,8 +160,11 @@ history. Also called a *work item*.
 
 A tenant-scoped custom field: a slug, a type of `string`, `enum` or `date`, and
 for an enum its permitted values. Items carry values keyed by definition slug;
-templates can collect a set of definitions. A definition cannot be deleted
-while any item value or template association references it.
+templates can collect a set of definitions. A definition cannot be deleted while
+any item value or template association references it — **and an archived carrier
+still counts**. The refusal names the carriers and marks the archived ones,
+which is what keeps that honest: an archived item is still readable by short
+code, and restoring it is what makes its value clearable.
 
 ## organization
 

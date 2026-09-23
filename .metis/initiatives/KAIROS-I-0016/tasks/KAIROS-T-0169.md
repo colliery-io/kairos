@@ -169,14 +169,79 @@ gone.
 
 ### `diataxis-review`
 
-**Delivered short of what I asked for.** A delegated review of all four pages
-did not return within the task's window even after a request for a partial
-hand-back, so the review below is my own against S-0008, and I am recording that
-rather than claiming a clean third-party pass. [[KAIROS-T-0175]] should re-run
-`diataxis-review` over these four pages at close-out; they have had the same
-scrutiny as [[KAIROS-T-0168]]'s pages on facts, and less on mode.
+Ran twice: my own pass, then the delegated review, which landed after the first
+commit. **The delegated review found six factual defects my pass had missed**,
+one of them blocking. All are fixed in a follow-up commit. The lesson is worth
+recording: self-review caught the structural rules (R1–R3) but was much weaker
+on R4/R6 — the missing refusals were exactly the things I had not thought to
+look for, which is what an independent pass is for.
 
-What was checked, with rule IDs:
+#### Defects the delegated review found, all now fixed
+
+- **R4 + R6, blocking** — `search` refuses an unresolvable `traverse.from` with
+  **`NOT_FOUND`**, not `VALIDATION`: `map_search_error` maps
+  `SearchError::TraverseRootNotFound` to `not_found`. Worse than an omission,
+  because the page's own rule ("a reference that does not resolve is
+  `VALIDATION`") would have led an agent to branch on the wrong code. The rule
+  now names `traverse.from` as its one exception, with the reason: a traversal's
+  root is the subject of that traversal.
+- **R4 + R6** — `traverse.depth` is `Option<u32>`, so it is **optional in the
+  schema** the agent receives, and a traversal without it is refused
+  (`TraverseDepthRequired`). The page said "required" and listed only the
+  out-of-range refusal. The field is deliberately not defaulted so that a
+  missing depth is a typed refusal rather than a silent choice; documented that
+  way.
+- **R6** — `delete_item`: an *absent* `confirm` is a schema violation, not a
+  `VALIDATION` refusal. `confirm: bool` has no serde default, so the call never
+  reaches the body and carries no Kairos code. Only `confirm: false` refuses.
+- **R4** — `link_items` omitted the self-link refusal (`GraphError::SelfLink` →
+  `VALIDATION`), which is a plausible agent mistake.
+- **R4** — `get_history`'s `limit` is `unwrap_or(20).clamp(1, 200)`: it
+  **clamps silently** rather than refusing, so `limit: 1000` returns 200 rows
+  and no error. Now stated, and contrasted with `search.limit`, which refuses.
+- **R6, both pages** — "stored label" misdescribed the mechanism. Nothing is
+  denormalized onto an archived card: a removed column is soft-deleted, the card
+  keeps a `NOT NULL` FK to the surviving row, and `column_label` reads through it
+  without filtering `deleted_at`. Reworded on both pages.
+- **R3 + R2, `glossary.md`** — the `board` entry said "three kinds" and then
+  listed four levels. Now "four levels grouping into three kinds".
+- **R4, `glossary.md`** — the `metadata definition` entry omitted that an
+  **archived carrier still counts** against deletion. ADR-0020 rule 6 decides
+  exactly this, and the omission read as the opposite alongside this page's own
+  "archived means hidden" entry.
+- **R2, `mcp-tools.md`** — one imperative ("use `transition_item`"), restated
+  declaratively.
+- **S4, `mcp-tools.md`** — stated two conclusions whose rationale now has homes
+  without linking either. Added.
+
+The review also confirmed independently that the 18-tool set is
+character-for-character the drift gate's, that every argument's type,
+requiredness and default matches the `*Params` structs with the `depth`
+exception, that the `VALIDATION`/`NOT_FOUND` split is right on all four traps I
+had corrected, and that **`glossary.md` has zero enum or vocabulary defects** —
+every variant, wire string and cardinality exact.
+
+**One finding not acted on.** S4, degrading: the three dead `how-to` links. The
+brief directs reference to link how-to by filename ahead of those pages
+existing, and [[KAIROS-T-0175]] verifies links at close-out. Recorded rather
+than silently kept.
+
+**Two informational findings on the moved pages, for a later task.** These are
+outside this task by design — the pages moved unchanged — but the premise that
+they are already single-mode turns out to be half right:
+
+- `events.md` — Reference ~80% / Explanation ~20%. The `Why this page exists`
+  blockquote and `## Purpose` argue a design position. Cosmetic.
+- **`scim.md` — Reference ~65% / How-to ~20% / Explanation ~15%. The premise
+  does not hold.** `## Setup (org admin)` is a numbered imperative procedure
+  with per-IdP conditionals — §4.3 "reference that instructs", violating R2
+  outright. The proposed split is `how-to/provision-users-with-scim.md` plus a
+  pure-reference remainder. Worth a ticket; deliberately not done here, since
+  the task says to resist improving these pages.
+
+#### My own earlier pass, for the record
+
+
 
 - **R1, both, pass.** `mcp-tools.md` groups by what the tool surface does —
   orientation, reading, searching, writing, moving, relationships, archiving —
@@ -195,14 +260,13 @@ What was checked, with rule IDs:
   `rest/tenant-configuration.md` for the one refusal that lives on the REST
   surface.
 
-Carried over knowingly, as in T-0168: the "Related guides" links point at
-how-to pages that do not exist yet.
-
 ### For the close-out task
 
-- Re-run `diataxis-review` over these four pages; treat my self-review as
-  insufficient.
 - `introduction.md` promises the glossary to a reader who is unsure where to
   start — that mention is still plain text and now has a page to point at.
-- The MCP `create_item` asymmetry and T-0168's Compose forwarding bug both want
-  tickets outside this initiative.
+- Three tickets wanted outside this initiative: **`scim.md` needs splitting**
+  (its Setup section is a how-to living in reference), the **MCP `create_item`
+  asymmetry** with the CLI, and T-0168's **Compose forwarding bug**.
+- Minor, noticed in passing and not fixed: `crates/kairos-server/src/mcp/tools.rs:1`
+  and `crates/kairos-server/tests/mcp.rs:21` both still say "the 14 frozen
+  tools". There are 18.

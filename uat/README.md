@@ -139,8 +139,10 @@ only reads; `machine-access` is the first thing that is not a person;
 somebody asks a question about work already done; `team-knowledge`,
 `new-kind-of-work`, `incident` and `board-setup` are a team shaping how it
 works; `growing-team`, `reorg` and `quarterly-review` are the org changing
-shape around the work; `operations`, `second-tenant` and `housekeeping` are
-a deployment that has been load bearing for a while.
+shape around the work; `operations`, `second-tenant`, `housekeeping` and
+`revival` are a deployment that has been load bearing for a while — long
+enough that work gets put away, and long enough that somebody needs it
+back.
 
 Reading them in order is the fastest way to understand what Kairos claims
 to do. Writing a new one: find where in that life it belongs, and put it

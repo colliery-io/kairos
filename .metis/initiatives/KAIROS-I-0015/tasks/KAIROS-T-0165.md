@@ -4,14 +4,14 @@ level: task
 title: "Close out: housekeeping tells the true story and the drift gate reads 18/18"
 short_code: "KAIROS-T-0165"
 created_at: 2026-09-23T11:30:10.130720+00:00
-updated_at: 2026-09-23T11:30:10.130720+00:00
+updated_at: 2026-09-23T13:18:41.916941+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0157, KAIROS-T-0160, KAIROS-T-0162]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -81,6 +81,8 @@ and `--server` against a kept stack, plus one `angreal test e2e`. Record run
 ids and the Surface coverage line in the initiative's progress log. Check the
 report for teardown residue — that is how the last close-out found a leak
 two green runs had hidden.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 
@@ -177,3 +179,58 @@ should tell as a story rather than re-assert mechanically.
 A journey probe wanting a findable hit should use a **fresh random word per
 run**, as the e2e spec does, so the result stays on page 1 however often the
 stack is re-driven.
+## Status Update
+
+**2026-09-23 — closed out. All four tiers green.**
+
+| Run | Mode | Result |
+|---|---|---|
+| `mue4t6ai` | compose, fresh seed | 21 journeys, 21 passed, 0 failed, **no teardown residue** |
+| `mue4ud4b` | `--server http://localhost:41080` | 21 journeys, 21 passed, 8 compose-only steps skipped, no residue |
+| — | `angreal test e2e` | 10/10 golden path + MCP, **16 GUI specs passed** |
+| — | `cargo test --workspace --test '*'` | **41/41 binaries green** |
+
+Surface coverage: **MCP 18/18 tools, CLI 16/16 nouns, 0 allow-listed.**
+`restore_item` took the count 17 → 18 and the gate failed until this task
+covered it — the gate working exactly as designed.
+
+### The new journey: J20 `revival`
+
+`uat/journeys/revival.journey.ts`, six steps, the other end of
+`housekeeping`. That journey proves work can be put away; this one proves
+the decision that followed. The story is the one an organisation lives: a
+quarter closes, tickets are put away, and months later somebody asks
+"didn't we already look at this?".
+
+1. a team's last quarter is finished and put away (two versions, so there
+   is a history worth reading)
+2. the same text query finds nothing — then finds it with
+   `--include-deleted`, marked. **This is the regression test for the bug
+   that returned "no matches" rather than an error**: before T-0157 the flag
+   was a silent no-op next to `--query`.
+3. reads the content and both history versions over MCP — the audit answer
+4. restores it over MCP `restore_item`; it is on the board and **editable
+   again**, which is the point of restoring rather than merely reading
+5. parks a second card in its own column, puts it away, retires the column,
+   and is **refused**: `RESTORE_BLOCKED`, `details.missing` naming the
+   column — and the record is still readable, which is what keeps the
+   refusal from being a dead end
+6. the board listing shows the put-away card when asked and hides it when
+   not, while the restored one is simply live
+
+Self-cleaning; the fixture suffix is `revive`. The search probe uses a fresh
+random word per run so the hit stays on results page 1 however often the
+deployment is driven (the e2e spec learned that the hard way).
+
+### Already done by other tasks, verified rather than redone
+
+- `housekeeping` was rewritten by T-0156 (it had gone red when T-0154
+  landed) and extended by T-0159 with the list opt-in and MCP
+  `board_items {include_deleted: true}`.
+- `operations`' note about the `--include-deleted` + `--query` no-op was
+  corrected by T-0157; its cascaded-child 404 assertions too.
+
+### Docs
+
+`README.md`: arc table now 20 rows, coverage claim **18/18 tools and 16/16
+nouns**. `uat/README.md`: `revival` added to "The arc".

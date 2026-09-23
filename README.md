@@ -497,11 +497,12 @@ failure).
 | 17 | `operations` | an operator checks the deployment, then deletes something big |
 | 18 | `second-tenant` | the deployment hosts more than one organisation |
 | 19 | `housekeeping` | old work is put away |
+| 20 | `revival` | put-away work is found, read, and brought back |
 
 A run also **fails when a surface exists that no journey exercises**: the
 suite asks the deployment what MCP tools and CLI nouns it offers and
 compares that against what the journeys actually ran (`uat/README.md` has
-the details). Today that is 17/17 tools and 16/16 nouns with nothing
+the details). Today that is 18/18 tools and 16/16 nouns with nothing
 allow-listed.
 
 ### Run against the compose stack

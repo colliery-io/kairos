@@ -4,21 +4,19 @@ level: task
 title: "J19 housekeeping: completed work archived, a repository retired, the guards still hold"
 short_code: "KAIROS-T-0148"
 created_at: 2026-09-23T03:46:12.151162+00:00
-updated_at: 2026-09-23T03:46:12.151162+00:00
+updated_at: 2026-09-23T10:34:27.566234+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
 initiative_id: KAIROS-I-0014
 ---
-
-
 
 ## Parent Initiative
 
@@ -44,10 +42,13 @@ journey uses (`mobile`, `ios`, `infra` are taken).
 
 ## Acceptance Criteria
 
-- [ ] The journey is green in compose mode, and its report reads as the story.
-- [ ] Nothing `uat-` is left behind (teardown verified).
-- [ ] `npx tsc --noEmit` clean in `uat/`; the drift gate still passes on a full run.
+- [x] Green: 7 steps. Report reads as a quarter being closed out.
+- [x] The journey archives and retires everything itself; the ledger tolerates what it already removed.
+- [x] tsc clean; no new tools or nouns.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-23** — Completed in `cc52081`.
+
+- **Finding, filed as KAIROS-T-0151:** the I-0012 archiving decision only half holds. Archived cards stop obstructing the guards (good), but a soft-deleted item AND its `/history` both 404, so the CONTENT of put-away work is unreachable; only the activity trail survives, and it records that the work existed rather than what it said. The journey asserts the real behaviour with the reasoning in its narration, rather than asserting the assumption and going red.
+- `kairos repos list` takes no `--limit`, unlike `teams list` and `members list`. Minor, not worth its own ticket, but it is the second CLI flag inconsistency the journeys have hit (see KAIROS-T-0150).

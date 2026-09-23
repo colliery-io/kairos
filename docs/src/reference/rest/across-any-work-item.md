@@ -188,7 +188,7 @@ snapshot with `?version=N`.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_HistoryVersion`](schemas.md#listenvelope-historyversion) | Version list envelope (or a HistorySnapshot with ?version=N) |
+| `200` | [`ListEnvelope_HistoryVersion`](schemas.md#listenvelope_historyversion) | Version list envelope (or a HistorySnapshot with ?version=N) |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family, short code, or version |
 
 ## cascade

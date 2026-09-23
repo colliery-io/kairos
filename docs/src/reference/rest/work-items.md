@@ -25,7 +25,7 @@ is that a listing nobody asked hides put-away work.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Strategy`](schemas.md#listenvelope-strategy) | Page of strategies |
+| `200` | [`ListEnvelope_Strategy`](schemas.md#listenvelope_strategy) | Page of strategies |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/strategies`
@@ -122,7 +122,7 @@ is that a listing nobody asked hides put-away work.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Initiative`](schemas.md#listenvelope-initiative) | Page of initiatives |
+| `200` | [`ListEnvelope_Initiative`](schemas.md#listenvelope_initiative) | Page of initiatives |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/initiatives`
@@ -221,7 +221,7 @@ is that a listing nobody asked hides put-away work.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Task`](schemas.md#listenvelope-task) | Page of tasks |
+| `200` | [`ListEnvelope_Task`](schemas.md#listenvelope_task) | Page of tasks |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/tasks`
@@ -382,7 +382,7 @@ editorially archived and perfectly live.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Document`](schemas.md#listenvelope-document) | Page of documents |
+| `200` | [`ListEnvelope_Document`](schemas.md#listenvelope_document) | Page of documents |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/documents`
@@ -485,7 +485,7 @@ is that a listing nobody asked hides put-away work.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Adr`](schemas.md#listenvelope-adr) | Page of ADRs |
+| `200` | [`ListEnvelope_Adr`](schemas.md#listenvelope_adr) | Page of ADRs |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/adrs`

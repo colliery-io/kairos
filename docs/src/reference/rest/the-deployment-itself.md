@@ -24,7 +24,7 @@ Query the activity log with combinable filters + pagination.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_ActivityEntry`](schemas.md#listenvelope-activityentry) | Page of activity entries, newest first |
+| `200` | [`ListEnvelope_ActivityEntry`](schemas.md#listenvelope_activityentry) | Page of activity entries, newest first |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Malformed filter value |
 
 ## admin
@@ -40,7 +40,7 @@ List provisioned tenants. Deployment-admin only.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_TenantSummary`](schemas.md#listenvelope-tenantsummary) | Page of tenants |
+| `200` | [`ListEnvelope_TenantSummary`](schemas.md#listenvelope_tenantsummary) | Page of tenants |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Caller is not a deployment admin |
 

@@ -22,7 +22,7 @@ tenant-wide), optionally filtered to one entity type's catalog.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_MetadataDefinition`](schemas.md#listenvelope-metadatadefinition) | Page of definitions |
+| `200` | [`ListEnvelope_MetadataDefinition`](schemas.md#listenvelope_metadatadefinition) | Page of definitions |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad entity_type value |
 
 ### `POST /api/metadata-definitions`
@@ -100,7 +100,7 @@ List templates (open tenant-wide).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Template`](schemas.md#listenvelope-template) | Page of templates |
+| `200` | [`ListEnvelope_Template`](schemas.md#listenvelope_template) | Page of templates |
 
 ### `POST /api/templates`
 

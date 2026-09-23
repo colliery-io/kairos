@@ -20,7 +20,7 @@ List boards (open tenant-wide).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Board`](schemas.md#listenvelope-board) | Page of boards |
+| `200` | [`ListEnvelope_Board`](schemas.md#listenvelope_board) | Page of boards |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/boards`
@@ -313,7 +313,7 @@ List teams (open tenant-wide).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_Team`](schemas.md#listenvelope-team) | Page of teams |
+| `200` | [`ListEnvelope_Team`](schemas.md#listenvelope_team) | Page of teams |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/teams`
@@ -612,7 +612,7 @@ List delivery streams (open tenant-wide).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_DeliveryStream`](schemas.md#listenvelope-deliverystream) | Page of streams |
+| `200` | [`ListEnvelope_DeliveryStream`](schemas.md#listenvelope_deliverystream) | Page of streams |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/delivery-streams`
@@ -733,7 +733,7 @@ by email).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`ListEnvelope_OrgMember`](schemas.md#listenvelope-orgmember) | Page of members |
+| `200` | [`ListEnvelope_OrgMember`](schemas.md#listenvelope_orgmember) | Page of members |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
 
 ### `POST /api/members`

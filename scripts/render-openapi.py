@@ -112,8 +112,14 @@ def load_spec():
 
 
 def anchor(text):
-    """mdBook's heading anchor: lowercase, non-alphanumerics to hyphens."""
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    """mdBook's heading anchor: lowercase, non-alphanumerics to hyphens.
+
+    `_` is NOT a non-alphanumeric here: mdBook's slugger keeps it. Folding it
+    to a hyphen produced `#listenvelope-board` for a heading whose real id is
+    `listenvelope_board`, so every generic-envelope schema link landed at the
+    top of schemas.md instead of at the schema (KAIROS-T-0175).
+    """
+    slug = re.sub(r"[^a-z0-9_]+", "-", text.lower()).strip("-")
     return slug
 
 

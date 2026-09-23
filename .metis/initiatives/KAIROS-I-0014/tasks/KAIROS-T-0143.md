@@ -4,14 +4,14 @@ level: task
 title: "J14 growing-team: a member joins and is granted capabilities; another leaves and their work is reassigned"
 short_code: "KAIROS-T-0143"
 created_at: 2026-09-23T03:45:57.785370+00:00
-updated_at: 2026-09-23T10:27:00.778488+00:00
+updated_at: 2026-09-23T10:32:30.901355+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,8 +39,6 @@ KAIROS-I-0013 (T-0133 and T-0134 in particular).
 
 If a journey needs a team of its own, give the fixture a suffix no other
 journey uses (`mobile`, `ios`, `infra` are taken).
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -59,8 +59,8 @@ checklist.
 
 # Explanation
 
-<!-- - [Flight levels](explanation/flight-levels.md) -->
-<!-- - [Teams and boards](explanation/teams-and-boards.md) -->
-<!-- - [Capabilities and access](explanation/capabilities-and-access.md) -->
-<!-- - [Archiving](explanation/archiving.md) -->
-<!-- - [Repositories as execution scope](explanation/repositories-as-execution-scope.md) -->
+- [Flight levels](explanation/flight-levels.md)
+- [Teams and boards](explanation/teams-and-boards.md)
+- [Capabilities and access](explanation/capabilities-and-access.md)
+- [Archiving](explanation/archiving.md)
+- [Repositories as execution scope](explanation/repositories-as-execution-scope.md)

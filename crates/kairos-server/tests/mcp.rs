@@ -18,7 +18,7 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the inventory: 14 from S-0006, the two
+//! - tools/list is EXACTLY the 18-tool inventory: 14 from S-0006, the two
 //!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012) and
 //!   `restore_item` (KAIROS-A-0020);
 //! - golden path: whoami → my_boards → create_item(initiative) →

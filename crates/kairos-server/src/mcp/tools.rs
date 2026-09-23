@@ -1,4 +1,6 @@
-//! The S-0006 tool surface (KAIROS-T-0026): the 14 frozen tools, each a
+//! The S-0006 tool surface (KAIROS-T-0026): 18 tools — the 14 frozen by
+//! S-0006, plus the two repository tools (KAIROS-T-0107), `move_item`
+//! (KAIROS-I-0012) and `restore_item` (KAIROS-A-0020) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
 //! HTTP (A-0011). Contracts:
@@ -328,7 +330,7 @@ pub struct DeleteItemParams {
 }
 
 // ---------------------------------------------------------------------------
-// The 14 tools
+// The tools (18; the count is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]

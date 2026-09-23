@@ -184,9 +184,19 @@ by asking S-0008's two questions (action or cognition; study or work):
 | User acceptance runs | contributor reference (see D6) | reference |
 | CI | contributor reference (see D6) | reference |
 
-`docs/api/scim.md` and `docs/api/events.md` move to `reference/` as-is —
-they are already single-mode and correct, which is why they are the only
-existing pages that need no reclassification.
+`docs/api/scim.md` and `docs/api/events.md` move to `reference/`.
+
+**Correction, 2026-09-23.** This paragraph originally read "as-is — they are
+already single-mode and correct, which is why they are the only existing pages
+that need no reclassification." That was an assumption, and it was wrong.
+`scim.md` measures **~65% reference, ~20% how-to, ~15% explanation**: its
+`## Setup (org admin)` section is a numbered imperative procedure with per-IdP
+conditionals, which is S-0008 §4.3's "reference that instructs" exactly.
+[[KAIROS-T-0179]] splits it.
+
+The lesson is worth more than the fix: **the only two pages this plan exempted
+from review were the two nobody had reviewed.** An exemption granted on the
+strength of a glance is where mode-mixing survives a documentation project.
 
 The four sections marked **split** are the mode-mixing this initiative
 exists to fix: each currently explains *why* and instructs *how* in the same
@@ -386,3 +396,16 @@ Status Update.
   product's own shape.
 - 2026-09-23: **An eleventh task, [[KAIROS-T-0176]]**, for a gap in this
   plan's own reference list — see item 11 above.
+- 2026-09-23: **A twelfth, [[KAIROS-T-0179]]**, because D3's claim that the
+  two existing API pages were "already single-mode and correct" was an
+  assumption that did not survive measurement (see the correction in D3).
+- 2026-09-23: **Independent review is not optional for reference pages.**
+  [[KAIROS-T-0169]]'s own self-review passed every structural rule (R1–R3)
+  and was weak on exactly R4 and R6 — the independent review then found six
+  factual defects, one of them blocking: `search` refuses an unresolvable
+  `traverse.from` with `NOT_FOUND`, on a page that had just stated the rule
+  "a reference that does not resolve is VALIDATION", so an agent would have
+  branched on the wrong code. The generalisable reason: **missing refusals are
+  invisible to whoever wrote the page.** You cannot notice the absence of a
+  case you never thought of. Every remaining reference task in this initiative
+  gets an independent review, not a self-review.

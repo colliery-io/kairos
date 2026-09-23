@@ -1,0 +1,35 @@
+# The Kairos documentation book (KAIROS-I-0016).
+#
+# Laid out as the four Diátaxis modes, per KAIROS-S-0008 and the house
+# convention across colliery-io (squire-core, graphqlite, arawn, brokkr all
+# use mdBook at docs/ with src/ holding exactly the four modes).
+#
+# Stock theme on purpose: colliery-io/mdbook-colliery exists but is dormant
+# (last touched 2026-03-14) and none of the four sibling books reference it.
+# Following a theme nobody uses would be following nothing.
+
+[book]
+title = "Kairos"
+description = """
+Kairos — Flight Levels work management. One stateless binary serving the GUI, \
+REST API, MCP and SCIM, against a Postgres and an OIDC issuer you bring."""
+authors = ["Colliery"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "rust"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/colliery-io/kairos"
+edit-url-template = "https://github.com/colliery-io/kairos/edit/main/docs/{path}"
+no-section-label = true
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.search]
+enable = true

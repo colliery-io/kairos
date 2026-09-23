@@ -39,3 +39,6 @@ crates/kairos-web/dist/
 
 # Per-repo Kairos wiring written by /kairos:bootstrap (org-specific, never committed)
 .claude/kairos.local.md
+
+# mdBook render output (KAIROS-T-0167) — the site is built by CI.
+docs/book/

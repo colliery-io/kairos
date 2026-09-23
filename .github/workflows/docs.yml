@@ -1,0 +1,82 @@
+# The Kairos documentation book — KAIROS-T-0167 (KAIROS-I-0016), laid out as
+# the four Diátaxis modes per KAIROS-S-0008.
+#
+# Builds the mdBook at docs/ and publishes it to this repository's GitHub
+# Pages. Triggered by pushes touching docs/** ONLY, which is deliberate:
+# documentation ships independently of release tags, so a typo fix does not
+# wait for a version bump and a release does not wait for prose. The release
+# workflow (release.yml) is untouched by this.
+#
+# Pattern follows colliery-io/squire-core's docs.yml, with one difference:
+# Squire's source is private, so it pushes the rendered site to a separate
+# public dist repo with a PAT. Kairos is already public, so it publishes to
+# its own Pages through the first-party actions — no secret, no branch.
+#
+# One-time setup: repository Settings → Pages → Source = "GitHub Actions".
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time; a newer push supersedes an in-flight build.
+concurrency:
+  group: docs-publish
+  cancel-in-progress: true
+
+env:
+  # Pinned to the version `angreal docs build` installs, so a local render
+  # and CI produce the same book.
+  MDBOOK_VERSION: "0.5.2"
+
+jobs:
+  build:
+    name: build the book
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install mdBook
+        # Curl from the GitHub release rather than an action, matching
+        # squire-core and keeping the dependency surface small.
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          url="https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL "$url" | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: mdbook build docs
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the rendered site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/book
+
+  deploy:
+    name: publish to Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

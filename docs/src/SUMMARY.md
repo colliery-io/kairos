@@ -14,8 +14,8 @@ checklist.
 
 # Tutorials
 
-<!-- - [Run Kairos locally](tutorials/run-kairos-locally.md) -->
-<!-- - [Deploy Kairos to Kubernetes](tutorials/deploy-to-kubernetes.md) -->
+- [Run Kairos locally](tutorials/run-kairos-locally.md)
+<!-- - [Deploy Kairos to Kubernetes](tutorials/deploy-to-kubernetes.md) --> <!-- KAIROS-T-0181: blocked on KAIROS-T-0180 (amd64-only image) -->
 
 # How-to guides
 

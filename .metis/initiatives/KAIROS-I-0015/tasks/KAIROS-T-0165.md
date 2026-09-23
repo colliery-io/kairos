@@ -4,14 +4,14 @@ level: task
 title: "Close out: housekeeping tells the true story and the drift gate reads 18/18"
 short_code: "KAIROS-T-0165"
 created_at: 2026-09-23T11:30:10.130720+00:00
-updated_at: 2026-09-23T13:18:41.916941+00:00
+updated_at: 2026-09-23T13:29:27.957488+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0157, KAIROS-T-0160, KAIROS-T-0162]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -81,6 +81,8 @@ and `--server` against a kept stack, plus one `angreal test e2e`. Record run
 ids and the Surface coverage line in the initiative's progress log. Check the
 report for teardown residue — that is how the last close-out found a leak
 two green runs had hidden.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

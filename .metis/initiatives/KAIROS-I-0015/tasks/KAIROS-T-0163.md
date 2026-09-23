@@ -4,17 +4,17 @@ level: task
 title: "The search page can ask for archived work"
 short_code: "KAIROS-T-0163"
 created_at: 2026-09-23T11:30:04.957939+00:00
-updated_at: 2026-09-23T11:30:04.957939+00:00
+updated_at: 2026-09-23T13:11:30.214430+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0157]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
-exit_criteria_met: false
+exit_criteria_met: true
 initiative_id: KAIROS-I-0015
 ---
 
@@ -59,17 +59,80 @@ entity-type chips already on the page.
 
 ## Acceptance Criteria
 
-- [ ] The GUI `SearchFilter` can express `include_deleted`.
-- [ ] A visible, labelled toggle on `/search`, off by default.
-- [ ] Archived hits are visually distinct from live ones.
-- [ ] Copy does not collide with the document lifecycle's "archived"; a
+- [x] The GUI `SearchFilter` can express `include_deleted`.
+- [x] A visible, labelled toggle on `/search`, off by default.
+- [x] Archived hits are visually distinct from live ones.
+- [x] The Relationships panel and the graph explorer mark archived
+      neighbours (carried in from [[KAIROS-T-0158]]).
+- [x] Copy does not collide with the document lifecycle's "archived"; a
       comment records the collision.
-- [ ] Default search results are unchanged with the toggle off.
-- [ ] `angreal test` green.
+- [x] Default search results are unchanged with the toggle off.
+- [x] `angreal test` green.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-23 — implemented.**
+
+*The filter builder.* `SearchFilter` in `pages/search/data.rs` gains
+`include_deleted: bool`, typed as the server types it but with
+`skip_serializing_if` so an unasked search sends the **byte-identical
+body** it sent before the field existed — that is what makes "default
+results unchanged" a property of the wire rather than a promise. The
+flag alone makes the filter non-empty (`is_empty()` is a whole-struct
+comparison), which is the GUI half of what [[KAIROS-T-0157]] made
+`is_constraining()` accept: "just show me what's been put away" is a
+complete search, not a 400.
+
+*The toggle.* A labelled `Switch` above the filters, wrapped in
+`[data-testid="include-put-away"]`, off by default, with a sentence
+under it saying what put-away work is and that hits are marked. Above
+the entity chips deliberately — "visible for audit" is a claim about
+someone who never read the docs.
+
+*The marker.* `Hit` gained `archived_at` and a put-away hit renders a
+solid-gold `.kairos-archived-badge` beside its title, sits on
+`tr.kairos-search__hit--put-away` (inset surface + gold left edge), and
+is counted in its group's caption ("7 on this page · 2 put away"), so
+the shape of the answer is legible before the rows are read.
+
+*The trap was real.* All four web mirrors were silently dropping the
+new field: `Hit`, `search::data::RelatedItem`, `search::data::GraphNode`
+and `item::api::RelatedItem`. Nothing failed to build. Each now carries
+`archived_at` plus a decode test asserting both the marked and the bare
+(live) shape — `related_item_mirror_carries_the_archived_marker` and
+friends exist to hold that shut.
+
+*T-0158's carried-in scope.* The Relationships panel badges every
+put-away neighbour and, when it has one, prints the line that makes the
+divergence from the rollup legible: *containment is a fact about the
+record; progress is a fact about live work.* `children-progress` is
+untouched and its doc comment now says live-only-on-purpose. On the
+graph canvas an archived node gets `.kairos-graph__node--put-away` (inset
+fill, dimmed entity stroke) and a gold "put away" label on its status
+line; the `+N` arithmetic is untouched, as T-0158 asked. The
+supporting-material side panel and the admin Manage-links rows badge
+their archived ends too.
+
+*Vocabulary.* "put away" everywhere, matching [[KAIROS-T-0164]]; never a
+bare "archived". The collision is commented at the toggle, at the
+`include_deleted` field, at the hit badge, at the graph node and on
+`PanelRow.archived_at` — the last because the side panel is the one
+place where a document's editorial `lifecycle: archived` renders as its
+`status` **next to** the ADR-20 marker.
+
+**Finding, fixed in passing.** The `.kairos-graph__*` block in
+`app.css` referenced five custom properties aurora-dark does not define
+(`--surface`, `--surface-raised`, `--text`, `--text-bright`,
+`--text-dimmed`). An undefined var makes the declaration invalid at
+computed-value time, and `fill` is inherited, so the graph's boxes and
+labels were falling back to initial **black**. `angreal web lint` only
+bans raw literals, so it never caught it. Renamed to the real tokens
+(`--panel`, `--panel-2`, `--fg`, `--fg-bright`, `--muted`) — without
+this the put-away marker would have been correct and invisible.
+
+**E2E.** Two specs appended to `e2e/tests/archived.spec.ts` (now 5).
+Fixture discipline held: no board is created, and everything either ends
+archived or was archived to begin with.
 
 ## Notes carried in from [[KAIROS-T-0164]] — the GUI vocabulary is settled
 

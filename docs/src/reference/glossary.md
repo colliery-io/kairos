@@ -79,7 +79,9 @@ board.
 
 The vocabulary itself, the glob semantics, the team-implied set and the
 org-admin bypass are not enumerated here — see
-[Capabilities and access](../explanation/capabilities-and-access.md).
+[Capabilities](capabilities.md) for the names and the matching rules, and
+[Capabilities and access](../explanation/capabilities-and-access.md) for why
+the model is shaped that way.
 
 ## column
 
@@ -301,3 +303,12 @@ from [task type](#task-type): a `bug` may be planned work, and a task of type
 ## work item
 
 See [item](#item).
+
+## Related reading
+
+- [Capabilities](capabilities.md) — the capability vocabulary and glob rules
+- [Errors](errors.md) — every refusal code these terms appear in
+- [Flight levels](../explanation/flight-levels.md),
+  [Teams and boards](../explanation/teams-and-boards.md),
+  [Archiving](../explanation/archiving.md) — why the things named here are
+  shaped as they are

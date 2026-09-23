@@ -15,8 +15,9 @@ You will need:
   we will run both in containers.
 - **Rust**, via [rustup](https://rustup.rs). The repository pins its own
   toolchain, so you do not need a particular version installed.
-- **[angreal](https://pypi.org/project/angreal/)**: `pip install angreal`.
-  Every command below goes through it.
+- **[angreal](https://pypi.org/project/angreal/)**: `pip install angreal`. Most
+  of the commands below go through it; two build and run the CLI with `cargo`
+  directly.
 - A clone of the repository, and a terminal in it.
 
 We are running from a clone rather than from a release because this is the
@@ -48,10 +49,19 @@ will sign in as one of them.
 
 ```sh
 angreal db migrate
+```
+
+The last line tells you it worked:
+
+```
+All migrations completed successfully
+```
+
+```sh
 angreal db seed
 ```
 
-The first creates Kairos's tables. The second fills a tenant called `demo`
+The first created Kairos's tables. The second fills a tenant called `demo`
 with a small organisation: two teams, a few boards, and a couple of dozen
 items across them. The second prints an inventory of what it made — three
 users, two teams, five boards and a couple of dozen items:
@@ -69,14 +79,22 @@ nothing; `angreal db seed --force` starts over.
 
 ```sh
 angreal web build
+```
+
+This compiles the browser interface to WebAssembly. It finishes with:
+
+```
+GUI bundle written to crates/kairos-web/dist
+```
+
+Now start the server:
+
+```sh
 angreal dev serve
 ```
 
-The first compiles the browser interface to WebAssembly. The second builds and
-starts the server — the first build takes a few minutes, and subsequent ones
-are seconds.
-
-When it is ready you will see:
+It builds and then starts — the first build takes a few minutes, and
+subsequent ones are seconds. When it is ready you will see:
 
 ```
 Serving http://localhost:41080 (tenant `demo`, issuer http://localhost:41558/dex)

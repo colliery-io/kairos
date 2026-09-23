@@ -745,3 +745,173 @@ fn team_membership_implies_delivery_capabilities() {
     .execute(&mut admin_conn)
     .expect("dropping scratch database after test");
 }
+
+/// KAIROS-T-0153 / [KAIROS-A-0020]: archiving is a visibility default, not a
+/// permission boundary, so an archived item must resolve to exactly the
+/// capabilities it had while live.
+///
+/// The failure this guards against is quiet and looks like a config problem:
+/// if `resolve_authorization_board` returns `None` for an archived item, the
+/// caller falls back to the tenant-wide org-admin policy, and archived work
+/// becomes *more* restricted than live work.
+#[test]
+fn archived_items_resolve_the_same_capabilities_as_live_ones() {
+    use kairos_db::models::{
+        BoardLevel, NewBoard, NewBoardColumn, NewTask, NewTeam, NewTeamMember, TaskType, TeamType,
+        WorkClass,
+    };
+
+    const ARCHIVE_SCRATCH_DB: &str = "kairos_abac_archive_test";
+
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {ARCHIVE_SCRATCH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {ARCHIVE_SCRATCH_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+
+    let scratch_url = with_database(&admin_url, ARCHIVE_SCRATCH_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "archco", "Archco").expect("provisioning archco");
+    sql_query("SET search_path TO org_archco, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+
+    let member = insert_user(&mut conn, "dex|arch-member", "m@archco.test", "Member");
+    let outsider = insert_user(&mut conn, "dex|arch-outsider", "o@archco.test", "Outsider");
+
+    let team_id: Uuid = diesel::insert_into(schema::teams::table)
+        .values(NewTeam {
+            name: "Platform".into(),
+            slug: "platform".into(),
+            team_type: TeamType::Platform,
+        })
+        .returning(schema::teams::id)
+        .get_result(&mut conn)
+        .expect("inserting team");
+    diesel::insert_into(schema::team_members::table)
+        .values(NewTeamMember {
+            team_id,
+            user_id: member,
+        })
+        .execute(&mut conn)
+        .expect("inserting team member");
+    let team_board: Uuid = diesel::insert_into(schema::boards::table)
+        .values(NewBoard {
+            name: "Platform Delivery".into(),
+            slug: "platform-delivery".into(),
+            board_level: BoardLevel::Delivery,
+            team_id: Some(team_id),
+        })
+        .returning(schema::boards::id)
+        .get_result(&mut conn)
+        .expect("inserting team board");
+    // A hand-made board has no columns; the task needs somewhere to sit.
+    let column: Uuid = diesel::insert_into(schema::board_columns::table)
+        .values(NewBoardColumn {
+            board_id: team_board,
+            name: "Todo".into(),
+            position: 0,
+            is_done: false,
+        })
+        .returning(schema::board_columns::id)
+        .get_result(&mut conn)
+        .expect("inserting column");
+
+    let task_id: Uuid = diesel::insert_into(schema::tasks::table)
+        .values(NewTask {
+            short_code: "T-0001".into(),
+            title: "Put away later".into(),
+            content: "".into(),
+            board_id: team_board,
+            column_id: column,
+            task_type: TaskType::Task,
+            work_class: WorkClass::Planned,
+            team_id: Some(team_id),
+            repository_id: None,
+            created_by: member,
+            updated_by: member,
+        })
+        .returning(schema::tasks::id)
+        .get_result(&mut conn)
+        .expect("inserting task");
+
+    // Baseline, while live.
+    assert_eq!(
+        abac::resolve_authorization_board(&mut conn, task_id).expect("resolve"),
+        Some(team_board),
+        "a live task resolves to its own board"
+    );
+    let live_caps: Vec<&str> = rules::TEAM_IMPLIED_CAPABILITIES
+        .iter()
+        .copied()
+        .filter(|cap| {
+            abac::check_capability(&mut conn, team_board, member, cap).expect("check_capability")
+        })
+        .collect();
+    assert!(
+        !live_caps.is_empty(),
+        "the team member must hold something while the task is live, or this test proves nothing"
+    );
+    assert_eq!(
+        abac::item_created_by(&mut conn, task_id).expect("created_by"),
+        Some(member)
+    );
+
+    // Put it away.
+    diesel::update(schema::tasks::table.filter(schema::tasks::id.eq(task_id)))
+        .set(schema::tasks::deleted_at.eq(diesel::dsl::now))
+        .execute(&mut conn)
+        .expect("archiving the task");
+
+    assert_eq!(
+        abac::resolve_authorization_board(&mut conn, task_id).expect("resolve"),
+        Some(team_board),
+        "an archived task still resolves to its board — otherwise the caller \
+         falls back to the org-admin-only policy and archived work becomes \
+         more restricted than live work (KAIROS-A-0020 rule 4)"
+    );
+    let archived_caps: Vec<&str> = rules::TEAM_IMPLIED_CAPABILITIES
+        .iter()
+        .copied()
+        .filter(|cap| {
+            abac::check_capability(&mut conn, team_board, member, cap).expect("check_capability")
+        })
+        .collect();
+    assert_eq!(
+        live_caps, archived_caps,
+        "archiving must not change what the team member may do"
+    );
+    assert_eq!(
+        abac::item_created_by(&mut conn, task_id).expect("created_by"),
+        Some(member),
+        "who created a thing is a fact about the row, not about its visibility"
+    );
+
+    // …and archiving must not WIDEN access either.
+    for cap in rules::TEAM_IMPLIED_CAPABILITIES {
+        assert!(
+            !abac::check_capability(&mut conn, team_board, outsider, cap)
+                .expect("check_capability"),
+            "an outsider must hold no capability on an archived item's board either ({cap:?})"
+        );
+    }
+
+    drop(conn);
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {ARCHIVE_SCRATCH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database after test");
+}

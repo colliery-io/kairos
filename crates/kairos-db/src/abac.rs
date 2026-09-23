@@ -323,9 +323,17 @@ pub fn revoke_capability(
     })
 }
 
-/// The board a live workflow item (strategy/initiative/task/ADR) sits on.
-/// `None` = not a workflow item, soft-deleted, or an ADR that is not placed
-/// on a board.
+/// The board a workflow item (strategy/initiative/task/ADR) sits on.
+/// `None` = not a workflow item, or an ADR that is not placed on a board.
+///
+/// **Archived items resolve too** (KAIROS-A-0020, KAIROS-T-0153). This
+/// answers "which board governs this row?", and putting the row away does
+/// not move it to a different board. Filtering on `deleted_at` here would
+/// make an archived item resolve to `None`, whereupon the caller falls back
+/// to the tenant-wide org-admin policy — so archived work would end up
+/// *more* restricted than live work, inverting the rule that archiving is a
+/// visibility default and not a permission boundary. Liveness is enforced
+/// by the callers that mutate (`items.rs`), not here.
 fn board_of_workflow_item(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -336,7 +344,6 @@ fn board_of_workflow_item(
         ($table:ident) => {
             if let Some(board_id) = $table::table
                 .filter($table::id.eq(item_id))
-                .filter($table::deleted_at.is_null())
                 .select($table::board_id)
                 .first::<Uuid>(conn)
                 .optional()?
@@ -352,7 +359,6 @@ fn board_of_workflow_item(
     // ADRs may be off-board (nullable placement).
     if let Some(board_id) = adrs::table
         .filter(adrs::id.eq(item_id))
-        .filter(adrs::deleted_at.is_null())
         .select(adrs::board_id)
         .first::<Option<Uuid>>(conn)
         .optional()?
@@ -373,10 +379,13 @@ fn board_of_workflow_item(
 ///   resolved to the parent's board. Should a document support several
 ///   items, the earliest-created edge whose parent resolves to a board wins
 ///   (deterministic; A-0006 assumes one parent);
-/// - `None` = no board context exists (unknown/soft-deleted id, an ADR not
-///   placed on a board, or a document with no resolvable parent). Callers
-///   fall back to the org-admin-only policy for tenant-wide resources
+/// - `None` = no board context exists (unknown id, an ADR not placed on a
+///   board, or a document with no resolvable parent). Callers fall back to
+///   the org-admin-only policy for tenant-wide resources
 ///   ([`kairos_core::abac::TenantConfigResource`]).
+///
+/// Archived items resolve exactly as they did while live — see
+/// [`board_of_workflow_item`] for why that is load bearing.
 pub fn resolve_authorization_board(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -391,7 +400,6 @@ pub fn resolve_authorization_board(
     // correctly resolves to None: it is not in `documents`.)
     let is_document: Option<Uuid> = documents::table
         .filter(documents::id.eq(item_id))
-        .filter(documents::deleted_at.is_null())
         .select(documents::id)
         .first(conn)
         .optional()?;
@@ -413,16 +421,18 @@ pub fn resolve_authorization_board(
     Ok(None)
 }
 
-/// Who created a live workflow item or document, if it exists
-/// (KAIROS-T-0111): the "I created the source" arm of the collaborative
-/// edge rule. Items span the five entity tables in one UUID space.
+/// Who created a workflow item or document, if it exists (KAIROS-T-0111):
+/// the "I created the source" arm of the collaborative edge rule. Items span
+/// the five entity tables in one UUID space.
+///
+/// Archived items answer too (KAIROS-A-0020): who made a thing is a fact
+/// about the row, not about whether it is still on a board.
 pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<Uuid>, AbacError> {
     use crate::schema::{adrs, documents, initiatives, strategies, tasks};
     macro_rules! try_table {
         ($table:ident) => {
             if let Some(creator) = $table::table
                 .filter($table::id.eq(item_id))
-                .filter($table::deleted_at.is_null())
                 .select($table::created_by)
                 .first::<Uuid>(conn)
                 .optional()?

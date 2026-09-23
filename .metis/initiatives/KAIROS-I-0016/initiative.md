@@ -244,26 +244,53 @@ add a dependency; a small script rendering the spec to markdown before
 `mdbook build` is the simpler option, and the decision belongs to the task
 that implements it, measured against whether the output is readable.
 
-### D6 — Contributor docs: in the book, or left alone?
+### D6 — Contributor docs are out of scope (decided)
 
-`arawn` keeps `contributing/` inside its book; the other three do not.
-Kairos's contributor docs (`uat/README.md`, `e2e/README.md`,
-`docs/gui-conventions.md`, `plugin/README.md`, and the README's Development
-/ CI sections) are substantial and currently sit next to the code they
-describe, which is where a contributor looks for them.
+**Dylan, 2026-09-23: out of scope entirely.** The book serves three
+audiences — operator, end user, agent author. `uat/README.md`,
+`e2e/README.md`, `docs/gui-conventions.md` and `plugin/README.md` are
+untouched and unreferenced by it.
 
-**Recommendation: leave them in place** and give the book one
-`explanation/contributing.md` that says where they are and why they live
-there. Moving `uat/README.md` away from `uat/` would make it less
-discoverable for the person most likely to need it. This is an open question
-for Dylan (below) rather than a settled call.
+That is a narrower scope than `arawn`'s (which keeps `contributing/` inside
+its book) and it is the right one here: those four files sit beside the code
+they describe, which is where the person who needs them is already looking,
+and "contributor" is an audience rather than a Diátaxis mode — a
+`contributing/` directory would be the one top-level entry not organised by
+mode.
 
-### D7 — S-0008 is the gate
+The consequence to accept knowingly: **the book is not the whole of Kairos's
+documentation, and should not claim to be.** `introduction.md` says what the
+book covers, not "everything is here". The README keeps the contributor
+quickstart (D9), which is what stops a new contributor being stranded.
+
+### D7 — S-0008 is the gate, and gets promoted first
+
+**Dylan, 2026-09-23: promote it as part of this work.** It becomes the
+standard every page is reviewed against, and writing a book against a spec
+that is itself unfinished is the wrong order — rule IDs could shift halfway
+through and invalidate earlier reviews.
+
+So the first task reviews S-0008, walks it out of `discovery`, and
+re-renders `plugin/references/diataxis.md` from it. Everything after cites
+rule IDs against a settled spec.
 
 Every page is reviewed with the `diataxis-review` skill before its task
 closes, and the review cites rule IDs. The point is not ceremony: the spec
 exists, the reviewer exists, and a Diátaxis book that was never checked
 against either would be an odd thing to ship from this repo.
+
+### D9 — The README becomes a landing page plus a contributor quickstart
+
+**Dylan, 2026-09-23: pointer plus contributor quickstart.** Roughly 80
+lines: what Kairos is, a link to the book, how to install the CLI, and
+enough to clone / build / test without leaving the repo (`angreal services
+up`, `angreal test all`). Everything user-facing moves into the book.
+
+Keeping the quickstart is what makes D6's narrower scope safe: contributor
+docs are out of the book, so the README is the entry point that stops a new
+contributor being stranded. It is the one place a second reading moment is
+accepted deliberately, because a repo landing page has two unavoidable
+audiences — someone evaluating the product and someone about to build it.
 
 ### D8 — Publishing
 
@@ -294,20 +321,39 @@ everything else in this repo is run.
 
 ## Implementation Plan
 
-*Pending — three scope questions go to Dylan before decomposition.*
+Ten tasks. The first two are strictly ordered — the spec is the gate, and
+the scaffold is what everything else writes into. After that the four modes
+fan out, and the close-out is last because it reviews the whole book.
 
-### Open questions
+1. **Promote [[KAIROS-S-0008]]** out of `discovery` and re-render
+   `plugin/references/diataxis.md` (D7). Gate for everything after.
+2. **Scaffold the book and publish it** (D1, D8): `docs/book.toml`,
+   `src/SUMMARY.md`, `introduction.md`, the four directories, an
+   `angreal docs` task, and `.github/workflows/docs.yml` on Pages. Ships an
+   empty-but-live book, so every later task has somewhere to land.
+3. **Reference: CLI and configuration** — `reference/cli.md`,
+   `reference/configuration.md`.
+4. **Reference: MCP tools and glossary** — `reference/mcp-tools.md`,
+   `reference/glossary.md`, and migrate `docs/api/scim.md` /
+   `docs/api/events.md` into `reference/` unchanged.
+5. **Reference: REST, generated from the OpenAPI spec** (D5) —
+   `reference/rest-api.md` plus its generation step.
+6. **Explanation: all five pages** (D4) — flight levels, teams and boards,
+   capabilities and access, archiving, repositories as execution scope.
+7. **How-to: for operators** — install with Helm, configure an OIDC issuer,
+   provision a tenant, connect a git forge, back up and restore.
+8. **How-to: for people doing the work, and for agent authors** — set up a
+   board, move work between boards, wind down a team, find archived work;
+   give an agent machine access, connect over MCP.
+9. **Tutorials: the two lessons** — run Kairos locally, deploy to
+   Kubernetes.
+10. **Close out**: README reduced to a landing page plus contributor
+    quickstart (D9), `diataxis-review` run over every page with rule IDs
+    cited, cross-links checked, book builds and publishes.
 
-1. **Contributor docs (D6):** leave `uat/README.md`, `e2e/README.md` and
-   `docs/gui-conventions.md` where they are with a pointer page, or move
-   them into the book as `contributing/` the way arawn does?
-2. **[[KAIROS-S-0008]] is in `discovery`.** The spec governing this work is
-   not finalised. Promote it as part of this initiative, or write against it
-   as-is?
-3. **Does the README keep its Development section?** Every sibling repo
-   keeps a README, but Kairos's is doing four jobs. The landing page needs a
-   floor: bare pointer, or pointer plus enough for a contributor to build
-   and test without leaving the repo?
+Gates per task: the book builds (`angreal docs build`), and every page the
+task adds passes `diataxis-review` with its rule IDs cited in the task's
+Status Update.
 
 ## Progress Log
 
@@ -317,3 +363,9 @@ everything else in this repo is run.
   (squire-core, graphqlite, arawn, brokkr), so this initiative follows them
   rather than deciding them. Held in discovery pending the three scope
   questions above — no decomposition yet.
+- 2026-09-23: **Scope decided by Dylan.** Contributor docs out of scope
+  entirely (so the book covers three audiences and does not claim to be all
+  of Kairos's documentation); [[KAIROS-S-0008]] promoted out of `discovery`
+  as the first task, since it is the gate; README reduced to a landing page
+  plus a contributor quickstart, which is what makes the narrower scope safe.
+  Decomposed into ten tasks.

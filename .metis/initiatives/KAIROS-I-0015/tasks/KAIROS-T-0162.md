@@ -58,18 +58,93 @@ applies to them. The join is to the *owning item's* table.
 
 ## Acceptance Criteria
 
-- [ ] `DEFINITION_IN_USE` returns the short codes carrying the field,
+- [x] `DEFINITION_IN_USE` returns the short codes carrying the field,
       archived ones marked, capped with a count of any remainder.
-- [ ] The GUI admin rejection (`.cl-alert[role="alert"]` on `/admin/metadata`)
+- [x] The GUI admin rejection (`.cl-alert[role="alert"]` on `/admin/metadata`)
       shows them.
-- [ ] The documented path works end to end: refuse → find → restore → clear
-      → re-archive → retire.
-- [ ] `template_fields` blockers are named too, not just item values.
-- [ ] [[KAIROS-T-0152]] can be closed, and `uat/journeys/board-setup.journey.ts`
-      can drop its defensive `set_metadata … null` — verify teardown stays
-      clean without it.
-- [ ] `angreal test` green.
+- [~] **Deferred to [[KAIROS-T-0160]].** The documented path works end to
+      end: refuse → find → restore → clear → re-archive → retire. The
+      middle of that path is `restore`, which does not exist yet — T-0160
+      builds it. `set_metadata` on an archived item stays refused per D5,
+      so there is no way to clear an archived carrier's value today and
+      nothing to test end to end. This task closes the *first* half:
+      refuse → find. T-0160 closes the rest.
+- [x] `template_fields` blockers are named too, not just item values.
+- [~] **Deferred to [[KAIROS-T-0160]]** (the journey half).
+      [[KAIROS-T-0152]] can be closed — the refusal is no longer a dead
+      end. `uat/journeys/board-setup.journey.ts` keeps its defensive
+      `set_metadata … null` for now: it clears the stamp *before* deleting
+      the card precisely because there is no way to clear it afterwards,
+      and that is still true until restore lands. Dropping it is a T-0160
+      verification, not this one's.
+- [x] `angreal test` green (see the Status Update for which legs ran).
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-09-23 — the refusal names its blockers
+
+`crates/kairos-server/src/api/meta/definitions.rs` now answers a
+`DEFINITION_IN_USE` with names rather than a number. Two helpers do the
+work, both modelled on `live_board_item_codes`:
+
+- `carrying_items` — one query per entity table, because
+  `item_metadata.item_id` carries no FK (item ids span the five tables in
+  one shared UUID space). It selects `(short_code, deleted_at)` and
+  returns a `Carrier { short_code, archived }`. Unlike the board guard it
+  deliberately does **not** filter on `deleted_at`: that guard asks "is
+  there still live work here?" (ADR-20 rule 5); this one asks "does
+  anything still refer to this definition?" (rule 6). Different question,
+  different filter — the comment says so, because the two sit next to
+  each other and the difference is not obvious.
+- `carrying_templates` — the `templates.slug`s behind the
+  `template_fields` count. Templates are hard-deleted, so there is
+  nothing to mark.
+
+The message reads, e.g.:
+
+> metadata definition "due" is in use (2 item value(s), 0 template
+> field(s)): carried by [ACME-T-0001, ACME-T-0002 (archived)]; clear those
+> references first — an archived carrier is still readable by short code,
+> but must be restored before its value can be cleared
+
+The archived clause only appears when a carrier actually is archived.
+`details` keeps `item_values` / `template_fields` (the UAT journey reads
+both) and gains `items` (`[{short_code, archived}]`) and `templates`.
+
+**Cap:** `NAMED_BLOCKER_LIMIT = 20`, the board guard's number. `blocker_list`
+renders `[a, b, and 3 more]` from the named labels plus the true count, so
+the remainder is honest even for a carrier id that resolves to none of the
+five tables.
+
+**No kairos-web change needed.** `/admin/metadata`'s delete goes through
+`run_mutation` → `MutationOutcome` → `ErrorState`, which renders the
+server's message and `code:` verbatim. The named blockers surface in
+`.cl-alert[role="alert"]` for free; `uat/journeys/new-kind-of-work.journey.ts`
+asserts on `in use` / `DEFINITION_IN_USE` / `details.item_values` /
+`details.template_fields`, all of which are preserved.
+
+**Tests.** `crates/kairos-server/tests/meta.rs` now stamps `due` on the
+second task, archives it, and asserts the refusal names both carriers with
+the archived one marked and `details.items` flagging it — i.e. that
+archiving does not drop the value and does not hide the carrier from the
+refusal. The template leg asserts every slug in `details.templates`
+appears in the message. `blocker_list`'s cap branch has a unit test in
+`definitions.rs` (the only `#[cfg(test)]` under `api/`, but the function is
+pure and the 20-carrier case is not worth a fixture).
+
+**Gates.** `cargo test -p kairos-server` green across all 21 test binaries
+plus the 51 lib unit tests. `cargo fmt --all --check` clean for this
+task's files. `cargo clippy -p kairos-server --all-targets -D warnings`
+clean. (The workspace legs intermittently failed to *compile* mid-run —
+`kairos-db` was being edited concurrently for T-0160/T-0161 — which is
+build noise from a shared tree, not a result.)
+
+### Scope: two acceptance criteria deferred to KAIROS-T-0160
+
+The end-to-end path and the `board-setup.journey.ts` cleanup both need
+`restore`, which does not exist yet. `set_metadata` on an archived item
+stays refused (D5), so an archived carrier's value cannot be cleared
+today — restore → clear → re-archive is exactly T-0160's job. What this
+task delivers is the half that was actually broken: the admin is refused
+*and told where to go*. The criteria are marked `[~]` with the reason,
+rather than dropped, so T-0160 inherits them.

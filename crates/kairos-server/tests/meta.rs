@@ -911,18 +911,83 @@ async fn meta_endpoints_against_live_stack() {
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
     // In-use deletes are refused: `due` has an item value, `document_type`
-    // is carried by the seeded templates.
+    // is carried by the seeded templates. The refusal has to NAME what
+    // blocks it (KAIROS-T-0162) — a bare count is a dead end, which is
+    // what made KAIROS-T-0152 a trap.
+    //
+    // Stamp `due` on a second task and archive it first. Under ADR-20
+    // rule 6 an archived carrier still counts, because rule 1 makes it
+    // reachable again (KAIROS-T-0154) — so the refusal must say which of
+    // the carriers is hidden by default, or the admin goes looking for a
+    // card that no default listing shows.
+    alice
+        .update_metadata(
+            EntityKind::Task,
+            &t2_code,
+            &metadata_patch("due", Some("2026-09-01")),
+        )
+        .await
+        .expect("setting due date on the second task");
+    svc.delete_task(&t2_code)
+        .await
+        .expect("archiving the second carrier");
+
     let err = rejection(svc.delete_metadata_definition(&due_def_id).await);
     match &err {
-        Error::Conflict { code, details, .. } => {
+        Error::Conflict {
+            code,
+            message,
+            details,
+            ..
+        } => {
             assert_eq!(code, "DEFINITION_IN_USE");
-            assert_eq!(details["item_values"], 1);
+            // Archiving does not drop the value, so both carriers count.
+            assert_eq!(details["item_values"], 2);
+            assert!(
+                message.contains(&t1_code) && message.contains(&format!("{t2_code} (archived)")),
+                "refusal names both carriers, the archived one marked: {message}"
+            );
+            let carriers: BTreeMap<String, bool> = details["items"]
+                .as_array()
+                .expect("details.items")
+                .iter()
+                .map(|item| {
+                    (
+                        item["short_code"].as_str().expect("short_code").to_string(),
+                        item["archived"].as_bool().expect("archived"),
+                    )
+                })
+                .collect();
+            assert_eq!(carriers.get(&t1_code), Some(&false), "{details}");
+            assert_eq!(carriers.get(&t2_code), Some(&true), "{details}");
         }
         other => panic!("expected 409 DEFINITION_IN_USE, got {other}"),
     }
+    // A template association is a blocker too, and gets named the same
+    // way — by slug, since templates carry no short code.
     let err = rejection(svc.delete_metadata_definition(&document_type_def_id).await);
     match &err {
-        Error::Conflict { code, .. } => assert_eq!(code, "DEFINITION_IN_USE"),
+        Error::Conflict {
+            code,
+            message,
+            details,
+            ..
+        } => {
+            assert_eq!(code, "DEFINITION_IN_USE");
+            let templates: Vec<&str> = details["templates"]
+                .as_array()
+                .expect("details.templates")
+                .iter()
+                .map(|slug| slug.as_str().expect("template slug"))
+                .collect();
+            assert!(
+                templates.contains(&"prd"),
+                "seeded templates named: {details}"
+            );
+            for slug in &templates {
+                assert!(message.contains(slug), "{slug} named in: {message}");
+            }
+        }
         other => panic!("expected 409 DEFINITION_IN_USE, got {other}"),
     }
 

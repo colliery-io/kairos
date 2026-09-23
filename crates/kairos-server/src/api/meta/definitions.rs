@@ -7,6 +7,14 @@
 //! value or `template_metadata` association references the definition —
 //! the FKs are `ON DELETE CASCADE`, so the application check is the
 //! enforcement (S-0005 "fails if in use").
+//!
+//! That refusal **names** its blockers (KAIROS-T-0162): the short codes
+//! of the work carrying a value, archived carriers marked as such, and
+//! the slugs of the templates that collect the field. Counting an
+//! archived carrier is legitimate under ADR-20 rule 6 — archived work is
+//! still content — but only because rule 1 makes it reachable again
+//! (KAIROS-T-0154/0155). A count alone left the admin nowhere to go,
+//! which is what made KAIROS-T-0152 a trap.
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
@@ -183,6 +191,120 @@ fn map_write_error(e: DieselError) -> ApiError {
         }
         e => ApiError::internal(e),
     }
+}
+
+/// How many blockers a `DEFINITION_IN_USE` refusal names before it falls
+/// back to "and N more" — the `BOARD_NOT_EMPTY` guard's precedent
+/// (`api/org/mod.rs`), so a field stamped on 4,000 items does not answer
+/// with 4,000 short codes.
+const NAMED_BLOCKER_LIMIT: i64 = 20;
+
+/// One work item carrying a definition's value: its short code, and
+/// whether it is archived (`deleted_at` set).
+struct Carrier {
+    short_code: String,
+    archived: bool,
+}
+
+impl Carrier {
+    /// `ACME-T-0007`, or `ACME-T-0007 (archived)` — the marking is the
+    /// point: it tells the admin the value is there but the item is
+    /// hidden by default, so they know to go looking past the default
+    /// listings (ADR-20 rule 3).
+    fn label(&self) -> String {
+        if self.archived {
+            format!("{} (archived)", self.short_code)
+        } else {
+            self.short_code.clone()
+        }
+    }
+}
+
+/// The work items carrying `definition_id`'s values (at most `limit`),
+/// live and archived alike, for a refusal that names what to clear.
+///
+/// `item_metadata.item_id` carries no FK — item ids span the five entity
+/// tables in one shared UUID space — so this is one query per table, the
+/// same shape as `live_board_item_codes`. Unlike that guard this one does
+/// **not** filter on `deleted_at`: it asks "does anything still refer to
+/// this definition?", not "is there still live work here?" (ADR-20
+/// rules 5 and 6 are different questions).
+fn carrying_items(
+    conn: &mut PgConnection,
+    definition_id: Uuid,
+    limit: i64,
+) -> Result<Vec<Carrier>, ApiError> {
+    use kairos_db::schema::{adrs, documents, initiatives, item_metadata, strategies, tasks};
+
+    /// The carriers in one entity table, cheapest form: the id subquery
+    /// is repeated per table because it borrows nothing reusable.
+    macro_rules! carriers_in {
+        ($table:ident) => {{
+            $table::table
+                .filter(
+                    $table::id.eq_any(
+                        item_metadata::table
+                            .select(item_metadata::item_id)
+                            .filter(item_metadata::metadata_definition_id.eq(definition_id)),
+                    ),
+                )
+                .order($table::short_code.asc())
+                .limit(limit)
+                .select(($table::short_code, $table::deleted_at))
+                .load::<(String, Option<chrono::DateTime<chrono::Utc>>)>(conn)
+                .map_err(ApiError::internal)?
+                .into_iter()
+                .map(|(short_code, deleted_at)| Carrier {
+                    short_code,
+                    archived: deleted_at.is_some(),
+                })
+        }};
+    }
+
+    let mut carriers: Vec<Carrier> = carriers_in!(strategies).collect();
+    carriers.extend(carriers_in!(initiatives));
+    carriers.extend(carriers_in!(tasks));
+    carriers.extend(carriers_in!(documents));
+    carriers.extend(carriers_in!(adrs));
+    carriers.truncate(limit.max(0) as usize);
+    Ok(carriers)
+}
+
+/// The slugs of the templates that collect `definition_id` (at most
+/// `limit`). Templates are hard-deleted, so there is nothing to mark.
+fn carrying_templates(
+    conn: &mut PgConnection,
+    definition_id: Uuid,
+    limit: i64,
+) -> Result<Vec<String>, ApiError> {
+    use kairos_db::schema::{template_metadata, templates};
+    templates::table
+        .filter(
+            templates::id.eq_any(
+                template_metadata::table
+                    .select(template_metadata::template_id)
+                    .filter(template_metadata::metadata_definition_id.eq(definition_id)),
+            ),
+        )
+        .order(templates::slug.asc())
+        .limit(limit.max(0))
+        .select(templates::slug)
+        .load::<String>(conn)
+        .map_err(ApiError::internal)
+}
+
+/// `[a, b, and 3 more]` — the named blockers plus however many were left
+/// unnamed, so the admin knows the list is not the whole story.
+fn blocker_list(labels: &[String], total: i64) -> String {
+    let unnamed = total - labels.len() as i64;
+    let mut rendered = labels.join(", ");
+    if unnamed > 0 {
+        if !rendered.is_empty() {
+            rendered.push_str(", ");
+        }
+        rendered.push_str(&format!("and {unnamed} more"));
+    }
+    format!("[{rendered}]")
 }
 
 /// Query of [`list_definitions`]: pagination plus the KAIROS-T-0078
@@ -435,7 +557,8 @@ pub(crate) async fn update_definition(
 
 /// Delete a definition (org admin only). Refused with 409
 /// `DEFINITION_IN_USE` while any item value or template association
-/// references it (S-0005 "fails if in use").
+/// references it (S-0005 "fails if in use") — and the refusal names the
+/// carrying work and templates, archived carriers marked (KAIROS-T-0162).
 #[utoipa::path(
     delete,
     path = "/api/metadata-definitions/{id}",
@@ -445,7 +568,7 @@ pub(crate) async fn update_definition(
         (status = 200, description = "Deleted", body = dto::DeletedResponse),
         (status = 403, description = "Caller is not an org admin", body = dto_base::ErrorEnvelope),
         (status = 404, description = "Unknown id", body = dto_base::ErrorEnvelope),
-        (status = 409, description = "Definition is in use by item values or templates", body = dto_base::ErrorEnvelope),
+        (status = 409, description = "Definition is in use; the message names the carrying items and templates", body = dto_base::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_definition(
@@ -471,19 +594,50 @@ pub(crate) async fn delete_definition(
                 .get_result(conn)
                 .map_err(ApiError::internal)?;
             if item_values + template_fields > 0 {
+                let carriers = carrying_items(conn, id, NAMED_BLOCKER_LIMIT)?;
+                let templates = carrying_templates(conn, id, NAMED_BLOCKER_LIMIT)?;
+                let has_archived = carriers.iter().any(|carrier| carrier.archived);
+                let mut blockers: Vec<String> = Vec::new();
+                if item_values > 0 {
+                    let labels: Vec<String> =
+                        carriers.iter().map(|carrier| carrier.label()).collect();
+                    blockers.push(format!("carried by {}", blocker_list(&labels, item_values)));
+                }
+                if template_fields > 0 {
+                    blockers.push(format!(
+                        "collected by template(s) {}",
+                        blocker_list(&templates, template_fields)
+                    ));
+                }
                 return Err(ApiError::new(
                     StatusCode::CONFLICT,
                     "DEFINITION_IN_USE",
                     format!(
                         "metadata definition {:?} is in use ({item_values} item \
-                         value(s), {template_fields} template field(s)); remove \
-                         the references first",
-                        definition.slug
+                         value(s), {template_fields} template field(s)): {}; \
+                         clear those references first{}",
+                        definition.slug,
+                        blockers.join("; "),
+                        if has_archived {
+                            " — an archived carrier is still readable by short \
+                             code, but must be restored before its value can be \
+                             cleared"
+                        } else {
+                            ""
+                        }
                     ),
                 )
                 .with_details(json!({
                     "item_values": item_values,
                     "template_fields": template_fields,
+                    "items": carriers
+                        .iter()
+                        .map(|carrier| json!({
+                            "short_code": carrier.short_code,
+                            "archived": carrier.archived,
+                        }))
+                        .collect::<Vec<_>>(),
+                    "templates": templates,
                 })));
             }
             diesel::delete(metadata_definitions::table.filter(metadata_definitions::id.eq(id)))
@@ -493,4 +647,26 @@ pub(crate) async fn delete_definition(
         })
         .await?;
     Ok(Json(deleted))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::blocker_list;
+
+    /// The cap is what makes naming blockers affordable, so the remainder
+    /// has to be visible: a field stamped on thousands of items must
+    /// still answer with something readable, and the admin must know the
+    /// list is partial. (`tests/meta.rs` covers the query itself against
+    /// a live stack.)
+    #[test]
+    fn blocker_list_names_what_it_can_and_counts_the_rest() {
+        assert_eq!(blocker_list(&["ACME-T-0001".into()], 1), "[ACME-T-0001]");
+        assert_eq!(
+            blocker_list(&["ACME-T-0001".into(), "ACME-T-0002 (archived)".into()], 5),
+            "[ACME-T-0001, ACME-T-0002 (archived), and 3 more]"
+        );
+        // A carrier id that resolves to none of the five entity tables
+        // cannot be named; the count still has to own up to it.
+        assert_eq!(blocker_list(&[], 4), "[and 4 more]");
+    }
 }

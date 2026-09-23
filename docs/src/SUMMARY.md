@@ -21,11 +21,11 @@ checklist.
 
 ## For operators
 
-<!-- - [Install with Helm](how-to/install-with-helm.md) -->
-<!-- - [Configure an OIDC issuer](how-to/configure-an-oidc-issuer.md) -->
-<!-- - [Provision a tenant](how-to/provision-a-tenant.md) -->
-<!-- - [Connect a git forge](how-to/connect-a-git-forge.md) -->
-<!-- - [Back up and restore](how-to/back-up-and-restore.md) -->
+- [Install with Helm](how-to/install-with-helm.md)
+- [Configure an OIDC issuer](how-to/configure-an-oidc-issuer.md)
+- [Provision a tenant](how-to/provision-a-tenant.md)
+- [Connect a git forge](how-to/connect-a-git-forge.md)
+- [Back up and restore](how-to/back-up-and-restore.md)
 
 ## For people doing the work
 

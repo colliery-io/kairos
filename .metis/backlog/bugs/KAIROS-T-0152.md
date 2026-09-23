@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
+  - "#phase/completed"
   - "#bug"
 
 
@@ -63,15 +63,20 @@ deleting a card permanently blocks the definition it carried.
 
 ## Acceptance Criteria
 
-- [ ] `set_metadata` reaches an archived item, so a stamped value can always
-      be cleared by someone who is refused ([[KAIROS-A-0020]] rule 1).
-- [ ] The `DEFINITION_IN_USE` refusal **names** the carrying items, archived
+- [~] ~~`set_metadata` reaches an archived item~~ — **superseded.** Written
+      before Dylan chose "read-only, plus un-archive" (2026-09-23). Archived
+      work is frozen; the way out is restore → clear → re-archive, which is
+      better than an edit nobody can see.
+- [x] The `DEFINITION_IN_USE` refusal **names** the carrying items, archived
       ones marked as such, rather than returning a bare count — the way
       `live_board_item_codes` does for the team guard.
-- [ ] A field whose carriers have all been cleared can actually be retired,
+- [x] A field whose carriers have all been cleared can actually be retired,
       whether or not those carriers were archived.
-- [ ] `uat/journeys/board-setup.journey.ts` drops its defensive
-      `set_metadata … null` and still tears down clean.
+- [~] ~~`board-setup.journey.ts` drops its defensive `set_metadata … null`~~
+      — **superseded by the same decision.** The journey archives its card
+      in-story, and archived work is read-only, so the stamp must come off
+      first. The defensive clear is now correct rather than a workaround,
+      and its comment says so.
 
 ## Implementation Notes
 
@@ -123,3 +128,28 @@ before the delete — the only order that works — with a comment pointing
 here. The teardown ledger also stopped reporting a 404 as residue
 (`uat/run/ledger.ts`); that noise had hidden this real leak in plain sight
 across two full runs.
+
+
+**2026-09-23 — fixed.** Closed by [[KAIROS-I-0015]].
+
+- [[KAIROS-T-0162]] (`6f40844`) — the refusal names its carriers, archived
+  ones marked, capped at 20 with a remainder count. `details` gains
+  `items: [{short_code, archived}]` and `templates: [slug]`, keeping
+  `item_values` / `template_fields` unchanged.
+- [[KAIROS-T-0160]] (`f8b0847`) — `restore_item`, which is what makes the
+  refusal actionable.
+
+The original diagnosis needed correcting. The defect was never that the
+guard counts archived carriers — under [[KAIROS-A-0020]] rule 6 an archived
+carrier is still content, and still a real reference. The defect was that
+the carrier was **unreachable**, so being refused left the admin nowhere to
+go. Make archived work reachable and the same count becomes a normal guard.
+
+The documented path is verified end to end against a live stack
+(2026-09-23), not inferred:
+
+| step | result |
+|---|---|
+| retire a field carried by an archived task | refused, `details.items: [{"archived":true,"short_code":"DEMO-T-0012"}]` |
+| `set_metadata` on the archived carrier | `NOT_FOUND: no live item` — read-only holds |
+| restore → clear → re-archive → retire | **200** |

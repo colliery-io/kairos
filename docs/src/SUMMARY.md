@@ -26,6 +26,7 @@ checklist.
 - [Provision a tenant](how-to/provision-a-tenant.md)
 - [Connect a git forge](how-to/connect-a-git-forge.md)
 - [Back up and restore](how-to/back-up-and-restore.md)
+- [Provision users with SCIM](how-to/provision-users-with-scim.md)
 
 ## For people doing the work
 

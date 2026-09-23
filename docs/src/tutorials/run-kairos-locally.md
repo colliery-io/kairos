@@ -229,8 +229,10 @@ you left off. `angreal services clean` removes the volume too.
 
 ## Where to go next
 
-- [Deploy Kairos to Kubernetes](deploy-to-kubernetes.md) — the same thing, for
-  real, from the published chart
+- [Install with Helm](../how-to/install-with-helm.md) — the same deployment for
+  real, from the published chart. (A Kubernetes *tutorial* is coming; it is
+  waiting on an ARM build of the image, so today the how-to is the honest
+  route.)
 - [Flight levels](../explanation/flight-levels.md) — why the boards are
   arranged the way they are
 - [CLI reference](../reference/cli.md) — every command and flag

@@ -4,14 +4,14 @@ level: task
 title: "Split scim.md: the page assumed single-mode is a how-to wearing reference clothes"
 short_code: "KAIROS-T-0179"
 created_at: 2026-09-23T23:01:57.333861+00:00
-updated_at: 2026-09-23T23:01:57.333861+00:00
+updated_at: 2026-09-23T23:28:39.900113+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0167]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -69,6 +69,8 @@ reviewer does not re-litigate it.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] `how-to/provision-users-with-scim.md` exists, listed under
       `## For operators`, and keeps the per-IdP conditionals.
 - [ ] `reference/scim.md` is reference only — no numbered procedure, no
@@ -84,3 +86,51 @@ reviewer does not re-litigate it.
 ## Status Updates
 
 *To be added during implementation*
+**2026-09-23 — done.**
+
+### The split
+
+- **`how-to/provision-users-with-scim.md`** (new, under `## For operators`) —
+  mint a token, point the IdP at Kairos, make the identity join work, push users
+  before groups, verify, and the limits to expect.
+- **`reference/scim.md`** — the facts that remain: token format and tenant
+  resolution, the mapping table, the resource model, groups, the supported
+  RFC 7643/7644 subset, the error envelope.
+
+Two things moved rather than being deleted, per S-0008 §4's rule:
+
+- The numbered `## Setup (org admin)` procedure, which was the R2 violation.
+- The per-IdP guidance — *"Configure the IdP to send the OIDC `sub` as
+  `externalId`"*, with the Okta and Entra ID notes. This is the interesting
+  half: as reference it was instruction in the wrong mode, and as a how-to it
+  is **exactly what H4 asks for** — legitimate variation handled with explicit
+  conditionals for a working reader. The same text is a defect in one mode and
+  the best part of the page in the other.
+
+The old `## Purpose` (the ~15% explanation) became a four-line `## Scope`
+statement plus a link, which is the applicability statement R6 wants rather
+than a new explanation page — the reasoning about *why* Kairos ships no IdP
+belongs to A-0016 and is not worth a page of its own here.
+
+### `events.md` assessed and deliberately left
+
+Checked for numbered procedures, imperatives and second person: **zero
+matches**. The mild mixing [[KAIROS-T-0169]] noted is cosmetic, so it stays as
+it is. Recorded here so the next reviewer does not re-litigate it.
+
+### Links
+
+All inbound references to `reference/scim.md` still resolve — the two Rust doc
+comments T-0169 updated, `SUMMARY.md`, and three how-to pages that link to it.
+
+A link check across every page found **one real break, which was mine**:
+`tutorials/run-kairos-locally.md` pointed at `deploy-to-kubernetes.md`, which
+[[KAIROS-T-0174]] deferred to [[KAIROS-T-0181]]. Replaced with a link to
+`how-to/install-with-helm.md` and a sentence saying the tutorial is waiting on
+an ARM image — the honest route today. Every page link now resolves, and mdBook
+created no stub for the deferred tutorial (its `SUMMARY.md` line is inside an
+HTML comment, so mdBook does not see it).
+
+**Review**: independent `diataxis-review` deferred to [[KAIROS-T-0175]] with the
+other pages, per the initiative's standing finding that reference pages get an
+independent review rather than a self-review.

@@ -7,27 +7,24 @@
 > Contract: KAIROS-A-0016; implementation: KAIROS-T-0025
 > (`crates/kairos-server/src/scim/`).
 
-## Purpose
+## Scope
 
-Kairos ships no identity provider (KAIROS-A-0016): authentication is any
-OIDC issuer, and **user/group lifecycle arrives via SCIM 2.0** pushed by
-the customer's IdP (Okta, Entra ID, Auth0, Keycloak, …). SCIM is what
-closes the offboarding gap JIT login cannot: deactivating a user in the
-IdP revokes their Kairos org membership *proactively*.
+`/scim/v2` accepts inbound SCIM 2.0 for user and group lifecycle. It is
+additive: JIT-on-first-login and `/api/members` add-by-email remain available
+whether or not SCIM is configured.
 
-SCIM is additive — JIT-on-first-login plus `/api/members` add-by-email
-remain fully supported for orgs without IdP admin access.
+To connect an IdP, see
+[Provision users with SCIM](../how-to/provision-users-with-scim.md).
 
-## Setup (org admin)
+## Tokens
 
-1. `POST /api/scim-tokens {"name": "okta-prod"}` (org-admin, normal API
-   auth). The response carries the bearer token **once**; only its
-   SHA-256 is stored. `GET /api/scim-tokens` lists metadata (never
-   secrets); `DELETE /api/scim-tokens/{id}` revokes.
-2. In the IdP's SCIM app: base URL `https://<kairos-host>/scim/v2`,
-   authentication "HTTP header / Bearer token", paste the token.
+| Endpoint | Behaviour |
+|---|---|
+| `POST /api/scim-tokens` | Org-admin, normal API auth. Returns the bearer token **once**; only its SHA-256 is stored. |
+| `GET /api/scim-tokens` | Metadata only; never secrets. |
+| `DELETE /api/scim-tokens/{id}` | Revokes. |
 
-### Token format = tenant resolution
+### Token format and tenant resolution
 
 Tokens look like `kairos_scim_<org-slug>_<64-hex-secret>`. The tenant is
 resolved **from the token** (A-0016: "tenant-scoped by the token, not by
@@ -49,21 +46,17 @@ Inbound SCIM Users bind to `public.users` in this order:
 | 3 | first `emails[].value` (primary preferred; or an email-shaped `userName`) | `users.email` |
 | 4 | *no match* | new row created with `external_id = externalId ?? userName` |
 
-**Configure the IdP to send the OIDC `sub` as `externalId` (preferred)
-or `userName`.** The email fallback links users who have already logged
-in once (their JIT row keeps its `sub` — SCIM never overwrites the login
-join key), but a SCIM-*created* user whose stored `external_id` is not
-the `sub` their later login presents will be JIT-provisioned as a second
-user row without the membership. Per-IdP notes:
+SCIM never overwrites the login join key, so a user who has already logged in
+keeps the `sub` on their row and the email fallback links them. A
+SCIM-*created* user whose stored `external_id` is not the `sub` their later
+login presents is JIT-provisioned as a **second** user row, without the
+membership.
 
-- **Okta**: default `userName` is the login email — map the app's
-  `externalId` to the same value Okta puts in the OIDC `sub` claim (or
-  set the OIDC app's subject to Okta `userName` and let the email-shaped
-  `userName` match).
-- **Entra ID**: maps `objectId` to `externalId` by default; make the
-  OIDC app emit `oid` as `sub` (or adjust the SCIM attribute mapping).
-- Outbound, both `userName` and `externalId` are served from
-  `users.external_id`.
+Outbound, both `userName` and `externalId` are served from
+`users.external_id`.
+
+Configuring an IdP to satisfy this is
+[Make the identity join work](../how-to/provision-users-with-scim.md#make-the-identity-join-work).
 
 ## Resource model
 

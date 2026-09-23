@@ -349,6 +349,14 @@ fan out, and the close-out is last because it reviews the whole book.
 10. **Close out**: README reduced to a landing page plus contributor
     quickstart (D9), `diataxis-review` run over every page with rule IDs
     cited, cross-links checked, book builds and publishes.
+11. **Reference: capabilities and error codes** ([[KAIROS-T-0176]], added
+    2026-09-23) — a gap in this plan, not a late addition. D4 named five
+    reference pages and none of them is the home for the capability
+    vocabulary or the S-0005 error codes, so the explanation pages ended up
+    citing `KAIROS-A-0006` — a document outside the book — which is the
+    "documented elsewhere only" R4 forbids. Found by [[KAIROS-T-0171]],
+    because E6 forces the question "where does this fact actually live?" for
+    every fact an explanation page is tempted to state.
 
 Gates per task: the book builds (`angreal docs build`), and every page the
 task adds passes `diataxis-review` with its rule IDs cited in the task's
@@ -368,3 +376,13 @@ Status Update.
   as the first task, since it is the gate; README reduced to a landing page
   plus a contributor quickstart, which is what makes the narrower scope safe.
   Decomposed into ten tasks.
+- 2026-09-23: **[[KAIROS-S-0008]] published and the scaffold live** at
+  https://colliery-io.github.io/kairos/ (T-0166, T-0167). The spec review
+  corrected the initiative on generated reference: the strain is **R1**
+  (predictable structure), not R4 (completeness) — generation beats a human on
+  completeness precisely because it is mechanical. [[KAIROS-T-0170]] then
+  measured it: one generated page came to 3694 lines and was complete and
+  unnavigable, so the REST reference is **nine** pages grouped by the
+  product's own shape.
+- 2026-09-23: **An eleventh task, [[KAIROS-T-0176]]**, for a gap in this
+  plan's own reference list — see item 11 above.

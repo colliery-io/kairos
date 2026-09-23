@@ -4,14 +4,14 @@ level: task
 title: "Reference: generate the REST API page from the OpenAPI spec"
 short_code: "KAIROS-T-0170"
 created_at: 2026-09-23T22:11:16.382014+00:00
-updated_at: 2026-09-23T22:32:18.437554+00:00
+updated_at: 2026-09-23T22:37:10.024751+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0167]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -57,6 +57,8 @@ rather than shipping something unusable.
 Wire it into `angreal docs build` so a local build and CI produce the same
 page, and make sure the generation step fails loudly rather than silently
 emitting an empty page.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

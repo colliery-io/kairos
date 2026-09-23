@@ -111,6 +111,26 @@ See [Archiving](../explanation/archiving.md).
 |---|---|
 | `KAIROS_OTEL_ENDPOINT` | The chart emits it into the ConfigMap when `config.otelEndpoint` is non-empty. No Kairos crate reads it and the binary has no OpenTelemetry dependency, so setting it has no effect in 0.1.0. |
 
+## Default board configurations
+
+Provisioning a tenant seeds one configuration per flight level, and creating a
+board copies its level's. These are the defaults; a board's columns and
+transitions are data and may be changed afterwards.
+
+| Level | Columns | Transitions |
+|---|---|---|
+| `strategy` | Draft, Review, Active, Monitoring, Completed | Draft → Review → Active → Monitoring → Completed |
+| `initiative` | Discovery, Design, Ready, Decompose, Active, Monitoring, Completed | Discovery → Design → Ready → Decompose → Active → Monitoring → Completed |
+| `delivery` | Backlog, Todo, Blocked, Active, Completed | Backlog → Todo → Active → Completed, plus Todo ↔ Blocked and Active ↔ Blocked |
+| `adr` | Draft, Discussion, Decided, Superseded | Draft → Discussion → Decided → Superseded |
+
+The delivery graph is the only one that is not a straight line: Blocked is
+reachable from Todo and from Active, and returns to whichever it came from.
+The strategy, initiative and ADR graphs are forward-only, so an item cannot be
+moved back a column — a correction is a new item, not a reversal.
+
+Stored in `public.system_board_defaults`, one row per level.
+
 ## CLI configuration
 
 The CLI reads no server variables. Its whole configuration surface is where it

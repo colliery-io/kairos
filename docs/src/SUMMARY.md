@@ -55,6 +55,8 @@ checklist.
   - [Schemas](reference/rest/schemas.md)
 - [Events](reference/events.md)
 - [SCIM](reference/scim.md)
+- [Capabilities](reference/capabilities.md)
+- [Errors](reference/errors.md)
 - [Glossary](reference/glossary.md)
 
 # Explanation

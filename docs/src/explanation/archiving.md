@@ -42,17 +42,26 @@ moment that mattered.
 
 ## The six things the sentence commits to
 
-Read as rules rather than as prose, the decision says: archived content stays
-retrievable, marked as archived, along with its history. It stays searchable
-when asked for explicitly. Default listings — boards, queues, directories,
-ordinary search — hide it, which is the entire user-visible purpose of the
-state. It is not a [permission boundary](capabilities-and-access.md). It is not
-live work. And it is still content.
+Read as rules rather than as prose, the decision says:
 
-Those six are numbered in
+1. **Archived content stays retrievable**, marked as archived, along with its
+   history.
+2. **It stays searchable** when asked for explicitly.
+3. **Default listings hide it** — boards, queues, directories, ordinary
+   search. This is the entire user-visible purpose of the state.
+4. **It is not a [permission boundary](capabilities-and-access.md).** Whoever
+   could read the work before can read it after.
+5. **It is not live work.** Guards that ask "is there still work here?" go on
+   counting live rows only.
+6. **It is still content.** A guard that asks "does anything still refer to
+   this?" may legitimately count an archived carrier — which rule 1 is what
+   makes honest, because the carrier can be found.
+
+The numbering is this page's, and it is the numbering the endpoint reference
+cites when it says "rule 2" or "rule 3" — follow one of those citations and
+you land here, on the argument, which is what you wanted. It matches
 [the decision record](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md),
-which is where the reference pages' citations to "rule 2" and "rule 3" resolve;
-this page argues them rather than restating them as a specification.
+where the decision was first written down.
 
 "Marked" carries more weight than it looks. Archived rows are marked, never
 disguised: anything that serves one says so, through the `archived_at`

@@ -134,3 +134,77 @@ your own lines rather than `git add`-ing your working copy; the recipe is in
 ## Status Updates
 
 *To be added during implementation*
+**2026-09-23 — done.**
+
+### `reference/capabilities.md`
+
+The gap this task existed for. Source: `crates/kairos-core/src/abac.rs`.
+
+- The ten grantable capabilities, with what each authorises.
+- **Globs**, including the one that surprises people: `%` and `_` are
+  **literal**. The check is a SQL `LIKE` with its wildcards escaped, so a
+  grant of `manage_%` matches the capability literally named `manage_%` —
+  which does not exist — and authorises nothing. `crates/kairos-db/tests/abac.rs`
+  pins that truth table. Matching is case-sensitive; degenerate cases fall out
+  of the same rules rather than being special-cased.
+- **Computed, never granted**: `file_backlog` (position 0 of a delivery
+  Backlog, nothing past it), plus the two implications resolved the same way —
+  org-admin bypass and the team-implied set (`manage_tasks`,
+  `manage_documents`, `transition_items`). The page argues the **shape** of
+  that set rather than presenting it as arbitrary: a team member can do the
+  daily work of their own board without a grant, and cannot configure it or
+  touch another team's. `configure_*` and `manage_members` are deliberately
+  excluded.
+- **Board resolution** per item kind, the `supports`-edge path for documents,
+  the org-admin fallback when nothing resolves, and that **an archived item
+  resolves the same capabilities as a live one** — archiving is not a
+  permission boundary, and the write refusal is separate from authorisation.
+- The collaborative-edge rule (`parent`/`blocks` vs the org-admin-only three).
+
+### `reference/errors.md`
+
+**34 codes**, collected by sweeping every uppercase code literal in
+`crates/kairos-server/src` and resolving each to its constructor, because the
+codes are spread across four mappers and `error.rs`'s named helpers.
+
+The two things a reader most needs, which no page previously stated:
+
+- **The branching rule**: a reference that does not resolve is `VALIDATION`;
+  the call's own subject not existing is `NOT_FOUND`. Stated **with its one
+  exception** — `search` refuses an unresolvable `traverse.from` with
+  `NOT_FOUND`. That exception is exactly the blocking defect
+  [[KAIROS-T-0169]]'s independent review caught, so it is stated here rather
+  than left for a client to discover.
+- **What `details` carries per code** — `current`, `allowed_targets`,
+  `item_count`, `missing`, `items`/`templates`, `required_capability`.
+  That is the actionable part and the part most often undocumented.
+
+Two statuses worth flagging in the page because they break the local pattern:
+`DEFINITION_IN_USE` is **409** among 422 neighbours, and
+`FORGE_NOT_CONFIGURED` / `PUBLIC_URL_NOT_CONFIGURED` are **501**.
+
+### The two smaller gaps
+
+- **Per-level default columns** now in `reference/configuration.md` under
+  "Default board configurations", from `crates/kairos-db/src/tenant.rs:128-146`.
+  Worth what the table makes visible: the **delivery** graph is the only one
+  that is not a straight line (Blocked is reachable from Todo and Active and
+  returns to whichever it came from); strategy, initiative and ADR are
+  forward-only, so a correction is a new item rather than a reversal.
+- **The six ADR-20 rules are now numbered in `explanation/archiving.md`.**
+  It previously deferred the numbering to the ADR on GitHub, which meant a
+  reader following "rule 3" from an endpoint page left the book to resolve it.
+  E6 does not bar this: the rules are the decision's argument, not a limit or
+  a signature, and numbering prose you are already writing is not becoming the
+  canonical home for a fact. The page says the numbering is its own and
+  matches the record.
+
+`angreal docs build` clean. `SUMMARY.md` staged as a blob built from `HEAD`
+plus only these two lines, not from the working copy — 12 entries before, 14
+after, with the REST, explanation and other reference blocks intact.
+
+**Review**: per the initiative's standing finding, reference pages get an
+**independent** `diataxis-review`, not a self-review — deferred to
+[[KAIROS-T-0175]] along with the four pages T-0169 flagged. Recorded rather
+than skipped: a self-review here would pass R1–R3 and be weak on exactly the
+R4/R6 completeness this page is most likely to get wrong.

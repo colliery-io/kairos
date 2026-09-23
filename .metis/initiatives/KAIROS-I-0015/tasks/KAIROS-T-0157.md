@@ -4,14 +4,14 @@ level: task
 title: "Search honours include_deleted alongside a text query and from an archived root"
 short_code: "KAIROS-T-0157"
 created_at: 2026-09-23T11:29:51.232959+00:00
-updated_at: 2026-09-23T11:29:51.232959+00:00
+updated_at: 2026-09-23T12:54:22.735576+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0156]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -4,14 +4,14 @@ level: task
 title: "J12 operations: health, readiness, metrics, config, and a cascade preview before a big delete"
 short_code: "KAIROS-T-0146"
 created_at: 2026-09-23T03:46:06.062960+00:00
-updated_at: 2026-09-23T10:27:47.528510+00:00
+updated_at: 2026-09-23T10:31:47.752112+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -4,14 +4,14 @@ level: task
 title: "J11 new-kind-of-work: a template and a metadata field make support requests first-class, then the field is retired"
 short_code: "KAIROS-T-0141"
 created_at: 2026-09-23T03:45:50.887850+00:00
-updated_at: 2026-09-23T10:32:56.313638+00:00
+updated_at: 2026-09-23T10:37:44.064727+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

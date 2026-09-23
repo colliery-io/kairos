@@ -77,6 +77,37 @@ def docs_build():
 
 @docs()
 @angreal.command(
+    name="api",
+    about="regenerate the REST reference pages from the OpenAPI spec",
+)
+def docs_api():
+    """Render docs/src/reference/rest{-api.md,/*.md} from the spec.
+
+    The spec comes from the same pure test CI uses (no services needed), so
+    this works on a laptop with nothing running.
+    """
+    spec = PROJECT_ROOT / "target" / "openapi.json"
+    print("producing the OpenAPI spec...")
+    produced = subprocess.run(
+        [
+            "cargo", "test", "-q",
+            "-p", "kairos-server",
+            "--test", "openapi",
+            "write_spec_artifact",
+        ],
+        cwd=str(PROJECT_ROOT),
+    )
+    if produced.returncode != 0 or not spec.exists():
+        print("could not produce target/openapi.json", file=sys.stderr)
+        return 1
+    return subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "render-openapi.py")],
+        cwd=str(PROJECT_ROOT),
+    ).returncode
+
+
+@docs()
+@angreal.command(
     name="serve", about="serve the book locally with live reload"
 )
 @angreal.argument(

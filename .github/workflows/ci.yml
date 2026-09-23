@@ -87,6 +87,13 @@ jobs:
       - name: Generate OpenAPI artifact
         run: cargo test -p kairos-server --test openapi write_spec_artifact
 
+      # The REST reference pages in the book are GENERATED from that spec
+      # (KAIROS-T-0170). Committing them keeps the docs build fast — it needs
+      # no Rust toolchain — and this check is what stops them rotting: change
+      # a handler's #[utoipa::path] without re-rendering and CI says so.
+      - name: Check the generated REST reference is current
+        run: python3 scripts/render-openapi.py --check
+
       - name: Upload OpenAPI artifact
         uses: actions/upload-artifact@v4
         with:

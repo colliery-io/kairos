@@ -45,10 +45,65 @@ T-0127.
 
 ## Acceptance Criteria
 
-- [ ] Item page offers a Board select to callers with `manage_tasks` on ≥2 delivery boards; moving updates the panel without reload.
-- [ ] Both boards reflect an `ItemMoved` event live.
-- [ ] e2e 11/11 (+ the new step).
+- [x] Item page offers a Board select to callers with `manage_tasks` on ≥2 delivery boards; moving updates the panel without reload.
+- [x] Both boards reflect an `ItemMoved` event live.
+- [x] e2e 11/11 (+ the new step).
 
 ## Status Updates
 
-*To be added during implementation*
+- 2026-09-23: Implemented (commit `1927749`).
+
+  **GUI.** `pages/item.rs` gains `MoveBoardControl`, rendered for tasks in
+  the Board panel next to the column picker: a Board `<select>` wrapped in
+  `data-testid="move-board"`, defaulting to `(this board)`, with a "Move
+  board" button. It renders only when the shared `board_power`
+  (`manage_tasks`) mirror grants the SOURCE board, and its options come
+  from a new pure helper `pages/boards.rs::movable_delivery_boards(me,
+  boards, here_slug)` — built on the existing `board_powers` derivation,
+  not a second path — which returns the other live delivery boards the
+  caller may manage (org admin: all of them; the board list is the
+  existing `/api/boards?limit=100` call, filtered `board_level ==
+  "delivery"`). So the picker never offers a move the two-sided server
+  rule would 403. Success routes through the panel's existing `on_moved`:
+  the page notice reads "Moved to <board>." and the refetched panel shows
+  the new board link and entry column; failures render inline in an
+  `Alert` (the T-0104 `REPOSITORY_OWNER_MISMATCH` message names the board
+  to move to). `pages/item/api.rs::move_task` is the client mirror
+  (`POST /api/tasks/{code}/move` with `{board}`).
+
+  **Live.** No special case was needed for `item_moved`: the socket is
+  server-filtered to one board and `pages/boards/live.rs` never inspects
+  the event kind, so the source board's copy (no column) and the target's
+  (entry column) each drive their own side's refetch, exactly like
+  `item_transitioned`. Both modules now document that, and the `ThinEvent`
+  mirror test decodes both halves.
+
+  **e2e.** `repositories.spec` step 4b (alice, org admin): the picker
+  omits the board the task is on and offers Web Delivery; the
+  payments-api-bound cross-team task is refused inline with
+  `REPOSITORY_OWNER_MISMATCH`; an unbound task moves through the GUI,
+  lands in the web board's Backlog, shows on `/boards/web-delivery` and is
+  gone from `/boards/platform-delivery`. Both live halves are asserted
+  with the smoke spec's page-scoped no-reload marker — watching platform a
+  moved-away card disappears, watching web a moved-in card appears — with
+  a second writer through the new `helpers/api.ts::moveTask`.
+
+  **Gates (verbatim result lines).**
+  - `angreal test lint` → `Finished \`dev\` profile [unoptimized +
+    debuginfo] target(s) in 0.15s` (EXIT=0)
+  - `cargo test -p kairos-web --lib` → `test result: ok. 74 passed; 0
+    failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s`
+  - `angreal web lint` → `kairos-web token rule: clean (no raw color
+    literals)`
+  - `angreal web build` → `GUI bundle written to
+    /Users/dstorey/Desktop/kairos/crates/kairos-web/dist`
+  - `angreal test e2e` → `11 passed (17.0s)` /
+    `E2E PASSED (API golden path + MCP + GUI smoke).`
+
+  **Decisions the task left open.** The picker's value is the board slug
+  and its label the board name (so the notice reads "Moved to Web
+  Delivery."); the control hides itself entirely when there is no eligible
+  target rather than rendering a dead select; the Move board button stays
+  disabled on `(this board)`, making a board move — which re-homes the
+  card's team — a deliberate second act next to the column picker, which
+  defaults to a real target.

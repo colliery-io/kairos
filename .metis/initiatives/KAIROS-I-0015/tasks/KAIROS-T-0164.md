@@ -4,14 +4,14 @@ level: task
 title: "The archived item page: read it, read its history, restore it"
 short_code: "KAIROS-T-0164"
 created_at: 2026-09-23T11:30:07.479107+00:00
-updated_at: 2026-09-23T11:30:07.479107+00:00
+updated_at: 2026-09-23T12:46:51.307671+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0154, KAIROS-T-0160]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T13:12:52Z | 276 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T13:30:42Z | 277 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -310,6 +310,7 @@
     │   ├── planning.journey.ts
     │   ├── quarterly-review.journey.ts
     │   ├── reorg.journey.ts
+    │   ├── revival.journey.ts
     │   ├── second-tenant.journey.ts
     │   ├── smoke.journey.ts
     │   └── team-knowledge.journey.ts
@@ -358,7 +359,7 @@
 
 - pub `ListArgs` struct L28-37 — `{ limit: Option<i64>, offset: Option<i64>, common: Common }` — `?limit=&offset=` pagination flags for the `list` verbs.
 - pub `page` function L40-45 — `(&self) -> Pagination` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
-- pub `EntityListArgs` struct L57-70 — `{ limit: Option<i64>, offset: Option<i64>, include_deleted: bool, common: Common...` — `list` arguments for the five entity families: pagination plus the
+- pub `EntityListArgs` struct L57-70 — `{ limit: Option<i64>, offset: Option<i64>, include_deleted: bool, common: Common...` — `?limit=&offset=&include_deleted=` flags for the entity `list` verbs.
 - pub `query` function L73-79 — `(&self) -> ListQuery` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 - pub `GetArgs` struct L84-89 — `{ short_code: String, common: Common }` — Arguments of the `get` verbs.
 - pub `EditArgs` struct L96-114 — `{ short_code: String, title: Option<String>, content: Option<String>, content_fi...` — Arguments of the `edit` verbs — the KAIROS-A-0004 optimistic-concurrency

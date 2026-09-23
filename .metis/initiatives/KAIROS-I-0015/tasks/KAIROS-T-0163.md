@@ -92,3 +92,34 @@ and this task must match it rather than invent a second answer.
   this task may make.
 - Linking works now: any archived hit can link to `/items/:code` or
   `/activity/history/:code` and get a real page rather than an error.
+
+## Additional GUI scope, carried in from [[KAIROS-T-0158]]
+
+**2026-09-23.** T-0158 widened the relationship graph, and [[KAIROS-T-0164]]
+(the item page) is already closed — so the remaining GUI consequences land
+here. Treat these as part of this task.
+
+- `RelatedItem.archived_at` and `GraphNode.archived_at` are both
+  `Option<String>`, RFC 3339, **omitted when live** (so presence means
+  archived). The **Relationships panel and the graph explorer must render
+  them distinctly.** An unmarked archived neighbour is worse than a missing
+  one, because the reader will act on it.
+- The web mirrors (`kairos-web/src/pages/item/api.rs`,
+  `pages/search/data.rs`) are partial structs, so they compile unchanged and
+  **silently ignore the new field** until you add it. Nothing will fail to
+  build; the marker will simply never appear.
+- `GraphNode.degree` now counts archived neighbours, so the explorer's
+  `+N = degree - edges shown` arithmetic still balances. Do not "fix" it.
+- **The counterpart that must NOT change:** `children-progress` and the
+  board cards' blocks counts stay live-only (ADR-20 rule 5). A panel showing
+  "2 children" beside "1 of 1 done" is **correct**. Make the difference
+  legible rather than reconciling it away. T-0158's formulation is worth
+  putting in the UI copy: *containment is a fact about the record; progress
+  is a fact about live work.*
+
+## Also confirmed by [[KAIROS-T-0157]]
+
+Search hits **do** carry `archived_at` — the API already marked them, and
+T-0157 added markers to MCP (`render_search_results`) and the CLI search
+table. So the open question this task was told to check is answered: design
+the result-list marker.

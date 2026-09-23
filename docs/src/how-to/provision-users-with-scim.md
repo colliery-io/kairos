@@ -16,6 +16,9 @@ curl -X POST https://<kairos-host>/api/scim-tokens \
   -d '{"name": "okta-prod"}'
 ```
 
+This is an ordinary `/api` call, so unlike the SCIM endpoints it needs the
+tenant resolved: use the tenant's own host, or add `-H "X-Tenant: <slug>"`.
+
 **Copy the token out of the response now.** It is returned once; Kairos stores
 only its SHA-256. If you lose it, revoke it and mint another —
 `GET /api/scim-tokens` lists metadata but never secrets.
@@ -67,11 +70,19 @@ Group membership can only reference users Kairos already knows. Most IdPs push
 users first on their own; if yours lets you order the operations, do users
 first.
 
-Two group names are meaningful, and the rest are ignored:
+Two group names are meaningful, and **nothing else is accepted**. Push only
+these two shapes: any other `displayName` is refused with `400 invalidValue`,
+not skipped, so an IdP configured to push its whole group catalogue reports a
+failure per group.
 
 - `kairos-admins` — membership promotes to org admin, removal demotes to member
 - `kairos-team-<slug>` — membership is team membership, and creating the group
-  creates the team and its delivery board
+  creates the team and its delivery board. The slug must match
+  `^[a-z][a-z0-9_-]{1,62}$`
+
+Pick team slugs you will not want back. A team group's `DELETE` soft-deletes
+the team, and the slug stays taken, so re-creating the same group name is
+refused permanently with `409 uniqueness`.
 
 ## Verify
 
@@ -81,7 +92,10 @@ endpoint with a token they already hold. They should get **403
 validate locally until they expire, but membership is checked per request, so
 revocation takes effect immediately rather than at token expiry.
 
-Then reactivate them and confirm access returns.
+Then reactivate them and confirm access returns. Reactivation is a fresh
+provision: the IdP must `POST` the user again. If yours reactivates by sending
+`PATCH {"active": true}` to the id it stored, it gets a 404, because
+deprovisioning removed the resource rather than marking it inactive.
 
 ## Limits to expect
 
@@ -90,11 +104,20 @@ Then reactivate them and confirm access returns.
   you need one.
 - **Renames are refused.** Rename a team through `/api/teams`, not by renaming
   the SCIM group.
+- **A team group will not delete while its board has work on it.** The refusal
+  is `400 mutability`, and it will keep failing until someone moves or deletes
+  the cards through `/api`. Wind the team's board down first — see
+  [Wind down a team](wind-down-a-team.md).
+- **`kairos-admins` cannot be deleted.** `400 mutability`; it is built in.
 - **Deprovisioning keeps the user row** and removes the membership, for audit.
   Re-activation is a fresh provision, not an undelete.
-- **Bulk, sorting, ETags, `/Me` and password operations are not supported**,
-  and Kairos advertises that in `ServiceProviderConfig`, so a conforming IdP
-  will not attempt them.
+- **Bulk, sorting, ETags and password operations are not supported**, and
+  Kairos advertises that in `ServiceProviderConfig`, so a conforming IdP will
+  not attempt them. `/Me` is also unimplemented, but SCIM has no way to
+  advertise that, so an IdP that calls it gets a plain 404.
+- **Not every refusal is a SCIM error envelope.** An unrouted path, a bad
+  `count`, a wrong method or an oversized body are answered before the SCIM
+  layer — see [the SCIM reference](../reference/scim.md#errors).
 
 ## Related reading
 

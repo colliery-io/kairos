@@ -21,7 +21,9 @@ Every `/api` error has the same shape:
 change. `details` is present only where a code has something structured to
 say; the table below states which do.
 
-`/scim/v2` uses the RFC 7644 envelope instead, not this one.
+`/scim/v2` uses the RFC 7644 envelope instead, not this one — except for a
+path under `/scim/v2` that is not routed at all, which answers a `NOT_FOUND`
+in *this* envelope. See [SCIM](scim.md#errors).
 
 ## Codes
 
@@ -82,7 +84,7 @@ A client applying the general rule would branch wrongly here.
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `INVALID_TRANSITION` | 422 | The move is not an edge in the board's transition graph | `from` and `to` (`id`, `name` each) and `allowed_targets` — the columns reachable from the current one, as `id`/`name` pairs |
-| `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition (an off-board ADR) | — |
+| `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition or be moved: an off-board ADR, and over MCP a document, which never has one | — |
 | `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count — and `column` (`id`, `name`) |
 | `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` |
 | `DUPLICATE_COLUMN_NAME` | 422 | A live column of that board already has the name | — |

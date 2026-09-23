@@ -136,15 +136,27 @@ guard did not need to change — the visibility did.
   surface* — GUI, API, MCP, CLI. Partial implementation would be worse than
   none, because an auditor who finds the answer on one surface will
   reasonably assume the others agree.
-- The retention sweeper is now the only thing that truly destroys content,
-  which raises its stakes. Its schedule and configuration deserve a look
-  they have not had.
+- The retention sweeper was expected to be the backstop that eventually
+  destroys content. It is not: `spawn_retention_loop` / `sweep_all_tenants`
+  / `sweep_tenant` have **zero references in `crates/kairos-server/`** (only
+  the db tests call them), and even when wired it purges `item_history` and
+  `activity_log` rows only — never the soft-deleted entity rows themselves.
+  So today *nothing* ever destroys archived content, and this decision makes
+  that permanent-by-default rather than permanent-by-accident. Wiring the
+  sweeper is still an open M2 task and now carries the erasure story too.
 
 ### Neutral
 
 - The word "delete" on the surfaces is now actively misleading. Renaming it
   to "archive" is a separate, larger change (wire compatibility, GUI copy,
   CLI nouns) and is explicitly not part of this decision.
+- **"Archived" is already taken.** The document editorial lifecycle
+  (KAIROS-T-0078) is `draft | review | published | archived`, and that
+  `archived` is unrelated to `deleted_at` — a published document can be
+  editorially archived while remaining perfectly live. `kairos-web`'s
+  `pages/item.rs` uses the word in that sense today. Whatever this state is
+  called on the surfaces, the two must not collide; the safest reading is
+  that this ADR names a *behaviour*, and the user-facing noun is still open.
 
 ## Review Triggers
 

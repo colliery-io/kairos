@@ -71,3 +71,24 @@ to an archived item is intact — only the JOIN hides it.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from [[KAIROS-T-0156]]
+
+**2026-09-23.** The line to widen is **`graph.rs:430`**, inside
+`neighbors_of`. Every other `entity_directory` join in that file is a
+different surface — `resolve_entity`, `team_work_documents`, the focal
+subgraph's degree and hydration passes, `blocks_summary`,
+`team_link_rollup`, `repository_link_rollup` (`graph.rs:153,620,755,760,847,900,961`)
+— and all of them should **stay live-only** unless this task widens one
+deliberately and says why.
+
+T-0156 added a `# Liveness` section to the module docs stating that this
+task's widening of `neighbors_of` is an intended change rather than a side
+effect. Update it to match whatever you actually do.
+
+There is a regression test to keep passing:
+`crates/kairos-server/tests/archived_hidden.rs`, which asserts archived rows
+are absent from every default listing — including the entity directory, via
+relationship neighbour hydration. It was verified to bite when the filter is
+removed from `neighbors_of`, so expect to update its relationship leg
+deliberately as part of this task.

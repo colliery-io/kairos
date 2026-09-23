@@ -83,3 +83,43 @@ Results must mark archived hits — see the marking rule in the initiative.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from [[KAIROS-T-0156]] — read before starting
+
+**2026-09-23. Two findings that change this task's size.**
+
+### 1. The index bill is unpaid, and it is the real work here
+
+`idx_strategies_tsv`, `idx_initiatives_tsv`, `idx_tasks_tsv`,
+`idx_documents_tsv`, `idx_adrs_tsv` (up.sql:386-390) are **partial** GIN
+indexes, `WHERE deleted_at IS NULL`. So a text search that includes archived
+work **cannot use them at all**: measured on 20k strategies + 20k tasks with
+10% archived, the same query costs **8268 without the predicate versus 2108
+with it**, falling back to a parallel seq scan that re-derives every row's
+tsvector — and it degrades linearly with table size.
+
+Turning the flag on without paying this makes archived text search a
+tenant-wide performance hazard rather than a feature. Options:
+
+- **(a) Make the five GIN indexes non-partial.** One index per table serving
+  both modes. Costs index size (archived rows are typically a small
+  fraction) and a little write amplification — but archived rows are
+  read-only (KAIROS-A-0020 / D5), so they are written exactly once, at
+  archive time. **Recommended** unless measurement says otherwise.
+- **(b) A second, archived-only GIN index set.** Five more indexes; keeps
+  the hot path's index smallest, at the cost of doubling the objects to
+  maintain and reason about.
+- **(c) Accept the seq scan.** Only defensible if archived text search is
+  rare AND tenants stay small; the linear degradation says otherwise.
+
+Measure and state which you chose. Whichever it is, `EXPLAIN` both modes on
+a seeded table and record the numbers, as T-0156 did.
+
+### 2. Search filters liveness in THREE places, not one
+
+Widening `text_match_ids` and `partition_by_type` is **not sufficient** —
+verified experimentally. Per-family **hydration** (step 6 in the pipeline,
+`search.rs:544/582/621/672/702`, with the unconditional live-only defaults
+at `:560/601/652/682/718`) applies its own filter, and is the actual gate.
+
+Also from T-0156: `resolve_root` for traverse is at `search.rs:284/290`.

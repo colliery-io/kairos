@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T11:58:55Z | 273 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T12:21:31Z | 275 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -127,6 +127,7 @@
 │   │   │   │   │   ├── metadata.rs
 │   │   │   │   │   ├── mod.rs
 │   │   │   │   │   ├── relationships.rs
+│   │   │   │   │   ├── restore.rs
 │   │   │   │   │   └── templates.rs
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── openapi.rs
@@ -178,6 +179,7 @@
 │   │   │   └── ws.rs
 │   │   └── tests/
 │   │       ├── api_key_auth.rs
+│   │       ├── archived_hidden.rs
 │   │       ├── cascade_preview.rs
 │   │       ├── client_roundtrip.rs
 │   │       ├── common/
@@ -369,12 +371,13 @@
 - pub `emit_edited` function L480-491 — `(common: &Common, item: &T) -> Result<(), CliError>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 - pub `emit_transitioned` function L493-504 — `(common: &Common, item: &T) -> Result<(), CliError>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 - pub `emit_moved` function L509-518 — `(common: &Common, task: &Task) -> Result<(), CliError>` — Render a board move (KAIROS-I-0012).
-- pub `emit_deleted` function L520-535 — `(common: &Common, response: &DeleteResponse) -> Result<(), CliError>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
-- pub `StrategyCreateArgs` struct L543-561 — `{ board: String, column: Option<String>, title: String, content: String, hypothe...` — Arguments of `kairos strategies create`.
-- pub `InitiativeCreateArgs` struct L577-598 — `{ board: String, column: Option<String>, title: String, content: String, complex...` — Arguments of `kairos initiatives create`.
-- pub `TaskCreateArgs` struct L615-646 — `{ board: Option<String>, column: Option<String>, title: String, content: String,...` — Arguments of `kairos tasks create`.
-- pub `DocumentCreateArgs` struct L665-682 — `{ title: String, parent: String, content: Option<String>, template: Option<Strin...` — Arguments of `kairos documents create`.
-- pub `AdrCreateArgs` struct L697-718 — `{ title: String, board: Option<String>, column: Option<String>, content: String,...` — Arguments of `kairos adrs create`.
+- pub `emit_restored` function L521-538 — `(common: &Common, response: &RestoreResponse) -> Result<(), CliError>` — `restore` output: what came back, and what deliberately did not.
+- pub `emit_deleted` function L540-555 — `(common: &Common, response: &DeleteResponse) -> Result<(), CliError>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+- pub `StrategyCreateArgs` struct L563-581 — `{ board: String, column: Option<String>, title: String, content: String, hypothe...` — Arguments of `kairos strategies create`.
+- pub `InitiativeCreateArgs` struct L597-618 — `{ board: String, column: Option<String>, title: String, content: String, complex...` — Arguments of `kairos initiatives create`.
+- pub `TaskCreateArgs` struct L635-666 — `{ board: Option<String>, column: Option<String>, title: String, content: String,...` — Arguments of `kairos tasks create`.
+- pub `DocumentCreateArgs` struct L685-702 — `{ title: String, parent: String, content: Option<String>, template: Option<Strin...` — Arguments of `kairos documents create`.
+- pub `AdrCreateArgs` struct L717-738 — `{ title: String, board: Option<String>, column: Option<String>, content: String,...` — Arguments of `kairos adrs create`.
 -  `ListArgs` type L39-46 — `= ListArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 -  `EditArgs` type L82-114 — `= EditArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 -  `NOUN` variable L176 — `: &'static str` — Human noun ("task", "initiative", ...).
@@ -435,20 +438,20 @@
 -  `archived_at` function L397-399 — `(&self) -> Option<&str>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 -  `table_row` function L400-408 — `(&self) -> Vec<String>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
 -  `fields` function L409-420 — `(&self) -> Vec<(&'static str, String)>` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `StrategyCreateArgs` type L563-573 — `= StrategyCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `request` function L564-572 — `(&self) -> CreateStrategyRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `InitiativeCreateArgs` type L600-611 — `= InitiativeCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `request` function L601-610 — `(&self) -> CreateInitiativeRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `TaskCreateArgs` type L648-661 — `= TaskCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `request` function L649-660 — `(&self) -> CreateTaskRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `DocumentCreateArgs` type L684-693 — `= DocumentCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `request` function L685-692 — `(&self) -> CreateDocumentRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `AdrCreateArgs` type L720-731 — `= AdrCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `request` function L721-730 — `(&self) -> CreateAdrRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `entity_family_cli` macro L743-834 — `-` — Generate the per-family `Subcommand` enum and its `run` dispatcher over
--  `tests` module L897-954 — `-` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
--  `edit_request_building` function L905-944 — `()` — The edit flow's request building: flags merge over the fetched
--  `delete_requires_confirm` function L948-953 — `()` — Deletes refuse to run without --confirm.
+-  `StrategyCreateArgs` type L583-593 — `= StrategyCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `request` function L584-592 — `(&self) -> CreateStrategyRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `InitiativeCreateArgs` type L620-631 — `= InitiativeCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `request` function L621-630 — `(&self) -> CreateInitiativeRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `TaskCreateArgs` type L668-681 — `= TaskCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `request` function L669-680 — `(&self) -> CreateTaskRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `DocumentCreateArgs` type L704-713 — `= DocumentCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `request` function L705-712 — `(&self) -> CreateDocumentRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `AdrCreateArgs` type L740-751 — `= AdrCreateArgs` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `request` function L741-750 — `(&self) -> CreateAdrRequest` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `entity_family_cli` macro L763-862 — `-` — Generate the per-family `Subcommand` enum and its `run` dispatcher over
+-  `tests` module L930-987 — `-` — is flag plumbing, the fetch-then-patch edit flow, and rendering.
+-  `edit_request_building` function L938-977 — `()` — The edit flow's request building: flags merge over the fetched
+-  `delete_requires_confirm` function L981-986 — `()` — Deletes refuse to run without --confirm.
 
 #### crates/kairos-cli/src/commands/keys.rs
 
@@ -710,103 +713,103 @@
 - pub `base_url` function L156-158 — `(&self) -> &str` — The configured base URL (no trailing slash).
 - pub `tenant` function L161-163 — `(&self) -> Option<&str>` — The configured `X-Tenant` value, if any.
 - pub `raw_request` function L296-318 — `( &self, method: Method, path_and_query: &str, body: Option<&Value>, ) -> Result...` — Protocol-level escape hatch: send an authorized request with an
-- pub `set_task_work_class` function L426-438 — `( &self, short_code: &str, work_class: &str, ) -> Result<Task, Error>` — `POST /api/tasks/{short_code}/work-class` — move a task between
-- pub `move_task` function L446-454 — `(&self, short_code: &str, board: &str) -> Result<Task, Error>` — `PUT /api/tasks/{short_code}/repository` — bind the task to a
-- pub `set_task_repository` function L456-468 — `( &self, short_code: &str, repository: Option<&str>, ) -> Result<Task, Error>` — typed surface deliberately cannot express.
-- pub `board_items_for_repository` function L473-484 — `( &self, board_id: &str, repository: &str, ) -> Result<BoardItemsResponse, Error...` — `GET /api/boards/{id}/items?repository=` — the board narrowed to
-- pub `list_boards` function L512-514 — `(&self, page: Pagination) -> Result<ListEnvelope<Board>, Error>` — `GET /api/boards`.
-- pub `create_board` function L518-520 — `(&self, request: &CreateBoardRequest) -> Result<BoardDetail, Error>` — `POST /api/boards` — create a board seeded from the system defaults
-- pub `get_board` function L523-525 — `(&self, board_id: &str) -> Result<BoardDetail, Error>` — `GET /api/boards/{id}` — board + columns + transition graph.
-- pub `update_board` function L528-535 — `( &self, board_id: &str, request: &UpdateBoardRequest, ) -> Result<Board, Error>` — `PATCH /api/boards/{id}` — board settings.
-- pub `delete_board` function L538-540 — `(&self, board_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/boards/{id}` (only when empty).
-- pub `board_items` function L543-545 — `(&self, board_id: &str) -> Result<BoardItemsResponse, Error>` — `GET /api/boards/{id}/items` — every live item grouped by column.
-- pub `list_columns` function L548-550 — `(&self, board_id: &str) -> Result<Vec<BoardColumn>, Error>` — `GET /api/boards/{id}/columns`.
-- pub `add_column` function L553-560 — `( &self, board_id: &str, request: &CreateColumnRequest, ) -> Result<BoardColumn,...` — `POST /api/boards/{id}/columns`.
-- pub `update_column` function L563-574 — `( &self, board_id: &str, column_id: &str, request: &UpdateColumnRequest, ) -> Re...` — `PATCH /api/boards/{id}/columns/{col_id}` — rename and/or move.
-- pub `remove_column` function L577-584 — `( &self, board_id: &str, column_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/boards/{id}/columns/{col_id}` (only when empty).
-- pub `list_transitions` function L587-590 — `(&self, board_id: &str) -> Result<Vec<BoardTransition>, Error>` — `GET /api/boards/{id}/transitions`.
-- pub `add_transition` function L593-600 — `( &self, board_id: &str, request: &CreateTransitionRequest, ) -> Result<BoardTra...` — `POST /api/boards/{id}/transitions`.
-- pub `remove_transition` function L603-612 — `( &self, board_id: &str, transition_id: &str, ) -> Result<OrgDeleteResponse, Err...` — `DELETE /api/boards/{id}/transitions/{transition_id}`.
-- pub `list_board_members` function L615-617 — `(&self, board_id: &str) -> Result<Vec<BoardMember>, Error>` — `GET /api/boards/{id}/members` — members + capability grants.
-- pub `add_board_member` function L621-628 — `( &self, board_id: &str, request: &AddBoardMemberRequest, ) -> Result<BoardMembe...` — `POST /api/boards/{id}/members` — grant capabilities
-- pub `replace_capabilities` function L632-643 — `( &self, board_id: &str, user_id: &str, request: &ReplaceCapabilitiesRequest, ) ...` — `PATCH /api/boards/{id}/members/{user_id}` — replace the full
-- pub `remove_board_member` function L646-653 — `( &self, board_id: &str, user_id: &str, ) -> Result<RemoveBoardMemberResponse, E...` — `DELETE /api/boards/{id}/members/{user_id}` — revoke everything.
-- pub `list_teams` function L658-660 — `(&self, page: Pagination) -> Result<ListEnvelope<Team>, Error>` — `GET /api/teams`.
-- pub `create_team` function L664-666 — `(&self, request: &CreateTeamRequest) -> Result<Team, Error>` — `POST /api/teams` — creates the team AND its delivery board
-- pub `get_team` function L669-671 — `(&self, team_id: &str) -> Result<Team, Error>` — `GET /api/teams/{id}`.
-- pub `update_team` function L674-680 — `( &self, team_id: &str, request: &UpdateTeamRequest, ) -> Result<Team, Error>` — `PATCH /api/teams/{id}`.
-- pub `delete_team` function L683-685 — `(&self, team_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}`.
-- pub `list_team_members` function L688-690 — `(&self, team_id: &str) -> Result<Vec<TeamMember>, Error>` — `GET /api/teams/{id}/members`.
-- pub `add_team_member` function L693-700 — `( &self, team_id: &str, request: &AddTeamMemberRequest, ) -> Result<TeamMember, ...` — `POST /api/teams/{id}/members`.
-- pub `remove_team_member` function L703-710 — `( &self, team_id: &str, user_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/members/{user_id}`.
-- pub `list_streams` function L715-720 — `( &self, page: Pagination, ) -> Result<ListEnvelope<DeliveryStream>, Error>` — `GET /api/delivery-streams`.
-- pub `create_stream` function L723-728 — `( &self, request: &CreateStreamRequest, ) -> Result<DeliveryStream, Error>` — `POST /api/delivery-streams`.
-- pub `get_stream` function L731-734 — `(&self, stream_id: &str) -> Result<DeliveryStream, Error>` — `GET /api/delivery-streams/{id}`.
-- pub `update_stream` function L737-744 — `( &self, stream_id: &str, request: &UpdateStreamRequest, ) -> Result<DeliveryStr...` — `PATCH /api/delivery-streams/{id}`.
-- pub `delete_stream` function L747-750 — `(&self, stream_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/delivery-streams/{id}`.
-- pub `list_stream_teams` function L753-756 — `(&self, stream_id: &str) -> Result<Vec<Team>, Error>` — `GET /api/delivery-streams/{id}/teams`.
-- pub `add_stream_team` function L759-766 — `( &self, stream_id: &str, request: &AddStreamTeamRequest, ) -> Result<OrgDeleteR...` — `POST /api/delivery-streams/{id}/teams`.
-- pub `remove_stream_team` function L769-778 — `( &self, stream_id: &str, team_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/delivery-streams/{id}/teams/{team_id}`.
-- pub `create_service_account` function L783-788 — `( &self, request: &crate::types_service_accounts::CreateServiceAccountRequest, )...` — `POST /api/service-accounts` — create a machine principal (org-admin).
-- pub `list_service_accounts` function L791-795 — `( &self, ) -> Result<crate::types_service_accounts::ServiceAccountList, Error>` — `GET /api/service-accounts` — list the org's service accounts.
-- pub `delete_service_account` function L798-803 — `( &self, id: &str, ) -> Result<crate::types_service_accounts::Deleted, Error>` — `DELETE /api/service-accounts/{id}` — delete a service account + its keys.
-- pub `create_api_key` function L806-816 — `( &self, service_account_id: &str, request: &crate::types_service_accounts::Crea...` — `POST /api/service-accounts/{id}/keys` — mint a key (raw returned once).
-- pub `list_api_keys` function L819-825 — `( &self, service_account_id: &str, ) -> Result<crate::types_service_accounts::Ap...` — `GET /api/service-accounts/{id}/keys` — list a service account's keys.
-- pub `revoke_api_key` function L828-837 — `( &self, service_account_id: &str, key_id: &str, ) -> Result<crate::types_servic...` — `DELETE /api/service-accounts/{id}/keys/{key_id}` — revoke a key.
-- pub `list_org_members` function L842-847 — `( &self, page: Pagination, ) -> Result<ListEnvelope<OrgMember>, Error>` — `GET /api/members`.
-- pub `add_org_member` function L851-853 — `(&self, request: &AddOrgMemberRequest) -> Result<OrgMember, Error>` — `POST /api/members` — add by email (the user must have logged in
-- pub `update_org_member` function L857-864 — `( &self, user_id: &str, request: &UpdateOrgMemberRequest, ) -> Result<OrgMember,...` — `PATCH /api/members/{user_id}` — role change (422 `LAST_ADMIN`
-- pub `remove_org_member` function L867-869 — `(&self, user_id: &str) -> Result<RemoveOrgMemberResponse, Error>` — `DELETE /api/members/{user_id}`.
-- pub `list_tenants` function L875-880 — `( &self, page: Pagination, ) -> Result<ListEnvelope<TenantSummary>, Error>` — `GET /api/admin/tenants` (deployment-admin only; cross-tenant, no
-- pub `create_tenant` function L883-888 — `( &self, request: &CreateTenantRequest, ) -> Result<TenantCreatedResponse, Error...` — `POST /api/admin/tenants` — provision a tenant (KAIROS-T-0008).
-- pub `delete_tenant` function L893-904 — `( &self, slug: &str, confirm: Option<bool>, ) -> Result<TenantDeletedResponse, E...` — `DELETE /api/admin/tenants/{slug}` — destructive; requires
-- pub `relationships` function L910-917 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemRelationshipsRespon...` — `GET /api/{family}/{short_code}/relationships` — both directions,
-- pub `set_document_lifecycle` function L922-934 — `( &self, short_code: &str, lifecycle: &str, ) -> Result<Document, Error>` — `PATCH /api/documents/{short_code}/lifecycle` — set a document's
-- pub `children_progress` function L939-946 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ChildrenProgressRespons...` — `GET /api/{family}/{short_code}/children-progress` — the direct
-- pub `item_links` function L950-956 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<Vec<crate::types_forge:...` — `GET /api/{family}/{short_code}/links` — the branches and
-- pub `team_links` function L960-970 — `( &self, team_id: &str, states: Option<&str>, ) -> Result<Vec<crate::types_forge...` — `GET /api/teams/{id}/links` — the team's in-flight forge links
-- pub `list_forge_connections` function L973-977 — `( &self, ) -> Result<Vec<crate::types_forge::ForgeConnection>, Error>` — `GET /api/forge-connections` (KAIROS-T-0097).
-- pub `get_forge_connection` function L980-985 — `( &self, id: &str, ) -> Result<crate::types_forge::ForgeConnection, Error>` — `GET /api/forge-connections/{id}`.
-- pub `create_forge_connection` function L989-994 — `( &self, request: &crate::types_forge::CreateForgeConnectionRequest, ) -> Result...` — `POST /api/forge-connections` (org admin) — the response carries
-- pub `list_repositories` function L1000-1008 — `( &self, team: Option<&str>, ) -> Result<Vec<crate::types_repositories::Reposito...` — `GET /api/repositories[?team=]` — the repository directory (open
-- pub `get_repository` function L1012-1017 — `( &self, reference: &str, ) -> Result<crate::types_repositories::RepositoryDetai...` — `GET /api/repositories/{slug}` — the repository, its webhook
-- pub `create_repository` function L1021-1026 — `( &self, request: &crate::types_repositories::CreateRepositoryRequest, ) -> Resu...` — `POST /api/repositories` — register a repository under its owning
-- pub `update_repository` function L1029-1036 — `( &self, reference: &str, request: &crate::types_repositories::UpdateRepositoryR...` — `PATCH /api/repositories/{slug}`.
-- pub `delete_repository` function L1039-1041 — `(&self, reference: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/repositories/{slug}` (org admin; 409 while referenced).
-- pub `delete_forge_connection` function L1044-1046 — `(&self, id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/forge-connections/{id}` (org admin).
-- pub `rotate_forge_connection` function L1050-1059 — `( &self, id: &str, ) -> Result<crate::types_forge::CreatedForgeConnection, Error...` — `POST /api/forge-connections/{id}/rotate` — mints a new connection
-- pub `get_item_graph` function L1064-1075 — `( &self, kind: EntityKind, short_code: &str, depth: Option<u32>, ) -> Result<cra...` — `GET /api/{family}/{short_code}/graph?depth=N` — the focal
-- pub `create_relationship` function L1078-1083 — `( &self, request: &CreateRelationshipRequest, ) -> Result<Relationship, Error>` — `POST /api/relationships` (org admin, KAIROS-A-0006).
-- pub `delete_relationship` function L1086-1092 — `( &self, relationship_id: &str, ) -> Result<DeletedResponse, Error>` — `DELETE /api/relationships/{id}` (org admin).
-- pub `metadata` function L1097-1104 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemMetadataResponse, E...` — `GET /api/{family}/{short_code}/metadata`.
-- pub `update_metadata` function L1108-1116 — `( &self, kind: EntityKind, short_code: &str, request: &UpdateMetadataRequest, ) ...` — `PATCH /api/{family}/{short_code}/metadata` — typed upsert; `null`
-- pub `get_team_by_slug` function L1123-1125 — `(&self, slug: &str) -> Result<Team, Error>` — `GET /api/teams/by-slug/{slug}`.
-- pub `list_team_pages` function L1129-1131 — `(&self, team_id: &str) -> Result<Vec<TeamPage>, Error>` — `GET /api/teams/{id}/pages` — the team's live page tree as a flat
-- pub `get_team_page` function L1134-1137 — `(&self, team_id: &str, page_id: &str) -> Result<TeamPage, Error>` — `GET /api/teams/{id}/pages/{page_id}`.
-- pub `create_team_page` function L1140-1147 — `( &self, team_id: &str, request: &CreateTeamPageRequest, ) -> Result<TeamPage, E...` — `POST /api/teams/{id}/pages` (team member or org admin).
-- pub `update_team_page` function L1151-1159 — `( &self, team_id: &str, page_id: &str, request: &UpdateTeamPageRequest, ) -> Res...` — `PATCH /api/teams/{id}/pages/{page_id}` — content edit
-- pub `delete_team_page` function L1163-1170 — `( &self, team_id: &str, page_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
-- pub `list_team_work_documents` function L1175-1181 — `( &self, team_id: &str, ) -> Result<Vec<TeamWorkDocument>, Error>` — `GET /api/teams/{id}/announcements` — pinned first, newest first.
-- pub `list_team_announcements` function L1183-1189 — `( &self, team_id: &str, ) -> Result<Vec<TeamAnnouncement>, Error>` — typed surface deliberately cannot express.
-- pub `create_team_announcement` function L1193-1200 — `( &self, team_id: &str, request: &CreateTeamAnnouncementRequest, ) -> Result<Tea...` — `POST /api/teams/{id}/announcements` (team member or org admin;
-- pub `delete_team_announcement` function L1204-1213 — `( &self, team_id: &str, announcement_id: &str, ) -> Result<OrgDeleteResponse, Er...` — `DELETE /api/teams/{id}/announcements/{announcement_id}` (author
-- pub `list_metadata_definitions` function L1216-1221 — `( &self, page: Pagination, ) -> Result<ListEnvelope<MetadataDefinition>, Error>` — `GET /api/metadata-definitions`.
-- pub `list_metadata_definitions_for` function L1226-1249 — `( &self, page: Pagination, entity_type: Option<&str>, ) -> Result<ListEnvelope<M...` — `GET /api/metadata-definitions?entity_type=…` — the catalog in
-- pub `get_metadata_definition` function L1252-1254 — `(&self, id: &str) -> Result<MetadataDefinition, Error>` — `GET /api/metadata-definitions/{id}`.
-- pub `create_metadata_definition` function L1257-1263 — `( &self, request: &CreateMetadataDefinitionRequest, ) -> Result<MetadataDefiniti...` — `POST /api/metadata-definitions` (org admin).
-- pub `update_metadata_definition` function L1266-1273 — `( &self, id: &str, request: &UpdateMetadataDefinitionRequest, ) -> Result<Metada...` — `PATCH /api/metadata-definitions/{id}` (org admin).
-- pub `delete_metadata_definition` function L1277-1280 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/metadata-definitions/{id}` (org admin; 409
-- pub `list_templates` function L1285-1287 — `(&self, page: Pagination) -> Result<ListEnvelope<Template>, Error>` — `GET /api/templates`.
-- pub `get_template` function L1290-1292 — `(&self, id: &str) -> Result<TemplateDetail, Error>` — `GET /api/templates/{id}` — template + metadata associations.
-- pub `create_template` function L1295-1300 — `( &self, request: &CreateTemplateRequest, ) -> Result<TemplateDetail, Error>` — `POST /api/templates` (org admin).
-- pub `update_template` function L1303-1309 — `( &self, id: &str, request: &UpdateTemplateRequest, ) -> Result<TemplateDetail, ...` — `PATCH /api/templates/{id}` (org admin).
-- pub `delete_template` function L1312-1314 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/templates/{id}` (org admin; hard delete).
-- pub `history` function L1320-1336 — `( &self, kind: EntityKind, short_code: &str, limit: Option<i64>, offset: Option<...` — `GET /api/{family}/{short_code}/history` — the version list,
-- pub `history_snapshot` function L1340-1355 — `( &self, kind: EntityKind, short_code: &str, version: i32, ) -> Result<HistorySn...` — `GET /api/{family}/{short_code}/history?version=N` — one full
-- pub `cascade_preview` function L1363-1370 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<CascadePreviewResponse,...` — `GET /api/{family}/{short_code}/cascade-preview` — the AUTHORITATIVE
-- pub `activity` function L1375-1380 — `( &self, query: &ActivityQuery, ) -> Result<ListEnvelope<ActivityEntry>, Error>` — `GET /api/activity` with combinable filters (S-0005).
-- pub `search` function L1385-1387 — `(&self, request: &SearchRequest) -> Result<SearchResponse, Error>` — `POST /api/search` — full-text + filter + traverse composition.
-- pub `whoami` function L1392-1394 — `(&self) -> Result<WhoamiResponse, Error>` — `GET /api/whoami` — the resolved user/tenant/teams identity probe.
+- pub `set_task_work_class` function L441-453 — `( &self, short_code: &str, work_class: &str, ) -> Result<Task, Error>` — `POST /api/tasks/{short_code}/work-class` — move a task between
+- pub `move_task` function L461-469 — `(&self, short_code: &str, board: &str) -> Result<Task, Error>` — `PUT /api/tasks/{short_code}/repository` — bind the task to a
+- pub `set_task_repository` function L471-483 — `( &self, short_code: &str, repository: Option<&str>, ) -> Result<Task, Error>` — typed surface deliberately cannot express.
+- pub `board_items_for_repository` function L488-499 — `( &self, board_id: &str, repository: &str, ) -> Result<BoardItemsResponse, Error...` — `GET /api/boards/{id}/items?repository=` — the board narrowed to
+- pub `list_boards` function L529-531 — `(&self, page: Pagination) -> Result<ListEnvelope<Board>, Error>` — `GET /api/boards`.
+- pub `create_board` function L535-537 — `(&self, request: &CreateBoardRequest) -> Result<BoardDetail, Error>` — `POST /api/boards` — create a board seeded from the system defaults
+- pub `get_board` function L540-542 — `(&self, board_id: &str) -> Result<BoardDetail, Error>` — `GET /api/boards/{id}` — board + columns + transition graph.
+- pub `update_board` function L545-552 — `( &self, board_id: &str, request: &UpdateBoardRequest, ) -> Result<Board, Error>` — `PATCH /api/boards/{id}` — board settings.
+- pub `delete_board` function L555-557 — `(&self, board_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/boards/{id}` (only when empty).
+- pub `board_items` function L560-562 — `(&self, board_id: &str) -> Result<BoardItemsResponse, Error>` — `GET /api/boards/{id}/items` — every live item grouped by column.
+- pub `list_columns` function L565-567 — `(&self, board_id: &str) -> Result<Vec<BoardColumn>, Error>` — `GET /api/boards/{id}/columns`.
+- pub `add_column` function L570-577 — `( &self, board_id: &str, request: &CreateColumnRequest, ) -> Result<BoardColumn,...` — `POST /api/boards/{id}/columns`.
+- pub `update_column` function L580-591 — `( &self, board_id: &str, column_id: &str, request: &UpdateColumnRequest, ) -> Re...` — `PATCH /api/boards/{id}/columns/{col_id}` — rename and/or move.
+- pub `remove_column` function L594-601 — `( &self, board_id: &str, column_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/boards/{id}/columns/{col_id}` (only when empty).
+- pub `list_transitions` function L604-607 — `(&self, board_id: &str) -> Result<Vec<BoardTransition>, Error>` — `GET /api/boards/{id}/transitions`.
+- pub `add_transition` function L610-617 — `( &self, board_id: &str, request: &CreateTransitionRequest, ) -> Result<BoardTra...` — `POST /api/boards/{id}/transitions`.
+- pub `remove_transition` function L620-629 — `( &self, board_id: &str, transition_id: &str, ) -> Result<OrgDeleteResponse, Err...` — `DELETE /api/boards/{id}/transitions/{transition_id}`.
+- pub `list_board_members` function L632-634 — `(&self, board_id: &str) -> Result<Vec<BoardMember>, Error>` — `GET /api/boards/{id}/members` — members + capability grants.
+- pub `add_board_member` function L638-645 — `( &self, board_id: &str, request: &AddBoardMemberRequest, ) -> Result<BoardMembe...` — `POST /api/boards/{id}/members` — grant capabilities
+- pub `replace_capabilities` function L649-660 — `( &self, board_id: &str, user_id: &str, request: &ReplaceCapabilitiesRequest, ) ...` — `PATCH /api/boards/{id}/members/{user_id}` — replace the full
+- pub `remove_board_member` function L663-670 — `( &self, board_id: &str, user_id: &str, ) -> Result<RemoveBoardMemberResponse, E...` — `DELETE /api/boards/{id}/members/{user_id}` — revoke everything.
+- pub `list_teams` function L675-677 — `(&self, page: Pagination) -> Result<ListEnvelope<Team>, Error>` — `GET /api/teams`.
+- pub `create_team` function L681-683 — `(&self, request: &CreateTeamRequest) -> Result<Team, Error>` — `POST /api/teams` — creates the team AND its delivery board
+- pub `get_team` function L686-688 — `(&self, team_id: &str) -> Result<Team, Error>` — `GET /api/teams/{id}`.
+- pub `update_team` function L691-697 — `( &self, team_id: &str, request: &UpdateTeamRequest, ) -> Result<Team, Error>` — `PATCH /api/teams/{id}`.
+- pub `delete_team` function L700-702 — `(&self, team_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}`.
+- pub `list_team_members` function L705-707 — `(&self, team_id: &str) -> Result<Vec<TeamMember>, Error>` — `GET /api/teams/{id}/members`.
+- pub `add_team_member` function L710-717 — `( &self, team_id: &str, request: &AddTeamMemberRequest, ) -> Result<TeamMember, ...` — `POST /api/teams/{id}/members`.
+- pub `remove_team_member` function L720-727 — `( &self, team_id: &str, user_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/members/{user_id}`.
+- pub `list_streams` function L732-737 — `( &self, page: Pagination, ) -> Result<ListEnvelope<DeliveryStream>, Error>` — `GET /api/delivery-streams`.
+- pub `create_stream` function L740-745 — `( &self, request: &CreateStreamRequest, ) -> Result<DeliveryStream, Error>` — `POST /api/delivery-streams`.
+- pub `get_stream` function L748-751 — `(&self, stream_id: &str) -> Result<DeliveryStream, Error>` — `GET /api/delivery-streams/{id}`.
+- pub `update_stream` function L754-761 — `( &self, stream_id: &str, request: &UpdateStreamRequest, ) -> Result<DeliveryStr...` — `PATCH /api/delivery-streams/{id}`.
+- pub `delete_stream` function L764-767 — `(&self, stream_id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/delivery-streams/{id}`.
+- pub `list_stream_teams` function L770-773 — `(&self, stream_id: &str) -> Result<Vec<Team>, Error>` — `GET /api/delivery-streams/{id}/teams`.
+- pub `add_stream_team` function L776-783 — `( &self, stream_id: &str, request: &AddStreamTeamRequest, ) -> Result<OrgDeleteR...` — `POST /api/delivery-streams/{id}/teams`.
+- pub `remove_stream_team` function L786-795 — `( &self, stream_id: &str, team_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/delivery-streams/{id}/teams/{team_id}`.
+- pub `create_service_account` function L800-805 — `( &self, request: &crate::types_service_accounts::CreateServiceAccountRequest, )...` — `POST /api/service-accounts` — create a machine principal (org-admin).
+- pub `list_service_accounts` function L808-812 — `( &self, ) -> Result<crate::types_service_accounts::ServiceAccountList, Error>` — `GET /api/service-accounts` — list the org's service accounts.
+- pub `delete_service_account` function L815-820 — `( &self, id: &str, ) -> Result<crate::types_service_accounts::Deleted, Error>` — `DELETE /api/service-accounts/{id}` — delete a service account + its keys.
+- pub `create_api_key` function L823-833 — `( &self, service_account_id: &str, request: &crate::types_service_accounts::Crea...` — `POST /api/service-accounts/{id}/keys` — mint a key (raw returned once).
+- pub `list_api_keys` function L836-842 — `( &self, service_account_id: &str, ) -> Result<crate::types_service_accounts::Ap...` — `GET /api/service-accounts/{id}/keys` — list a service account's keys.
+- pub `revoke_api_key` function L845-854 — `( &self, service_account_id: &str, key_id: &str, ) -> Result<crate::types_servic...` — `DELETE /api/service-accounts/{id}/keys/{key_id}` — revoke a key.
+- pub `list_org_members` function L859-864 — `( &self, page: Pagination, ) -> Result<ListEnvelope<OrgMember>, Error>` — `GET /api/members`.
+- pub `add_org_member` function L868-870 — `(&self, request: &AddOrgMemberRequest) -> Result<OrgMember, Error>` — `POST /api/members` — add by email (the user must have logged in
+- pub `update_org_member` function L874-881 — `( &self, user_id: &str, request: &UpdateOrgMemberRequest, ) -> Result<OrgMember,...` — `PATCH /api/members/{user_id}` — role change (422 `LAST_ADMIN`
+- pub `remove_org_member` function L884-886 — `(&self, user_id: &str) -> Result<RemoveOrgMemberResponse, Error>` — `DELETE /api/members/{user_id}`.
+- pub `list_tenants` function L892-897 — `( &self, page: Pagination, ) -> Result<ListEnvelope<TenantSummary>, Error>` — `GET /api/admin/tenants` (deployment-admin only; cross-tenant, no
+- pub `create_tenant` function L900-905 — `( &self, request: &CreateTenantRequest, ) -> Result<TenantCreatedResponse, Error...` — `POST /api/admin/tenants` — provision a tenant (KAIROS-T-0008).
+- pub `delete_tenant` function L910-921 — `( &self, slug: &str, confirm: Option<bool>, ) -> Result<TenantDeletedResponse, E...` — `DELETE /api/admin/tenants/{slug}` — destructive; requires
+- pub `relationships` function L927-934 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemRelationshipsRespon...` — `GET /api/{family}/{short_code}/relationships` — both directions,
+- pub `set_document_lifecycle` function L939-951 — `( &self, short_code: &str, lifecycle: &str, ) -> Result<Document, Error>` — `PATCH /api/documents/{short_code}/lifecycle` — set a document's
+- pub `children_progress` function L956-963 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ChildrenProgressRespons...` — `GET /api/{family}/{short_code}/children-progress` — the direct
+- pub `item_links` function L967-973 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<Vec<crate::types_forge:...` — `GET /api/{family}/{short_code}/links` — the branches and
+- pub `team_links` function L977-987 — `( &self, team_id: &str, states: Option<&str>, ) -> Result<Vec<crate::types_forge...` — `GET /api/teams/{id}/links` — the team's in-flight forge links
+- pub `list_forge_connections` function L990-994 — `( &self, ) -> Result<Vec<crate::types_forge::ForgeConnection>, Error>` — `GET /api/forge-connections` (KAIROS-T-0097).
+- pub `get_forge_connection` function L997-1002 — `( &self, id: &str, ) -> Result<crate::types_forge::ForgeConnection, Error>` — `GET /api/forge-connections/{id}`.
+- pub `create_forge_connection` function L1006-1011 — `( &self, request: &crate::types_forge::CreateForgeConnectionRequest, ) -> Result...` — `POST /api/forge-connections` (org admin) — the response carries
+- pub `list_repositories` function L1017-1025 — `( &self, team: Option<&str>, ) -> Result<Vec<crate::types_repositories::Reposito...` — `GET /api/repositories[?team=]` — the repository directory (open
+- pub `get_repository` function L1029-1034 — `( &self, reference: &str, ) -> Result<crate::types_repositories::RepositoryDetai...` — `GET /api/repositories/{slug}` — the repository, its webhook
+- pub `create_repository` function L1038-1043 — `( &self, request: &crate::types_repositories::CreateRepositoryRequest, ) -> Resu...` — `POST /api/repositories` — register a repository under its owning
+- pub `update_repository` function L1046-1053 — `( &self, reference: &str, request: &crate::types_repositories::UpdateRepositoryR...` — `PATCH /api/repositories/{slug}`.
+- pub `delete_repository` function L1056-1058 — `(&self, reference: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/repositories/{slug}` (org admin; 409 while referenced).
+- pub `delete_forge_connection` function L1061-1063 — `(&self, id: &str) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/forge-connections/{id}` (org admin).
+- pub `rotate_forge_connection` function L1067-1076 — `( &self, id: &str, ) -> Result<crate::types_forge::CreatedForgeConnection, Error...` — `POST /api/forge-connections/{id}/rotate` — mints a new connection
+- pub `get_item_graph` function L1081-1092 — `( &self, kind: EntityKind, short_code: &str, depth: Option<u32>, ) -> Result<cra...` — `GET /api/{family}/{short_code}/graph?depth=N` — the focal
+- pub `create_relationship` function L1095-1100 — `( &self, request: &CreateRelationshipRequest, ) -> Result<Relationship, Error>` — `POST /api/relationships` (org admin, KAIROS-A-0006).
+- pub `delete_relationship` function L1103-1109 — `( &self, relationship_id: &str, ) -> Result<DeletedResponse, Error>` — `DELETE /api/relationships/{id}` (org admin).
+- pub `metadata` function L1114-1121 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<ItemMetadataResponse, E...` — `GET /api/{family}/{short_code}/metadata`.
+- pub `update_metadata` function L1125-1133 — `( &self, kind: EntityKind, short_code: &str, request: &UpdateMetadataRequest, ) ...` — `PATCH /api/{family}/{short_code}/metadata` — typed upsert; `null`
+- pub `get_team_by_slug` function L1140-1142 — `(&self, slug: &str) -> Result<Team, Error>` — `GET /api/teams/by-slug/{slug}`.
+- pub `list_team_pages` function L1146-1148 — `(&self, team_id: &str) -> Result<Vec<TeamPage>, Error>` — `GET /api/teams/{id}/pages` — the team's live page tree as a flat
+- pub `get_team_page` function L1151-1154 — `(&self, team_id: &str, page_id: &str) -> Result<TeamPage, Error>` — `GET /api/teams/{id}/pages/{page_id}`.
+- pub `create_team_page` function L1157-1164 — `( &self, team_id: &str, request: &CreateTeamPageRequest, ) -> Result<TeamPage, E...` — `POST /api/teams/{id}/pages` (team member or org admin).
+- pub `update_team_page` function L1168-1176 — `( &self, team_id: &str, page_id: &str, request: &UpdateTeamPageRequest, ) -> Res...` — `PATCH /api/teams/{id}/pages/{page_id}` — content edit
+- pub `delete_team_page` function L1180-1187 — `( &self, team_id: &str, page_id: &str, ) -> Result<OrgDeleteResponse, Error>` — `DELETE /api/teams/{id}/pages/{page_id}` (soft; folders must be
+- pub `list_team_work_documents` function L1192-1198 — `( &self, team_id: &str, ) -> Result<Vec<TeamWorkDocument>, Error>` — `GET /api/teams/{id}/announcements` — pinned first, newest first.
+- pub `list_team_announcements` function L1200-1206 — `( &self, team_id: &str, ) -> Result<Vec<TeamAnnouncement>, Error>` — typed surface deliberately cannot express.
+- pub `create_team_announcement` function L1210-1217 — `( &self, team_id: &str, request: &CreateTeamAnnouncementRequest, ) -> Result<Tea...` — `POST /api/teams/{id}/announcements` (team member or org admin;
+- pub `delete_team_announcement` function L1221-1230 — `( &self, team_id: &str, announcement_id: &str, ) -> Result<OrgDeleteResponse, Er...` — `DELETE /api/teams/{id}/announcements/{announcement_id}` (author
+- pub `list_metadata_definitions` function L1233-1238 — `( &self, page: Pagination, ) -> Result<ListEnvelope<MetadataDefinition>, Error>` — `GET /api/metadata-definitions`.
+- pub `list_metadata_definitions_for` function L1243-1266 — `( &self, page: Pagination, entity_type: Option<&str>, ) -> Result<ListEnvelope<M...` — `GET /api/metadata-definitions?entity_type=…` — the catalog in
+- pub `get_metadata_definition` function L1269-1271 — `(&self, id: &str) -> Result<MetadataDefinition, Error>` — `GET /api/metadata-definitions/{id}`.
+- pub `create_metadata_definition` function L1274-1280 — `( &self, request: &CreateMetadataDefinitionRequest, ) -> Result<MetadataDefiniti...` — `POST /api/metadata-definitions` (org admin).
+- pub `update_metadata_definition` function L1283-1290 — `( &self, id: &str, request: &UpdateMetadataDefinitionRequest, ) -> Result<Metada...` — `PATCH /api/metadata-definitions/{id}` (org admin).
+- pub `delete_metadata_definition` function L1294-1297 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/metadata-definitions/{id}` (org admin; 409
+- pub `list_templates` function L1302-1304 — `(&self, page: Pagination) -> Result<ListEnvelope<Template>, Error>` — `GET /api/templates`.
+- pub `get_template` function L1307-1309 — `(&self, id: &str) -> Result<TemplateDetail, Error>` — `GET /api/templates/{id}` — template + metadata associations.
+- pub `create_template` function L1312-1317 — `( &self, request: &CreateTemplateRequest, ) -> Result<TemplateDetail, Error>` — `POST /api/templates` (org admin).
+- pub `update_template` function L1320-1326 — `( &self, id: &str, request: &UpdateTemplateRequest, ) -> Result<TemplateDetail, ...` — `PATCH /api/templates/{id}` (org admin).
+- pub `delete_template` function L1329-1331 — `(&self, id: &str) -> Result<DeletedResponse, Error>` — `DELETE /api/templates/{id}` (org admin; hard delete).
+- pub `history` function L1337-1353 — `( &self, kind: EntityKind, short_code: &str, limit: Option<i64>, offset: Option<...` — `GET /api/{family}/{short_code}/history` — the version list,
+- pub `history_snapshot` function L1357-1372 — `( &self, kind: EntityKind, short_code: &str, version: i32, ) -> Result<HistorySn...` — `GET /api/{family}/{short_code}/history?version=N` — one full
+- pub `cascade_preview` function L1380-1387 — `( &self, kind: EntityKind, short_code: &str, ) -> Result<CascadePreviewResponse,...` — `GET /api/{family}/{short_code}/cascade-preview` — the AUTHORITATIVE
+- pub `activity` function L1392-1397 — `( &self, query: &ActivityQuery, ) -> Result<ListEnvelope<ActivityEntry>, Error>` — `GET /api/activity` with combinable filters (S-0005).
+- pub `search` function L1402-1404 — `(&self, request: &SearchRequest) -> Result<SearchResponse, Error>` — `POST /api/search` — full-text + filter + traverse composition.
+- pub `whoami` function L1409-1411 — `(&self) -> Result<WhoamiResponse, Error>` — `GET /api/whoami` — the resolved user/tenant/teams identity probe.
 -  `StaticToken` type L70-75 — `impl TokenProvider for StaticToken` — typed surface deliberately cannot express.
 -  `bearer_token` function L71-74 — `(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>>` — typed surface deliberately cannot express.
 -  `EntityKind` type L88-99 — `= EntityKind` — typed surface deliberately cannot express.
@@ -825,10 +828,10 @@
 -  `patch` function L254-265 — `( &self, path: &str, body: &(impl Serialize + ?Sized), ) -> Result<T, Error>` — typed surface deliberately cannot express.
 -  `put_ok` function L269-280 — `( &self, path: &str, body: &(impl Serialize + ?Sized), ) -> Result<T, Error>` — PUT expecting 200 OK (whole-field replacement, e.g.
 -  `delete` function L282-289 — `(&self, path: &str) -> Result<T, Error>` — typed surface deliberately cannot express.
--  `entity_family` macro L322-362 — `-` — The five entity CRUD families (S-0005; KAIROS-T-0018 contracts).
--  `entity_transition` macro L365-383 — `-` — `POST /api/{family}/{short_code}/transition` for the on-board families.
--  `KairosClient` type L385-1395 — `= KairosClient` — typed surface deliberately cannot express.
--  `DefinitionQuery` struct L1232-1239 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<&'a str> }` — typed surface deliberately cannot express.
+-  `entity_family` macro L322-374 — `-` — The five entity CRUD families (S-0005; KAIROS-T-0018 contracts).
+-  `entity_transition` macro L377-395 — `-` — `POST /api/{family}/{short_code}/transition` for the on-board families.
+-  `KairosClient` type L397-1412 — `= KairosClient` — typed surface deliberately cannot express.
+-  `DefinitionQuery` struct L1249-1256 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<&'a str> }` — typed surface deliberately cannot express.
 
 #### crates/kairos-client/src/error.rs
 
@@ -883,9 +886,10 @@
 - pub `ListEnvelope` struct L396-404 — `{ items: Vec<T>, total: i64, limit: i64, offset: i64 }` — The S-0005 list envelope: `{items, total, limit, offset}`.
 - pub `Pagination` struct L410-417 — `{ limit: Option<i64>, offset: Option<i64> }` — `?limit=&offset=` pagination for list endpoints (S-0005: the only list
 - pub `DeleteResponse` struct L422-429 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — Response of `DELETE /api/{family}/{short_code}` — the soft delete and
-- pub `CascadePreviewResponse` struct L439-447 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — Response of `GET /api/{entity_type}/{short_code}/cascade-preview`
-- pub `ErrorEnvelope` struct L451-453 — `{ error: ErrorBody }` — The S-0005 error envelope: `{"error": {"code", "message", "details"}}`.
-- pub `ErrorBody` struct L457-468 — `{ code: String, message: String, details: serde_json::Value }` — The `error` object of [`ErrorEnvelope`].
+- pub `RestoreResponse` struct L439-446 — `{ short_code: String, still_archived_count: i64, still_archived_short_codes: Vec...` — Response of `POST /api/{entity_type}/{short_code}/restore`
+- pub `CascadePreviewResponse` struct L456-464 — `{ short_code: String, cascade_count: i64, cascaded_short_codes: Vec<String> }` — Response of `GET /api/{entity_type}/{short_code}/cascade-preview`
+- pub `ErrorEnvelope` struct L468-470 — `{ error: ErrorBody }` — The S-0005 error envelope: `{"error": {"code", "message", "details"}}`.
+- pub `ErrorBody` struct L474-485 — `{ code: String, message: String, details: serde_json::Value }` — The `error` object of [`ErrorEnvelope`].
 
 #### crates/kairos-client/src/types_events.rs
 
@@ -1411,16 +1415,16 @@
 #### crates/kairos-db/src/events.rs
 
 - pub `EVENT_CHANNEL` variable L53 — `: &str` — The one NOTIFY channel every Kairos event travels on (A-0005 §5).
-- pub `EventKind` enum L57-77 — `ItemCreated | ItemUpdated | ItemTransitioned | ItemMoved | ItemDeleted | Relatio...` — The S-0005 event vocabulary.
-- pub `as_str` function L81-92 — `(self) -> &'static str` — The wire name (`event` field).
-- pub `ThinEvent` struct L97-110 — `{ event: EventKind, entity_type: String, short_code: String, board_id: Option<Uu...` — One thin change event (S-0005 shape, before tenant tagging).
-- pub `emit_event` function L132-157 — `(conn: &mut PgConnection, event: &ThinEvent) -> Result<(), DieselError>` — Emit `event` on [`EVENT_CHANNEL`], tagged with the current connection's
-- pub `ItemPlacement` type L160 — `= (String, Option<Uuid>, Option<Uuid>)` — [`item_placement`]'s row: `(short_code, board_id, column_id)`.
-- pub `item_placement` function L166-187 — `( conn: &mut PgConnection, entity_type: &str, item_id: Uuid, ) -> Result<Option<...` — `(short_code, board_id, column_id)` of an item by id, straight from its
-- pub `emit_item_event_by_id` function L192-213 — `( conn: &mut PgConnection, event: EventKind, entity_type: &str, item_id: Uuid, a...` — Convenience for call sites that only hold an item id: look up the
--  `EventKind` type L79-93 — `= EventKind` — short-code prefix.
--  `SchemaName` struct L113-116 — `{ name: String }` — short-code prefix.
--  `PlacementRow` struct L119-126 — `{ short_code: String, board_id: Option<Uuid>, column_id: Option<Uuid> }` — short-code prefix.
+- pub `EventKind` enum L57-82 — `ItemCreated | ItemUpdated | ItemTransitioned | ItemMoved | ItemDeleted | ItemRes...` — The S-0005 event vocabulary.
+- pub `as_str` function L86-98 — `(self) -> &'static str` — The wire name (`event` field).
+- pub `ThinEvent` struct L103-116 — `{ event: EventKind, entity_type: String, short_code: String, board_id: Option<Uu...` — One thin change event (S-0005 shape, before tenant tagging).
+- pub `emit_event` function L138-163 — `(conn: &mut PgConnection, event: &ThinEvent) -> Result<(), DieselError>` — Emit `event` on [`EVENT_CHANNEL`], tagged with the current connection's
+- pub `ItemPlacement` type L166 — `= (String, Option<Uuid>, Option<Uuid>)` — [`item_placement`]'s row: `(short_code, board_id, column_id)`.
+- pub `item_placement` function L172-193 — `( conn: &mut PgConnection, entity_type: &str, item_id: Uuid, ) -> Result<Option<...` — `(short_code, board_id, column_id)` of an item by id, straight from its
+- pub `emit_item_event_by_id` function L198-219 — `( conn: &mut PgConnection, event: EventKind, entity_type: &str, item_id: Uuid, a...` — Convenience for call sites that only hold an item id: look up the
+-  `EventKind` type L84-99 — `= EventKind` — short-code prefix.
+-  `SchemaName` struct L119-122 — `{ name: String }` — short-code prefix.
+-  `PlacementRow` struct L125-132 — `{ short_code: String, board_id: Option<Uuid>, column_id: Option<Uuid> }` — short-code prefix.
 
 #### crates/kairos-db/src/forge.rs
 
@@ -1443,42 +1447,42 @@
 
 #### crates/kairos-db/src/graph.rs
 
-- pub `GraphError` enum L53-92 — `ItemNotFound | SelfLink | Rule | CycleDetected | AlreadyLinked | NotLinked | Dat...` — Errors from the relationship-graph services.
-- pub `link_items` function L203-273 — `( conn: &mut PgConnection, source_id: Uuid, target_id: Uuid, relationship: Relat...` — Create a `relationship` edge from `source_id` to `target_id`
-- pub `unlink_items` function L281-338 — `( conn: &mut PgConnection, source_id: Uuid, target_id: Uuid, relationship: Relat...` — Remove the `relationship` edge from `source_id` to `target_id`, in ONE
-- pub `Neighbor` struct L344-355 — `{ relationship: RelationshipType, id: Uuid, short_code: String, entity_type: Ite...` — One neighbor of an item in the relationship graph, hydrated through
-- pub `ItemRelationships` struct L360-369 — `{ outgoing: Vec<Neighbor>, incoming: Vec<Neighbor> }` — Both directions of an item's relationships, each grouped by
-- pub `relationships_for` function L428-436 — `( conn: &mut PgConnection, item_id: Uuid, ) -> Result<ItemRelationships, GraphEr...` — Every relationship touching `item_id`, in BOTH directions, grouped by
-- pub `ChildColumnCount` struct L444-460 — `{ column_id: Uuid, column_name: String, board_id: Uuid, is_done: bool, board_has...` — One column bucket of a parent's direct children.
-- pub `children_progress` function L474-494 — `( conn: &mut PgConnection, parent_id: Uuid, ) -> Result<Vec<ChildColumnCount>, D...` — Direct `parent`-edge children of `parent_id`, grouped by their board
-- pub `ProgressCounts` struct L512-516 — `{ done: i64, total: i64, has_done: bool }` — A parent's `(done, total, has_done_semantics)` children rollup.
-- pub `board_children_progress` function L521-555 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<std::collections::HashMap...` — Children rollups for EVERY item on `board_id` that has direct
-- pub `TeamWorkDocument` struct L564-577 — `{ short_code: String, title: String, lifecycle: String, parent_short_code: Strin...` — One document attached to a team's work, with its supports-parent for
-- pub `team_work_documents` function L588-610 — `( conn: &mut PgConnection, team_id: Uuid, delivery_board: Option<Uuid>, ) -> Res...` — The documents attached to a team's WORK (KAIROS-T-0084): live documents
-- pub `SubgraphNode` struct L621-629 — `{ id: Uuid, short_code: String, entity_type: ItemType, title: String, status: St...` — One hydrated node of a focal subgraph.
-- pub `SubgraphEdge` struct L635-640 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType, depth: i32 }` — One typed directed edge between two visible subgraph nodes.
-- pub `item_subgraph` function L684-785 — `( conn: &mut PgConnection, root: Uuid, depth: u32, ) -> Result<(Vec<SubgraphNode...` — The focal subgraph around `root` (KAIROS-T-0088): every live node
-- pub `BlocksCounts` struct L793-798 — `{ blocked_by: i64, blocks: i64 }` — The dependency counts one board card shows (KAIROS-T-0091).
-- pub `blocks_summary` function L814-845 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<std::collections::HashMap<U...` — Blocked-by/blocks counts for a set of items in ONE grouped query
-- pub `team_link_rollup` function L862-890 — `( conn: &mut PgConnection, team_id: Uuid, delivery_board: Option<Uuid>, states: ...` — Forge links across a team's WORK (KAIROS-T-0101).
-- pub `TeamLinkRow` struct L895-920 — `{ id: Uuid, kind: String, external_id: String, title: String, url: String, state...` — One row of [`team_link_rollup`] — the link plus the repo and the work
-- pub `repository_link_rollup` function L925-948 — `( conn: &mut PgConnection, repository_id: Uuid, states: &[&str], limit: i64, ) -...` — Forge links on ONE repository (KAIROS-T-0106): the repository detail's
--  `core_relationship` function L96-104 — `(relationship: RelationshipType) -> rules::Relationship` — The pure mirror of a stored [`RelationshipType`] (kairos-core carries no
--  `parse_entity_type` function L108-121 — `(value: &str) -> Result<ItemType, GraphError>` — Parse an `entity_directory.entity_type` value.
--  `DirectoryRow` struct L124-129 — `{ entity_type: String, short_code: String }` — [`crate::abac::grant_capability`].
--  `resolve_entity` function L134-145 — `( conn: &mut PgConnection, id: Uuid, ) -> Result<Option<(ItemType, String)>, Gra...` — Resolve a UUID to its live entity type and short code via
--  `log_relationship_activity` function L149-167 — `( conn: &mut PgConnection, actor: Uuid, action: ActivityAction, relationship: Re...` — Insert one relationship `activity_log` row: `entity_id`/`entity_type`
--  `load_edges` function L171-187 — `( conn: &mut PgConnection, relationship: RelationshipType, ) -> Result<Vec<rules...` — All existing edges of ONE relationship type in the current tenant
--  `NeighborRow` struct L372-383 — `{ relationship: RelationshipType, id: Uuid, short_code: String, entity_type: Str...` — [`crate::abac::grant_capability`].
--  `NeighborRow` type L385-395 — `= NeighborRow` — [`crate::abac::grant_capability`].
--  `into_neighbor` function L386-394 — `(self) -> Result<Neighbor, GraphError>` — [`crate::abac::grant_capability`].
--  `neighbors_of` function L403-419 — `( conn: &mut PgConnection, item_id: Uuid, own_column: &str, other_column: &str, ...` — One direction of [`relationships_for`]: edges where `item_id` sits in
--  `CHILD_COLUMNS_SQL` variable L466-470 — `: &str` — The live workflow-item id → column_id union the progress queries join
--  `BoardProgressRow` struct L497-506 — `{ parent_id: Uuid, is_done: bool, board_has_done: bool, count: i64 }` — [`crate::abac::grant_capability`].
--  `DepthRow` struct L643-648 — `{ id: Uuid, depth: i32 }` — [`crate::abac::grant_capability`].
--  `NodeHydrationRow` struct L651-664 — `{ id: Uuid, short_code: String, entity_type: String, title: String, status: Stri...` — [`crate::abac::grant_capability`].
--  `EdgeRow` struct L667-674 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType }` — [`crate::abac::grant_capability`].
--  `BlocksRow` struct L801-808 — `{ id: Uuid, blocked_by: i64, blocks: i64 }` — [`crate::abac::grant_capability`].
+- pub `GraphError` enum L65-104 — `ItemNotFound | SelfLink | Rule | CycleDetected | AlreadyLinked | NotLinked | Dat...` — Errors from the relationship-graph services.
+- pub `link_items` function L219-289 — `( conn: &mut PgConnection, source_id: Uuid, target_id: Uuid, relationship: Relat...` — Create a `relationship` edge from `source_id` to `target_id`
+- pub `unlink_items` function L297-354 — `( conn: &mut PgConnection, source_id: Uuid, target_id: Uuid, relationship: Relat...` — Remove the `relationship` edge from `source_id` to `target_id`, in ONE
+- pub `Neighbor` struct L360-371 — `{ relationship: RelationshipType, id: Uuid, short_code: String, entity_type: Ite...` — One neighbor of an item in the relationship graph, hydrated through
+- pub `ItemRelationships` struct L376-385 — `{ outgoing: Vec<Neighbor>, incoming: Vec<Neighbor> }` — Both directions of an item's relationships, each grouped by
+- pub `relationships_for` function L447-455 — `( conn: &mut PgConnection, item_id: Uuid, ) -> Result<ItemRelationships, GraphEr...` — Every relationship touching `item_id`, in BOTH directions, grouped by
+- pub `ChildColumnCount` struct L463-479 — `{ column_id: Uuid, column_name: String, board_id: Uuid, is_done: bool, board_has...` — One column bucket of a parent's direct children.
+- pub `children_progress` function L493-513 — `( conn: &mut PgConnection, parent_id: Uuid, ) -> Result<Vec<ChildColumnCount>, D...` — Direct `parent`-edge children of `parent_id`, grouped by their board
+- pub `ProgressCounts` struct L531-535 — `{ done: i64, total: i64, has_done: bool }` — A parent's `(done, total, has_done_semantics)` children rollup.
+- pub `board_children_progress` function L540-574 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<std::collections::HashMap...` — Children rollups for EVERY item on `board_id` that has direct
+- pub `TeamWorkDocument` struct L583-596 — `{ short_code: String, title: String, lifecycle: String, parent_short_code: Strin...` — One document attached to a team's work, with its supports-parent for
+- pub `team_work_documents` function L607-629 — `( conn: &mut PgConnection, team_id: Uuid, delivery_board: Option<Uuid>, ) -> Res...` — The documents attached to a team's WORK (KAIROS-T-0084): live documents
+- pub `SubgraphNode` struct L640-648 — `{ id: Uuid, short_code: String, entity_type: ItemType, title: String, status: St...` — One hydrated node of a focal subgraph.
+- pub `SubgraphEdge` struct L654-659 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType, depth: i32 }` — One typed directed edge between two visible subgraph nodes.
+- pub `item_subgraph` function L703-806 — `( conn: &mut PgConnection, root: Uuid, depth: u32, ) -> Result<(Vec<SubgraphNode...` — The focal subgraph around `root` (KAIROS-T-0088): every live node
+- pub `BlocksCounts` struct L814-819 — `{ blocked_by: i64, blocks: i64 }` — The dependency counts one board card shows (KAIROS-T-0091).
+- pub `blocks_summary` function L835-867 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<std::collections::HashMap<U...` — Blocked-by/blocks counts for a set of items in ONE grouped query
+- pub `team_link_rollup` function L884-912 — `( conn: &mut PgConnection, team_id: Uuid, delivery_board: Option<Uuid>, states: ...` — Forge links across a team's WORK (KAIROS-T-0101).
+- pub `TeamLinkRow` struct L917-942 — `{ id: Uuid, kind: String, external_id: String, title: String, url: String, state...` — One row of [`team_link_rollup`] — the link plus the repo and the work
+- pub `repository_link_rollup` function L947-970 — `( conn: &mut PgConnection, repository_id: Uuid, states: &[&str], limit: i64, ) -...` — Forge links on ONE repository (KAIROS-T-0106): the repository detail's
+-  `core_relationship` function L108-116 — `(relationship: RelationshipType) -> rules::Relationship` — The pure mirror of a stored [`RelationshipType`] (kairos-core carries no
+-  `parse_entity_type` function L120-133 — `(value: &str) -> Result<ItemType, GraphError>` — Parse an `entity_directory.entity_type` value.
+-  `DirectoryRow` struct L136-141 — `{ entity_type: String, short_code: String }` — [`crate::abac::grant_capability`].
+-  `resolve_entity` function L148-161 — `( conn: &mut PgConnection, id: Uuid, ) -> Result<Option<(ItemType, String)>, Gra...` — Resolve a UUID to its live entity type and short code via
+-  `log_relationship_activity` function L165-183 — `( conn: &mut PgConnection, actor: Uuid, action: ActivityAction, relationship: Re...` — Insert one relationship `activity_log` row: `entity_id`/`entity_type`
+-  `load_edges` function L187-203 — `( conn: &mut PgConnection, relationship: RelationshipType, ) -> Result<Vec<rules...` — All existing edges of ONE relationship type in the current tenant
+-  `NeighborRow` struct L388-399 — `{ relationship: RelationshipType, id: Uuid, short_code: String, entity_type: Str...` — [`crate::abac::grant_capability`].
+-  `NeighborRow` type L401-411 — `= NeighborRow` — [`crate::abac::grant_capability`].
+-  `into_neighbor` function L402-410 — `(self) -> Result<Neighbor, GraphError>` — [`crate::abac::grant_capability`].
+-  `neighbors_of` function L421-438 — `( conn: &mut PgConnection, item_id: Uuid, own_column: &str, other_column: &str, ...` — One direction of [`relationships_for`]: edges where `item_id` sits in
+-  `CHILD_COLUMNS_SQL` variable L485-489 — `: &str` — The live workflow-item id → column_id union the progress queries join
+-  `BoardProgressRow` struct L516-525 — `{ parent_id: Uuid, is_done: bool, board_has_done: bool, count: i64 }` — [`crate::abac::grant_capability`].
+-  `DepthRow` struct L662-667 — `{ id: Uuid, depth: i32 }` — [`crate::abac::grant_capability`].
+-  `NodeHydrationRow` struct L670-683 — `{ id: Uuid, short_code: String, entity_type: String, title: String, status: Stri...` — [`crate::abac::grant_capability`].
+-  `EdgeRow` struct L686-693 — `{ source_id: Uuid, target_id: Uuid, relationship: RelationshipType }` — [`crate::abac::grant_capability`].
+-  `BlocksRow` struct L822-829 — `{ id: Uuid, blocked_by: i64, blocks: i64 }` — [`crate::abac::grant_capability`].
 
 #### crates/kairos-db/src/items.rs
 
@@ -1505,6 +1509,9 @@
 - pub `CascadePreview` struct L1117-1124 — `{ root_short_code: String, cascaded_short_codes: Vec<String> }` — The AUTHORITATIVE pre-delete cascade set (KAIROS-T-0051): what a
 - pub `preview_cascade` function L1135-1183 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, ) -> Result<Casca...` — Preview the KAIROS-A-0001 soft-delete cascade WITHOUT mutating anything
 - pub `soft_delete_item` function L1195-1275 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, actor: Uuid, ) ->...` — Soft-delete an item and cascade to its descendants (KAIROS-A-0001), in
+- pub `RestoreOutcome` struct L1459-1465 — `{ short_code: String, still_archived_descendants: Vec<String> }` — What a [`restore_item`] put back.
+- pub `RestoreBlockers` struct L1470-1473 — `{ missing: Vec<String> }` — Why a restore was refused: everything missing that the item needs in
+- pub `restore_item` function L1494-1566 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, actor: Uuid, ) ->...` — Put an archived item back (KAIROS-A-0020): clear `deleted_at` on the
 -  `sequence_name` function L128-136 — `(item_type: ItemType) -> &'static str` — The S-0004 sequence backing each entity type's short-code numbers.
 -  `SeqValue` struct L139-142 — `{ value: i64 }` — count and the cascaded short codes.
 -  `SchemaName` struct L145-148 — `{ name: String }` — count and the cascaded short codes.
@@ -1515,6 +1522,12 @@
 -  `content_table_ops` macro L313-409 — `-` — Generate the three per-table primitives the generic write path
 -  `apply_content_update` function L448-462 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, update: &ContentU...` — Dispatch the atomic content UPDATE to the item's table.
 -  `load_live_content` function L465-477 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, ) -> Result<Optio...` — Dispatch the live-row load to the item's table.
+-  `archived_short_code` function L1280-1303 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, ) -> Result<Optio...` — The short code of an ARCHIVED row of this type, or `None` if the id is
+-  `archived_in` macro L1285-1295 — `-` — count and the cascaded short codes.
+-  `any_archived_short_code` function L1307-1317 — `( conn: &mut PgConnection, item_id: Uuid, ) -> Result<Option<String>, DieselErro...` — The short code of an archived row with this id in ANY of the five
+-  `restore_row` function L1320-1346 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, actor: Uuid, ) ->...` — Clear `deleted_at` on one row.
+-  `restore_in` macro L1326-1338 — `-` — count and the cascaded short codes.
+-  `restore_blockers` function L1353-1455 — `( conn: &mut PgConnection, item_type: ItemType, item_id: Uuid, ) -> Result<Vec<S...` — Everything an archived item needs back before it can be live, that is
 
 #### crates/kairos-db/src/lib.rs
 
@@ -1627,34 +1640,34 @@
 
 #### crates/kairos-db/src/search.rs
 
-- pub `SearchError` enum L84-98 — `Invalid | TraverseRootNotFound | Database` — Errors from the search pipeline.
-- pub `SearchResults` struct L104-121 — `{ strategies: Vec<Strategy>, initiatives: Vec<Initiative>, tasks: Vec<Task>, doc...` — Search results grouped by entity type (A-0007 response shape), each
-- pub `SearchStats` struct L127-132 — `{ hydration_queries: usize, total_queries: usize }` — Query-count instrumentation for one `execute_search` run — the proof
-- pub `execute_search` function L136-141 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<SearchResults, S...` — Run the A-0007 search pipeline (module docs) for `request` in the
-- pub `execute_search_with_stats` function L145-253 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<(SearchResults, ...` — [`execute_search`], also returning the [`SearchStats`] query counters
--  `IdRow` struct L260-263 — `{ id: Uuid }` — read-only, so no transaction is opened.
--  `resolve_root` function L266-293 — `( conn: &mut PgConnection, from: &TraverseFrom, stats: &mut SearchStats, ) -> Re...` — Resolve `traverse.from` to a live entity id via `entity_directory`.
--  `traverse_ids` function L299-348 — `( conn: &mut PgConnection, root: Uuid, traverse: &Traverse, stats: &mut SearchSt...` — Recursive-CTE walk from `root` (module docs, step 1).
--  `text_match_ids` function L351-363 — `( conn: &mut PgConnection, q: &str, stats: &mut SearchStats, ) -> Result<HashSet...` — Full-text match via the `searchable_items` view (module docs, step 2).
--  `metadata_match_ids` function L369-395 — `( conn: &mut PgConnection, metadata: &std::collections::BTreeMap<String, String>...` — Ids satisfying EVERY metadata entry (module docs, step 3): one query,
--  `TypedIdRow` struct L402-407 — `{ id: Uuid, entity_type: String }` — read-only, so no transaction is opened.
--  `parse_entity_type` function L412-425 — `(value: &str) -> Result<ItemType, SearchError>` — Parse an `entity_type` literal from type resolution.
--  `partition_by_type` function L431-467 — `( conn: &mut PgConnection, ids: &HashSet<Uuid>, include_deleted: bool, stats: &m...` — Resolve candidate ids to `(id, entity_type)` and partition by type
--  `applicable_types` function L473-505 — `(filter: Option<&SearchFilter>) -> Vec<ItemType>` — Which entity types can match the structural filter at all (module docs,
--  `model_task_type` function L514-521 — `(task_type: SearchTaskType) -> TaskType` — The stored counterpart of a [`SearchTaskType`].
--  `model_work_class` function L524-529 — `(work_class: SearchWorkClass) -> WorkClass` — The stored counterpart of a [`SearchWorkClass`] (KAIROS-T-0077).
--  `hydrate_strategies` function L531-565 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_initiatives` function L567-606 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_tasks` function L608-657 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_documents` function L659-687 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_adrs` function L689-723 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `AnyItem` enum L730-736 — `Strategy | Initiative | Task | Document | Adr` — One hydrated row of any entity type, for the combined sort.
--  `AnyItem` type L738-778 — `= AnyItem` — read-only, so no transaction is opened.
--  `created_at` function L739-747 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
--  `updated_at` function L749-757 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
--  `title` function L759-767 — `(&self) -> &str` — read-only, so no transaction is opened.
--  `short_code` function L769-777 — `(&self) -> &str` — read-only, so no transaction is opened.
--  `sort_items` function L782-795 — `(items: &mut [AnyItem], sort: Sort)` — Sort the combined rows by the requested field/order, tie-broken by
+- pub `SearchError` enum L91-105 — `Invalid | TraverseRootNotFound | Database` — Errors from the search pipeline.
+- pub `SearchResults` struct L111-128 — `{ strategies: Vec<Strategy>, initiatives: Vec<Initiative>, tasks: Vec<Task>, doc...` — Search results grouped by entity type (A-0007 response shape), each
+- pub `SearchStats` struct L134-139 — `{ hydration_queries: usize, total_queries: usize }` — Query-count instrumentation for one `execute_search` run — the proof
+- pub `execute_search` function L143-148 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<SearchResults, S...` — Run the A-0007 search pipeline (module docs) for `request` in the
+- pub `execute_search_with_stats` function L152-260 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<(SearchResults, ...` — [`execute_search`], also returning the [`SearchStats`] query counters
+-  `IdRow` struct L267-270 — `{ id: Uuid }` — read-only, so no transaction is opened.
+-  `resolve_root` function L276-305 — `( conn: &mut PgConnection, from: &TraverseFrom, stats: &mut SearchStats, ) -> Re...` — Resolve `traverse.from` to a live entity id via `entity_directory`.
+-  `traverse_ids` function L311-360 — `( conn: &mut PgConnection, root: Uuid, traverse: &Traverse, stats: &mut SearchSt...` — Recursive-CTE walk from `root` (module docs, step 1).
+-  `text_match_ids` function L366-379 — `( conn: &mut PgConnection, q: &str, stats: &mut SearchStats, ) -> Result<HashSet...` — Full-text match via the `searchable_items` view (module docs, step 2).
+-  `metadata_match_ids` function L385-411 — `( conn: &mut PgConnection, metadata: &std::collections::BTreeMap<String, String>...` — Ids satisfying EVERY metadata entry (module docs, step 3): one query,
+-  `TypedIdRow` struct L418-423 — `{ id: Uuid, entity_type: String }` — read-only, so no transaction is opened.
+-  `parse_entity_type` function L428-441 — `(value: &str) -> Result<ItemType, SearchError>` — Parse an `entity_type` literal from type resolution.
+-  `partition_by_type` function L449-478 — `( conn: &mut PgConnection, ids: &HashSet<Uuid>, include_deleted: bool, stats: &m...` — Resolve candidate ids to `(id, entity_type)` and partition by type
+-  `applicable_types` function L484-516 — `(filter: Option<&SearchFilter>) -> Vec<ItemType>` — Which entity types can match the structural filter at all (module docs,
+-  `model_task_type` function L525-532 — `(task_type: SearchTaskType) -> TaskType` — The stored counterpart of a [`SearchTaskType`].
+-  `model_work_class` function L535-540 — `(work_class: SearchWorkClass) -> WorkClass` — The stored counterpart of a [`SearchWorkClass`] (KAIROS-T-0077).
+-  `hydrate_strategies` function L542-576 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_initiatives` function L578-617 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_tasks` function L619-668 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_documents` function L670-698 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_adrs` function L700-734 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `AnyItem` enum L741-747 — `Strategy | Initiative | Task | Document | Adr` — One hydrated row of any entity type, for the combined sort.
+-  `AnyItem` type L749-789 — `= AnyItem` — read-only, so no transaction is opened.
+-  `created_at` function L750-758 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
+-  `updated_at` function L760-768 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
+-  `title` function L770-778 — `(&self) -> &str` — read-only, so no transaction is opened.
+-  `short_code` function L780-788 — `(&self) -> &str` — read-only, so no transaction is opened.
+-  `sort_items` function L793-806 — `(items: &mut [AnyItem], sort: Sort)` — Sort the combined rows by the requested field/order, tie-broken by
 
 #### crates/kairos-db/src/seed.rs
 
@@ -1748,23 +1761,23 @@
 
 - pub `UnknownEnumValue` struct L21-26 — `{ enum_name: &'static str, value: String }` — A TEXT value read from the database that is not a member of the enum's
 -  `text_enum` macro L30-92 — `-` — Declare a TEXT-backed enum: variants, their database strings, `FromStr`
--  `tests` module L263-397 — `-` — than defaulting.
--  `assert_text_enum` macro L268-291 — `-` — Round-trip every variant through its TEXT representation and reject
--  `org_role_round_trip_and_rejection` function L294-296 — `()` — than defaulting.
--  `field_type_round_trip_and_rejection` function L299-301 — `()` — than defaulting.
--  `team_type_round_trip_and_rejection` function L304-314 — `()` — than defaulting.
--  `board_level_round_trip_and_rejection` function L317-319 — `()` — than defaulting.
--  `task_type_round_trip_and_rejection` function L322-324 — `()` — than defaulting.
--  `work_class_round_trip_and_rejection` function L327-329 — `()` — than defaulting.
--  `team_page_kind_round_trip_and_rejection` function L332-334 — `()` — than defaulting.
--  `forge_round_trip_and_rejection` function L337-339 — `()` — than defaulting.
--  `link_kind_round_trip_and_rejection` function L342-344 — `()` — than defaulting.
--  `link_state_round_trip_and_rejection` function L347-349 — `()` — than defaulting.
--  `document_lifecycle_round_trip_and_rejection` function L352-357 — `()` — than defaulting.
--  `complexity_round_trip_and_rejection` function L360-362 — `()` — than defaulting.
--  `bucket_type_round_trip_and_rejection` function L365-367 — `()` — than defaulting.
--  `relationship_type_round_trip_and_rejection` function L370-375 — `()` — than defaulting.
--  `activity_action_round_trip_and_rejection` function L378-396 — `()` — than defaulting.
+-  `tests` module L264-399 — `-` — than defaulting.
+-  `assert_text_enum` macro L269-292 — `-` — Round-trip every variant through its TEXT representation and reject
+-  `org_role_round_trip_and_rejection` function L295-297 — `()` — than defaulting.
+-  `field_type_round_trip_and_rejection` function L300-302 — `()` — than defaulting.
+-  `team_type_round_trip_and_rejection` function L305-315 — `()` — than defaulting.
+-  `board_level_round_trip_and_rejection` function L318-320 — `()` — than defaulting.
+-  `task_type_round_trip_and_rejection` function L323-325 — `()` — than defaulting.
+-  `work_class_round_trip_and_rejection` function L328-330 — `()` — than defaulting.
+-  `team_page_kind_round_trip_and_rejection` function L333-335 — `()` — than defaulting.
+-  `forge_round_trip_and_rejection` function L338-340 — `()` — than defaulting.
+-  `link_kind_round_trip_and_rejection` function L343-345 — `()` — than defaulting.
+-  `link_state_round_trip_and_rejection` function L348-350 — `()` — than defaulting.
+-  `document_lifecycle_round_trip_and_rejection` function L353-358 — `()` — than defaulting.
+-  `complexity_round_trip_and_rejection` function L361-363 — `()` — than defaulting.
+-  `bucket_type_round_trip_and_rejection` function L366-368 — `()` — than defaulting.
+-  `relationship_type_round_trip_and_rejection` function L371-376 — `()` — than defaulting.
+-  `activity_action_round_trip_and_rejection` function L379-398 — `()` — than defaulting.
 
 #### crates/kairos-db/src/models/forge.rs
 
@@ -1997,30 +2010,30 @@
 -  `metadata_def` function L170-176 — `(conn: &mut PgConnection, slug: &str) -> Uuid` — by construction; each resolves only within its own tenant, never cross.
 -  `CountRow` struct L179-182 — `{ n: i64 }` — by construction; each resolves only within its own tenant, never cross.
 -  `count_where_id` function L186-194 — `(conn: &mut PgConnection, table: &str, column: &str, id: Uuid) -> i64` — `count(*)` of `sql_fragment` (a full `SELECT ...
--  `directory_id_by_code` function L198-210 — `(conn: &mut PgConnection, short_code: &str) -> Option<Uuid>` — The id `entity_directory` resolves for `short_code` in the CURRENT tenant
--  `IdRow` struct L200-203 — `{ id: Uuid }` — by construction; each resolves only within its own tenant, never cross.
--  `Seed` struct L214-227 — `{ marker: String, strategy: Uuid, initiative: Uuid, task: Uuid, document: Uuid, ...` — Every seeded item in one tenant, with the short codes services assigned
--  `COLLIDE_CODE` variable L230 — `: &str` — The short code deliberately shared, byte-for-byte, across both tenants.
--  `seed` function L237-393 — `(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed` — Seed one tenant (connection already pinned to it).
--  `run_search` function L399-403 — `(conn: &mut PgConnection, request: serde_json::Value) -> SearchResults` — by construction; each resolves only within its own tenant, never cross.
--  `all_result_ids` function L405-413 — `(results: &SearchResults) -> Vec<Uuid>` — by construction; each resolves only within its own tenant, never cross.
--  `result_count` function L415-417 — `(results: &SearchResults) -> usize` — by construction; each resolves only within its own tenant, never cross.
--  `CHECKSUM_TABLES` variable L427-438 — `: [&str; 10]` — The tables whose contents must be byte-identical before and after an
--  `table_fingerprint` function L441-455 — `(conn: &mut PgConnection, table: &str) -> String` — `count:md5` fingerprint of one table in the CURRENT tenant schema.
--  `Fp` struct L443-446 — `{ fp: String }` — by construction; each resolves only within its own tenant, never cross.
--  `fingerprint_all` function L459-464 — `(conn: &mut PgConnection) -> Vec<(String, String)>` — Fingerprint every [`CHECKSUM_TABLES`] table (connection pinned to the
--  `cross_read_visibility_sweep` function L471-668 — `()` — by construction; each resolves only within its own tenant, never cross.
--  `DB` variable L472 — `: &str` — by construction; each resolves only within its own tenant, never cross.
--  `cross_write_battery` function L675-791 — `()` — by construction; each resolves only within its own tenant, never cross.
--  `DB` variable L676 — `: &str` — by construction; each resolves only within its own tenant, never cross.
--  `short_code_collision` function L798-865 — `()` — by construction; each resolves only within its own tenant, never cross.
--  `DB` variable L799 — `: &str` — by construction; each resolves only within its own tenant, never cross.
--  `pool_stress` module L876-1034 — `-` — Barrier-synchronized concurrent rounds over ONE small pool, alternating
--  `ROUNDS` variable L891 — `: usize` — by construction; each resolves only within its own tenant, never cross.
--  `TitleRow` struct L894-897 — `{ title: String }` — by construction; each resolves only within its own tenant, never cross.
--  `TenantFixture` struct L902-905 — `{ board: Uuid, column: Uuid }` — Per-tenant board + first column, resolved once (sync) for the async
--  `pool_reuse_stress` function L908-1033 — `()` — by construction; each resolves only within its own tenant, never cross.
--  `DB` variable L909 — `: &str` — by construction; each resolves only within its own tenant, never cross.
+-  `directory_id_by_code` function L201-214 — `(conn: &mut PgConnection, short_code: &str) -> Option<Uuid>` — The id `entity_directory` resolves for `short_code` in the CURRENT tenant
+-  `IdRow` struct L203-206 — `{ id: Uuid }` — by construction; each resolves only within its own tenant, never cross.
+-  `Seed` struct L218-231 — `{ marker: String, strategy: Uuid, initiative: Uuid, task: Uuid, document: Uuid, ...` — Every seeded item in one tenant, with the short codes services assigned
+-  `COLLIDE_CODE` variable L234 — `: &str` — The short code deliberately shared, byte-for-byte, across both tenants.
+-  `seed` function L241-397 — `(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed` — Seed one tenant (connection already pinned to it).
+-  `run_search` function L403-407 — `(conn: &mut PgConnection, request: serde_json::Value) -> SearchResults` — by construction; each resolves only within its own tenant, never cross.
+-  `all_result_ids` function L409-417 — `(results: &SearchResults) -> Vec<Uuid>` — by construction; each resolves only within its own tenant, never cross.
+-  `result_count` function L419-421 — `(results: &SearchResults) -> usize` — by construction; each resolves only within its own tenant, never cross.
+-  `CHECKSUM_TABLES` variable L431-442 — `: [&str; 10]` — The tables whose contents must be byte-identical before and after an
+-  `table_fingerprint` function L445-459 — `(conn: &mut PgConnection, table: &str) -> String` — `count:md5` fingerprint of one table in the CURRENT tenant schema.
+-  `Fp` struct L447-450 — `{ fp: String }` — by construction; each resolves only within its own tenant, never cross.
+-  `fingerprint_all` function L463-468 — `(conn: &mut PgConnection) -> Vec<(String, String)>` — Fingerprint every [`CHECKSUM_TABLES`] table (connection pinned to the
+-  `cross_read_visibility_sweep` function L475-672 — `()` — by construction; each resolves only within its own tenant, never cross.
+-  `DB` variable L476 — `: &str` — by construction; each resolves only within its own tenant, never cross.
+-  `cross_write_battery` function L679-795 — `()` — by construction; each resolves only within its own tenant, never cross.
+-  `DB` variable L680 — `: &str` — by construction; each resolves only within its own tenant, never cross.
+-  `short_code_collision` function L802-869 — `()` — by construction; each resolves only within its own tenant, never cross.
+-  `DB` variable L803 — `: &str` — by construction; each resolves only within its own tenant, never cross.
+-  `pool_stress` module L880-1039 — `-` — Barrier-synchronized concurrent rounds over ONE small pool, alternating
+-  `ROUNDS` variable L895 — `: usize` — by construction; each resolves only within its own tenant, never cross.
+-  `TitleRow` struct L898-901 — `{ title: String }` — by construction; each resolves only within its own tenant, never cross.
+-  `TenantFixture` struct L906-909 — `{ board: Uuid, column: Uuid }` — Per-tenant board + first column, resolved once (sync) for the async
+-  `pool_reuse_stress` function L912-1038 — `()` — by construction; each resolves only within its own tenant, never cross.
+-  `DB` variable L913 — `: &str` — by construction; each resolves only within its own tenant, never cross.
 
 #### crates/kairos-db/tests/models_roundtrip.rs
 
@@ -2136,40 +2149,41 @@
 -  `EXPECTED_TABLES` variable L40-71 — `: [&str; 30]` — The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 -  `EXPECTED_VIEWS` variable L73 — `: [&str; 2]` — `system_board_defaults` rows are seeded.
 -  `EXPECTED_SEQUENCES` variable L75-81 — `: [&str; 5]` — `system_board_defaults` rows are seeded.
--  `EXPECTED_INDEXES` variable L84-106 — `: [&str; 21]` — Every named index in the S-0004 tenant DDL (partial + GIN included).
--  `admin_database_url` function L108-110 — `() -> String` — `system_board_defaults` rows are seeded.
--  `with_database` function L113-118 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
--  `NameRow` struct L121-124 — `{ name: String }` — `system_board_defaults` rows are seeded.
--  `CountRow` struct L127-130 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
--  `names` function L132-142 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_tables` function L144-152 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_views` function L154-160 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_sequences` function L162-169 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_indexes` function L171-177 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_exists` function L179-186 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
--  `count` function L188-193 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
--  `board_columns` function L196-208 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
--  `board_transitions` function L211-226 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
--  `transitions` function L228-230 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
--  `tenant_provisioning_lifecycle` function L233-607 — `()` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_INDEXES` variable L88-112 — `: [&str; 23]` — Every named index a freshly provisioned tenant carries: the S-0004
+-  `admin_database_url` function L114-116 — `() -> String` — `system_board_defaults` rows are seeded.
+-  `with_database` function L119-124 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
+-  `NameRow` struct L127-130 — `{ name: String }` — `system_board_defaults` rows are seeded.
+-  `CountRow` struct L133-136 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
+-  `names` function L138-148 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_tables` function L150-158 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_views` function L160-166 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_sequences` function L168-175 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_indexes` function L177-183 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_exists` function L185-192 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
+-  `count` function L194-199 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
+-  `board_columns` function L202-214 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
+-  `board_transitions` function L217-232 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
+-  `transitions` function L234-236 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
+-  `tenant_provisioning_lifecycle` function L239-628 — `()` — `system_board_defaults` rows are seeded.
 
 #### crates/kairos-db/tests/write_path.rs
 
--  `DEFAULT_DATABASE_URL` variable L47 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
--  `SCRATCH_DB` variable L49 — `: &str` — with the cascade count + short codes
--  `admin_database_url` function L51-53 — `() -> String` — with the cascade count + short codes
--  `with_database` function L56-61 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
--  `tenant_connection` function L65-71 — `(scratch_url: &str) -> PgConnection` — A fresh connection to the scratch database with the tenant search_path
--  `insert_user` function L73-84 — `(conn: &mut PgConnection, external_id: &str, email: &str, name: &str) -> Uuid` — with the cascade count + short codes
--  `board_id_by_slug` function L87-93 — `(conn: &mut PgConnection, slug: &str) -> Uuid` — The board with this slug in the current tenant schema.
--  `first_column` function L96-103 — `(conn: &mut PgConnection, board: Uuid) -> Uuid` — The first column of a board (position order).
--  `history_of` function L107-118 — `(conn: &mut PgConnection, item: Uuid) -> Vec<(i32, String, String)>` — All history snapshots for an item as `(version, title, content)`, in
--  `activity_details` function L121-129 — `(conn: &mut PgConnection, action: ActivityAction, entity: Uuid) -> Vec<String>` — All `activity_log.details` values for (action, entity_id), in order.
--  `CountRow` struct L132-135 — `{ n: i64 }` — with the cascade count + short codes
--  `view_count` function L138-144 — `(conn: &mut PgConnection, view: &str, id: Uuid) -> i64` — How many rows of `searchable_items` / `entity_directory` carry this id.
--  `code_number` function L147-152 — `(code: &str) -> i64` — The numeric part of a `{PREFIX}-{L}-{NNNN}` short code.
--  `write_path_lifecycle` function L155-791 — `()` — with the cascade count + short codes
--  `WRITERS` variable L351 — `: usize` — with the cascade count + short codes
+-  `DEFAULT_DATABASE_URL` variable L48 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
+-  `SCRATCH_DB` variable L50 — `: &str` — records ONE activity row with the cascade count + short codes
+-  `admin_database_url` function L52-54 — `() -> String` — records ONE activity row with the cascade count + short codes
+-  `with_database` function L57-62 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
+-  `tenant_connection` function L66-72 — `(scratch_url: &str) -> PgConnection` — A fresh connection to the scratch database with the tenant search_path
+-  `insert_user` function L74-85 — `(conn: &mut PgConnection, external_id: &str, email: &str, name: &str) -> Uuid` — records ONE activity row with the cascade count + short codes
+-  `board_id_by_slug` function L88-94 — `(conn: &mut PgConnection, slug: &str) -> Uuid` — The board with this slug in the current tenant schema.
+-  `first_column` function L97-104 — `(conn: &mut PgConnection, board: Uuid) -> Uuid` — The first column of a board (position order).
+-  `history_of` function L108-119 — `(conn: &mut PgConnection, item: Uuid) -> Vec<(i32, String, String)>` — All history snapshots for an item as `(version, title, content)`, in
+-  `activity_details` function L122-130 — `(conn: &mut PgConnection, action: ActivityAction, entity: Uuid) -> Vec<String>` — All `activity_log.details` values for (action, entity_id), in order.
+-  `CountRow` struct L133-136 — `{ n: i64 }` — records ONE activity row with the cascade count + short codes
+-  `view_count` function L146-154 — `(conn: &mut PgConnection, view: &str, id: Uuid) -> i64` — How many LIVE rows of `searchable_items` / `entity_directory` carry
+-  `view_count_any` function L160-166 — `(conn: &mut PgConnection, view: &str, id: Uuid) -> i64` — How many rows of the view carry this id REGARDLESS of liveness — the
+-  `code_number` function L169-174 — `(code: &str) -> i64` — The numeric part of a `{PREFIX}-{L}-{NNNN}` short code.
+-  `write_path_lifecycle` function L177-830 — `()` — records ONE activity row with the cascade count + short codes
+-  `WRITERS` variable L373 — `: usize` — records ONE activity row with the cascade count + short codes
 
 ### crates/kairos-server/examples
 
@@ -2307,30 +2321,29 @@
 - pub `parse_enum` function L110-121 — `(value: &str, field: &str, allowed: &[T]) -> Result<T, ApiError>` — Parse a TEXT-backed enum body field (`task_type`, `complexity`,
 - pub `require_capability` function L132-149 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user_id: Uuid, ca...` — The A-0006 write gate: org admins bypass; otherwise the caller needs a
 - pub `Liveness` enum L172-178 — `LiveOnly | IncludeArchived` — Whether a lookup may return work that has been archived.
-- pub `resolve_short_code` function L193-225 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Opt...` — Resolve a short code to `(id, entity_type)` across all five entity
-- pub `resolve_item_type` function L230-243 — `(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError>` — The type of a live item by id (documents included), via the same
-- pub `short_code_not_found` function L251-253 — `(entity_type: &str, short_code: &str) -> ApiError` — The 404 for `/{short_code}` path segments that resolve to nothing.
-- pub `map_abac_error` function L262-264 — `(e: AbacError) -> ApiError` — [`AbacError`] never carries a client mistake on the check path (grants
-- pub `map_item_error` function L270-312 — `(e: ItemError) -> ApiError` — [`ItemError`] → HTTP.
-- pub `map_board_error` function L318-393 — `(e: BoardError) -> ApiError` — [`BoardError`] → HTTP, for the transition endpoints: invalid moves are
-- pub `map_graph_error` function L398-410 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP, for the document-create `supports` edge: rule
+- pub `resolve_short_code` function L190-223 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Opt...` — Resolve a short code to `(id, entity_type)` across all five entity
+- pub `resolve_item_type` function L231-245 — `(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError>` — The type of a live item by id (documents included), via the same
+- pub `short_code_not_found` function L253-255 — `(entity_type: &str, short_code: &str) -> ApiError` — The 404 for `/{short_code}` path segments that resolve to nothing.
+- pub `map_abac_error` function L264-266 — `(e: AbacError) -> ApiError` — [`AbacError`] never carries a client mistake on the check path (grants
+- pub `map_item_error` function L272-314 — `(e: ItemError) -> ApiError` — [`ItemError`] → HTTP.
+- pub `map_board_error` function L320-395 — `(e: BoardError) -> ApiError` — [`BoardError`] → HTTP, for the transition endpoints: invalid moves are
+- pub `map_graph_error` function L400-412 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP, for the document-create `supports` edge: rule
 -  `DEFAULT_LIMIT` variable L78 — `: i64` — Default page size when `?limit=` is omitted.
 -  `MAX_LIMIT` variable L80 — `: i64` — Hard cap on `?limit=`.
 -  `DirectoryRow` struct L156-161 — `{ id: Uuid, entity_type: String }` — aggregation endpoint is KAIROS-T-0023.
--  `DIRECTORY_UNION` variable L183-188 — `: &str` — The five entity tables as one directory, without the liveness filter the
 
 #### crates/kairos-server/src/api/openapi.rs
 
-- pub `spec` function L213-215 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
-- pub `router` function L225-232 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
--  `ApiDoc` struct L209 — `-` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `SPEC_JSON` variable L218-220 — `: LazyLock<String>` — The serialized spec, built once per process.
--  `openapi_json` function L245-250 — `() -> impl IntoResponse` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `whoami` function L278 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `spa_config` function L303 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `token_relay` function L327 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `swagger_ui` function L335-337 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
--  `SWAGGER_UI_HTML` variable L343-364 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
+- pub `spec` function L214-216 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
+- pub `router` function L226-233 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
+-  `ApiDoc` struct L210 — `-` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `SPEC_JSON` variable L219-221 — `: LazyLock<String>` — The serialized spec, built once per process.
+-  `openapi_json` function L246-251 — `() -> impl IntoResponse` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `whoami` function L279 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `spa_config` function L304 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `token_relay` function L328 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
+-  `swagger_ui` function L336-338 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
+-  `SWAGGER_UI_HTML` variable L344-365 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
 
 #### crates/kairos-server/src/api/search.rs
 
@@ -2391,22 +2404,32 @@
 
 #### crates/kairos-server/src/api/meta/definitions.rs
 
-- pub `router` function L34-46 — `() -> Router<AppState>` — enforcement (S-0005 "fails if in use").
--  `load` function L49-58 — `(conn: &mut PgConnection, id: Uuid) -> Result<MetadataDefinition, ApiError>` — Load a definition by id, or 404.
--  `ENTITY_TYPES` variable L62 — `: &[&str]` — The entity-type vocabulary for scope rows (KAIROS-T-0078) — matches
--  `scopes_of` function L66-75 — `(conn: &mut PgConnection, definition_id: Uuid) -> Result<Vec<String>, ApiError>` — Load a definition's scope rows in vocabulary order (empty = applies
--  `check_entity_types` function L78-94 — `(entity_types: &[String]) -> Result<(), ApiError>` — Validate an entity_types list: known values, no duplicates.
--  `replace_scopes` function L98-119 — `( conn: &mut PgConnection, definition_id: Uuid, entity_types: &[String], ) -> Re...` — Replace a definition's scope rows (delete + insert, caller's
--  `hydrate` function L122-129 — `( conn: &mut PgConnection, definition: MetadataDefinition, ) -> Result<dto::Meta...` — Hydrate a definition row with its option values and scopes.
--  `check_option_rules` function L133-143 — `(field_type: FieldType, options: &[String]) -> Result<(), ApiError>` — The option-list rules shared by create and update: enum definitions
--  `replace_options` function L147-172 — `( conn: &mut PgConnection, definition_id: Uuid, options: &[String], ) -> Result<...` — Replace a definition's option list (delete + insert, caller's
--  `map_write_error` function L176-186 — `(e: DieselError) -> ApiError` — Map the unique violations a definition write can hit (`slug` UNIQUE,
--  `DefinitionListQuery` struct L193-205 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<String> }` — Query of [`list_definitions`]: pagination plus the KAIROS-T-0078
--  `list_definitions` function L219-290 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — enforcement (S-0005 "fails if in use").
--  `create_definition` function L304-337 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Js...` — enforcement (S-0005 "fails if in use").
--  `get_definition` function L350-364 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — enforcement (S-0005 "fails if in use").
--  `update_definition` function L382-434 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — enforcement (S-0005 "fails if in use").
--  `delete_definition` function L451-496 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — enforcement (S-0005 "fails if in use").
+- pub `router` function L42-54 — `() -> Router<AppState>` — which is what made KAIROS-T-0152 a trap.
+-  `load` function L57-66 — `(conn: &mut PgConnection, id: Uuid) -> Result<MetadataDefinition, ApiError>` — Load a definition by id, or 404.
+-  `ENTITY_TYPES` variable L70 — `: &[&str]` — The entity-type vocabulary for scope rows (KAIROS-T-0078) — matches
+-  `scopes_of` function L74-83 — `(conn: &mut PgConnection, definition_id: Uuid) -> Result<Vec<String>, ApiError>` — Load a definition's scope rows in vocabulary order (empty = applies
+-  `check_entity_types` function L86-102 — `(entity_types: &[String]) -> Result<(), ApiError>` — Validate an entity_types list: known values, no duplicates.
+-  `replace_scopes` function L106-127 — `( conn: &mut PgConnection, definition_id: Uuid, entity_types: &[String], ) -> Re...` — Replace a definition's scope rows (delete + insert, caller's
+-  `hydrate` function L130-137 — `( conn: &mut PgConnection, definition: MetadataDefinition, ) -> Result<dto::Meta...` — Hydrate a definition row with its option values and scopes.
+-  `check_option_rules` function L141-151 — `(field_type: FieldType, options: &[String]) -> Result<(), ApiError>` — The option-list rules shared by create and update: enum definitions
+-  `replace_options` function L155-180 — `( conn: &mut PgConnection, definition_id: Uuid, options: &[String], ) -> Result<...` — Replace a definition's option list (delete + insert, caller's
+-  `map_write_error` function L184-194 — `(e: DieselError) -> ApiError` — Map the unique violations a definition write can hit (`slug` UNIQUE,
+-  `NAMED_BLOCKER_LIMIT` variable L200 — `: i64` — How many blockers a `DEFINITION_IN_USE` refusal names before it falls
+-  `Carrier` struct L204-207 — `{ short_code: String, archived: bool }` — One work item carrying a definition's value: its short code, and
+-  `Carrier` type L209-221 — `= Carrier` — which is what made KAIROS-T-0152 a trap.
+-  `label` function L214-220 — `(&self) -> String` — `ACME-T-0007`, or `ACME-T-0007 (archived)` — the marking is the
+-  `carrying_items` function L232-271 — `( conn: &mut PgConnection, definition_id: Uuid, limit: i64, ) -> Result<Vec<Carr...` — The work items carrying `definition_id`'s values (at most `limit`),
+-  `carriers_in` macro L241-262 — `-` — The carriers in one entity table, cheapest form: the id subquery
+-  `carrying_templates` function L275-294 — `( conn: &mut PgConnection, definition_id: Uuid, limit: i64, ) -> Result<Vec<Stri...` — The slugs of the templates that collect `definition_id` (at most
+-  `blocker_list` function L298-308 — `(labels: &[String], total: i64) -> String` — `[a, b, and 3 more]` — the named blockers plus however many were left
+-  `DefinitionListQuery` struct L315-327 — `{ limit: Option<i64>, offset: Option<i64>, entity_type: Option<String> }` — Query of [`list_definitions`]: pagination plus the KAIROS-T-0078
+-  `list_definitions` function L341-412 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Qu...` — which is what made KAIROS-T-0152 a trap.
+-  `create_definition` function L426-459 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Js...` — which is what made KAIROS-T-0152 a trap.
+-  `get_definition` function L472-486 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — which is what made KAIROS-T-0152 a trap.
+-  `update_definition` function L504-556 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — which is what made KAIROS-T-0152 a trap.
+-  `delete_definition` function L574-650 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — which is what made KAIROS-T-0152 a trap.
+-  `tests` module L653-672 — `-` — which is what made KAIROS-T-0152 a trap.
+-  `blocker_list_names_what_it_can_and_counts_the_rest` function L662-671 — `()` — The cap is what makes naming blockers affordable, so the remainder
 
 #### crates/kairos-server/src/api/meta/history.rs
 
@@ -2426,17 +2449,18 @@
 - pub `history` module L42 — `-` — 404 otherwise — matching the per-family route behavior).
 - pub `metadata` module L43 — `-` — 404 otherwise — matching the per-family route behavior).
 - pub `relationships` module L44 — `-` — 404 otherwise — matching the per-family route behavior).
-- pub `templates` module L45 — `-` — 404 otherwise — matching the per-family route behavior).
-- pub `router` function L63-71 — `() -> Router<AppState>` — All six T-0020 family routers, merged.
-- pub `require_org_admin` function L76-87 — `(tenant: &TenantContext) -> Result<(), ApiError>` — The A-0006 gate for tenant-wide configuration (relationships, metadata
-- pub `require_edge_capability` function L99-128 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, relationship: &st...` — Authorize writing (or removing) one relationship edge (KAIROS-T-0111,
-- pub `require_edge_capability_on` function L135-175 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, relationship: &st...` — [`require_edge_capability`] for a target that may not exist yet (MCP
-- pub `item_type_of_family` function L179-188 — `(family: &str) -> Option<ItemType>` — Map a plural `{entity_type}` path segment (the S-0005 family names, as
-- pub `manage_capability` function L191-199 — `(item_type: ItemType) -> &'static str` — The A-0006 manage capability for an entity type.
-- pub `resolve_family_item` function L210-225 — `( conn: &mut PgConnection, family: &str, short_code: &str, liveness: Liveness, )...` — Resolve an `{entity_type}/{short_code}` path pair to an item: the family
-- pub `enum_option_values` function L229-240 — `( conn: &mut PgConnection, definition_id: Uuid, ) -> Result<Vec<String>, ApiErro...` — A metadata definition's option values, in display order (empty for
-- pub `validate_metadata_value` function L246-275 — `( conn: &mut PgConnection, definition: &MetadataDefinition, value: &str, ) -> Re...` — The KAIROS-A-0003 value check: `string` passes through, `date` must
-- pub `item_metadata_response` function L279-305 — `( conn: &mut PgConnection, item_id: Uuid, short_code: &str, ) -> Result<dto::Ite...` — An item's metadata values hydrated with their definitions, ordered by
+- pub `restore` module L45 — `-` — 404 otherwise — matching the per-family route behavior).
+- pub `templates` module L46 — `-` — 404 otherwise — matching the per-family route behavior).
+- pub `router` function L64-73 — `() -> Router<AppState>` — All six T-0020 family routers, merged.
+- pub `require_org_admin` function L78-89 — `(tenant: &TenantContext) -> Result<(), ApiError>` — The A-0006 gate for tenant-wide configuration (relationships, metadata
+- pub `require_edge_capability` function L101-130 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, relationship: &st...` — Authorize writing (or removing) one relationship edge (KAIROS-T-0111,
+- pub `require_edge_capability_on` function L137-177 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, relationship: &st...` — [`require_edge_capability`] for a target that may not exist yet (MCP
+- pub `item_type_of_family` function L181-190 — `(family: &str) -> Option<ItemType>` — Map a plural `{entity_type}` path segment (the S-0005 family names, as
+- pub `manage_capability` function L193-201 — `(item_type: ItemType) -> &'static str` — The A-0006 manage capability for an entity type.
+- pub `resolve_family_item` function L212-227 — `( conn: &mut PgConnection, family: &str, short_code: &str, liveness: Liveness, )...` — Resolve an `{entity_type}/{short_code}` path pair to an item: the family
+- pub `enum_option_values` function L231-242 — `( conn: &mut PgConnection, definition_id: Uuid, ) -> Result<Vec<String>, ApiErro...` — A metadata definition's option values, in display order (empty for
+- pub `validate_metadata_value` function L248-277 — `( conn: &mut PgConnection, definition: &MetadataDefinition, value: &str, ) -> Re...` — The KAIROS-A-0003 value check: `string` passes through, `date` must
+- pub `item_metadata_response` function L281-307 — `( conn: &mut PgConnection, item_id: Uuid, short_code: &str, ) -> Result<dto::Ite...` — An item's metadata values hydrated with their definitions, ordered by
 
 #### crates/kairos-server/src/api/meta/relationships.rs
 
@@ -2450,6 +2474,11 @@
 -  `get_relationships` function L298-342 — `( State(state): State<AppState>, Extension(tenant): Extension<TenantContext>, Pa...` — `VALIDATION`.
 -  `create_relationship` function L359-404 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
 -  `delete_relationship` function L420-465 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `VALIDATION`.
+
+#### crates/kairos-server/src/api/meta/restore.rs
+
+- pub `router` function L38-43 — `() -> Router<AppState>` — `live_board_item_codes` refusing a team delete.
+-  `restore_item` function L61-98 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — `live_board_item_codes` refusing a team delete.
 
 #### crates/kairos-server/src/api/meta/templates.rs
 
@@ -2904,60 +2933,62 @@
 - pub `LinkItemsParams` struct L273-280 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
 - pub `UnlinkItemsParams` struct L284-291 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
 - pub `SetMetadataParams` struct L295-302 — `{ short_code: String, values: BTreeMap<String, Option<String>> }` — `activity_log` writes as the API path).
-- pub `DeleteItemParams` struct L306-312 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
-- pub `whoami` function L335-420 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
-- pub `list_repositories` function L425-468 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
-- pub `get_repository` function L473-542 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
-- pub `my_boards` function L547-619 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `board_items` function L624-674 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `get_item` function L679-803 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
-- pub `get_history` function L808-881 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `search` function L886-925 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
-- pub `create_item` function L930-942 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `update_item` function L947-972 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `edit_item` function L977-1033 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `move_item` function L1038-1094 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `transition_item` function L1099-1160 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
-- pub `link_items` function L1165-1194 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
-- pub `unlink_items` function L1199-1228 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `set_metadata` function L1233-1325 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `delete_item` function L1330-1362 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
--  `KairosMcp` type L319-1363 — `= KairosMcp` — `activity_log` writes as the API path).
--  `run_tool` function L322-330 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
--  `ItemView` struct L1370-1396 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
--  `load_item` function L1405-1580 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
--  `authorize_item_write` function L1585-1600 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
--  `require_capability_explained` function L1607-1650 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
--  `board_by_ref` function L1653-1668 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
--  `team_by_ref` function L1671-1690 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
--  `board_by_id` function L1693-1700 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
--  `board_columns` function L1705-1714 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
--  `column_label` function L1722-1731 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
--  `resolve_column` function L1735-1752 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
--  `BoardItemRow` struct L1755-1764 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
--  `board_item_rows` function L1769-1879 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, ) -> Result...` — Every live item placed on a board (strategies, initiatives, tasks, and
--  `column_item_counts` function L1882-1891 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column live item counts for one board.
--  `repo_slug_map` function L1895-1910 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
--  `repo_label` function L1913-1930 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
--  `require_live_typed` function L1934-1942 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
--  `metadata_lines` function L1946-1959 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
--  `ChainRow` struct L1962-1969 — `{ id: Uuid, short_code: String, title: String }` — `activity_log` writes as the API path).
--  `parent_chain` function L1974-1998 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
--  `relationship_lines` function L2003-2044 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
--  `map_update_error` function L2055-2083 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
--  `map_link_error` function L2093-2108 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
--  `level_of` function L2115-2123 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
--  `default_board_for` function L2127-2149 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
--  `resolve_template` function L2152-2183 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
--  `reject_field` function L2187-2199 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
--  `create_item_impl` function L2204-2487 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
--  `field_invalid` function L2495-2497 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
--  `uuid_field` function L2499-2502 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
--  `timestamp_field` function L2504-2513 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
--  `enum_field` function L2517-2528 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
--  `search_to_core` function L2532-2662 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
--  `map_search_error` function L2666-2674 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
--  `render_search_results` function L2678-2729 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
+- pub `RestoreItemParams` struct L306-309 — `{ short_code: String }` — `activity_log` writes as the API path).
+- pub `DeleteItemParams` struct L313-319 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
+- pub `whoami` function L342-427 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
+- pub `list_repositories` function L432-475 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
+- pub `get_repository` function L480-549 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
+- pub `my_boards` function L554-626 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `board_items` function L631-681 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `get_item` function L686-810 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
+- pub `get_history` function L815-888 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `search` function L893-932 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
+- pub `create_item` function L937-949 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `update_item` function L954-979 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `edit_item` function L984-1040 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `move_item` function L1045-1101 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `transition_item` function L1106-1167 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
+- pub `link_items` function L1172-1201 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
+- pub `unlink_items` function L1206-1235 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `set_metadata` function L1240-1332 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `delete_item` function L1337-1369 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `restore_item` function L1374-1419 — `( &self, Parameters(params): Parameters<RestoreItemParams>, context: RequestCont...` — `activity_log` writes as the API path).
+-  `KairosMcp` type L326-1420 — `= KairosMcp` — `activity_log` writes as the API path).
+-  `run_tool` function L329-337 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
+-  `ItemView` struct L1427-1453 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
+-  `load_item` function L1462-1637 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
+-  `authorize_item_write` function L1642-1657 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
+-  `require_capability_explained` function L1664-1707 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
+-  `board_by_ref` function L1710-1725 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
+-  `team_by_ref` function L1728-1747 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
+-  `board_by_id` function L1750-1757 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
+-  `board_columns` function L1762-1771 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
+-  `column_label` function L1779-1788 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
+-  `resolve_column` function L1792-1809 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
+-  `BoardItemRow` struct L1812-1821 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
+-  `board_item_rows` function L1826-1936 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, ) -> Result...` — Every live item placed on a board (strategies, initiatives, tasks, and
+-  `column_item_counts` function L1939-1948 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column live item counts for one board.
+-  `repo_slug_map` function L1952-1967 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
+-  `repo_label` function L1970-1987 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
+-  `require_live_typed` function L1991-1999 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
+-  `metadata_lines` function L2003-2016 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
+-  `ChainRow` struct L2019-2026 — `{ id: Uuid, short_code: String, title: String }` — `activity_log` writes as the API path).
+-  `parent_chain` function L2031-2055 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
+-  `relationship_lines` function L2060-2101 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
+-  `map_update_error` function L2112-2140 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
+-  `map_link_error` function L2150-2165 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
+-  `level_of` function L2172-2180 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
+-  `default_board_for` function L2184-2206 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
+-  `resolve_template` function L2209-2240 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
+-  `reject_field` function L2244-2256 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
+-  `create_item_impl` function L2261-2544 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
+-  `field_invalid` function L2552-2554 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
+-  `uuid_field` function L2556-2559 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
+-  `timestamp_field` function L2561-2570 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
+-  `enum_field` function L2574-2585 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
+-  `search_to_core` function L2589-2719 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
+-  `map_search_error` function L2723-2731 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
+-  `render_search_results` function L2735-2786 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
 
 ### crates/kairos-server/src/middleware
 
@@ -3251,6 +3282,18 @@
 -  `mint` function L73-88 — `(conn: &mut PgConnection, user_id: Uuid, name: &str) -> String` — Mint a key for `user_id`, storing its hash, and return the raw key.
 -  `api_key_authentication_end_to_end` function L91-183 — `()` — with a static-key (empty) [`Authenticator`].
 
+#### crates/kairos-server/tests/archived_hidden.rs
+
+-  `common` module L40 — `-` — listings hide archived work.** Rules 1 and 2 (archived work stays
+-  `SCRATCH_DB` variable L67 — `: &str` — never touched (shared-services discipline).
+-  `MARKER` variable L71 — `: &str` — The word every seeded item carries, so one `q` reaches all five
+-  `user_id` function L73-79 — `(conn: &mut PgConnection, email: &str) -> Uuid` — never touched (shared-services discipline).
+-  `board_id` function L81-88 — `(conn: &mut PgConnection, level: BoardLevel) -> Uuid` — never touched (shared-services discipline).
+-  `uuid` function L90-92 — `(s: &str) -> Uuid` — never touched (shared-services discipline).
+-  `board_short_codes` function L96-110 — `(client: &KairosClient, board: Uuid) -> Vec<String>` — Every short code on a board, across all four board-bound families and
+-  `search_short_codes` function L113-128 — `(client: &KairosClient, request: SearchRequest) -> Vec<String>` — Every short code a search request returns, across the five groups.
+-  `archived_work_is_absent_from_every_default_listing` function L131-509 — `()` — never touched (shared-services discipline).
+
 #### crates/kairos-server/tests/cascade_preview.rs
 
 -  `common` module L17 — `-` — (`GET /api/{entity_type}/{short_code}/cascade-preview`), through the
@@ -3289,7 +3332,7 @@
 -  `update_any` function L134-147 — `( client: &KairosClient, kind: EntityKind, code: &str, request: &UpdateContentRe...` — `PATCH /api/{family}/{code}` through the typed client, family-generic.
 -  `delete_any` function L150-158 — `(client: &KairosClient, kind: EntityKind, code: &str) -> Result<(), Error>` — `DELETE /api/{family}/{code}` through the typed client, family-generic.
 -  `transition_any` function L161-180 — `( client: &KairosClient, kind: EntityKind, code: &str, to_column_id: &str, ) -> ...` — `POST /api/{family}/{code}/transition` through the typed client.
--  `entity_endpoints_against_live_stack` function L183-1218 — `()` — admin API for grants is KAIROS-T-0019.
+-  `entity_endpoints_against_live_stack` function L183-1282 — `()` — admin API for grants is KAIROS-T-0019.
 
 #### crates/kairos-server/tests/file_backlog.rs
 
@@ -3328,27 +3371,27 @@
 
 #### crates/kairos-server/tests/mcp.rs
 
--  `common` module L36 — `-` — per KAIROS-A-0011 / KAIROS-S-0006): a real MCP session over streamable
--  `SCRATCH_DB` variable L62 — `: &str` — Uniquely named scratch database for this test binary.
--  `TENANT` variable L65 — `: &str` — The tenant slug.
--  `HOST_HEADER` variable L70 — `: &str` — Every request carries a real `Host` header and the tenant resolves from
--  `raw_request` function L78-114 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, session: Opti...` — One in-process request against `/mcp` (or any URI): returns status, the
--  `rpc_message` function L119-134 — `(body: &str) -> Value` — Extract the JSON-RPC message from a streamable-HTTP response body:
--  `McpSession` struct L138-143 — `{ router: &'a Router, token: String, session_id: Option<String>, next_id: i64 }` — An MCP session over the production router: POSTs JSON-RPC to `/mcp`
--  `connect` function L148-194 — `(router: &'a Router, token: &str) -> (McpSession<'a>, Value)` — Drive `initialize` + `notifications/initialized`; returns the
--  `request` function L197-220 — `(&mut self, method: &str, params: Value) -> Value` — One JSON-RPC request within the session; returns the `result`.
--  `call` function L223-233 — `(&mut self, tool: &str, arguments: Value) -> (bool, String)` — Call a tool; returns `(is_error, text)` from the CallToolResult.
--  `call_ok` function L236-240 — `(&mut self, tool: &str, arguments: Value) -> String` — Call a tool and require success, returning the text.
--  `call_err` function L243-247 — `(&mut self, tool: &str, arguments: Value) -> String` — Call a tool and require a tool error, returning the text.
--  `extract_code` function L251-259 — `(text: &str, prefix: &str) -> String` — The first short code with `prefix` in `text` (e.g.
--  `user_id` function L266-272 — `(conn: &mut PgConnection, email: &str) -> Uuid` — `public.users.id` by email (JIT-provisioned by a first request).
--  `board_id_of` function L275-282 — `(conn: &mut PgConnection, level: BoardLevel) -> Uuid` — The tenant board of a level.
--  `NameRow` struct L285-288 — `{ name: String }` — calls (asserted straight from the scratch database).
--  `column_names` function L291-299 — `(conn: &mut PgConnection, board: Uuid) -> Vec<String>` — Column names of a board in position order.
--  `reachable_from_first` function L302-316 — `(conn: &mut PgConnection, board: Uuid) -> Vec<String>` — Column names reachable from the FIRST column per `board_transitions`.
--  `CountRow` struct L319-322 — `{ n: i64 }` — calls (asserted straight from the scratch database).
--  `activity_count` function L325-335 — `(conn: &mut PgConnection, actor: Uuid, action: &str) -> i64` — `activity_log` rows in the scratch tenant for one action + actor.
--  `mcp_endpoint_against_live_stack` function L342-1134 — `()` — calls (asserted straight from the scratch database).
+-  `common` module L37 — `-` — per KAIROS-A-0011 / KAIROS-S-0006): a real MCP session over streamable
+-  `SCRATCH_DB` variable L63 — `: &str` — Uniquely named scratch database for this test binary.
+-  `TENANT` variable L66 — `: &str` — The tenant slug.
+-  `HOST_HEADER` variable L71 — `: &str` — Every request carries a real `Host` header and the tenant resolves from
+-  `raw_request` function L79-115 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, session: Opti...` — One in-process request against `/mcp` (or any URI): returns status, the
+-  `rpc_message` function L120-135 — `(body: &str) -> Value` — Extract the JSON-RPC message from a streamable-HTTP response body:
+-  `McpSession` struct L139-144 — `{ router: &'a Router, token: String, session_id: Option<String>, next_id: i64 }` — An MCP session over the production router: POSTs JSON-RPC to `/mcp`
+-  `connect` function L149-195 — `(router: &'a Router, token: &str) -> (McpSession<'a>, Value)` — Drive `initialize` + `notifications/initialized`; returns the
+-  `request` function L198-221 — `(&mut self, method: &str, params: Value) -> Value` — One JSON-RPC request within the session; returns the `result`.
+-  `call` function L224-234 — `(&mut self, tool: &str, arguments: Value) -> (bool, String)` — Call a tool; returns `(is_error, text)` from the CallToolResult.
+-  `call_ok` function L237-241 — `(&mut self, tool: &str, arguments: Value) -> String` — Call a tool and require success, returning the text.
+-  `call_err` function L244-248 — `(&mut self, tool: &str, arguments: Value) -> String` — Call a tool and require a tool error, returning the text.
+-  `extract_code` function L252-260 — `(text: &str, prefix: &str) -> String` — The first short code with `prefix` in `text` (e.g.
+-  `user_id` function L267-273 — `(conn: &mut PgConnection, email: &str) -> Uuid` — `public.users.id` by email (JIT-provisioned by a first request).
+-  `board_id_of` function L276-283 — `(conn: &mut PgConnection, level: BoardLevel) -> Uuid` — The tenant board of a level.
+-  `NameRow` struct L286-289 — `{ name: String }` — calls (asserted straight from the scratch database).
+-  `column_names` function L292-300 — `(conn: &mut PgConnection, board: Uuid) -> Vec<String>` — Column names of a board in position order.
+-  `reachable_from_first` function L303-317 — `(conn: &mut PgConnection, board: Uuid) -> Vec<String>` — Column names reachable from the FIRST column per `board_transitions`.
+-  `CountRow` struct L320-323 — `{ n: i64 }` — calls (asserted straight from the scratch database).
+-  `activity_count` function L326-336 — `(conn: &mut PgConnection, actor: Uuid, action: &str) -> i64` — `activity_log` rows in the scratch tenant for one action + actor.
+-  `mcp_endpoint_against_live_stack` function L343-1137 — `()` — calls (asserted straight from the scratch database).
 
 #### crates/kairos-server/tests/meta.rs
 
@@ -3360,7 +3403,7 @@
 -  `rel_group` function L84-89 — `( groups: &'a [RelationshipGroup], relationship: &str, ) -> Option<&'a Relations...` — The group of `relationship` in one direction of a relationships
 -  `metadata_value` function L93-95 — `(body: &'a ItemMetadataResponse, slug: &str) -> Option<&'a MetadataValue>` — The metadata value entry for `slug` in an item-metadata response, if
 -  `metadata_patch` function L98-102 — `(slug: &str, value: Option<&str>) -> UpdateMetadataRequest` — A one-entry metadata PATCH body (`None` clears the slug).
--  `meta_endpoints_against_live_stack` function L105-1272 — `()` — - `bob`   — org member with NO grants (the 403 matrix; reads only).
+-  `meta_endpoints_against_live_stack` function L105-1337 — `()` — - `bob`   — org member with NO grants (the 403 matrix; reads only).
 
 #### crates/kairos-server/tests/metrics.rs
 
@@ -3406,7 +3449,7 @@
 -  `user_row` function L50-56 — `(conn: &mut PgConnection, email: &str) -> (Uuid, String)` — `(public.users.id, external_id)` by email.
 -  `rejection` function L59-64 — `(result: Result<T, Error>) -> Error` — Unwrap an expected API rejection (panics on success).
 -  `column_by_name` function L67-72 — `(columns: &'a [BoardColumn], name: &str) -> &'a BoardColumn` — The column with this name from a board-detail column list.
--  `org_and_admin_endpoints_against_live_stack` function L75-1035 — `()` — - `bob`   — org member used for the capability grant/revoke lifecycle.
+-  `org_and_admin_endpoints_against_live_stack` function L75-1076 — `()` — - `bob`   — org member used for the capability grant/revoke lifecycle.
 
 #### crates/kairos-server/tests/repositories_api.rs
 

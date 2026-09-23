@@ -4,14 +4,14 @@ level: task
 title: "Un-archive: restore a put-away item on API, MCP and CLI"
 short_code: "KAIROS-T-0160"
 created_at: 2026-09-23T11:29:58.054515+00:00
-updated_at: 2026-09-23T12:04:40.213641+00:00
+updated_at: 2026-09-23T12:20:41.569263+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0154]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -72,6 +72,8 @@ event an audit trail exists for. `log_activity` is used throughout
 
 Version history is untouched by restore: the item comes back at the version
 it was archived at.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -67,3 +67,14 @@ A verb-level flag, not a new noun — the gate's noun count is unaffected.
 ## Status Updates
 
 *To be added during implementation*
+
+## Notes carried in from [[KAIROS-T-0156]]
+
+**2026-09-23.** List endpoints **do not read the two views at all** — they
+are diesel query-builder queries straight against the base tables — so this
+task is independent of T-0156 rather than built on it.
+
+Note the partial `idx_*_board` / `idx_*_column` indexes (up.sql:181/204/225)
+are `WHERE deleted_at IS NULL` and so will **not serve a wide listing**
+either. The same index question T-0157 faces for full-text applies here for
+board and column listings; measure before assuming a wide list is cheap.

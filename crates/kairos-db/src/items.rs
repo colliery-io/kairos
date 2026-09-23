@@ -1189,9 +1189,15 @@ pub fn preview_cascade(
 /// on the root and every live descendant across all five entity tables,
 /// and write ONE `activity_log` `delete` row on the root recording the
 /// cascade count and short codes. Already-deleted descendants are left
-/// untouched. Soft-deleted rows disappear from `searchable_items` and
-/// `entity_directory` (the views filter `deleted_at IS NULL`); hard-delete
-/// cleanup is the KAIROS-T-0015 sweeper.
+/// untouched.
+///
+/// Archived rows stay IN `searchable_items` and `entity_directory`
+/// (KAIROS-T-0156 moved the liveness predicate out of the view bodies and
+/// into the call sites, so each one names a mode). They are hidden by
+/// every default listing and served to anyone who asks for them — that is
+/// the whole of what archiving means (KAIROS-A-0020). Nothing removes the
+/// rows: the KAIROS-T-0015 sweeper prunes `item_history` and
+/// `activity_log` only, and is not wired into the server yet.
 pub fn soft_delete_item(
     conn: &mut PgConnection,
     item_type: ItemType,

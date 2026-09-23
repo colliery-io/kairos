@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T10:39:57Z | 273 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T10:48:09Z | 273 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -4723,7 +4723,7 @@
 
 #### uat/journeys/machine-access.journey.ts
 
--  `machine` function L72 — `const machine = ()`
+-  `machine` function L66 — `const machine = ()`
 
 #### uat/journeys/new-kind-of-work.journey.ts
 
@@ -4802,12 +4802,13 @@
 
 #### uat/run/ledger.ts
 
-- pub `LedgerEntry` interface L10-14 — `{ kind: : string, label: : string, delete: : () => Promise<void> }`
-- pub `TeardownFailure` interface L16-20 — `{ kind: : string, label: : string, error: : string }`
-- pub `Ledger` class L22-46 — `-`
-- pub `add` method L26-28 — `add(entry: LedgerEntry): void`
-- pub `teardown` method L31-41 — `teardown(): Promise<TeardownFailure[]>`
-- pub `size` method L43-45 — `size(): number`
+- pub `LedgerEntry` interface L12-16 — `{ kind: : string, label: : string, delete: : () => Promise<void> }`
+- pub `TeardownFailure` interface L29-33 — `{ kind: : string, label: : string, error: : string }`
+- pub `Ledger` class L35-60 — `-`
+- pub `add` method L39-41 — `add(entry: LedgerEntry): void`
+- pub `teardown` method L44-55 — `teardown(): Promise<TeardownFailure[]>`
+- pub `size` method L57-59 — `size(): number`
+-  `alreadyGone` function L25-27 — `function alreadyGone(err: unknown): boolean`
 
 #### uat/run/narrate.ts
 

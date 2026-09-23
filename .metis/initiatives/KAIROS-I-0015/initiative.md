@@ -163,30 +163,236 @@ Ranked by how badly they break the rule — these are the worklist:
 
 ## Detailed Design
 
-*Pending — the scope questions below go to Dylan before this is decomposed.*
+Dylan's scope calls (2026-09-23): **everything including the GUI**; a column
+holding only archived cards **becomes removable**; archived work is
+**read-only, plus an un-archive verb**.
 
-### Open questions for the decision maker
+### The organising idea
 
-1. **How far in one initiative?** The read path alone (items, history, MCP,
-   CLI) is the smallest thing that makes audit work and needs no migration.
-   Search and the graph need the two views changed, which is a migration.
-   The GUI needs a way to ask, which is new UI.
-2. **The column guard** (`boards.rs:868-885`): should a column holding only
-   archived cards be removable? Today it is pinned forever. Keeping it
-   pinned is consistent with "archived work is still content"; unpinning it
-   is consistent with "archived work is not live work". Both readings of
-   ADR-20 are available and they disagree.
-3. **How much write access does archived work get?** Rule 4 says archiving
-   is not a permission boundary, which argues for full editability.
-   [[KAIROS-T-0152]] only strictly needs `set_metadata` to reach it.
+Almost every contradiction is one of two shapes: a *resolution* that refuses
+to find the row, or a *view* that never emitted it. So the work is not 221
+edits. It is: make resolution archived-aware, move the two views' liveness
+filter from the view body to the call sites, and then let the surfaces ask.
+
+Two rules hold everywhere:
+
+- **The default never changes.** Every existing call site keeps its current
+  behaviour by passing the live-only mode explicitly. A reviewer should be
+  able to check that no default listing changed by looking for call sites
+  that *omit* the parameter.
+- **Archived rows are marked, not disguised.** Anything that serves an
+  archived row says so in the payload (`archived_at`), in the rendered MCP
+  text, and in the GUI. An auditor must never mistake archived work for
+  live work.
+
+### D1 — Resolution becomes archived-aware
+
+`api/mod.rs:166-190 resolve_short_code` is the single chokepoint behind
+contradictions 1, 2, 6, 8 and most of the MCP surface. It gains a mode:
+
+```rust
+enum Liveness { LiveOnly, IncludeArchived }
+```
+
+`short_code_not_found` (api/mod.rs:211-215) stops saying *"no live …"* — a
+message that is currently correct and will become a lie. The five per-family
+`load()` fns (`tasks.rs:114`, `strategies.rs:52`, `initiatives.rs:53`,
+`documents.rs:111`, `adrs.rs:49`) take the same mode.
+
+GET by short code passes `IncludeArchived`; every mutating handler keeps
+`LiveOnly`, which is what makes "read-only" fall out of the design rather
+than needing a second guard (see D5).
+
+### D2 — ABAC must resolve for archived items (prerequisite, not optional)
+
+`abac.rs:339/355/394/425` resolve the authorization board through live-only
+lookups, so an archived item yields `None` and capability resolution falls
+back to the tenant-wide org-admin policy. Serving archived items before
+fixing this would make archived work **more** restricted than live work —
+precisely inverting ADR-20 rule 4. This lands before or with D1, and the
+test that proves it is a non-admin team member reading their own team's
+archived card.
+
+### D3 — The two views stop filtering, the call sites start
+
+`entity_directory` and `searchable_items`
+(`migrations/tenant/…/up.sql:364-386` and `:396+`) expose `deleted_at`
+instead of filtering on it. Every consumer then filters explicitly. This is
+a tenant migration; both views are recreated, no table changes.
+
+This is the highest-risk step for a silent regression, because a consumer
+that forgets to filter starts leaking archived rows into a default listing.
+Mitigations, in order of usefulness:
+
+1. The UAT drift gate and the `housekeeping` journey already assert that
+   default listings hide archived work end to end.
+2. `crates/kairos-db/tests/search.rs:637-679` pins current behaviour and
+   must keep passing unchanged for the live-only paths.
+3. Grep discipline: after this lands, every `entity_directory` /
+   `searchable_items` reference must name a liveness mode.
+
+### D4 — Search, traverse and the graph
+
+- **The intersection bug.** `kairos-db/src/search.rs:159-187` intersects the
+  candidate sets from `q`, traverse and metadata, and `q` only ever matched
+  live ids, so archived candidates were dropped *before* `include_deleted`
+  was read at :187. With D3 the `q` set can contain archived ids and the
+  flag governs, as it always claimed to. The silent no-op becomes real
+  behaviour — no new flag, no error case.
+- **`is_constraining()`** (`kairos-core/src/search.rs:158-173`) currently
+  excludes `include_deleted` from the "does this narrow anything" test, so a
+  filter carrying only that flag 400s. It should count, since "show me
+  archived work" is a legitimate whole query.
+- **Traverse root** (`search.rs:266-292`) resolves through the view; with D3
+  it honours the flag instead of 404ing.
+- **`neighbors_of`** (`graph.rs:403-419`) includes archived neighbours,
+  marked. Worth restating why this one matters: it degrades the **live**
+  side of the record. "What did this initiative contain?" silently loses
+  rows today, and no opt-in can currently recover them.
+
+### D5 — Read-only, and the un-archive verb
+
+Read-only needs no new guard: every mutating path already loads with
+`LiveOnly` (`items.rs:325`, `:650`, `:702`, `:792`), so leaving those call
+sites alone *is* the freeze. The design note is to state that deliberately,
+so a later reader does not "fix" the inconsistency by making them uniform.
+
+The new verb restores a row by clearing `deleted_at`:
+
+- **API**: `POST /api/{family}/{short_code}/restore`, on all five families.
+- **Capability**: the same one that archived it. Restoring is the inverse of
+  deleting, not a new privilege.
+- **MCP**: a `restore_item` tool. **This trips the drift gate** (17 tools →
+  18) until a journey exercises it, which is the gate working as intended.
+- **CLI**: a `restore` verb on the existing entity-family macro
+  (`commands/entities.rs`) — a verb, not a noun, so the gate's noun count is
+  unaffected.
+- **GUI**: a Restore action on the archived item view (D7).
+
+**Restore refuses when its home is gone**, naming what is missing rather
+than silently re-homing: a task whose board, column or owning team was
+removed, or whose repository was retired. Precedent for the shape is
+`live_board_item_codes` — refuse, and name the blockers. The user then
+moves it (`POST /api/tasks/{code}/move` already exists from I-0012).
+
+### D6 — Columns, and the foreign key nobody has had to think about
+
+`column_id` is `UUID NOT NULL REFERENCES board_columns(id)` with **no
+`ON DELETE` clause** (up.sql:170, :190, :213, :250). So today's behaviour is
+not merely the policy at `boards.rs:868-885` — the database itself refuses,
+and `remove_column`'s doc comment says exactly that: *"soft-deleted rows
+included, since they still reference the column"*. Dropping the count alone
+would convert a clean 422 into a foreign-key violation.
+
+So: **`board_columns` gets a `deleted_at` of its own**, and removal becomes
+a soft delete. ADR-20 applied one level down, which is why it needs no new
+concept:
+
+- the FK stays satisfied, so an archived card still renders with its real
+  column name — the audit answer stays intact;
+- `count_items_in_column` (`boards.rs:868-885`) counts live rows only, so a
+  column holding only archived cards is removable, as Dylan asked;
+- live board rendering, `board_transitions` and the column rules filter to
+  live columns, so nothing on a working board changes;
+- a restore into a removed column is one of the refusals in D5.
+
+`board_transitions` FKs are `ON DELETE CASCADE` (up.sql:92-93), so a
+soft-deleted column must have its edges filtered rather than cascaded —
+that is the one place this is more than mechanical.
+
+### D7 — The GUI
+
+`pages/search/data.rs:67-69` says the filter builder cannot even express
+`include_deleted`, and `app.rs:55-80` has no route. Needed:
+
+- the search filter builder can express it, and the search page has a
+  visible toggle (not a URL-only parameter — "visible for audit" means
+  discoverable);
+- `/items/:code` renders an archived item with a clear banner and the
+  Restore action, instead of an error;
+- `/activity/history/:code` renders archived history, which is the single
+  most valuable screen in this initiative: it is the audit answer.
+
+**Vocabulary hazard:** `pages/item.rs:269,315` already uses "archived" for
+the *document editorial lifecycle* (`draft|review|published|archived`,
+KAIROS-T-0078), which is unrelated — a published document can be editorially
+archived while perfectly live. The GUI must not use one word for both. This
+initiative does not rename anything; it picks GUI copy that distinguishes
+them and records the collision for whoever does the rename.
+
+### D8 — `DEFINITION_IN_USE` (closes KAIROS-T-0152)
+
+`api/meta/definitions.rs:463-486` counts `item_metadata` rows without
+joining the owning entity, so liveness is not considered at all. With
+archived items reachable, counting them is defensible — but the refusal must
+**name** the carriers, archived ones marked, the way `live_board_item_codes`
+does for the team guard. A bare count the user cannot act on is the actual
+defect. `set_metadata` on an archived item stays refused (D5); the admin
+restores, clears, re-archives.
 
 ## Alternatives Considered
 
-*Pending design.*
+- **Serve archived content to admins only.** Rejected in ADR-20 — it makes
+  archiving a permission boundary.
+- **A `?include_deleted=true` query parameter bolted onto today's handlers,
+  leaving the views alone.** Tempting and much smaller, and it is what the
+  existing search flag does. Rejected because it cannot work: the views are
+  upstream of resolution, so the parameter would have nothing to widen —
+  exactly the bug that makes `--include-deleted` a silent no-op alongside
+  `--query` today. Fixing the views is the whole job.
+- **Re-parent archived cards to a synthetic column on removal**, instead of
+  soft-deleting columns. Rejected: it mutates the archived record, so the
+  card no longer says which column it was in when it was put away, which is
+  the audit fact worth keeping. It also contradicts read-only.
+- **Denormalise the column name onto the item at archive time.** Same
+  objection in a cheaper form, plus a second source of truth.
+- **Hard-delete on archive after a retention window.** Out of scope, and
+  currently impossible anyway: the sweeper is unwired and purges only
+  `item_history` / `activity_log`.
 
 ## Implementation Plan
 
-*Pending design.*
+Five waves. Waves 1 and 2 are strictly ordered (D2 before D1 before D3);
+after that the work fans out.
+
+**Wave 1 — resolution (no migration, strictly ordered)**
+1. **ABAC resolves archived items** (D2). Prerequisite for everything; alone
+   it changes no surface behaviour.
+2. **Archived-aware resolution: item GET and `/history`** (D1) —
+   `resolve_short_code`, the five `load()`s, `archived_at` in the payload,
+   the `"no live"` message. History is pure resolution, so it comes free
+   with the chokepoint and carries the highest audit value in the wave.
+3. **MCP and CLI read archived** (D1) — `get_item` / `get_history` with an
+   archived marker in the rendered text, and the CLI entity families.
+
+**Wave 2 — the views (migration; 4 before the rest)**
+4. **Views expose `deleted_at`; all consumers filter explicitly** (D3).
+5. **Search honours `include_deleted` alongside `q`; `is_constraining`
+   counts it; traverse from an archived root** (D4).
+6. **Graph neighbours include archived, marked** (D4).
+7. **`include_deleted` opt-in on the five list endpoints and
+   `/api/boards/{id}/items`** (D3).
+
+**Wave 3 — writes and guards (independent of each other)**
+8. **Un-archive across API, MCP and CLI, with the refuse-and-name guards**
+   (D5).
+9. **`board_columns` soft delete; `count_items_in_column` goes live-only**
+   (D6).
+10. **`DEFINITION_IN_USE` names its carriers** (D8) — closes
+    [[KAIROS-T-0152]].
+
+**Wave 4 — the GUI**
+11. **Search toggle and filter-builder support** (D7).
+12. **Archived item page with Restore, and archived history** (D7) — closes
+    [[KAIROS-T-0151]].
+
+**Wave 5 — close out**
+13. **UAT and docs**: `housekeeping` flips from asserting 404 to asserting
+    the audit answer; a journey covers `restore_item` so the drift gate
+    reads 18/18; README and the arc table updated; both full runs recorded.
+
+Gates per task: `angreal test` (unit + integration) green, and for anything
+touching a default listing, the `housekeeping` journey green in compose.
 
 ## Progress Log
 
@@ -194,3 +400,22 @@ Ranked by how badly they break the rule — these are the worklist:
   call sites complete and recorded above; the contradiction list is the
   worklist. Held in discovery pending Dylan's answers to the three scope
   questions — no decomposition yet.
+- 2026-09-23: **Scope decided by Dylan** — everything including the GUI; a
+  column holding only archived cards becomes removable; archived work is
+  read-only plus an un-archive verb. Design written against those answers.
+
+  Designing the column answer turned up the thing the survey had not: the
+  guard at `boards.rs:868-885` is not the only thing holding a column down.
+  `column_id` is `NOT NULL REFERENCES board_columns(id)` with **no
+  `ON DELETE` clause** (up.sql:170/190/213/250), so the database itself
+  refuses — and `remove_column`'s own doc comment says so. Dropping the
+  count alone would turn a clean 422 into a foreign-key violation. The
+  answer is ADR-20 one level down: `board_columns` gets its own
+  `deleted_at`. The FK stays satisfied, the archived card keeps rendering
+  with the real column name it was put away in, and the column vanishes
+  from live boards. No new concept.
+
+  Also settled while designing: read-only needs **no new guard**. Every
+  mutating path already loads live-only (`items.rs:325/650/702/792`), so
+  leaving those call sites alone *is* the freeze — recorded in D5 so nobody
+  later "fixes" the inconsistency.

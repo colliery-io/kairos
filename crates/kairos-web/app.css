@@ -116,6 +116,19 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* A put-away hit in the search result list (KAIROS-T-0163). Archived work
+   reaches this list only when the toggle asked for it, but the ROW still
+   has to read apart from live work — someone scanning results should not
+   have to notice a badge to notice a retired ticket. The row sits back on
+   the inset surface with a gold edge; the badge above carries the words. */
+.kairos-search__hit--put-away td {
+  background: var(--inset);
+}
+
+.kairos-search__hit--put-away td:first-child {
+  box-shadow: inset 2px 0 0 var(--gold);
+}
+
 /* The archived banner (KAIROS-T-0164): full width, above everything the
    page says about the item, because an archived record reads exactly like
    a live one. */
@@ -572,13 +585,22 @@ body {
   padding: var(--space-xs) 0 0 var(--space-sm);
 }
 
-/* Focal flight-level graph (KAIROS-T-0089). Red deliberately unused. */
+/* Focal flight-level graph (KAIROS-T-0089). Red deliberately unused.
+ *
+ * KAIROS-T-0163 corrected the custom-property NAMES in this block. They
+ * were `--surface`/`--surface-raised`/`--text`/`--text-bright`/
+ * `--text-dimmed`, none of which aurora-dark defines — an undefined var
+ * makes the declaration invalid at computed-value time, and `fill` is
+ * inherited, so every box and label fell back to initial black. The
+ * conventions grep only bans raw literals, so it never caught it. The
+ * real tokens are `--panel`/`--panel-2`/`--fg`/`--fg-bright`/`--muted`.
+ */
 .kairos-graph {
   overflow-x: auto;
 }
 
 .kairos-graph__header {
-  fill: var(--text-dimmed);
+  fill: var(--muted);
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -586,18 +608,18 @@ body {
 }
 
 .kairos-graph__lane {
-  fill: var(--surface-raised);
+  fill: var(--panel-2);
   stroke: var(--border-fainter);
 }
 
 .kairos-graph__lane-label {
-  fill: var(--text-dimmed);
+  fill: var(--muted);
   font-size: 10px;
   font-family: var(--font-mono);
 }
 
 .kairos-graph__box {
-  fill: var(--surface);
+  fill: var(--panel);
   stroke-width: 1.5;
   cursor: pointer;
 }
@@ -606,38 +628,55 @@ body {
   stroke-width: 3;
 }
 
+/* A put-away node (KAIROS-T-0163 / ADR-20). The subgraph is
+   archived-inclusive since KAIROS-T-0158, so an archived neighbour is
+   DRAWN — and drawing it as live is the one wrong answer. Its box sinks
+   to the inset surface and gains the gold "put away" label below; the
+   entity-color stroke stays, because it is still that kind of item. */
+.kairos-graph__node--put-away .kairos-graph__box {
+  fill: var(--inset);
+  stroke-opacity: 0.55;
+}
+
+.kairos-graph__put-away {
+  fill: var(--gold);
+  font-size: 10px;
+  text-anchor: end;
+  pointer-events: none;
+}
+
 .kairos-graph__code {
-  fill: var(--text-bright);
+  fill: var(--fg-bright);
   font-family: var(--font-mono);
   font-size: 12px;
   cursor: pointer;
 }
 
 .kairos-graph__title {
-  fill: var(--text);
+  fill: var(--fg);
   font-size: 12px;
   pointer-events: none;
 }
 
 .kairos-graph__status {
-  fill: var(--text-dimmed);
+  fill: var(--muted);
   font-size: 10px;
   pointer-events: none;
 }
 
 .kairos-graph__edge {
   fill: none;
-  stroke: var(--text-dimmed);
+  stroke: var(--muted);
   stroke-width: 1.5;
 }
 
 .kairos-graph__edge--hot {
-  stroke: var(--text-bright);
+  stroke: var(--fg-bright);
   stroke-width: 2.5;
 }
 
 .kairos-graph__arrowhead {
-  fill: var(--text-dimmed);
+  fill: var(--muted);
 }
 
 .kairos-graph__more {
@@ -645,12 +684,12 @@ body {
 }
 
 .kairos-graph__more circle {
-  fill: var(--surface-raised);
+  fill: var(--panel-2);
   stroke: var(--border-fainter);
 }
 
 .kairos-graph__more text {
-  fill: var(--text-bright);
+  fill: var(--fg-bright);
   font-size: 10px;
   text-anchor: middle;
 }

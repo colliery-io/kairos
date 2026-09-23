@@ -275,6 +275,20 @@ pub struct RelatedItem {
     pub short_code: String,
     pub entity_type: String,
     pub title: String,
+    /// When this neighbour was put away, RFC 3339; **absent while live**,
+    /// so presence is the marker (KAIROS-T-0158 / ADR-20).
+    ///
+    /// Relationship lists are archived-INCLUSIVE: an item's edges
+    /// describe what it contains and depends on, and dropping an
+    /// archived endpoint would silently shrink that answer. The panel
+    /// must therefore SHOW the state — an unmarked archived neighbour is
+    /// worse than a missing one, because the reader acts on it.
+    ///
+    /// This mirror is partial, so it compiled perfectly well without
+    /// this field and simply never rendered the marker. Adding a wire
+    /// field is not enough; the mirror has to want it.
+    #[serde(default)]
+    pub archived_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_meta::Template` (partial).
@@ -1125,6 +1139,33 @@ mod tests {
             Some("2026-09-23T11:30:07.479107Z")
         );
         assert_eq!(item.id, "3d9f2f5e-8f5c-4f4e-b7a3-0f1e2d3c4b5a");
+    }
+
+    /// KAIROS-T-0158/T-0163: relationship lists are archived-inclusive
+    /// and mark the archived end, so the panel's mirror has to carry the
+    /// marker. It compiled fine without it and silently rendered an
+    /// archived neighbour as live — the trap this test exists to hold
+    /// shut.
+    #[test]
+    fn related_item_mirror_carries_the_archived_marker() {
+        let body = serde_json::json!({
+            "short_code": "DEMO-I-0002",
+            "outgoing": [{"relationship": "parent", "items": [
+                {"relationship_id": "e1", "id": "x", "short_code": "DEMO-T-0001",
+                 "entity_type": "task", "title": "Still going"},
+                {"relationship_id": "e2", "id": "y", "short_code": "DEMO-T-0002",
+                 "entity_type": "task", "title": "Finished, put away",
+                 "archived_at": "2026-09-23T11:30:07.479107Z"}
+            ]}],
+            "incoming": []
+        });
+        let rels: ItemRelationships = serde_json::from_value(body).expect("mirror decodes");
+        let children = &rels.outgoing[0].items;
+        assert_eq!(children[0].archived_at, None, "a live neighbour is bare");
+        assert_eq!(
+            children[1].archived_at.as_deref(),
+            Some("2026-09-23T11:30:07.479107Z")
+        );
     }
 
     /// KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board

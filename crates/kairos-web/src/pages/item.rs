@@ -372,7 +372,11 @@ fn restore_power(
 /// `2026-09-23T11:30:07.479107Z` → `2026-09-23 11:30 UTC` (display only;
 /// anything that does not parse passes through untouched). Pure,
 /// host-tested.
-fn put_away_when(rfc3339: &str) -> String {
+///
+/// `pub(crate)` since KAIROS-T-0163: the search result list marks
+/// put-away hits too, and one rule for rendering the ADR-20 moment is
+/// the point — two would drift.
+pub(crate) fn put_away_when(rfc3339: &str) -> String {
     match rfc3339.split_once('T') {
         Some((date, time)) => {
             let clock = time.get(..5).unwrap_or(time);
@@ -633,6 +637,12 @@ fn LifecyclePanel(
 /// no involved board has done columns (never a misleading fraction).
 /// Renders nothing for items without children; a failed read renders
 /// nothing too (progress is enhancement data, not the page).
+///
+/// **Live-only, on purpose** (ADR-20 rule 5, KAIROS-T-0163): archived
+/// children are not counted here even though the Relationships panel
+/// below lists them. "2 children" there beside "1 of 1 done" here is the
+/// correct reading, not a discrepancy to reconcile — containment is a
+/// fact about the record; progress is a fact about live work.
 #[component]
 fn ChildrenProgressBar(family: Family, #[prop(into)] code: String) -> impl IntoView {
     let auth = use_auth();
@@ -1287,6 +1297,10 @@ fn MoveControl(
 
 /// Relationships summary: both directions, grouped, every neighbor linked
 /// to its own detail route. The full graph explorer is T-0042's.
+///
+/// Archived-INCLUSIVE since KAIROS-T-0158, with every put-away neighbour
+/// marked (KAIROS-T-0163) — deliberately unlike [`ChildrenProgressBar`]
+/// above it, which stays live-only per ADR-20 rule 5.
 #[component]
 fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoView {
     let auth = use_auth();
@@ -1310,19 +1324,40 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
                     view! { <Empty message="No relationships yet — link items from the graph explorer (KAIROS-T-0042)."/> }
                         .into_any()
                 }
-                Some(Ok(relationships)) => view! {
-                    <Stack gap="sm">
-                        {relationships.outgoing.into_iter().map(|group| view! {
-                            <RelationshipGroupView group direction="outgoing"/>
-                        }).collect_view()}
-                        {relationships.incoming.into_iter().map(|group| view! {
-                            <RelationshipGroupView group direction="incoming"/>
-                        }).collect_view()}
-                        <Anchor href=format!("/search/relationships/{}", code.get_value())>
-                            "Open the graph explorer"
-                        </Anchor>
-                    </Stack>
-                }.into_any(),
+                Some(Ok(relationships)) => {
+                    // ADR-20 rule 5, and the difference worth making
+                    // legible rather than reconciling away: this panel
+                    // is archived-INCLUSIVE, while the children rollup
+                    // at the top of the page counts live work only. So
+                    // "2 children" here beside "1 of 1 done" up there is
+                    // CORRECT, and the note says why in one line.
+                    let any_put_away = relationships
+                        .outgoing
+                        .iter()
+                        .chain(relationships.incoming.iter())
+                        .flat_map(|group| group.items.iter())
+                        .any(|item| item.archived_at.is_some());
+                    view! {
+                        <Stack gap="sm">
+                            {relationships.outgoing.into_iter().map(|group| view! {
+                                <RelationshipGroupView group direction="outgoing"/>
+                            }).collect_view()}
+                            {relationships.incoming.into_iter().map(|group| view! {
+                                <RelationshipGroupView group direction="incoming"/>
+                            }).collect_view()}
+                            {any_put_away.then(|| view! {
+                                <Text dimmed=true size="xs">
+                                    "Put-away neighbours are listed: containment is a fact \
+                                     about the record. The progress bar above counts live \
+                                     work only — progress is a fact about live work."
+                                </Text>
+                            })}
+                            <Anchor href=format!("/search/relationships/{}", code.get_value())>
+                                "Open the graph explorer"
+                            </Anchor>
+                        </Stack>
+                    }.into_any()
+                }
             }}
         </Panel>
     }
@@ -1455,13 +1490,33 @@ fn RelationshipGroupView(
             <Group gap="sm">
                 <Text size="xs" dimmed=true>{label}</Text>
             </Group>
-            {group.items.into_iter().map(|item| view! {
-                <Group gap="sm" justify="between">
-                    <Anchor href=format!("/items/{}", item.short_code)>
-                        {format!("{} — {}", item.short_code, item.title)}
-                    </Anchor>
-                    <Pill color=token::VIOLET>{item.entity_type.clone()}</Pill>
-                </Group>
+            {group.items.into_iter().map(|item| {
+                // KAIROS-T-0158/T-0163: the neighbour lists include
+                // archived ends on purpose — an item's edges describe
+                // what it contains and depends on, and dropping one
+                // would shrink that answer silently. So the row SAYS so.
+                // "put away", never a bare "archived": a document
+                // neighbour can be editorially `lifecycle: archived`
+                // (KAIROS-T-0078) and perfectly live.
+                let put_away = item.archived_at.as_deref().map(|when| {
+                    let title = format!("Put away on {}", put_away_when(when));
+                    view! {
+                        <span class="kairos-archived-badge" title=title>
+                            <Pill color=token::GOLD>"put away"</Pill>
+                        </span>
+                    }
+                });
+                view! {
+                    <Group gap="sm" justify="between">
+                        <Anchor href=format!("/items/{}", item.short_code)>
+                            {format!("{} — {}", item.short_code, item.title)}
+                        </Anchor>
+                        <Group gap="sm">
+                            {put_away}
+                            <Pill color=token::VIOLET>{item.entity_type.clone()}</Pill>
+                        </Group>
+                    </Group>
+                }
             }).collect_view()}
         </div>
     }

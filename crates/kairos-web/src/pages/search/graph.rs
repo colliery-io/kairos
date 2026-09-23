@@ -13,7 +13,11 @@
 //! - depth 2 by default; `+N` badges expand in place (merge, no remount);
 //! - refocus pushes a history entry and extends the `?trail=` breadcrumb,
 //!   so browser back returns to the prior focus;
-//! - red is used nowhere (reserved for violated/at-risk by convention).
+//! - red is used nowhere (reserved for violated/at-risk by convention);
+//! - archived neighbours are **drawn and marked "put away"**
+//!   (KAIROS-T-0158/T-0163, ADR-20): the subgraph is archived-inclusive
+//!   because dropping a node broke every path THROUGH it, and `degree`
+//!   counts them, so the `+N` arithmetic already balances.
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Panel, Pill, SegmentedControl,
@@ -57,6 +61,13 @@ struct PanelRow {
     short_code: String,
     title: String,
     status: String,
+    /// The ADR-20 state (KAIROS-T-0158): `Some(rfc3339)` = put away.
+    /// Careful — for a DOCUMENT, `status` above is its editorial
+    /// lifecycle, which can independently read "archived"
+    /// (KAIROS-T-0078). Two different states, and this panel is where
+    /// both can land in one row, so the marker never says only
+    /// "archived".
+    archived_at: Option<String>,
 }
 
 /// The focal graph, standalone: `short_code` is its only input (T-0090
@@ -245,6 +256,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         short_code: other.short_code.clone(),
                         title: other.title.clone(),
                         status: other.status.clone(),
+                        archived_at: other.archived_at.clone(),
                     });
                 }
                 panel_rows.sort_by(|a, b| {
@@ -344,7 +356,19 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         let is_focus = node.short_code == focus_code;
                         let node_id = node.id.clone();
                         let enter_id = node_id.clone();
-                        let title_attr = format!("{} — {}", node.title, node.status);
+                        // KAIROS-T-0158/T-0163: an archived node is DRAWN
+                        // (dropping it broke the paths through it), so it
+                        // has to be drawn differently — otherwise the
+                        // reader plans against a retired item. "put away"
+                        // never "archived": for a document the status
+                        // line below is the editorial lifecycle, which
+                        // has its own unrelated "archived".
+                        let put_away = node.archived_at.is_some();
+                        let title_attr = if put_away {
+                            format!("{} — {} — put away", node.title, node.status)
+                        } else {
+                            format!("{} — {}", node.title, node.status)
+                        };
                         let node_code = node.short_code.clone();
                         let refocus_code = node_code.clone();
                         let detail_code = node_code.clone();
@@ -360,6 +384,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                 } else {
                                     "kairos-graph__node"
                                 }
+                                class:kairos-graph__node--put-away=put_away
                                 on:mouseenter=move |_| hovered.set(Some(enter_id.clone()))
                                 on:mouseleave=move |_| hovered.set(None)
                             >
@@ -390,6 +415,12 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                     class="kairos-graph__status"
                                     x=x + 10.0 y=y + 50.0
                                 >{node.status.clone()}</text>
+                                {put_away.then(|| view! {
+                                    <text
+                                        class="kairos-graph__put-away"
+                                        x=x + w - 10.0 y=y + 50.0
+                                    >"put away"</text>
+                                })}
                                 {(hidden > 0).then(|| {
                                     view! {
                                         <g
@@ -424,7 +455,8 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         {trail_chips}
                         <Panel
                             title="Flight-level graph"
-                            caption="parent = containment · blocks = arrows · depth 2, +N expands"
+                            caption="parent = containment · blocks = arrows · depth 2, +N expands \
+                                     · put-away items are drawn, marked"
                         >
                             <div class="kairos-graph">
                                 <svg
@@ -459,6 +491,11 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                 <Stack gap="xs">
                                     {panel_rows.into_iter().map(|row| {
                                         let detail = format!("/items/{}", row.short_code);
+                                        let put_away = row.archived_at.map(|_| view! {
+                                            <span class="kairos-archived-badge">
+                                                <Pill color=token::GOLD>"put away"</Pill>
+                                            </span>
+                                        });
                                         view! {
                                             <Group gap="sm" wrap=true>
                                                 <Pill color=token::MUTED>{row.direction}</Pill>
@@ -470,6 +507,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                                 </Anchor>
                                                 <Text size="sm">{row.title.clone()}</Text>
                                                 <Pill color=token::MUTED>{row.status.clone()}</Pill>
+                                                {put_away}
                                             </Group>
                                         }
                                     }).collect_view()}
@@ -578,7 +616,12 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                 })}
                 {move || match rels.get() {
                     Some(Ok(body)) => {
-                        let mut rows: Vec<(String, String, String)> = Vec::new();
+                        // (edge id, description, title, put away?) — the
+                        // last because relationship lists are
+                        // archived-inclusive (KAIROS-T-0158) and an admin
+                        // about to unlink an edge should know that its
+                        // far end is already put away.
+                        let mut rows: Vec<(String, String, String, bool)> = Vec::new();
                         for (direction, groups) in
                             [("→", &body.outgoing), ("←", &body.incoming)]
                         {
@@ -591,6 +634,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                                             group.relationship, item.short_code
                                         ),
                                         item.title.clone(),
+                                        item.archived_at.is_some(),
                                     ));
                                 }
                             }
@@ -600,13 +644,18 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                         } else {
                             view! {
                                 <Stack gap="xs">
-                                    {rows.into_iter().map(|(edge_id, description, title)| {
+                                    {rows.into_iter().map(|(edge_id, description, title, put_away)| {
                                         let edge_desc = description.clone();
                                         view! {
                                             <Group justify="between" wrap=true>
                                                 <Group gap="sm" wrap=true>
                                                     <Pill color=token::MUTED>{description}</Pill>
                                                     <Text size="sm" dimmed=true>{title}</Text>
+                                                    {put_away.then(|| view! {
+                                                        <span class="kairos-archived-badge">
+                                                            <Pill color=token::GOLD>"put away"</Pill>
+                                                        </span>
+                                                    })}
                                                 </Group>
                                                 <Button
                                                     variant="default"

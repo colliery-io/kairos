@@ -108,3 +108,47 @@ modules in `.angreal/`.
 ## Status Updates
 
 *To be added during implementation*
+**2026-09-23 — done.** Commit `cda66b9`. The book is live at
+**https://colliery-io.github.io/kairos/** (HTTP 200, serving
+`introduction.md`), published by run `35928631342` — both jobs green.
+
+### Two decisions the brief did not anticipate
+
+**`SUMMARY.md` carries the full spine with unwritten chapters commented out.**
+mdBook creates a blank file for every entry it finds in `SUMMARY.md`, and this
+publishes to a *public* site on the first push — so the full twenty-chapter
+spine would have shipped twenty blank pages immediately. Commented, the file
+still reads as the remaining checklist (which is its value to later tasks) and
+only real pages render. **Each task uncomments the lines it fills.**
+
+**`introduction.md`'s section links are plain text for now.** Same cause:
+linking to `tutorials/run-kairos-locally.md` before mdBook is told to create
+it yields a 404 on a published page. Left unlinked with an inline comment
+saying so, and [[KAIROS-T-0175]] adds the links during its cross-link check.
+Recorded here so it is not mistaken for an oversight.
+
+### Pages needed no manual step after all
+
+The task said Pages must be enabled by hand. It can be done through the API:
+`gh api -X POST repos/colliery-io/kairos/pages -f build_type=workflow`,
+which returned `"build_type": "workflow"` and the site URL. Worth knowing for
+any other repo in the org that needs this.
+
+### What landed
+
+- `docs/book.toml` — modelled on squire-core's: stock `rust`/`ayu` theme,
+  `git-repository-url`, `edit-url-template`, folded sidebar, search.
+- `docs/src/` with `SUMMARY.md`, `introduction.md` and the four mode
+  directories.
+- `introduction.md` states what the book does **not** cover (D6's narrowed
+  scope makes that necessary — a reader who assumed the book was everything
+  would read the absence of contributor docs as a gap).
+- `.angreal/task_docs.py` — `angreal docs build` / `angreal docs serve`,
+  mdBook pinned to **0.5.2** and acquired cargo-natively, the same way
+  `task_web.py` gets trunk.
+- `.github/workflows/docs.yml` — `docs/**` pushes only, own Pages via the
+  first-party actions rather than squire-core's PAT-to-dist-repo (Kairos is
+  public, so no secret and no branch needed). `actionlint` clean.
+- `docs/book/` gitignored.
+
+The release workflow is untouched.

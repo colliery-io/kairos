@@ -4,14 +4,14 @@ level: task
 title: "entity_directory and searchable_items expose deleted_at; consumers filter explicitly"
 short_code: "KAIROS-T-0156"
 created_at: 2026-09-23T11:29:48.965493+00:00
-updated_at: 2026-09-23T11:29:48.965493+00:00
+updated_at: 2026-09-23T12:26:39.655302+00:00
 parent: KAIROS-I-0015
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,15 +73,19 @@ filter moves into the query.
 
 ## Acceptance Criteria
 
-- [ ] A tenant migration recreates both views exposing `deleted_at`.
-- [ ] Every consumer names its liveness mode explicitly.
-- [ ] `crates/kairos-db/tests/search.rs:637-679` passes unmodified.
-- [ ] A test asserts an archived item is absent from every default listing
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] A tenant migration recreates both views exposing `deleted_at`.
+- [x] Every consumer names its liveness mode explicitly.
+- [x] `crates/kairos-db/tests/search.rs:637-679` passes unmodified.
+- [x] A test asserts an archived item is absent from every default listing
       (boards, the five family lists, search without the flag, the entity
       directory).
-- [ ] `EXPLAIN` on the default board and list queries still uses the partial
+- [x] `EXPLAIN` on the default board and list queries still uses the partial
       indexes.
-- [ ] `angreal test` green; full compose UAT green.
+- [x] `angreal test` green; full compose UAT green.
 
 ## Status Updates
 

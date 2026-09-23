@@ -312,7 +312,7 @@ CREATE INDEX idx_item_history_item ON item_history(item_id);
 CREATE TABLE activity_log (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id        UUID NOT NULL,       -- references public.users
-    action          TEXT NOT NULL,        -- 'transition', 'create', 'delete', 'relationship_add',
+    action          TEXT NOT NULL,        -- 'transition', 'board_move', 'create', 'delete', 'relationship_add',
                                          -- 'relationship_remove', 'capability_grant', 'capability_revoke'
     entity_id       UUID,                -- the item acted on (nullable for relationship actions)
     entity_type     TEXT,                -- 'strategy', 'initiative', 'task', 'document', 'adr'

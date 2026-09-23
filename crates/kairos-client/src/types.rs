@@ -349,6 +349,14 @@ pub struct TransitionRequest {
     pub to_column_id: String,
 }
 
+/// Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the
+/// delivery board to move the task to, by slug or UUID. It lands in that
+/// board's entry column and follows its team.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MoveTaskRequest {
+    pub board: String,
+}
+
 // ---------------------------------------------------------------------------
 // Envelopes
 // ---------------------------------------------------------------------------

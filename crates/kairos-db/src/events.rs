@@ -61,6 +61,10 @@ pub enum EventKind {
     ItemUpdated,
     /// An item moved to another board column.
     ItemTransitioned,
+    /// A task moved to another delivery board (KAIROS-I-0012). Emitted
+    /// once for the board it left (`board_id` = source, no column) and
+    /// once for the board it joined, so both boards' subscribers refetch.
+    ItemMoved,
     /// An item was soft-deleted.
     ItemDeleted,
     /// A relationship edge touching the item was added or removed.
@@ -79,6 +83,7 @@ impl EventKind {
             EventKind::ItemCreated => "item_created",
             EventKind::ItemUpdated => "item_updated",
             EventKind::ItemTransitioned => "item_transitioned",
+            EventKind::ItemMoved => "item_moved",
             EventKind::ItemDeleted => "item_deleted",
             EventKind::RelationshipChanged => "relationship_changed",
             EventKind::MetadataChanged => "metadata_changed",

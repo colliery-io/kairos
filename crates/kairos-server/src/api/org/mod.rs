@@ -104,35 +104,93 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
         .ok_or_else(|| ApiError::not_found(format!("no live board {board_id}")))
 }
 
-/// How many workflow items (strategies/initiatives/tasks/ADRs) reference
-/// `board_id` — soft-deleted rows included, mirroring T-0010's
-/// column-removal rule (they still hold the FK and would orphan on
-/// restore). Non-zero blocks board deletion (422 `BOARD_NOT_EMPTY`).
-pub fn count_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result<i64, ApiError> {
+/// How many LIVE workflow items (strategies/initiatives/tasks/ADRs) sit on
+/// `board_id`. Non-zero blocks team and board deletion (422
+/// `BOARD_NOT_EMPTY`).
+///
+/// KAIROS-I-0012 (Dylan, 2026-09-22: "all cards must be archived or moved
+/// to delete a team"): soft-deleted rows no longer count. They used to,
+/// on the T-0010 argument that a deleted item still holds the FK and
+/// would orphan on restore — but no restore path exists, so the rule made
+/// every team permanent once a card had touched its board. Deleted items
+/// keep their FK to the (also soft-deleted) board; a future restore
+/// feature must refuse while the board is gone. `remove_column` keeps
+/// counting soft-deleted rows: re-parenting rows is a different invariant.
+pub fn count_live_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result<i64, ApiError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
     let mut total: i64 = 0;
     total += strategies::table
         .filter(strategies::board_id.eq(board_id))
+        .filter(strategies::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ApiError::internal)?;
     total += initiatives::table
         .filter(initiatives::board_id.eq(board_id))
+        .filter(initiatives::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ApiError::internal)?;
     total += tasks::table
         .filter(tasks::board_id.eq(board_id))
+        .filter(tasks::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ApiError::internal)?;
     total += adrs::table
         .filter(adrs::board_id.eq(board_id))
+        .filter(adrs::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ApiError::internal)?;
     Ok(total)
+}
+
+/// The short codes of the live cards on `board_id` (at most `limit`), for
+/// a `BOARD_NOT_EMPTY` refusal that names what to move or delete.
+pub fn live_board_item_codes(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    limit: i64,
+) -> Result<Vec<String>, ApiError> {
+    use kairos_db::schema::{adrs, initiatives, strategies, tasks};
+    let mut codes: Vec<String> = strategies::table
+        .filter(strategies::board_id.eq(board_id))
+        .filter(strategies::deleted_at.is_null())
+        .order(strategies::short_code.asc())
+        .select(strategies::short_code)
+        .load::<String>(conn)
+        .map_err(ApiError::internal)?;
+    codes.extend(
+        initiatives::table
+            .filter(initiatives::board_id.eq(board_id))
+            .filter(initiatives::deleted_at.is_null())
+            .order(initiatives::short_code.asc())
+            .select(initiatives::short_code)
+            .load::<String>(conn)
+            .map_err(ApiError::internal)?,
+    );
+    codes.extend(
+        tasks::table
+            .filter(tasks::board_id.eq(board_id))
+            .filter(tasks::deleted_at.is_null())
+            .order(tasks::short_code.asc())
+            .select(tasks::short_code)
+            .load::<String>(conn)
+            .map_err(ApiError::internal)?,
+    );
+    codes.extend(
+        adrs::table
+            .filter(adrs::board_id.eq(board_id))
+            .filter(adrs::deleted_at.is_null())
+            .order(adrs::short_code.asc())
+            .select(adrs::short_code)
+            .load::<String>(conn)
+            .map_err(ApiError::internal)?,
+    );
+    codes.truncate(limit.max(0) as usize);
+    Ok(codes)
 }
 
 /// Run `f` inside ONE database transaction, keeping `ApiError` as the
@@ -188,10 +246,14 @@ pub fn map_config_error(e: BoardError) -> ApiError {
             // operator/data problem, not a client mistake.
             ApiError::internal(e)
         }
-        // Item/transition errors cannot arise from configuration calls.
+        // Item/transition/move errors cannot arise from configuration calls.
         e @ (BoardError::ItemNotFound { .. }
         | BoardError::ItemNotOnBoard { .. }
-        | BoardError::Transition(_)) => ApiError::internal(e),
+        | BoardError::Transition(_)
+        | BoardError::SameBoard(_)
+        | BoardError::NotDeliveryBoard(_)
+        | BoardError::RepositoryOwnerMismatch { .. }
+        | BoardError::NoEntryColumn(_)) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }
 }

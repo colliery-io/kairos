@@ -17,7 +17,7 @@ use utoipa::ToSchema;
 /// One thin change event pushed by the server (S-0005 shape).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ThinEvent {
-    /// `item_created|item_updated|item_transitioned|item_deleted|`
+    /// `item_created|item_updated|item_transitioned|item_moved|item_deleted|`
     /// `relationship_changed|metadata_changed`.
     pub event: String,
     /// `strategy|initiative|task|document|adr`.

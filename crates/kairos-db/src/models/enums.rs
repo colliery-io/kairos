@@ -255,6 +255,7 @@ text_enum! {
         WorkClass => "work_class",
         Lifecycle => "lifecycle",
         Repository => "repository",
+        BoardMove => "board_move",
     }
 }
 
@@ -389,6 +390,7 @@ mod tests {
                 "work_class",
                 "lifecycle",
                 "repository",
+                "board_move",
             ]
         );
     }

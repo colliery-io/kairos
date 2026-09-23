@@ -26,7 +26,7 @@ use uuid::Uuid;
 use super::super::convert_org::team_to_dto;
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    count_board_items, is_unique_violation, map_config_error, require_user_exists,
+    count_live_board_items, is_unique_violation, map_config_error, require_user_exists,
     run_in_transaction,
 };
 use crate::app::AppState;
@@ -545,19 +545,23 @@ pub(crate) async fn delete_team(
             }
             let board = delivery_board_of(conn, team_id)?;
             if let Some(board_id) = board {
-                let item_count = count_board_items(conn, board_id)?;
+                let item_count = count_live_board_items(conn, board_id)?;
                 if item_count > 0 {
+                    let items = super::live_board_item_codes(conn, board_id, 20)?;
                     return Err(ApiError::unprocessable(
                         "BOARD_NOT_EMPTY",
                         format!(
-                            "team {:?}'s delivery board still contains {item_count} item(s); \
-                             move or delete them before removing the team",
-                            team.name
+                            "team {:?}'s delivery board still holds {item_count} live card(s): [{}]; \
+                             move them to another board (POST /api/tasks/{{code}}/move) or \
+                             delete them, then retry",
+                            team.name,
+                            items.join(", ")
                         ),
                     )
                     .with_details(serde_json::json!({
                         "board_id": board_id,
                         "item_count": item_count,
+                        "items": items,
                     })));
                 }
             }

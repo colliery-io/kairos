@@ -50,6 +50,24 @@ pub enum BoardError {
     /// board_id/column_id).
     #[error("{entity_type} {id} is not on a board")]
     ItemNotOnBoard { entity_type: &'static str, id: Uuid },
+    /// `move_task`: the target is the board the task is already on.
+    #[error("task is already on board {0}")]
+    SameBoard(Uuid),
+    /// `move_task`: tasks move between DELIVERY boards only.
+    #[error("board {0} is not a delivery board")]
+    NotDeliveryBoard(Uuid),
+    /// `move_task`: a task bound to a repository sits on that repository's
+    /// owning team's delivery board (KAIROS-T-0104); `owner_board_id` is
+    /// where it may go (`None` when the owner has no single delivery board).
+    #[error("task is bound to repository {repository}, which routes to another board")]
+    RepositoryOwnerMismatch {
+        repository: String,
+        owner_board_id: Option<Uuid>,
+        detail: Option<String>,
+    },
+    /// `move_task`: the target board has no columns to land in.
+    #[error("board {0} has no entry column")]
+    NoEntryColumn(Uuid),
     /// The transition edge to remove does not exist.
     #[error("transition {from} -> {to} does not exist on board {board_id}")]
     TransitionNotFound {
@@ -350,6 +368,136 @@ transition_item_fn!(
     tasks,
     "task"
 );
+
+// ---------------------------------------------------------------------------
+// Moving a task to another delivery board (KAIROS-I-0012)
+// ---------------------------------------------------------------------------
+
+/// The placement a task has after [`move_task`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskMove {
+    pub from_board_id: Uuid,
+    pub board_id: Uuid,
+    pub column_id: Uuid,
+    pub team_id: Option<Uuid>,
+}
+
+/// Move a live task to another live **delivery** board: it lands in the
+/// target's entry column, follows the target's team, gets a `board_move`
+/// activity row, and an `item_moved` event goes to both boards (one
+/// commit). A task bound to a repository may only move to that
+/// repository's owning team's delivery board (the KAIROS-T-0104 rule) —
+/// unbind it first otherwise. Authorization (`manage_tasks` on BOTH
+/// boards) is the caller's, as for every write here.
+pub fn move_task(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    to_board_id: Uuid,
+    actor_id: Uuid,
+) -> Result<TaskMove, BoardError> {
+    conn.transaction::<_, BoardError, _>(|conn| {
+        use crate::schema::boards::dsl as boards_dsl;
+        use crate::schema::tasks::dsl;
+
+        let current: Option<(Uuid, Uuid, Option<Uuid>)> = dsl::tasks
+            .filter(dsl::id.eq(task_id))
+            .filter(dsl::deleted_at.is_null())
+            .select((dsl::board_id, dsl::column_id, dsl::repository_id))
+            .first(conn)
+            .optional()?;
+        let (from_board_id, from_column_id, repository_id) =
+            current.ok_or(BoardError::ItemNotFound {
+                entity_type: "task",
+                id: task_id,
+            })?;
+        if from_board_id == to_board_id {
+            return Err(BoardError::SameBoard(to_board_id));
+        }
+        let target: Option<Board> = boards_dsl::boards
+            .filter(boards_dsl::id.eq(to_board_id))
+            .filter(boards_dsl::deleted_at.is_null())
+            .select(Board::as_select())
+            .first(conn)
+            .optional()?;
+        let target = target.ok_or(BoardError::BoardNotFound(to_board_id))?;
+        if target.board_level != BoardLevel::Delivery {
+            return Err(BoardError::NotDeliveryBoard(to_board_id));
+        }
+        if let Some(repository_id) = repository_id {
+            use crate::schema::repositories::dsl as repos;
+            let (slug, owner): (String, Uuid) = repos::repositories
+                .filter(repos::id.eq(repository_id))
+                .select((repos::slug, repos::team_id))
+                .first(conn)?;
+            let owner_board =
+                crate::repositories::delivery_board_for_team(conn, owner).map_err(|e| {
+                    BoardError::RepositoryOwnerMismatch {
+                        repository: slug.clone(),
+                        owner_board_id: None,
+                        detail: Some(e.to_string()),
+                    }
+                })?;
+            if owner_board != to_board_id {
+                return Err(BoardError::RepositoryOwnerMismatch {
+                    repository: slug,
+                    owner_board_id: Some(owner_board),
+                    detail: None,
+                });
+            }
+        }
+        let to_column_id =
+            entry_column(conn, to_board_id)?.ok_or(BoardError::NoEntryColumn(to_board_id))?;
+
+        diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
+            .set((
+                dsl::board_id.eq(to_board_id),
+                dsl::column_id.eq(to_column_id),
+                dsl::team_id.eq(target.team_id),
+                dsl::updated_by.eq(actor_id),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .execute(conn)?;
+
+        log_activity(
+            conn,
+            actor_id,
+            ActivityAction::BoardMove,
+            Some(task_id),
+            "task",
+            format!("board:{from_board_id}->{to_board_id} column:{from_column_id}->{to_column_id}"),
+        )?;
+        // The board it LEFT gets the event with the source board so its
+        // subscribers refetch; the board it joined gets the placement.
+        let short_code: String = dsl::tasks
+            .filter(dsl::id.eq(task_id))
+            .select(dsl::short_code)
+            .first(conn)?;
+        crate::events::emit_event(
+            conn,
+            &crate::events::ThinEvent {
+                event: crate::events::EventKind::ItemMoved,
+                entity_type: "task".to_string(),
+                short_code: short_code.clone(),
+                board_id: Some(from_board_id),
+                column_id: None,
+                actor: actor_id,
+            },
+        )?;
+        crate::events::emit_item_event_by_id(
+            conn,
+            crate::events::EventKind::ItemMoved,
+            "task",
+            task_id,
+            actor_id,
+        )?;
+        Ok(TaskMove {
+            from_board_id,
+            board_id: to_board_id,
+            column_id: to_column_id,
+            team_id: target.team_id,
+        })
+    })
+}
 
 /// Move an ADR to another column of its board. Hand-written (not the macro)
 /// because `adrs.board_id`/`column_id` are nullable — an ADR not placed on a

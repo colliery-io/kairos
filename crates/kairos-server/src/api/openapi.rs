@@ -79,6 +79,8 @@ use crate::app::AppState;
         crate::api::tasks::update_task,
         crate::api::tasks::delete_task,
         crate::api::tasks::transition_task,
+        // Task board move (KAIROS-I-0012).
+        crate::api::tasks::move_task,
         crate::api::tasks::set_work_class,
         // Task repository binding (KAIROS-T-0104).
         crate::api::tasks::set_repository,

@@ -29,7 +29,7 @@ use uuid::Uuid;
 use super::super::convert::{IntoDto, attach_repositories};
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    count_board_items, is_unique_violation, load_board, map_config_error, map_grant_error,
+    count_live_board_items, is_unique_violation, load_board, map_config_error, map_grant_error,
     require_user_exists, validate_capabilities,
 };
 use crate::app::AppState;
@@ -395,17 +395,19 @@ pub(crate) async fn delete_board(
             use kairos_db::schema::boards::dsl;
             let board = load_board(conn, board_id)?;
             require_capability(conn, &slug, Some(board.id), user, CONFIGURE)?;
-            let item_count = count_board_items(conn, board_id)?;
+            let item_count = count_live_board_items(conn, board_id)?;
             if item_count > 0 {
+                let items = super::live_board_item_codes(conn, board_id, 20)?;
                 return Err(ApiError::unprocessable(
                     "BOARD_NOT_EMPTY",
                     format!(
-                        "board {:?} still contains {item_count} item(s); \
-                         move or delete them before removing the board",
-                        board.name
+                        "board {:?} still holds {item_count} live card(s): [{}]; move them to \
+                         another board or delete them, then retry",
+                        board.name,
+                        items.join(", ")
                     ),
                 )
-                .with_details(json!({ "item_count": item_count })));
+                .with_details(json!({ "item_count": item_count, "items": items })));
             }
             diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
                 .set((

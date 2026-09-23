@@ -36,6 +36,7 @@ pub fn router() -> Router<AppState> {
             get(get_task).patch(update_task).delete(delete_task),
         )
         .route("/api/tasks/{short_code}/transition", post(transition_task))
+        .route("/api/tasks/{short_code}/move", post(move_task))
         .route("/api/tasks/{short_code}/work-class", post(set_work_class))
         .route(
             "/api/tasks/{short_code}/repository",
@@ -443,6 +444,68 @@ pub(crate) async fn set_repository(
         })
         .await?;
     Ok(Json(updated))
+}
+
+/// Move a task to another DELIVERY board (KAIROS-I-0012): it lands in the
+/// target's entry column and follows the target's team. Requires
+/// `manage_tasks` on the current board AND on the target (org admins
+/// bypass, as everywhere). A task bound to a repository may only move to
+/// that repository's owning team's board (KAIROS-T-0104).
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{short_code}/move",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    request_body = dto::MoveTaskRequest,
+    responses(
+        (status = 200, description = "Moved (new board, entry column)", body = dto::Task),
+        (status = 403, description = "Missing manage_tasks on either board", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code or board", body = dto::ErrorEnvelope),
+        (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | REPOSITORY_OWNER_MISMATCH | NO_ENTRY_COLUMN", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn move_task(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    Json(body): Json<dto::MoveTaskRequest>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let moved = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code)?;
+            let target = board_id_by_ref(conn, &body.board)?;
+            // Two-sided, like edges and re-homing: the work leaves one team's
+            // board and lands on another's.
+            require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
+            require_capability(conn, &slug, Some(target), user, MANAGE)?;
+            boards::move_task(conn, task.id, target, user).map_err(map_board_error)?;
+            let moved = load(conn, &short_code)?.into_dto();
+            attach_repository(conn, moved).map_err(ApiError::internal)
+        })
+        .await?;
+    Ok(Json(moved))
+}
+
+/// A live board by slug or UUID; 404 otherwise.
+fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
+    use kairos_db::schema::boards::dsl;
+    let mut query = dsl::boards
+        .filter(dsl::deleted_at.is_null())
+        .select(dsl::id)
+        .into_boxed();
+    query = match Uuid::parse_str(reference) {
+        Ok(id) => query.filter(dsl::id.eq(id)),
+        Err(_) => query.filter(dsl::slug.eq(reference)),
+    };
+    query
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
 }
 
 /// Move a task to another column (requires `transition_items` on the

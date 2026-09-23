@@ -725,29 +725,33 @@ pub(crate) async fn replace_group(
     Ok(scim_response(StatusCode::OK, resource))
 }
 
-/// How many workflow items still reference `board_id` (the T-0010
-/// board-empty rule, retyped for the SCIM surface — soft-deleted rows
-/// included, mirroring `api::org::count_board_items`).
+/// How many LIVE workflow items sit on `board_id` (the board-empty rule,
+/// retyped for the SCIM surface — mirrors `api::org::count_live_board_items`,
+/// KAIROS-I-0012: soft-deleted cards no longer block).
 fn count_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result<i64, ScimError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
     let mut total: i64 = 0;
     total += strategies::table
         .filter(strategies::board_id.eq(board_id))
+        .filter(strategies::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ScimError::internal)?;
     total += initiatives::table
         .filter(initiatives::board_id.eq(board_id))
+        .filter(initiatives::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ScimError::internal)?;
     total += tasks::table
         .filter(tasks::board_id.eq(board_id))
+        .filter(tasks::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ScimError::internal)?;
     total += adrs::table
         .filter(adrs::board_id.eq(board_id))
+        .filter(adrs::deleted_at.is_null())
         .count()
         .get_result::<i64>(conn)
         .map_err(ScimError::internal)?;

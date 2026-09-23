@@ -441,6 +441,18 @@ impl KairosClient {
     /// repository (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// The repository must belong to the team whose delivery board the
     /// task sits on; requires `manage_tasks` on that board.
+    /// `POST /api/tasks/{short_code}/move` — move a task to another delivery
+    /// board (slug or UUID); it lands in the entry column (KAIROS-I-0012).
+    pub async fn move_task(&self, short_code: &str, board: &str) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/move"),
+            &crate::types::MoveTaskRequest {
+                board: board.to_string(),
+            },
+        )
+        .await
+    }
+
     pub async fn set_task_repository(
         &self,
         short_code: &str,

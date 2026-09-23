@@ -389,6 +389,54 @@ async fn ws_events_against_live_stack() {
     assert_eq!(event.short_code, task.short_code.as_str());
 
     // =========================================================================
+    // item_moved: BOTH boards hear about it (KAIROS-I-0012)
+    // =========================================================================
+    create_board(
+        &mut acme,
+        BoardLevel::Delivery,
+        "Second Delivery",
+        "second-delivery",
+        None,
+        None,
+    )
+    .expect("a second delivery board to move to");
+    let second_delivery: Uuid = {
+        use kairos_db::schema::boards;
+        boards::table
+            .filter(boards::slug.eq("second-delivery"))
+            .select(boards::id)
+            .first(&mut acme)
+            .expect("second delivery board")
+    };
+    kairos_db::boards::move_task(&mut acme, task.id, second_delivery, alice_id)
+        .expect("moving the task");
+    // The board it LEFT, so that board's subscribers drop the card …
+    let (event, raw) = recv_event(&mut stream).await;
+    assert_event_shape(&event, &raw, "item_moved", "task");
+    assert_eq!(event.short_code, task.short_code.as_str());
+    assert_eq!(
+        event.board_id.as_deref(),
+        Some(acme_delivery.to_string().as_str()),
+        "first the source board"
+    );
+    // … then the board it JOINED, with its new placement.
+    let (event, raw) = recv_event(&mut stream).await;
+    assert_event_shape(&event, &raw, "item_moved", "task");
+    assert_eq!(
+        event.board_id.as_deref(),
+        Some(second_delivery.to_string().as_str()),
+        "then the target board"
+    );
+    assert!(event.column_id.is_some(), "carrying the entry column");
+    // Put it back so the rest of the walk sees the task where it was.
+    kairos_db::boards::move_task(&mut acme, task.id, acme_delivery, alice_id)
+        .expect("moving it back");
+    for _ in 0..2 {
+        let (event, raw) = recv_event(&mut stream).await;
+        assert_event_shape(&event, &raw, "item_moved", "task");
+    }
+
+    // =========================================================================
     // relationship_changed: one event per endpoint
     // =========================================================================
     let task2 = items::create_task(

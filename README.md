@@ -34,19 +34,19 @@ Every version tag (`v*`) publishes tarballs named
 ```sh
 # macOS Apple Silicon
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/<owner>/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-apple-darwin.tar.gz
 
 # macOS Intel
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/<owner>/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-apple-darwin.tar.gz
 
 # Linux x86_64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/<owner>/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-unknown-linux-gnu.tar.gz
 
 # Linux arm64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/<owner>/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-unknown-linux-gnu.tar.gz
 
 tar -xzf kairos.tar.gz
 install -m 0755 kairos ~/.local/bin/   # or any directory on your PATH

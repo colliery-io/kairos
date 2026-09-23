@@ -24,6 +24,16 @@ would contradict A-0016's "state and identity are the operator's" posture.
 
 ## Install
 
+From the published chart (each release is pushed to GHCR as an OCI artifact;
+`--version` pins it, since the chart never resolves `latest`):
+
+```sh
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
+  --version 0.1.0 -f my-values.yaml
+```
+
+Or from a checkout, which is what you want when changing the chart itself:
+
 ```sh
 helm install kairos deploy/helm/kairos -f my-values.yaml
 ```

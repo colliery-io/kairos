@@ -199,3 +199,69 @@ jobs:
           tags: ghcr.io/colliery-io/kairos:${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------
+  # Publish the Helm chart as an OCI artifact alongside the image.
+  #
+  # Before this job the release pipeline shipped binaries and an image but
+  # nothing published `deploy/helm/kairos` — its README said
+  # `helm install kairos deploy/helm/kairos`, so the only way to deploy a
+  # given release was to check the repo out at the right commit and hope the
+  # chart in your tree matched the image you were pointing at. The chart is
+  # part of the release surface, so it gets released.
+  #
+  # OCI rather than a gh-pages `helm repo`: GHCR auth and `packages: write`
+  # are already set up for the image job above, so this needs no new secret
+  # and no branch. Helm has supported OCI registries natively since 3.8.
+  #
+  # Pushed to `oci://ghcr.io/colliery-io/charts`, which makes the chart
+  # `oci://ghcr.io/colliery-io/charts/kairos` (helm appends the chart name).
+  chart:
+    name: publish helm chart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the chart's appVersion matches the tag
+        # Same class of guard as the binary and image jobs. `appVersion` is
+        # the Kairos release the chart deploys, and `image.tag` defaults to
+        # it, so a chart whose appVersion disagrees with the tag would
+        # quietly deploy a different version than the one being released.
+        #
+        # The chart's own `version` is deliberately NOT guarded: it tracks
+        # changes to the chart and may legitimately move independently of
+        # the app (a values fix with no new Kairos release bumps one and not
+        # the other). It is what the pushed artifact is versioned by.
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          app_version="$(grep -m1 '^appVersion:' deploy/helm/kairos/Chart.yaml | cut -d'"' -f2)"
+          chart_version="$(grep -m1 '^version:' deploy/helm/kairos/Chart.yaml | awk '{print $2}')"
+          if [ "${version}" != "${app_version}" ]; then
+            echo "Tag version ${version} != chart appVersion ${app_version}" >&2
+            exit 1
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "CHART_VERSION=${chart_version}" >> "$GITHUB_ENV"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint the chart
+        # The chart renders with required values missing reported as INFO,
+        # so lint is a real gate here: it fails on template errors.
+        run: helm lint deploy/helm/kairos
+
+      - name: Log in to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Package and push the chart
+        run: |
+          helm package deploy/helm/kairos --destination dist
+          helm push "dist/kairos-${CHART_VERSION}.tgz" oci://ghcr.io/colliery-io/charts

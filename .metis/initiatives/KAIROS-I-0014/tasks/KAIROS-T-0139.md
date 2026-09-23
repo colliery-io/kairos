@@ -4,14 +4,14 @@ level: task
 title: "J9 explorer: carol asks where a task came from and walks search to graph to traverse"
 short_code: "KAIROS-T-0139"
 created_at: 2026-09-23T03:45:44.788257+00:00
-updated_at: 2026-09-23T10:23:15.183759+00:00
+updated_at: 2026-09-23T10:27:47.718158+00:00
 parent: KAIROS-I-0014
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -39,8 +39,6 @@ KAIROS-I-0013 (T-0133 and T-0134 in particular).
 
 If a journey needs a team of its own, give the fixture a suffix no other
 journey uses (`mobile`, `ios`, `infra` are taken).
-
-## Acceptance Criteria
 
 ## Acceptance Criteria
 

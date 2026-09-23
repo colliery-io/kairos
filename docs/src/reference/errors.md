@@ -110,6 +110,20 @@ reason it is not a distinct code is that nothing a client can do differs — it
 has to restore the item first either way. See
 [Archiving](../explanation/archiving.md).
 
+## Related guides
+
+The refusals a reader most often arrives here from:
+
+- `RESTORE_BLOCKED` → [Find archived work](../how-to/find-archived-work.md)
+- `BOARD_NOT_EMPTY`, and a team that will not delete →
+  [Wind down a team](../how-to/wind-down-a-team.md)
+- `COLUMN_NOT_EMPTY`, `INVALID_TRANSITION`, `DUPLICATE_COLUMN_NAME` →
+  [Set up a board](../how-to/set-up-a-board.md)
+- `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `REPOSITORY_OWNER_MISMATCH` →
+  [Move work between boards](../how-to/move-work-between-boards.md)
+- `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
+  [Connect a git forge](../how-to/connect-a-git-forge.md)
+
 ## Related reading
 
 - [Capabilities](capabilities.md) — what `FORBIDDEN`'s

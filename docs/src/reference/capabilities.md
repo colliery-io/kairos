@@ -23,9 +23,21 @@ else is refused at grant time.
 | `manage_adrs` | Create, edit and delete ADRs on the board |
 | `transition_items` | Move items between the board's columns, and between the Planned and Support lanes |
 | `configure_boards` | Add, rename, reorder and remove columns and transitions |
-| `configure_templates` | Create and edit document templates |
-| `configure_metadata` | Create and edit metadata definitions |
+| `configure_templates` | **Nothing — see below.** Intended: create and edit document templates |
+| `configure_metadata` | **Nothing — see below.** Intended: create and edit metadata definitions |
 | `manage_members` | Add and remove board members, and grant and revoke their capabilities |
+
+### Two of these do not work
+
+`configure_templates` and `configure_metadata` can be granted, are shown as
+granted in the admin interface, and **authorise nothing**. Template and
+metadata-definition writes are org-admin only, and no handler consults either
+capability. Tracked as
+[KAIROS-T-0182](https://github.com/colliery-io/kairos/blob/main/.metis/backlog/bugs/KAIROS-T-0182.md).
+
+Do not rely on them to delegate that work: grant it and the grantee still gets
+403. `configure_boards` and `manage_members`, which look identical in the
+interface, are enforced normally.
 
 A grant is a `(board, user, capability)` triple. The model is a **whitelist**:
 a user with no grants on a board has no write access to it. Reads are open
@@ -112,6 +124,14 @@ Writing a relationship is org-admin by default, with one exception.
 |---|---|
 | `parent`, `blocks` | An org admin, **or** a member who manages the source's board, **or** a member who manages the target's board, **or** the user who created the source item |
 | `supports`, `informs`, `supersedes` | Org admin only |
+
+## Related guides
+
+- [Set up a board](../how-to/set-up-a-board.md) — configuring columns,
+  transitions and lanes, and which of these capabilities each step needs
+- [Wind down a team](../how-to/wind-down-a-team.md)
+- [Give an agent machine access](../how-to/give-an-agent-machine-access.md) —
+  a service account is a principal that holds capabilities like any other
 
 ## Related reading
 

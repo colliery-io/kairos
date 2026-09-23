@@ -299,6 +299,23 @@ fn tenant_provisioning_lifecycle() {
         EXPECTED_VIEWS,
         "a freshly provisioned tenant's directory views expose deleted_at"
     );
+    // Carried forward from KAIROS-T-0156's fleet-upgrade block, which the
+    // re-pin below retires: both views read all FIVE entity tables. It was
+    // the proof that a view rebuild is a rebuild rather than a patch, and
+    // it is just as true of a freshly provisioned tenant.
+    for view in EXPECTED_VIEWS {
+        assert_eq!(
+            count(
+                &mut conn,
+                &format!(
+                    "SELECT count(*) FROM information_schema.view_table_usage \
+                     WHERE view_schema = 'org_acme' AND view_name = '{view}'"
+                )
+            ),
+            5,
+            "org_acme's {view} reads all five entity tables"
+        );
+    }
     assert_eq!(schema_sequences(&mut conn, "org_acme"), EXPECTED_SEQUENCES);
     let indexes = schema_indexes(&mut conn, "org_acme");
     for index in EXPECTED_INDEXES {
@@ -307,6 +324,23 @@ fn tenant_provisioning_lifecycle() {
             "missing index {index} in org_acme"
         );
     }
+    // KAIROS-T-0157: the five full-text indexes are WHOLE, not partial. A
+    // partial index cannot serve a query that declines its predicate, so
+    // `WHERE deleted_at IS NULL` on these would silently turn every
+    // include-archived text search into a sequential scan. The name alone
+    // does not say this, which is why it is asserted separately from
+    // EXPECTED_INDEXES.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT indexname::text AS name FROM pg_indexes \
+             WHERE schemaname = $1 AND indexname LIKE '%\\_tsv' \
+               AND indexdef LIKE '%WHERE%'",
+            "org_acme",
+        ),
+        Vec::<String>::new(),
+        "no idx_*_tsv index is partial in a freshly provisioned tenant"
+    );
 
     // system_board_defaults seeded with all FOUR level configs (A-0002).
     assert_eq!(
@@ -495,36 +529,31 @@ fn tenant_provisioning_lifecycle() {
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
     // that predates the NEWEST tenant migration (currently
-    // `views_expose_deleted_at`, KAIROS-T-0156): revert its DDL (the down
+    // `tsv_indexes_cover_archived`, KAIROS-T-0157): revert its DDL (the down
     // migration's shape) and drop its bookkeeping row in widgets only, then
     // fleet-migrate and expect exactly that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
     // to remove by deriving the target from the embedded migration list.
-    // The pre-T-0156 shape is the two directory views filtering
-    // `deleted_at IS NULL` in their own bodies instead of reporting it.
-    sql_query("DROP VIEW org_widgets.searchable_items")
+    // When re-pinning, carry the outgoing migration's evidence up into the
+    // freshly-provisioned assertions rather than deleting it; T-0156's
+    // five-table view check moved there when this block stopped covering it.
+    //
+    // The pre-T-0157 shape is the five full-text indexes being partial,
+    // `WHERE deleted_at IS NULL`. Only strategies is reverted: one index is
+    // enough to prove the migration re-applies, and the post-condition below
+    // checks all five.
+    sql_query("DROP INDEX org_widgets.idx_strategies_tsv")
         .execute(&mut conn)
-        .expect("dropping widgets' searchable_items to simulate an old tenant");
+        .expect("dropping widgets' idx_strategies_tsv to simulate an old tenant");
     sql_query(
-        "CREATE VIEW org_widgets.searchable_items AS \
-             SELECT id, short_code, 'strategy' AS entity_type, title, content, \
-                    to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')) AS tsv \
-             FROM org_widgets.strategies WHERE deleted_at IS NULL",
+        "CREATE INDEX idx_strategies_tsv ON org_widgets.strategies \
+             USING GIN (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, ''))) \
+             WHERE deleted_at IS NULL",
     )
     .execute(&mut conn)
-    .expect("restoring the pre-T-0156 searchable_items in widgets");
-    sql_query("DROP VIEW org_widgets.entity_directory")
-        .execute(&mut conn)
-        .expect("dropping widgets' entity_directory to simulate an old tenant");
-    sql_query(
-        "CREATE VIEW org_widgets.entity_directory AS \
-             SELECT id, short_code, 'strategy' AS entity_type, title, board_id \
-             FROM org_widgets.strategies WHERE deleted_at IS NULL",
-    )
-    .execute(&mut conn)
-    .expect("restoring the pre-T-0156 entity_directory in widgets");
+    .expect("restoring the pre-T-0157 partial idx_strategies_tsv in widgets");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -560,25 +589,23 @@ fn tenant_provisioning_lifecycle() {
                AND column_name = 'deleted_at'"
         ),
         2,
-        "both directory views report deleted_at in widgets after the fleet upgrade"
+        "both directory views report deleted_at in widgets after the fleet upgrade \
+         (KAIROS-T-0156)"
     );
-    // The stub views the revert put back covered strategies only, so this
-    // also proves the re-applied migration rebuilt the WHOLE view rather
-    // than patching what it found: an upgraded tenant ends up with the same
-    // five-branch directory a freshly provisioned one gets.
-    for view in ["entity_directory", "searchable_items"] {
-        assert_eq!(
-            count(
-                &mut conn,
-                &format!(
-                    "SELECT count(*) FROM information_schema.view_table_usage \
-                     WHERE view_schema = 'org_widgets' AND view_name = '{view}'"
-                )
-            ),
-            5,
-            "{view} reads all five entity tables after the fleet upgrade"
-        );
-    }
+    // KAIROS-T-0157: the upgraded tenant's full-text indexes are whole, not
+    // partial — an existing tenant gets the same include-archived search
+    // performance a freshly provisioned one does, rather than quietly
+    // seq-scanning for the rest of its life.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_indexes \
+             WHERE schemaname = 'org_widgets' AND indexname LIKE '%\\_tsv' \
+               AND indexdef NOT LIKE '%WHERE%'"
+        ),
+        5,
+        "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
+    );
 
     // ---- drop-tenant -------------------------------------------------------
     // Without --confirm: refused, nothing removed.

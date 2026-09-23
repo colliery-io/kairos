@@ -107,7 +107,10 @@ pub struct SearchFilter {
     /// Only items created strictly before this instant (RFC 3339).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_before: Option<String>,
-    /// Include soft-deleted items (default false).
+    /// Include archived (soft-deleted) items (default false). Composes with
+    /// every other capability — `q` and `traverse` included since
+    /// KAIROS-T-0157 — and is a complete request on its own. Archived hits
+    /// are served with `archived_at` set (KAIROS-A-0020).
     #[serde(default)]
     pub include_deleted: bool,
 }

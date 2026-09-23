@@ -59,7 +59,8 @@ pub struct SearchArgs {
     /// Only items created strictly before this instant (RFC 3339)
     #[arg(long, value_name = "RFC3339")]
     pub before: Option<String>,
-    /// Include soft-deleted items
+    /// Include archived (soft-deleted) items; composes with --query and
+    /// --from, and archived hits are marked
     #[arg(long)]
     pub include_deleted: bool,
     /// Traverse: starting entity's short code
@@ -286,6 +287,10 @@ fn non_empty(values: &[String]) -> Option<Vec<String>> {
 }
 
 /// The human rendering: one CODE/TITLE/VER section per non-empty group.
+/// An archived hit carries an `[archived]` marker on its title
+/// (KAIROS-A-0020, KAIROS-T-0157): `--include-deleted` mixes put-away work
+/// in with live work, and a reader who cannot tell them apart will act on
+/// the wrong one.
 fn print_results(response: &SearchResponse) {
     fn section<T: EntityView>(label: &str, items: &[T]) {
         if items.is_empty() {
@@ -294,9 +299,13 @@ fn print_results(response: &SearchResponse) {
         println!("{label}:");
         let mut table = Table::new(&["  CODE", "TITLE", "VER"]);
         for item in items {
+            let title = match item.archived_at() {
+                Some(_) => format!("{} [archived]", item.title()),
+                None => item.title().to_string(),
+            };
             table.row(vec![
                 format!("  {}", item.short_code()),
-                item.title().to_string(),
+                title,
                 item.version().to_string(),
             ]);
         }

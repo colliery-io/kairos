@@ -19,8 +19,9 @@
 //!   grouped by type and fully typed
 //! - depth cap enforced (deep chain truncated at the traversal depth;
 //!   over-cap depth is a typed validation error)
-//! - soft-deleted excluded by default, `include_deleted` honored on both
-//!   the filter and traverse paths
+//! - soft-deleted excluded by default, `include_deleted` honored on the
+//!   filter, traverse, full-text (`q`) and traverse-root paths — and
+//!   accepted as a whole request on its own (KAIROS-T-0157 / KAIROS-A-0020)
 //! - sort + pagination over the combined result set (`total` counted
 //!   before the page is cut)
 //! - pathological fan-out (200 tasks under one initiative) completes
@@ -678,6 +679,82 @@ fn unified_search_pipeline() {
         }),
     );
     assert_eq!(all_ids(&results), HashSet::from([t3.id, t4.id]));
+
+    // ==========================================================================
+    // KAIROS-T-0157 / KAIROS-A-0020: the flag reaches `q` and the traverse
+    // root, not just the filter
+    // ==========================================================================
+    // "onboarding" appears only in t4, the soft-deleted task.
+    let (results, _) = run(&mut conn, json!({"q": "onboarding"}));
+    assert!(
+        all_ids(&results).is_empty(),
+        "a text search hides archived work by default (ADR-20 rule 3)"
+    );
+    let (results, _) = run(
+        &mut conn,
+        json!({"q": "onboarding", "filter": {"include_deleted": true}}),
+    );
+    assert_eq!(
+        all_ids(&results),
+        HashSet::from([t4.id]),
+        "asked for, archived work is findable by full text — the candidate \
+         sets are intersected, so a live-only `q` set used to drop the \
+         archived ids BEFORE include_deleted was ever consulted"
+    );
+    assert!(
+        results.tasks.iter().all(|t| t.deleted_at.is_some()),
+        "and the hit carries its deleted_at, so nothing can mistake it for live"
+    );
+
+    // `include_deleted` alone is a whole request, not an empty one: the
+    // core validator used to reject it as non-constraining, which made
+    // "show me the archived work" unaskable.
+    let (results, _) = run(&mut conn, json!({"filter": {"include_deleted": true}}));
+    assert!(
+        all_ids(&results).contains(&t4.id),
+        "\"show me everything, archived included\" reaches the archived row"
+    );
+
+    // Traverse FROM an archived root: 404 by default, its subgraph when
+    // asked. Archive i2 (which has descendants) for the probe, then put it
+    // back so the rest of the test sees the fixture it expects. The stamp
+    // is written directly rather than through `soft_delete_item`, which
+    // cascades — archiving the descendants would prove nothing about
+    // whether the ROOT lookup honours the flag.
+    let archive_i2 = |conn: &mut PgConnection, at: Option<&str>| {
+        sql_query(format!(
+            "UPDATE initiatives SET deleted_at = {} WHERE id = $1",
+            at.unwrap_or("NULL")
+        ))
+        .bind::<diesel::sql_types::Uuid, _>(i2.id)
+        .execute(conn)
+        .expect("stamping i2's deleted_at");
+    };
+    archive_i2(&mut conn, Some("now()"));
+    let root = json!({
+        "from": {"short_code": i2.short_code},
+        "relationships": ["parent"], "direction": "outbound", "depth": 1
+    });
+    let live_only: SearchRequest =
+        serde_json::from_value(json!({"traverse": root.clone()})).unwrap();
+    assert!(
+        matches!(
+            execute_search(&mut conn, &live_only),
+            Err(SearchError::TraverseRootNotFound { .. })
+        ),
+        "an archived root stays invisible without the flag"
+    );
+    let (results, _) = run(
+        &mut conn,
+        json!({"traverse": root, "filter": {"include_deleted": true}}),
+    );
+    assert_eq!(
+        all_ids(&results),
+        HashSet::from([t3.id, t4.id]),
+        "\"what hung off this once?\" is exactly the audit question, and it \
+         answers instead of 404ing"
+    );
+    archive_i2(&mut conn, None);
 
     // ==========================================================================
     // Sort and pagination: total counted before the page is cut

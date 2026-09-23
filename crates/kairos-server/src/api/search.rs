@@ -17,9 +17,19 @@
 //!   **400** `VALIDATION` in the S-0005 envelope, with the offending field
 //!   named in `details.field` (plus the typed extras the core error
 //!   carries, e.g. `details.cap` on an over-cap depth).
-//! - A `traverse.from` naming no live entity is 404 `NOT_FOUND` (same
-//!   convention as unknown short codes elsewhere in the API).
+//! - A `traverse.from` naming no entity the request may see is 404
+//!   `NOT_FOUND` (same convention as unknown short codes elsewhere in the
+//!   API). Since KAIROS-T-0157 that means unknown, or archived *without*
+//!   `filter.include_deleted` — traversing from archived work is the audit
+//!   question, so the flag reaches the root lookup too (KAIROS-A-0020).
 //! - Everything else from the pipeline is a 500.
+//!
+//! # Archived work (KAIROS-A-0020, KAIROS-T-0157)
+//!
+//! `filter.include_deleted` composes with every other capability, `q`
+//! included. On its own it is a complete request ("show me the archived
+//! work") rather than a 400. Archived hits are served marked: every entity
+//! DTO carries `archived_at`, and it is non-null exactly for those rows.
 
 use axum::extract::{Extension, State};
 use axum::http::StatusCode;
@@ -55,7 +65,7 @@ pub fn router() -> Router<AppState> {
         (status = 400, description = "Invalid search request; details.field names the offending field", body = dto::ErrorEnvelope),
         (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
         (status = 403, description = "Not a member of the organization", body = dto::ErrorEnvelope),
-        (status = 404, description = "traverse.from names no live entity", body = dto::ErrorEnvelope),
+        (status = 404, description = "traverse.from names no entity the request may see (unknown, or archived without filter.include_deleted)", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn search(

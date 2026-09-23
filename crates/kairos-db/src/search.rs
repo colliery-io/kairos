@@ -11,9 +11,10 @@
 //! # Pipeline (A-0007 execution order)
 //!
 //! 1. **Traverse** (if present): resolve the root through
-//!    `entity_directory` under an explicit `deleted_at IS NULL` (unknown
-//!    or soft-deleted roots are the typed
-//!    [`SearchError::TraverseRootNotFound`]), then walk
+//!    `entity_directory`, under an explicit `deleted_at IS NULL` unless
+//!    `filter.include_deleted` asks to start from archived work
+//!    (KAIROS-T-0157; an unknown root — or an archived one without the flag
+//!    — is the typed [`SearchError::TraverseRootNotFound`]), then walk
 //!    `item_relationships` with a recursive CTE — parameterized
 //!    relationship types, direction (`outbound`/`inbound`/`both`), and
 //!    depth. Cycle safety: `UNION` deduplicates `(id, depth)` rows and
@@ -28,13 +29,14 @@
 //!    `plainto_tsquery` because it accepts arbitrary end-user input without
 //!    ever erroring and supports quoted phrases, `OR`, and `-negation`.
 //!    The view is the search surface (S-0004). Since KAIROS-T-0156 it
-//!    reports `deleted_at` rather than filtering on it, and this query
-//!    spells its own `deleted_at IS NULL` — so full-text search still only
-//!    ever matches live items, even with `include_deleted`. That is not a
-//!    property of the view any more but a choice made here, and
-//!    KAIROS-T-0157 is where the choice changes: the flag will govern this
-//!    branch too, which is what finally makes `--include-deleted` mean
-//!    something alongside a text query.
+//!    reports `deleted_at` rather than filtering on it, and since
+//!    KAIROS-T-0157 this query spells `deleted_at IS NULL` only when
+//!    `filter.include_deleted` is absent — which is what finally makes
+//!    `--include-deleted` mean something alongside a text query
+//!    (KAIROS-A-0020 rule 2). The archived mode is index-served too: the
+//!    `idx_*_tsv` GIN indexes stopped being partial in the same change,
+//!    because a partial index cannot serve a query that declines its
+//!    predicate.
 //! 3. **Metadata filter** (if present): one pre-pass query over
 //!    `item_metadata`/`metadata_definitions` (pairs unnested server-side)
 //!    returning ids that satisfy EVERY entry; values use the T-0011 LIKE
@@ -92,8 +94,8 @@ pub enum SearchError {
     /// The request failed [`kairos_core::search::validate`] (HTTP 400).
     #[error(transparent)]
     Invalid(#[from] SearchValidationError),
-    /// `traverse.from` names no live entity (unknown, or soft-deleted —
-    /// roots resolve live-only through `entity_directory`).
+    /// `traverse.from` names no entity the request may see: unknown, or
+    /// soft-deleted without `filter.include_deleted` (KAIROS-T-0157).
     #[error("traverse root {reference} does not exist")]
     TraverseRootNotFound {
         /// The submitted `short_code` or `id`, for the error envelope.
@@ -171,12 +173,12 @@ pub fn execute_search_with_stats(
     };
 
     if let Some(traverse) = &request.traverse {
-        let root = resolve_root(conn, &traverse.from, &mut stats)?;
+        let root = resolve_root(conn, &traverse.from, include_deleted, &mut stats)?;
         let ids = traverse_ids(conn, root, traverse, &mut stats)?;
         intersect(&mut candidates, ids);
     }
     if let Some(q) = &request.q {
-        let ids = text_match_ids(conn, q, &mut stats)?;
+        let ids = text_match_ids(conn, q, include_deleted, &mut stats)?;
         intersect(&mut candidates, ids);
     }
     if let Some(metadata) = filter
@@ -269,29 +271,36 @@ struct IdRow {
     id: Uuid,
 }
 
-/// Resolve `traverse.from` to a live entity id via `entity_directory`.
-/// Live-only, stated here rather than inherited from the view
-/// (KAIROS-T-0156); KAIROS-T-0157 is where `include_deleted` reaches this
-/// lookup, so a traverse can start from archived work.
+/// Resolve `traverse.from` to an entity id via `entity_directory`.
+/// Live-only by default, stated here rather than inherited from the view
+/// (KAIROS-T-0156); with `include_deleted` the root may be archived
+/// (KAIROS-T-0157), because "what hung off this once?" is exactly the audit
+/// question and a 404 is not an answer to it (KAIROS-A-0020).
 fn resolve_root(
     conn: &mut PgConnection,
     from: &TraverseFrom,
+    include_deleted: bool,
     stats: &mut SearchStats,
 ) -> Result<Uuid, SearchError> {
+    let live_only = if include_deleted {
+        ""
+    } else {
+        " AND deleted_at IS NULL"
+    };
     stats.total_queries += 1;
     let row: Option<IdRow> = match (&from.short_code, from.id) {
-        (Some(short_code), None) => sql_query(
-            "SELECT id FROM entity_directory WHERE short_code = $1 AND deleted_at IS NULL",
-        )
+        (Some(short_code), None) => sql_query(format!(
+            "SELECT id FROM entity_directory WHERE short_code = $1{live_only}"
+        ))
         .bind::<Text, _>(short_code)
         .get_result(conn)
         .optional()?,
-        (None, Some(id)) => {
-            sql_query("SELECT id FROM entity_directory WHERE id = $1 AND deleted_at IS NULL")
-                .bind::<SqlUuid, _>(id)
-                .get_result(conn)
-                .optional()?
-        }
+        (None, Some(id)) => sql_query(format!(
+            "SELECT id FROM entity_directory WHERE id = $1{live_only}"
+        ))
+        .bind::<SqlUuid, _>(id)
+        .get_result(conn)
+        .optional()?,
         // validate() enforces exactly-one before we get here.
         _ => unreachable!("validated traverse.from names exactly one reference"),
     };
@@ -360,19 +369,30 @@ fn traverse_ids(
 }
 
 /// Full-text match via the `searchable_items` view (module docs, step 2).
-/// Live-only, and deliberately so for now: KAIROS-T-0156 moved the filter
-/// here from the view without changing what search returns, leaving
-/// KAIROS-T-0157 a single predicate to make conditional.
+/// Live-only by default; `include_deleted` widens it (KAIROS-T-0157). This
+/// is the predicate that made `--include-deleted` a silent no-op next to a
+/// text query: the archived ids were dropped here, so the intersection at
+/// step 4 had already lost them by the time the flag was read.
+///
+/// Both modes are index-served: `idx_*_tsv` were partial
+/// `WHERE deleted_at IS NULL` until KAIROS-T-0157 made them whole, because
+/// a partial index cannot answer a query that declines its predicate.
 fn text_match_ids(
     conn: &mut PgConnection,
     q: &str,
+    include_deleted: bool,
     stats: &mut SearchStats,
 ) -> Result<HashSet<Uuid>, SearchError> {
+    let live_only = if include_deleted {
+        ""
+    } else {
+        " AND deleted_at IS NULL"
+    };
     stats.total_queries += 1;
-    let rows: Vec<IdRow> = sql_query(
+    let rows: Vec<IdRow> = sql_query(format!(
         "SELECT id FROM searchable_items \
-         WHERE tsv @@ websearch_to_tsquery('english', $1) AND deleted_at IS NULL",
-    )
+         WHERE tsv @@ websearch_to_tsquery('english', $1){live_only}"
+    ))
     .bind::<Text, _>(q)
     .load(conn)?;
     Ok(rows.into_iter().map(|r| r.id).collect())

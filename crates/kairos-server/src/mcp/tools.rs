@@ -24,7 +24,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::sql_query;
-use diesel::sql_types::{Text as SqlText, Uuid as SqlUuid};
+use diesel::sql_types::{
+    Nullable as SqlNullable, Text as SqlText, Timestamptz as SqlTimestamptz, Uuid as SqlUuid,
+};
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
@@ -2023,19 +2025,29 @@ struct ChainRow {
     short_code: String,
     #[diesel(sql_type = SqlText)]
     title: String,
+    #[diesel(sql_type = SqlNullable<SqlTimestamptz>)]
+    deleted_at: Option<DateTime<Utc>>,
 }
 
 /// The item's ancestors via incoming `parent` edges, nearest first
 /// (bounded — parent edges are acyclic by construction, this is
 /// defense-in-depth).
+///
+/// Archived ancestors are reported, tagged (KAIROS-T-0158). This chain
+/// IS the rendering of the item's incoming `parent` edges — those are
+/// skipped in [`relationship_lines`] and drawn here instead — so a
+/// live-only join here would have put the widened `relationships_for`
+/// back behind a filter for exactly one relationship type, and the
+/// nearest archived ancestor would have truncated the chain above it
+/// too, hiding live grandparents along with it.
 fn parent_chain(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError> {
     let mut chain = Vec::new();
     let mut current = item_id;
     for _ in 0..10 {
         let parent: Option<ChainRow> = sql_query(
-            "SELECT d.id, d.short_code, d.title \
+            "SELECT d.id, d.short_code, d.title, d.deleted_at \
              FROM item_relationships r \
-             JOIN entity_directory d ON d.id = r.source_id AND d.deleted_at IS NULL \
+             JOIN entity_directory d ON d.id = r.source_id \
              WHERE r.target_id = $1 AND r.relationship = 'parent' \
              ORDER BY r.created_at ASC LIMIT 1",
         )
@@ -2057,6 +2069,12 @@ fn parent_chain(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>,
 /// Agent-oriented relationship lines for `get_item`: parent chain,
 /// children, blockers, supporting docs, informs/supersedes — both
 /// directions with direction-aware labels.
+///
+/// `relationships_for` reports archived neighbours since KAIROS-T-0158,
+/// so every rendered entry carries an `[archived]` tag. An agent reading
+/// "children: ACME-T-0007" and trying to move it would be refused by
+/// every write path with no idea why; the tag is what tells it that the
+/// row is history rather than work in flight.
 fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError> {
     let relationships = graph::relationships_for(conn, item_id).map_err(ApiError::internal)?;
 
@@ -2064,8 +2082,18 @@ fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, 
     let mut push =
         |label: &'static str, entry: String| groups.entry(label).or_default().push(entry);
 
+    /// One neighbour line, tagged when the neighbour is archived.
+    fn line(neighbor: &kairos_db::graph::Neighbor) -> String {
+        let mark = if neighbor.archived_at.is_some() {
+            " [archived]"
+        } else {
+            ""
+        };
+        format!("{} — {}{mark}", neighbor.short_code, neighbor.title)
+    }
+
     for neighbor in &relationships.outgoing {
-        let entry = format!("{} — {}", neighbor.short_code, neighbor.title);
+        let entry = line(neighbor);
         match neighbor.relationship {
             RelationshipType::Parent => push("children", entry),
             RelationshipType::Supports => push("supporting docs", entry),
@@ -2075,7 +2103,7 @@ fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, 
         }
     }
     for neighbor in &relationships.incoming {
-        let entry = format!("{} — {}", neighbor.short_code, neighbor.title);
+        let entry = line(neighbor);
         match neighbor.relationship {
             RelationshipType::Parent => {} // rendered as the parent chain below
             RelationshipType::Supports => push("supports", entry),
@@ -2090,7 +2118,14 @@ fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, 
     if !chain.is_empty() {
         let rendered: Vec<String> = chain
             .iter()
-            .map(|row| format!("{} ({})", row.short_code, row.title))
+            .map(|row| {
+                let mark = if row.deleted_at.is_some() {
+                    " [archived]"
+                } else {
+                    ""
+                };
+                format!("{} ({}){mark}", row.short_code, row.title)
+            })
             .collect();
         out.push_str(&format!("- parent chain: {}\n", rendered.join(" <- ")));
     }

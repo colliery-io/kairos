@@ -10,9 +10,10 @@
 //!
 //! # Validation contract
 //!
-//! - At least one of `q`/`filter`/`traverse` must be present and
-//!   *constraining*: a blank `q` or a `filter` with no constraining field
-//!   does not count ([`SearchValidationError::NoCapability`]).
+//! - At least one of `q`/`filter`/`traverse` must be present and must
+//!   actually say something: a blank `q` or an empty `filter` does not count
+//!   ([`SearchValidationError::NoCapability`]). `filter.include_deleted`
+//!   does count, on its own — see [`SearchFilter::is_constraining`].
 //! - `traverse.depth` is required (A-0007) and server-capped at
 //!   [`MAX_TRAVERSE_DEPTH`]; `traverse.from` names exactly one of
 //!   `short_code`/`id`; `traverse.relationships` must be non-empty.
@@ -156,11 +157,18 @@ pub struct SearchFilter {
 }
 
 impl SearchFilter {
-    /// Whether this filter narrows results at all. `include_deleted` alone
-    /// does not constrain — it widens — so a filter carrying only it does
-    /// not satisfy the at-least-one-capability rule.
+    /// Whether this filter says anything at all — the at-least-one-capability
+    /// rule's test for a `filter` that is worth running.
+    ///
+    /// `include_deleted` counts (KAIROS-A-0020, KAIROS-T-0157). It widens
+    /// rather than narrows, which is why it used to be excluded; but "show
+    /// me the archived work" is a legitimate whole question under ADR-20,
+    /// and the rule exists to reject a request that asked for *nothing*, not
+    /// to reject one that asked for something broad. A genuinely empty
+    /// `filter {}` is still rejected, because it still says nothing.
     pub fn is_constraining(&self) -> bool {
-        self.entity_type.is_some()
+        self.include_deleted
+            || self.entity_type.is_some()
             || self.board_id.is_some()
             || self.column_id.is_some()
             || self.team_id.is_some()
@@ -570,15 +578,11 @@ mod tests {
     }
 
     #[test]
-    fn non_constraining_filter_is_no_capability() {
-        // A bare `{}` filter and an `include_deleted`-only filter widen, not
-        // narrow: they do not count as a capability.
+    fn empty_filter_is_no_capability() {
+        // A bare `{}` filter, and one whose only field is an empty metadata
+        // map, say nothing at all: they do not count as a capability.
         for filter in [
             SearchFilter::default(),
-            SearchFilter {
-                include_deleted: true,
-                ..Default::default()
-            },
             SearchFilter {
                 metadata: Some(BTreeMap::new()),
                 ..Default::default()
@@ -590,6 +594,25 @@ mod tests {
             };
             assert_eq!(validate(&request), Err(SearchValidationError::NoCapability));
         }
+    }
+
+    /// KAIROS-T-0157 / KAIROS-A-0020: `include_deleted` on its own is a
+    /// whole question ("show me the archived work"), not an empty request.
+    /// It used to be excluded from [`SearchFilter::is_constraining`] on the
+    /// grounds that it widens rather than narrows, which made the only way
+    /// to ask that question a 400.
+    #[test]
+    fn include_deleted_alone_is_a_capability() {
+        let filter = SearchFilter {
+            include_deleted: true,
+            ..Default::default()
+        };
+        assert!(filter.is_constraining());
+        let request = SearchRequest {
+            filter: Some(filter),
+            ..Default::default()
+        };
+        assert_eq!(validate(&request), Ok(()));
     }
 
     #[test]

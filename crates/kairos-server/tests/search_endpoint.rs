@@ -27,6 +27,10 @@
 //!   token), 403 non-member (search is a read: tenant-open, no capability
 //!   needed beyond membership)
 //! - unknown traverse root -> 404
+//! - KAIROS-A-0020 / KAIROS-T-0157: archived work is hidden by default and
+//!   findable when `filter.include_deleted` asks for it — including beside
+//!   a text `q`, on its own as a whole request, and as a traverse root —
+//!   and every archived hit comes back marked with `archived_at`
 
 mod common;
 
@@ -667,22 +671,13 @@ async fn search_endpoint_against_live_stack() {
         } => assert_eq!(details["fields"], json!(["q", "filter", "traverse"])),
         other => panic!("expected 400 Validation, got {other}"),
     }
-    // A widening-only filter does not count as a capability either.
-    let err = rejection(
-        alice
-            .search(&SearchRequest {
-                filter: Some(SearchFilter {
-                    include_deleted: true,
-                    ..SearchFilter::default()
-                }),
-                ..SearchRequest::default()
-            })
-            .await,
-    );
-    assert!(
-        matches!(err, Error::Validation { status: 400, .. }),
-        "{err}"
-    );
+    // A filter that says NOTHING is still no capability — `{}` on the wire.
+    let (status, raw) = alice
+        .raw_request(Method::POST, "/api/search", Some(&json!({"filter": {}})))
+        .await
+        .expect("raw empty-filter probe");
+    assert_eq!(status, 400, "{raw}");
+    assert_eq!(error_code(&raw), "VALIDATION");
 
     // Missing traverse depth (required per A-0007).
     assert_validation_400(
@@ -814,6 +809,113 @@ async fn search_endpoint_against_live_stack() {
     );
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
     assert_eq!(err.code(), Some("NOT_FOUND"), "{err}");
+
+    // ==========================================================================
+    // KAIROS-A-0020 / KAIROS-T-0157: archived work is searchable WHEN ASKED
+    // ==========================================================================
+    // t4 ("Write onboarding notes") is the soft-deleted fixture row, and
+    // "onboarding" appears in nothing else.
+    let archived = |extra: SearchFilter| SearchRequest {
+        q: Some("onboarding".into()),
+        filter: Some(extra),
+        ..SearchRequest::default()
+    };
+    // Default: hidden. This is rule 3, and nothing below may weaken it.
+    let body = alice
+        .search(&archived(SearchFilter::default()))
+        .await
+        .expect("text search, default liveness");
+    assert_eq!(
+        body.total, 0,
+        "a text search hides archived work by default"
+    );
+
+    // Asked for: found. Until T-0157 this returned nothing — the full-text
+    // candidate set was built live-only, so the archived id was intersected
+    // away before `include_deleted` was ever consulted. The flag was not
+    // rejected next to `q`, it was ignored, which is the worse failure: the
+    // caller was told "no matches" instead of "not supported".
+    let body = alice
+        .search(&archived(SearchFilter {
+            include_deleted: true,
+            ..SearchFilter::default()
+        }))
+        .await
+        .expect("text search including archived");
+    assert_eq!(present_groups(&body), ["tasks"]);
+    assert_eq!(body.results.tasks[0].short_code, t4.short_code.as_str());
+    assert!(
+        body.results.tasks[0].archived_at.is_some(),
+        "an archived hit is served MARKED — an auditor must never mistake \
+         retired work for live work"
+    );
+
+    // `include_deleted` on its own is a whole question, not an empty one.
+    let body = alice
+        .search(&SearchRequest {
+            filter: Some(SearchFilter {
+                include_deleted: true,
+                ..SearchFilter::default()
+            }),
+            ..SearchRequest::default()
+        })
+        .await
+        .expect("include_deleted alone is a complete request");
+    assert!(
+        body.results
+            .tasks
+            .iter()
+            .any(|t| t.short_code == t4.short_code.as_str()),
+        "\"show me everything, archived included\" reaches the archived row"
+    );
+
+    // Traverse FROM archived work: 404 by default, its subgraph when asked.
+    // t4 has no descendants, so i2 — which does — is archived for this
+    // probe and put back immediately afterwards. The stamp is written
+    // directly rather than through `soft_delete_item`, which cascades:
+    // archiving the descendants too would prove nothing about whether the
+    // ROOT lookup honours the flag.
+    let archive_i2 = |conn: &mut PgConnection, at: &str| {
+        sql_query(format!(
+            "UPDATE initiatives SET deleted_at = {at} WHERE id = $1"
+        ))
+        .bind::<diesel::sql_types::Uuid, _>(i2.id)
+        .execute(conn)
+        .expect("stamping i2's deleted_at");
+    };
+    archive_i2(&mut conn, "now()");
+    let from_i2 = |filter: Option<SearchFilter>| SearchRequest {
+        traverse: Some(traverse_from(
+            &i2.short_code,
+            &["parent"],
+            "outbound",
+            Some(1),
+        )),
+        filter,
+        ..SearchRequest::default()
+    };
+    let err = rejection(alice.search(&from_i2(None)).await);
+    assert_eq!(
+        err.code(),
+        Some("NOT_FOUND"),
+        "an archived root is still invisible by default: {err}"
+    );
+    let body = alice
+        .search(&from_i2(Some(SearchFilter {
+            include_deleted: true,
+            ..SearchFilter::default()
+        })))
+        .await
+        .expect("traverse from an archived root");
+    assert!(
+        body.results
+            .tasks
+            .iter()
+            .any(|t| t.short_code == t3.short_code.as_str()),
+        "\"what hung off this once?\" is the audit question, and it now has \
+         an answer instead of a 404"
+    );
+    archive_i2(&mut conn, "NULL");
 
     // --- teardown --------------------------------------------------------------
     drop(conn);

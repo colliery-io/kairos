@@ -182,21 +182,25 @@ journey(
 
     await step(alice, 'confirms the children went with it, and that nothing is unrecoverable', async () => {
       const api = await alice.api();
-      const gone: number[] = [];
+      // Archived, not erased (KAIROS-A-0020 rule 1): every item in the
+      // cascade still answers for itself, and says it has been put away.
+      // These all 404'd until KAIROS-T-0154, which made "nothing is
+      // unrecoverable" a claim the journey could only make about rows in a
+      // database nobody could read.
+      const served: number[] = [];
       for (const code of [initiative, ...tasks]) {
         const family = code === initiative ? 'initiatives' : 'tasks';
-        gone.push((await api.raw('GET', `/api/${family}/${code}`)).status);
+        const res = await api.raw('GET', `/api/${family}/${code}`);
+        served.push(res.status);
+        expect(res.body?.archived_at, `${code} is served, marked archived`).toBeTruthy();
       }
-      expect(new Set(gone)).toEqual(new Set([404]));
+      expect(new Set(served)).toEqual(new Set([200]));
       const board = await api.boardBySlug(`${process.env.UAT_TEAM ?? 'platform'}-delivery`);
       const contents = await api.get(`/api/boards/${board.id}/items`);
       const live = (contents.columns ?? []).flatMap((c: any) => (c.tasks ?? []).map((t: any) => t.short_code));
       for (const code of tasks) expect(live).not.toContain(code);
       // Soft delete, not destruction: an operator who removes the wrong
       // thing needs to know the rows are still there (KAIROS-A-0001).
-      // NOTE: `--include-deleted` cannot be combined with `--query` — the
-      // full-text view `searchable_items` excludes soft-deleted rows by
-      // construction — so the recovery question is asked with filters.
       const cli = await alice.cli();
       const search = (extra: string[]) =>
         cli.json(['search', '--type', 'task', '--board', board.id, '--limit', '100', ...extra]);
@@ -206,11 +210,29 @@ journey(
         expect(visible, `${code} is gone from the ordinary view`).not.toContain(code);
         expect(withDeleted, `${code} is still there to recover`).toContain(code);
       }
+      // And the recovery question may now be asked the way an operator
+      // would actually ask it — by what the work was called. Until
+      // KAIROS-T-0157 `--include-deleted` was a silent no-op next to
+      // `--query`: the full-text candidate set was built live-only, so the
+      // archived ids were intersected away before the flag was ever read,
+      // and the search answered "no matches" rather than "not allowed".
+      const byText = (extra: string[]) =>
+        cli.json(['search', '--query', 'decommission', '--type', 'task', '--limit', '100', ...extra]);
+      const textLive = ((await byText([])).results?.tasks ?? []).map((t: any) => t.short_code);
+      const textArchived = ((await byText(['--include-deleted'])).results?.tasks ?? []);
+      const decommission = tasks[2];
+      expect(textLive, 'the ordinary text search still hides archived work').not.toContain(decommission);
+      expect(textArchived.map((t: any) => t.short_code), 'asked for, it is findable by name').toContain(decommission);
+      expect(
+        textArchived.find((t: any) => t.short_code === decommission)?.archived_at,
+        'and an archived hit is marked, so no auditor mistakes it for live work',
+      ).toBeTruthy();
       return {
-        children_now: '404',
+        children_now: '200 (marked archived)',
         still_on_board: 0,
         board_tasks_visible: visible.length,
         including_deleted: withDeleted.length,
+        found_by_text_when_asked: textArchived.length,
       };
     });
 

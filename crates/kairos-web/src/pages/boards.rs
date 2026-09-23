@@ -225,6 +225,34 @@ pub(crate) fn board_powers(
     }
 }
 
+/// The delivery boards a task may be moved TO from `here_slug`: every
+/// other live delivery board where [`board_powers`] says the caller may
+/// manage tasks (KAIROS-I-0012 D2). The server's rule is two-sided —
+/// `manage_tasks` on the source board AND the target, org admins bypass —
+/// so the item page gates the control on the source board and lists only
+/// these targets, and never offers a move the server would 403. Returns
+/// `(slug, name)` in the order the board list came in. Pure, host-tested.
+pub(crate) fn movable_delivery_boards(
+    me: &crate::api::Whoami,
+    boards: &[data::Board],
+    here_slug: &str,
+) -> Vec<(String, String)> {
+    boards
+        .iter()
+        .filter(|board| board.board_level == "delivery" && board.slug != here_slug)
+        .filter(|board| {
+            board_powers(
+                me,
+                &board.slug,
+                board.team_id.as_deref(),
+                Some(EntityKind::Task),
+            )
+            .create
+        })
+        .map(|board| (board.slug.clone(), board.name.clone()))
+        .collect()
+}
+
 /// Apply one [`DropEffect`] and report through the standard board
 /// callbacks — the drop handler's mutation path (the keyboard-accessible
 /// path lives on the item detail page, KAIROS-T-0075). A diagonal drop is
@@ -1949,6 +1977,40 @@ mod tests {
         assert!(grant_covers("manage_*", "manage_tasks"));
         assert!(!grant_covers("manage_*", "transition_items"));
         assert!(!grant_covers("manage_tasks", "manage_taskss"));
+    }
+
+    /// KAIROS-I-0012: the move picker offers the OTHER delivery boards
+    /// the caller may manage tasks on — never this one, never a
+    /// non-delivery board, and (for a non-admin) never a board whose
+    /// `manage_tasks` the server would refuse.
+    #[test]
+    fn movable_delivery_boards_are_the_other_manageable_ones() {
+        let boards = vec![
+            board("platform-delivery", "delivery", Some("t1")),
+            board("web-delivery", "delivery", Some("t2")),
+            board("orphan-delivery", "delivery", None),
+            board("initiatives", "initiative", None),
+        ];
+
+        // Bob is on platform only: no target he may manage.
+        let bob = me("member", &["t1"], &[]);
+        assert!(movable_delivery_boards(&bob, &boards, "platform-delivery").is_empty());
+
+        // A grant on the web board makes it (and only it) a target.
+        let dual = me("member", &["t1"], &[("web-delivery", &["manage_tasks"])]);
+        assert_eq!(
+            movable_delivery_boards(&dual, &boards, "platform-delivery"),
+            vec![("web-delivery".to_string(), "web-delivery".to_string())]
+        );
+
+        // The org admin sees every OTHER delivery board — the initiative
+        // board is never a target (the server's NOT_DELIVERY_BOARD rule).
+        let admin = me("admin", &[], &[]);
+        let slugs: Vec<String> = movable_delivery_boards(&admin, &boards, "platform-delivery")
+            .into_iter()
+            .map(|(slug, _)| slug)
+            .collect();
+        assert_eq!(slugs, vec!["web-delivery", "orphan-delivery"]);
     }
 
     /// KAIROS-T-0077: the lane is a pure projection of work_class;

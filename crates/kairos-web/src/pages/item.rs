@@ -490,6 +490,14 @@ fn BoardPanel(
                                                 on_moved
                                             />
                                         })}
+                                        {matches!(family, Family::Task).then(|| view! {
+                                            <MoveBoardControl
+                                                code=code.get_value()
+                                                board_slug=board.slug.clone()
+                                                team_id=board.team_id.clone()
+                                                on_moved
+                                            />
+                                        })}
                                         <MoveControl
                                             family
                                             code=code.get_value()
@@ -682,6 +690,128 @@ fn RepositoryControl(
                 </Alert>
             })}
         </div>
+        })}
+    }
+}
+
+/// The board picker's "stay put" option — the default, so a board move is
+/// always a deliberate second act (the column picker next to it defaults
+/// to a real target, but a board move re-homes the card's TEAM).
+const THIS_BOARD: &str = "(this board)";
+
+/// Move a task to another DELIVERY board (KAIROS-I-0012 D2): a team
+/// disbands and its live work goes to another team's board. The task
+/// lands in the target's entry column and follows the target's team —
+/// the server decides both; this panel just refetches afterwards.
+///
+/// The rule is two-sided (`manage_tasks` on the source board AND the
+/// target, org admins bypass), so the control renders only when the
+/// shared powers mirror grants it HERE, and offers only the targets
+/// [`boards::movable_delivery_boards`] returns — nothing the server would
+/// 403. Everything it cannot know (the T-0104 repository rule above all)
+/// comes back as a 422 and is shown inline.
+#[component]
+fn MoveBoardControl(
+    code: String,
+    /// The board the task sits on now — the source half of the rule, and
+    /// the one board the picker never offers.
+    board_slug: String,
+    /// That board's owning team (UUID) — for the capability mirror.
+    team_id: Option<String>,
+    on_moved: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let here = StoredValue::new(board_slug.clone());
+    let value = RwSignal::new(THIS_BOARD.to_string());
+    let busy = RwSignal::new(false);
+    let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    // Source half: the same `manage_tasks` mirror as the board's create
+    // affordance and the repository picker.
+    let can_move = board_power(
+        board_slug,
+        team_id,
+        Some(boards::data::EntityKind::Task),
+        |powers| powers.create,
+    );
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let all_boards = LocalResource::new(move || {
+        let _ = auth.token();
+        boards::data::list_boards(auth)
+    });
+    // Target half, from the ONE derivation the board view uses.
+    let targets: Memo<Vec<(String, String)>> = Memo::new(move |_| {
+        let me = whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok);
+        let (Some(me), Some(Ok(list))) = (me, all_boards.get()) else {
+            return Vec::new();
+        };
+        here.with_value(|here| boards::movable_delivery_boards(&me, &list, here))
+    });
+
+    let submit: Callback<()> = Callback::new(move |()| {
+        let chosen = value.get_untracked();
+        if chosen == THIS_BOARD {
+            return;
+        }
+        // The label the notice names — the slug is the wire value.
+        let label = targets
+            .with_untracked(|targets| {
+                targets
+                    .iter()
+                    .find(|(slug, _)| *slug == chosen)
+                    .map(|(_, name)| name.clone())
+            })
+            .unwrap_or_else(|| chosen.clone());
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match api::move_task(auth, &code.get_value(), &chosen).await {
+                // Success refetches the whole detail (on_moved bumps the
+                // reload), which re-renders this panel with the new board
+                // and its entry column — no busy reset, this view is gone.
+                Ok(_) => on_moved.run(format!("Moved to {label}.")),
+                Err(e) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+
+    view! {
+        {move || (can_move.get() && !targets.with(Vec::is_empty)).then(|| view! {
+            <div class="kairos-item__move-board" data-testid="move-board">
+                <Group gap="sm">
+                    <div class="cl-field">
+                        <label class="cl-field__label">"Board"</label>
+                        <select
+                            class="cl-input cl-select"
+                            prop:value=move || value.get()
+                            on:change=move |e| value.set(event_target_value(&e))
+                        >
+                            <option value=THIS_BOARD>{THIS_BOARD}</option>
+                            {move || targets.get().into_iter().map(|(slug, name)| view! {
+                                <option value=slug>{name}</option>
+                            }).collect_view()}
+                        </select>
+                    </div>
+                    {move || {
+                        let disabled = busy.get() || value.get() == THIS_BOARD;
+                        view! {
+                            <Button size="xs" disabled=disabled on_click=submit>
+                                {if busy.get_untracked() { "Moving…" } else { "Move board" }}
+                            </Button>
+                        }
+                    }}
+                </Group>
+                {move || error.get().map(|e| view! {
+                    <Alert title="Could not move to that board" color=token::BAD>
+                        <Text size="sm">{api::error_text(&e)}</Text>
+                    </Alert>
+                })}
+            </div>
         })}
     }
 }

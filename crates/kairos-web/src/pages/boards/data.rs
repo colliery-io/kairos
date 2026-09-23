@@ -161,6 +161,14 @@ pub struct TemplateListEnvelope {
 /// mirror of: `kairos_client::types_events::ThinEvent` (partial — the view
 /// only needs to know "something on this board changed" and re-fetches
 /// through REST per A-0005 §5; events carry no payloads).
+///
+/// The KIND is deliberately not inspected: the server filters the socket
+/// to one board, so every event that arrives concerns this board and the
+/// refetch is the same reconcile for all of them. That is what makes
+/// `item_moved` (KAIROS-I-0012) work without a special case — the server
+/// emits it once per side of the move, with `board_id` = the board the
+/// card left (no column) and once with `board_id` = the board it joined
+/// (its entry column), so each board hears its own half and refetches.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct ThinEvent {
     pub event: String,
@@ -588,6 +596,25 @@ mod tests {
         )
         .expect("event mirror decodes");
         assert_eq!(event.event, "item_transitioned");
+
+        // KAIROS-I-0012: a board move emits `item_moved` TWICE — the
+        // source board without a column, the target with its entry column.
+        // Both decode here, so a board refetches for whichever side names
+        // it (the kind is not inspected: any event on this board refetches).
+        let left: ThinEvent = serde_json::from_str(
+            r#"{"event":"item_moved","entity_type":"task",
+                "short_code":"DEMO-T-0003","board_id":"b-1","column_id":null,
+                "actor":"u-1","occurred_at":"2026-09-23T12:00:00Z"}"#,
+        )
+        .expect("source-side move event decodes");
+        assert_eq!(left.event, "item_moved");
+        let arrived: ThinEvent = serde_json::from_str(
+            r#"{"event":"item_moved","entity_type":"task",
+                "short_code":"DEMO-T-0003","board_id":"b-2","column_id":"c-9",
+                "actor":"u-1","occurred_at":"2026-09-23T12:00:00Z"}"#,
+        )
+        .expect("target-side move event decodes");
+        assert_eq!(arrived.event, "item_moved");
     }
 
     /// Create requests serialize with the exact S-0005 field names and

@@ -10,7 +10,12 @@
 //! Semantics implemented here (best-effort, A-0005 §5):
 //! - on open: send `{"subscribe": {"board_id": …}}` to filter the stream;
 //! - on every event: run `refetch` (an event carries no payload — the
-//!   REST re-fetch refreshes the affected cards);
+//!   REST re-fetch refreshes the affected cards). Every kind is treated
+//!   alike, `item_moved` (KAIROS-I-0012) included: the server emits that
+//!   one per side of a board move — the source board's copy carries no
+//!   column, the target's carries the entry column — so both boards'
+//!   subscribers refetch off their own half, exactly like
+//!   `item_transitioned`;
 //! - on close: reconnect with exponential backoff (1s → 15s cap), and on
 //!   every RE-open run `refetch` once — the silent reconcile for whatever
 //!   was missed while disconnected;

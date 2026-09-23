@@ -102,6 +102,29 @@ export async function transitionTask(
   }
 }
 
+/**
+ * `POST /api/tasks/{code}/move` — re-home a task onto another delivery
+ * board (KAIROS-I-0012). The competing-writer half of the live-update
+ * assertions: the board a card LEAVES and the board it JOINS each get an
+ * `item_moved` event, so a watching page refetches without a reload.
+ */
+export async function moveTask(
+  server: string,
+  token: string,
+  code: string,
+  board: string,
+): Promise<any> {
+  const res = await fetch(`${server}/api/tasks/${code}/move`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ board }),
+  });
+  if (!res.ok) {
+    throw new Error(`move ${code} -> ${res.status}: ${await res.text()}`);
+  }
+  return res.json();
+}
+
 export interface TaskState {
   version: number;
   title: string;

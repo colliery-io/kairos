@@ -12,7 +12,11 @@
 //      transition it; bob (a platform member, NOT an admin) can — the team
 //      gate, not the admin bypass; carol links her own web task to it with
 //      a `blocks` edge (collaborative relationship); the card shows the chip
-//   4. the item page's repository picker re-homes a task within the team
+//   4. the item page's repository picker re-homes a task within the team,
+//      and its Board select moves a task to the OTHER delivery board
+//      (KAIROS-I-0012): the repo-bound task is refused inline, an unbound
+//      one lands in the target's entry column, and both boards react to
+//      the `item_moved` events live
 //   5. a PR opened in the repo naming the cross-team task links back to it
 //      (forge webhook against a freshly connected repo)
 //   6. the admin Repositories page registers a repo and connects its
@@ -34,6 +38,7 @@ import {
   githubPullRequest,
   listRepositories,
   loadPlatformDelivery,
+  moveTask,
   tryCreateRelationship,
   tryTransitionTask,
 } from '../helpers/api';
@@ -224,6 +229,93 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await expect(page.locator('.cl-pill', { hasText: 'repo: payments-api' })).toBeVisible({
       timeout: 10_000,
     });
+  });
+
+  // 4b. Moving a task to another delivery board (KAIROS-I-0012) ------------
+  await test.step('the item page moves a task to another delivery board; both boards react live', async () => {
+    const platform = await loadPlatformDelivery(GUI, alice);
+
+    // The T-0104 repository rule is the refusal people will actually hit:
+    // the cross-team task is bound to payments-api (platform's repo), so
+    // the web board is refused — inline, under the picker.
+    await page.goto(`/items/${filedCode}`);
+    const mover = page.locator('[data-testid="move-board"]');
+    await expect(mover).toBeVisible();
+    const picker = mover.locator('select');
+    // Default is "stay put"; the board the task is already on is never an
+    // option, the other delivery board alice manages is.
+    await expect(picker.locator('option').first()).toHaveText('(this board)');
+    await expect(picker.locator('option', { hasText: 'Web Delivery' })).toHaveCount(1);
+    await expect(picker.locator('option', { hasText: 'Platform Delivery' })).toHaveCount(0);
+    await picker.selectOption('web-delivery');
+    await mover.getByRole('button', { name: 'Move board' }).click();
+    await expect(mover).toContainText('REPOSITORY_OWNER_MISMATCH', { timeout: 10_000 });
+    await expect(mover).toContainText('payments-api');
+
+    // An UNBOUND task moves: the Board panel re-renders on the target
+    // board, in its entry column, without a reload.
+    const moving = await createTask(GUI, alice, {
+      title: `Moves to web ${RUN}`,
+      boardId: platform.boardId,
+    });
+    await page.goto(`/items/${moving.short_code}`);
+    const boardPanel = panel(page, 'Board');
+    await expect(boardPanel).toContainText('Platform Delivery');
+    await boardPanel.locator('[data-testid="move-board"] select').selectOption('web-delivery');
+    await boardPanel.getByRole('button', { name: 'Move board' }).click();
+    await expect(page.locator('.kairos-item__notice')).toContainText('Moved to Web Delivery.', {
+      timeout: 10_000,
+    });
+    await expect(boardPanel.getByRole('link', { name: 'Web Delivery' })).toBeVisible();
+    await expect(boardPanel.locator('.cl-pill', { hasText: 'Backlog' })).toBeVisible();
+
+    // It arrived on the web board and left the platform board.
+    await page.goto('/boards/web-delivery');
+    await expect(
+      page.locator('article.kairos-card', { hasText: moving.short_code }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.goto('/boards/platform-delivery');
+    await expect(
+      page.locator('article.kairos-card', { hasText: moving.short_code }),
+    ).toHaveCount(0);
+
+    // Live, SOURCE side: a second writer moves another platform task away
+    // and this board drops the card over the socket. The page-scoped
+    // marker proves no reload happened (the smoke spec's technique).
+    const leaving = await createTask(GUI, alice, {
+      title: `Leaves platform ${RUN}`,
+      boardId: platform.boardId,
+    });
+    await page.reload();
+    await expect(
+      page.locator('article.kairos-card', { hasText: leaving.short_code }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => ((window as any).__noReload = 'alive'));
+    await moveTask(GUI, alice, leaving.short_code, 'web-delivery');
+    await expect(
+      page.locator('article.kairos-card', { hasText: leaving.short_code }),
+    ).toHaveCount(0, { timeout: 20_000 });
+    expect(await page.evaluate(() => (window as any).__noReload)).toBe('alive');
+
+    // Live, TARGET side: watching the web board, a task moved in from
+    // platform shows up — again with no reload.
+    const arriving = await createTask(GUI, alice, {
+      title: `Arrives on web ${RUN}`,
+      boardId: platform.boardId,
+    });
+    await page.goto('/boards/web-delivery');
+    await expect(
+      page.locator('article.kairos-card', { hasText: leaving.short_code }),
+    ).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => ((window as any).__noReload = 'alive'));
+    await moveTask(GUI, alice, arriving.short_code, 'web-delivery');
+    await expect(
+      page.locator('article.kairos-card', { hasText: arriving.short_code }),
+    ).toBeVisible({ timeout: 20_000 });
+    expect(await page.evaluate(() => (window as any).__noReload)).toBe('alive');
+
+    // Back to the platform board for the steps that follow.
+    await page.goto(`/items/${filedCode}`);
   });
 
   // 5. A PR in the repo links back to the cross-team task -------------------

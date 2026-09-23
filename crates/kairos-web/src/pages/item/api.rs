@@ -583,6 +583,30 @@ pub async fn create_document(
     crate::api::post_json(auth, "/api/documents", body).await
 }
 
+/// Body of `POST /api/tasks/{short_code}/move` (mirror of:
+/// `kairos_client::types::MoveTaskRequest`) — the target board by slug or
+/// UUID.
+#[derive(Debug, Serialize)]
+struct MoveTaskBody<'a> {
+    board: &'a str,
+}
+
+/// `POST /api/tasks/{short_code}/move` — re-home a task onto another
+/// DELIVERY board (KAIROS-I-0012 D2; mirror of
+/// `KairosClient::move_task`). It lands in the target's entry column and
+/// follows the target's team. Refusals the panel shows inline: 422
+/// `SAME_BOARD` / `NOT_DELIVERY_BOARD` / `REPOSITORY_OWNER_MISMATCH` (the
+/// T-0104 rule) / `NO_ENTRY_COLUMN`, 403 without `manage_tasks` on BOTH
+/// boards, 404 for an unknown board.
+pub async fn move_task(auth: Auth, code: &str, board: &str) -> Result<ItemDetail, ApiError> {
+    crate::api::post_json(
+        auth,
+        &format!("/api/tasks/{code}/move"),
+        &MoveTaskBody { board },
+    )
+    .await
+}
+
 /// `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
 /// reports the cascade.
 pub async fn delete_item(
@@ -878,6 +902,38 @@ mod tests {
         });
         let envelope: DetailedErrorEnvelope = serde_json::from_value(none).expect("parses");
         assert!(envelope.error.details.current.is_none());
+    }
+
+    /// The move body carries the target board under the exact wire name
+    /// the server takes (`board`: slug or UUID), and the 200 decodes into
+    /// the item mirror with the NEW placement (KAIROS-I-0012 D2).
+    #[test]
+    fn move_body_serializes_and_response_carries_new_placement() {
+        let body = serde_json::to_value(MoveTaskBody {
+            board: "web-delivery",
+        })
+        .expect("serializes");
+        assert_eq!(body, serde_json::json!({"board": "web-delivery"}));
+
+        let moved = serde_json::json!({
+            "id": "1b2c3d4e-0000-0000-0000-000000000001",
+            "short_code": "DEMO-T-0004",
+            "title": "Moved task",
+            "content": "",
+            "board_id": "b-2",
+            "column_id": "c-entry",
+            "team_id": "t-2",
+            "task_type": "task",
+            "work_class": "planned",
+            "version": 2,
+            "created_by": "u1",
+            "updated_by": "u1",
+            "created_at": "2026-09-23T12:00:00+00:00",
+            "updated_at": "2026-09-23T12:05:00+00:00"
+        });
+        let item: ItemDetail = serde_json::from_value(moved).expect("mirror decodes");
+        assert_eq!(item.board_id.as_deref(), Some("b-2"));
+        assert_eq!(item.column_id.as_deref(), Some("c-entry"));
     }
 
     /// The metadata PATCH body serializes `None` as JSON null (the A-0003

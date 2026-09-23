@@ -21,9 +21,18 @@ pub struct GraphNode {
     pub status: String,
     /// Minimum hop distance from the focus (0 = the focus itself).
     pub depth: i32,
-    /// The node's TOTAL live-edge count — clients render `+N` where
-    /// `N = degree - edges shown` for undisplayed neighbors.
+    /// The node's TOTAL edge count — clients render `+N` where
+    /// `N = degree - edges shown` for undisplayed neighbors. Archived
+    /// neighbours count, because they are drawn.
     pub degree: i64,
+    /// When this node was archived, RFC 3339; absent while it is live.
+    /// The subgraph is archived-INCLUSIVE (KAIROS-T-0158) — omitting a
+    /// node used to break the paths THROUGH it, leaving the far side
+    /// floating with no route back to the focus. Clients must draw a
+    /// marked node distinctly; drawing it as live is the one wrong
+    /// answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// One typed directed edge between two returned nodes.
@@ -47,11 +56,12 @@ pub struct GraphResponse {
     /// Effective depth bound the walk used (default 2, capped at the
     /// server's MAX_TRAVERSE_DEPTH).
     pub depth: u32,
-    /// Every live node within `depth` hops (any relationship type,
-    /// either direction), focus included at depth 0; ordered by short
-    /// code.
+    /// Every node within `depth` hops (any relationship type, either
+    /// direction), focus included at depth 0; ordered by short code.
+    /// Archived nodes are present and marked (`archived_at`), never
+    /// dropped.
     pub nodes: Vec<GraphNode>,
-    /// ALL live edges among the returned nodes — cross-links included,
-    /// not just the discovery tree.
+    /// ALL edges among the returned nodes — cross-links included, not
+    /// just the discovery tree.
     pub edges: Vec<GraphEdge>,
 }

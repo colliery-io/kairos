@@ -581,6 +581,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-T-0002".into(),
                 entity_type: ItemType::Task,
                 title: "Task Two".into(),
+                archived_at: None,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -588,6 +589,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-T-0001".into(),
                 entity_type: ItemType::Task,
                 title: "Task One".into(),
+                archived_at: None,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -595,6 +597,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-T-0002".into(),
                 entity_type: ItemType::Task,
                 title: "Task Two".into(),
+                archived_at: None,
             },
             Neighbor {
                 relationship: RelationshipType::Supports,
@@ -602,6 +605,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-D-0001".into(),
                 entity_type: ItemType::Document,
                 title: "Document One".into(),
+                archived_at: None,
             },
         ],
         "outgoing edges of i1, grouped by relationship (alphabetical), then insertion order"
@@ -615,6 +619,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-D-0001".into(),
                 entity_type: ItemType::Document,
                 title: "Document One".into(),
+                archived_at: None,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -622,6 +627,7 @@ fn relationship_graph_service() {
                 short_code: "ACME-S-0001".into(),
                 entity_type: ItemType::Strategy,
                 title: "Strategy One".into(),
+                archived_at: None,
             },
         ],
         "incoming edges of i1"
@@ -920,8 +926,17 @@ fn children_progress_rollups() {
 // ---------------------------------------------------------------------------
 
 /// `item_subgraph`: depth bounding with min-depth per node, cross-links
-/// between visited nodes, live-neighbor `degree`, and soft-delete
-/// exclusion — the wire contract the graph view draws from.
+/// between visited nodes, neighbour `degree`, and archived nodes drawn
+/// MARKED rather than omitted — the wire contract the graph view draws
+/// from.
+///
+/// The archived leg changed in KAIROS-T-0158. It used to assert that a
+/// soft-deleted node was absent; it now asserts the node is present with
+/// `archived_at` set, and that the edges through it survive. Absence was
+/// never a smaller picture, it was a broken one: the walk reads
+/// `item_relationships` directly, so an archived item's neighbours stayed
+/// in the node set while the node joining them to the focus was hydrated
+/// away.
 #[test]
 fn focal_subgraph_contract() {
     const SUBGRAPH_DB: &str = "kairos_subgraph_test";
@@ -1046,9 +1061,30 @@ fn focal_subgraph_contract() {
     // --- depth 2 from T1 ----------------------------------------------------
     let (nodes, edges) = graph::item_subgraph(&mut conn, t1.id, 2).expect("subgraph");
     let by_id = |id: Uuid| nodes.iter().find(|n| n.id == id);
-    // Visible: T1(0), I1(1), T3(1), S(2), I2(2), D(2); T2 dropped (deleted).
-    assert_eq!(nodes.len(), 6, "live nodes only: {nodes:?}");
-    assert!(by_id(t2.id).is_none(), "soft-deleted node excluded");
+    // Visible: T1(0), I1(1), T3(1), S(2), I2(2), T2(2), D(2) — the
+    // archived T2 among them (KAIROS-T-0158).
+    assert_eq!(
+        nodes.len(),
+        7,
+        "every reachable node, archived too: {nodes:?}"
+    );
+    let t2_node = by_id(t2.id).expect("the archived node is drawn, not dropped");
+    assert!(
+        t2_node.archived_at.is_some(),
+        "the archived node is MARKED so a client can draw it distinctly: {t2_node:?}"
+    );
+    assert_eq!(
+        t2_node.status, "Backlog",
+        "an archived card keeps the column it stood in (ADR-20 rule 1)"
+    );
+    assert!(
+        nodes
+            .iter()
+            .filter(|n| n.id != t2.id)
+            .all(|n| n.archived_at.is_none()),
+        "only the archived node carries the marker: {nodes:?}"
+    );
+    assert_eq!(by_id(t2.id).expect("t2").depth, 2);
     assert_eq!(by_id(t1.id).expect("focus").depth, 0);
     assert_eq!(by_id(i1.id).expect("i1").depth, 1);
     assert_eq!(by_id(t3.id).expect("t3").depth, 1);
@@ -1059,8 +1095,9 @@ fn focal_subgraph_contract() {
     assert_eq!(by_id(t1.id).expect("t1").status, "Backlog");
     assert_eq!(by_id(d.id).expect("d").status, "draft");
     assert_eq!(by_id(t1.id).expect("t1").entity_type, ItemType::Task);
-    // Degree counts LIVE neighbors only: I1 touches S, T1, D (T2 is dead).
-    assert_eq!(by_id(i1.id).expect("i1").degree, 3);
+    // Degree counts every neighbour that would hydrate, archived included,
+    // so `+N` agrees with the node set: I1 touches S, T1, T2, D.
+    assert_eq!(by_id(i1.id).expect("i1").degree, 4);
     assert_eq!(by_id(t1.id).expect("t1").degree, 2);
     // Nodes ordered by short code (deterministic layout input).
     let codes: Vec<&str> = nodes.iter().map(|n| n.short_code.as_str()).collect();
@@ -1076,7 +1113,7 @@ fn focal_subgraph_contract() {
             .iter()
             .find(|e| e.source_id == src && e.target_id == tgt && e.relationship == rel)
     };
-    assert_eq!(edges.len(), 6, "live edges among visible: {edges:?}");
+    assert_eq!(edges.len(), 8, "every edge among visible: {edges:?}");
     assert_eq!(
         edge(i1.id, t1.id, RelationshipType::Parent)
             .expect("i1->t1")
@@ -1101,14 +1138,28 @@ fn focal_subgraph_contract() {
             .depth,
         2
     );
-    assert!(
-        edge(i1.id, t2.id, RelationshipType::Parent).is_none(),
-        "edges to soft-deleted endpoints excluded"
+    // The edges through the archived node survive, which is the point:
+    // T3 is reachable from the focus by two routes, and dropping T2 used
+    // to delete one of them out of the middle of the picture.
+    assert_eq!(
+        edge(i1.id, t2.id, RelationshipType::Parent)
+            .expect("the archived child's edge is drawn")
+            .depth,
+        2
+    );
+    assert_eq!(
+        edge(t2.id, t3.id, RelationshipType::Blocks)
+            .expect("the archived blocker's edge is drawn")
+            .depth,
+        2
     );
 
     // --- blocks rollup for board cards (KAIROS-T-0091) ----------------------
     // One grouped query; soft-deleted neighbors (t2) never count; items
-    // without live blocks edges have no entry.
+    // without live blocks edges have no entry. The contrast with the
+    // subgraph above is the whole KAIROS-T-0158 design call: the picture
+    // SHOWS the archived blocker, the card's "blocked by" count does not
+    // COUNT it (ADR-20 rule 5 — archived work cannot block anything).
     let summary =
         graph::blocks_summary(&mut conn, &[t1.id, t2.id, t3.id, i1.id]).expect("blocks summary");
     let t1_counts = summary.get(&t1.id).expect("t1 counts");
@@ -1139,6 +1190,180 @@ fn focal_subgraph_contract() {
     drop(conn);
     sql_query(format!(
         "DROP DATABASE IF EXISTS {SUBGRAPH_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database after test");
+}
+
+// ---------------------------------------------------------------------------
+// Archived neighbours (KAIROS-T-0158, KAIROS-A-0020)
+// ---------------------------------------------------------------------------
+
+/// The case that motivated KAIROS-T-0158: **an initiative with one live
+/// and one archived child.**
+///
+/// Ask "what did this initiative contain?" and the answer used to be one
+/// task, not two — for an initiative that is not archived at all. The
+/// missing row was not marked, not counted and not recoverable by any
+/// flag; `item_relationships` rows are hard-deleted, so the edge was
+/// intact the whole time and only the hydrating join hid it.
+///
+/// This test pins the two halves of the design call together, because
+/// either alone would be wrong:
+///
+/// - the relationship LIST names both children, the archived one marked
+///   (containment is a fact about the record);
+/// - the progress ROLLUP counts only the live one (progress is a fact
+///   about live work — ADR-20 rule 5).
+#[test]
+fn archived_children_are_listed_marked_but_never_counted() {
+    const NEIGHBOUR_DB: &str = "kairos_archived_neighbours_test";
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {NEIGHBOUR_DB} WITH (FORCE)"
+    ))
+    .execute(&mut admin_conn)
+    .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {NEIGHBOUR_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+    let scratch_url = with_database(&admin_url, NEIGHBOUR_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let alice = insert_user(&mut conn, "dex|neighbours", "neighbours@acme.test", "Alice");
+
+    let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    let delivery = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery",
+        "delivery",
+        None,
+        Some(alice),
+    )
+    .expect("creating delivery board")
+    .id;
+
+    let initiative = items::create_initiative(
+        &mut conn,
+        CreateInitiative {
+            board_id: initiative_board,
+            column_id: None,
+            title: "Ship the thing",
+            content: "",
+            complexity: None,
+            bucket_type: None,
+        },
+        alice,
+    )
+    .expect("initiative");
+    let mut task = |title: &str| {
+        items::create_task(
+            &mut conn,
+            CreateTask {
+                board_id: delivery,
+                column_id: None,
+                title,
+                content: "",
+                task_type: TaskType::Task,
+                work_class: kairos_db::models::WorkClass::Planned,
+                team_id: None,
+                repository_id: None,
+            },
+            alice,
+        )
+        .expect("task")
+    };
+    let live_child = task("Still in flight");
+    let archived_child = task("Done and put away");
+
+    for child in [live_child.id, archived_child.id] {
+        graph::link_items(
+            &mut conn,
+            initiative.id,
+            child,
+            RelationshipType::Parent,
+            alice,
+        )
+        .expect("linking child");
+    }
+    diesel::update(schema::tasks::table.find(archived_child.id))
+        .set(schema::tasks::deleted_at.eq(diesel::dsl::now))
+        .execute(&mut conn)
+        .expect("archiving the second child");
+
+    // --- the list: BOTH children, the archived one marked -------------------
+    let rels = graph::relationships_for(&mut conn, initiative.id).expect("relationships_for");
+    let children: Vec<(&str, bool)> = rels
+        .outgoing
+        .iter()
+        .filter(|n| n.relationship == RelationshipType::Parent)
+        .map(|n| (n.short_code.as_str(), n.archived_at.is_some()))
+        .collect();
+    assert_eq!(
+        children,
+        vec![
+            (live_child.short_code.as_str(), false),
+            (archived_child.short_code.as_str(), true),
+        ],
+        "a live initiative lists BOTH children, the archived one marked: {rels:?}"
+    );
+    // Marked means marked with a value, not merely present: the GUI, the
+    // MCP text and the wire DTO all render the timestamp.
+    let archived_neighbour = rels
+        .outgoing
+        .iter()
+        .find(|n| n.id == archived_child.id)
+        .expect("archived child present");
+    assert!(
+        archived_neighbour.archived_at.is_some(),
+        "the marker carries WHEN it was put away: {archived_neighbour:?}"
+    );
+    assert_eq!(
+        archived_neighbour.title, "Done and put away",
+        "the archived child hydrates fully — title and type, not a stub"
+    );
+    assert_eq!(archived_neighbour.entity_type, ItemType::Task);
+
+    // --- the archived child's own edges are intact, both directions ---------
+    // `item_relationships` has no `deleted_at`, so archiving one endpoint
+    // never touched the edge. Reading FROM the archived side is the audit
+    // answer ADR-20 rule 1 promises.
+    let from_archived =
+        graph::relationships_for(&mut conn, archived_child.id).expect("relationships_for archived");
+    assert_eq!(
+        from_archived
+            .incoming
+            .iter()
+            .map(|n| (n.short_code.as_str(), n.archived_at.is_some()))
+            .collect::<Vec<_>>(),
+        vec![(initiative.short_code.as_str(), false)],
+        "an archived item still knows its LIVE parent, unmarked: {from_archived:?}"
+    );
+
+    // --- the rollup: the live child only ------------------------------------
+    let progress = graph::children_progress(&mut conn, initiative.id).expect("children_progress");
+    let total: i64 = progress.iter().map(|row| row.count).sum();
+    assert_eq!(
+        total, 1,
+        "progress counts LIVE children only — archived work is not live \
+         work (ADR-20 rule 5): {progress:?}"
+    );
+
+    drop(conn);
+    sql_query(format!(
+        "DROP DATABASE IF EXISTS {NEIGHBOUR_DB} WITH (FORCE)"
     ))
     .execute(&mut admin_conn)
     .expect("dropping scratch database after test");

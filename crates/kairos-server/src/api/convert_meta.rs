@@ -13,8 +13,10 @@ use super::convert::IntoDto;
 
 /// RFC 3339 with microsecond precision (the same wire format as
 /// [`super::convert`]; duplicated because that helper is private to the
-/// T-0018 module).
-fn timestamp(value: DateTime<Utc>) -> String {
+/// T-0018 module). `pub(crate)` since KAIROS-T-0158, so the archived
+/// markers on graph neighbours and subgraph nodes encode identically to
+/// the `archived_at` on every entity DTO — one format, one meaning.
+pub(crate) fn timestamp(value: DateTime<Utc>) -> String {
     value.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
 }
 

@@ -16,17 +16,43 @@
 //! schema and runs in its own transaction (same conventions as
 //! [`crate::items`]).
 //!
-//! # Liveness (KAIROS-T-0156)
+//! # Liveness (KAIROS-T-0156, widened by KAIROS-T-0158)
 //!
 //! `entity_directory` used to filter `deleted_at IS NULL` in its own body,
 //! so every query here was live-only whether it said so or not. Under
 //! KAIROS-A-0020 archiving is a visibility DEFAULT, and a default has to be
 //! something a caller can widen — so the view now reports `deleted_at` and
-//! each query states its own mode. **Every `entity_directory` join in this
-//! module is live-only and says so**, which keeps the graph's behaviour
-//! exactly as it was. Making `neighbors_of` report archived neighbours,
-//! marked, is KAIROS-T-0158's deliberate change, not a side effect of the
-//! view losing its filter.
+//! each query states its own mode. T-0156 gave every join in this module
+//! the predicate the view used to apply, which kept behaviour identical;
+//! T-0158 then widened exactly two of them, on purpose:
+//!
+//! - [`neighbors_of`] (and so [`relationships_for`]) reports archived
+//!   neighbours **marked** via [`Neighbor::archived_at`];
+//! - [`item_subgraph`]'s hydration and degree passes report archived nodes
+//!   **marked** via [`SubgraphNode::archived_at`].
+//!
+//! Both serve the same question — *what is this live item connected to?* —
+//! and dropping an endpoint answers it with silence rather than with a
+//! smaller, honest number. `item_relationships` rows are hard-deleted, so
+//! the edge to an archived item is intact; only the join ever hid it. The
+//! two surfaces are widened together because they draw the same edges (a
+//! panel and an explorer), and ADR-20 warns that a half-applied visibility
+//! rule is worse than none: an auditor who finds the row on one surface
+//! reasonably assumes the others agree.
+//!
+//! **Every other `entity_directory` join here stays live-only and says
+//! so**, because each answers a different question:
+//!
+//! - [`resolve_entity`] types the endpoints of a WRITE. Linking or
+//!   unlinking archived work is a mutation of frozen material, so it stays
+//!   [`GraphError::ItemNotFound`].
+//! - [`children_progress`] / [`board_children_progress`] (through
+//!   [`CHILD_COLUMNS_SQL`]) and [`blocks_summary`] are *rollups*: ADR-20
+//!   rule 5 says archived work is not live work, so counting it would
+//!   report progress that nobody is making.
+//! - [`team_work_documents`], [`team_link_rollup`] and
+//!   [`repository_link_rollup`] are default listings, which ADR-20 rule 3
+//!   keeps unchanged.
 //!
 //! # Audit rows (KAIROS-A-0004 / S-0004)
 //!
@@ -47,11 +73,12 @@
 //! only real mutations — the same convention as
 //! [`crate::abac::grant_capability`].
 
+use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_query;
-use diesel::sql_types::{Array, Text, Uuid as SqlUuid};
+use diesel::sql_types::{Array, Nullable, Text, Timestamptz, Uuid as SqlUuid};
 use uuid::Uuid;
 
 use kairos_core::graph as rules;
@@ -368,6 +395,12 @@ pub struct Neighbor {
     pub entity_type: ItemType,
     /// The neighbor's title.
     pub title: String,
+    /// When this neighbour was archived, or `None` while it is live
+    /// (KAIROS-T-0158). Archived neighbours are REPORTED, not hidden —
+    /// see the module's `# Liveness` section — so every caller that
+    /// renders a neighbour must render this too. ADR-20: anything serving
+    /// an archived row says so, or an auditor mistakes it for live work.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 /// Both directions of an item's relationships, each grouped by
@@ -396,6 +429,8 @@ struct NeighborRow {
     entity_type: String,
     #[diesel(sql_type = Text)]
     title: String,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    deleted_at: Option<DateTime<Utc>>,
 }
 
 impl NeighborRow {
@@ -406,6 +441,7 @@ impl NeighborRow {
             short_code: self.short_code,
             entity_type: parse_entity_type(&self.entity_type)?,
             title: self.title,
+            archived_at: self.deleted_at,
         })
     }
 }
@@ -414,10 +450,16 @@ impl NeighborRow {
 /// `own_column`, hydrating the OTHER end (`other_column`) through
 /// `entity_directory`. Each query is backed by the matching S-0004 index
 /// (`idx_item_relationships_source` / `idx_item_relationships_target`).
-/// **Live-only**: soft-deleted neighbors drop out, matching every other
-/// read path. KAIROS-T-0158 is where that stops being the whole story —
-/// it makes archived neighbours reportable, marked, because losing them
-/// silently degrades the LIVE side of the record.
+///
+/// **Archived-inclusive, marked** (KAIROS-T-0158). This join deliberately
+/// carries no `deleted_at IS NULL`: an item's relationships are a property
+/// of the item being viewed, which is usually LIVE, and dropping an
+/// archived endpoint does not narrow that answer — it falsifies it. "What
+/// did this initiative contain?" returned fewer children than the truth,
+/// with nothing marked, nothing counted and no flag anywhere that could
+/// recover them. So the row comes back and `archived_at` says what it is.
+/// The default is inclusion rather than an opt-in flag precisely because
+/// the silent answer was the wrong one to serve by default.
 fn neighbors_of(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -425,10 +467,9 @@ fn neighbors_of(
     other_column: &str,
 ) -> Result<Vec<Neighbor>, GraphError> {
     let rows: Vec<NeighborRow> = sql_query(format!(
-        "SELECT r.relationship, d.id, d.short_code, d.entity_type, d.title \
+        "SELECT r.relationship, d.id, d.short_code, d.entity_type, d.title, d.deleted_at \
          FROM item_relationships r \
-         JOIN entity_directory d \
-           ON d.id = r.{other_column} AND d.deleted_at IS NULL \
+         JOIN entity_directory d ON d.id = r.{other_column} \
          WHERE r.{own_column} = $1 \
          ORDER BY r.relationship ASC, r.created_at ASC, d.short_code ASC"
     ))
@@ -442,8 +483,12 @@ fn neighbors_of(
 /// indexed lookups: `source_id = item` uses
 /// `idx_item_relationships_source(source_id, relationship)` and
 /// `target_id = item` uses `idx_item_relationships_target(target_id,
-/// relationship)` (S-0004). The item itself is not required to exist —
-/// an unknown or soft-deleted id simply has no live edges to report.
+/// relationship)` (S-0004). The item itself is not required to exist — an
+/// unknown id simply has no edges to report — and an ARCHIVED item reports
+/// its edges like any other, since `item_relationships` rows are
+/// hard-deleted and so survive the archive intact (KAIROS-T-0158).
+/// Neighbours carry [`Neighbor::archived_at`]; every caller that renders a
+/// neighbour must render that too.
 pub fn relationships_for(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -479,9 +524,19 @@ pub struct ChildColumnCount {
 }
 
 /// The live workflow-item id → column_id union the progress queries join
-/// children through: soft-deleted rows drop out, documents never appear
-/// (no board position), and off-board ADRs are excluded. Only `parent`
-/// edges are followed, so supports/informs material never counts.
+/// children through: documents never appear (no board position), and
+/// off-board ADRs are excluded. Only `parent` edges are followed, so
+/// supports/informs material never counts.
+///
+/// **Live-only, and deliberately so** (KAIROS-A-0020 rule 5, confirmed by
+/// KAIROS-T-0158). Every branch spells `deleted_at IS NULL` in its own
+/// body, so this does not depend on the filter `entity_directory` used to
+/// apply. Archived work is not live work: a rollup that counted it would
+/// report progress nobody is making, and would make an initiative look
+/// less finished the more of its work had been put away. This is the
+/// opposite call from [`neighbors_of`], for the opposite reason —
+/// *containment* is a fact about the record, *progress* is a fact about
+/// live work.
 const CHILD_COLUMNS_SQL: &str = "SELECT id, column_id FROM strategies WHERE deleted_at IS NULL \
      UNION ALL SELECT id, column_id FROM initiatives WHERE deleted_at IS NULL \
      UNION ALL SELECT id, column_id FROM tasks WHERE deleted_at IS NULL \
@@ -490,6 +545,9 @@ const CHILD_COLUMNS_SQL: &str = "SELECT id, column_id FROM strategies WHERE dele
 
 /// Direct `parent`-edge children of `parent_id`, grouped by their board
 /// column — ONE query, column order within each board (KAIROS-T-0080).
+/// Live children only, through [`CHILD_COLUMNS_SQL`] (ADR-20 rule 5): the
+/// item's relationship LIST names its archived children
+/// ([`relationships_for`]), its progress rollup does not count them.
 pub fn children_progress(
     conn: &mut PgConnection,
     parent_id: Uuid,
@@ -537,6 +595,12 @@ pub struct ProgressCounts {
 /// Children rollups for EVERY item on `board_id` that has direct
 /// children — one grouped query for the whole board, never per-item
 /// (the N+1 the KAIROS-T-0080 design forbids).
+///
+/// Live-only on BOTH ends and says so in the SQL: the parents come from a
+/// per-family union filtered `deleted_at IS NULL`, the children from
+/// [`CHILD_COLUMNS_SQL`]. Neither predicate is inherited from a view
+/// (KAIROS-T-0156 moved them here), and neither is widened: ADR-20 rule 5,
+/// archived work is not live work.
 pub fn board_children_progress(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -634,8 +698,8 @@ pub fn team_work_documents(
 
 /// One hydrated node of a focal subgraph. `status` is the board column
 /// name for workflow items and the editorial lifecycle for documents (the
-/// A-0018 two-vocabulary split); `degree` is the node's TOTAL live-edge
-/// count so clients can render `+N` for undisplayed neighbors.
+/// A-0018 two-vocabulary split); `degree` is the node's TOTAL edge count
+/// so clients can render `+N` for undisplayed neighbors.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubgraphNode {
     pub id: Uuid,
@@ -645,6 +709,11 @@ pub struct SubgraphNode {
     pub status: String,
     pub depth: i32,
     pub degree: i64,
+    /// When this node was archived, or `None` while it is live
+    /// (KAIROS-T-0158). Archived nodes are DRAWN, distinctly — see
+    /// [`item_subgraph`] — never omitted; a renderer that ignores this
+    /// field is claiming archived work is live.
+    pub archived_at: Option<DateTime<Utc>>,
 }
 
 /// One typed directed edge between two visible subgraph nodes. `depth` is
@@ -680,6 +749,8 @@ struct NodeHydrationRow {
     status: String,
     #[diesel(sql_type = diesel::sql_types::BigInt)]
     degree: i64,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    deleted_at: Option<DateTime<Utc>>,
 }
 
 #[derive(QueryableByName)]
@@ -692,14 +763,30 @@ struct EdgeRow {
     relationship: RelationshipType,
 }
 
-/// The focal subgraph around `root` (KAIROS-T-0088): every live node
-/// reachable within `depth` hops over ANY relationship type in EITHER
-/// direction, plus ALL live edges among the visible set — including
-/// cross-links the walk did not discover first (the links the old panels
-/// view could never show). Cycle-safe like [`crate::search`]'s traverse
-/// (the UNION deduplicates `(id, depth)` rows and the depth bound
-/// terminates the recursion). The root is included at depth 0; callers
-/// resolve and 404 dead roots before calling.
+/// The focal subgraph around `root` (KAIROS-T-0088): every node reachable
+/// within `depth` hops over ANY relationship type in EITHER direction,
+/// plus ALL edges among the visible set — including cross-links the walk
+/// did not discover first (the links the old panels view could never
+/// show). Cycle-safe like [`crate::search`]'s traverse (the UNION
+/// deduplicates `(id, depth)` rows and the depth bound terminates the
+/// recursion). The root is included at depth 0; callers resolve unknown
+/// roots before calling.
+///
+/// **Archived-inclusive, marked** (KAIROS-T-0158), for the same reason as
+/// [`neighbors_of`] and so that the explorer and the relationships panel
+/// cannot disagree about the same edges. Dropping archived nodes here was
+/// worse than a missing row: the walk in step 1 reads `item_relationships`
+/// directly, so it already hops THROUGH an archived item — hydration then
+/// deleted the middle of the path and left the far side floating with no
+/// route back to the focus. An archived root fared worse still, since
+/// resolution admits one (ADR-20 rule 1) and hydration then dropped the
+/// focus out of its own subgraph. `archived_at` marks every such node;
+/// clients draw it distinctly rather than silently.
+///
+/// `degree` therefore counts every neighbour that would hydrate, archived
+/// included — it exists so a client can render `+N` for what it is not
+/// showing, and a count that disagreed with the node set would make `+N`
+/// wrong.
 pub fn item_subgraph(
     conn: &mut PgConnection,
     root: Uuid,
@@ -725,41 +812,38 @@ pub fn item_subgraph(
         visited.iter().map(|row| (row.id, row.depth)).collect();
     let ids: Vec<Uuid> = visited.iter().map(|row| row.id).collect();
 
-    // 2. Hydrate LIVE nodes: entity_directory under an explicit
-    //    `deleted_at IS NULL` for identity,
-    //    a per-family union for status, and a live-neighbor count for
-    //    degree. Soft-deleted ids simply drop out here, and edges to them
-    //    drop out in step 3 because both endpoints must hydrate.
+    // 2. Hydrate the visited ids: entity_directory for identity (NO
+    //    liveness predicate — archived nodes are reported, marked, see the
+    //    doc comment), a per-family union for status, and a neighbour count
+    //    for degree. `status_of` keeps an archived item's real column name,
+    //    which is exactly the audit answer ADR-20 rule 1 asks for: the
+    //    `column_id` FK is intact, so the row still knows where it stood
+    //    when it was put away.
     let rows: Vec<NodeHydrationRow> = sql_query(
         "WITH status_of AS (
              SELECT s.id, bc.name AS status FROM strategies s
                  JOIN board_columns bc ON bc.id = s.column_id
-                 WHERE s.deleted_at IS NULL
              UNION ALL
              SELECT i.id, bc.name FROM initiatives i
                  JOIN board_columns bc ON bc.id = i.column_id
-                 WHERE i.deleted_at IS NULL
              UNION ALL
              SELECT t.id, bc.name FROM tasks t
                  JOIN board_columns bc ON bc.id = t.column_id
-                 WHERE t.deleted_at IS NULL
              UNION ALL
              SELECT a.id, COALESCE(bc.name, 'off-board') FROM adrs a
                  LEFT JOIN board_columns bc ON bc.id = a.column_id
-                 WHERE a.deleted_at IS NULL
              UNION ALL
-             SELECT d.id, d.lifecycle FROM documents d WHERE d.deleted_at IS NULL
+             SELECT d.id, d.lifecycle FROM documents d
          )
-         SELECT d.id, d.short_code, d.entity_type, d.title, s.status,
+         SELECT d.id, d.short_code, d.entity_type, d.title, s.status, d.deleted_at,
                 (SELECT COUNT(*) FROM item_relationships r
                     JOIN entity_directory other
                       ON other.id = CASE WHEN r.source_id = d.id
                                          THEN r.target_id ELSE r.source_id END
-                     AND other.deleted_at IS NULL
                     WHERE r.source_id = d.id OR r.target_id = d.id) AS degree
          FROM entity_directory d
          JOIN status_of s ON s.id = d.id
-         WHERE d.id = ANY($1) AND d.deleted_at IS NULL",
+         WHERE d.id = ANY($1)",
     )
     .bind::<Array<SqlUuid>, _>(&ids)
     .load(conn)?;
@@ -774,20 +858,21 @@ pub fn item_subgraph(
                 title: row.title,
                 status: row.status,
                 degree: row.degree,
+                archived_at: row.deleted_at,
             })
         })
         .collect::<Result<Vec<_>, GraphError>>()?;
     nodes.sort_by(|a, b| a.short_code.cmp(&b.short_code));
-    let live: std::collections::HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
+    let visible: std::collections::HashSet<Uuid> = nodes.iter().map(|n| n.id).collect();
 
-    // 3. ALL live edges among the visible set (cross-links included).
-    let live_ids: Vec<Uuid> = live.iter().copied().collect();
+    // 3. ALL edges among the visible set (cross-links included).
+    let visible_ids: Vec<Uuid> = visible.iter().copied().collect();
     let edge_rows: Vec<EdgeRow> = sql_query(
         "SELECT source_id, target_id, relationship FROM item_relationships
          WHERE source_id = ANY($1) AND target_id = ANY($1)
          ORDER BY relationship ASC, source_id ASC, target_id ASC",
     )
-    .bind::<Array<SqlUuid>, _>(&live_ids)
+    .bind::<Array<SqlUuid>, _>(&visible_ids)
     .load(conn)?;
     let edges = edge_rows
         .into_iter()
@@ -829,9 +914,17 @@ struct BlocksRow {
 }
 
 /// Blocked-by/blocks counts for a set of items in ONE grouped query
-/// (never per item — the T-0080 rollup discipline). Soft-deleted
-/// neighbors are excluded by the join's own `deleted_at IS NULL`.
-/// Items with no live blocks edges simply have no entry.
+/// (never per item — the T-0080 rollup discipline). Items with no live
+/// blocks edges simply have no entry.
+///
+/// **Live-only, and deliberately so** (ADR-20 rule 5, confirmed by
+/// KAIROS-T-0158, which widened [`neighbors_of`] and [`item_subgraph`] but
+/// not this): the join spells its own `deleted_at IS NULL` rather than
+/// inheriting one from the view. A board card's "blocked by 2" is a claim
+/// about work that can still move, and archived work cannot block
+/// anything. The archived dependency is still visible on the item's
+/// relationship list, where it reads as history rather than as a count of
+/// things standing in the way.
 pub fn blocks_summary(
     conn: &mut PgConnection,
     ids: &[Uuid],

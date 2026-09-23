@@ -25,6 +25,7 @@ use diesel::prelude::*;
 
 use super::{require_edge_capability, resolve_family_item};
 use crate::api::convert::IntoDto;
+use crate::api::convert_meta::timestamp;
 use crate::api::{Liveness, parse_enum, parse_uuid, resolve_short_code};
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -49,9 +50,16 @@ pub fn router() -> Router<AppState> {
 
 /// Direct-children progress rollup for one item (KAIROS-T-0080): the
 /// live `parent`-edge children grouped by their board column, plus the
-/// `(done, total)` summary. Soft-deleted children drop out and
-/// supports/informs material never counts; resolution 404s exactly like
-/// the relationships GET.
+/// `(done, total)` summary. Supports/informs material never counts;
+/// resolution 404s exactly like the relationships GET.
+///
+/// **Archived children are excluded, deliberately** (ADR-20 rule 5,
+/// re-confirmed by KAIROS-T-0158): archived work is not live work, so a
+/// progress bar must not count it — an initiative would otherwise look
+/// less finished the more of its work had been put away. This is the
+/// opposite call from the sibling relationships GET, which now names
+/// archived children, and the pair is the whole distinction: containment
+/// is a fact about the record, progress is a fact about live work.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/children-progress",
@@ -162,10 +170,19 @@ pub(crate) struct GraphQuery {
     depth: Option<u32>,
 }
 
-/// The focal subgraph (KAIROS-T-0088): every live node within `depth`
-/// hops over any relationship type in either direction, plus ALL live
-/// edges among the returned nodes — the wire contract the graph view
-/// draws from. Open tenant-wide like the other graph reads.
+/// The focal subgraph (KAIROS-T-0088): every node within `depth` hops
+/// over any relationship type in either direction, plus ALL edges among
+/// the returned nodes — the wire contract the graph view draws from.
+/// Open tenant-wide like the other graph reads.
+///
+/// **Archived nodes are drawn, marked** with `archived_at`
+/// (KAIROS-T-0158). The explorer and the relationships panel render the
+/// same edges, and ADR-20 warns that a half-applied visibility rule is
+/// worse than none — a node listed in the panel and missing from the
+/// picture invites the reader to trust whichever they saw last. Omitting
+/// them also broke paths that merely passed THROUGH archived work: the
+/// walk hops over `item_relationships` directly, so the far side stayed
+/// in the node set with its connecting node deleted out of the middle.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/graph",
@@ -211,6 +228,7 @@ pub(crate) async fn get_item_graph(
                         status: node.status,
                         depth: node.depth,
                         degree: node.degree,
+                        archived_at: node.archived_at.map(timestamp),
                     })
                     .collect(),
                 edges: edges
@@ -250,6 +268,10 @@ fn map_link_error(e: GraphError) -> ApiError {
 /// Fold one direction's neighbors (already ordered by relationship, then
 /// edge creation) into groups, attaching each edge's id from `edge_ids`
 /// (keyed `(relationship, neighbor id, outgoing?)`).
+///
+/// Archived neighbours are among them (KAIROS-T-0158) and carry
+/// `archived_at`; nothing here filters, because filtering here is what
+/// made "what did this initiative contain?" answer short.
 fn group_neighbors(
     neighbors: Vec<Neighbor>,
     edge_ids: &HashMap<(RelationshipType, Uuid, bool), Uuid>,
@@ -267,6 +289,7 @@ fn group_neighbors(
             short_code: neighbor.short_code,
             entity_type: neighbor.entity_type.entity_type().to_string(),
             title: neighbor.title,
+            archived_at: neighbor.archived_at.map(timestamp),
         };
         match groups.last_mut() {
             Some(group) if group.relationship == relationship => group.items.push(item),
@@ -280,8 +303,17 @@ fn group_neighbors(
 }
 
 /// All relationships of an item, both directions, grouped by type (open
-/// tenant-wide read; hydrated through `entity_directory`, so soft-deleted
-/// neighbors drop out).
+/// tenant-wide read; hydrated through `entity_directory`).
+///
+/// **Archived neighbours are included, marked** with `archived_at`
+/// (KAIROS-T-0158, ADR-20). They used to drop out of the hydrating join,
+/// which made this endpoint answer "what does this item contain / depend
+/// on?" with fewer rows than the truth — silently, with no flag that
+/// could recover them, and about a LIVE item. There is deliberately no
+/// opt-out: an item's edges are a property of the item being viewed, so
+/// the honest default is to report every edge and say which ends are put
+/// away. The item itself may be archived too (resolution is
+/// [`Liveness::IncludeArchived`] since KAIROS-T-0154).
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/relationships",

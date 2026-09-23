@@ -30,6 +30,15 @@ pub struct RelatedItem {
     pub entity_type: String,
     /// The neighbor's title.
     pub title: String,
+    /// When this neighbour was archived, RFC 3339; absent while it is
+    /// live. Relationship lists are archived-INCLUSIVE (KAIROS-T-0158):
+    /// an item's edges describe what it contains and depends on, and
+    /// dropping an archived endpoint silently shrinks that answer. The
+    /// row therefore comes back with this marker, and every renderer must
+    /// show it — ADR-20: anything serving an archived row says so, or an
+    /// auditor mistakes it for live work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<String>,
 }
 
 /// All of an item's neighbors under ONE relationship type in one direction.
@@ -445,6 +454,7 @@ mod tests {
                     short_code: "ACME-T-0002".into(),
                     entity_type: "task".into(),
                     title: "t".into(),
+                    archived_at: None,
                 }],
             }],
             incoming: vec![],
@@ -456,5 +466,14 @@ mod tests {
             "ACME-T-0002"
         );
         assert!(value["incoming"].as_array().expect("array").is_empty());
+        // A LIVE neighbour carries no marker at all — `archived_at` is
+        // skipped rather than serialised as null, so its mere presence
+        // means "archived" to any client (KAIROS-T-0158).
+        assert!(
+            value["outgoing"][0]["items"][0]
+                .get("archived_at")
+                .is_none(),
+            "a live neighbour must not carry an archived marker: {value}"
+        );
     }
 }

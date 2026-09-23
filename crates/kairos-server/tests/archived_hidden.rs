@@ -22,9 +22,15 @@
 //! - all five family list endpoints, including `total` — a list that
 //!   hides the row but counts it is still a leak, just a subtler one;
 //! - `POST /api/search` with no `include_deleted`, over all three
-//!   capabilities (`q`, `filter`, `traverse`);
-//! - the entity directory itself, through short-code resolution on the
-//!   relationships endpoint's neighbour hydration.
+//!   capabilities (`q`, `filter`, `traverse`).
+//!
+//! **One surface is deliberately the other way round** (KAIROS-T-0158):
+//! an item's relationship list NAMES its archived neighbours, marked.
+//! That is not a listing of archived work, it is the record of a LIVE
+//! item, and dropping an endpoint from it shrinks the answer to "what did
+//! this contain?" without saying so. Section 4 below pins that contract
+//! from this side, so anyone who re-tightens the join to make this file
+//! green again finds out here what they are undoing.
 //!
 //! And, to keep the assertion honest about WHICH property is being
 //! tested, it checks the same rows ARE reachable by short code
@@ -272,9 +278,9 @@ async fn archived_work_is_absent_from_every_default_listing() {
     )
     .expect("linking keep strategy -> keep initiative");
     // ...and one from the KEEP strategy to the DOOMED initiative, so the
-    // archived row is a live item's neighbour. This is the case a forgotten
-    // filter leaks into the relationships panel and the board's
-    // children-progress rollup.
+    // archived row is a live item's neighbour: a LIVE strategy with one
+    // live and one archived child. Section 4 reads both ends of that —
+    // the list names both children, the rollup counts one.
     graph::link_items(
         &mut conn,
         uuid(&keep[0].2),
@@ -466,25 +472,60 @@ async fn archived_work_is_absent_from_every_default_listing() {
         "traverse must still reach the live child: {traverse_only:?}"
     );
 
-    // === 4. the entity directory =========================================
-    // The relationships endpoint hydrates neighbours straight out of
-    // `entity_directory`. The KEEP strategy has two children, one archived
-    // — so a forgotten filter shows up here as a third row, and nowhere
-    // else on this surface.
+    // === 4. relationships: the ONE surface that goes the other way =======
+    // Until KAIROS-T-0158 this leg asserted the opposite — that the
+    // archived child did not hydrate through `entity_directory` — and it
+    // was right to, because nothing else made the inherited filter
+    // observable. T-0158 changed the contract, not the coverage: the KEEP
+    // strategy has two children, one archived, and BOTH must come back,
+    // with `archived_at` telling them apart.
+    //
+    // Rule 3 is not weakened by this. A relationship list is not a
+    // listing of archived work; it is the record of a live item, and the
+    // archived row appears there only because that live item points at
+    // it. Sections 1-3 above still own rule 3, and none of them moved.
     let rels = svc
         .relationships(EntityKind::Strategy, &keep_strategy)
         .await
         .expect("relationships of the live strategy");
-    let neighbours: Vec<String> = rels
+    let neighbours: Vec<(String, bool)> = rels
         .outgoing
         .iter()
         .flat_map(|group| group.items.iter())
-        .map(|n| n.short_code.clone())
+        .map(|n| (n.short_code.clone(), n.archived_at.is_some()))
         .collect();
+    let archived_initiative = doomed[1].1.clone();
     assert_eq!(
         neighbours,
-        vec![keep_initiative.clone()],
-        "the archived child must not hydrate through entity_directory"
+        vec![
+            (keep_initiative.clone(), false),
+            (archived_initiative.clone(), true),
+        ],
+        "a live item lists BOTH children — the archived one MARKED, never \
+         silently dropped (KAIROS-T-0158)"
+    );
+    // The marker is the whole contract: an unmarked archived neighbour
+    // would be worse than a missing one, because a reader would act on it.
+    let marker = rels
+        .outgoing
+        .iter()
+        .flat_map(|group| group.items.iter())
+        .find(|n| n.short_code == archived_initiative)
+        .and_then(|n| n.archived_at.clone())
+        .expect("the archived neighbour carries archived_at");
+    assert!(
+        chrono::DateTime::parse_from_rfc3339(&marker).is_ok(),
+        "archived_at is an RFC 3339 instant, like every other archived marker: {marker}"
+    );
+    // ...and the rollup still refuses to count it (ADR-20 rule 5): two
+    // children listed, one child's worth of progress.
+    let progress = svc
+        .children_progress(EntityKind::Strategy, &keep_strategy)
+        .await
+        .expect("children progress of the live strategy");
+    assert_eq!(
+        progress.total, 1,
+        "progress counts LIVE children only, though the list names both: {progress:?}"
     );
 
     // === 5. …and none of that is erasure =================================

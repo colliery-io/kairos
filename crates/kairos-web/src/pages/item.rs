@@ -181,6 +181,7 @@ fn ItemLoaded(
     on_saved: Callback<i32>,
     on_moved: Callback<String>,
 ) -> impl IntoView {
+    let auth = use_auth();
     let create_open = RwSignal::new(false);
     let delete_open = RwSignal::new(false);
 
@@ -200,6 +201,18 @@ fn ItemLoaded(
     let repository = item.repository.as_ref().map(|r| r.slug.clone());
     let lifecycle = item.lifecycle.clone();
     let lifecycle_badge = item.lifecycle.clone();
+    // KAIROS-T-0164 / ADR-20: `archived_at` is the "put away" state — the
+    // item is hidden by default and read-only, NOT gone. Deliberately not
+    // the same thing as `lifecycle == "archived"` two lines up, which is a
+    // document's EDITORIAL state (KAIROS-T-0078) and says nothing about
+    // visibility; both can be true at once on this page, so the copy keeps
+    // them apart: the editorial badge always reads "lifecycle: …", the
+    // put-away state always reads "put away".
+    let archived_at = item.archived_at.clone();
+    let archived = archived_at.is_some();
+    let banner_code = item.short_code.clone();
+    let item_id = item.id.clone();
+    let editorial_archived = item.lifecycle.as_deref() == Some("archived");
     let ItemDetail {
         short_code,
         title,
@@ -210,13 +223,49 @@ fn ItemLoaded(
         ..
     } = item;
 
+    // ONE board read for the page (KAIROS-T-0164): the placement panel
+    // renders it and the Restore affordance's capability mirror needs the
+    // board's slug/team — a second fetch would be the same request.
+    // `Ok(None)` = the item sits on no board at all (a document, an
+    // off-board ADR).
+    let board_id_for_fetch = StoredValue::new(board_id);
+    let board = LocalResource::new(move || {
+        let _ = auth.token();
+        let id = board_id_for_fetch.get_value();
+        async move {
+            match id {
+                Some(id) => api::fetch_board(auth, id).await.map(Some),
+                None => Ok(None),
+            }
+        }
+    });
+    let can_restore = restore_power(family, board);
+
     view! {
         <PageHeader title=header_title sub=family.label()/>
+        {archived_at.map(|when| view! {
+            <ArchivedBanner
+                family
+                code=banner_code
+                item_id
+                archived_at=when
+                editorial_archived
+                can_restore
+                on_restored=on_moved
+            />
+        })}
         <Group justify="between">
             <Group gap="sm">
                 <Text mono=true dimmed=true size="sm">{header_code}</Text>
                 <copy_link::CopyLinkButton code=copy_code/>
                 <Pill color=token::ICE>{version_label}</Pill>
+                // The ADR-20 state, in the words the banner uses. Never
+                // "archived" on its own next to the lifecycle badge below.
+                {archived.then(|| view! {
+                    <span class="kairos-archived-badge">
+                        <Pill color=token::GOLD>"put away"</Pill>
+                    </span>
+                })}
                 // The document lifecycle badge (KAIROS-T-0078): an
                 // editorial label, deliberately distinct from anything
                 // board-status-shaped — its own class + state color.
@@ -229,12 +278,22 @@ fn ItemLoaded(
             </Group>
             <Group gap="sm">
                 <Anchor href=history_href>"History"</Anchor>
+                // Archived work is read-only server-side (every write path
+                // resolves live-only), so the write affordances are
+                // DISABLED with the reason next to them rather than
+                // removed — a missing button reads as a broken page, and a
+                // live one that 404s reads as a bug.
+                {archived.then(|| view! {
+                    <Text size="xs" dimmed=true>"read-only while put away"</Text>
+                })}
                 {family.is_workflow().then(|| view! {
-                    <Button variant="default" size="xs" on_click=Callback::new(move |_| create_open.set(true))>
+                    <Button variant="default" size="xs" disabled=archived
+                        on_click=Callback::new(move |_| create_open.set(true))>
                         "New document"
                     </Button>
                 })}
-                <Button variant="default" size="xs" bad=true on_click=Callback::new(move |_| delete_open.set(true))>
+                <Button variant="default" size="xs" bad=true disabled=archived
+                    on_click=Callback::new(move |_| delete_open.set(true))>
                     "Delete"
                 </Button>
             </Group>
@@ -247,21 +306,246 @@ fn ItemLoaded(
                 initial_title=title
                 initial_content=content
                 initial_version=version
+                read_only=archived
                 on_saved
             />
             <Stack gap="sm">
-                <BoardPanel family code=short_code.clone() board_id column_id
-                    work_class=lane repository on_moved/>
+                <BoardPanel family code=short_code.clone() board column_id
+                    work_class=lane repository archived on_moved/>
                 {lifecycle.map(|current| view! {
-                    <LifecyclePanel code=short_code.clone() current on_moved/>
+                    <LifecyclePanel code=short_code.clone() current archived on_moved/>
                 })}
-                <MetadataPanel family code=short_code.clone()/>
+                <MetadataPanel family code=short_code.clone() read_only=archived/>
                 <DevelopmentPanel family code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
         <CreateDocumentDialog parent_code=code.clone() open=create_open/>
         <DeleteDialog family code title=delete_title open=delete_open/>
+    }
+}
+
+/// The capability that putting an item BACK asks for: the same
+/// `manage_<family>` that putting it away asked for (KAIROS-T-0160 —
+/// restoring is the inverse of archiving, not a new privilege, so no
+/// deployment ends up with someone who can archive and nobody who can
+/// restore).
+fn manage_capability(family: Family) -> &'static str {
+    match family {
+        Family::Strategy => "manage_strategies",
+        Family::Initiative => "manage_initiatives",
+        Family::Task => "manage_tasks",
+        Family::Document => "manage_documents",
+        Family::Adr => "manage_adrs",
+    }
+}
+
+/// May the signed-in user restore THIS item? The shared whoami mirror
+/// (KAIROS-T-0072), read against the item's own board once it has loaded.
+/// `false` until whoami and the board read have both resolved; an
+/// off-board item (`Ok(None)`) or an unreadable board falls back to the
+/// board-less mirror, because the server resolves such an item's
+/// authorization board through its parent and the client cannot.
+fn restore_power(
+    family: Family,
+    board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
+) -> Memo<bool> {
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    Memo::new(move |_| {
+        let Some(me) = whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+        else {
+            return false;
+        };
+        let required = manage_capability(family);
+        match board.get() {
+            None => false,
+            Some(Ok(Some(board))) => {
+                boards::holds_capability(&me, Some(&board.slug), board.team_id.as_deref(), required)
+            }
+            Some(Ok(None)) | Some(Err(_)) => boards::holds_capability(&me, None, None, required),
+        }
+    })
+}
+
+/// `2026-09-23T11:30:07.479107Z` → `2026-09-23 11:30 UTC` (display only;
+/// anything that does not parse passes through untouched). Pure,
+/// host-tested.
+fn put_away_when(rfc3339: &str) -> String {
+    match rfc3339.split_once('T') {
+        Some((date, time)) => {
+            let clock = time.get(..5).unwrap_or(time);
+            format!("{date} {clock} UTC")
+        }
+        None => rfc3339.to_string(),
+    }
+}
+
+/// The unmistakable marker on an archived item (KAIROS-T-0164, ADR-20).
+///
+/// An archived item reads exactly like a live one — same title, same
+/// content, same history — so without this banner someone quotes a retired
+/// ticket as current. It says WHEN the item was put away, WHO put it away
+/// (from the activity trail, best-effort: the entity DTOs carry the moment
+/// but not the actor), that the item is read-only, and offers Restore to
+/// whoever holds the capability.
+///
+/// It also carries the disambiguation when the page shows BOTH senses of
+/// "archived" at once — an editorially-archived document that is also put
+/// away (see [`ItemLoaded`]'s note and KAIROS-A-0020's Neutral section).
+#[component]
+fn ArchivedBanner(
+    family: Family,
+    #[prop(into)] code: String,
+    /// The entity UUID — the activity trail's filter key.
+    #[prop(into)]
+    item_id: String,
+    /// RFC 3339, from the item's `archived_at`.
+    #[prop(into)]
+    archived_at: String,
+    /// The item is a document whose EDITORIAL lifecycle is also
+    /// "archived" — the one case where the collision is on screen.
+    editorial_archived: bool,
+    can_restore: Memo<bool>,
+    /// Fired after a successful restore: the page posts the message and
+    /// refetches, which is what makes the banner disappear.
+    on_restored: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let item_id = StoredValue::new(item_id);
+    let who = LocalResource::new(move || {
+        let _ = auth.token();
+        api::fetch_archived_by(auth, item_id.get_value())
+    });
+    let when = put_away_when(&archived_at);
+    view! {
+        <div class="kairos-item__archived" data-testid="archived-banner">
+            <Banner color=token::GOLD icon="⧉">
+                <Stack gap="xs">
+                    <Text bright=true bold=true>
+                        {move || match who.get().flatten() {
+                            Some(actor) => format!("Put away on {when} by {actor}"),
+                            None => format!("Put away on {when}"),
+                        }}
+                    </Text>
+                    <Text size="sm">
+                        "This is archived work: hidden from boards, queues and default \
+                         searches, and read-only. It is not deleted — what you are reading \
+                         is what it said when it was put away."
+                    </Text>
+                    {editorial_archived.then(|| view! {
+                        <Text size="xs" dimmed=true>
+                            "Two different things are called \"archived\" on this page: this \
+                             banner (the document is put away — KAIROS-A-0020), and the \
+                             \"lifecycle: archived\" badge below (its editorial state — \
+                             KAIROS-T-0078). A live document can carry that badge; this \
+                             banner is about visibility, not editorial status."
+                        </Text>
+                    })}
+                    <RestoreControl family code can_restore on_restored/>
+                </Stack>
+            </Banner>
+        </div>
+    }
+}
+
+/// The Restore action (KAIROS-T-0160's endpoint): visible only to someone
+/// holding `manage_<family>`, and rendering the 422 `RESTORE_BLOCKED`
+/// refusal as a sentence naming what is gone — the refusal is the useful
+/// half of the feature, so it never shows as a raw error code.
+#[component]
+fn RestoreControl(
+    family: Family,
+    #[prop(into)] code: String,
+    can_restore: Memo<bool>,
+    on_restored: Callback<String>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let busy = RwSignal::new(false);
+    let blocked = RwSignal::new(None::<Vec<String>>);
+    let error = RwSignal::new(None::<ApiError>);
+    let restore: Callback<()> = Callback::new(move |()| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        blocked.set(None);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match api::restore_item(auth, family, &code.get_value()).await {
+                Ok(outcome) => {
+                    // A restore puts back exactly what it was asked for;
+                    // descendants archived with it stay away and are named
+                    // so nobody assumes the whole cascade came back.
+                    let message = if outcome.still_archived_count == 0 {
+                        format!("{} is back on its board.", outcome.short_code)
+                    } else {
+                        format!(
+                            "{} is back on its board. {} item(s) archived with it are still \
+                             put away: {}.",
+                            outcome.short_code,
+                            outcome.still_archived_count,
+                            outcome.still_archived_short_codes.join(", "),
+                        )
+                    };
+                    on_restored.run(message);
+                }
+                Err(api::RestoreError::Blocked(missing)) => {
+                    blocked.set(Some(missing));
+                    busy.set(false);
+                }
+                Err(api::RestoreError::Api(e)) => {
+                    error.set(Some(e));
+                    busy.set(false);
+                }
+            }
+        });
+    });
+    view! {
+        <div class="kairos-item__restore">
+            {move || can_restore.get().then(|| view! {
+                <Group gap="sm">
+                    {move || {
+                        let disabled = busy.get();
+                        view! {
+                            <Button size="xs" disabled=disabled on_click=restore>
+                                {if busy.get_untracked() { "Restoring…" } else { "Restore" }}
+                            </Button>
+                        }
+                    }}
+                    <Text size="xs" dimmed=true>
+                        "Puts this item back on its board, where it was."
+                    </Text>
+                </Group>
+            })}
+            {move || blocked.get().map(|missing| {
+                let names = missing.join(", ");
+                view! {
+                    <Alert title="It cannot go back yet" color=token::GOLD>
+                        <Stack gap="xs">
+                            <Text size="sm">
+                                {format!(
+                                    "This item was put away in a place that no longer exists — \
+                                     {names} is gone. Kairos will not quietly re-home it, \
+                                     because where it sat is part of what the record says.",
+                                )}
+                            </Text>
+                            <Text size="sm" dimmed=true>
+                                "Restore or recreate what it needs first, and the Restore \
+                                 button will work."
+                            </Text>
+                        </Stack>
+                    </Alert>
+                }
+            })}
+            {move || error.get().map(|e| view! {
+                <Alert title="Could not restore" color=token::BAD>
+                    <Text size="sm">{api::error_text(&e)}</Text>
+                </Alert>
+            })}
+        </div>
     }
 }
 
@@ -284,6 +568,11 @@ fn lifecycle_color(state: &str) -> &'static str {
 fn LifecyclePanel(
     #[prop(into)] code: String,
     current: String,
+    /// The document is archived in the ADR-20 sense (put away). The
+    /// editorial state is still worth SHOWING — it is part of what the
+    /// record said — but setting it is a write, and writes resolve
+    /// live-only.
+    archived: bool,
     on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
@@ -315,7 +604,7 @@ fn LifecyclePanel(
                                      "published".to_string(), "archived".to_string()]/>
                     {move || {
                         let unchanged = value.get() == current.get_value();
-                        let disabled = busy.get() || unchanged;
+                        let disabled = archived || busy.get() || unchanged;
                         view! {
                             <Button size="xs" disabled=disabled on_click=submit>
                                 {if busy.get_untracked() { "Setting…" } else { "Set" }}
@@ -323,6 +612,12 @@ fn LifecyclePanel(
                         }
                     }}
                 </Group>
+                {archived.then(|| view! {
+                    <Text size="xs" dimmed=true>
+                        "The editorial state cannot be changed while the document is put \
+                         away — restore it first."
+                    </Text>
+                })}
                 {move || error.get().map(|e| view! {
                     <Alert title="Could not set lifecycle" color=token::BAD>
                         <Text size="sm">{api::error_text(&e)}</Text>
@@ -432,84 +727,101 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
 fn BoardPanel(
     family: Family,
     #[prop(into)] code: String,
-    board_id: Option<String>,
+    /// The page's shared board read (`Ok(None)` = off-board).
+    board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
     column_id: Option<String>,
     /// The task's Planned/Support lane (KAIROS-T-0077) — `Some` enables
     /// the lane control.
     work_class: Option<String>,
     /// The task's bound repository slug (KAIROS-T-0109), if any.
     repository: Option<String>,
+    /// The item is archived (ADR-20): its placement is a record of where
+    /// it was put away, and every move endpoint resolves live-only, so the
+    /// write controls are replaced by the reason they are gone.
+    archived: bool,
     on_moved: Callback<String>,
 ) -> impl IntoView {
-    let auth = use_auth();
     let code = StoredValue::new(code);
     let work_class = StoredValue::new(work_class);
     let repository = StoredValue::new(repository);
+    let column_id = StoredValue::new(column_id);
     view! {
         <Panel title="Board" caption="placement">
-            {match board_id {
-                None => {
+            {move || match board.get() {
+                None => view! { <Loading label="Loading board…"/> }.into_any(),
+                Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
+                Some(Ok(None)) => {
                     let message = match family {
                         Family::Document => "Documents attach to a workflow item (supports edge), not a board.",
                         _ => "Off-board — no column, no transitions (org-admin writes only).",
                     };
                     view! { <Text size="sm" dimmed=true>{message}</Text> }.into_any()
                 }
-                Some(board_id) => {
-                    let board = LocalResource::new(move || {
-                        let _ = auth.token();
-                        api::fetch_board(auth, board_id.clone())
+                Some(Ok(Some(board))) => {
+                    // The column the item is IN — which, for an archived
+                    // card, may be one that has since been removed from
+                    // the board (KAIROS-T-0161). That is exactly the fact
+                    // the column soft delete exists to keep, so it is
+                    // named and marked rather than resolved to "unknown
+                    // column"; `fetch_board` asks for removed columns for
+                    // this one reason. Removed columns are never move
+                    // targets — the transition list is live-only
+                    // server-side, so `MoveControl` cannot offer one.
+                    let column = column_id.with_value(|id| {
+                        id.as_ref()
+                            .and_then(|id| board.columns.iter().find(|c| &c.id == id))
+                            .cloned()
                     });
-                    let column_id = StoredValue::new(column_id);
+                    let (column_label, column_color) = match &column {
+                        Some(c) if c.removed_at.is_some() => (
+                            format!("{} (column since removed)", c.name),
+                            token::GOLD,
+                        ),
+                        Some(c) => (c.name.clone(), token::ICE),
+                        None => ("unknown column".to_string(), token::MUTED),
+                    };
+                    let slug = board.slug.clone();
+                    let name = board.name.clone();
                     view! {
-                        {move || match board.get() {
-                            None => view! { <Loading label="Loading board…"/> }.into_any(),
-                            Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
-                            Some(Ok(board)) => {
-                                let column = column_id.with_value(|id| {
-                                    id.as_ref().and_then(|id| {
-                                        board.columns.iter().find(|c| &c.id == id)
-                                    })
-                                    .map(|c| c.name.clone())
-                                    .unwrap_or_else(|| "unknown column".to_string())
-                                });
-                                let slug = board.slug.clone();
-                                let name = board.name.clone();
-                                view! {
-                                    <Stack gap="sm">
-                                        <Group justify="between">
-                                            <Anchor href=format!("/boards/{slug}")>{name}</Anchor>
-                                            <Pill color=token::ICE>{column}</Pill>
-                                        </Group>
-                                        {matches!(family, Family::Task).then(|| view! {
-                                            <RepositoryControl
-                                                code=code.get_value()
-                                                board_slug=board.slug.clone()
-                                                team_id=board.team_id.clone()
-                                                current=repository.get_value()
-                                                on_moved
-                                            />
-                                        })}
-                                        {matches!(family, Family::Task).then(|| view! {
-                                            <MoveBoardControl
-                                                code=code.get_value()
-                                                board_slug=board.slug.clone()
-                                                team_id=board.team_id.clone()
-                                                on_moved
-                                            />
-                                        })}
-                                        <MoveControl
-                                            family
-                                            code=code.get_value()
-                                            board
-                                            column_id=column_id.with_value(Clone::clone)
-                                            work_class=work_class.get_value()
-                                            on_moved
-                                        />
-                                    </Stack>
-                                }.into_any()
-                            }
-                        }}
+                        <Stack gap="sm">
+                            <Group justify="between">
+                                <Anchor href=format!("/boards/{slug}")>{name}</Anchor>
+                                <Pill color=column_color>{column_label}</Pill>
+                            </Group>
+                            {archived.then(|| view! {
+                                <Text size="xs" dimmed=true>
+                                    "Placement is frozen while this item is put away — it is \
+                                     the record of where the work sat. Restore it to move it."
+                                </Text>
+                            })}
+                            {(!archived && matches!(family, Family::Task)).then(|| view! {
+                                <RepositoryControl
+                                    code=code.get_value()
+                                    board_slug=board.slug.clone()
+                                    team_id=board.team_id.clone()
+                                    current=repository.get_value()
+                                    on_moved
+                                />
+                            })}
+                            {(!archived && matches!(family, Family::Task)).then(|| view! {
+                                <MoveBoardControl
+                                    code=code.get_value()
+                                    board_slug=board.slug.clone()
+                                    team_id=board.team_id.clone()
+                                    on_moved
+                                />
+                            })}
+                            {(!archived).then(|| view! {
+                                <MoveControl
+                                    family
+                                    code=code.get_value()
+                                    board=board.clone()
+                                    column_id=column_id.with_value(Clone::clone)
+                                    work_class=work_class.get_value()
+                                    on_moved
+                                />
+                            })}
+                        </Stack>
                     }.into_any()
                 }
             }}
@@ -1168,6 +1480,33 @@ mod tests {
         let (details, graph) = tab_hrefs("DEMO-T-0007").expect("resolved code");
         assert_eq!(details, "/items/DEMO-T-0007");
         assert_eq!(graph, "/items/DEMO-T-0007?view=graph");
+    }
+
+    /// The banner says WHEN, in something a person reads (KAIROS-T-0164):
+    /// the wire's microsecond RFC 3339 is not it. Junk passes through
+    /// rather than being swallowed.
+    #[test]
+    fn put_away_when_reads_as_a_moment() {
+        assert_eq!(
+            put_away_when("2026-09-23T11:30:07.479107Z"),
+            "2026-09-23 11:30 UTC"
+        );
+        assert_eq!(
+            put_away_when("2026-09-23T11:30:07+00:00"),
+            "2026-09-23 11:30 UTC"
+        );
+        assert_eq!(put_away_when("not a timestamp"), "not a timestamp");
+    }
+
+    /// Restoring asks for the same `manage_<family>` the archive asked
+    /// for — no new capability (KAIROS-T-0160).
+    #[test]
+    fn restore_asks_for_the_archive_capability() {
+        assert_eq!(manage_capability(Family::Strategy), "manage_strategies");
+        assert_eq!(manage_capability(Family::Initiative), "manage_initiatives");
+        assert_eq!(manage_capability(Family::Task), "manage_tasks");
+        assert_eq!(manage_capability(Family::Document), "manage_documents");
+        assert_eq!(manage_capability(Family::Adr), "manage_adrs");
     }
 
     /// The summary reads from THIS item's side: an outgoing parent edge

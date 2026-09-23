@@ -33,7 +33,17 @@ struct FieldRow {
 /// The metadata panel: definitions + values fetched together, typed
 /// editors, one save for all changed fields.
 #[component]
-pub fn MetadataPanel(family: Family, #[prop(into)] code: String) -> impl IntoView {
+pub fn MetadataPanel(
+    family: Family,
+    #[prop(into)] code: String,
+    /// The item is archived (KAIROS-T-0164, ADR-20): its values are still
+    /// shown — they are part of what the record said, and KAIROS-T-0152's
+    /// `DEFINITION_IN_USE` refusal sends admins here to read them — but
+    /// the metadata PATCH resolves live-only, so the editors are disabled
+    /// rather than left to fail.
+    #[prop(optional)]
+    read_only: bool,
+) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
     let reload = RwSignal::new(0u32);
@@ -63,6 +73,7 @@ pub fn MetadataPanel(family: Family, #[prop(into)] code: String) -> impl IntoVie
                         code=code.get_value()
                         definitions
                         values
+                        read_only
                         on_saved=Callback::new(move |_| reload.update(|n| *n += 1))
                     />
                 }.into_any(),
@@ -83,6 +94,8 @@ fn MetadataForm(
     #[prop(into)] code: String,
     definitions: Vec<MetadataDefinition>,
     values: Vec<MetadataValue>,
+    /// Show the values, refuse the writes (KAIROS-T-0164).
+    read_only: bool,
     on_saved: Callback<()>,
 ) -> impl IntoView {
     let auth = use_auth();
@@ -213,12 +226,12 @@ fn MetadataForm(
                 } else {
                     current
                         .into_iter()
-                        .map(|row| view! { <FieldEditor row/> })
+                        .map(|row| view! { <FieldEditor row read_only/> })
                         .collect_view()
                         .into_any()
                 }
             }}
-            {move || {
+            {(!read_only).then(|| view! {{move || {
                 let shown = visible.get();
                 let available: Vec<String> = all_rows.with_value(|rows| {
                     rows.iter()
@@ -240,12 +253,19 @@ fn MetadataForm(
                         </div>
                     }
                 })
-            }}
+            }}})}
             <Group justify="between">
-                <Text size="xs" dimmed=true>"Blank clears a field. Last write wins (not versioned, A-0004)."</Text>
+                <Text size="xs" dimmed=true>
+                    {if read_only {
+                        "Read-only: this item is put away (archived). Restore it to change \
+                         its fields."
+                    } else {
+                        "Blank clears a field. Last write wins (not versioned, A-0004)."
+                    }}
+                </Text>
                 <button
                     class="cl-btn cl-btn--filled cl-btn--xs"
-                    disabled=move || saving.get() || !dirty()
+                    disabled=move || read_only || saving.get() || !dirty()
                     on:click=save
                 >
                     {move || if saving.get() { "Saving…" } else { "Save metadata" }}
@@ -256,8 +276,10 @@ fn MetadataForm(
 }
 
 /// One typed editor row: label + the editor its `field_type` calls for.
+/// `read_only` disables the control itself (KAIROS-T-0164) — a field that
+/// accepts typing and then cannot save is worse than one that says no.
 #[component]
-fn FieldEditor(row: FieldRow) -> impl IntoView {
+fn FieldEditor(row: FieldRow, read_only: bool) -> impl IntoView {
     let FieldRow {
         definition, draft, ..
     } = row;
@@ -283,6 +305,7 @@ fn FieldEditor(row: FieldRow) -> impl IntoView {
             view! {
                 <select
                     class="cl-input cl-select"
+                    disabled=read_only
                     prop:value=move || draft.get()
                     on:change=move |e| draft.set(event_target_value(&e))
                 >
@@ -295,6 +318,7 @@ fn FieldEditor(row: FieldRow) -> impl IntoView {
             <input
                 class="cl-input"
                 type="date"
+                disabled=read_only
                 prop:value=move || draft.get()
                 on:input=move |e| draft.set(event_target_value(&e))
             />
@@ -305,6 +329,7 @@ fn FieldEditor(row: FieldRow) -> impl IntoView {
                 class="cl-input"
                 type="text"
                 placeholder="—"
+                disabled=read_only
                 prop:value=move || draft.get()
                 on:input=move |e| draft.set(event_target_value(&e))
             />

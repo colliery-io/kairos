@@ -22,6 +22,11 @@ pub fn ContentEditor(
     #[prop(into)] initial_title: String,
     #[prop(into)] initial_content: String,
     initial_version: i32,
+    /// The item is archived (KAIROS-T-0164, ADR-20): the content PATCH
+    /// resolves live-only, so the editor renders the content instead of
+    /// offering an edit that would 404.
+    #[prop(optional)]
+    read_only: bool,
     /// Fired after a successful save; the parent refetches (server state
     /// is the source of truth) and posts the page-level notice.
     on_saved: Callback<i32>,
@@ -36,6 +41,16 @@ pub fn ContentEditor(
         })
     });
     view! {
-        <MarkdownEditor initial_title initial_content initial_version on_saved saver/>
+        <MarkdownEditor
+            initial_title
+            initial_content
+            initial_version
+            read_only
+            read_only_reason="This item is put away (archived): its content is read-only \
+                              until it is restored. Nothing here is lost — this is what it \
+                              said when it was archived."
+            on_saved
+            saver
+        />
     }
 }

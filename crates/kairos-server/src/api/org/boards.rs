@@ -85,10 +85,29 @@ pub fn router() -> Router<AppState> {
 /// where they were put away, but it is not part of the board any more and
 /// must not render on one.
 fn load_columns(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError> {
+    load_columns_including_removed(conn, board_id, false)
+}
+
+/// Columns of a board in position order, optionally including the removed
+/// ones (`removed_at` set on the DTO).
+///
+/// The only caller that asks for removed columns is a reader that already
+/// has an ARCHIVED item in its hand and needs the name of the column it
+/// was put away in (KAIROS-T-0164's item page). Nothing that renders or
+/// validates a live board may pass `true` — see [`load_columns`].
+fn load_columns_including_removed(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    include_removed: bool,
+) -> Result<Vec<BoardColumn>, ApiError> {
     use kairos_db::schema::board_columns::dsl;
-    dsl::board_columns
+    let mut query = dsl::board_columns
         .filter(dsl::board_id.eq(board_id))
-        .filter(dsl::deleted_at.is_null())
+        .into_boxed();
+    if !include_removed {
+        query = query.filter(dsl::deleted_at.is_null());
+    }
+    query
         .order(dsl::position.asc())
         .select(BoardColumn::as_select())
         .load(conn)
@@ -125,8 +144,17 @@ fn load_transitions(
 }
 
 /// The board + full configuration as the `BoardDetail` DTO.
-fn board_detail(conn: &mut PgConnection, board: Board) -> Result<dto::BoardDetail, ApiError> {
-    let columns = load_columns(conn, board.id)?;
+///
+/// `include_removed_columns` adds the columns that have been removed from
+/// the board (each carrying `removed_at`); it is off for every caller but
+/// KAIROS-T-0164's archived-item read. Transitions stay live-only either
+/// way — a removed column is never a legal move target.
+fn board_detail(
+    conn: &mut PgConnection,
+    board: Board,
+    include_removed_columns: bool,
+) -> Result<dto::BoardDetail, ApiError> {
+    let columns = load_columns_including_removed(conn, board.id, include_removed_columns)?;
     let transitions = load_transitions(conn, board.id)?;
     Ok(dto::BoardDetail {
         board: board.into_dto(),
@@ -225,13 +253,27 @@ pub(crate) async fn list_boards(
     Ok(Json(envelope))
 }
 
+/// Query of `GET /api/boards/{id}`.
+#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+pub(crate) struct BoardDetailQuery {
+    /// Also return the columns that have been REMOVED from this board,
+    /// each carrying `removed_at` (default `false` — a removed column is
+    /// not part of the board and must not render on one, KAIROS-T-0161).
+    ///
+    /// The one legitimate caller is a reader holding an ARCHIVED item that
+    /// still points at such a column: "which column was this put away in?"
+    /// has to stay answerable (KAIROS-A-0020, KAIROS-T-0164).
+    #[serde(default)]
+    include_removed_columns: bool,
+}
+
 /// Board detail: the board plus its columns and transitions (open
 /// tenant-wide).
 #[utoipa::path(
     get,
     path = "/api/boards/{id}",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "Board id (UUID)"), BoardDetailQuery),
     responses(
         (status = 200, description = "The board with columns and transitions", body = dto::BoardDetail),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -241,13 +283,14 @@ pub(crate) async fn get_board(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
+    Query(query): Query<BoardDetailQuery>,
 ) -> Result<Json<dto::BoardDetail>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let detail = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let board = load_board(conn, board_id)?;
-            board_detail(conn, board)
+            board_detail(conn, board, query.include_removed_columns)
         })
         .await?;
     Ok(Json(detail))
@@ -312,7 +355,7 @@ pub(crate) async fn create_board(
                         }
                         e => map_config_error(e),
                     })?;
-            board_detail(conn, board)
+            board_detail(conn, board, false)
         })
         .await?;
     Ok((StatusCode::CREATED, Json(detail)))

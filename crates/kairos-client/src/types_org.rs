@@ -52,6 +52,19 @@ pub struct BoardColumn {
     /// (KAIROS-T-0080).
     #[serde(default)]
     pub is_done: bool,
+    /// When this column was REMOVED from its board (RFC 3339), absent
+    /// while it is part of the board (KAIROS-T-0161, KAIROS-T-0164).
+    ///
+    /// `GET /api/boards/{id}` omits removed columns entirely unless it is
+    /// asked for them (`?include_removed_columns=true`), so this is `None`
+    /// on every default read. It is `Some` only for a caller that wants
+    /// the column an ARCHIVED card was put away in — the audit fact the
+    /// soft delete exists to preserve.
+    ///
+    /// Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at`
+    /// is the KAIROS-A-0020 work-item state, and a column is not work.
+    #[serde(default)]
+    pub removed_at: Option<String>,
 }
 
 /// An allowed column-to-column transition edge.

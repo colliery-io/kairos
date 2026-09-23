@@ -124,8 +124,24 @@ pub struct ItemDetail {
     pub column_id: Option<String>,
     /// Editorial lifecycle (KAIROS-T-0078; documents only) —
     /// `draft|review|published|archived`.
+    ///
+    /// **Vocabulary collision** (KAIROS-A-0020, recorded for whoever does
+    /// the rename): this `archived` is an EDITORIAL state and has nothing
+    /// to do with [`ItemDetail::archived_at`] below. A published document
+    /// can be editorially archived while being perfectly live, and an
+    /// editorially-draft document can be put away. Both can be true at
+    /// once, so the page must never use one word for both.
     #[serde(default)]
     pub lifecycle: Option<String>,
+    /// When this item was PUT AWAY (RFC 3339), absent while it is live
+    /// (KAIROS-T-0154, ADR-20). Set = archived in the `deleted_at` sense:
+    /// hidden from boards, queues and default search, read-only until
+    /// restored — and still fully readable, which is the whole point.
+    #[serde(default)]
+    pub archived_at: Option<String>,
+    /// Entity UUID — the `activity_log` filter key, so the banner can name
+    /// WHO put the item away (KAIROS-T-0164).
+    pub id: String,
     pub updated_at: String,
     // -- per-type extras --------------------------------------------------
     #[serde(default)]
@@ -170,6 +186,11 @@ pub struct BoardInfo {
 pub struct BoardColumnInfo {
     pub id: String,
     pub name: String,
+    /// Set when the column has been REMOVED from the board
+    /// (KAIROS-T-0161) — only ever present because [`fetch_board`] asks
+    /// for removed columns; see its docs.
+    #[serde(default)]
+    pub removed_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_org::BoardTransition` (partial).
@@ -338,11 +359,16 @@ struct DetailedErrorBody {
     details: ErrorDetails,
 }
 
-/// The structured extras this page understands (`current` on 409).
+/// The structured extras this page understands (`current` on 409,
+/// `missing` on a 422 `RESTORE_BLOCKED`).
 #[derive(Debug, Default, Deserialize)]
 struct ErrorDetails {
     #[serde(default)]
     current: Option<CurrentVersion>,
+    /// Human-readable names of what an archived item needs and no longer
+    /// has ("its board column (removed)", …) — KAIROS-T-0160.
+    #[serde(default)]
+    missing: Vec<String>,
 }
 
 /// Outcome of a content save: a version conflict is not a dead end — it
@@ -365,10 +391,22 @@ pub async fn fetch_item(auth: Auth, family: Family, code: String) -> Result<Item
     get_json(auth, &format!("/api/{}/{code}", family.api_family())).await
 }
 
-/// `GET /api/boards/{id}` → board name/slug + columns (for the
-/// board/column display).
+/// `GET /api/boards/{id}?include_removed_columns=true` → board name/slug +
+/// columns (for the board/column display).
+///
+/// The item page is the ONE caller that asks for removed columns
+/// (KAIROS-T-0164): an archived card keeps pointing at the column it was
+/// put away in, and that column may since have been removed from the board
+/// (KAIROS-T-0161). Without the flag this page rendered "unknown column"
+/// for exactly the item whose placement is audit material. Removed columns
+/// arrive carrying `removed_at`, are labelled as removed, and are never
+/// offered as move targets (the transition list is live-only server-side).
 pub async fn fetch_board(auth: Auth, board_id: String) -> Result<BoardInfo, ApiError> {
-    get_json(auth, &format!("/api/boards/{board_id}")).await
+    get_json(
+        auth,
+        &format!("/api/boards/{board_id}?include_removed_columns=true"),
+    )
+    .await
 }
 
 /// `GET /api/metadata-definitions?entity_type=…` — ONLY the definitions
@@ -459,6 +497,58 @@ pub async fn fetch_cascade_preview(
         &format!("/api/{}/{code}/cascade-preview", family.api_family()),
     )
     .await
+}
+
+// ---------------------------------------------------------------------------
+// Who put it away (KAIROS-T-0164)
+// ---------------------------------------------------------------------------
+
+/// mirror of: `kairos_client::types_meta::ActivityEntry` (partial — the
+/// archived banner reads the actor; the moment comes off the item itself
+/// as `archived_at`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct ArchiveEvent {
+    actor_id: String,
+}
+
+/// mirror of: `kairos_client::types_org::OrgMember` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct MemberName {
+    user_id: String,
+    display_name: String,
+}
+
+/// Who archived this item, best-effort (KAIROS-T-0164).
+///
+/// The entity DTOs carry *when* an item was put away but not *by whom* —
+/// the activity trail is where the actor lives (ADR-20: the trail records
+/// that work existed and who touched it). So: the newest `delete` entry
+/// for this entity, its actor resolved through the member directory.
+///
+/// Returns `None` on any failure. The banner is not optional; the name on
+/// it is — a page that refused to say "archived" because the trail was
+/// unreadable would be the worst of both worlds.
+pub async fn fetch_archived_by(auth: Auth, item_id: String) -> Option<String> {
+    let events: Page<ArchiveEvent> = get_json(
+        auth,
+        &format!("/api/activity?entity_id={item_id}&action=delete&limit=1"),
+    )
+    .await
+    .ok()?;
+    let event = events.items.into_iter().next()?;
+    let members: Page<MemberName> = get_json(auth, "/api/members?limit=200").await.ok()?;
+    let name = members
+        .items
+        .into_iter()
+        .find(|member| member.user_id == event.actor_id)
+        .map(|member| member.display_name)
+        // An actor who has since left the org is still an actor: show the
+        // id's head rather than dropping the attribution entirely.
+        .unwrap_or_else(|| {
+            let head = event.actor_id.get(..8).unwrap_or(&event.actor_id);
+            format!("{head}…")
+        });
+    Some(name)
 }
 
 /// `GET /api/templates` → the picker's list.
@@ -607,6 +697,75 @@ pub async fn move_task(auth: Auth, code: &str, board: &str) -> Result<ItemDetail
     .await
 }
 
+/// mirror of: `kairos_client::types::RestoreResponse` (KAIROS-T-0160).
+/// `still_archived_*` are the item's descendants that stayed away: a
+/// restore puts back the one item it was asked for, never a cascade.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct RestoreOutcome {
+    pub short_code: String,
+    pub still_archived_count: i64,
+    #[serde(default)]
+    pub still_archived_short_codes: Vec<String>,
+}
+
+/// Outcome of a restore attempt. A refusal is not a dead end either — it
+/// names what the item needs and no longer has, so the page can say it in
+/// words instead of showing a raw 422.
+pub enum RestoreError {
+    /// 422 `RESTORE_BLOCKED`: `details.missing`, already human-readable
+    /// server-side ("its board column (removed)", "its owning team
+    /// (deleted)", …).
+    Blocked(Vec<String>),
+    /// Anything else (403 without the capability, 404, network), mapped
+    /// like every other call.
+    Api(ApiError),
+}
+
+/// `POST /api/{family}/{short_code}/restore` — put an archived item back
+/// (KAIROS-T-0160, ADR-20). Needs the same `manage_<family>` capability on
+/// the item's board that archiving it needed; the server is the authority
+/// and a 403 surfaces inline.
+pub async fn restore_item(
+    auth: Auth,
+    family: Family,
+    code: &str,
+) -> Result<RestoreOutcome, RestoreError> {
+    let path = format!("/api/{}/{code}/restore", family.api_family());
+    let response = send(auth, Verb::Post, &path, None::<&()>)
+        .await
+        .map_err(RestoreError::Api)?;
+    let status = response.status();
+    if status == 401 {
+        auth.expire();
+    }
+    if status == 422 {
+        let text = response.text().await.unwrap_or_default();
+        let envelope: Option<DetailedErrorEnvelope> = serde_json::from_str(&text).ok();
+        return match envelope {
+            Some(envelope) if envelope.error.code == "RESTORE_BLOCKED" => {
+                Err(RestoreError::Blocked(envelope.error.details.missing))
+            }
+            Some(envelope) => Err(RestoreError::Api(ApiError::Http {
+                status,
+                message: envelope.error.message,
+                code: Some(envelope.error.code),
+            })),
+            None => Err(RestoreError::Api(ApiError::Http {
+                status,
+                message: text,
+                code: None,
+            })),
+        };
+    }
+    if !(200..300).contains(&status) {
+        return Err(RestoreError::Api(error_from(status, response).await));
+    }
+    response
+        .json::<RestoreOutcome>()
+        .await
+        .map_err(|e| RestoreError::Api(ApiError::Unknown(format!("decoding {path}: {e}"))))
+}
+
 /// `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
 /// reports the cascade.
 pub async fn delete_item(
@@ -639,9 +798,13 @@ pub fn error_text(error: &ApiError) -> String {
 // Verb plumbing (same shape as `api::get_json`)
 // ---------------------------------------------------------------------------
 
-/// The two verbs the shared `api.rs` does not provide yet.
+/// The verbs this module drives directly. PATCH and DELETE because the
+/// shared `api.rs` does not provide them; POST because the restore call
+/// needs the RAW response to read `details.missing` off a 422, which the
+/// shared helper flattens away.
 #[derive(Clone, Copy)]
 enum Verb {
+    Post,
     Patch,
     Delete,
 }
@@ -654,6 +817,7 @@ async fn send<B: Serialize>(
     body: Option<&B>,
 ) -> Result<gloo_net::http::Response, ApiError> {
     let mut request = match verb {
+        Verb::Post => gloo_net::http::Request::post(path),
         Verb::Patch => gloo_net::http::Request::patch(path),
         Verb::Delete => gloo_net::http::Request::delete(path),
     };
@@ -934,6 +1098,97 @@ mod tests {
         let item: ItemDetail = serde_json::from_value(moved).expect("mirror decodes");
         assert_eq!(item.board_id.as_deref(), Some("b-2"));
         assert_eq!(item.column_id.as_deref(), Some("c-entry"));
+    }
+
+    /// KAIROS-T-0154/T-0164: an ARCHIVED item is served by short code
+    /// like any other, carrying `archived_at`; a live one carries no such
+    /// field at all (not a null, absent), and the mirror must read both.
+    #[test]
+    fn item_mirror_decodes_the_archived_state() {
+        let live = serde_json::json!({
+            "id": "3d9f2f5e-8f5c-4f4e-b7a3-0f1e2d3c4b5a",
+            "short_code": "DEMO-T-0002", "title": "Live", "content": "",
+            "version": 1, "created_at": "t", "updated_at": "t"
+        });
+        let item: ItemDetail = serde_json::from_value(live).expect("mirror decodes");
+        assert_eq!(item.archived_at, None, "a live item is not archived");
+
+        let mut archived = serde_json::json!({
+            "id": "3d9f2f5e-8f5c-4f4e-b7a3-0f1e2d3c4b5a",
+            "short_code": "DEMO-T-0002", "title": "Put away", "content": "",
+            "version": 1, "created_at": "t", "updated_at": "t"
+        });
+        archived["archived_at"] = serde_json::json!("2026-09-23T11:30:07.479107Z");
+        let item: ItemDetail = serde_json::from_value(archived).expect("mirror decodes");
+        assert_eq!(
+            item.archived_at.as_deref(),
+            Some("2026-09-23T11:30:07.479107Z")
+        );
+        assert_eq!(item.id, "3d9f2f5e-8f5c-4f4e-b7a3-0f1e2d3c4b5a");
+    }
+
+    /// KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board
+    /// carries removed columns too, marked — that is how an archived
+    /// card's placement keeps its NAME instead of decaying to "unknown
+    /// column".
+    #[test]
+    fn board_mirror_decodes_a_removed_column() {
+        let body = serde_json::json!({
+            "id": "b-1", "name": "Strategy", "slug": "strategy",
+            "board_level": "strategy", "team_id": null,
+            "created_at": "x", "updated_at": "x",
+            "columns": [
+                {"id": "c-1", "board_id": "b-1", "name": "Todo", "position": 1,
+                 "created_at": "x", "updated_at": "x"},
+                {"id": "c-9", "board_id": "b-1", "name": "Retired", "position": 6,
+                 "created_at": "x", "updated_at": "x",
+                 "removed_at": "2026-09-23T11:00:00.000000Z"}
+            ],
+            "transitions": []
+        });
+        let board: BoardInfo = serde_json::from_value(body).expect("mirror decodes");
+        assert_eq!(board.columns[0].removed_at, None, "a live column");
+        assert_eq!(
+            board.columns[1].removed_at.as_deref(),
+            Some("2026-09-23T11:00:00.000000Z"),
+            "the removed column arrives, marked"
+        );
+    }
+
+    /// The restore contract (KAIROS-T-0160): the 200 reports what stayed
+    /// away, and the 422 refusal carries `details.missing` — the names the
+    /// page renders instead of an error code.
+    #[test]
+    fn restore_response_and_refusal_decode() {
+        let ok = serde_json::json!({
+            "short_code": "DEMO-T-0004",
+            "still_archived_count": 2,
+            "still_archived_short_codes": ["DEMO-T-0005", "DEMO-D-0003"]
+        });
+        let outcome: RestoreOutcome = serde_json::from_value(ok).expect("decodes");
+        assert_eq!(outcome.still_archived_count, 2);
+        assert_eq!(outcome.still_archived_short_codes.len(), 2);
+
+        let blocked = serde_json::json!({
+            "error": {
+                "code": "RESTORE_BLOCKED",
+                "message": "DEMO-S-0002 cannot be restored because its board column \
+                            (removed) is gone; move it somewhere that still exists",
+                "details": {"missing": ["its board column (removed)"]}
+            }
+        });
+        let envelope: DetailedErrorEnvelope = serde_json::from_value(blocked).expect("parses");
+        assert_eq!(envelope.error.code, "RESTORE_BLOCKED");
+        assert_eq!(
+            envelope.error.details.missing,
+            ["its board column (removed)"]
+        );
+        // A refusal with no details is still a refusal, never a panic.
+        let bare = serde_json::json!({
+            "error": {"code": "RESTORE_BLOCKED", "message": "nope", "details": {}}
+        });
+        let envelope: DetailedErrorEnvelope = serde_json::from_value(bare).expect("parses");
+        assert!(envelope.error.details.missing.is_empty());
     }
 
     /// The metadata PATCH body serializes `None` as JSON null (the A-0003

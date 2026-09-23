@@ -66,19 +66,101 @@ read as different things.
 
 ## Acceptance Criteria
 
-- [ ] `/items/:code` renders an archived item with a clear banner instead of
+- [x] `/items/:code` renders an archived item with a clear banner instead of
       an error, for all five families.
-- [ ] `/activity/history/:code` renders an archived item's history.
-- [ ] Restore is present for a capable user, absent otherwise, and its
+- [x] `/activity/history/:code` renders an archived item's history.
+- [x] Restore is present for a capable user, absent otherwise, and its
       refusals name what is missing.
-- [ ] Write affordances are visibly disabled, not silently broken.
-- [ ] The two senses of "archived" are distinguishable on one screen.
-- [ ] [[KAIROS-T-0151]] can be closed.
-- [ ] `angreal test` green; `angreal test e2e` green.
+- [x] Write affordances are visibly disabled, not silently broken.
+- [x] The two senses of "archived" are distinguishable on one screen.
+- [x] [[KAIROS-T-0151]] can be closed.
+- [x] `angreal test` green; `angreal test e2e` green.
 
 ## Status Updates
 
-*To be added during implementation*
+**2026-09-23 — the column-name gap: option 2, narrowed to a query flag.**
+
+The note offered two shapes and preferred `deleted_at` on the column DTO
+with the board page filtering. Taken, with one change: the flag is
+**opt-in per request** rather than a new default.
+
+Making `GET /api/boards/{id}` return removed columns unconditionally would
+have reversed a contract [[KAIROS-T-0161]] had just landed — its
+`load_columns` doc and its `org_endpoints.rs` assertion both say *"a
+removed column must not render on a live board"* — and pushed the filter
+out to four independent GUI consumers (item page, admin board config,
+search column picker, board data layer), where forgetting one silently
+re-renders a removed column on a live board. That is the exact regression
+T-0161 fixed, re-introduced as a maintenance burden.
+
+So: `BoardColumn` gains `removed_at` (not `archived_at` — the entity
+DTOs' `archived_at` is the ADR-20 work-item state, and a column is not
+work), and `GET /api/boards/{id}?include_removed_columns=true` is the one
+way to see removed columns. Default reads are byte-identical to before;
+T-0161's test still passes unchanged. The item page is the only caller
+that passes the flag, and it labels such a column *"{name} (column since
+removed)"*. Option 1 (`column_name` on the entity DTO) was rejected on
+cost: `into_dto` is pure, so it would have needed an `attach_*` batch fill
+per handler — a denormalised field on five DTOs and every list endpoint,
+to serve one panel.
+
+**2026-09-23 — what landed in the GUI.**
+
+- `/items/:code` renders an archived item of any family: a gold banner
+  (`data-testid="archived-banner"`) with when it was put away and, from
+  the activity trail, by whom (best-effort — the banner renders without
+  the actor if the trail is unreadable, never the other way round).
+- Write affordances are disabled with the reason beside them: Delete and
+  New document (page header), Save + the whole textarea/toolbar (the
+  editor renders the markdown instead), Save metadata + every field
+  control, the lifecycle Set button, and the move/lane/board/repository
+  controls (replaced by *"Placement is frozen…"*, since placement is the
+  record of where the work sat).
+- Restore sits in the banner, gated by a `manage_<family>` client mirror
+  (`boards::holds_capability`, host-tested) that narrows to the item's own
+  board and widens for off-board items, whose authorization board the
+  server resolves through a parent the client cannot see. The 422
+  `RESTORE_BLOCKED` refusal renders as prose naming what is gone.
+- `/activity/history/:code` carries the same banner and disables rollback
+  (a copy-forward write) with the reason; reading and diffing are
+  untouched — that is the audit answer this initiative exists for.
+
+**Vocabulary collision, recorded rather than renamed.** The ADR-20 state
+is called **"put away"** on every surface of these two pages (badge,
+banner, disabled-control copy); the KAIROS-T-0078 editorial state keeps
+its `lifecycle: …` prefix. When a document is BOTH (editorially archived
+and put away), the banner adds an explicit paragraph naming the two and
+saying which is which. The collision is commented at
+`pages/item/api.rs` (`ItemDetail::lifecycle`), `pages/item.rs`
+(`ItemLoaded`) and `pages/activity.rs`.
+
+**No archive/trash route** — reaffirmed, not re-litigated: archived work
+is reached by short code and by search ([[KAIROS-T-0163]]), which is what
+"hidden by default" means. A bin page would be a second place work lives.
+
+**2026-09-23 — gates, all green.** `angreal test lint`, `angreal web lint`
+(tokens only), `angreal web build`, `cargo test -p kairos-web` (80 tests,
+incl. new mirror / capability-mirror / timestamp-format cases), and
+`angreal test e2e` — 14 GUI specs, the three new ones in
+`e2e/tests/archived.spec.ts`:
+
+1. an archived task reads, its write affordances are disabled with the
+   reason, its history reads with rollback off, and Restore puts it back;
+2. **all five families** archived (strategy, initiative, task, ADR,
+   document) render with the banner — and an editorially-archived
+   document that is ALSO put away shows both markers plus the
+   disambiguation paragraph;
+3. an archived card in a removed column still names the column, and its
+   restore is refused with "its board column (removed)".
+
+Fixture discipline worth keeping: an earlier draft created its own
+delivery board and broke three unrelated specs at once (`smoke` counts 5
+board tiles, `team-lens` the same, and a second live delivery board on a
+team makes `POST /api/tasks` routing ambiguous, 422). The spec now creates
+no board, and everything it does create ends up archived or removed —
+invisible by construction, which is the state under test. Also learned:
+A-0001 cascades along PARENT edges only, so a document hanging off a task
+by `supports` has to be archived in its own right.
 
 ## Notes carried in from other tasks
 

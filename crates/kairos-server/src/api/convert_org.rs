@@ -39,6 +39,9 @@ impl IntoDto<dto::BoardColumn> for BoardColumn {
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
             is_done: self.is_done,
+            // Only ever `Some` for a caller that asked for removed columns
+            // (KAIROS-T-0164) — the default board read never loads them.
+            removed_at: self.deleted_at.map(timestamp),
         }
     }
 }

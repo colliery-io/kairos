@@ -117,6 +117,12 @@ pub struct ItemHead {
     pub short_code: String,
     pub title: String,
     pub version: i32,
+    /// When the item was PUT AWAY (RFC 3339), absent while it is live
+    /// (KAIROS-T-0154, ADR-20). History is the audit answer, so this page
+    /// serves an archived item exactly as it serves a live one — and says
+    /// so, loudly, because the versions read identically either way.
+    #[serde(default)]
+    pub archived_at: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -817,15 +823,50 @@ pub fn ItemHistoryPage() -> impl IntoView {
             {move || match head.get() {
                 None => view! { <Loading label="Loading item…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
-                Some(Ok((item, _))) => view! {
-                    <Group justify="between">
-                        <Group gap="sm">
-                            <Text bright=true bold=true>{item.title.clone()}</Text>
-                            <Pill color=token::ICE>{format!("v{} current", item.version)}</Pill>
+                Some(Ok((item, _))) => {
+                    let archived_at = item.archived_at.clone();
+                    let is_archived = archived_at.is_some();
+                    view! {
+                        <Group justify="between">
+                            <Group gap="sm">
+                                <Text bright=true bold=true>{item.title.clone()}</Text>
+                                <Pill color=token::ICE>{format!("v{} current", item.version)}</Pill>
+                                {is_archived.then(|| view! {
+                                    <span class="kairos-archived-badge">
+                                        <Pill color=token::GOLD>"put away"</Pill>
+                                    </span>
+                                })}
+                            </Group>
+                            <Anchor href=format!("/items/{}", item.short_code)>"Open item detail"</Anchor>
                         </Group>
-                        <Anchor href=format!("/items/{}", item.short_code)>"Open item detail"</Anchor>
-                    </Group>
-                }.into_any(),
+                        // KAIROS-T-0164 / ADR-20: an archived item's history
+                        // is the audit answer this initiative exists for, and
+                        // it reads exactly like a live item's — so it carries
+                        // the same unmistakable marker the item page does.
+                        // (Note for whoever renames things: a DOCUMENT's
+                        // editorial "lifecycle: archived" is a different
+                        // state entirely — KAIROS-T-0078 — and never appears
+                        // on this page.)
+                        {archived_at.map(|when| view! {
+                            <div class="kairos-item__archived" data-testid="archived-banner">
+                                <Banner color=token::GOLD icon="⧉">
+                                    <Stack gap="xs">
+                                        <Text bright=true bold=true>
+                                            {format!("Put away on {}", format_when(&when))}
+                                        </Text>
+                                        <Text size="sm">
+                                            "This item is archived: hidden from boards, queues \
+                                             and default searches, and read-only. Its history \
+                                             is intact — every version below is what it said \
+                                             at the time. Restore it from the item page to \
+                                             edit or roll back."
+                                        </Text>
+                                    </Stack>
+                                </Banner>
+                            </div>
+                        })}
+                    }.into_any()
+                }
             }}
             {move || notice.get().map(|state| match state {
                 RollbackNotice::Done { from, new_version } => view! {
@@ -865,13 +906,27 @@ pub fn ItemHistoryPage() -> impl IntoView {
                         .into_iter()
                         .map(|m| (m.user_id, m.display_name))
                         .collect::<HashMap<_, _>>();
-                    let current = head.get().and_then(|r| r.ok()).map(|(item, _)| item.version);
+                    let head_now = head.get().and_then(|r| r.ok());
+                    let current = head_now.as_ref().map(|(item, _)| item.version);
+                    // Rollback is a versioned WRITE (copy-forward, A-0004)
+                    // and every write path resolves live-only, so it is
+                    // disabled — with the reason — rather than left to 404.
+                    let archived = head_now
+                        .as_ref()
+                        .is_some_and(|(item, _)| item.archived_at.is_some());
                     view! {
                         <Panel title="Versions" caption="newest first — pick A and B to diff">
+                            {archived.then(|| view! {
+                                <Text size="xs" dimmed=true>
+                                    "Reading and diffing work as usual. Rolling back does not: \
+                                     restore the item first."
+                                </Text>
+                            })}
                             <VersionsTable
                                 page=page
                                 names=names
                                 current=current
+                                archived=archived
                                 viewing=viewing
                                 diff_from=diff_from
                                 diff_to=diff_to
@@ -954,6 +1009,8 @@ fn VersionsTable(
     page: ListEnvelope<HistoryVersion>,
     names: HashMap<String, String>,
     current: Option<i32>,
+    /// The item is archived (ADR-20): rollback is disabled per row.
+    archived: bool,
     viewing: RwSignal<Option<i32>>,
     diff_from: RwSignal<Option<i32>>,
     diff_to: RwSignal<Option<i32>>,
@@ -1007,7 +1064,7 @@ fn VersionsTable(
                             <Button
                                 variant="default"
                                 size="xs"
-                                disabled=is_current
+                                disabled=is_current || archived
                                 on_click=Callback::new(move |()| on_rollback.run(version))
                             >
                                 "Roll back"

@@ -55,6 +55,16 @@ pub fn MarkdownEditor(
     #[prop(into)] initial_title: String,
     #[prop(into)] initial_content: String,
     initial_version: i32,
+    /// Render the content instead of offering to edit it: no textarea, no
+    /// toolbar, Save disabled (KAIROS-T-0164 — an archived item's content
+    /// PATCH resolves live-only, and an editor whose Save 404s reads as a
+    /// bug rather than as a rule).
+    #[prop(optional)]
+    read_only: bool,
+    /// Why editing is off — shown next to the disabled Save, because a
+    /// disabled control with no reason reads as a broken page.
+    #[prop(optional, into)]
+    read_only_reason: String,
     /// Fired after a successful save; the parent refetches (server state
     /// is the source of truth) and posts the page-level notice.
     on_saved: Callback<i32>,
@@ -151,17 +161,25 @@ pub fn MarkdownEditor(
         <Panel title="Content" caption="markdown">
             <div class="kairos-editor">
                 <Group justify="between">
-                    <SegmentedControl
-                        options=vec!["Edit".to_string(), "Preview".to_string()]
-                        value=mode
-                    />
+                    {(!read_only).then(|| view! {
+                        <SegmentedControl
+                            options=vec!["Edit".to_string(), "Preview".to_string()]
+                            value=mode
+                        />
+                    })}
                     <Group gap="sm">
-                        <Pill color=token::ICE>{move || format!("editing v{}", base_version.get())}</Pill>
+                        <Pill color=token::ICE>
+                            {move || if read_only {
+                                format!("v{} — read-only", base_version.get())
+                            } else {
+                                format!("editing v{}", base_version.get())
+                            }}
+                        </Pill>
                         // Raw cl-btn: aurora Button's `disabled` prop is a
                         // plain bool (not reactive) — LoginPage precedent.
                         <button
                             class="cl-btn cl-btn--filled"
-                            disabled=move || saving.get() || !dirty()
+                            disabled=move || read_only || saving.get() || !dirty()
                             on:click=move |_| save(())
                         >
                             {move || if saving.get() { "Saving…" } else { "Save" }}
@@ -169,13 +187,25 @@ pub fn MarkdownEditor(
                     </Group>
                 </Group>
 
+                {read_only.then(|| view! {
+                    <Text size="xs" dimmed=true>{read_only_reason.clone()}</Text>
+                })}
+
                 {move || error.get().map(|message| view! {
                     <Alert title="Save failed" color=token::BAD>
                         <Text size="sm" dimmed=true>{message}</Text>
                     </Alert>
                 })}
 
-                {move || if mode.get() == "Preview" {
+                {move || if read_only {
+                    // Read-only renders the content as it stands: the
+                    // title as text, the markdown rendered. No textarea,
+                    // so there is nothing to type into and lose.
+                    view! {
+                        <Text bright=true bold=true>{title.get()}</Text>
+                        <div class="kairos-markdown" inner_html=markdown::to_html(&content.get())></div>
+                    }.into_any()
+                } else if mode.get() == "Preview" {
                     view! {
                         <div class="kairos-markdown" inner_html=markdown::to_html(&content.get())></div>
                     }.into_any()

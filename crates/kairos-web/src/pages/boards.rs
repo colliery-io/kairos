@@ -225,6 +225,45 @@ pub(crate) fn board_powers(
     }
 }
 
+/// Does the signed-in user hold `required` where it counts for ONE item
+/// (KAIROS-T-0164's Restore affordance)?
+///
+/// [`board_powers`] answers for a board the caller is looking at; this
+/// answers for an item, which may sit on no board at all — a document, an
+/// off-board ADR. In that case the server resolves the authorization board
+/// through the item's parent, which the client cannot see, so the mirror
+/// widens to "anywhere": any grant on any board, or membership of any team
+/// for the team-implied capabilities. Widening is the right direction for
+/// an affordance whose server-side refusal is a plain 403 shown inline —
+/// the opposite mistake hides a button from someone who may press it.
+///
+/// Pure, host-tested. The server remains the authority.
+pub(crate) fn holds_capability(
+    me: &crate::api::Whoami,
+    board_slug: Option<&str>,
+    board_team_id: Option<&str>,
+    required: &str,
+) -> bool {
+    if me.organization.role == "admin" {
+        return true;
+    }
+    let team_member = match (board_slug, board_team_id) {
+        (_, Some(team)) => me.teams.iter().any(|mine| mine.id == team),
+        // A board we know, that no team owns: no team implication.
+        (Some(_), None) => false,
+        // No board to check against — see the widening above.
+        (None, None) => !me.teams.is_empty(),
+    };
+    if team_member && team_implies(required) {
+        return true;
+    }
+    me.capabilities
+        .iter()
+        .filter(|board| board_slug.is_none_or(|slug| board.board_slug == slug))
+        .flat_map(|board| board.grants.iter())
+        .any(|grant| grant_covers(grant, required))
+}
+
 /// The delivery boards a task may be moved TO from `here_slug`: every
 /// other live delivery board where [`board_powers`] says the caller may
 /// manage tasks (KAIROS-I-0012 D2). The server's rule is two-sided —
@@ -1977,6 +2016,57 @@ mod tests {
         assert!(grant_covers("manage_*", "manage_tasks"));
         assert!(!grant_covers("manage_*", "transition_items"));
         assert!(!grant_covers("manage_tasks", "manage_taskss"));
+    }
+
+    /// KAIROS-T-0164: the Restore affordance asks per ITEM, and an item
+    /// may sit on no board — so the mirror narrows to a known board and
+    /// widens (never to "nobody") when there is none.
+    #[test]
+    fn holds_capability_answers_per_item() {
+        let admin = me("admin", &[], &[]);
+        assert!(holds_capability(&admin, Some("any"), None, "manage_tasks"));
+        assert!(holds_capability(&admin, None, None, "manage_documents"));
+
+        // A grant is board-scoped when the board is known…
+        let granted = me("member", &[], &[("adrs", &["manage_adrs"])]);
+        assert!(holds_capability(
+            &granted,
+            Some("adrs"),
+            None,
+            "manage_adrs"
+        ));
+        assert!(!holds_capability(
+            &granted,
+            Some("strategy"),
+            None,
+            "manage_adrs"
+        ));
+        // …and counts anywhere when it is not (an off-board item resolves
+        // its authorization board through a parent the client cannot see).
+        assert!(holds_capability(&granted, None, None, "manage_adrs"));
+        assert!(!holds_capability(&granted, None, None, "manage_strategies"));
+
+        // Team implication: on the team's own board, and — for an
+        // off-board item — for anyone on a team at all.
+        let bob = me("member", &["t1"], &[]);
+        assert!(holds_capability(
+            &bob,
+            Some("platform-delivery"),
+            Some("t1"),
+            "manage_tasks"
+        ));
+        assert!(!holds_capability(
+            &bob,
+            Some("web-delivery"),
+            Some("t2"),
+            "manage_tasks"
+        ));
+        assert!(holds_capability(&bob, None, None, "manage_documents"));
+        // Never implied, board or not: strategies are not in the team set.
+        assert!(!holds_capability(&bob, None, None, "manage_strategies"));
+
+        let nobody = me("member", &[], &[]);
+        assert!(!holds_capability(&nobody, None, None, "manage_documents"));
     }
 
     /// KAIROS-I-0012: the move picker offers the OTHER delivery boards

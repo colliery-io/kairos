@@ -105,6 +105,31 @@ body {
   border-radius: var(--radius-sm);
 }
 
+/* The ADR-20 "put away" badge (KAIROS-T-0164): the archived state, which
+   must never be mistaken for the editorial lifecycle badge above — so it
+   is solid where that one is dashed, and its copy never says only
+   "archived". Item detail and item history both carry it. */
+.kairos-archived-badge {
+  display: inline-flex;
+  outline: 1px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* The archived banner (KAIROS-T-0164): full width, above everything the
+   page says about the item, because an archived record reads exactly like
+   a live one. */
+.kairos-item__archived {
+  margin-bottom: var(--space-sm);
+}
+
+.kairos-item__restore {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
 /* Children progress (KAIROS-T-0080): the segmented rollup bar on item
    detail and the micro-badge on parent cards. Done segments/fill use the
    ok token; the rest stay inset-neutral. */

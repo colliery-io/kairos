@@ -77,16 +77,16 @@ contradict the new behaviour.
 
 ## Acceptance Criteria
 
-- [ ] Migration adds `deleted_at` to `board_columns`.
-- [ ] A column whose only occupants are archived can be removed; one holding
+- [x] Migration adds `deleted_at` to `board_columns`.
+- [x] A column whose only occupants are archived can be removed; one holding
       a live card still 422s with `COLUMN_NOT_EMPTY`.
-- [ ] An archived card in a removed column still reports that column's name.
-- [ ] A removed column is not a legal transition target and does not render
+- [x] An archived card in a removed column still reports that column's name.
+- [x] A removed column is not a legal transition target and does not render
       on a live board.
-- [ ] Removing a column no longer destroys its transition edges; they are
+- [x] Removing a column no longer destroys its transition edges; they are
       filtered instead.
-- [ ] The comment at `api/org/mod.rs:108-118` is updated.
-- [ ] `angreal test` green; `angreal test uat --journey board-setup` green.
+- [x] The comment at `api/org/mod.rs:108-118` is updated.
+- [x] `angreal test` green; `angreal test uat --journey board-setup` green.
 
 ## Status Updates
 
@@ -139,3 +139,60 @@ Deliberately NOT filtered, because these are the audit answer:
   column *name* for an item and are already gated on the item being live;
 - a new `column_label` in mcp/tools.rs, so `show_item` on an archived card
   still prints the column it was put away in.
+
+### 2026-09-23 — two tests that were quietly pinned to "the newest migration"
+
+Adding a tenant migration broke two tests that had no business caring, and
+both breakages are worth recording because the next schema wave meets them
+again.
+
+1. `tests/repositories_migration.rs` reverted the repositories migration by
+   deleting the bookkeeping row `WHERE version = (SELECT max(version) ...)`.
+   With T-0161 in the tree that deletes the WRONG row, so
+   `migrate_all_tenants` re-applies the board-columns migration and the
+   `repositories` table never comes back — the failure surfaces a hundred
+   lines later as "relation does not exist". Fixed by naming the version it
+   actually means (`REPOSITORIES_VERSION`), with an assertion that the
+   delete hit exactly one row so the next drift is loud.
+2. `tests/tenant_provisioning.rs`'s fleet-upgrade block is knowingly pinned
+   to the newest migration — it says so, and KAIROS-T-0093 exists to remove
+   the chore. Re-pinned to `board_columns_soft_delete`: it now simulates a
+   pre-T-0161 tenant by dropping `deleted_at` and putting the table-wide
+   UNIQUEs back, fleet-migrates, and asserts the column returns, the two
+   `board_columns_live_*` partial indexes exist, and no table-wide UNIQUE
+   constraint remains. That makes the existing-tenant upgrade path a gate
+   rather than an assumption.
+
+Note for whoever picks up KAIROS-T-0093: `max(version)` appears in both
+files and is the shared root cause.
+
+### 2026-09-23 — done, and a note on where the MCP change landed
+
+Behaviour now:
+
+- a column holding only archived cards is removable; one holding a live
+  card still 422s `COLUMN_NOT_EMPTY` with `details.item_count`;
+- the archived card keeps its `column_id` and the column row keeps its
+  name, so the audit answer survives;
+- a removed column does not render on a live board, is not a legal
+  transition target (`UnknownToColumn`), cannot be renamed, re-removed or
+  flagged done (404 / `ColumnNotFound`), and nothing new can be created in
+  it;
+- its transition edges are kept and filtered, not cascaded away;
+- its name and position are free for re-use, because both UNIQUEs are now
+  partial.
+
+**Where the MCP half of this landed.** The two `mcp/tools.rs` hunks —
+`board_columns` filtering to live, and the new `column_label` used by
+`show_item` — were swept into commit 7517465 ("Archived work is
+retrievable again", KAIROS-T-0154) by the agent working that ticket in the
+same tree. The code is correct and on main; only the attribution is wrong.
+Recorded so a later reader looking for T-0161 in the log does not conclude
+the MCP surface was missed.
+
+Gates: `angreal test lint` green; `angreal test unit` green; every
+`kairos-db` and `kairos-server` integration target green.
+`kairos-cli::cli_tree_live` fails on `"a deleted task must 404"` — that is
+KAIROS-T-0154's deliberate behaviour change (archived items are
+retrievable now) meeting a test that still asserts the old contract. It
+belongs to T-0154, not here; nothing in T-0161 touches item retrieval.

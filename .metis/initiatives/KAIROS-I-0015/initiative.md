@@ -4,14 +4,14 @@ level: initiative
 title: "Archived Work Stays Readable - Implementing ADR-20 Across Every Surface"
 short_code: "KAIROS-I-0015"
 created_at: 2026-09-23T11:21:34.421605+00:00
-updated_at: 2026-09-23T11:21:34.421605+00:00
+updated_at: 2026-09-23T20:11:26.946340+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -501,3 +501,12 @@ touching a default listing, the `housekeeping` journey green in compose.
     the last one's only coverage. Root cause is KAIROS-T-0093.
 
 **Ready for review.** The initiative is not transitioned — Dylan reviews.
+- 2026-09-23: **Reviewed and completed by Dylan.** Work pushed to
+  `origin/main` (`2788a21..b1a044a`, 168 commits).
+
+  Bookkeeping note: the initiative sat in `discovery` for the whole of
+  implementation — the Ralph loop transitions tasks, not initiatives, and
+  nothing advanced the parent. It was walked discovery → design → ready →
+  decompose → active → completed at review time. The phase never reflected
+  reality while the work was in flight, which is worth knowing if anyone
+  reads this log expecting the phase history to be a timeline.

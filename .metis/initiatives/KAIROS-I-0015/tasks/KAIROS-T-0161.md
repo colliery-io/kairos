@@ -90,4 +90,52 @@ contradict the new behaviour.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-09-23 — survey before touching anything
+
+Confirmed the task's premises against the code:
+
+- `column_id UUID NOT NULL REFERENCES board_columns(id)` with no `ON DELETE`
+  at up.sql:170/:190/:213/:250. Confirmed: the DB refuses.
+- `board_transitions.from_column_id`/`to_column_id` are `ON DELETE CASCADE`
+  (up.sql:92-93). Confirmed.
+
+**One thing the design did not mention, and it is the sharpest edge.**
+`board_columns` carries `UNIQUE (board_id, position)` and
+`UNIQUE (board_id, name)` (up.sql:84-85). A soft-deleted column keeps both,
+so without further work:
+
+- re-adding a column with the removed column's name gives a constraint
+  violation, not the typed `DuplicateName`;
+- adding a column at the removed column's position, same;
+- `reorder_columns` parks every column of the board on `position * -1 - 1`
+  before assigning `0..n` (boards.rs:729-742). Run that twice with a removed
+  column present and the removed row's negative position maps back onto a
+  live column's. Silent corruption.
+
+So the migration must also convert both constraints into **partial unique
+indexes `WHERE deleted_at IS NULL`**, and `reorder_columns` must only touch
+live rows. Recorded because any later task that soft-deletes a row sitting
+under a composite UNIQUE hits exactly this.
+
+### Surfaces that read columns, and what each one gets
+
+Filtered to live (`deleted_at IS NULL`):
+
+- `kairos-db/boards.rs`: `load_board_rules`, `column_board_id`,
+  `entry_column`, and `count_items_in_column` (live items only).
+- `kairos-db/items.rs::resolve_column` — otherwise a new card could be
+  created straight into a removed column.
+- `kairos-db/seed.rs::column_id` — a partial unique name index makes
+  by-name lookup ambiguous without it.
+- `kairos-server/api/org/boards.rs`: `load_columns`, `load_column_of_board`,
+  `load_transitions` (edges filtered to live endpoints).
+- `kairos-server/mcp/tools.rs::board_columns`.
+- `graph.rs:481/526` `board_has_done` EXISTS — a removed done-flagged column
+  would otherwise still claim the board has done semantics.
+
+Deliberately NOT filtered, because these are the audit answer:
+
+- the joins at `graph.rs:714-726` and `repositories.rs:463` resolve a
+  column *name* for an item and are already gated on the item being live;
+- a new `column_label` in mcp/tools.rs, so `show_item` on an archived card
+  still prints the column it was put away in.

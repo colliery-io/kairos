@@ -4,14 +4,14 @@ level: task
 title: "ABAC resolves an authorization board for archived items"
 short_code: "KAIROS-T-0153"
 created_at: 2026-09-23T11:29:41.623149+00:00
-updated_at: 2026-09-23T11:36:04.499552+00:00
+updated_at: 2026-09-23T11:38:11.044935+00:00
 parent: KAIROS-I-0015
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -51,6 +51,8 @@ is put away.
 
 Do not touch the *mutating* paths' liveness checks (`items.rs:325/650/702/792`)
 — those are what make archived work read-only by construction (D5).
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

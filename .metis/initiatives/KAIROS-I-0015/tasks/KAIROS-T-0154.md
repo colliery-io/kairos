@@ -4,14 +4,14 @@ level: task
 title: "Archived-aware resolution: item GET and history stop 404ing"
 short_code: "KAIROS-T-0154"
 created_at: 2026-09-23T11:29:44.212632+00:00
-updated_at: 2026-09-23T11:38:52.988918+00:00
+updated_at: 2026-09-23T11:50:44.956719+00:00
 parent: KAIROS-I-0015
 blocked_by: [KAIROS-T-0153]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -69,6 +69,8 @@ item payload (the existing `deleted_at`, renamed for the wire — check
 
 Note `entity_directory` is still live-only at this point; this task resolves
 against the base tables. [[KAIROS-T-0156]] fixes the view.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

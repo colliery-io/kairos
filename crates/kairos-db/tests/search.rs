@@ -324,6 +324,56 @@ fn unified_search_pipeline() {
         None,
     );
 
+    // KAIROS-T-0186 relevance fixtures. Their own board, for the same reason
+    // `scratch_board` has one — board-scoped assertions elsewhere stay exact —
+    // and terms that appear nowhere else in the fixture set, so the ranking
+    // assertions cannot be perturbed by another case's prose.
+    let relevance_board = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Relevance",
+        "relevance",
+        None,
+        Some(alice),
+    )
+    .expect("creating relevance board")
+    .id;
+    // "zephyr" in the title of one, the body of the other, once each.
+    let rank_title = make_task(
+        &mut conn,
+        relevance_board,
+        "Zephyr ingestion pipeline",
+        "Batching and retry behaviour for the inbound feed",
+        TaskType::Task,
+        None,
+    );
+    let rank_body = make_task(
+        &mut conn,
+        relevance_board,
+        "Inbound feed batching",
+        "Retry behaviour for the zephyr feed, which needs care",
+        TaskType::Task,
+        None,
+    );
+    // Identical text, so `ts_rank_cd` scores them equally and only the
+    // tie-break can order them.
+    let tie_first = make_task(
+        &mut conn,
+        relevance_board,
+        "Tessellate the layout",
+        "Identical prose, so the scores tie exactly",
+        TaskType::Task,
+        None,
+    );
+    let tie_second = make_task(
+        &mut conn,
+        relevance_board,
+        "Tessellate the layout",
+        "Identical prose, so the scores tie exactly",
+        TaskType::Task,
+        None,
+    );
+
     // KAIROS-T-0077: one bug rides the Support lane for the work_class
     // filter cases below (the two axes stay independent).
     items::set_task_work_class(
@@ -776,6 +826,94 @@ fn unified_search_pipeline() {
         ["Implement login endpoint", "Refactor session store"],
         "title asc, offset 1: Fix logout redirect is skipped"
     );
+
+    // ==========================================================================
+    // Relevance (KAIROS-T-0186)
+    // ==========================================================================
+
+    // A title hit outranks a body hit. Both rows match "zephyr" exactly once,
+    // so the only thing that can separate them is the `A`/`B` weighting the
+    // 2026-09-23-000004 migration added — without it these two tie and this
+    // assertion fails, which is the point of writing it this way.
+    let (results, _) = run(&mut conn, json!({"q": "zephyr"}));
+    let ranked: Vec<Uuid> = results.tasks.iter().map(|t| t.id).collect();
+    assert_eq!(
+        ranked,
+        vec![rank_title.id, rank_body.id],
+        "a title match ranks above a body match"
+    );
+
+    // Relevance is the DEFAULT when q is present: the request above named no
+    // sort, and `rank_title` is the newer row, so a `created_at desc` default
+    // would have produced the same order by accident. Pin it against a request
+    // that asks for chronology explicitly and gets a different answer.
+    let (chronological, _) = run(
+        &mut conn,
+        json!({"q": "zephyr", "sort": {"field": "created_at", "order": "asc"}}),
+    );
+    let by_age: Vec<Uuid> = chronological.tasks.iter().map(|t| t.id).collect();
+    assert_eq!(
+        by_age,
+        vec![rank_title.id, rank_body.id],
+        "created_at asc puts the older row first"
+    );
+    let (reversed, _) = run(
+        &mut conn,
+        json!({"q": "zephyr", "sort": {"field": "created_at", "order": "desc"}}),
+    );
+    assert_eq!(
+        reversed.tasks.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![rank_body.id, rank_title.id],
+        "an explicit sort is still honoured, and disagrees with relevance here"
+    );
+
+    // Equal scores must still produce one stable order, or pagination tears.
+    // Identical text scores identically, so the `short_code` tie-break is the
+    // only thing deciding, and it must decide the same way every time.
+    let (tied, _) = run(&mut conn, json!({"q": "tessellate"}));
+    let tied_ids: Vec<Uuid> = tied.tasks.iter().map(|t| t.id).collect();
+    assert_eq!(tied_ids.len(), 2, "both identical rows come back");
+    let mut expected = [
+        (tie_first.short_code.clone(), tie_first.id),
+        (tie_second.short_code.clone(), tie_second.id),
+    ];
+    expected.sort();
+    assert_eq!(
+        tied_ids,
+        expected.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
+        "tied scores fall back to short_code ascending"
+    );
+    let (tied_again, _) = run(&mut conn, json!({"q": "tessellate"}));
+    assert_eq!(
+        tied_again.tasks.iter().map(|t| t.id).collect::<Vec<_>>(),
+        tied_ids,
+        "and the same order on a second run"
+    );
+    // Paginating across the tie must not repeat or drop either row.
+    let (page_one, _) = run(&mut conn, json!({"q": "tessellate", "limit": 1}));
+    let (page_two, _) = run(
+        &mut conn,
+        json!({"q": "tessellate", "limit": 1, "offset": 1}),
+    );
+    assert_eq!(page_one.total, 2, "total is pre-pagination");
+    assert_eq!(
+        vec![page_one.tasks[0].id, page_two.tasks[0].id],
+        tied_ids,
+        "the two pages reconstruct the whole ordered set exactly once"
+    );
+
+    // Relevance to nothing is a 400, not a quiet fall back to chronology.
+    let no_query: SearchRequest = serde_json::from_value(json!({
+        "filter": {"board_id": relevance_board},
+        "sort": {"field": "relevance", "order": "desc"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        execute_search(&mut conn, &no_query),
+        Err(SearchError::Invalid(
+            SearchValidationError::RelevanceWithoutQuery
+        ))
+    ));
 
     // Validation errors surface typed through execute_search.
     let over_limit: SearchRequest =

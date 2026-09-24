@@ -357,6 +357,32 @@ fn tenant_provisioning_lifecycle() {
         Vec::<String>::new(),
         "no idx_*_board index is partial in a freshly provisioned tenant"
     );
+    // KAIROS-T-0186: the five full-text indexes and the view they serve are
+    // WEIGHTED, and — the part that matters — weighted identically. An index
+    // whose expression differs from `searchable_items`' own by a character
+    // stops covering the view's `tsv`, and nothing fails: search keeps
+    // answering, from a sequential scan, forever. So assert both sides.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT indexname::text AS name FROM pg_indexes \
+             WHERE schemaname = $1 AND indexname LIKE '%\\_tsv' \
+               AND indexdef NOT LIKE '%setweight%'",
+            "org_acme",
+        ),
+        Vec::<String>::new(),
+        "every idx_*_tsv index is weighted in a freshly provisioned tenant"
+    );
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_views \
+             WHERE schemaname = 'org_acme' AND viewname = 'searchable_items' \
+               AND definition LIKE '%setweight%'"
+        ),
+        1,
+        "the searchable_items view is weighted in a freshly provisioned tenant"
+    );
 
     // system_board_defaults seeded with all FOUR level configs (A-0002).
     assert_eq!(
@@ -545,7 +571,7 @@ fn tenant_provisioning_lifecycle() {
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
     // that predates the NEWEST tenant migration (currently
-    // `board_indexes_cover_archived`, KAIROS-T-0159): revert its DDL (the
+    // `tsv_weights_title_above_content`, KAIROS-T-0186): revert its DDL (the
     // down migration's shape) and drop its bookkeeping row in widgets only,
     // then fleet-migrate and expect exactly that one migration to re-apply.
     //
@@ -554,27 +580,27 @@ fn tenant_provisioning_lifecycle() {
     // to remove by deriving the target from the embedded migration list.
     // When re-pinning, carry the outgoing migration's evidence up into the
     // freshly-provisioned assertions rather than deleting it; T-0156's
-    // five-table view check moved there when this block stopped covering it.
+    // five-table view check moved there when this block stopped covering it,
+    // and T-0159's three-board-index check moved there on this wave.
     //
-    // The pre-T-0159 shape is the three board indexes being partial,
-    // `WHERE deleted_at IS NULL`. Only strategies is reverted: one index is
-    // enough to prove the migration re-applies, and the post-condition below
-    // checks all three.
+    // The pre-T-0186 shape is the unweighted tsvector: one `to_tsvector` over
+    // title and content concatenated as text, with no `setweight`. Only
+    // strategies' index is reverted — one is enough to prove the migration
+    // re-applies, and the post-condition below checks all five plus the view.
     //
-    // T-0157's evidence did not vanish with the re-pin — its
+    // T-0157's evidence did not vanish with the re-pin: its
     // freshly-provisioned assertion above (no partial `idx_*_tsv`) is the
-    // durable half, and the upgrade-path post-condition for it is kept
-    // below, since an upgraded tenant is exactly where a missed index
-    // hides.
-    sql_query("DROP INDEX org_widgets.idx_strategies_board")
+    // durable half, and the upgrade-path post-condition for it is kept below,
+    // since an upgraded tenant is exactly where a missed index hides.
+    sql_query("DROP INDEX org_widgets.idx_strategies_tsv")
         .execute(&mut conn)
-        .expect("dropping widgets' idx_strategies_board to simulate an old tenant");
+        .expect("dropping widgets' idx_strategies_tsv to simulate an old tenant");
     sql_query(
-        "CREATE INDEX idx_strategies_board ON org_widgets.strategies (board_id) \
-             WHERE deleted_at IS NULL",
+        "CREATE INDEX idx_strategies_tsv ON org_widgets.strategies USING GIN \
+             (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')))",
     )
     .execute(&mut conn)
-    .expect("restoring the pre-T-0159 partial idx_strategies_board in widgets");
+    .expect("restoring the pre-T-0186 unweighted idx_strategies_tsv in widgets");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -627,18 +653,32 @@ fn tenant_provisioning_lifecycle() {
         5,
         "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
     );
-    // KAIROS-T-0159: and so are the three board indexes — an existing
-    // tenant's audit view of a board is index-backed, not a table scan it
-    // inherits for the rest of its life.
+    // KAIROS-T-0186: and the upgraded tenant's full-text indexes carry the
+    // title/content weighting, all five of them. This is the assertion the
+    // re-pinned block above exists to make: an existing tenant whose
+    // `idx_*_tsv` expression no longer matches `searchable_items`' own stops
+    // being index-served for search entirely and silently, so "the migration
+    // ran" is not the same claim as "the index still covers the view".
     assert_eq!(
         count(
             &mut conn,
             "SELECT count(*) FROM pg_indexes \
-             WHERE schemaname = 'org_widgets' AND indexname LIKE 'idx\\_%\\_board' \
-               AND indexdef NOT LIKE '%WHERE%'"
+             WHERE schemaname = 'org_widgets' AND indexname LIKE '%\\_tsv' \
+               AND indexdef LIKE '%setweight%'"
         ),
-        3,
-        "all three idx_*_board indexes are non-partial in widgets after the fleet upgrade"
+        5,
+        "all five idx_*_tsv indexes are weighted in widgets after the fleet upgrade"
+    );
+    // And the view was replaced too, not just the indexes — they have to agree.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_views \
+             WHERE schemaname = 'org_widgets' AND viewname = 'searchable_items' \
+               AND definition LIKE '%setweight%'"
+        ),
+        1,
+        "the searchable_items view is weighted in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

@@ -58,9 +58,13 @@
 //!    have exclude the type outright (e.g. `task_type` ⇒ tasks only,
 //!    `board_id` ⇒ no documents), so those types cost no query at all.
 //! 7. **Sort, count, paginate**: the combined cross-type rows are sorted
-//!    in memory (`created_at`/`updated_at`/`title`, tie-broken by
+//!    in memory (`created_at`/`updated_at`/`title`/`relevance`, tie-broken by
 //!    `short_code` for determinism), `total` is counted **before**
 //!    `limit`/`offset` are applied, and the page is regrouped by type.
+//!    `relevance` is the `ts_rank_cd` carried out of step 4 and is the
+//!    **default when `q` is present** (KAIROS-T-0186); it requires `q`, and
+//!    asking for it without one is a validation error rather than a silent
+//!    fallback.
 //!    Pagination over a mixed-type result set is applied in memory over the
 //!    hydrated rows (A-0007's combined-result-set semantics); the ≤5-query
 //!    bound holds regardless.
@@ -177,9 +181,12 @@ pub fn execute_search_with_stats(
         let ids = traverse_ids(conn, root, traverse, &mut stats)?;
         intersect(&mut candidates, ids);
     }
+    // Relevance scores survive the intersection: `q` is the only source of
+    // them, and step 7 looks them up by id after hydration.
+    let mut relevance: HashMap<Uuid, f32> = HashMap::new();
     if let Some(q) = &request.q {
-        let ids = text_match_ids(conn, q, include_deleted, &mut stats)?;
-        intersect(&mut candidates, ids);
+        relevance = text_match_ids(conn, q, include_deleted, &mut stats)?;
+        intersect(&mut candidates, relevance.keys().copied().collect());
     }
     if let Some(metadata) = filter
         .and_then(|f| f.metadata.as_ref())
@@ -236,7 +243,7 @@ pub fn execute_search_with_stats(
     }
 
     // -- step 7: sort, count, paginate, regroup by type -----------------------
-    sort_items(&mut combined, request.effective_sort());
+    sort_items(&mut combined, request.effective_sort(), &relevance);
     let total = combined.len() as i64;
 
     let mut results = SearchResults {
@@ -269,6 +276,15 @@ pub fn execute_search_with_stats(
 struct IdRow {
     #[diesel(sql_type = SqlUuid)]
     id: Uuid,
+}
+
+/// An id plus its `ts_rank_cd` relevance against `q` (KAIROS-T-0186).
+#[derive(QueryableByName)]
+struct ScoredIdRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = diesel::sql_types::Float)]
+    score: f32,
 }
 
 /// Resolve `traverse.from` to an entity id via `entity_directory`.
@@ -377,25 +393,30 @@ fn traverse_ids(
 /// Both modes are index-served: `idx_*_tsv` were partial
 /// `WHERE deleted_at IS NULL` until KAIROS-T-0157 made them whole, because
 /// a partial index cannot answer a query that declines its predicate.
+/// Also returns a relevance score per match (KAIROS-T-0186), so step 7 can rank
+/// by it. `ts_rank_cd` is computed only over rows the index already matched, so
+/// the predicate stays index-served and ranking costs nothing on the rows it
+/// rejected.
 fn text_match_ids(
     conn: &mut PgConnection,
     q: &str,
     include_deleted: bool,
     stats: &mut SearchStats,
-) -> Result<HashSet<Uuid>, SearchError> {
+) -> Result<HashMap<Uuid, f32>, SearchError> {
     let live_only = if include_deleted {
         ""
     } else {
         " AND deleted_at IS NULL"
     };
     stats.total_queries += 1;
-    let rows: Vec<IdRow> = sql_query(format!(
-        "SELECT id FROM searchable_items \
+    let rows: Vec<ScoredIdRow> = sql_query(format!(
+        "SELECT id, ts_rank_cd(tsv, websearch_to_tsquery('english', $1)) AS score \
+         FROM searchable_items \
          WHERE tsv @@ websearch_to_tsquery('english', $1){live_only}"
     ))
     .bind::<Text, _>(q)
     .load(conn)?;
-    Ok(rows.into_iter().map(|r| r.id).collect())
+    Ok(rows.into_iter().map(|r| (r.id, r.score)).collect())
 }
 
 /// Ids satisfying EVERY metadata entry (module docs, step 3): one query,
@@ -806,16 +827,42 @@ impl AnyItem {
             AnyItem::Adr(row) => &row.short_code,
         }
     }
+
+    fn id(&self) -> Uuid {
+        match self {
+            AnyItem::Strategy(row) => row.id,
+            AnyItem::Initiative(row) => row.id,
+            AnyItem::Task(row) => row.id,
+            AnyItem::Document(row) => row.id,
+            AnyItem::Adr(row) => row.id,
+        }
+    }
 }
 
 /// Sort the combined rows by the requested field/order, tie-broken by
 /// `short_code` ascending for a deterministic total order.
-fn sort_items(items: &mut [AnyItem], sort: Sort) {
+///
+/// `relevance` is the per-id `ts_rank_cd` from [`text_match_ids`], empty unless
+/// `q` was given. Because `SortField::Relevance` is rejected without `q`
+/// (KAIROS-T-0186), every row reaching here under that sort passed through the
+/// text-match intersection and so has a score; the `unwrap_or` is belt and
+/// braces rather than a real case.
+///
+/// Equal scores are common — `ts_rank_cd` quantises hard, and two documents
+/// matching the same single term routinely tie — so the `short_code` tie-break
+/// is what keeps pagination from tearing, not a nicety.
+fn sort_items(items: &mut [AnyItem], sort: Sort, relevance: &HashMap<Uuid, f32>) {
     items.sort_by(|a, b| {
         let primary = match sort.field {
             SortField::CreatedAt => a.created_at().cmp(&b.created_at()),
             SortField::UpdatedAt => a.updated_at().cmp(&b.updated_at()),
             SortField::Title => a.title().cmp(b.title()),
+            SortField::Relevance => {
+                let score = |i: &AnyItem| relevance.get(&i.id()).copied().unwrap_or(0.0);
+                // total_cmp: ts_rank_cd never returns NaN, but an ordering that
+                // is only almost total would silently corrupt pagination.
+                score(a).total_cmp(&score(b))
+            }
         };
         let primary = match sort.order {
             SortOrder::Asc => primary,

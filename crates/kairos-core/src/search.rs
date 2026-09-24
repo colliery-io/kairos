@@ -24,6 +24,9 @@
 //! - Unknown entity types, task types, relationships, directions, and sort
 //!   fields are unrepresentable: the vocabulary is typed enums, so serde
 //!   rejects them at the boundary.
+//! - `sort.field = relevance` requires `q` (KAIROS-T-0186): there is nothing to
+//!   be relevant to otherwise, and quietly falling back to `created_at` would
+//!   hand a caller who asked for ranking a chronological list without saying so.
 //!
 //! # Metadata globs (the T-0011 LIKE translation, exactly)
 //!
@@ -73,7 +76,8 @@ pub struct SearchRequest {
     /// Graph traversal over `item_relationships`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traverse: Option<Traverse>,
-    /// Sort order for the combined result set (default: `created_at desc`).
+    /// Sort order for the combined result set (default: `relevance desc` when
+    /// `q` is present, else `created_at desc` — see [`Self::effective_sort`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort: Option<Sort>,
     /// Page size (default [`DEFAULT_LIMIT`], capped at [`MAX_LIMIT`]).
@@ -95,10 +99,20 @@ impl SearchRequest {
         self.offset.unwrap_or(0)
     }
 
-    /// The sort to use: `sort` or `created_at desc`.
+    /// The sort to use: `sort` if given, else the default for this request.
+    ///
+    /// The default is **relevance when `q` is present** and `created_at desc`
+    /// otherwise (KAIROS-T-0186). A ranked search that has to be asked for is a
+    /// ranked search nobody uses, and the agent callers this exists for will not
+    /// know to ask; `created_at desc` stays the default where there is no query
+    /// and relevance would be meaningless.
     pub fn effective_sort(&self) -> Sort {
         self.sort.unwrap_or(Sort {
-            field: SortField::CreatedAt,
+            field: if self.q.is_some() {
+                SortField::Relevance
+            } else {
+                SortField::CreatedAt
+            },
             order: SortOrder::Desc,
         })
     }
@@ -354,6 +368,17 @@ pub enum SortField {
     UpdatedAt,
     /// `title` (lexicographic, case-sensitive).
     Title,
+    /// How well the row matches `q` (KAIROS-T-0186). Requires `q`: relevance
+    /// to no query is not a thing, so asking for it is a 400 rather than a
+    /// silent fallback ([`SearchValidationError::RelevanceWithoutQuery`]).
+    Relevance,
+}
+
+impl SortField {
+    /// Whether this field needs `q` present to mean anything.
+    pub fn requires_query(&self) -> bool {
+        matches!(self, SortField::Relevance)
+    }
 }
 
 /// Sort direction.
@@ -434,6 +459,10 @@ pub enum SearchValidationError {
         /// The submitted offset.
         offset: i64,
     },
+    /// `sort.field` is `relevance` but there is no `q` to be relevant to
+    /// (KAIROS-T-0186).
+    #[error("sort.field relevance requires q")]
+    RelevanceWithoutQuery,
 }
 
 /// Validate a [`SearchRequest`] against the module-docs contract. Pure;
@@ -444,6 +473,13 @@ pub fn validate(request: &SearchRequest) -> Result<(), SearchValidationError> {
         && q.trim().is_empty()
     {
         return Err(SearchValidationError::BlankQuery);
+    }
+
+    if let Some(sort) = request.sort
+        && sort.field.requires_query()
+        && request.q.is_none()
+    {
+        return Err(SearchValidationError::RelevanceWithoutQuery);
     }
 
     if let Some(filter) = &request.filter {
@@ -859,9 +895,74 @@ mod tests {
         let request = q("x");
         assert_eq!(request.effective_limit(), DEFAULT_LIMIT);
         assert_eq!(request.effective_offset(), 0);
+    }
+
+    /// KAIROS-T-0186: the default sort depends on whether there is a query to
+    /// be relevant to.
+    #[test]
+    fn default_sort_is_relevance_only_when_there_is_a_query() {
+        let with_query = q("x").effective_sort();
+        assert_eq!(with_query.field, SortField::Relevance);
+        assert_eq!(with_query.order, SortOrder::Desc);
+
+        let filter_only = SearchRequest {
+            filter: Some(SearchFilter {
+                entity_type: Some(vec![SearchEntityType::Task]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let without_query = filter_only.effective_sort();
+        assert_eq!(without_query.field, SortField::CreatedAt);
+        assert_eq!(without_query.order, SortOrder::Desc);
+    }
+
+    /// An explicit sort is always honoured, including where it differs from the
+    /// new default — existing callers that named `created_at` keep it.
+    #[test]
+    fn explicit_sort_overrides_the_default() {
+        let request = SearchRequest {
+            sort: Some(Sort {
+                field: SortField::CreatedAt,
+                order: SortOrder::Asc,
+            }),
+            ..q("x")
+        };
         let sort = request.effective_sort();
         assert_eq!(sort.field, SortField::CreatedAt);
-        assert_eq!(sort.order, SortOrder::Desc);
+        assert_eq!(sort.order, SortOrder::Asc);
+    }
+
+    /// Relevance to nothing is not a thing: it is a 400, not a quiet fallback
+    /// to `created_at`, because a caller who asked for ranking and silently got
+    /// chronology has been misled.
+    #[test]
+    fn relevance_without_a_query_is_rejected() {
+        let sort = Some(Sort {
+            field: SortField::Relevance,
+            order: SortOrder::Desc,
+        });
+        let no_q = SearchRequest {
+            sort,
+            filter: Some(SearchFilter {
+                entity_type: Some(vec![SearchEntityType::Task]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            validate(&no_q),
+            Err(SearchValidationError::RelevanceWithoutQuery)
+        );
+        assert_eq!(validate(&SearchRequest { sort, ..q("x") }), Ok(()));
+    }
+
+    #[test]
+    fn relevance_round_trips_as_snake_case() {
+        let json = r#"{"q":"x","sort":{"field":"relevance","order":"desc"}}"#;
+        let request: SearchRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.effective_sort().field, SortField::Relevance);
+        assert_eq!(serde_json::to_string(&request).unwrap(), json);
     }
 
     // -- serde shape (S-0005 field for field) -------------------------------------

@@ -82,6 +82,13 @@ All GET endpoints become simple point accessors (get by short code, list all wit
 
 All top-level fields are optional. At least one of `q`, `filter`, or `traverse` must be present.
 
+`sort.field` is one of `created_at`, `updated_at`, `title` or `relevance`. The
+default is `relevance` when `q` is present and `created_at desc` otherwise
+(KAIROS-T-0186, under KAIROS-A-0021). `relevance` requires `q` — asking for it
+without one is a 400, not a silent fallback — and is `ts_rank_cd` over the
+matched rows. Every sort is tie-broken by `short_code` ascending, so the order is
+total and pagination cannot tear on ties, which `ts_rank_cd` produces often.
+
 ### Three Capabilities
 
 **Full-text search (`q`)**: Queries the `searchable_items` view using `ts_query` against the tsvector. Returns items where title or content matches.

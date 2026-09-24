@@ -328,6 +328,9 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
         SearchValidationError::NegativeOffset { offset } => {
             json!({"field": "offset", "offset": offset})
         }
+        SearchValidationError::RelevanceWithoutQuery => {
+            json!({"field": "sort.field", "requires": "q"})
+        }
     };
     ApiError::new(StatusCode::BAD_REQUEST, "VALIDATION", e.to_string()).with_details(details)
 }

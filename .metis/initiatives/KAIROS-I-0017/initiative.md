@@ -4,14 +4,14 @@ level: initiative
 title: "Semantic and Graph Retrieval - Finding the Edges That Should Exist"
 short_code: "KAIROS-I-0017"
 created_at: 2026-09-24T02:24:32.365415+00:00
-updated_at: 2026-09-24T02:24:32.365415+00:00
+updated_at: 2026-09-24T02:56:53.982666+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

@@ -87,6 +87,15 @@ pub struct PendingItem {
     /// The item's content.
     #[diesel(sql_type = Text)]
     pub content: String,
+    /// The repository the item is issued against, if any (tasks only).
+    #[diesel(sql_type = Nullable<Text>)]
+    pub repository: Option<String>,
+    /// The owning team, if any (tasks only).
+    #[diesel(sql_type = Nullable<Text>)]
+    pub team: Option<String>,
+    /// The title of the item's parent, if it has one.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub parent_title: Option<String>,
     /// The hash currently stored, if any. `None` means never embedded.
     #[diesel(sql_type = Nullable<Text>)]
     pub stored_hash: Option<String>,
@@ -160,12 +169,29 @@ pub fn pending_primary(
     model: &StoredModel,
     limit: i64,
 ) -> Result<Vec<PendingItem>, EmbeddingError> {
+    // The 1:1 structural inputs rule 4 asks for. `repository` and `team` are
+    // task-level attributes, so they LEFT JOIN through `tasks` and are NULL for
+    // every other type — which is correct rather than missing: a document has no
+    // repository, and composing a blank `repository:` line for it would put the
+    // same token into every document in the tenant.
+    //
+    // The parent comes from `item_relationships`, where the edge points
+    // parent -> child, so the item is the TARGET and the parent is the source.
     let rows = sql_query(
-        "SELECT s.id, s.entity_type, s.short_code, s.title, s.content, e.content_hash AS stored_hash \
+        "SELECT s.id, s.entity_type, s.short_code, s.title, s.content, \
+                r.slug AS repository, tm.slug AS team, p.title AS parent_title, \
+                e.content_hash AS stored_hash \
          FROM searchable_items s \
          LEFT JOIN item_embeddings e \
            ON e.item_id = s.id \
           AND e.provider = $1 AND e.model = $2 AND e.dimension = $3 \
+         LEFT JOIN tasks t ON t.id = s.id \
+         LEFT JOIN repositories r ON r.id = t.repository_id AND r.deleted_at IS NULL \
+         LEFT JOIN teams tm ON tm.id = t.team_id AND tm.deleted_at IS NULL \
+         LEFT JOIN item_relationships rel \
+           ON rel.target_id = s.id AND rel.relationship = 'parent' \
+         LEFT JOIN entity_directory p \
+           ON p.id = rel.source_id AND p.deleted_at IS NULL \
          WHERE s.deleted_at IS NULL \
          ORDER BY s.short_code \
          LIMIT $4",
@@ -176,6 +202,48 @@ pub fn pending_primary(
     .bind::<BigInt, _>(limit)
     .load::<PendingItem>(conn)?;
     Ok(rows)
+}
+
+/// Stamped metadata for a batch of items, as `(item_id, label, value)`.
+///
+/// Fetched for the batch rather than per item: a backfill page of 200 items
+/// would otherwise be 200 round trips for what is one query. Ordered by
+/// definition name so composition is stable — the same item must produce the
+/// same text, or its content hash moves for no reason and every run re-embeds
+/// everything.
+///
+/// The **label** is the definition's human name, not its slug: rule 4 leans on
+/// metadata precisely because it is where a tenant wrote down what something
+/// means, and the name is what they wrote.
+pub fn metadata_for(
+    conn: &mut PgConnection,
+    item_ids: &[Uuid],
+) -> Result<Vec<(Uuid, String, String)>, EmbeddingError> {
+    if item_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = SqlUuid)]
+        item_id: Uuid,
+        #[diesel(sql_type = Text)]
+        label: String,
+        #[diesel(sql_type = Text)]
+        value: String,
+    }
+    let rows = sql_query(
+        "SELECT m.item_id, d.name AS label, m.value \
+         FROM item_metadata m \
+         JOIN metadata_definitions d ON d.id = m.metadata_definition_id \
+         WHERE m.item_id = ANY($1) \
+         ORDER BY m.item_id, d.name",
+    )
+    .bind::<diesel::sql_types::Array<SqlUuid>, _>(item_ids)
+    .load::<Row>(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.item_id, r.label, r.value))
+        .collect())
 }
 
 /// Write (or replace) an item's primary vector.

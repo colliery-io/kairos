@@ -11,3 +11,4 @@ serde = { workspace = true }
 # serde_json moved from dev-dependencies to a real dependency.
 serde_json = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
+sha2 = { workspace = true }

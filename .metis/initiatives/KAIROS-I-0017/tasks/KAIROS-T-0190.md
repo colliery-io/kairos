@@ -388,3 +388,38 @@ The parts that need the provider and the server, not just the database:
 composing text and hashing it on the write path, embedding **off** that path,
 the `angreal`-driven resumable backfill, the vector index on populated tables,
 and pinning the column type to 384 dimensions now the model is settled.
+
+### 2026-09-24 — rule 4's inputs, and the hash that makes skipping possible
+
+`content_hash` moved into `kairos_core::primary`, beside the composition it
+hashes — one function for both primary texts and chunk texts, because they
+answer the same question and hashing them two different ways would make the two
+halves incomparable. Pinned in a test against the **published** SHA-256 of the
+empty string rather than against itself, so a change of algorithm cannot pass by
+agreeing with the new algorithm.
+
+`pending_primary` now carries the structural inputs rule 4 actually asks for,
+which none of `searchable_items` has: repository slug, owning team, and the
+parent's title. The parent comes from `item_relationships`, where the edge runs
+parent → child, so the item is the **target**. `repository` and `team` join
+through `tasks` and are NULL for every other type — which is correct rather than
+missing: a document has no repository, and composing a blank `repository:` line
+for one would put the same token into every document in the tenant.
+
+That NULL is asserted, because a silently-absent parent fails nothing. It just
+quietly makes every child item less findable, which is the kind of bug that is
+only ever noticed as "retrieval feels weak".
+
+`metadata_for` fetches a whole batch in one query rather than one per item — a
+backfill page of 200 would otherwise be 200 round trips — and orders by
+definition name so composition is stable. If the order moved, the content hash
+would move with it and every run would re-embed everything. The label is the
+definition's **name**, not its slug: rule 4 leans on metadata precisely because
+it is where a tenant wrote down what something means, and the name is what they
+wrote.
+
+Two assertions in the integration test needed updating when the fixture gained a
+parent initiative, because an initiative is itself an item and counts like one.
+That is the counts being right, not the test being fragile.
+
+`angreal test integration` green; fmt and clippy clean; 129 `kairos-core` tests.

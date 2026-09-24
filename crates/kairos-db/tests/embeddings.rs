@@ -17,12 +17,14 @@ use diesel::sql_types::BigInt;
 use uuid::Uuid;
 
 use kairos_db::embeddings::{
-    ChunkWrite, EmbeddingError, StoredModel, counts, forget_item, pending_primary, replace_chunks,
-    store_primary, stored_chunk_hashes,
+    ChunkWrite, EmbeddingError, StoredModel, counts, forget_item, metadata_for, pending_primary,
+    replace_chunks, store_primary, stored_chunk_hashes,
 };
-use kairos_db::items::{self, CreateTask};
-use kairos_db::models::{BoardLevel, NewUser, TaskType, WorkClass};
-use kairos_db::{create_board, provision_tenant, run_public_migrations, schema};
+use kairos_db::items::{self, CreateInitiative, CreateTask};
+use kairos_db::models::{
+    BoardLevel, MetadataDefinition, NewItemMetadata, NewUser, RelationshipType, TaskType, WorkClass,
+};
+use kairos_db::{create_board, graph, provision_tenant, run_public_migrations, schema};
 
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 const SCRATCH_DB: &str = "kairos_embeddings_test";
@@ -157,11 +159,98 @@ fn embedding_store_lifecycle() {
         "ordered by short_code, so a resumable backfill walks the same sequence"
     );
 
+    // ---- rule 4's structural inputs come back with the row ----------------
+    // Composing the primary text needs more than title and content, and none of
+    // it is in `searchable_items`, so `pending_primary` joins it. Asserted here
+    // because a silently-NULL parent would not fail anything — it would just
+    // quietly make every child item less findable.
+    let initiative_board = create_board(
+        &mut conn,
+        BoardLevel::Initiative,
+        "Initiatives",
+        "initiatives-embed",
+        None,
+        Some(alice),
+    )
+    .expect("creating the initiative board")
+    .id;
+    let parent = items::create_initiative(
+        &mut conn,
+        CreateInitiative {
+            board_id: initiative_board,
+            column_id: None,
+            title: "Billing correctness",
+            content: "The umbrella.",
+            complexity: None,
+            bucket_type: None,
+        },
+        alice,
+    )
+    .expect("creating the parent initiative");
+    graph::link_items(
+        &mut conn,
+        parent.id,
+        one.id,
+        RelationshipType::Parent,
+        alice,
+    )
+    .expect("parenting the task");
+
+    // `priority` is seeded as a system default at provisioning, so look it up
+    // rather than creating it — and using the real one is the more honest
+    // fixture anyway.
+    let definition = schema::metadata_definitions::table
+        .filter(schema::metadata_definitions::slug.eq("priority"))
+        .select(MetadataDefinition::as_select())
+        .first(&mut conn)
+        .expect("the seeded priority definition");
+    let definition_name = definition.name.clone();
+    let definition = definition.id;
+    diesel::insert_into(schema::item_metadata::table)
+        .values(NewItemMetadata {
+            item_id: one.id,
+            metadata_definition_id: definition,
+            value: "high".into(),
+        })
+        .execute(&mut conn)
+        .expect("stamping metadata");
+
+    let pending = pending_primary(&mut conn, &m, 100).expect("pending");
+    let enriched = pending
+        .iter()
+        .find(|p| p.id == one.id)
+        .expect("the child task");
+    assert_eq!(
+        enriched.parent_title.as_deref(),
+        Some("Billing correctness"),
+        "the parent's title travels with the row"
+    );
+    // NULL rather than missing: a document has no repository, and composing a
+    // blank `repository:` line would put one token into every document alike.
+    assert_eq!(enriched.repository, None, "this task has no repository");
+    assert_eq!(enriched.team, None, "and no team");
+
+    let metadata = metadata_for(&mut conn, &[one.id, two.id]).expect("metadata");
+    assert_eq!(
+        metadata,
+        vec![(one.id, definition_name, "high".to_string())],
+        "the LABEL is the definition's name, which is what a tenant wrote down"
+    );
+    assert!(
+        metadata_for(&mut conn, &[])
+            .expect("empty batch")
+            .is_empty(),
+        "an empty batch is not a round trip"
+    );
+
     // ---- store one primary vector -----------------------------------------
     store_primary(&mut conn, one.id, "task", &unit(1), &m, "hash-one").expect("store primary");
     let c = counts(&mut conn, &m).expect("counts");
     assert_eq!(c.embedded, 1);
-    assert_eq!(c.missing(), 1);
+    // Three live items now — the parent initiative created above is itself an
+    // item, and counts the same as any other.
+    assert_eq!(c.items, 3);
+    assert_eq!(c.missing(), 2);
 
     let pending = pending_primary(&mut conn, &m, 100).expect("pending");
     let stored = pending
@@ -340,7 +429,7 @@ fn embedding_store_lifecycle() {
     );
     let c = counts(&mut conn, &m).expect("counts after archiving");
     assert_eq!(
-        c.items, 1,
+        c.items, 2,
         "but the archived item is not counted as live work still to do"
     );
 

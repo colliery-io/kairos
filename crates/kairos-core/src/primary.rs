@@ -385,3 +385,51 @@ mod tests {
         assert!(prose.starts_with("café"), "{prose:?}");
     }
 }
+
+/// SHA-256 of the exact text that was embedded, as lowercase hex.
+///
+/// Used for both primary texts and chunk texts, because they answer the same
+/// question — *has the thing I would embed changed?* — and a store that hashed
+/// them two different ways would make the two halves incomparable.
+///
+/// This is what makes re-embedding skippable (KAIROS-T-0187's `content_hash`
+/// columns). It is a content hash rather than a modified timestamp on purpose:
+/// a timestamp says the document changed, which is true of every Status Updates
+/// append, while a per-chunk hash says *which section* changed, which is what
+/// turns a 12 KB re-embed into a one-section one.
+pub fn content_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(text.as_bytes());
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut acc, b| {
+            use std::fmt::Write as _;
+            let _ = write!(acc, "{b:02x}");
+            acc
+        })
+}
+
+#[cfg(test)]
+mod hash_tests {
+    use super::content_hash;
+
+    #[test]
+    fn it_is_the_known_sha256_of_the_empty_string() {
+        // Pinned against the published value rather than against itself, so a
+        // change of algorithm cannot pass by agreeing with the new algorithm.
+        assert_eq!(
+            content_hash(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn it_is_stable_and_sensitive() {
+        assert_eq!(content_hash("alpha"), content_hash("alpha"));
+        assert_ne!(content_hash("alpha"), content_hash("alpha "));
+        assert_eq!(content_hash("x").len(), 64, "lowercase hex, 32 bytes");
+        assert!(content_hash("x").chars().all(|c| c.is_ascii_hexdigit()));
+    }
+}

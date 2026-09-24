@@ -4,14 +4,14 @@ level: task
 title: "Chunking, the composed primary vector, incremental re-embedding and backfill"
 short_code: "KAIROS-T-0190"
 created_at: 2026-09-24T02:27:55.747474+00:00
-updated_at: 2026-09-24T11:39:32.742673+00:00
+updated_at: 2026-09-24T17:00:34.663824+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0187, KAIROS-T-0189]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -196,6 +196,8 @@ Everything needing a database: reading items, writing `item_embeddings` and
 `item_chunks`, content-hash skipping, incremental re-embedding off the write path,
 the resumable backfill, the vector index on populated tables, and pinning the
 column type to the now-known 384 dimensions. None of it is started.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

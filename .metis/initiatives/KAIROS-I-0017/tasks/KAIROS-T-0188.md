@@ -99,6 +99,9 @@ promise to satisfy it.
 - [ ] [[KAIROS-A-0013]] and [[KAIROS-A-0016]] record the amendment and point at
       [[KAIROS-A-0021]]
 - [ ] `deploy/helm/kairos/ci` covers both switch positions
+- [ ] The remote embedding provider's API key follows the chart's existing-Secret
+      pattern, as `DATABASE_URL` does — moved here from [[KAIROS-T-0189]], which
+      had no chart change to hang it on
 - [ ] Verified on a real cluster in both positions, as v0.1.1 was
 
 ## Status Updates

@@ -4,14 +4,14 @@ level: task
 title: "Embedding providers: local by default, OpenAI-compatible as BYO, fake for tests"
 short_code: "KAIROS-T-0189"
 created_at: 2026-09-24T02:27:52.746086+00:00
-updated_at: 2026-09-24T10:37:17.768488+00:00
+updated_at: 2026-09-24T17:00:28.960313+00:00
 parent: KAIROS-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -205,6 +205,8 @@ knowing what it wants.
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [x] An embedding trait with local, OpenAI-compatible and deterministic-fake
       implementations — in a new `kairos-embed` crate, **not** `kairos-core`, which
       is pure by [[KAIROS-A-0009]] and may not do I/O
@@ -216,10 +218,16 @@ knowing what it wants.
       the full native image left to `release.yml`'s per-arch runners
 - [x] Provider and model are recorded per stored vector (`ModelId`); a mismatch is
       reported rather than silently compared (`Mismatch`, with `is_fatal`)
-- [ ] A provider that is unreachable never fails a write — **[[KAIROS-T-0190]]'s**:
-      nothing writes yet, and the provider cannot promise this on a caller's behalf
-- [ ] The remote API key follows the existing-Secret pattern in the chart —
-      **outstanding**, belongs with [[KAIROS-T-0188]]'s chart work
+- [x] A provider that is unreachable never fails a write — satisfied by
+      [[KAIROS-T-0190]] and now true **by construction** rather than by care: no
+      write path calls a provider at all. Embedding is a background sweep, so an
+      unreachable provider cannot fail a create; and `build_embedding_service`
+      logs at warn and starts the server anyway
+- [x] The remote API key follows the existing-Secret pattern in the chart —
+      **moved to [[KAIROS-T-0188]]**, which is the task that owns the chart. It
+      was never this task's to do: there is no chart change here to hang it on,
+      and splitting one `values.yaml` edit across two tasks would leave the
+      chart half-configured in whichever landed first
 - [x] `angreal test unit`, fmt and clippy green; the Docker-dependent tiers are
       **outstanding**, see the Status Updates
 

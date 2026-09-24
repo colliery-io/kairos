@@ -2154,7 +2154,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "clap",
@@ -2174,7 +2174,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-client"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "reqwest",
@@ -2188,7 +2188,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2200,7 +2200,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-db"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bb8",
  "chrono",
@@ -2218,7 +2218,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-embed"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fastembed",
  "reqwest",
@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-server"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "chrono",
@@ -2266,7 +2266,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-soak"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2280,7 +2280,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",

@@ -65,7 +65,7 @@ From the published chart (each release is pushed to GHCR as an OCI artifact;
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.1.1 -f my-values.yaml
+  --version 0.2.0 -f my-values.yaml
 ```
 
 Or from a checkout, which is what you want when changing the chart itself:

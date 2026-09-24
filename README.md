@@ -20,19 +20,19 @@ and MCP clients.
 ```sh
 # macOS Apple Silicon
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-aarch64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.2.0/kairos-0.2.0-aarch64-apple-darwin.tar.gz
 
 # macOS Intel
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-x86_64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.2.0/kairos-0.2.0-x86_64-apple-darwin.tar.gz
 
 # Linux x86_64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-x86_64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.2.0/kairos-0.2.0-x86_64-unknown-linux-gnu.tar.gz
 
 # Linux arm64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-aarch64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.2.0/kairos-0.2.0-aarch64-unknown-linux-gnu.tar.gz
 
 tar -xzf kairos.tar.gz
 install -m 0755 kairos ~/.local/bin/   # or any directory on your PATH
@@ -46,12 +46,13 @@ every command and flag.
 ## Run a deployment
 
 ```sh
-helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.1.1 \
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.2.0 \
   -f my-values.yaml
 ```
 
-The chart bundles neither a database nor an identity provider — both are yours
-(KAIROS-A-0016). See
+The chart bundles no identity provider — that is always yours (KAIROS-A-0016).
+It stands an evaluation PostgreSQL up inside the release unless you name your
+own. See
 [Install with Helm](https://colliery-io.github.io/kairos/how-to/install-with-helm.html)
 for the values it requires and
 [Configure an OIDC issuer](https://colliery-io.github.io/kairos/how-to/configure-an-oidc-issuer.html)

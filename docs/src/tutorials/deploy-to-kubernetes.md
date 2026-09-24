@@ -22,20 +22,19 @@ We use kind because this is a lesson, not a production deployment. Everything
 here works the same on a real cluster; the database and identity provider are
 the parts you would replace.
 
-Kairos ships neither of those on purpose — state and identity are yours. So
-the first two things we install are a throwaway Postgres and a throwaway Dex,
-pinned to exact versions so this lesson behaves the same every time. **Neither
-is suitable for anything but a tutorial**: no persistence, no backups, one
-hard-coded password.
+Identity is always yours, and so is state by default. The chart can stand an
+evaluation PostgreSQL up inside the release, but this lesson brings its own so
+you see the shape you would actually run. So the first two things we install are
+a throwaway Postgres and a throwaway Dex, pinned to exact versions so this
+lesson behaves the same every time. **Neither is suitable for anything but a
+tutorial**: no persistence, no backups, one hard-coded password.
 
 The Postgres image is `pgvector/pgvector:pg16` rather than `postgres:16`: the
-same upstream Postgres with the `pgvector` extension added. The version this
-lesson pins, 0.1.1, does not need it yet; later versions require it, because the
-extension backs semantic retrieval and their first migration installs it. Using
-the pgvector image now means this deployment keeps working when you upgrade
-rather than failing on a database that cannot install the extension. Managed
-Postgres offers pgvector on RDS, Cloud SQL and Azure, so this is not a reason to
-stop bringing your own.
+same upstream Postgres with the `pgvector` extension added. Kairos **requires**
+it — the extension backs semantic retrieval, and the first migration installs
+it, so a plain `postgres:16` fails to migrate rather than merely doing without
+the feature. Managed Postgres offers pgvector on RDS, Cloud SQL and Azure, so
+this is not a reason to stop bringing your own.
 
 ## Create the cluster
 
@@ -156,14 +155,14 @@ values, which is deliberate — a deployment that cannot say who its users are i
 not a deployment.
 
 ```sh
-helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.1.1 \
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.2.0 \
   -n kairos -f values.yaml --wait --timeout 6m
 ```
 
 Helm pulls the chart from the registry, then the cluster pulls the image:
 
 ```
-Pulled: ghcr.io/colliery-io/charts/kairos:0.1.1
+Pulled: ghcr.io/colliery-io/charts/kairos:0.2.0
 NAME: kairos
 STATUS: deployed
 ```

@@ -1,0 +1,22 @@
+# Workspace cargo configuration.
+#
+# KAIROS-T-0189 put an ONNX runtime in the server (the local embedding model),
+# and `ort` compiles C++. On Linux the C++ runtime has to be linked, and `ort`
+# does ask for it — but static linking is order-sensitive, and `-lstdc++` passed
+# before the archive that needs it is discarded. The build then fails with
+# undefined references to `std::__cxx11::basic_string` and `__cxa_call_terminate`
+# rather than with anything naming the real problem.
+#
+# `-C link-arg=-lstdc++` appends it at the END of the link line, which resolves
+# the order. It lives here rather than in the Dockerfile so that CI
+# (ubuntu-latest), a developer on Linux and the release build all get it without
+# each remembering; macOS needs nothing, because Apple's toolchain links libc++
+# for you.
+#
+# Removing this is safe only once `ort` emits the library after its own archive.
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-lstdc++"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-lstdc++"]

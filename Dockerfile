@@ -25,7 +25,13 @@
 # ---------------------------------------------------------------------------
 # Pinned to the workspace toolchain (rust-toolchain.toml: 1.93.0) so the
 # image build uses the exact compiler the repo builds with.
-FROM rust:1.93-slim-bookworm AS builder
+#
+# TRIXIE, not bookworm, since KAIROS-T-0189. `ort` links a prebuilt ONNX runtime
+# built against libstdc++ 13 or newer, and Debian 12 ships GCC 12 — the build
+# fails with `undefined reference to std::__cxx11::basic_string::_M_replace_cold`,
+# a symbol that simply does not exist in the older runtime. Verified directly:
+# the same crate links in 43 s on trixie (GCC 14.2) and not at all on bookworm.
+FROM rust:1.93-slim-trixie AS builder
 
 # Native build dependencies:
 #   - libpq-dev + pkg-config: diesel's `postgres` feature links libpq (C).
@@ -70,6 +76,8 @@ RUN rustup target add wasm32-unknown-unknown
 WORKDIR /build/crates/kairos-web
 RUN trunk build --release
 WORKDIR /build
+# The C++ link ordering `ort` needs lives in `.cargo/config.toml`, so it applies
+# here, in CI and to a developer on Linux alike rather than only to this build.
 RUN cargo build --release -p kairos-server --features embed-web \
     && strip target/release/kairos-server
 
@@ -88,12 +96,16 @@ RUN cargo run --release -p kairos-embed --bin fetch-model -- /build/models
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: minimal Debian + libpq only
 # ---------------------------------------------------------------------------
-# debian:bookworm-slim (not distroless): the binary dynamically links libpq,
-# whose own transitive deps (libgssapi-krb5, libldap, libsasl2, ...) make a
-# hand-assembled distroless image fragile. bookworm-slim + libpq5 is the
-# smallest base that satisfies the linker cleanly and matches the builder's
-# libpq major version. Verdict verified with `ldd` post-build (see task doc).
-FROM debian:bookworm-slim AS runtime
+# debian:trixie-slim (not distroless): the binary dynamically links libpq, whose
+# own transitive deps (libgssapi-krb5, libldap, libsasl2, ...) make a
+# hand-assembled distroless image fragile. slim + libpq5 is the smallest base
+# that satisfies the linker cleanly and matches the builder's libpq major
+# version.
+#
+# It must match the BUILDER's Debian release, not merely be recent: the binary
+# now carries a C++ runtime (KAIROS-T-0189) and an older libstdc++ here would
+# fail at startup rather than at build, which is the worse of the two.
+FROM debian:trixie-slim AS runtime
 
 # Native runtime dependencies — two of them since KAIROS-T-0189:
 #   - libpq5: sync diesel migrations + the blocking pool link libpq. (The async

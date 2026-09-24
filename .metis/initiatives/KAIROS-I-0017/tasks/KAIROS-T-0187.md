@@ -4,14 +4,14 @@ level: task
 title: "pgvector: the extension, the tenant migration, and the two embedding tables"
 short_code: "KAIROS-T-0187"
 created_at: 2026-09-24T02:27:46.765540+00:00
-updated_at: 2026-09-24T10:20:08.000233+00:00
+updated_at: 2026-09-24T10:36:52.535495+00:00
 parent: KAIROS-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -90,6 +90,8 @@ promised to work. It has to be re-run, not just edited.
   log loudly at startup, refuse embedding work, serve everything else.
 - Existing tenants get the migration on boot like any other; the tables arrive
   empty and T-0190 fills them.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,14 +4,14 @@ level: task
 title: "Embedding providers: local by default, OpenAI-compatible as BYO, fake for tests"
 short_code: "KAIROS-T-0189"
 created_at: 2026-09-24T02:27:52.746086+00:00
-updated_at: 2026-09-24T02:27:52.746086+00:00
+updated_at: 2026-09-24T10:37:17.768488+00:00
 parent: KAIROS-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -80,6 +80,8 @@ parallel with [[KAIROS-T-0187]].
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
 - [ ] An embedding trait in `kairos-core` with local, OpenAI-compatible and
       deterministic-fake implementations
 - [ ] Local is the default and needs no configuration
@@ -130,7 +132,72 @@ rather than a single transaction.
 Throughput is also the argument for embedding off the write path: 22 ms per text
 is far too long to sit inside `create_item`.
 
-### Still to decide in this task
+### 2026-09-24 — the model is chosen, and it was chosen on this corpus
+
+Four candidates, measured on the 4,927-document corpus from [[KAIROS-T-0190]]
+with ground truth taken from the corpus itself rather than from a published
+benchmark: **same-project pairs whose titles are identical but whose short codes
+differ are duplicate tickets by construction**. There are 25 such pairs across
+the nineteen repositories.
+
+The metric is **recall@1** — for each duplicate ticket, is its twin the single
+nearest neighbour within its own project? That is the question this product
+actually asks, measured directly.
+
+| model | dim | texts/s | on disk | recall@1 | mean cos of the true pairs |
+|---|---|---|---|---|---|
+| `BGESmallENV15` | 384 | 46 | 128 MB | 82% | 0.959 |
+| **`BGESmallENV15Q`** | **384** | **42** | **65 MB** | **82%** | **0.959** |
+| `BGEBaseENV15Q` | 768 | 12 | 210 MB | 84% | 0.950 |
+| `AllMiniLML6V2Q` | 384 | — | 23 MB | rejected, see below | — |
+
+**`BGESmallENV15Q` is the choice.** Static quantization halves the model — 128 MB
+to 65 MB — for **no measured loss at all**: identical recall@1, identical mean
+similarity on the true pairs, within 10% on throughput.
+
+`BGEBaseENV15Q` is not worth it. Two points of recall is **one pair** out of the
+50 trials (25 pairs, both directions), which is noise at this sample size, and it
+costs 3.2x the size and 3.5x the throughput. If a later measurement on a larger
+ground-truth set shows a real gap, the provider is pluggable and this is a
+configuration change.
+
+### Rejecting the 23 MB model, and correcting myself about why
+
+`AllMiniLML6V2Q` is a third the size of the chosen model, and fastembed refuses to
+batch it: *"the dynamic quantization process adjusting the data range to fit each
+batch, making the embeddings incompatible across batches."* My first reading was
+that this is a **throughput** problem, and I was wrong — measured unbatched, it
+runs at over 1,000 short texts per second, faster than the chosen model batched.
+
+The real problem is **reproducibility**, and it is worse than a throughput cliff.
+Embedding the same text alongside different companion texts:
+
+| model | same text, different company | alone vs in company |
+|---|---|---|
+| `AllMiniLML6V2Q` (dynamic) | cos **0.992455** | cos **0.991010** |
+| `BGESmallENV15Q` (static) | cos 0.999999 | cos 1.000000 |
+| `BGESmallENV15` (none) | cos 1.000000 | cos 1.000000 |
+
+A dynamically quantized model does not return the same vector for the same text.
+That is fatal here rather than merely untidy, because [[KAIROS-T-0187]]'s
+`content_hash` exists to let unchanged text be skipped: if re-embedding
+unchanged text yields a different vector, the hash is telling the truth while the
+store disagrees with itself, staleness becomes undetectable, and identical
+queries return different orders on different days.
+
+Rejected on correctness, therefore, not on speed. The number that makes it
+concrete: its self-reproduction error is 0.008, against a **0.12** gap between
+related and unrelated pairs — so the noise is a substantial fraction of the whole
+signal this initiative is built on.
+
+### Still to build in this task
+
+The trait and the three providers, and the model has to be **baked into the
+image** rather than fetched from HuggingFace at first use — the finding from the
+earlier spike, unchanged and still the blocker for air-gapped deployments.
+
+### Superseded: the model question as it stood before the measurement
+
 
 Whether 384 dimensions is the right trade. bge-small is the smallest credible
 choice; bge-base is 768 and roughly triple the size. The measurement below

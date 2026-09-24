@@ -4,7 +4,7 @@ Kairos is Flight Levels work management: strategy, initiatives and delivery
 on boards that connect to each other, with an agent-facing surface so machines
 can do the work alongside people. It ships as one stateless binary serving the
 GUI, the REST API, MCP and SCIM — against a PostgreSQL and an OIDC issuer you
-bring.
+bring. Kairos is Apache-2.0 licensed.
 
 ## Where to go
 
@@ -50,3 +50,8 @@ That is a deliberate boundary rather than a gap: this book serves operators,
 the people doing the work, and agent authors. "Contributor" is an audience
 rather than a kind of documentation, and those files are more useful next to
 the code than collected here.
+
+## Licence
+
+Apache License 2.0. `LICENSE` and `NOTICE` are at the root of the repository,
+in every CLI tarball, and inside the image at `/usr/share/doc/kairos/`.

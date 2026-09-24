@@ -363,3 +363,79 @@ which is how the failure above was caught rather than repeated.
 So the single outstanding item for this task is unchanged: build the image and
 confirm `/var/lib/kairos/models` is populated and the server starts with
 downloading disabled.
+
+### 2026-09-24 — the image builds, and the model really is baked into it
+
+The outstanding claim is now evidence. It took **four** builds, and the first
+three each failed on a different real defect hidden behind the one before it.
+
+#### Three defects, in the order they surfaced
+
+1. **`cannot find -lstdc++`.** The ONNX runtime under `fastembed` is C++ and
+   `rust:slim` carries `cc` but not `g++`. Adding this crate changed the image's
+   native *build* dependencies and nothing said so until the linker did.
+
+2. **Undefined references to `std::__cxx11::basic_string`.** `ort` does ask for
+   the C++ runtime, but static linking is order-sensitive: `-lstdc++` passed
+   before the archive that needs it is discarded. `-C link-arg=-lstdc++` appends
+   it at the end.
+
+   That fix went into **`.cargo/config.toml`, not the Dockerfile**, because CI
+   compiles the server on `ubuntu-latest` and would have hit exactly the same
+   wall. One mechanism for the image, CI and a developer on Linux, rather than
+   three places to remember.
+
+3. **`undefined reference to _M_replace_cold`.** A symbol that only exists in
+   libstdc++ 13 and later: `ort`'s prebuilt ONNX runtime is built against it and
+   Debian 12 ships GCC 12. **Verified rather than guessed** — the same crate
+   links in 43 seconds inside `rust:1.93-slim-trixie` (GCC 14.2) and not at all
+   on bookworm — so both stages moved to **trixie**.
+
+   The runtime stage has to match the builder's Debian release rather than merely
+   be recent, because the binary now carries a C++ runtime and an older
+   libstdc++ there would fail at **startup**, in production, rather than at build.
+   `libstdc++6` is installed explicitly for the same reason: the comment claiming
+   `libpq5` was the only native runtime dependency stopped being true the moment
+   a C++ runtime entered the binary.
+
+#### What the finished image actually does
+
+| | |
+|---|---|
+| image size | **369 MB** |
+| `/var/lib/kairos/models` | **65 MB**, owned by the `kairos` user |
+| `KAIROS_EMBED_CACHE` | `/var/lib/kairos/models` |
+| downloading | **disabled** (`LocalConfig` default) |
+
+And end to end, using nothing but the image and a real pgvector database:
+
+```
+$ docker run … kairos:t0189-verify seed-demo
+seeded tenant 'demo' … 20 short codes
+
+$ docker run … kairos:t0189-verify embed-backfill
+backfilling with local/bge-small-en-v1.5-q (384d)
+demo: 20 item(s) updated, 41 text(s) embedded in 0.4s — 20/20 items now current
+
+$ docker run … kairos:t0189-verify embed-backfill
+demo: 0 item(s) updated, 0 text(s) embedded in 0.0s — 20/20 items now current
+```
+
+That is the whole claim proven in one line: **a provider that reports ready with
+downloading disabled can only have read the baked files.** Air-gapped operation
+is not asserted, it is the only way that output can exist.
+
+The image's own migrations also applied cleanly against pgvector on the way,
+including [[KAIROS-T-0187]]'s `20260924000000`.
+
+#### What is still not verified
+
+`serve` itself was not exercised from the image, for a reason that is not a
+product defect: the dev Dex advertises its issuer as `http://localhost:41558/dex`,
+so a container fetching the discovery document is told to fetch JWKS from its own
+loopback. That is a dev-fixture limitation. The Kubernetes tutorial
+([[KAIROS-T-0187]]) already covers `serve` from a published image against a
+reachable issuer.
+
+**amd64** is checked separately — see below — because this machine is arm64 and
+the release workflow builds each architecture on its own native runner.

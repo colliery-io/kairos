@@ -13,5 +13,6 @@ pub mod items;
 pub mod primary;
 pub mod repositories;
 pub mod retention;
+pub mod retrieval;
 pub mod search;
 pub mod short_code;

@@ -4,14 +4,14 @@ level: task
 title: "The retrieval surface: hybrid fusion, graph distance, and typed proposals"
 short_code: "KAIROS-T-0191"
 created_at: 2026-09-24T02:27:58.779654+00:00
-updated_at: 2026-09-24T02:27:58.779654+00:00
+updated_at: 2026-09-24T20:58:49.962207+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0186, KAIROS-T-0190]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -159,29 +159,157 @@ is two primary vectors agreeing.
 
 ## Acceptance Criteria
 
-- [ ] An MCP tool and a REST endpoint that take an item and return related-work
+## Acceptance Criteria
+
+- [x] An MCP tool and a REST endpoint that take an item and return related-work
       proposals
-- [ ] Lexical and vector results fused by rank position, not by score arithmetic
-- [ ] With no vectors, a stale model or an unreachable provider, the surface
+- [x] Lexical and vector results fused by rank position, not by score arithmetic
+- [x] With no vectors, a stale model or an unreachable provider, the surface
       answers lexically and states that it did
-- [ ] Claims are typed: implicit dependency, near-duplicate, prior art
-- [ ] Every result carries a score and a *why* naming the matched text and its
+- [x] Claims are typed: implicit dependency, near-duplicate, prior art
+- [x] Every result carries a score and a *why* naming the matched text and its
       literal heading
-- [ ] Results are bounded to a handful, and the wording is proposal-shaped
+- [x] Results are bounded to a handful, and the wording is proposal-shaped
       throughout
-- [ ] Repository, board and parent act as weights, never filters
-- [ ] Put-away work is reachable as prior art, and the asymmetry with
+- [x] Repository, board and parent act as weights, never filters
+- [x] Put-away work is reachable as prior art, and the asymmetry with
       [[KAIROS-A-0020]] is documented
-- [ ] Sparse-graph honesty: "no path" is qualified in the *why*
-- [ ] Authorisation reuses the existing path, with a test that a caller cannot see
+- [x] Sparse-graph honesty: "no path" is qualified in the *why*
+- [x] Authorisation reuses the existing path, with a test that a caller cannot see
       what they could not fetch
-- [ ] [[KAIROS-A-0007]]'s endpoint behaviour is unchanged
-- [ ] No absolute cosine threshold appears anywhere in the implementation, and a
+- [x] [[KAIROS-A-0007]]'s endpoint behaviour is unchanged
+- [x] No absolute cosine threshold appears anywhere in the implementation, and a
       test would fail if one were reintroduced
-- [ ] A claim is never supported by two primary vectors alone when both sides are
+- [x] A claim is never supported by two primary vectors alone when both sides are
       long documents
-- [ ] `angreal test` green
+- [x] `angreal test` green
 
 ## Status Updates
 
 *To be added during implementation*
+
+## Status Updates
+
+### 2026-09-24 — done: the surface the initiative is named for
+
+An agent asks *"what is related to this?"* and gets a handful of typed, cited
+proposals. `kairos_core::retrieval` decides what to claim, `kairos_db` runs the
+queries, and both an MCP tool and a REST endpoint serve it.
+
+### Fused by rank, and there is still no threshold
+
+Reciprocal-rank fusion at `k = 60`. Lexical relevance is `ts_rank_cd`, vector
+similarity is cosine; they share no scale, so any weighted sum of them is a
+fiction dressed as a number. Position is comparable even when magnitude is not.
+
+Nothing anywhere compares a similarity to a constant, and a test enforces that
+structurally: a candidate carrying only a *rank* — no similarity value at all —
+still produces a full proposal. There is nothing for a threshold to be written
+against.
+
+### A calibration bug that proves the weights are weights
+
+The task says repository and board are **weights, not filters**. The first
+implementation used `repository_weight = 0.005` and immediately failed its own
+test: a fifth-place hit in the same repository outranked a **first**-place hit
+elsewhere.
+
+At `k = 60` the gap between adjacent ranks is `1/60 − 1/61 ≈ 0.00027`. A weight
+five times that size is not breaking ties; it is filtering while calling itself a
+weight — and it would have hidden exactly the cross-team duplicate that
+[[KAIROS-A-0019]] says is the most valuable hit there is. Now `0.0001`, with a
+test that pins the relationship rather than the number: *the prior must be
+smaller than the gap between adjacent ranks.*
+
+### What the graph is asked, and what is claimed
+
+Three facts, not a path length: a direct edge, a shared parent, same
+repository/board. `item_relationships` is sparse — 18 rows in the seeded tenant —
+so "no path at depth 4" would sound like a finding and mean almost nothing.
+Checking only what the claims rest on is the version that can be described
+honestly, and it is also why [[KAIROS-A-0021]] can keep deferring AGE: nothing
+here needs a graph engine.
+
+Claims come from the **disagreement**: finished or put away → prior art; shares a
+parent → possible duplicate; otherwise → possible dependency. Prior art wins when
+both apply, because "someone already did this" is the more specific and less
+reachable thing to say.
+
+Items already joined by an edge are **dropped**. There is no edge to propose and
+no discovery to report, and spending one of five slots restating a link the
+caller can already see is the opposite of useful.
+
+### Reading the real output changed the design
+
+With the real model against the seeded tenant, the first version repeated the
+sparse-graph caveat on **every** proposal — five near-identical sentences, each
+burying the clause that actually differed.
+
+The caveat now belongs to the response, said once, and only when some proposal
+rests on it: a response made entirely of prior art carries no disclaimer about a
+claim it never made. Per-proposal text went from
+
+> …and no edge joins them and they share no parent — though the graph is sparse,
+> so that is weak evidence rather than proof.
+
+to `…and nothing in the graph joins them.`
+
+That is not a cosmetic change. Rule 6 is about what an agent will actually act
+on, and an agent skims.
+
+### The output, on the seeded tenant, with the real model
+
+```
+=== DEMO-T-0004 (Ranked across text and meaning.) ===
+  [possible duplicate]  DEMO-T-0003 — Provision tenant on first login
+      Reads as being about the same thing, and it hangs off the same parent.
+  [possible dependency] DEMO-D-0002 — Runbook: password-less auth rollout
+      Reads as being about the same thing (under "Checks"), and nothing in the
+      graph joins them.
+```
+
+A runbook found for a task, cited by the section it matched; a sibling correctly
+called a duplicate rather than a dependency. Headings are echoed verbatim — real
+ones, "Checks" and "Decision" — never recognised.
+
+### Degradation is in the contract, not the error path
+
+`Sources` travels with every answer. With no usable vectors the surface answers
+from text alone, sets `vector: false`, and says so in the note — so a caller can
+tell a thin answer from a complete one. Tested by asking **before** anything is
+embedded and asserting a non-empty answer that admits what it is.
+
+MCP with embeddings disabled returns text saying so and pointing at `search`; the
+REST endpoint returns **503**, not 404 and not an empty list — an empty list
+would read as "nothing is related", which is a wrong answer wearing a right one's
+clothes.
+
+### A hole found by testing prior art
+
+The first run of the integration test embedded four items, not five. Archived
+items were excluded from `pending_primary`, so an item archived **before** it was
+ever embedded would never get a vector — and that item, the one somebody already
+finished, is precisely the one prior art exists to find.
+
+Fixed: the backfill embeds archived items too, and `counts` counts them, so
+*n/n current* stays true. They are written once and never change.
+
+### Surfaces
+
+- **MCP `related_work`** — the one that matters. Its description tells an agent
+  to ask *before starting a ticket and before filing one*, and every rendered line
+  says "possible" or "prior art". Nothing says "blocks" or "duplicates".
+- **`GET /api/items/{short_code}/related`** — `GET`, unlike `/api/search`'s
+  `POST`: one identifier, no body, cacheable and linkable.
+
+[[KAIROS-A-0007]] is untouched. Its at-least-one rule, ≤5-query bound and
+deterministic sort are exactly as they were; this is a separate surface beside it,
+as the task required.
+
+The MCP surface assertion in `tests/mcp.rs` had to gain `related_work` — the
+drift gate doing its job.
+
+### Gates
+
+fmt and clippy clean; `angreal test unit`; `angreal test integration` **46
+targets**; OpenAPI regenerated and the drift check current.

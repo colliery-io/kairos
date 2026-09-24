@@ -120,6 +120,17 @@ pub struct GetHistoryParams {
     pub version: Option<i32>,
 }
 
+/// Parameters for `related_work` (KAIROS-T-0191).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct RelatedWorkParams {
+    /// The item to find related work for, by short code.
+    pub short_code: String,
+    /// How many proposals to return (default 5, max 10). Deliberately small:
+    /// forty related items is a research project, not an answer.
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct SearchParams {
@@ -908,6 +919,38 @@ impl KairosMcp {
                 ));
             }
             Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Find work related to an item — possible duplicates, prior art in finished or put-away work, and dependencies nobody drew. Returns a HANDFUL of PROPOSALS, each with what is claimed and why, never assertions: check before acting on one. Ranked across text and meaning together; a deployment with no vectors answers from text alone and says so. Ask this before starting a ticket, and before filing one."
+    )]
+    pub async fn related_work(
+        &self,
+        Parameters(params): Parameters<RelatedWorkParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (_, tenant) = Self::caller(&context)?;
+        let Some(service) = self.state.embedding.clone() else {
+            // Not an error: a deployment may have embeddings switched off
+            // (KAIROS-A-0021 rule 7). Say what happened and what still works.
+            return Ok(tool_text(
+                "Related-work retrieval is not enabled on this deployment. \
+                 Ordinary `search` still works."
+                    .to_string(),
+            ));
+        };
+        let mut config = kairos_core::retrieval::RetrievalConfig::default();
+        if let Some(limit) = params.limit {
+            config.limit = limit.clamp(1, 10);
+        }
+        let short_code = params.short_code.clone();
+        self.run_tool(&tenant, move |conn| {
+            let found = service
+                .related_work(conn, &short_code, &config)
+                .map_err(|e| ApiError::not_found(e.to_string()))?;
+            Ok(render_related_work(&found))
         })
         .await
     }
@@ -2718,6 +2761,36 @@ fn enum_field<T: serde::de::DeserializeOwned>(
 
 /// Convert the tool input into the typed `kairos_core::search` request and
 /// validate it — exactly the conversions the REST endpoint applies.
+/// Render related-work proposals for an agent (KAIROS-T-0191).
+///
+/// The wording carries rule 6 as much as the documentation does. Every line says
+/// "possible" or "prior art"; nothing says "blocks" or "duplicates". An agent
+/// told flatly that something blocks it will do wrong work confidently, and at
+/// the measured precision — roughly half at the top of the distribution — that
+/// is the likelier outcome of a confident verb.
+fn render_related_work(found: &crate::embedding::RelatedWork) -> String {
+    let mut out = format!("# Possibly related to {}\n\n", found.short_code);
+    if found.proposals.is_empty() {
+        out.push_str("Nothing stood out. ");
+        out.push_str(found.sources.note());
+        out.push_str("\n\nThat is not proof there is nothing — it is one search.\n");
+        return out;
+    }
+    out.push_str(found.sources.note());
+    if let Some(caveat) = kairos_core::retrieval::graph_caveat(&found.proposals) {
+        out.push(' ');
+        out.push_str(caveat);
+    }
+    out.push_str("\n\nThese are PROPOSALS, not findings. Check one before acting on it.\n\n");
+    for p in &found.proposals {
+        out.push_str(&format!(
+            "- **{}** — {} ({})\n  {}\n",
+            p.short_code, p.title, p.claim, p.why
+        ));
+    }
+    out
+}
+
 fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError> {
     let filter = params
         .filter

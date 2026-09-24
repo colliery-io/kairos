@@ -101,6 +101,7 @@ use crate::app::AppState;
         crate::api::cascade::cascade_preview,
         // Unified search (KAIROS-T-0021).
         crate::api::search::search,
+        crate::api::search::related,
         // Relationships / metadata / definitions / templates / history /
         // activity (KAIROS-T-0020).
         crate::api::meta::relationships::get_relationships,

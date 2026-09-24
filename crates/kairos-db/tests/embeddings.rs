@@ -496,8 +496,9 @@ fn embedding_store_lifecycle() {
     );
     let c = counts(&mut conn, &m).expect("counts after archiving");
     assert_eq!(
-        c.items, 2,
-        "but the archived item is not counted as live work still to do"
+        c.items, 3,
+        "and it is still counted: archived items carry vectors too, because \
+         prior art in finished work is one of the claims retrieval makes"
     );
 
     // ---- forgetting an item removes both tables ---------------------------

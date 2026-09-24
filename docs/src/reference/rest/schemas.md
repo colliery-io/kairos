@@ -883,6 +883,31 @@ One hydrated neighbor of an item in the relationship graph.
 | `short_code` | `string` | yes | The neighbor's short code. |
 | `title` | `string` | yes | The neighbor's title. |
 
+## RelatedProposal
+
+One related-work **proposal**: a claim, its evidence, and nothing asserted. There is no similarity here, deliberately. `score` is a fused rank and is comparable **within one response only**; a caller comparing it to a constant would be reading a number that has no fixed meaning. The measurements behind that are in `kairos_core::retrieval`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `claim` | `string` | yes | `implicit_dependency` | `near_duplicate` | `prior_art`. |
+| `entity_type` | `string` | yes | Its entity type. |
+| `score` | `number` | yes | Fused rank score. Comparable within this response and nowhere else. |
+| `short_code` | `string` | yes | The proposed item's short code. |
+| `title` | `string` | yes | Its title. |
+| `why` | `string` | yes | Why, in a sentence a person can disagree with. |
+
+## RelatedWorkResponse
+
+The answer to "what is related to this?".
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `lexical` | `boolean` | yes | Whether text search contributed. |
+| `note` | `string` | yes | A sentence saying which of the two ran, for a caller that would rather read than branch. |
+| `proposals` | array of [`RelatedProposal`](schemas.md#relatedproposal) | yes | Bounded, best first. Possibly empty — which is one search coming up short, not proof that nothing is related. |
+| `short_code` | `string` | yes | The item asked about. |
+| `vector` | `boolean` | yes | Whether vector search contributed. False means a **degraded** answer: no embeddings yet, a model change, an unreachable provider. The answer is still useful; it will have missed work phrased differently. |
+
 ## Relationship
 
 A relationship edge, as returned by `POST /api/relationships`.

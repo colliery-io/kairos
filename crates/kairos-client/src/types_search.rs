@@ -271,3 +271,48 @@ mod tests {
         assert_eq!(back, response);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Related work (KAIROS-A-0021 rules 5-7, KAIROS-T-0191)
+// ---------------------------------------------------------------------------
+
+/// One related-work **proposal**: a claim, its evidence, and nothing asserted.
+///
+/// There is no similarity here, deliberately. `score` is a fused rank and is
+/// comparable **within one response only**; a caller comparing it to a constant
+/// would be reading a number that has no fixed meaning. The measurements behind
+/// that are in `kairos_core::retrieval`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RelatedProposal {
+    /// The proposed item's short code.
+    pub short_code: String,
+    /// Its title.
+    pub title: String,
+    /// Its entity type.
+    pub entity_type: String,
+    /// `implicit_dependency` | `near_duplicate` | `prior_art`.
+    pub claim: String,
+    /// Fused rank score. Comparable within this response and nowhere else.
+    pub score: f32,
+    /// Why, in a sentence a person can disagree with.
+    pub why: String,
+}
+
+/// The answer to "what is related to this?".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RelatedWorkResponse {
+    /// The item asked about.
+    pub short_code: String,
+    /// Bounded, best first. Possibly empty — which is one search coming up
+    /// short, not proof that nothing is related.
+    pub proposals: Vec<RelatedProposal>,
+    /// Whether text search contributed.
+    pub lexical: bool,
+    /// Whether vector search contributed. False means a **degraded** answer:
+    /// no embeddings yet, a model change, an unreachable provider. The answer is
+    /// still useful; it will have missed work phrased differently.
+    pub vector: bool,
+    /// A sentence saying which of the two ran, for a caller that would rather
+    /// read than branch.
+    pub note: String,
+}

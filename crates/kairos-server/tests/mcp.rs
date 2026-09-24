@@ -525,6 +525,8 @@ async fn mcp_endpoint_against_live_stack() {
         // KAIROS-T-0107 (A-0019): the repository directory.
         "list_repositories",
         "get_repository",
+        // KAIROS-T-0191 (A-0021 rules 5-7): related work, as proposals.
+        "related_work",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");

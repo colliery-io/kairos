@@ -4,14 +4,14 @@ level: task
 title: "A disableable bundled Postgres in the chart, and the A-0016 amendment"
 short_code: "KAIROS-T-0188"
 created_at: 2026-09-24T02:27:49.817246+00:00
-updated_at: 2026-09-24T20:37:37.733480+00:00
+updated_at: 2026-09-24T20:58:44.581817+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0187]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -86,6 +86,8 @@ promise to satisfy it.
   external one it is already using. Existing releases set `database.url`, so the
   chart should treat an explicit `database.url` as evidence the bundle is not
   wanted and fail loudly if both are set, rather than quietly preferring one.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

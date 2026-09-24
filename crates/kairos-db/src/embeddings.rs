@@ -53,6 +53,9 @@ pub enum EmbeddingError {
         /// What the caller said it was.
         declared: usize,
     },
+    /// No item carries this short code.
+    #[error("no item with short code {0:?}")]
+    ItemNotFound(String),
     /// Stored rows disagree with the width the columns are being pinned to.
     #[error(
         "{rows} row(s) in {table} are not {wanted}-dimensional, so the column cannot be \
@@ -118,7 +121,8 @@ pub struct PendingItem {
 /// How far behind the vectors are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EmbeddingCounts {
-    /// Live items in the tenant.
+    /// Items in the tenant, archived ones included — they carry vectors too,
+    /// because prior art is one of the claims retrieval makes.
     pub items: i64,
     /// Items with a primary vector, whatever its freshness.
     pub embedded: i64,
@@ -178,6 +182,14 @@ fn check_dimension(vector: &[f32], declared: usize) -> Result<(), EmbeddingError
 ///
 /// Ordered by `short_code` so a resumable backfill walks the same sequence every
 /// run; `limit` bounds the page.
+///
+/// **Archived items are included.** Not an oversight: prior art in finished work
+/// is one of the three claims retrieval exists to make (KAIROS-T-0191), and
+/// KAIROS-A-0020 kept put-away work searchable precisely so it is possible. If
+/// this filtered on `deleted_at IS NULL`, an item archived before it was ever
+/// embedded would never get a vector — and *that* item, the one somebody already
+/// finished, is exactly the one worth finding. Archived rows are written once and
+/// then never change, so the cost is a single pass.
 pub fn pending_primary(
     conn: &mut PgConnection,
     model: &StoredModel,
@@ -206,7 +218,6 @@ pub fn pending_primary(
            ON rel.target_id = s.id AND rel.relationship = 'parent' \
          LEFT JOIN entity_directory p \
            ON p.id = rel.source_id AND p.deleted_at IS NULL \
-         WHERE s.deleted_at IS NULL \
          ORDER BY s.short_code \
          LIMIT $4",
     )
@@ -466,12 +477,12 @@ pub fn counts(
     }
     let row = sql_query(
         "SELECT \
-            (SELECT count(*) FROM searchable_items WHERE deleted_at IS NULL) AS items, \
+            (SELECT count(*) FROM searchable_items) AS items, \
             (SELECT count(*) FROM item_embeddings e \
-              JOIN searchable_items s ON s.id = e.item_id AND s.deleted_at IS NULL \
+              JOIN searchable_items s ON s.id = e.item_id \
               WHERE e.provider = $1 AND e.model = $2 AND e.dimension = $3) AS embedded, \
             (SELECT count(*) FROM item_embeddings e \
-              JOIN searchable_items s ON s.id = e.item_id AND s.deleted_at IS NULL \
+              JOIN searchable_items s ON s.id = e.item_id \
               WHERE e.provider <> $1 OR e.model <> $2 OR e.dimension <> $3) AS wrong_model",
     )
     .bind::<Text, _>(&model.provider)
@@ -677,4 +688,234 @@ fn is_pinned(
 struct CountRow {
     #[diesel(sql_type = BigInt)]
     count: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval (KAIROS-T-0191)
+// ---------------------------------------------------------------------------
+
+/// One neighbour of an item, as the database sees it.
+///
+/// Deliberately carries **ranks and facts, not similarities**. The fusion in
+/// `kairos_core::retrieval` works on position, and handing it a cosine would
+/// invite someone to compare one to a constant — which the measurements say
+/// cannot work.
+#[derive(Debug, Clone, QueryableByName)]
+pub struct Neighbour {
+    /// The item's id.
+    #[diesel(sql_type = SqlUuid)]
+    pub id: Uuid,
+    /// Its short code.
+    #[diesel(sql_type = Text)]
+    pub short_code: String,
+    /// Its title.
+    #[diesel(sql_type = Text)]
+    pub title: String,
+    /// Its entity type.
+    #[diesel(sql_type = Text)]
+    pub entity_type: String,
+    /// Whether it is soft-deleted (put away).
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    pub archived: bool,
+    /// The literal heading of the best-matching chunk, when the match came from
+    /// one. Echoed for citation; never interpreted.
+    #[diesel(sql_type = Nullable<Text>)]
+    pub heading: Option<String>,
+}
+
+/// The nearest items by vector, excluding the item itself.
+///
+/// Searches **chunks as well as primary vectors**: a document whose opening is
+/// unremarkable can still have one section that is exactly the thing, and the
+/// chunk is also what lets the answer cite where it matched. Each item appears
+/// once, at its best-matching chunk.
+///
+/// Archived items are included on purpose. Prior art in finished work is one of
+/// the three claims retrieval exists to make, and KAIROS-A-0020 kept put-away
+/// work searchable precisely so this is possible.
+///
+/// Returns items in rank order. No threshold — see
+/// `kairos_core::retrieval` for why there cannot be one.
+pub fn vector_neighbours(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    model: &StoredModel,
+    limit: i64,
+) -> Result<Vec<Neighbour>, EmbeddingError> {
+    let rows = sql_query(
+        "WITH probe AS ( \
+             SELECT embedding FROM item_embeddings \
+              WHERE item_id = $1 AND provider = $2 AND model = $3 AND dimension = $4 \
+         ), \
+         hits AS ( \
+             SELECT c.item_id, c.heading, (c.embedding <=> (SELECT embedding FROM probe)) AS d, \
+                    row_number() OVER ( \
+                        PARTITION BY c.item_id \
+                        ORDER BY c.embedding <=> (SELECT embedding FROM probe) \
+                    ) AS rn \
+               FROM item_chunks c \
+              WHERE c.item_id <> $1 \
+                AND c.provider = $2 AND c.model = $3 AND c.dimension = $4 \
+                AND EXISTS (SELECT 1 FROM probe) \
+         ) \
+         SELECT d.id, d.short_code, d.entity_type, d.title, \
+                (d.deleted_at IS NOT NULL) AS archived, h.heading \
+           FROM hits h \
+           JOIN entity_directory d ON d.id = h.item_id \
+          WHERE h.rn = 1 \
+          ORDER BY h.d \
+          LIMIT $5",
+    )
+    .bind::<SqlUuid, _>(item_id)
+    .bind::<Text, _>(&model.provider)
+    .bind::<Text, _>(&model.model)
+    .bind::<Integer, _>(model.dimension as i32)
+    .bind::<BigInt, _>(limit)
+    .load::<Neighbour>(conn)?;
+    Ok(rows)
+}
+
+/// The nearest items by text, excluding the item itself.
+///
+/// The fallback everything degrades to (KAIROS-A-0021 rule 7), and half the
+/// hybrid when it does not. Uses the same weighted `tsv` the unified search
+/// ranks on (KAIROS-T-0186), so a title match outranks a passing mention here
+/// too.
+pub fn lexical_neighbours(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<Neighbour>, EmbeddingError> {
+    let rows = sql_query(
+        "SELECT s.id, s.short_code, s.entity_type, s.title, \
+                (s.deleted_at IS NOT NULL) AS archived, NULL::text AS heading \
+           FROM searchable_items s \
+          WHERE s.id <> $1 \
+            AND s.tsv @@ websearch_to_tsquery('english', $2) \
+          ORDER BY ts_rank_cd(s.tsv, websearch_to_tsquery('english', $2)) DESC, s.short_code \
+          LIMIT $3",
+    )
+    .bind::<SqlUuid, _>(item_id)
+    .bind::<Text, _>(query)
+    .bind::<BigInt, _>(limit)
+    .load::<Neighbour>(conn)?;
+    Ok(rows)
+}
+
+/// What the graph says about each of `others`, relative to `item_id`.
+///
+/// Three facts, not a path length: a direct edge, a shared parent, the same
+/// repository or board. `item_relationships` is sparse — 18 rows in the seeded
+/// tenant — so a depth-bounded traversal would report "no path at depth 4" and
+/// sound like a finding while meaning almost nothing. Checking only what the
+/// claims actually rest on is the version that can be described honestly.
+///
+/// This is also why KAIROS-A-0021 defers Apache AGE: nothing here needs a graph
+/// engine.
+pub fn graph_facts(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    others: &[Uuid],
+) -> Result<Vec<GraphFacts>, EmbeddingError> {
+    if others.is_empty() {
+        return Ok(Vec::new());
+    }
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = SqlUuid)]
+        other: Uuid,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        directly_linked: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        shared_parent: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        same_repository: bool,
+        #[diesel(sql_type = diesel::sql_types::Bool)]
+        same_board: bool,
+    }
+    let rows = sql_query(
+        "WITH me AS ( \
+            SELECT t.repository_id, d.board_id \
+              FROM entity_directory d \
+              LEFT JOIN tasks t ON t.id = d.id \
+             WHERE d.id = $1 \
+         ), \
+         my_parents AS ( \
+            SELECT source_id FROM item_relationships \
+             WHERE target_id = $1 AND relationship = 'parent' \
+         ) \
+         SELECT d.id AS other, \
+                EXISTS ( \
+                    SELECT 1 FROM item_relationships r \
+                     WHERE (r.source_id = $1 AND r.target_id = d.id) \
+                        OR (r.source_id = d.id AND r.target_id = $1) \
+                ) AS directly_linked, \
+                EXISTS ( \
+                    SELECT 1 FROM item_relationships r \
+                     WHERE r.target_id = d.id AND r.relationship = 'parent' \
+                       AND r.source_id IN (SELECT source_id FROM my_parents) \
+                ) AS shared_parent, \
+                COALESCE(t.repository_id IS NOT NULL \
+                         AND t.repository_id = (SELECT repository_id FROM me), false) \
+                    AS same_repository, \
+                COALESCE(d.board_id IS NOT NULL \
+                         AND d.board_id = (SELECT board_id FROM me), false) AS same_board \
+           FROM entity_directory d \
+           LEFT JOIN tasks t ON t.id = d.id \
+          WHERE d.id = ANY($2)",
+    )
+    .bind::<SqlUuid, _>(item_id)
+    .bind::<diesel::sql_types::Array<SqlUuid>, _>(others)
+    .load::<Row>(conn)?;
+    Ok(rows
+        .into_iter()
+        .map(|r| GraphFacts {
+            item_id: r.other,
+            directly_linked: r.directly_linked,
+            shared_parent: r.shared_parent,
+            same_repository: r.same_repository,
+            same_board: r.same_board,
+        })
+        .collect())
+}
+
+/// What the graph knows about one candidate, relative to the item asked about.
+///
+/// Three facts and two priors, not a path length — see [`graph_facts`] for why
+/// a traversal would sound more informative than it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GraphFacts {
+    /// The candidate.
+    pub item_id: Uuid,
+    /// An edge joins them, in either direction.
+    pub directly_linked: bool,
+    /// They hang off the same parent.
+    pub shared_parent: bool,
+    /// Same repository (KAIROS-A-0019: a strong prior for real coupling).
+    pub same_repository: bool,
+    /// Same board.
+    pub same_board: bool,
+}
+
+/// Resolve a short code to the item it names, live or archived.
+///
+/// Archived is deliberate: asking what relates to a piece of finished work is a
+/// reasonable question, and refusing it would make the audit view a second-class
+/// one (KAIROS-A-0020).
+pub fn item_by_short_code(
+    conn: &mut PgConnection,
+    short_code: &str,
+) -> Result<Neighbour, EmbeddingError> {
+    sql_query(
+        "SELECT id, short_code, entity_type, title, \
+                (deleted_at IS NOT NULL) AS archived, NULL::text AS heading \
+           FROM entity_directory WHERE short_code = $1",
+    )
+    .bind::<Text, _>(short_code)
+    .get_result::<Neighbour>(conn)
+    .map_err(|e| match e {
+        diesel::result::Error::NotFound => EmbeddingError::ItemNotFound(short_code.to_string()),
+        other => EmbeddingError::Database(other),
+    })
 }

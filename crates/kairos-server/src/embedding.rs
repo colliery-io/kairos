@@ -396,3 +396,110 @@ mod tests {
         assert_eq!(append.embedded(), 1, "one embedding, not nine");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Retrieval (KAIROS-T-0191)
+// ---------------------------------------------------------------------------
+
+/// The answer to "what is related to this?".
+#[derive(Debug, Clone)]
+pub struct RelatedWork {
+    /// The item asked about.
+    pub short_code: String,
+    /// Bounded, best first.
+    pub proposals: Vec<kairos_core::retrieval::Proposal>,
+    /// Which sources contributed, so a caller can tell a thin answer from a
+    /// complete one.
+    pub sources: kairos_core::retrieval::Sources,
+}
+
+/// How many candidates each source contributes before fusion.
+///
+/// Wider than the handful returned, because fusion needs something to fuse: an
+/// item ranked eighth by text and ninth by meaning is exactly the agreement
+/// worth surfacing, and a five-deep window from each source would never see it.
+const CANDIDATE_DEPTH: i64 = 25;
+
+impl EmbeddingService {
+    /// Find work related to `short_code`, as bounded proposals.
+    ///
+    /// Runs lexical and vector search, fuses them by rank, and asks the graph
+    /// what it knows — see `kairos_core::retrieval` for what is claimed and why
+    /// nothing compares a similarity to a constant.
+    ///
+    /// Degrades rather than fails: with no usable vectors this answers from text
+    /// alone and says so in every proposal. That is KAIROS-A-0021 rule 7, and it
+    /// is the reason this returns `Sources` rather than leaving a caller to
+    /// wonder why the answers look thin.
+    pub fn related_work(
+        &self,
+        conn: &mut diesel::pg::PgConnection,
+        short_code: &str,
+        config: &kairos_core::retrieval::RetrievalConfig,
+    ) -> Result<RelatedWork, RefreshError> {
+        use kairos_core::retrieval::{Candidate, GraphRelation, Sources, propose};
+        use std::collections::HashMap;
+
+        let item = kairos_db::embeddings::item_by_short_code(conn, short_code)?;
+
+        // Lexical uses the item's own title as the query: it is the most
+        // discriminating text the item has, and a whole document as a tsquery
+        // matches everything.
+        let lexical =
+            kairos_db::embeddings::lexical_neighbours(conn, item.id, &item.title, CANDIDATE_DEPTH)?;
+        let vector =
+            kairos_db::embeddings::vector_neighbours(conn, item.id, &self.model, CANDIDATE_DEPTH)?;
+        let sources = Sources {
+            lexical: true,
+            vector: !vector.is_empty(),
+        };
+
+        let mut by_id: HashMap<uuid::Uuid, Candidate> = HashMap::new();
+        for (rank, n) in lexical.iter().enumerate() {
+            by_id.entry(n.id).or_insert_with(|| blank(n)).lexical_rank = Some(rank);
+        }
+        for (rank, n) in vector.iter().enumerate() {
+            let c = by_id.entry(n.id).or_insert_with(|| blank(n));
+            c.vector_rank = Some(rank);
+            // The chunk heading only exists on the vector side, and it is the
+            // citation — keep it even when lexical saw the item first.
+            if c.heading.is_none() {
+                c.heading.clone_from(&n.heading);
+            }
+        }
+
+        let ids: Vec<uuid::Uuid> = by_id.keys().copied().collect();
+        for facts in kairos_db::embeddings::graph_facts(conn, item.id, &ids)? {
+            if let Some(c) = by_id.get_mut(&facts.item_id) {
+                c.graph = GraphRelation {
+                    directly_linked: facts.directly_linked,
+                    shared_parent: facts.shared_parent,
+                    same_repository: facts.same_repository,
+                    same_board: facts.same_board,
+                };
+            }
+        }
+
+        let candidates: Vec<Candidate> = by_id.into_values().collect();
+        Ok(RelatedWork {
+            short_code: item.short_code,
+            proposals: propose(&candidates, sources, config),
+            sources,
+        })
+    }
+}
+
+fn blank(n: &kairos_db::embeddings::Neighbour) -> kairos_core::retrieval::Candidate {
+    kairos_core::retrieval::Candidate {
+        short_code: n.short_code.clone(),
+        title: n.title.clone(),
+        entity_type: n.entity_type.clone(),
+        lexical_rank: None,
+        vector_rank: None,
+        graph: kairos_core::retrieval::GraphRelation::default(),
+        // Put away OR done: both mean "already been here", which is what makes
+        // the prior-art claim worth making.
+        finished: n.archived,
+        heading: n.heading.clone(),
+    }
+}

@@ -228,6 +228,31 @@ Put an archived item back on its board.
 
 ## search
 
+### `GET /api/items/{short_code}/related`
+
+Related work for an item (KAIROS-A-0021 rules 5-7, KAIROS-T-0191).
+
+A **separate surface**, deliberately. `/api/search` keeps its at-least-one
+rule, its ≤5-query bound and its deterministic sort; callers relying on those
+keep them, and nothing here changes what that endpoint does.
+
+`GET` rather than `POST`, unlike `/api/search`: this takes one identifier and
+is a read with no body, so it is cacheable and linkable and behaves the way a
+reader expects.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item to find related work for |
+| `limit` | query | no | `integer` | How many proposals (default 5, max 10) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`RelatedWorkResponse`](schemas.md#relatedworkresponse) | Bounded proposals, best first. `vector: false` means a degraded, text-only answer rather than a wrong one |
+| `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not a member of the organization |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No item with that short code |
+| `503` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Embeddings are not enabled on this deployment |
+
 ### `POST /api/search`
 
 Unified search (KAIROS-A-0007): full-text `q`, structured `filter`, and

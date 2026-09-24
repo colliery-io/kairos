@@ -50,7 +50,104 @@ use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/api/search", post(search))
+    Router::new().route("/api/search", post(search)).route(
+        "/api/items/{short_code}/related",
+        axum::routing::get(related),
+    )
+}
+
+/// Related work for an item (KAIROS-A-0021 rules 5-7, KAIROS-T-0191).
+///
+/// A **separate surface**, deliberately. `/api/search` keeps its at-least-one
+/// rule, its ≤5-query bound and its deterministic sort; callers relying on those
+/// keep them, and nothing here changes what that endpoint does.
+///
+/// `GET` rather than `POST`, unlike `/api/search`: this takes one identifier and
+/// is a read with no body, so it is cacheable and linkable and behaves the way a
+/// reader expects.
+#[utoipa::path(
+    get,
+    path = "/api/items/{short_code}/related",
+    tag = "search",
+    params(
+        ("short_code" = String, Path, description = "The item to find related work for"),
+        ("limit" = Option<usize>, Query, description = "How many proposals (default 5, max 10)"),
+    ),
+    responses(
+        (status = 200, description = "Bounded proposals, best first. `vector: false` means a degraded, text-only answer rather than a wrong one", body = dto_search::RelatedWorkResponse),
+        (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
+        (status = 403, description = "Not a member of the organization", body = dto::ErrorEnvelope),
+        (status = 404, description = "No item with that short code", body = dto::ErrorEnvelope),
+        (status = 503, description = "Embeddings are not enabled on this deployment", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn related(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    axum::extract::Path(short_code): axum::extract::Path<String>,
+    axum::extract::Query(params): axum::extract::Query<RelatedQuery>,
+) -> Result<Json<dto_search::RelatedWorkResponse>, ApiError> {
+    let Some(service) = state.embedding.clone() else {
+        // 503 rather than 404 or an empty list: the resource exists, this
+        // deployment just has not enabled it, and an empty list would read as
+        // "nothing is related" — a wrong answer dressed as a right one.
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "EMBEDDINGS_DISABLED",
+            "related-work retrieval is not enabled on this deployment; /api/search still works",
+        ));
+    };
+    let mut config = kairos_core::retrieval::RetrievalConfig::default();
+    if let Some(limit) = params.limit {
+        config.limit = limit.clamp(1, 10);
+    }
+    let found = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            service
+                .related_work(conn, &short_code, &config)
+                .map_err(|e| ApiError::not_found(e.to_string()))
+        })
+        .await?;
+
+    // The sparse-graph caveat belongs to the response, not to every proposal in
+    // it: repeated per row it buries the part of each sentence that differs.
+    let mut note = found.sources.note().to_string();
+    if let Some(caveat) = kairos_core::retrieval::graph_caveat(&found.proposals) {
+        note.push(' ');
+        note.push_str(caveat);
+    }
+
+    Ok(Json(dto_search::RelatedWorkResponse {
+        short_code: found.short_code,
+        proposals: found
+            .proposals
+            .into_iter()
+            .map(|p| dto_search::RelatedProposal {
+                short_code: p.short_code,
+                title: p.title,
+                entity_type: p.entity_type,
+                claim: match p.claim {
+                    kairos_core::retrieval::Claim::ImplicitDependency => "implicit_dependency",
+                    kairos_core::retrieval::Claim::NearDuplicate => "near_duplicate",
+                    kairos_core::retrieval::Claim::PriorArt => "prior_art",
+                }
+                .to_string(),
+                score: p.score,
+                why: p.why,
+            })
+            .collect(),
+        lexical: found.sources.lexical,
+        vector: found.sources.vector,
+        note,
+    }))
+}
+
+/// Query parameters for [`related`].
+#[derive(Debug, serde::Deserialize)]
+pub(crate) struct RelatedQuery {
+    /// How many proposals to return.
+    pub limit: Option<usize>,
 }
 
 /// Unified search (KAIROS-A-0007): full-text `q`, structured `filter`, and

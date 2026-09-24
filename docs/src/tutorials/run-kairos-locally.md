@@ -112,8 +112,26 @@ Open <http://localhost:41080>. You will be sent to Dex to sign in. Use:
 
 Dex will hand you back to Kairos, and you will land on the boards overview.
 You should see five boards: Strategy, Initiatives, Architecture Decisions, and
-two delivery boards — Platform Delivery and Web Delivery. Open **Platform
-Delivery** and you will see cards sitting in columns.
+two delivery boards — Platform Delivery and Web Delivery.
+
+![The Kairos boards overview, listing five boards grouped by flight level:
+Strategy, Initiatives, Delivery (Platform Delivery and Web Delivery, each under
+its owning team), and Decisions (Architecture
+Decisions).](../images/boards-overview.png)
+
+Notice they are grouped by level, and that only the delivery boards sit under a
+team name. Open **Platform Delivery** and you will see cards sitting in columns.
+
+![The Platform Delivery board. Two lanes — Support with two items of unplanned
+intake, and Planned with six of scheduled work — each split across five columns:
+Backlog, Todo, Blocked, Active and Completed. Cards show a short code, a
+repository chip, a task type, and badges such as "blocked by
+1".](../images/platform-delivery-board.png)
+
+Two things that are easy to miss. The board is split into **lanes** — Support
+above, Planned below — so unplanned work arriving mid-week does not shuffle the
+plan. And each card carries the repository it belongs to, which is how Kairos
+knew where to put the task you are about to create.
 
 That shape is the point of Kairos, and the [flight
 levels](../explanation/flight-levels.md) page explains why there are three

@@ -11,6 +11,12 @@ archiving it needed.
 Every default listing hides put-away work. Each one takes an opt-in, and the
 hits come back **marked**.
 
+![The Kairos search page with "Include work that has been put away" switched
+on and a text query of "invoice". The results list two tasks: a live one, and
+DEMO-T-0011 marked with a gold "put away" badge and a gold left edge. The Tasks
+group caption reads "2 on this page · 1 put
+away".](../images/search-put-away-results.png)
+
 ## Search for it
 
 In the GUI, turn on **Include work that has been put away** on the search page.

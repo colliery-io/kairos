@@ -98,6 +98,45 @@ them. Retrievability is what makes counting archived rows honest; without it,
 the same guard is the trap described above. The custom-field bug was fixed by
 making archived work reachable, not by changing the guard.
 
+## The lifecycle, and what each edge refuses
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> Live : created
+    Live --> PutAway : delete / archive
+    PutAway --> Live : restore
+    PutAway --> PutAway : reads succeed, writes refused
+
+    note right of Live
+        On its board. In every listing.
+        Editable.
+    end note
+
+    note right of PutAway
+        Off every default listing.
+        Readable by short code, by history,
+        and by search when asked.
+        Every write refused.
+    end note
+```
+
+Two things the picture is meant to fix in the reader's head.
+
+**There is no third state.** Put away is not a stage on the way to deletion,
+because nothing deletes: the retention sweeper is unwired, and even wired it
+prunes history and activity rather than the rows. The only way out of `PutAway`
+is back to `Live`.
+
+**Restore is not the inverse of delete.** The `delete` edge cascades to
+children through `parent` edges; the `restore` edge does not. Restoring a parent
+leaves its archived children where they are and names them, because a cascade
+was a decision about a subtree and un-making it silently would undo a choice
+nobody asked to revisit. And the restore edge can refuse outright — if the
+item's board, column, owning team or repository is gone, it has nowhere to
+return to, so the refusal names what is missing rather than re-homing the work
+somewhere it never was.
+
 ## Read-only, and why the freeze needed no new guard
 
 Archived work is read-only, plus one verb that puts it back.

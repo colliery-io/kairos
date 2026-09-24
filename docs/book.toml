@@ -26,6 +26,10 @@ preferred-dark-theme = "ayu"
 git-repository-url = "https://github.com/colliery-io/kairos"
 edit-url-template = "https://github.com/colliery-io/kairos/edit/main/docs/{path}"
 no-section-label = true
+# Mermaid, rendered in the browser (KAIROS-T-0185). Client-side rather than an
+# mdbook-mermaid preprocessor so the book still builds with nothing but mdBook,
+# which is all the docs workflow installs. Precedent: colliery-io/brokkr.
+additional-js = ["theme/mermaid.min.js", "theme/mermaid-init.js"]
 
 [output.html.fold]
 enable = true

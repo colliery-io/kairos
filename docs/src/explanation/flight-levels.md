@@ -78,6 +78,37 @@ configurable](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS
 the shapes differ because the levels differ, not because anything is being kept
 consistent for its own sake.
 
+## The shape, in one picture
+
+```mermaid
+flowchart TD
+    S["Strategy board<br/><i>org-wide · why we are betting</i>"]
+    I["Initiative board<br/><i>org-wide · what we are doing about it</i>"]
+    D1["Platform delivery<br/><i>team-owned · the work itself</i>"]
+    D2["Web delivery<br/><i>team-owned</i>"]
+    A["ADR board<br/><i>org-wide · decisions made along the way</i>"]
+
+    S -->|parent| I
+    I -->|parent| D1
+    I -->|parent| D2
+    I -.->|informs| A
+    A -.->|informs| S
+
+    classDef org fill:#2b3a55,stroke:#7aa2f7,color:#e6e6e6
+    classDef team fill:#2b4a3a,stroke:#7ac28e,color:#e6e6e6
+    class S,I,A org
+    class D1,D2 team
+```
+
+The solid edges are `parent`: strategy decomposes into initiatives, an
+initiative decomposes into work on one or more delivery boards. The dotted ones
+are `informs`, which carries no decomposition — an ADR is not part of the work,
+it is a decision the work produced.
+
+Note which boards are team-owned. Only delivery is; the two upper levels and
+the ADR board belong to the organisation, which is the structural claim this
+page is making.
+
 ## Down and up
 
 Direction flows down. A strategy explains what the organisation is building

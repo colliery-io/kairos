@@ -134,6 +134,37 @@ definitions and the relationship vocabulary are not scoped to a board, so there
 is no board-scoped answer to give. This is the case the org-admin bypass exists
 for.
 
+## Resolving the board, as a chain
+
+Every write asks the same question first — *which board governs this?* — and the
+answer is a short lookup rather than a property of the user:
+
+```mermaid
+flowchart TD
+    Start(["A write arrives for an item"]) --> Q1{"Is it a strategy,<br/>initiative or task?"}
+    Q1 -->|yes| Own["Its own board_id"]
+    Q1 -->|no| Q2{"An ADR?"}
+    Q2 -->|"on a board"| Own
+    Q2 -->|"off board"| None["No board"]
+    Q2 -->|no| Q3{"A document?"}
+    Q3 -->|yes| Sup["Follow the supports edge<br/>to its parent, then that<br/>parent's board"]
+    Q3 -->|no| None
+    Sup -->|"no parent resolves"| None
+
+    Own --> Check["Check the caller's grants<br/>on that board"]
+    None --> Admin["Org admin only"]
+
+    classDef ok fill:#2b4a3a,stroke:#7ac28e,color:#e6e6e6
+    classDef fallback fill:#4a3a2b,stroke:#c2a87a,color:#e6e6e6
+    class Own,Check,Sup ok
+    class None,Admin fallback
+```
+
+The amber path is the one worth remembering: **no board means org admin only.**
+That is not a denial so much as a fallback, and it is why an off-board ADR and a
+document nobody has attached to anything both behave like tenant-wide
+configuration.
+
 ## Archived work is not less accessible
 
 One rule holds across the whole model and is easy to get backwards: **whoever

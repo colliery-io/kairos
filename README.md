@@ -112,3 +112,9 @@ Two workflows publish, deliberately on different triggers:
   `oci://ghcr.io/colliery-io/charts`.
 - **`docs.yml`** on pushes touching `docs/**` — the documentation book to
   GitHub Pages, so prose ships without waiting for a version bump.
+
+## Licence
+
+Apache License 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Both
+travel with every artefact: the CLI tarballs, the image (at
+`/usr/share/doc/kairos/`), and the source.

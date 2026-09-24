@@ -92,15 +92,17 @@ jobs:
           fi
 
       - name: Package tarball
-        # kairos-<version>-<target>.tar.gz containing the binary at the
-        # archive root (plus LICENSE* when present — cp is guarded because
-        # the repo has no LICENSE file yet).
+        # kairos-<version>-<target>.tar.gz containing the binary at the archive
+        # root, alongside LICENSE and NOTICE — Apache-2.0 section 4 asks a
+        # redistributor to pass both along, and a downloaded tarball is the one
+        # artefact whose recipient may never see the repository.
         run: |
           archive="kairos-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/${archive}"
           cp target/release/kairos "dist/${archive}/"
-          for f in LICENSE LICENSE-MIT LICENSE-APACHE; do
-            if [ -f "$f" ]; then cp "$f" "dist/${archive}/"; fi
+          for f in LICENSE NOTICE; do
+            if [ ! -f "$f" ]; then echo "$f is missing from the repository" >&2; exit 1; fi
+            cp "$f" "dist/${archive}/"
           done
           tar -czf "dist/${archive}.tar.gz" -C "dist/${archive}" .
           # Checksum from inside dist/ so the file names just the tarball

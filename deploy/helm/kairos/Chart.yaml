@@ -33,3 +33,14 @@ keywords:
 maintainers:
   - name: Colliery
     url: https://github.com/colliery-io
+
+# Artifact Hub reads these from the pushed OCI artifact; `license` is the only
+# place a chart can state its terms, since Chart.yaml has no first-class field
+# for one.
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/colliery-io/kairos
+    - name: documentation
+      url: https://colliery-io.github.io/kairos/

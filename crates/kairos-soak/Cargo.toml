@@ -6,6 +6,7 @@
 name = "kairos-soak"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 kairos-client = { workspace = true }

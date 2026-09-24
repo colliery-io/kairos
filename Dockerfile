@@ -125,7 +125,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin kairos
 
+# OCI provenance. `licenses` is the machine-readable answer to "what may I do
+# with this image?"; scanners and registries read it, and until 0.2.0 the
+# published image answered nothing at all.
+LABEL org.opencontainers.image.title="kairos" \
+      org.opencontainers.image.description="Flight Levels work management — GUI, REST, MCP and SCIM from one binary" \
+      org.opencontainers.image.source="https://github.com/colliery-io/kairos" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
 COPY --from=builder /build/target/release/kairos-server /usr/local/bin/kairos-server
+# Apache-2.0 section 4(d): a redistributable build carries the licence and the
+# NOTICE, so an operator who only ever has the image can still read both.
+COPY --from=builder /build/LICENSE /build/NOTICE /usr/share/doc/kairos/
 # The embedding model, owned by the runtime user so nothing needs to write here.
 COPY --from=builder --chown=10001:10001 /build/models /var/lib/kairos/models
 

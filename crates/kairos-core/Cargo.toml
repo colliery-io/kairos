@@ -2,6 +2,7 @@
 name = "kairos-core"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 chrono = { workspace = true, features = ["serde"] }

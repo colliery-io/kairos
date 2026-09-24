@@ -2,6 +2,7 @@
 name = "kairos-web"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 # Two targets (KAIROS-T-0039):
 # - the `kairos-web` bin is what trunk compiles to wasm32-unknown-unknown

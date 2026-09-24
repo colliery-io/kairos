@@ -4,14 +4,14 @@ level: task
 title: "Illustrate the book: screenshots where the reader is looking at a screen, diagrams where they are not"
 short_code: "KAIROS-T-0185"
 created_at: 2026-09-24T00:04:12.769766+00:00
-updated_at: 2026-09-24T00:04:48.575614+00:00
+updated_at: 2026-09-24T00:13:56.502824+00:00
 parent: KAIROS-I-0016
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -96,6 +96,8 @@ fixing exactly that class of problem in prose. So:
 - **No screenshot carries information found nowhere else.** If the only place a
   fact appears is inside a PNG, it rots invisibly and fails **R4**. Every shot
   illustrates prose that stands without it.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

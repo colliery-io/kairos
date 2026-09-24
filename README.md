@@ -20,19 +20,19 @@ and MCP clients.
 ```sh
 # macOS Apple Silicon
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-aarch64-apple-darwin.tar.gz
 
 # macOS Intel
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-x86_64-apple-darwin.tar.gz
 
 # Linux x86_64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-x86_64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-x86_64-unknown-linux-gnu.tar.gz
 
 # Linux arm64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.1.0/kairos-0.1.0-aarch64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.1.1/kairos-0.1.1-aarch64-unknown-linux-gnu.tar.gz
 
 tar -xzf kairos.tar.gz
 install -m 0755 kairos ~/.local/bin/   # or any directory on your PATH
@@ -46,7 +46,7 @@ every command and flag.
 ## Run a deployment
 
 ```sh
-helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.1.0 \
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.1.1 \
   -f my-values.yaml
 ```
 
@@ -57,9 +57,8 @@ for the values it requires and
 [Configure an OIDC issuer](https://colliery-io.github.io/kairos/how-to/configure-an-oidc-issuer.html)
 for the identity half.
 
-> **Note:** the published image is `linux/amd64` only, so it will not run on an
-> ARM node — including a local `kind` cluster on an Apple Silicon Mac. Tracked
-> as [KAIROS-T-0180](.metis/backlog/bugs/KAIROS-T-0180.md).
+The image is multi-arch from v0.1.1 (`linux/amd64` and `linux/arm64`), so it
+runs on an ARM node — including a local `kind` cluster on an Apple Silicon Mac.
 
 ## Development
 

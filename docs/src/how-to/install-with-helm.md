@@ -1,6 +1,6 @@
 # Install Kairos on Kubernetes with Helm
 
-Get a Kairos 0.1.0 deployment serving on a cluster you already run.
+Get a Kairos 0.1.1 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -108,7 +108,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.1.0 -f my-values.yaml
+  --version 0.1.1 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.

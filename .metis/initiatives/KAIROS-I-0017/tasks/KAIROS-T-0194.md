@@ -139,6 +139,29 @@ Running the full suite mattered more than running the new journey. Changing the
 default sort changes every caller that named none, and `explorer`,
 `quarterly-review` and `cross-team` all search. None broke.
 
+### A broken gate found on the way out
+
+Running the one tier this work had not touched, `angreal test e2e`, failed — on
+`capture-docs-images.spec.ts`, the documentation-screenshot capture script from
+[[KAIROS-T-0185]]. Its own header says it is "@docs-tagged and excluded from
+`angreal test e2e`, so it never runs as part of CI", and **nothing did the
+excluding**: neither `e2e/playwright.config.ts` nor the angreal task filtered it.
+So the e2e tier has failed since T-0185 landed earlier the same day, on a script
+that is not a test — it needs state a caller sets up around it and it writes PNGs
+into the book.
+
+Fixed by passing `--grep-invert @docs` in the angreal task rather than setting
+`grepInvert` in the Playwright config, because a config-level exclusion would
+fight the documented deliberate invocation
+(`npx playwright test capture-docs-images --grep @docs`). The spec's header no
+longer claims an exclusion that does not exist.
+
+`angreal test e2e`: 16 passed.
+
+This is the second thing in this task found by running something rather than
+reasoning about it, and both were claims in comments that were not true of the
+code. Worth remembering when the next header says a thing is covered.
+
 ### Not done
 
 The journey asserts the agent *can* draw a cross-repository edge; it does not

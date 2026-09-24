@@ -4,8 +4,12 @@
 // because the suite already knows how to do the hard part: a real in-browser
 // PKCE login against Dex. Writing a separate harness would have duplicated it.
 //
-// It is @docs-tagged and excluded from `angreal test e2e`, so it never runs as
-// part of CI. Run it deliberately:
+// It is @docs-tagged, and `angreal test e2e` passes `--grep-invert @docs`, so it
+// never runs as part of CI. (That exclusion was missing until KAIROS-T-0194
+// found it: this file asserted it was excluded and nothing excluded it, so the
+// e2e tier failed on it from the day it landed. The exclusion lives in the
+// angreal task rather than the Playwright config, where a config-level
+// `grepInvert` would fight the `--grep @docs` below.) Run it deliberately:
 //
 //   cd e2e && npx playwright test capture-docs-images --grep @docs
 //

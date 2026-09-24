@@ -442,7 +442,16 @@ def _run_gui_smoke(env):
         return _e2e_phase(
             "GUI: playwright test",
             subprocess.run(
-                ["npx", "playwright", "test"],
+                # `@docs` is the documentation-screenshot capture script
+                # (KAIROS-T-0185). It is not a test: it needs state a caller
+                # sets up around it (an archived item matching its query) and
+                # it writes PNGs into the book. Its own header claimed it was
+                # excluded here and nothing did the excluding, so `angreal test
+                # e2e` failed on it from the day it landed. Run it deliberately:
+                #   cd e2e && npx playwright test capture-docs-images --grep @docs
+                # which still works, because this exclusion lives here and not
+                # in the config where it would fight that `--grep`.
+                ["npx", "playwright", "test", "--grep-invert", "@docs"],
                 cwd=str(E2E_DIR),
                 env=pw_env,
             ).returncode,

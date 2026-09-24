@@ -4,14 +4,14 @@ level: task
 title: "Reference: the capability vocabulary and the error codes, which have no home"
 short_code: "KAIROS-T-0176"
 created_at: 2026-09-23T22:54:08.816241+00:00
-updated_at: 2026-09-23T23:00:50.784444+00:00
+updated_at: 2026-09-23T23:06:01.015890+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0167]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -114,6 +114,8 @@ Uncomment your two lines in `docs/src/SUMMARY.md`. **Note `SUMMARY.md` is
 shared with concurrent tasks** — build the blob from current `HEAD` plus only
 your own lines rather than `git add`-ing your working copy; the recipe is in
 [[KAIROS-T-0171]]'s Status Update and it caught a live revert.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

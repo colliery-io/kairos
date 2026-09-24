@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-23T13:30:42Z | 277 files | Python, Rust, TypeScript
+> Generated: 2026-09-23T23:52:18Z | 278 files | Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -287,6 +287,8 @@
 │   └── hooks/
 │       ├── session_start.py
 │       └── test_session_start.py
+├── scripts/
+│   └── render-openapi.py
 └── uat/
     ├── checks/
     │   └── zz-surface-coverage.check.ts
@@ -904,9 +906,9 @@
 
 #### crates/kairos-client/src/types_events.rs
 
-- pub `ThinEvent` struct L19-37 — `{ event: String, entity_type: String, short_code: String, board_id: Option<Strin...` — One thin change event pushed by the server (S-0005 shape).
-- pub `SubscribeRequest` struct L42-45 — `{ subscribe: SubscribeFilter }` — Client → server message: `{"subscribe": {"board_id": "uuid"}}` filters
-- pub `SubscribeFilter` struct L49-54 — `{ board_id: Option<String> }` — The [`SubscribeRequest`] filter body.
+- pub `ThinEvent` struct L19-43 — `{ event: String, entity_type: String, short_code: String, board_id: Option<Strin...` — One thin change event pushed by the server (S-0005 shape).
+- pub `SubscribeRequest` struct L48-51 — `{ subscribe: SubscribeFilter }` — Client → server message: `{"subscribe": {"board_id": "uuid"}}` filters
+- pub `SubscribeFilter` struct L55-60 — `{ board_id: Option<String> }` — The [`SubscribeRequest`] filter body.
 
 #### crates/kairos-client/src/types_forge.rs
 
@@ -2349,16 +2351,16 @@
 
 #### crates/kairos-server/src/api/openapi.rs
 
-- pub `spec` function L214-216 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
-- pub `router` function L226-233 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
--  `ApiDoc` struct L210 — `-` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `SPEC_JSON` variable L219-221 — `: LazyLock<String>` — The serialized spec, built once per process.
--  `openapi_json` function L246-251 — `() -> impl IntoResponse` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `whoami` function L279 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `spa_config` function L304 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `token_relay` function L328 — `()` — [`crate::ws`] module docs; the spec's `info.description` points there.
--  `swagger_ui` function L336-338 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
--  `SWAGGER_UI_HTML` variable L344-365 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
+- pub `spec` function L215-217 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
+- pub `router` function L227-234 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
+-  `ApiDoc` struct L211 — `-` — there.
+-  `SPEC_JSON` variable L220-222 — `: LazyLock<String>` — The serialized spec, built once per process.
+-  `openapi_json` function L247-252 — `() -> impl IntoResponse` — there.
+-  `whoami` function L280 — `()` — there.
+-  `spa_config` function L305 — `()` — there.
+-  `token_relay` function L329 — `()` — there.
+-  `swagger_ui` function L337-339 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
+-  `SWAGGER_UI_HTML` variable L345-366 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
 
 #### crates/kairos-server/src/api/search.rs
 
@@ -2932,87 +2934,87 @@
 
 #### crates/kairos-server/src/mcp/tools.rs
 
-- pub `ListRepositoriesParams` struct L67-70 — `{ team: Option<String> }` — `activity_log` writes as the API path).
-- pub `GetRepositoryParams` struct L74-77 — `{ repository: String }` — `activity_log` writes as the API path).
-- pub `MyBoardsParams` struct L81-84 — `{ level: Option<String> }` — `activity_log` writes as the API path).
-- pub `BoardItemsParams` struct L88-101 — `{ board: String, column: Option<String>, repository: Option<String>, include_del...` — `activity_log` writes as the API path).
-- pub `GetItemParams` struct L105-108 — `{ short_code: String }` — `activity_log` writes as the API path).
-- pub `GetHistoryParams` struct L112-119 — `{ short_code: String, limit: Option<i64>, version: Option<i32> }` — `activity_log` writes as the API path).
-- pub `SearchParams` struct L123-136 — `{ q: Option<String>, filter: Option<SearchFilterParams>, traverse: Option<Search...` — `activity_log` writes as the API path).
-- pub `SearchFilterParams` struct L140-169 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — `activity_log` writes as the API path).
-- pub `SearchTraverseParams` struct L173-182 — `{ from: String, relationships: Vec<String>, direction: String, depth: Option<u32...` — `activity_log` writes as the API path).
-- pub `SearchSortParams` struct L186-191 — `{ field: String, order: String }` — `activity_log` writes as the API path).
-- pub `CreateItemParams` struct L195-229 — `{ item_type: String, title: String, board: Option<String>, parent: Option<String...` — `activity_log` writes as the API path).
-- pub `UpdateItemParams` struct L233-243 — `{ short_code: String, title: Option<String>, content: String, version: i32 }` — `activity_log` writes as the API path).
-- pub `EditItemParams` struct L247-258 — `{ short_code: String, search: String, replace: String, replace_all: bool }` — `activity_log` writes as the API path).
-- pub `TransitionItemParams` struct L262-268 — `{ short_code: String, to_column: String }` — `activity_log` writes as the API path).
-- pub `MoveItemParams` struct L272-278 — `{ short_code: String, to_board: String }` — `activity_log` writes as the API path).
-- pub `LinkItemsParams` struct L282-289 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
-- pub `UnlinkItemsParams` struct L293-300 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
-- pub `SetMetadataParams` struct L304-311 — `{ short_code: String, values: BTreeMap<String, Option<String>> }` — `activity_log` writes as the API path).
-- pub `RestoreItemParams` struct L315-318 — `{ short_code: String }` — `activity_log` writes as the API path).
-- pub `DeleteItemParams` struct L322-328 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
-- pub `whoami` function L351-436 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
-- pub `list_repositories` function L441-484 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
-- pub `get_repository` function L489-558 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
-- pub `my_boards` function L563-635 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `board_items` function L640-702 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `get_item` function L707-831 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
-- pub `get_history` function L836-909 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `search` function L914-953 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
-- pub `create_item` function L958-970 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `update_item` function L975-1000 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `edit_item` function L1005-1061 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `move_item` function L1066-1122 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `transition_item` function L1127-1188 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
-- pub `link_items` function L1193-1222 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
-- pub `unlink_items` function L1227-1256 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `set_metadata` function L1261-1353 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `delete_item` function L1358-1390 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `restore_item` function L1395-1440 — `( &self, Parameters(params): Parameters<RestoreItemParams>, context: RequestCont...` — `activity_log` writes as the API path).
--  `KairosMcp` type L335-1441 — `= KairosMcp` — `activity_log` writes as the API path).
--  `run_tool` function L338-346 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
--  `ItemView` struct L1448-1474 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
--  `load_item` function L1483-1658 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
--  `authorize_item_write` function L1663-1678 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
--  `require_capability_explained` function L1685-1728 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
--  `board_by_ref` function L1731-1746 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
--  `team_by_ref` function L1749-1768 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
--  `board_by_id` function L1771-1778 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
--  `board_columns` function L1783-1785 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
--  `board_columns_including_removed` function L1794-1811 — `( conn: &mut PgConnection, board_id: Uuid, liveness: Liveness, ) -> Result<Vec<B...` — A board's columns in position order, removed ones included when the
--  `column_label` function L1819-1828 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
--  `resolve_column` function L1832-1849 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
--  `BoardItemRow` struct L1852-1864 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
--  `BoardStrategySelect` type L1871 — `= (Uuid, String, String, Option<DateTime<Utc>>)` — What each family's board listing selects.
--  `BoardInitiativeSelect` type L1872 — `= (Uuid, String, String, bool, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
--  `BoardTaskSelect` type L1873-1881 — `= ( Uuid, String, String, TaskType, WorkClass, Option<Uuid>, Option<DateTime<Utc...` — `activity_log` writes as the API path).
--  `BoardAdrSelect` type L1882 — `= (Option<Uuid>, String, String, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
--  `board_item_rows` function L1893-2029 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
--  `column_item_counts` function L2034-2043 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
--  `repo_slug_map` function L2047-2062 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
--  `repo_label` function L2065-2082 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
--  `require_live_typed` function L2086-2094 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
--  `metadata_lines` function L2098-2111 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
--  `ChainRow` struct L2114-2123 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
--  `parent_chain` function L2136-2160 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
--  `relationship_lines` function L2171-2229 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
--  `line` function L2179-2186 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
--  `map_update_error` function L2240-2268 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
--  `map_link_error` function L2278-2293 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
--  `level_of` function L2300-2308 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
--  `default_board_for` function L2312-2334 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
--  `resolve_template` function L2337-2368 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
--  `reject_field` function L2372-2384 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
--  `create_item_impl` function L2389-2672 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
--  `field_invalid` function L2680-2682 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
--  `uuid_field` function L2684-2687 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
--  `timestamp_field` function L2689-2698 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
--  `enum_field` function L2702-2713 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
--  `search_to_core` function L2717-2847 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
--  `map_search_error` function L2851-2859 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
--  `archived_marker` function L2865-2871 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
--  `render_search_results` function L2875-2947 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
+- pub `ListRepositoriesParams` struct L69-72 — `{ team: Option<String> }` — `activity_log` writes as the API path).
+- pub `GetRepositoryParams` struct L76-79 — `{ repository: String }` — `activity_log` writes as the API path).
+- pub `MyBoardsParams` struct L83-86 — `{ level: Option<String> }` — `activity_log` writes as the API path).
+- pub `BoardItemsParams` struct L90-103 — `{ board: String, column: Option<String>, repository: Option<String>, include_del...` — `activity_log` writes as the API path).
+- pub `GetItemParams` struct L107-110 — `{ short_code: String }` — `activity_log` writes as the API path).
+- pub `GetHistoryParams` struct L114-121 — `{ short_code: String, limit: Option<i64>, version: Option<i32> }` — `activity_log` writes as the API path).
+- pub `SearchParams` struct L125-138 — `{ q: Option<String>, filter: Option<SearchFilterParams>, traverse: Option<Search...` — `activity_log` writes as the API path).
+- pub `SearchFilterParams` struct L142-171 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — `activity_log` writes as the API path).
+- pub `SearchTraverseParams` struct L175-184 — `{ from: String, relationships: Vec<String>, direction: String, depth: Option<u32...` — `activity_log` writes as the API path).
+- pub `SearchSortParams` struct L188-193 — `{ field: String, order: String }` — `activity_log` writes as the API path).
+- pub `CreateItemParams` struct L197-231 — `{ item_type: String, title: String, board: Option<String>, parent: Option<String...` — `activity_log` writes as the API path).
+- pub `UpdateItemParams` struct L235-245 — `{ short_code: String, title: Option<String>, content: String, version: i32 }` — `activity_log` writes as the API path).
+- pub `EditItemParams` struct L249-260 — `{ short_code: String, search: String, replace: String, replace_all: bool }` — `activity_log` writes as the API path).
+- pub `TransitionItemParams` struct L264-270 — `{ short_code: String, to_column: String }` — `activity_log` writes as the API path).
+- pub `MoveItemParams` struct L274-280 — `{ short_code: String, to_board: String }` — `activity_log` writes as the API path).
+- pub `LinkItemsParams` struct L284-291 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
+- pub `UnlinkItemsParams` struct L295-302 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
+- pub `SetMetadataParams` struct L306-313 — `{ short_code: String, values: BTreeMap<String, Option<String>> }` — `activity_log` writes as the API path).
+- pub `RestoreItemParams` struct L317-320 — `{ short_code: String }` — `activity_log` writes as the API path).
+- pub `DeleteItemParams` struct L324-330 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
+- pub `whoami` function L353-438 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
+- pub `list_repositories` function L443-486 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
+- pub `get_repository` function L491-560 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
+- pub `my_boards` function L565-637 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `board_items` function L642-704 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `get_item` function L709-833 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
+- pub `get_history` function L838-911 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `search` function L916-955 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
+- pub `create_item` function L960-972 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `update_item` function L977-1002 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `edit_item` function L1007-1063 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `move_item` function L1068-1124 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `transition_item` function L1129-1190 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
+- pub `link_items` function L1195-1224 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
+- pub `unlink_items` function L1229-1258 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `set_metadata` function L1263-1355 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `delete_item` function L1360-1392 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `restore_item` function L1397-1442 — `( &self, Parameters(params): Parameters<RestoreItemParams>, context: RequestCont...` — `activity_log` writes as the API path).
+-  `KairosMcp` type L337-1443 — `= KairosMcp` — `activity_log` writes as the API path).
+-  `run_tool` function L340-348 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
+-  `ItemView` struct L1450-1476 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
+-  `load_item` function L1485-1660 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
+-  `authorize_item_write` function L1665-1680 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
+-  `require_capability_explained` function L1687-1730 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
+-  `board_by_ref` function L1733-1748 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
+-  `team_by_ref` function L1751-1770 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
+-  `board_by_id` function L1773-1780 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
+-  `board_columns` function L1785-1787 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
+-  `board_columns_including_removed` function L1796-1813 — `( conn: &mut PgConnection, board_id: Uuid, liveness: Liveness, ) -> Result<Vec<B...` — A board's columns in position order, removed ones included when the
+-  `column_label` function L1821-1830 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
+-  `resolve_column` function L1834-1851 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
+-  `BoardItemRow` struct L1854-1866 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
+-  `BoardStrategySelect` type L1873 — `= (Uuid, String, String, Option<DateTime<Utc>>)` — What each family's board listing selects.
+-  `BoardInitiativeSelect` type L1874 — `= (Uuid, String, String, bool, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `BoardTaskSelect` type L1875-1883 — `= ( Uuid, String, String, TaskType, WorkClass, Option<Uuid>, Option<DateTime<Utc...` — `activity_log` writes as the API path).
+-  `BoardAdrSelect` type L1884 — `= (Option<Uuid>, String, String, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `board_item_rows` function L1895-2031 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
+-  `column_item_counts` function L2036-2045 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
+-  `repo_slug_map` function L2049-2064 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
+-  `repo_label` function L2067-2084 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
+-  `require_live_typed` function L2088-2096 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
+-  `metadata_lines` function L2100-2113 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
+-  `ChainRow` struct L2116-2125 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
+-  `parent_chain` function L2138-2162 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
+-  `relationship_lines` function L2173-2231 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
+-  `line` function L2181-2188 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
+-  `map_update_error` function L2242-2270 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
+-  `map_link_error` function L2280-2295 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
+-  `level_of` function L2302-2310 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
+-  `default_board_for` function L2314-2336 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
+-  `resolve_template` function L2339-2370 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
+-  `reject_field` function L2374-2386 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
+-  `create_item_impl` function L2391-2674 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
+-  `field_invalid` function L2682-2684 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
+-  `uuid_field` function L2686-2689 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
+-  `timestamp_field` function L2691-2700 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
+-  `enum_field` function L2704-2715 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
+-  `search_to_core` function L2719-2849 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
+-  `map_search_error` function L2853-2861 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
+-  `archived_marker` function L2867-2873 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
+-  `render_search_results` function L2877-2949 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
 
 ### crates/kairos-server/src/middleware
 
@@ -4779,6 +4781,20 @@
 - pub `BuildContext` class L74-92 — `(unittest.TestCase) { test_lists_every_key_and_adds_the_hint_when_reachable, tes...`
 - pub `test_lists_every_key_and_adds_the_hint_when_reachable` method L75-84 — `def test_lists_every_key_and_adds_the_hint_when_reachable(self)`
 - pub `test_no_hint_when_offline` method L86-92 — `def test_no_hint_when_offline(self)`
+
+### scripts
+
+> *Semantic summary to be generated by AI agent.*
+
+#### scripts/render-openapi.py
+
+- pub `fail` function L91-93 — `def fail(message)`
+- pub `load_spec` function L96-111 — `def load_spec()`
+- pub `anchor` function L114-123 — `def anchor(text)` — mdBook's heading anchor: lowercase, non-alphanumerics to hyphens.
+- pub `type_of` function L126-157 — `def type_of(schema, spec)` — A short, human type for a schema node.
+- pub `render_operation` function L160-207 — `def render_operation(method, path, op, spec, lines)`
+- pub `render` function L210-325 — `def render(spec)`
+- pub `main` function L328-372 — `def main()`
 
 ### uat/checks
 

@@ -4,14 +4,14 @@ level: task
 title: "Close out: the README becomes a landing page and every page passes diataxis-review"
 short_code: "KAIROS-T-0175"
 created_at: 2026-09-23T22:11:40.199306+00:00
-updated_at: 2026-09-23T23:30:55.055428+00:00
+updated_at: 2026-09-23T23:51:42.001451+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0168, KAIROS-T-0169, KAIROS-T-0170, KAIROS-T-0171, KAIROS-T-0172, KAIROS-T-0173, KAIROS-T-0174, KAIROS-T-0176, KAIROS-T-0179]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -74,6 +74,8 @@ bending the page.
 - `angreal docs build` clean.
 - The published site is live and navigable, verified by loading it.
 - The release workflow is still untouched.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

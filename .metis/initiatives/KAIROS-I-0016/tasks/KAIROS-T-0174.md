@@ -4,14 +4,14 @@ level: task
 title: "Tutorials: run Kairos locally, and deploy it to Kubernetes"
 short_code: "KAIROS-T-0174"
 created_at: 2026-09-23T22:11:36.901564+00:00
-updated_at: 2026-09-23T23:06:48.203296+00:00
+updated_at: 2026-09-23T23:23:30.686147+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0167]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,8 @@ would violate T2.
 
 If that makes the lesson too long, the right answer is to narrow the
 promised outcome, not to hand the learner a decision.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

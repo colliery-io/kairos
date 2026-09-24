@@ -4,14 +4,14 @@ level: task
 title: "Split scim.md: the page assumed single-mode is a how-to wearing reference clothes"
 short_code: "KAIROS-T-0179"
 created_at: 2026-09-23T23:01:57.333861+00:00
-updated_at: 2026-09-23T23:28:39.900113+00:00
+updated_at: 2026-09-23T23:30:49.012238+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0167]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -66,6 +66,8 @@ never fix mode-mixing by deleting content; relocate it.
 **`events.md` is also mildly mixed but cosmetically so** — leave it, and say
 in the Status Update that it was assessed and left deliberately, so the next
 reviewer does not re-litigate it.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

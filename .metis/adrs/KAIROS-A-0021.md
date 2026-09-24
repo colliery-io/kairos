@@ -116,7 +116,7 @@ Two further measurements shaped the decisions below:
 ## Decision
 
 Kairos gains semantic retrieval as a **separate surface that extends
-[[KAIROS-A-0007]]**, built for agents first. Six rules.
+[[KAIROS-A-0007]]**, built for agents first. Seven rules.
 
 ### 1. Embeddings are computed locally by default; providers are pluggable
 
@@ -199,6 +199,7 @@ a candidate with its evidence and let the caller weigh it.
 
 ### 6. Agents may propose graph edges; humans confirm
 
+
 Where the signal is strong, an agent may propose a `parent` or `blocks` edge
 rather than merely reporting similarity. Proposals are not edges until
 confirmed.
@@ -207,6 +208,33 @@ This fits the division of labour the product already has — agents create,
 humans edit — and it compounds: every confirmation turns an implicit dependency
 into an explicit one, so the graph improves with use and the next retrieval is
 better than the last.
+
+### 7. Retrieval is hybrid, and ships together
+
+Ranking is **lexical and vector fused**, not one or the other, and both halves
+land in the same initiative rather than the lexical half being deferred.
+
+The lexical half is an improvement on its own — `ts_rank` is never called
+today, so adding relevance scoring to the existing index fixes "the best answer
+is on page eight" independently of anything semantic. Shipping it separately
+was considered and rejected: the fusion is where the behaviour actually lives,
+and two sequential changes to result ordering is two rounds of recalibration
+for callers rather than one.
+
+Fusing rank positions rather than raw scores (reciprocal rank fusion, or
+equivalent) avoids having to make a cosine distance and a `ts_rank` score
+commensurable, which they are not.
+
+**The property worth having deliberately: hybrid degrades gracefully.** The
+lexical half needs no model, no vectors and no backfill. So retrieval keeps
+working — worse, but working — while embeddings backfill across an existing
+tenant, if a BYO provider (rule 1) is unreachable, or for an item edited
+moments ago whose sections have not been re-embedded yet. A vector-only design
+would return nothing in all three cases, and the third is constant rather than
+exceptional given how often agents edit.
+
+That also sets the ordering inside the initiative: lexical ranking first, since
+it is useful alone and is the fallback everything else leans on.
 
 ## Alternatives Analysis
 
@@ -236,12 +264,10 @@ groupings, or path queries the structural relationships cannot express. It can
 be added later behind the same retrieval API, so deferring costs nothing and
 adopting now costs a deployment tier.
 
-**Ranking alone, without semantic retrieval.** Much cheaper: `ts_rank` is never
-called today, and adding relevance scoring to the existing index would fix
-"the best answer is on page eight" on its own. Rejected as *sufficient* but
-retained as *worthwhile* — hybrid retrieval (lexical + vector, fused) is the
-expected implementation, and the lexical half is that improvement. It does
-nothing for implicit dependencies, which is the actual goal.
+**Ranking alone, without semantic retrieval.** Much cheaper, and it fixes "the
+best answer is on page eight" on its own. Rejected as *sufficient* — it does
+nothing for implicit dependencies, which is the actual goal — but adopted as
+*part of the whole*: see rule 7. It is not deferred, and it is not optional.
 
 **A remote embedding API by default.** Rejected: see rule 1.
 
@@ -262,7 +288,10 @@ it. One blurry vector per document, and no way to say which part matched.
 - The question an agent cannot otherwise ask — *has this been done, and what
   does it quietly depend on?* — becomes answerable, and prior art becomes
   reachable at all, which [[KAIROS-A-0020]] made possible only days ago.
-- Ranking arrives as a side effect of hybrid retrieval.
+- Ranking arrives with it rather than after it (rule 7), and the lexical half
+  gives retrieval a fallback that needs no model — so a backfill, an
+  unreachable BYO provider, or a just-edited section degrades quality instead
+  of returning nothing.
 - The graph improves with use (rule 6), so retrieval quality compounds instead
   of decaying.
 - Nothing depends on template structure, so tenants may evolve templates freely.

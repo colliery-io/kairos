@@ -129,7 +129,9 @@ pub struct SearchParams {
     pub filter: Option<SearchFilterParams>,
     /// Graph traversal from a starting item.
     pub traverse: Option<SearchTraverseParams>,
-    /// Sort of the combined results (default created_at desc).
+    /// Sort of the combined results. Default: relevance desc when `q` is
+    /// given, created_at desc otherwise (KAIROS-T-0186) — so a text search is
+    /// ranked without asking.
     pub sort: Option<SearchSortParams>,
     /// Page size (default 25, max 100).
     pub limit: Option<i64>,
@@ -186,7 +188,7 @@ pub struct SearchTraverseParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct SearchSortParams {
-    /// created_at | updated_at | title.
+    /// created_at | updated_at | title | relevance (relevance requires `q`).
     pub field: String,
     /// asc | desc.
     pub order: String,
@@ -2828,7 +2830,11 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
         .as_ref()
         .map(|sort| -> Result<core_search::Sort, ApiError> {
             Ok(core_search::Sort {
-                field: enum_field(&sort.field, "sort.field", "created_at, updated_at, title")?,
+                field: enum_field(
+                    &sort.field,
+                    "sort.field",
+                    "created_at, updated_at, title, relevance",
+                )?,
                 order: enum_field(&sort.order, "sort.order", "asc, desc")?,
             })
         })

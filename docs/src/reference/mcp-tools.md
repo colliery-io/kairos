@@ -195,7 +195,7 @@ are compact and grouped by type.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `field` | string | yes | `created_at`, `updated_at`, `title`. |
+| `field` | string | yes | `created_at`, `updated_at`, `title`, `relevance`. `relevance` requires `q`. |
 | `order` | string | yes | `asc`, `desc`. |
 
 Refuses: `VALIDATION` for a blank `q`, an empty enum array, a blank metadata

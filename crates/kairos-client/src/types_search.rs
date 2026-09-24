@@ -41,8 +41,8 @@ pub struct SearchRequest {
     /// Graph traversal from a starting entity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub traverse: Option<SearchTraverse>,
-    /// Sort order for the combined result set (default: `created_at`
-    /// `desc`).
+    /// Sort order for the combined result set. Default: `relevance` `desc`
+    /// when `q` is given, `created_at` `desc` otherwise (KAIROS-T-0186).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort: Option<SearchSort>,
     /// Page size (default 25, max 100).
@@ -152,7 +152,7 @@ pub struct SearchTraverseFrom {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SearchSort {
-    /// `created_at|updated_at|title`.
+    /// `created_at|updated_at|title|relevance`. `relevance` requires `q`.
     pub field: String,
     /// `asc|desc`.
     pub order: String,

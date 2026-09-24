@@ -134,7 +134,9 @@ persona would really meet it. If no persona would, say so in `ALLOW`.
 The journeys are ordered as an organisation's life, not as a feature list
 (KAIROS-I-0014). Day one is `onboarding`; `first-week` is the newcomer who
 only reads; `machine-access` is the first thing that is not a person;
-`planning`, `agent-loop` and `cross-team` are the working quarter;
+`planning`, `agent-loop`, `multi-repo-agent` and `cross-team` are the
+working quarter — `agent-loop` is one agent in one repository, `multi-repo-agent`
+is the same agent across three, which is how they are actually deployed;
 `explorer`, `decision-record` and `audit-trail` are what happens when
 somebody asks a question about work already done; `team-knowledge`,
 `new-kind-of-work`, `incident` and `board-setup` are a team shaping how it

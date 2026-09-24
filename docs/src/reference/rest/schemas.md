@@ -1088,7 +1088,7 @@ The `sort` clause, applied to the combined cross-type result set before paginati
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `field` | `string` | yes | `created_at|updated_at|title`. |
+| `field` | `string` | yes | `created_at|updated_at|title|relevance`. `relevance` requires `q`. |
 | `order` | `string` | yes | `asc|desc`. |
 
 ## SearchTraverse

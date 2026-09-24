@@ -173,8 +173,16 @@ Eight tasks. Three of them ([[KAIROS-T-0186]], [[KAIROS-T-0187]],
    RRF fusion, the similarity-versus-graph signal, typed proposals.
 7. [[KAIROS-T-0192]] **Edge proposals** — proposing, storing, confirming, and
    somewhere in the GUI a human can act on them.
-8. [[KAIROS-T-0193]] **Close out** — the book, a UAT journey, and the drift gate,
-   which will read short until a journey exercises the new tools.
+8. [[KAIROS-T-0193]] **Close out** — the book, the retrieval arc added to
+   [[KAIROS-T-0194]]'s journey, and the drift gate, which will read short until a
+   journey exercises the new tools.
+
+Added after the fact, out of order because Dylan asked for it while T-0186 was
+landing:
+
+9. [[KAIROS-T-0194]] **`multi-repo-agent` UAT journey** — one coding agent across
+   three repositories. It is where T-0186's ranking is exercised at the agent
+   surface, and the foundation T-0193 extends rather than duplicates.
 
 Gates per task: `angreal test` green, and anything touching default search
 ordering must show the existing endpoint's behaviour unchanged unless the task is

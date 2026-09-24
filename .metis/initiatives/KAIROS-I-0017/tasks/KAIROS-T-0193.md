@@ -58,10 +58,16 @@ recapture stays mechanical.
 
 ### The UAT journey
 
-A persona journey, in the existing `uat/` shape with its readable report. The
-shape worth testing is the one the initiative exists for: an agent about to start
-a ticket asks what is related, is shown prior art in completed work and an
-unlinked ticket that overlaps, proposes an edge, and a human confirms it.
+**Extend [[KAIROS-T-0194]]'s `multi-repo-agent` journey rather than adding a
+second one.** It already stands up an agent across three repositories, which is
+the only context in which "find the work nobody linked" means anything — a
+one-repo agent has nothing to cross. Adding a separate retrieval journey would
+duplicate that setup and split the story in two.
+
+The arc to add to it: the agent, about to start a ticket, asks what is related;
+is shown prior art in completed work and an unlinked ticket that overlaps;
+proposes an edge; a human confirms it. The journey already ends with the agent
+reading its estate to choose next work, which is exactly where that ask belongs.
 
 ### The drift gate
 

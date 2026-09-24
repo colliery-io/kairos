@@ -80,7 +80,8 @@ pub struct SearchArgs {
     /// Traverse: maximum depth (1-10)
     #[arg(long, value_name = "N")]
     pub depth: Option<u32>,
-    /// Sort field: created_at|updated_at|title (defaults to created_at)
+    /// Sort field: created_at|updated_at|title|relevance (defaults to
+    /// relevance when --q is given, created_at otherwise; relevance needs --q)
     #[arg(long, value_name = "FIELD")]
     pub sort: Option<String>,
     /// Sort order: asc|desc (defaults to desc)

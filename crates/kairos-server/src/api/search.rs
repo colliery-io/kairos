@@ -289,7 +289,11 @@ fn traverse_to_core(
 
 fn sort_to_core(sort: &dto_search::SearchSort) -> Result<core_search::Sort, ApiError> {
     Ok(core_search::Sort {
-        field: enum_field(&sort.field, "sort.field", "created_at, updated_at, title")?,
+        field: enum_field(
+            &sort.field,
+            "sort.field",
+            "created_at, updated_at, title, relevance",
+        )?,
         order: enum_field(&sort.order, "sort.order", "asc, desc")?,
     })
 }

@@ -4,14 +4,14 @@ level: task
 title: "Lexical relevance: rank text search instead of returning it unordered"
 short_code: "KAIROS-T-0186"
 created_at: 2026-09-24T02:27:43.243689+00:00
-updated_at: 2026-09-24T02:56:56.802612+00:00
+updated_at: 2026-09-24T03:16:41.136210+00:00
 parent: KAIROS-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -80,6 +80,8 @@ None. This is useful on its own and ships alone.
 - Determinism must survive: equal scores must still produce one stable order, or
   pagination tears. The `short_code` tie-break is what guarantees it, and a test
   must cover two documents with identical scores.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

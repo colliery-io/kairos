@@ -333,7 +333,7 @@ Ordering and paging:
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--sort <FIELD>` | `created_at` \| `updated_at` \| `title` | `created_at` | Sort field. |
+| `--sort <FIELD>` | `created_at` \| `updated_at` \| `title` \| `relevance` | `relevance` with `--q`, else `created_at` | Sort field. `relevance` needs `--q` — there is nothing to be relevant to otherwise, and the request is refused rather than quietly reordered. |
 | `--order <ORDER>` | `asc` \| `desc` | `desc` | Sort order. |
 | `--limit <LIMIT>` | integer | server default 25, maximum 100 | Page size. |
 | `--offset <OFFSET>` | integer | 0 | Offset into the combined result set. |

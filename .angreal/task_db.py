@@ -695,7 +695,7 @@ def backfill_embeddings(tenant=None, batch=None, max_batches=None, pause_ms=None
         Per tenant: what was pinned or built, and how long it took. Idempotent —
         a second run reports "already pinned and indexed".
         """,
-        risk_level="caution",
+        risk_level="destructive",
     ),
 )
 @angreal.argument(

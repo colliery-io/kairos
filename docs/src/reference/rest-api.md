@@ -5,7 +5,7 @@
 
 # REST API
 
-OpenAPI 3.1.0, Kairos 0.1.1. 78 paths, 134 schemas.
+OpenAPI 3.1.0, Kairos 0.1.1. 81 paths, 135 schemas.
 
 Every endpoint is served under the tenant resolved from the request host and requires a bearer token; see [Configuration](configuration.md) for how a deployment resolves both. The live spec is at `/api/openapi.json`.
 
@@ -14,11 +14,11 @@ This page is generated from that spec, so it cannot drift from the router — bu
 ## Contents
 
 - [Work items](rest/work-items.md) — 33 operations. The five entity families. Every one has the same shape — list, get, create, update, delete — and the same optimistic-concurrency contract on update (KAIROS-A-0004): submit the `version` you read, and a concurrent edit gets 409 with the current entity in `details.current`.
-- [Across any work item](rest/across-any-work-item.md) — 13 operations. Operations addressed by `{entity_type}` and a short code, so they work uniformly across the five families.
+- [Across any work item](rest/across-any-work-item.md) — 16 operations. Operations addressed by `{entity_type}` and a short code, so they work uniformly across the five families.
 - [Boards and teams](rest/boards-and-teams.md) — 48 operations. Board configuration, membership, and the team structures that own boards.
 - [Execution scope](rest/execution-scope.md) — 10 operations. Repositories as first-class execution scope (KAIROS-A-0019) and the git forges behind them.
 - [Tenant configuration](rest/tenant-configuration.md) — 10 operations. Org-admin surfaces: the metadata and template definitions that shape what work items can carry.
 - [Machine access](rest/machine-access.md) — 9 operations. Service accounts, their API keys, and the SCIM tokens for directory sync.
 - [The deployment itself](rest/the-deployment-itself.md) — 8 operations. Activity, administration, and what the deployment reports about itself.
-- [Schemas](rest/schemas.md) — 134 wire shapes, referenced from the operations above.
+- [Schemas](rest/schemas.md) — 135 wire shapes, referenced from the operations above.
 

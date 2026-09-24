@@ -513,6 +513,21 @@ A supporting document, as returned by `/api/documents`. Documents do not live on
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
 
+## EdgeProposalDto
+
+A proposed graph edge awaiting a human (KAIROS-A-0021 rule 6, KAIROS-T-0192).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `claim` | `string` | yes | What was claimed. |
+| `created_at` | `string` | yes | When it was proposed, RFC 3339. A string like every other timestamp in these DTOs: this crate compiles to wasm and does not carry chrono. |
+| `id` | `string` | yes | The proposal's id. |
+| `relationship` | `string` | yes | `parent` or `blocks`. |
+| `source` | `string` | yes | The proposed edge's source, by short code. |
+| `state` | `string` | yes | `pending`, `confirmed` or `rejected`. |
+| `target` | `string` | yes | The proposed edge's target, by short code. |
+| `why` | `string` | yes | Why, verbatim — what the proposer saw, not a summary of it. |
+
 ## ErrorBody
 
 The `error` object of [`ErrorEnvelope`].

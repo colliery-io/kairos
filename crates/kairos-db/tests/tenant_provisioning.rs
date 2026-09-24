@@ -38,7 +38,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 32] = [
+const EXPECTED_TABLES: [&str; 33] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -48,6 +48,8 @@ const EXPECTED_TABLES: [&str; 32] = [
     "boards",
     "delivery_streams",
     "documents",
+    // KAIROS-T-0192 (A-0021 rule 6): edges an agent proposed, awaiting a human.
+    "edge_proposals",
     "forge_connections",
     "initiatives",
     // KAIROS-T-0187: the two embedding tables (A-0021 rule 2).
@@ -692,8 +694,8 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `embedding_tables`,
-    // KAIROS-T-0187): revert its DDL (the down migration's shape) and drop its
+    // that predates the NEWEST tenant migration (currently `edge_proposals`,
+    // KAIROS-T-0192): revert its DDL (the down migration's shape) and drop its
     // bookkeeping row in widgets only, then fleet-migrate and expect exactly
     // that one migration to re-apply.
     //
@@ -703,23 +705,19 @@ fn tenant_provisioning_lifecycle() {
     // When re-pinning, carry the outgoing migration's evidence up into the
     // freshly-provisioned assertions rather than deleting it; T-0156's
     // five-table view check moved there when this block stopped covering it,
-    // T-0159's three-board-index check moved there on the T-0186 wave, and
-    // T-0186's own weighting check moved there on this one.
+    // T-0159's three-board-index check moved there on the T-0186 wave, T-0186's
+    // weighting check on the T-0187 wave, and T-0187's embedding tables on this
+    // one.
     //
-    // The pre-T-0187 shape is simply not having the two embedding tables, which
-    // is the cleanest revert this block has ever had: no expression to
-    // reproduce character for character, just two DROPs.
+    // The pre-T-0192 shape is simply not having `edge_proposals`: one DROP.
     //
     // T-0157's evidence did not vanish across these re-pins: its
     // freshly-provisioned assertion above (no partial `idx_*_tsv`) is the
     // durable half, and the upgrade-path post-condition for it is kept below,
     // since an upgraded tenant is exactly where a missed index hides.
-    sql_query("DROP TABLE org_widgets.item_chunks")
+    sql_query("DROP TABLE org_widgets.edge_proposals")
         .execute(&mut conn)
-        .expect("dropping widgets' item_chunks to simulate an old tenant");
-    sql_query("DROP TABLE org_widgets.item_embeddings")
-        .execute(&mut conn)
-        .expect("dropping widgets' item_embeddings to simulate an old tenant");
+        .expect("dropping widgets' edge_proposals to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -772,8 +770,33 @@ fn tenant_provisioning_lifecycle() {
         5,
         "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
     );
-    // KAIROS-T-0187: and the upgraded tenant has the two embedding tables back.
-    // This is the assertion the re-pinned block above exists to make.
+    // KAIROS-T-0192: and the upgraded tenant has `edge_proposals` back. This is
+    // the assertion the re-pinned block above exists to make.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM information_schema.tables \
+             WHERE table_schema = 'org_widgets' AND table_name = 'edge_proposals'"
+        ),
+        1,
+        "edge_proposals is back in widgets after the fleet upgrade"
+    );
+    // Its partial unique index with it — the thing that stops an agent loop
+    // burying the signal under its own output. A table without it would pass a
+    // shape check and fail in production.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_indexes \
+             WHERE schemaname = 'org_widgets' \
+               AND indexname = 'idx_edge_proposals_pending' \
+               AND indexdef LIKE '%WHERE%pending%'"
+        ),
+        1,
+        "the pending-uniqueness index is partial, so a rejected pair can be \
+         proposed again on better evidence"
+    );
+    // KAIROS-T-0187's evidence, carried up rather than deleted with the re-pin.
     assert_eq!(
         count(
             &mut conn,
@@ -782,7 +805,7 @@ fn tenant_provisioning_lifecycle() {
                AND table_name IN ('item_embeddings', 'item_chunks')"
         ),
         2,
-        "both embedding tables are back in widgets after the fleet upgrade"
+        "both embedding tables are still there after the fleet upgrade"
     );
     // And their vector columns really are `vector`, not text that looks like it.
     // The type resolves from `public` while tenant migrations pin `search_path`

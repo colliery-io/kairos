@@ -919,3 +919,22 @@ pub fn item_by_short_code(
         other => EmbeddingError::Database(other),
     })
 }
+
+/// Resolve an item id to its directory row.
+///
+/// Used to turn a proposal's two ids back into short codes: a person deciding
+/// whether two things are related needs to see what they are, and a UUID pair
+/// tells them nothing.
+pub fn item_by_id(conn: &mut PgConnection, id: Uuid) -> Result<Neighbour, EmbeddingError> {
+    sql_query(
+        "SELECT id, short_code, entity_type, title, \
+                (deleted_at IS NOT NULL) AS archived, NULL::text AS heading \
+           FROM entity_directory WHERE id = $1",
+    )
+    .bind::<SqlUuid, _>(id)
+    .get_result::<Neighbour>(conn)
+    .map_err(|e| match e {
+        diesel::result::Error::NotFound => EmbeddingError::ItemNotFound(id.to_string()),
+        other => EmbeddingError::Database(other),
+    })
+}

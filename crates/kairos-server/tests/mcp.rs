@@ -527,6 +527,10 @@ async fn mcp_endpoint_against_live_stack() {
         "get_repository",
         // KAIROS-T-0191 (A-0021 rules 5-7): related work, as proposals.
         "related_work",
+        // KAIROS-T-0192 (A-0021 rule 6): an agent proposes an edge; a human
+        // confirms it. There is deliberately no confirm/reject tool here —
+        // deciding is not an agent's to do.
+        "propose_edge",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");

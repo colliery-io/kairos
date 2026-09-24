@@ -4,14 +4,14 @@ level: task
 title: "The retrieval surface: hybrid fusion, graph distance, and typed proposals"
 short_code: "KAIROS-T-0191"
 created_at: 2026-09-24T02:27:58.779654+00:00
-updated_at: 2026-09-24T20:58:49.962207+00:00
+updated_at: 2026-09-24T21:30:34.778221+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0186, KAIROS-T-0190]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -156,6 +156,8 @@ is two primary vectors agreeing.
   directly. Reuse the existing authorisation path rather than building a second
   one — filed defects T-0182 and T-0183 are a reminder of what happens when an
   authorisation check is written afresh.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

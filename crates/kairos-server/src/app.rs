@@ -143,6 +143,7 @@ pub fn router(state: AppState) -> Router {
         // The S-0005 unified search endpoint (KAIROS-T-0021): reads are
         // tenant-open (A-0006), so auth + membership only.
         .merge(crate::api::search::router())
+        .merge(crate::api::proposals::router())
         // The OpenAPI document + dev Swagger UI (KAIROS-T-0023, A-0005
         // §6): behind the same auth → tenant stack as every /api route —
         // the CI artifact is the unauthenticated copy (module docs).

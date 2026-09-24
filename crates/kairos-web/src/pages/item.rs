@@ -317,6 +317,7 @@ fn ItemLoaded(
                 })}
                 <MetadataPanel family code=short_code.clone() read_only=archived/>
                 <DevelopmentPanel family code=short_code.clone()/>
+                <EdgeProposalsPanel code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
@@ -1293,6 +1294,118 @@ fn MoveControl(
         })}
     }
     .into_any()
+}
+
+/// Edge proposals waiting on this item (KAIROS-A-0021 rule 6, KAIROS-T-0192).
+///
+/// On the item, not in a queue. A review inbox is a second product with its own
+/// notifications and its own backlog of things nobody opens; a proposal shown
+/// where the work already is gets seen by the person already looking at it.
+///
+/// The panel renders nothing at all when there is nothing pending. A permanently
+/// visible "no suggestions" box trains people to stop looking at the place
+/// suggestions appear.
+#[component]
+fn EdgeProposalsPanel(#[prop(into)] code: String) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let reload = RwSignal::new(0u32);
+    let busy = RwSignal::new(false);
+    let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    let proposals = LocalResource::new(move || {
+        let _ = auth.token();
+        let _ = reload.get();
+        api::fetch_edge_proposals(auth, code.get_value())
+    });
+    let retry = Callback::new(move |_| reload.update(|n| *n += 1));
+
+    // Confirm and reject differ only in which call they make, so they share a
+    // path: the interesting part is that BOTH refresh, because confirming
+    // changes the Relationships panel above and a stale page would hide the
+    // thing the click just did.
+    let decide = move |id: String, confirming: bool| {
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result = if confirming {
+                api::confirm_edge_proposal(auth, id).await
+            } else {
+                api::reject_edge_proposal(auth, id).await
+            };
+            if let Err(e) = result {
+                error.set(Some(e));
+            }
+            busy.set(false);
+            reload.update(|n| *n += 1);
+        });
+    };
+
+    view! {
+        {move || match proposals.get() {
+            None => ().into_any(),
+            Some(Err(e)) => view! { <ErrorState error=e on_retry=retry/> }.into_any(),
+            Some(Ok(list)) if list.is_empty() => ().into_any(),
+            Some(Ok(list)) => {
+                let this = code.get_value();
+                view! {
+                    <Panel title="Suggested links" caption="proposed by an agent">
+                        <Stack gap="sm">
+                            <Text dimmed=true size="xs">
+                                "An agent thinks these belong together. Nothing has been \
+                                 changed — confirming creates the link, rejecting is kept \
+                                 as a record that the suggestion was wrong."
+                            </Text>
+                            {move || error.get().map(|e| view! {
+                                <Alert title="Could not decide" color=token::BAD>
+                                    <Text size="sm">{api::error_text(&e)}</Text>
+                                </Alert>
+                            })}
+                            {list.into_iter().map(|p| {
+                                let id_confirm = p.id.clone();
+                                let id_reject = p.id.clone();
+                                // Say it from the reader's point of view: they are
+                                // looking at one of these two items already.
+                                let other = if p.source == this { p.target.clone() } else { p.source.clone() };
+                                let direction = if p.source == this {
+                                    format!("this {} {}", p.relationship, other)
+                                } else {
+                                    format!("{} {} this", other, p.relationship)
+                                };
+                                view! {
+                                    <Stack gap="xs">
+                                        <Group gap="xs">
+                                            <Pill color=token::VIOLET>{p.claim.clone()}</Pill>
+                                            <Anchor href=format!("/items/{other}")>{other.clone()}</Anchor>
+                                            <Text size="xs" dimmed=true>{direction}</Text>
+                                        </Group>
+                                        <Text size="xs">{p.why.clone()}</Text>
+                                        <Group gap="xs">
+                                            <Button
+                                                variant="primary"
+                                                size="xs"
+                                                disabled=busy.get()
+                                                on_click=Callback::new(move |_| decide(id_confirm.clone(), true))
+                                            >
+                                                "Confirm"
+                                            </Button>
+                                            <Button
+                                                variant="default"
+                                                size="xs"
+                                                disabled=busy.get()
+                                                on_click=Callback::new(move |_| decide(id_reject.clone(), false))
+                                            >
+                                                "Reject"
+                                            </Button>
+                                        </Group>
+                                    </Stack>
+                                }
+                            }).collect_view()}
+                        </Stack>
+                    </Panel>
+                }.into_any()
+            }
+        }}
+    }
 }
 
 /// Relationships summary: both directions, grouped, every neighbor linked

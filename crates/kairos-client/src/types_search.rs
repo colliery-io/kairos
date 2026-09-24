@@ -316,3 +316,26 @@ pub struct RelatedWorkResponse {
     /// read than branch.
     pub note: String,
 }
+
+/// A proposed graph edge awaiting a human (KAIROS-A-0021 rule 6,
+/// KAIROS-T-0192).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct EdgeProposalDto {
+    /// The proposal's id.
+    pub id: String,
+    /// The proposed edge's source, by short code.
+    pub source: String,
+    /// The proposed edge's target, by short code.
+    pub target: String,
+    /// `parent` or `blocks`.
+    pub relationship: String,
+    /// `pending`, `confirmed` or `rejected`.
+    pub state: String,
+    /// What was claimed.
+    pub claim: String,
+    /// Why, verbatim — what the proposer saw, not a summary of it.
+    pub why: String,
+    /// When it was proposed, RFC 3339. A string like every other timestamp in
+    /// these DTOs: this crate compiles to wasm and does not carry chrono.
+    pub created_at: String,
+}

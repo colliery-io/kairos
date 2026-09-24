@@ -25,7 +25,14 @@ import { COVERAGE } from '../run/reporter';
  * defend — "pending <ticket>" while one is open, a real reason otherwise.
  * The gate also fails on STALE entries, so this map cannot rot quietly.
  */
-const ALLOW: Record<string, string> = {};
+const ALLOW: Record<string, string> = {
+  // PENDING KAIROS-T-0193, which extends multi-repo-agent with the retrieval
+  // arc: ask -> prior art -> propose -> confirm. Both entries come out with
+  // that journey; the gate fails on a STALE allow entry, so they cannot quietly
+  // outlive the ticket.
+  'mcp:related_work': 'pending KAIROS-T-0193 — the retrieval arc joins multi-repo-agent',
+  'mcp:propose_edge': 'pending KAIROS-T-0193 — the propose/confirm arc joins multi-repo-agent',
+};
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

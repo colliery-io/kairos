@@ -120,6 +120,21 @@ pub struct GetHistoryParams {
     pub version: Option<i32>,
 }
 
+/// Parameters for `propose_edge` (KAIROS-T-0192).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct ProposeEdgeParams {
+    /// The edge's source, by short code. For `parent`, this is the parent.
+    pub source: String,
+    /// The edge's target, by short code.
+    pub target: String,
+    /// `parent` or `blocks`. Nothing else may be proposed.
+    pub relationship: String,
+    /// Why you think so, in your own words. Kept verbatim and shown to whoever
+    /// decides, so write what convinced you rather than a label.
+    pub why: String,
+}
+
 /// Parameters for `related_work` (KAIROS-T-0191).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -919,6 +934,50 @@ impl KairosMcp {
                 ));
             }
             Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Propose a `parent` or `blocks` edge between two items for a HUMAN to confirm. You cannot create the edge yourself and cannot confirm your own proposal — that is deliberate: a wrong parent edge re-parents work onto a board that then reports the wrong thing, and nobody re-reads an edge once it exists. Propose when related_work shows something you believe is a real dependency. Say why in your own words; it is shown to whoever decides."
+    )]
+    pub async fn propose_edge(
+        &self,
+        Parameters(params): Parameters<ProposeEdgeParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        self.run_tool(&tenant, move |conn| {
+            let relationship = match params.relationship.as_str() {
+                "parent" => kairos_db::models::enums::RelationshipType::Parent,
+                "blocks" => kairos_db::models::enums::RelationshipType::Blocks,
+                other => {
+                    return Err(ApiError::validation(format!(
+                        "only parent and blocks may be proposed, not {other:?}"
+                    )));
+                }
+            };
+            let source = load_item(conn, &params.source, Liveness::LiveOnly)?;
+            let target = load_item(conn, &params.target, Liveness::LiveOnly)?;
+            let proposal = kairos_db::proposals::propose(
+                conn,
+                kairos_db::proposals::NewProposal {
+                    source_id: source.id,
+                    target_id: target.id,
+                    relationship,
+                    claim: "proposed by an agent",
+                    why: &params.why,
+                    score: 0.0,
+                },
+                user,
+            )
+            .map_err(crate::api::proposals::map_proposal_error)?;
+            Ok(format!(
+                "Proposed {} -[{}]-> {} for review ({}). It is NOT an edge yet — \
+                 a person has to confirm it.",
+                source.short_code, params.relationship, target.short_code, proposal.id
+            ))
         })
         .await
     }

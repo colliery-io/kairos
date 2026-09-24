@@ -1248,3 +1248,37 @@ mod tests {
         assert!(body["values"]["due_date"].is_null());
     }
 }
+
+/// One pending edge proposal, as the item page shows it (KAIROS-T-0192).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EdgeProposal {
+    /// The proposal's id, for confirm/reject.
+    pub id: String,
+    /// The proposed edge's source, by short code.
+    pub source: String,
+    /// The proposed edge's target, by short code.
+    pub target: String,
+    /// `parent` or `blocks`.
+    pub relationship: String,
+    /// What was claimed.
+    pub claim: String,
+    /// Why, verbatim — what the agent saw, not a summary. A person deciding
+    /// needs the evidence, not a label.
+    pub why: String,
+}
+
+/// `GET /api/items/{short_code}/proposals` → edges an agent has suggested and
+/// nobody has ruled on yet (KAIROS-A-0021 rule 6).
+pub async fn fetch_edge_proposals(auth: Auth, code: String) -> Result<Vec<EdgeProposal>, ApiError> {
+    get_json(auth, &format!("/api/items/{code}/proposals")).await
+}
+
+/// `POST /api/proposals/{id}/confirm` — create the edge.
+pub async fn confirm_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
+    crate::api::post_json(auth, &format!("/api/proposals/{id}/confirm"), &()).await
+}
+
+/// `POST /api/proposals/{id}/reject` — recorded, not erased.
+pub async fn reject_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
+    crate::api::post_json(auth, &format!("/api/proposals/{id}/reject"), &()).await
+}

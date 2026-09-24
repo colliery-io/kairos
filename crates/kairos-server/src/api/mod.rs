@@ -36,6 +36,7 @@ pub mod documents;
 pub mod initiatives;
 pub mod meta;
 pub mod org;
+pub mod proposals;
 pub mod search;
 pub mod strategies;
 pub mod tasks;

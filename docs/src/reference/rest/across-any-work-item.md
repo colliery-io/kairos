@@ -228,6 +228,20 @@ Put an archived item back on its board.
 
 ## search
 
+### `GET /api/items/{short_code}/proposals`
+
+Pending edge proposals touching an item.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | The item |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | array of [`EdgeProposalDto`](schemas.md#edgeproposaldto) | Undecided proposals naming this item at either end, best-evidence first |
+| `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No item with that short code |
+
 ### `GET /api/items/{short_code}/related`
 
 Related work for an item (KAIROS-A-0021 rules 5-7, KAIROS-T-0191).
@@ -252,6 +266,37 @@ reader expects.
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not a member of the organization |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No item with that short code |
 | `503` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Embeddings are not enabled on this deployment |
+
+### `POST /api/proposals/{id}/confirm`
+
+Confirm a proposal, creating the edge.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The proposal |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`EdgeProposalDto`](schemas.md#edgeproposaldto) | Confirmed; the relationship now exists |
+| `400` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The edge was refused by the graph's own rules — a cycle, or a shape the rule matrix forbids |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such proposal |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Already decided |
+
+### `POST /api/proposals/{id}/reject`
+
+Reject a proposal. Recorded, not erased.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The proposal |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`EdgeProposalDto`](schemas.md#edgeproposaldto) | Rejected, and kept — a repeatedly rejected pair is the clearest signal that retrieval is wrong about something |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such proposal |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Already decided |
 
 ### `POST /api/search`
 

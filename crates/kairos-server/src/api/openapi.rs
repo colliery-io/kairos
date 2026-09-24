@@ -102,6 +102,9 @@ use crate::app::AppState;
         // Unified search (KAIROS-T-0021).
         crate::api::search::search,
         crate::api::search::related,
+        crate::api::proposals::list,
+        crate::api::proposals::confirm,
+        crate::api::proposals::reject,
         // Relationships / metadata / definitions / templates / history /
         // activity (KAIROS-T-0020).
         crate::api::meta::relationships::get_relationships,

@@ -114,6 +114,15 @@ pub struct AppConfig {
     /// (A-0013 single artifact); when both are present the directory
     /// wins (deliberate: lets a dev override an embedded build).
     pub web_dist: Option<std::path::PathBuf>,
+    /// `KAIROS_EMBED_REFRESH_SECS` — how often the background refresher looks
+    /// for items whose vectors have fallen behind (KAIROS-T-0190). Default 10;
+    /// `0` disables it, which is what tests and any deployment that prefers to
+    /// drive `embed-backfill` itself should use.
+    ///
+    /// There is no queue behind this on purpose. Staleness is *derived* — a
+    /// content hash that no longer matches — so a sweep is self-healing, where a
+    /// queue would be a second source of truth able to drift from the first.
+    pub embed_refresh_secs: u64,
     /// `KAIROS_WEB_CLIENT_ID` — the public OAuth client id the SPA uses
     /// for its PKCE flow (KAIROS-T-0039, A-0010). Default `kairos-web`,
     /// matching the dev Dex fixture (`.angreal/dex/config.yaml`).
@@ -235,6 +244,9 @@ impl AppConfig {
             log_format,
             dev_ui,
             web_dist: get("KAIROS_WEB_DIST").map(std::path::PathBuf::from),
+            embed_refresh_secs: get("KAIROS_EMBED_REFRESH_SECS")
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(10),
             web_client_id: get("KAIROS_WEB_CLIENT_ID").unwrap_or_else(|| "kairos-web".to_string()),
             api_bearer,
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),

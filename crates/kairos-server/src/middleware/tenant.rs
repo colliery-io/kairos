@@ -194,6 +194,7 @@ mod tests {
             deployment_admins: vec![],
             log_level: "info".to_string(),
             log_format: crate::config::LogFormat::Json,
+            embed_refresh_secs: 0,
             dev_ui: false,
             web_dist: None,
             web_client_id: "kairos-web".to_string(),

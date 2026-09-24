@@ -228,3 +228,99 @@ struct VersionRow {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     version: i32,
 }
+
+/// The background refresher embeds work that arrives after it started
+/// (KAIROS-T-0190).
+///
+/// This is the claim that "embedding happens off the write path" rests on: a
+/// create returns immediately, and something else notices. Asserted by creating
+/// an item while the sweep is running and waiting for it to be picked up —
+/// there is no queue to inspect, because staleness is derived rather than
+/// recorded, so the only honest test is to watch the world change.
+#[tokio::test]
+async fn the_refresher_picks_up_work_created_after_it_started() {
+    const SCRATCH: &str = "kairos_refresher_test";
+    let admin_url = admin_database_url();
+    let mut admin = PgConnection::establish(&admin_url)
+        .unwrap_or_else(|e| panic!("cannot connect to compose postgres at {admin_url}: {e}"));
+    sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH} WITH (FORCE)"))
+        .execute(&mut admin)
+        .expect("dropping scratch");
+    sql_query(format!("CREATE DATABASE {SCRATCH}"))
+        .execute(&mut admin)
+        .expect("creating scratch");
+    let url = with_database(&admin_url, SCRATCH);
+
+    let mut conn = PgConnection::establish(&url).expect("connecting");
+    run_public_migrations(&mut conn).expect("public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning");
+    let alice = diesel::insert_into(schema::users::table)
+        .values(NewUser {
+            external_id: "dex|alice".into(),
+            email: "alice@acme.test".into(),
+            display_name: "Alice".into(),
+        })
+        .returning(schema::users::id)
+        .get_result::<Uuid>(&mut conn)
+        .expect("alice");
+    let board = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery",
+        "delivery",
+        None,
+        Some(alice),
+    )
+    .expect("board")
+    .id;
+
+    let provider: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+    let service = Arc::new(EmbeddingService::new(provider));
+    let model = service.model().clone();
+    let blocking = kairos_server::blocking::BlockingTenantPool::new(&url, 4);
+
+    let sweeper = tokio::spawn(kairos_server::embedding::run_refresher(
+        blocking,
+        Arc::clone(&service),
+        std::time::Duration::from_millis(200),
+        25,
+    ));
+
+    // The write. It does not wait for a model, and nothing here asks it to.
+    items::create_task(
+        &mut conn,
+        CreateTask {
+            board_id: board,
+            column_id: None,
+            title: "Filed while the sweeper was running",
+            content: &document("Just filed."),
+            task_type: TaskType::Task,
+            work_class: WorkClass::Planned,
+            team_id: None,
+            repository_id: None,
+        },
+        alice,
+    )
+    .expect("creating the task");
+
+    // Wait for the sweep to notice, with a bound so a failure is a failure
+    // rather than a hang.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    let embedded = loop {
+        let c = counts(&mut conn, &model).expect("counts");
+        if c.embedded > 0 {
+            break c.embedded;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the refresher never embedded the new item"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    };
+    assert_eq!(embedded, 1, "the item the sweep found");
+
+    sweeper.abort();
+}

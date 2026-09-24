@@ -198,6 +198,9 @@ pub fn base_config(scratch_url: &str) -> AppConfig {
         // GUI serving (KAIROS-T-0039): no dist dir by default (tests that
         // exercise the SPA fallback set one on a copy).
         web_dist: None,
+        // No background refresher in tests: they assert on exact embedding
+        // counts, and a sweep running underneath would make those flaky.
+        embed_refresh_secs: 0,
         web_client_id: "kairos-web".to_string(),
         api_bearer: kairos_server::config::ApiBearer::AccessToken,
         web_client_secret: None,

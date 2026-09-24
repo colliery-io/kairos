@@ -211,6 +211,8 @@ async fn cli_command_tree_golden_path_live() {
         deployment_admins: vec![],
         log_level: "info".to_string(),
         log_format: LogFormat::Json,
+        // No background embedding sweep in a CLI test fixture.
+        embed_refresh_secs: 0,
         dev_ui: false,
         web_dist: None,
         web_client_id: "kairos-web".to_string(),

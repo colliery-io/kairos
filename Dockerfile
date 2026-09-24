@@ -30,6 +30,10 @@ FROM rust:1.93-slim-bookworm AS builder
 # Native build dependencies:
 #   - libpq-dev + pkg-config: diesel's `postgres` feature links libpq (C).
 #   - gcc/cc comes with the rust image (ring, cc-rs).
+#   - g++: the ONNX runtime under `fastembed` (KAIROS-T-0189) is C++, and
+#     linking it needs `-lstdc++`, which the slim rust image does not carry.
+#     Without it the release build fails at the link step with
+#     `cannot find -lstdc++` — which is how this was found.
 #   - ca-certificates: cargo/trunk fetch over TLS.
 # reqwest uses rustls (no openssl), so no libssl-dev is needed.
 # The base image tag is pinned; pinning apt point versions across bookworm
@@ -38,6 +42,7 @@ FROM rust:1.93-slim-bookworm AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         libpq-dev \
+        g++ \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -90,13 +95,19 @@ RUN cargo run --release -p kairos-embed --bin fetch-model -- /build/models
 # libpq major version. Verdict verified with `ldd` post-build (see task doc).
 FROM debian:bookworm-slim AS runtime
 
-# libpq5: the ONLY native runtime dependency (sync diesel migrations + the
-# blocking pool link libpq; the async pool is pure-Rust tokio-postgres and
-# reqwest is rustls). ca-certificates: OIDC discovery over TLS against the
-# customer IdP (KAIROS-A-0016). curl: HEALTHCHECK + an ops probe tool.
+# Native runtime dependencies — two of them since KAIROS-T-0189:
+#   - libpq5: sync diesel migrations + the blocking pool link libpq. (The async
+#     pool is pure-Rust tokio-postgres and reqwest is rustls.)
+#   - libstdc++6: the ONNX runtime behind the local embedding model is C++.
+#     Named explicitly rather than relied on as a transitive of the base image,
+#     because a base-image change that dropped it would fail at startup rather
+#     than at build.
+# ca-certificates: OIDC discovery over TLS against the customer IdP
+# (KAIROS-A-0016). curl: HEALTHCHECK + an ops probe tool.
 # hadolint ignore=DL3008  # base image tag is pinned; see builder-stage note.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
+        libstdc++6 \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/* \

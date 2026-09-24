@@ -34,6 +34,12 @@ pub struct AppState {
     pub blocking: BlockingTenantPool,
     /// The OIDC validator (JWKS cache).
     pub auth: Arc<Authenticator>,
+    /// The embedding service, when this deployment has one (KAIROS-T-0190).
+    ///
+    /// `None` means retrieval degrades to lexical, which is A-0021 rule 7 rather
+    /// than a failure: embeddings switched off, or a provider that could not
+    /// start, must not stop the server serving boards.
+    pub embedding: Option<Arc<crate::embedding::EmbeddingService>>,
     /// The per-router Prometheus metrics registry (KAIROS-A-0013,
     /// KAIROS-T-0049). Per-`AppState` (not a process-global recorder) so
     /// in-process test routers stay isolated — see [`crate::metrics`].
@@ -66,8 +72,44 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
         pool,
         blocking,
         auth: Arc::new(auth),
+        embedding: build_embedding_service(),
         metrics: Arc::new(crate::metrics::Metrics::new()),
     })
+}
+
+/// Build the embedding service, or `None`.
+///
+/// **Never fails the server.** A provider that will not start — no model in the
+/// image, an unreachable endpoint, a configuration this build was not compiled
+/// for — means retrieval degrades to lexical, which is KAIROS-A-0021 rule 7. A
+/// deployment whose boards stop serving because an embedding model is missing
+/// has traded something valuable for something optional.
+///
+/// It logs at `warn` rather than `info` on failure, because "search is quietly
+/// worse than you think" is exactly the state an operator needs told about.
+fn build_embedding_service() -> Option<Arc<crate::embedding::EmbeddingService>> {
+    let config = match kairos_embed::EmbedConfig::from_env() {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!(error = %e, "embedding configuration is invalid; retrieval will be lexical only");
+            return None;
+        }
+    };
+    match config.build() {
+        Ok(Some(provider)) => {
+            let service = crate::embedding::EmbeddingService::new(provider);
+            tracing::info!(model = %service.model_display(), "embedding provider ready");
+            Some(Arc::new(service))
+        }
+        Ok(None) => {
+            tracing::info!("embeddings are disabled; retrieval is lexical only");
+            None
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "embedding provider unavailable; retrieval will be lexical only");
+            None
+        }
+    }
 }
 
 /// Build a state from an existing pool and a pre-built [`Authenticator`]
@@ -81,6 +123,9 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
         pool,
         blocking,
         auth,
+        // Tests drive embedding explicitly; a provider built here would load a
+        // 65 MB model into every in-process router.
+        embedding: None,
         metrics: Arc::new(crate::metrics::Metrics::new()),
     }
 }
@@ -403,7 +448,22 @@ async fn whoami(
 /// applies them before any subcommand, KAIROS-T-0007).
 pub async fn serve(config: AppConfig) -> Result<(), String> {
     let bind_addr = config.bind_addr;
+    let refresh_secs = config.embed_refresh_secs;
     let state = build_state(config).await.map_err(|e| e.to_string())?;
+
+    // The background refresher (KAIROS-T-0190): embedding happens off the write
+    // path, so a create never waits on a model. Detached deliberately — it is
+    // not part of graceful shutdown, because there is nothing to drain: a sweep
+    // interrupted mid-page simply re-derives what is stale on the next pass.
+    if let (Some(service), true) = (state.embedding.clone(), refresh_secs > 0) {
+        tokio::spawn(crate::embedding::run_refresher(
+            state.blocking.clone(),
+            service,
+            std::time::Duration::from_secs(refresh_secs),
+            crate::embedding::REFRESH_BATCH,
+        ));
+    }
+
     let app = router(state);
 
     let listener = tokio::net::TcpListener::bind(bind_addr)

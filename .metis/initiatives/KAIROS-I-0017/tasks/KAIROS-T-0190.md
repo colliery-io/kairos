@@ -570,3 +570,67 @@ worth recording is the shape, not the magnitude, and a real tenant should be
 measured before anyone schedules a window around it.
 
 `angreal test integration` 45 targets, fmt and clippy clean.
+
+### 2026-09-24 — off the write path, and there is no queue
+
+[[KAIROS-A-0021]] rule 7 requires embedding to happen off the write path:
+`create_item` must not wait on a model, and a failed embedding must leave the
+item created and retrievable lexically.
+
+The obvious implementation is a work queue. **This is not one, deliberately.**
+
+Staleness here is *derived*, not recorded — an item needs work exactly when its
+stored content hash no longer matches the text it would compose now. A queue
+would be a second statement of the same fact, and second statements drift: a row
+enqueued and lost, an item edited twice while one entry waits, a retry counter
+outliving the reason for it. A sweep asks the only source of truth there is, so
+whatever went wrong last time, the next pass sees the world as it actually is.
+
+The cost is latency, not correctness: an item is embedded within one interval
+rather than immediately. For a feature whose output is **proposals**, that is a
+good trade.
+
+- `KAIROS_EMBED_REFRESH_SECS`, default 10, `0` disables it.
+- `REFRESH_BATCH` is 25 — small on purpose. The sweep competes with real request
+  traffic for the same pool; a large page would turn catch-up into a latency
+  spike on the boards. A deployment with a real backlog runs `embed-backfill`,
+  which exists to go fast under supervision.
+- The task is **detached** and not part of graceful shutdown, because there is
+  nothing to drain: a sweep interrupted mid-page re-derives what is stale next
+  time.
+- Every error is logged and the loop continues. A provider that has gone away is
+  a reason for retrieval to degrade to lexical; it is not a reason to stop
+  serving boards.
+
+`build_embedding_service` follows the same rule at startup: a provider that will
+not start logs at **warn** — "search is quietly worse than you think" is exactly
+what an operator needs told — and the server comes up anyway.
+
+Proven rather than described: `the_refresher_picks_up_work_created_after_it_started`
+starts the sweep, creates an item **after** it is running, and waits for the
+vector to appear. There is no queue to inspect, so the only honest test is to
+watch the world change.
+
+`embed_refresh_secs: 0` in every test fixture: a sweep running underneath tests
+that assert exact embedding counts would make them flaky.
+
+### The image build, third attempt: two real defects in the Dockerfile
+
+The first two attempts never got past resolving the build frontend. With the
+daemon able to pull again, the build reached the release compile and **failed**:
+
+```
+/usr/bin/ld: cannot find -lstdc++
+```
+
+The ONNX runtime behind `fastembed` is C++, and `rust:1.93-slim-bookworm` has
+`cc` but not `g++`, so there is nothing providing `-lstdc++`. Adding the
+embedding crate changed the image's native build dependencies and nothing said
+so until the linker did.
+
+The second defect is the one that would have bitten later: the runtime stage's
+comment read *"libpq5: the ONLY native runtime dependency"*, which stopped being
+true the moment a C++ runtime entered the binary. `libstdc++6` is now installed
+explicitly rather than relied on as a transitive of the base image — a base-image
+change that dropped it would otherwise fail at **startup**, in production, rather
+than at build.

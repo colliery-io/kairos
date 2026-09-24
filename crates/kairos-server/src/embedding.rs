@@ -91,6 +91,14 @@ pub struct BatchOutcome {
     pub texts_embedded: usize,
 }
 
+/// How many items a background sweep looks at per tenant per tick.
+///
+/// Small on purpose. The sweep runs every few seconds and is competing with real
+/// request traffic for the same connection pool; a large page would turn a
+/// catch-up into a latency spike on the boards. A deployment with a real backlog
+/// runs `embed-backfill`, which exists to go fast under supervision.
+pub const REFRESH_BATCH: i64 = 25;
+
 /// Keeps an item's vectors in line with its text.
 pub struct EmbeddingService {
     provider: Arc<dyn EmbeddingProvider>,
@@ -264,6 +272,88 @@ impl EmbeddingService {
             }
         }
         Ok(outcome)
+    }
+}
+
+/// Run a refresh sweep across every tenant, for ever.
+///
+/// # Why a sweep and not a queue
+///
+/// [[KAIROS-A-0021]] rule 7 requires embedding to happen **off** the write path:
+/// `create_item` must not wait on a model, and a failed embedding must leave the
+/// item created and retrievable lexically. The obvious implementation is a work
+/// queue, and this is not one.
+///
+/// Staleness here is **derived**, not recorded: an item needs work exactly when
+/// its stored content hash no longer matches the text it would compose now. A
+/// queue would be a second statement of the same fact, and second statements
+/// drift — a row enqueued and lost, an item edited twice while one entry sits
+/// waiting, a retry counter that outlives the reason for it. A sweep asks the
+/// only source of truth there is and is therefore self-healing: whatever went
+/// wrong last time, the next pass sees the world as it actually is.
+///
+/// The cost is latency rather than correctness. An item is embedded within one
+/// interval rather than immediately, and that is an acceptable trade for a
+/// feature whose results are proposals.
+///
+/// # It never takes the server down
+///
+/// Every error is logged and the loop continues. An embedding provider that has
+/// gone away is a reason for retrieval to degrade to lexical, which is what rule
+/// 7 promises; it is not a reason to stop serving boards.
+pub async fn run_refresher(
+    blocking: crate::blocking::BlockingTenantPool,
+    service: Arc<EmbeddingService>,
+    interval: std::time::Duration,
+    batch: i64,
+) {
+    tracing::info!(
+        interval_secs = interval.as_secs(),
+        batch,
+        model = %service.model_display(),
+        "embedding refresher started"
+    );
+    let mut ticker = tokio::time::interval(interval);
+    // A slow sweep must not cause a burst of catch-up ticks afterwards.
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        ticker.tick().await;
+
+        let tenants = match blocking
+            .run_public(|conn| {
+                kairos_db::list_tenants(conn).map_err(crate::error::ApiError::internal)
+            })
+            .await
+        {
+            Ok(tenants) => tenants,
+            Err(e) => {
+                tracing::warn!(error = ?e, "embedding refresher could not list tenants");
+                continue;
+            }
+        };
+
+        for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
+            let service = Arc::clone(&service);
+            let slug = tenant.slug.clone();
+            let outcome = blocking
+                .run(&tenant.slug, move |conn| {
+                    service
+                        .refresh_batch(conn, batch)
+                        .map_err(crate::error::ApiError::internal)
+                })
+                .await;
+            match outcome {
+                Ok(o) if o.items_changed > 0 => tracing::info!(
+                    tenant = %slug,
+                    items = o.items_changed,
+                    texts = o.texts_embedded,
+                    "embedded"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(tenant = %slug, error = ?e, "embedding refresh failed"),
+            }
+        }
     }
 }
 

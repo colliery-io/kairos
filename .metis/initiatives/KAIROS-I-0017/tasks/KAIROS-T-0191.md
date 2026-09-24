@@ -104,6 +104,21 @@ reach 0.817 at p99. **The distributions overlap across their entire useful
 range**, and there is no zero point — two documents from unrelated projects still
 score 0.594.
 
+**Confirmed a second time, on different data.** [[KAIROS-T-0190]] repeated the
+measurement over the seeded `demo` tenant once it had real vectors — Kairos's own
+work items rather than Metis documents:
+
+| class | n | mean | min | max |
+|---|---|---|---|---|
+| shared parent | 13 | 0.727 | 0.661 | 0.787 |
+| direct edge | 18 | 0.705 | 0.568 | 0.782 |
+| no relation | 159 | 0.580 | 0.424 | **0.752** |
+
+Same gap — about 0.13 against the 0.12 measured across nineteen repositories —
+and the same overlap: unrelated pairs reach 0.752 while pairs joined by a real
+edge fall to 0.568. There is no value you could put between them, on either
+corpus.
+
 So: no `cosine > x` anywhere in this surface. Ranking **within one query** is
 meaningful; comparing a score to a constant is not. Take the top few by fused
 rank and stop. If the caller wants to know how strong a match is, give them the

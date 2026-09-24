@@ -634,3 +634,29 @@ true the moment a C++ runtime entered the binary. `libstdc++6` is now installed
 explicitly rather than relied on as a transitive of the base image — a base-image
 change that dropped it would otherwise fail at **startup**, in production, rather
 than at build.
+
+### 2026-09-24 — the seeded tenant's own distribution
+
+The acceptance criterion asked for the real pairwise cosine distribution **over
+the seeded tenant**, which until now did not have vectors. It does, so here it
+is — 20 items, 190 pairs, classified by what the graph says:
+
+| class | n | mean | min | max |
+|---|---|---|---|---|
+| shared parent | 13 | **0.727** | 0.661 | 0.787 |
+| direct edge | 18 | **0.705** | 0.568 | 0.782 |
+| no relation | 159 | **0.580** | 0.424 | 0.752 |
+
+This is an **independent confirmation** of the Metis-corpus measurement, on
+different data, with a different model configuration, from a different author:
+related pairs sit about **0.13** above unrelated ones here, against the 0.12
+measured across nineteen Metis repositories.
+
+And it reproduces the constraint that matters just as clearly. The ranges
+**overlap**: unrelated pairs reach 0.752 while pairs joined by a real edge fall
+to 0.568. There is no value you could put between them. [[KAIROS-T-0191]] must
+rank within a query and never compare a score to a constant — now demonstrated
+twice, on two corpora.
+
+The signal is real and the threshold is not, which is the same sentence this
+initiative has been writing from the beginning.

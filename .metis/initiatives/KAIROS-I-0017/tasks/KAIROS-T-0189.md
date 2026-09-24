@@ -176,6 +176,13 @@ that needs dismissing by hand. The likely cause is mine: `target/` had grown to
 transient `cc` linker failure. Deleting `target/debug/incremental` freed 39 GB —
 so the disk is fine now, but Docker needs a human to restart it.
 
+`cargo clean` freed **119.3 GiB** (137 GiB now free) and everything re-verified
+from scratch afterwards: fmt clean, clippy clean, `angreal test unit` green,
+`cargo test -p kairos-embed` 36 green including the five against the real model,
+and `angreal dev fetch-model` re-populated the cache the clean removed. So the
+disk cause is dealt with and the code is unaffected — but Docker Desktop's
+daemon socket is still absent, because the crash dialog wants dismissing by hand.
+
 Outstanding, in order, once Docker is back:
 
 1. `docker build .` — confirm the model layer copies and the image starts with

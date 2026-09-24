@@ -78,21 +78,142 @@ parallel with [[KAIROS-T-0187]].
 - The API key is a secret, so it follows the same existing-Secret pattern
   `DATABASE_URL` already uses in the chart.
 
-## Acceptance Criteria
+### 2026-09-24 — built: `kairos-embed`, three providers, model baked into the image
+
+A new crate rather than code in `kairos-server`. `kairos-core` is pure by
+[[KAIROS-A-0009]] and loading an ONNX model is I/O; the server would have worked,
+but then the CLI and the soak driver would link an ML runtime to reach a trait.
+With `local` and `remote` behind features they do not.
+
+| file | what it is |
+|---|---|
+| `lib.rs` | the `EmbeddingProvider` trait, `ModelId`, `Mismatch`, `cosine`, batch validation |
+| `local.rs` | fastembed, `bge-small-en-v1.5-q`, 384d |
+| `remote.rs` | OpenAI-compatible HTTP |
+| `deterministic.rs` | hash-derived, for tests |
+| `config.rs` | `KAIROS_EMBED_*`, defaulting to local with nothing set |
+| `bin/fetch-model.rs` | populates the cache at image build time |
+
+**Rule 1 is satisfied by silence.** With no configuration at all the provider is
+local. Setting `KAIROS_EMBED_URL` selects remote on its own, because an operator
+who has configured an endpoint has already said what they want and asking them to
+also set `KAIROS_EMBED_PROVIDER=remote` is a second chance to get it wrong.
+`KAIROS_EMBED_PROVIDER=none` is a supported answer, not a failure — `build()`
+returns `Ok(None)` and the caller degrades to lexical, which is rule 7.
+
+### The model is baked into the image, which is the point
+
+The earlier spike found fastembed downloading weights from HuggingFace at first
+use. A stateless container that must reach the internet before it can serve is
+not "local by default" and breaks air-gapped deployments outright.
+
+So `fetch-model` runs in the Dockerfile's builder stage and the runtime stage
+copies `/var/lib/kairos/models`; `KAIROS_EMBED_CACHE` points at it and
+**downloading stays disabled**. If the model layer ever failed to copy, the
+operator gets an error naming the directory rather than a container quietly
+pulling 65 MB on first request. `fetch-model` drives `LocalProvider` itself, so
+the cache layout is fastembed's rather than a reproduction of it, and it embeds a
+probe string — a model that cannot load fails **the build** instead of the first
+request. `angreal dev fetch-model` is the same thing for a source build.
+
+### Decisions worth naming
+
+**The trait is synchronous.** Local inference is CPU-bound and wants a thread, not
+a task; an async trait would make it pretend. The cost is that `remote.rs` uses
+`reqwest::blocking`, which **panics** inside an async worker — so the constraint is
+documented on the trait itself, because a caller holding a `dyn EmbeddingProvider`
+cannot see which implementation it has. [[KAIROS-T-0190]] embeds off the request
+path anyway.
+
+**`LocalProvider` holds a `Mutex`.** fastembed's `embed` needs `&mut self`; the
+trait gives `&self` so callers can share one behind an `Arc`. Serialising callers
+costs nothing that parallelism would have won — the batch inside is what saturates
+the cores.
+
+**Remote discovers its width** with one probe request at startup rather than
+having it configured. Asking an operator to type `1536` invites a wrong answer
+that would not surface until vectors were stored at the wrong width.
+
+**Remote places vectors by the response's `index`**, not arrival order. The API
+does not promise sorted output, and getting it wrong attaches every vector to the
+wrong item — retrieval that is confidently incorrect rather than broken. Tested
+directly with a deliberately shuffled response.
+
+**Every provider's output is validated** — one vector per text, each the
+advertised width — because a silently short batch misaligns everything after it.
+
+### The test that earned its place immediately
+
+`tests/local_model.rs` loads the real model and asserts the property it was
+**chosen** for: the same text embedded alongside different companions must come
+back at cosine > 0.99999. That is the check the rejected dynamically quantized
+model fails at 0.992, and without a test it would be a paragraph in a document
+rather than something a future model change has to survive.
+
+Its first version built a provider per test and **four of five failed** with
+`Failed to retrieve model file 'model_optimized.onnx'` — cargo runs tests in
+parallel threads and they were all downloading into one cache directory at once.
+Fixed with a shared `LazyLock`, which is also how the server will hold it. The
+product avoids the race differently: the image is built with the cache already
+populated, so nothing downloads at runtime.
+
+### Verified
+
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`: clean
+- `cargo test -p kairos-embed`: **36 tests** — 31 unit, 5 against the real model
+- `angreal test unit`: green across the workspace
+- `angreal dev fetch-model`: `local/bge-small-en-v1.5-q (384d) ready`
+
+### NOT verified — the machine stopped, and this is what is outstanding
+
+**The Docker image was not built, so "the model is baked into the image" is
+currently a code claim rather than a demonstrated one.** Nor did the
+integration, e2e or UAT tiers run after the crate landed.
+
+Docker Desktop's backend was SIGKILLed mid-session and has opened an error dialog
+that needs dismissing by hand. The likely cause is mine: `target/` had grown to
+**131 GB** across this session's builds and the host filled, which also produced a
+transient `cc` linker failure. Deleting `target/debug/incremental` freed 39 GB —
+so the disk is fine now, but Docker needs a human to restart it.
+
+Outstanding, in order, once Docker is back:
+
+1. `docker build .` — confirm the model layer copies and the image starts with
+   `KAIROS_EMBED_CACHE` populated and downloading disabled.
+2. `angreal test integration`, `angreal test e2e`, `angreal test uat`.
+3. Deploy that image to a `kind` cluster — which is also [[KAIROS-T-0188]]'s work
+   and the natural place to do it once.
+
+This task is **not** transitioned to completed on that account. The code and its
+own tests are done; the image claim is not yet evidence.
+
+### Deliberately not in this task
+
+Nothing in `kairos-server` consumes the provider yet — no wiring into app state,
+no `/readyz` reporting. That is [[KAIROS-T-0190]]'s, which is the first thing that
+needs a vector. Adding the plumbing here would have meant writing a caller before
+knowing what it wants.
 
 ## Acceptance Criteria
 
-- [ ] An embedding trait in `kairos-core` with local, OpenAI-compatible and
-      deterministic-fake implementations
-- [ ] Local is the default and needs no configuration
-- [ ] The chosen local model, its licence, the image-size delta and cold-start
-      cost are recorded in the Status Updates
+## Acceptance Criteria
+
+- [x] An embedding trait with local, OpenAI-compatible and deterministic-fake
+      implementations — in a new `kairos-embed` crate, **not** `kairos-core`, which
+      is pure by [[KAIROS-A-0009]] and may not do I/O
+- [x] Local is the default and needs no configuration
+- [x] The chosen local model, the image-size delta and cold-start cost are
+      recorded in the Status Updates
 - [ ] Works on both `linux/amd64` and `linux/arm64`, verified on the built image
-- [ ] Provider and model are recorded per stored vector; a configuration mismatch
-      is reported rather than silently compared
-- [ ] A provider that is unreachable never fails a write
-- [ ] The remote API key follows the existing-Secret pattern in the chart
-- [ ] `angreal test` green
+      — **outstanding**: the image was not built, see the Status Updates
+- [x] Provider and model are recorded per stored vector (`ModelId`); a mismatch is
+      reported rather than silently compared (`Mismatch`, with `is_fatal`)
+- [ ] A provider that is unreachable never fails a write — **[[KAIROS-T-0190]]'s**:
+      nothing writes yet, and the provider cannot promise this on a caller's behalf
+- [ ] The remote API key follows the existing-Secret pattern in the chart —
+      **outstanding**, belongs with [[KAIROS-T-0188]]'s chart work
+- [x] `angreal test unit`, fmt and clippy green; the Docker-dependent tiers are
+      **outstanding**, see the Status Updates
 
 ## Status Updates
 

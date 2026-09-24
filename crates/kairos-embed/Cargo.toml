@@ -1,0 +1,36 @@
+[package]
+name = "kairos-embed"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+
+# The local provider (KAIROS-T-0189): ONNX inference in-process, CPU only, no
+# GPU, statically linked onnxruntime — so A-0013's single binary survives.
+# Optional so the CLI, soak driver and anything else that links this crate for
+# the trait alone does not drag in an ML runtime.
+fastembed = { workspace = true, optional = true }
+
+# The OpenAI-compatible provider. Optional for the same reason. `blocking` is
+# added on top of the workspace features because EmbeddingProvider is sync — see
+# the `remote` module docs for why, and for the constraint it puts on callers.
+reqwest = { workspace = true, optional = true, features = ["blocking"] }
+
+[features]
+# The deterministic provider is always available: every test tier above unit
+# needs embeddings that are stable, free and instant.
+default = ["local", "remote"]
+local = ["dep:fastembed"]
+remote = ["dep:reqwest"]
+
+# Populates the model cache at image build time, using fastembed's own layout
+# rather than a reproduction of it (KAIROS-T-0189).
+[[bin]]
+name = "fetch-model"
+path = "src/bin/fetch-model.rs"
+required-features = ["local"]

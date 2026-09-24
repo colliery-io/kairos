@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/kairos-core",
     "crates/kairos-db",
+    "crates/kairos-embed",
     "crates/kairos-server",
     "crates/kairos-client",
     "crates/kairos-cli",
@@ -19,6 +20,7 @@ edition = "2024"
 kairos-core = { path = "crates/kairos-core" }
 kairos-db = { path = "crates/kairos-db" }
 kairos-client = { path = "crates/kairos-client" }
+kairos-embed = { path = "crates/kairos-embed" }
 
 # HTTP layer (KAIROS-A-0009)
 axum = "0.8.9"
@@ -38,8 +40,15 @@ bb8 = "0.9.1"
 chrono = "0.4.42"
 uuid = { version = "1.18.1", features = ["v4"] }
 
+# Embeddings (KAIROS-A-0021 rule 1, KAIROS-T-0189). fastembed is ONNX inference
+# in-process with a statically linked onnxruntime — no GPU, no sidecar, no dylib,
+# so A-0013's single stateless binary survives. `ort` underneath is a release
+# candidate line, so the version is pinned exactly and upgrades are deliberate.
+fastembed = "=7.1.0"
+
 # Errors / serialization
 thiserror = "2.0.18"
+sha2 = "0.10.9"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 

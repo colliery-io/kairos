@@ -85,3 +85,54 @@ def dev_serve(release=False):
         return subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env).returncode
     except KeyboardInterrupt:
         return 0
+
+
+# Where `angreal dev` puts the local embedding model. Matches the integration
+# test's cache (crates/kairos-embed/tests/local_model.rs) so a developer who has
+# run the tests already has it, and sits under target/ so `cargo clean` and CI's
+# cache treat it like any other build artefact.
+EMBED_CACHE = PROJECT_ROOT / "target" / "embed-cache"
+
+
+@dev()
+@angreal.command(
+    name="fetch-model",
+    about="download the local embedding model into target/embed-cache",
+    tool=angreal.ToolDescription(
+        """
+        Populate the local embedding model cache (KAIROS-T-0189, A-0021 rule 1).
+
+        The container image bakes the model in at build time, so a deployment
+        never downloads it. A developer running `kairos-server` from source has
+        no such layer, and the provider refuses to download on its own — an
+        operator who deployed an image should get an error naming the directory,
+        not a surprise 65 MB fetch. This task is the deliberate fetch.
+
+        ## When to use
+        - Before running retrieval locally from a source build
+        - After `cargo clean`, which removes target/embed-cache with everything else
+
+        ## Related tasks
+        - `dev serve` - run the server; set KAIROS_EMBED_CACHE to this directory
+        - `test integration` - the crate's own tests fetch into the same cache
+
+        ## Output
+        The model id and dimension on success. Idempotent: an already-populated
+        cache just loads and verifies. About 65 MB (bge-small-en-v1.5,
+        statically quantized).
+        """,
+        risk_level="safe",
+    ),
+)
+def dev_fetch_model():
+    """Fetch the local embedding model into target/embed-cache."""
+    EMBED_CACHE.mkdir(parents=True, exist_ok=True)
+    print(f"Fetching the local embedding model into {EMBED_CACHE}...", flush=True)
+    return subprocess.run(
+        [
+            "cargo", "run", "--release",
+            "-p", "kairos-embed", "--bin", "fetch-model",
+            "--", str(EMBED_CACHE),
+        ],
+        cwd=str(PROJECT_ROOT),
+    ).returncode

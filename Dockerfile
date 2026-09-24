@@ -7,6 +7,10 @@
 # is a minimal Debian runtime carrying only the binary + its lone native
 # dependency (libpq).
 #
+# It also carries the local embedding model (KAIROS-T-0189): baked in at build
+# time under /var/lib/kairos/models, so retrieval needs no outbound call and
+# works air-gapped.
+#
 # The image serves everything from one process on 8080: / (GUI SPA), /api,
 # /mcp, /scim/v2, and /healthz. (/readyz and /metrics from KAIROS-A-0013 are
 # not implemented yet — tracked under KAIROS-T-0049.)
@@ -64,6 +68,18 @@ WORKDIR /build
 RUN cargo build --release -p kairos-server --features embed-web \
     && strip target/release/kairos-server
 
+# 3) Bake the local embedding model into the image (KAIROS-T-0189, A-0021 rule
+#    1). fastembed resolves models from a cache directory and downloads on a
+#    miss; a stateless container that must reach huggingface.co before it can
+#    serve is not "local by default" and breaks air-gapped deployments, so the
+#    fetch happens HERE, at build time, and the runtime stage carries the files.
+#    `fetch-model` drives LocalProvider itself, so the cache layout is
+#    fastembed's own rather than a reproduction of it, and it embeds a probe
+#    string — a model that cannot load fails THIS build rather than the first
+#    request in production. ~65 MB (bge-small-en-v1.5, statically quantized),
+#    chosen by measurement: see crates/kairos-embed/src/local.rs.
+RUN cargo run --release -p kairos-embed --bin fetch-model -- /build/models
+
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: minimal Debian + libpq only
 # ---------------------------------------------------------------------------
@@ -87,13 +103,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin kairos
 
 COPY --from=builder /build/target/release/kairos-server /usr/local/bin/kairos-server
+# The embedding model, owned by the runtime user so nothing needs to write here.
+COPY --from=builder --chown=10001:10001 /build/models /var/lib/kairos/models
 
 USER kairos
 
 # The code default is 127.0.0.1:8080 (dev). In a container we must listen on
 # all interfaces to be reachable; everything else is deploy-time env only.
+# KAIROS_EMBED_CACHE points at the baked model. Downloading stays DISABLED
+# (the LocalConfig default): if the model layer above ever failed to copy, the
+# operator gets an error naming the directory rather than a container that
+# quietly pulls 65 MB from the internet on first use.
 ENV KAIROS_BIND_ADDR=0.0.0.0:8080 \
-    KAIROS_LOG_FORMAT=json
+    KAIROS_LOG_FORMAT=json \
+    KAIROS_EMBED_CACHE=/var/lib/kairos/models
 
 EXPOSE 8080
 

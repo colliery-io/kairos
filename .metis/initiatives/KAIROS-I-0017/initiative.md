@@ -188,5 +188,44 @@ has a recommendation and its reasoning.
 ## Progress Log
 
 - 2026-09-23: Created from [[KAIROS-A-0021]], which Dylan decided across two
-  discussions. Held in discovery pending his read of the decomposition — no
-  work started.
+  discussions, and decomposed into eight tasks.
+
+- 2026-09-23: **Measured the design against 19 Metis corpora, not just Kairos.**
+  Dylan asked for a wide cosine sample. 4,927 documents across all nineteen
+  repositories in `~/Desktop`, embedded with the real candidate model
+  (`bge-small-en-v1.5`, 384 dim) and full pairwise cosine computed. Full numbers
+  in [[KAIROS-T-0190]]; the spike's cost figures in [[KAIROS-T-0189]];
+  reproduction in `scripts/corpus/`.
+
+  Three results changed or hardened the design:
+
+  1. **Rule 3 is stronger than believed.** Zero of 4,927 documents lack headings,
+     and only 2.2% of sections need the sliding-window fallback. 85% of heading
+     strings appear exactly once, and the tenth most common heading is a template
+     marker nobody deleted — so anchors-not-labels is right twice over.
+
+  2. **No absolute similarity threshold can work.** Pairs the graph says are
+     related average 0.800 cosine; pairs with no relation at all reach 0.817 at
+     p99, and the floor for unrelated *projects* is 0.594. The distributions
+     overlap across their whole useful range and there is no zero point.
+     [[KAIROS-T-0191]] was amended: rank within a query, never compare to a
+     constant, and a test should fail if a threshold reappears.
+
+  3. **The feature works, and hybrid is necessary rather than prudent.** Above
+     0.90 there are 270 unlinked same-project pairs out of 1.1M — including ten
+     literal duplicate tickets in `brokkr` filed twice under different codes, an
+     undrawn Helm-chart dependency in `cloacina`, and a missing ADR-to-initiative
+     link in `muninn`. Precision there is roughly half, which is fine for
+     proposals and hopeless for assertions — rule 6 on evidence. Lexical finds
+     the identical-title duplicates (22% of candidates); the vector finds the
+     paraphrases (77%); neither finds both.
+
+  One new problem: fastembed downloads its weights from HuggingFace at runtime, so
+  [[KAIROS-T-0189]] must bake the model into the image or air-gapped deployments
+  cannot start. And the false positives cluster in initiative- and
+  specification-level documents, whose primary vectors are mostly boilerplate —
+  rule 4's composition needs a level-sensitive amendment, now recorded in
+  [[KAIROS-T-0190]].
+
+- 2026-09-23: Moved to active. Starting [[KAIROS-T-0186]], which has no
+  dependencies and is the fallback everything else degrades to.

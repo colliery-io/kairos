@@ -88,12 +88,47 @@ wanting.
 Both an MCP tool and a REST endpoint, because agents reach Kairos both ways, and
 the MCP tool is the one that matters most here.
 
+### There is no threshold. This is measured, not assumed.
+
+[[KAIROS-T-0190]] measured full pairwise cosine over 4,927 real Metis documents
+from 19 projects. The result constrains this task hard:
+
+| pair class | mean | p99 |
+|---|---|---|
+| different project | 0.594 | 0.708 |
+| same project, no graph relation | 0.680 | 0.817 |
+| direct parent/child edge | **0.800** | 0.916 |
+
+Pairs the graph says are related average 0.800. Pairs with no relation whatsoever
+reach 0.817 at p99. **The distributions overlap across their entire useful
+range**, and there is no zero point — two documents from unrelated projects still
+score 0.594.
+
+So: no `cosine > x` anywhere in this surface. Ranking **within one query** is
+meaningful; comparing a score to a constant is not. Take the top few by fused
+rank and stop. If the caller wants to know how strong a match is, give them the
+rank and the evidence, not a number that looks absolute and is not.
+
+At the extreme tail (>0.90) precision was roughly half by hand inspection — good
+enough to propose, nowhere near good enough to assert, which is rule 6 vindicated
+on evidence.
+
+### Long documents are the weak spot
+
+T-0190's false positives clustered in initiative-level and specification-level
+pairs: long, heavily templated, generically titled documents whose primary vector
+is mostly boilerplate. `mimir`'s "Documentation Site" and "Groq Provider" score
+0.940 and have nothing to do with each other.
+
+Whatever T-0190 lands on for level-sensitive composition, this surface should
+prefer **chunk-level** evidence over primary-vector similarity when both
+candidates are long documents, and must never return a claim whose only support
+is two primary vectors agreeing.
+
 ### Dependencies
 
 [[KAIROS-T-0186]] for lexical ranking — it is the fallback — and
 [[KAIROS-T-0190]] for the vectors.
-
-Thresholds come from T-0190's measured cosine distribution. Do not invent them.
 
 ### Risk Considerations
 
@@ -126,7 +161,10 @@ Thresholds come from T-0190's measured cosine distribution. Do not invent them.
 - [ ] Authorisation reuses the existing path, with a test that a caller cannot see
       what they could not fetch
 - [ ] [[KAIROS-A-0007]]'s endpoint behaviour is unchanged
-- [ ] Thresholds are derived from [[KAIROS-T-0190]]'s measurement and cited
+- [ ] No absolute cosine threshold appears anywhere in the implementation, and a
+      test would fail if one were reintroduced
+- [ ] A claim is never supported by two primary vectors alone when both sides are
+      long documents
 - [ ] `angreal test` green
 
 ## Status Updates

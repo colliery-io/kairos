@@ -123,4 +123,111 @@ picks any threshold. A threshold chosen without that number is a guess.
 
 ## Status Updates
 
-*To be added during implementation*
+### 2026-09-23 — the measurement, across 19 Metis corpora
+
+Dylan asked for a wide sample rather than Kairos alone. Extracted every Metis
+document from all 19 repositories in `~/Desktop`, then embedded with the actual
+candidate model from [[KAIROS-T-0189]] (`bge-small-en-v1.5`, 384 dim) and computed
+**full pairwise** cosine — exact, not sampled.
+
+**Corpus**, after excluding git worktree copies under `.claude/worktrees/` and
+vendored `prior-art/.metis` trees, and deduplicating by content hash (those
+copies contributed 3,774 phantom documents and flooded the first run with
+cosine-1.000 self-pairs):
+
+4,927 documents, 19 projects, 63,270 chunks, 25.9 MB of body text.
+
+| level | n | p50 chars | p90 | max | over 2000 |
+|---|---|---|---|---|---|
+| task | 4,036 | 3,957 | 7,821 | 62,849 | 86% |
+| initiative | 580 | 6,021 | 15,096 | 44,403 | 97% |
+| adr | 175 | 5,442 | 10,870 | 28,272 | 96% |
+| specification | 117 | 13,349 | 19,602 | 27,270 | 100% |
+| vision | 19 | 6,593 | 14,722 | 15,443 | 94% |
+
+#### Rule 3 is confirmed, more strongly than the Kairos-only sample showed
+
+- **Zero** documents out of 4,927 have no headings. Not "few" — none.
+- Median 9 sections per document; chunk p50 205 chars, p90 1,140, p99 1,685.
+- **2.2%** of raw sections exceeded the 2,000-char ceiling and needed the
+  sliding-window fallback. Heading boundaries handle 97.8% cleanly.
+
+And the anchors-not-labels rule holds: 11,553 distinct heading strings across
+63,270 headings, **85% appearing exactly once**, top ten covering only 33%. The
+tenth most common heading is `Parent Initiative **[CONDITIONAL: Assigned Task]**`
+with 1,439 occurrences — real documents across many projects that never deleted
+the template marker. Nothing may key on a heading's name.
+
+#### The cosine distributions, and the problem they expose
+
+Composed primary vectors per rule 4 (level, project, title, parent title, opening
+prose), classified by what the graph says about each pair:
+
+| pair class | n | mean | p50 | p90 | p99 | max |
+|---|---|---|---|---|---|---|
+| different project | 4,000,000 | 0.594 | 0.595 | 0.654 | 0.708 | 0.892 |
+| same project, no graph relation | 1,099,522 | 0.680 | 0.678 | 0.745 | 0.817 | 1.000 |
+| same project, shared parent | 29,525 | 0.770 | 0.760 | 0.885 | 0.948 | 1.000 |
+| direct parent/child edge | 3,627 | 0.800 | 0.809 | 0.877 | 0.916 | 0.961 |
+| nearest neighbour, per document | 4,927 | 0.871 | 0.871 | 0.939 | 0.980 | 1.000 |
+
+**No absolute threshold separates related from unrelated.** Pairs the graph says
+are related average 0.800; pairs with no relation at all reach p99 0.817. Those
+distributions overlap across their whole useful range. There is also no zero
+point — the floor for two documents from *different projects* is 0.594, so
+"0.68 similar" means nothing on its own.
+
+This is the measurement [[KAIROS-T-0191]] must not ignore: a threshold sweep
+cannot work, and anything that looks like `cosine > 0.8 ⇒ related` will be wrong
+roughly as often as it is right. Ranking within a single query is meaningful;
+comparing a score to a constant is not.
+
+Cross-project 0.594 against same-project 0.680 does say the model picks up
+project identity, which supports [[KAIROS-A-0019]]'s repository prior.
+
+#### What survives at the extreme tail
+
+Above 0.90 there are **270** unlinked same-project pairs out of 1,099,522 —
+0.025%, a workably small candidate set. Inspected by hand:
+
+**Genuine, and exactly what the initiative promises.** Ten pairs in `brokkr` at
+cosine 1.000 are literal duplicate tickets filed twice under different short
+codes (`BROKKR-T-0102`/`T-0089`, `T-0095`/`T-0100`, six more). `cloacina`'s
+"Distribution strategy — CLI/daemon install script, server Docker image, Helm
+chart" against "T-03: Helm chart for cloacina-server" at 0.949 is an implicit
+dependency nobody drew. `muninn`'s ADR "Hook + MCP integration model" against its
+initiative "Hook + MCP Integration Layer" at 0.938 is a missing ADR-to-initiative
+link. `brokkr`'s "stop panicking on `pool.get()`" against "stop panicking on DB
+pool exhaustion" at 0.957 is a near-duplicate in different words.
+
+**And roughly half are noise.** `mimir`'s "Documentation Site" against "Groq
+Provider" scores 0.940. "Quality Assurance and Developer Experience" against
+"Character Creation and Management System" scores 0.967. `crt`'s "Architecture &
+Maintainability Improvements" against "CRT Terminal Implementation" scores 0.950.
+
+The false positives **cluster by level**: 27 of the 270 are initiative/initiative
+and 19 are specification/specification, and those are the long, heavily templated,
+generically titled documents whose primary vector is mostly boilerplate. Tasks,
+which are shorter and more specific, behave far better.
+
+So rule 4's composition needs a level-sensitive amendment, to design in this task:
+for long documents the opening prose is the least discriminating input, not the
+most, and title plus stamped metadata should dominate. Comparing chunk-to-chunk
+rather than primary-to-primary is the other candidate, and is probably the better
+answer for initiatives and specifications.
+
+#### Hybrid is necessary, not a hedge
+
+Of the 270 candidate pairs, 5% have identical titles and a further 17% have title
+token overlap at or above 0.34 — lexical search finds those unaided. The
+remaining 77% are where the vector earns its place, and that is also where the
+false positives live. Lexical carries the duplicates; the vector carries the
+paraphrases; neither carries both. [[KAIROS-A-0021]] rule 7 is confirmed on
+evidence rather than on principle.
+
+#### Reproduction
+
+`scripts/corpus/` holds the extractor and the statistics; the embedding and
+pairwise analysis were a throwaway crate recorded in [[KAIROS-T-0189]]. Both take
+the corpus root as an argument, so the measurement can be re-run against any set
+of repositories when the model or the composition changes.

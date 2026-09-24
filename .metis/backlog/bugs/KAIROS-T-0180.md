@@ -11,7 +11,7 @@ archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
+  - "#phase/completed"
   - "#bug"
 
 
@@ -117,3 +117,37 @@ That is the useful part: the gap had been recorded at release time as an
 accepted limitation, and only survived contact with someone following the
 documented path. **The Kubernetes tutorial is deferred to
 [[KAIROS-T-0181]], blocked on this.**
+
+**2026-09-24 — fixed in v0.1.1.** Commit `c30c200`.
+
+`release.yml`'s `image` job is now a two-runner matrix — `ubuntu-24.04` for
+amd64, `ubuntu-24.04-arm` for arm64 — each pushing **by digest with no tag**,
+plus an `image-manifest` job that stitches them with
+`docker buildx imagetools create`. No QEMU, exactly as the original note
+recommended; the CLI binary matrix had been doing native-runner builds all
+along.
+
+**The architecture was never the problem.** Verified before touching the
+workflow, rather than after: built the image natively for `linux/arm64`, loaded
+it into a `kind` cluster, installed the chart against a throwaway Postgres and
+Dex, and confirmed the pods reach `1/1 Running`, `/healthz` answers `ok`,
+`/readyz` answers `ready`, the GUI serves 200, and `uname -m` inside the
+container reports `aarch64`. The only thing that had ever been missing was a
+runner to build on.
+
+Two details worth keeping:
+
+- **The per-arch builds push untagged.** Tagging both would make them race, and
+  the loser would be silently overwritten — which is the same defect this
+  ticket describes, arriving by a different route.
+- **The manifest job verifies both architectures are present and fails the
+  release if either is missing.** A manifest resolving on one arch only is
+  precisely what shipped in v0.1.0, and it shipped quietly.
+
+One incident along the way, recorded because it looked like a Kairos fault and
+was not: the Postgres pod entered recovery with
+`PANIC: could not write to file … No space left on device`. The Docker VM was
+full from the image builds. `docker builder prune -af` reclaimed 26 GB and it
+recovered. Worth knowing before diagnosing a kind cluster's database.
+
+Unblocks [[KAIROS-T-0181]].

@@ -88,3 +88,45 @@ running and `/healthz` answers", and leave signing in to a how-to.
 ## Status Updates
 
 *To be added during implementation*
+
+**2026-09-24 — done.** Commit `c30c200`. Unblocked by fixing
+[[KAIROS-T-0180]] rather than by working around it.
+
+`docs/src/tutorials/deploy-to-kubernetes.md`, and the `SUMMARY.md` line that
+carried a *"blocked on KAIROS-T-0180"* comment is uncommented.
+
+### Written against a path that was walked, not reasoned about
+
+Every step below was executed on a real `kind` cluster before the page was
+written, which is what [[KAIROS-T-0174]] refused to do without: create the
+cluster and namespace, a `postgres:16` Deployment and Service, a Dex Deployment
+with `staticClients` and one static password, `helm install` from the chart, and
+then the checks — pods `1/1 Running`, `/healthz` → `ok`, `/readyz` → `ready`,
+the GUI serving 200.
+
+The outputs quoted in the page are from that run.
+
+### Contract decisions
+
+- **Every version pinned** — kind, `postgres:16`, `ghcr.io/dexidp/dex:v2.41.1`,
+  the chart at `0.1.1`. **T6** forbids depending on environment specifics the
+  lesson does not control, and "whatever `postgres:latest` is today" is exactly
+  that.
+- **A throwaway Postgres and Dex are pinned rather than offered as a choice.**
+  "Bring your own database and IdP" is a decision, and **T2** forbids handing
+  the learner one. The page says plainly that neither is suitable for anything
+  but a tutorial.
+- **The promised outcome is narrowed to a running, reachable deployment** —
+  `/healthz`, `/readyz`, the interface. Signing in as a real user with real
+  work belongs to the how-to guides; stretching the lesson that far would have
+  meant more setup than the outcome justifies.
+- **The tenant is empty at the end, and the page says so**, rather than letting
+  a reader expect the demo data from the local tutorial. An empty Kairos is the
+  honest starting point for a real one.
+
+### What the lesson teaches beyond the steps
+
+`/healthz` and `/readyz` answer different questions, and the page says which to
+gate traffic on — `/readyz`, because it is the one that checks the database.
+That distinction costs nothing to explain here and is expensive to discover in
+production.

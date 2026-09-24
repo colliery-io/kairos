@@ -328,6 +328,69 @@ fn embed_backfill(conn: &mut PgConnection, args: &[String]) -> Result<(), String
     Ok(())
 }
 
+/// `embed-index [--tenant <slug>]` (KAIROS-T-0190): pin the vector columns to
+/// the configured model's width and build the approximate-search indexes.
+///
+/// Separate from `embed-backfill` because it is a different kind of operation —
+/// a table rewrite plus an index build, which an operator schedules — and
+/// separate from a migration because the width is a deployment fact rather than
+/// a schema constant. See `kairos_db::embeddings::pin_and_index`.
+fn embed_index(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
+    use diesel::RunQueryDsl;
+
+    let only = args
+        .iter()
+        .position(|a| a == "--tenant")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
+    let config = kairos_embed::EmbedConfig::from_env().map_err(|e| format!("embed-index: {e}"))?;
+    let Some(provider) = config.build().map_err(|e| format!("embed-index: {e}"))? else {
+        println!("embeddings are disabled; there is nothing to index.");
+        return Ok(());
+    };
+    let dimension = provider.model_id().dimension;
+    println!(
+        "pinning vector columns to {dimension} dimensions ({})",
+        provider.model_id()
+    );
+
+    let tenants = kairos_db::list_tenants(conn).map_err(|e| format!("embed-index: {e}"))?;
+    let targets: Vec<_> = tenants
+        .into_iter()
+        .filter(|t| t.schema_exists)
+        .filter(|t| only.as_deref().is_none_or(|slug| slug == t.slug))
+        .collect();
+    if targets.is_empty() {
+        println!("no tenants to index");
+        return Ok(());
+    }
+
+    for tenant in &targets {
+        let schema = kairos_db::tenant::tenant_schema_name(&tenant.slug);
+        diesel::sql_query(format!("SET search_path TO \"{schema}\", public"))
+            .execute(conn)
+            .map_err(|e| format!("embed-index: pinning {schema}: {e}"))?;
+        let report = kairos_db::embeddings::pin_and_index(conn, dimension)
+            .map_err(|e| format!("embed-index: {}: {e}", tenant.slug))?;
+        if report.pinned || !report.created.is_empty() {
+            println!(
+                "{}: {} in {} ms",
+                tenant.slug,
+                if report.created.is_empty() {
+                    "columns pinned".to_string()
+                } else {
+                    format!("built {}", report.created.join(", "))
+                },
+                report.elapsed_ms
+            );
+        } else {
+            println!("{}: already pinned and indexed", tenant.slug);
+        }
+    }
+    Ok(())
+}
+
 fn run() -> Result<bool, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let subcommand = args.first().map(String::as_str);
@@ -349,9 +412,10 @@ fn run() -> Result<bool, String> {
         Some("list-tenants") => list_tenants(&mut conn).map(|_| true),
         Some("seed-demo") => seed_demo(&mut conn, &args[1..]).map(|_| true),
         Some("embed-backfill") => embed_backfill(&mut conn, &args[1..]).map(|_| true),
+        Some("embed-index") => embed_index(&mut conn, &args[1..]).map(|_| true),
         Some(other) => Err(format!(
             "unknown subcommand {other:?}; expected one of: serve, migrate, create-tenant, \
-             drop-tenant, migrate-tenants, list-tenants, seed-demo, embed-backfill"
+             drop-tenant, migrate-tenants, list-tenants, seed-demo, embed-backfill, embed-index"
         )),
     }
 }

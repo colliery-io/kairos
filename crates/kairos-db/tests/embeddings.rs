@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use kairos_db::embeddings::{
     ChunkWrite, EmbeddingError, StoredModel, counts, forget_item, metadata_for, pending_primary,
-    store_primary, stored_chunk_hashes, sync_chunks,
+    pin_and_index, store_primary, stored_chunk_hashes, sync_chunks,
 };
 use kairos_db::items::{self, CreateInitiative, CreateTask};
 use kairos_db::models::{
@@ -518,4 +518,66 @@ fn embedding_store_lifecycle() {
     );
     // Idempotent: a delete path that runs twice must not fail.
     forget_item(&mut conn, one.id).expect("forget again");
+
+    // ---- pinning and indexing ---------------------------------------------
+    // pgvector refuses to index a column of unspecified width, so the columns
+    // have to be pinned first — but the width is a DEPLOYMENT fact (384 here,
+    // 1536 for OpenAI), which is why this is a command rather than a migration.
+    store_primary(&mut conn, two.id, "task", &unit(7), &m, "hash-two").expect("a row to index");
+    let report = pin_and_index(&mut conn, DIM).expect("pinning and indexing");
+    assert!(report.pinned, "the columns were unpinned before this");
+    assert_eq!(
+        report.created,
+        vec![
+            "idx_item_embeddings_hnsw".to_string(),
+            "idx_item_chunks_hnsw".to_string()
+        ],
+        "both tables get an index"
+    );
+
+    // Idempotent: the second run must not rebuild an index, which on a real
+    // tenant would be a surprise outage rather than a no-op.
+    let again = pin_and_index(&mut conn, DIM).expect("second run");
+    assert!(!again.pinned, "already pinned");
+    assert!(again.created.is_empty(), "already indexed");
+
+    // The column really carries the width now, which is what the index needed.
+    assert_eq!(
+        count_rows(
+            &mut conn,
+            "SELECT count(*)::bigint AS count FROM information_schema.columns c \
+             JOIN pg_attribute a ON a.attname = c.column_name \
+             JOIN pg_class cl ON cl.oid = a.attrelid AND cl.relname = c.table_name \
+             WHERE c.table_schema = 'org_acme' AND c.column_name = 'embedding' \
+               AND a.atttypmod = 384"
+        ),
+        2,
+        "both embedding columns are vector(384)"
+    );
+
+    // ---- and it refuses rather than converting ----------------------------
+    // A row from a narrower model must stop the pin, not be silently dropped by
+    // a half-finished ALTER.
+    let narrow = StoredModel {
+        provider: "deterministic".into(),
+        model: "sha256-8".into(),
+        dimension: 8,
+    };
+    store_primary(&mut conn, one.id, "task", &[0.5f32; 8], &narrow, "narrow")
+        .expect_err("a vector narrower than the pinned column cannot be stored");
+
+    // Pinning to a width the stored rows disagree with is refused up front.
+    let err = pin_and_index(&mut conn, 8).expect_err("stored rows are 384-wide");
+    assert!(matches!(
+        err,
+        EmbeddingError::MixedDimensions {
+            table: "item_embeddings",
+            wanted: 8,
+            ..
+        }
+    ));
+    assert!(
+        err.to_string().contains("backfill-embeddings"),
+        "and it says how to fix it: {err}"
+    );
 }

@@ -524,3 +524,49 @@ actually tried to use it.
 The vector index on populated tables and pinning the column type to 384 now the
 model is settled — both of which want data present, which there now is. Embedding
 on the write path (rather than only via the backfill) is the other half.
+
+### 2026-09-24 — the index, and why it is not a migration
+
+[[KAIROS-T-0187]] deferred the vector index and my note there said T-0190 would
+"pin the type when it adds the index". That was half right, and the half that was
+wrong matters.
+
+pgvector refuses to index a column of unspecified width — `CREATE INDEX … USING
+hnsw` on one fails with *"column does not have dimensions"*, confirmed against
+the running database rather than assumed. So the columns do have to be pinned.
+
+**But the width is a deployment fact, not a schema constant.** It is 384 for the
+bundled local model and 1536 for OpenAI's `text-embedding-3-small`. A migration
+pinning 384 would refuse every write on any deployment that brought its own
+endpoint — which is precisely the option [[KAIROS-A-0021]] rule 1 exists to
+preserve. Had I written the migration my earlier note described, it would have
+broken the bring-your-own half of rule 1.
+
+So it is a command: `kairos-server embed-index`, behind
+`angreal db index-embeddings`, run when a deployment knows its own answer.
+
+- **HNSW, not IVFFlat.** IVFFlat picks its lists from whatever data is present
+  when built, so it degrades as a tenant grows and needs rebuilding; HNSW does
+  not. Cosine ops, because cosine is the measure used everywhere else here — an
+  index built for another distance simply would not be used.
+- **It refuses rather than converts.** If stored rows disagree with the width, it
+  stops before touching anything and says to re-embed. The alternative is an
+  `ALTER` failing halfway through a table rewrite, or succeeding after silently
+  dropping rows.
+- **Idempotent**, and asserted: rebuilding an index on a real tenant would be a
+  surprise outage, not a no-op.
+
+Verified on the demo tenant:
+
+```
+pinning vector columns to 384 dimensions (local/bge-small-en-v1.5-q (384d))
+demo: built idx_item_embeddings_hnsw, idx_item_chunks_hnsw in 21 ms
+demo: already pinned and indexed
+```
+
+Both columns now read `public.vector(384)`, and the planner uses it:
+`Index Scan using idx_item_embeddings_hnsw`. 21 ms is on 20 items — the number
+worth recording is the shape, not the magnitude, and a real tenant should be
+measured before anyone schedules a window around it.
+
+`angreal test integration` 45 targets, fmt and clippy clean.

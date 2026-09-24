@@ -663,3 +663,64 @@ def backfill_embeddings(tenant=None, batch=None, max_batches=None, pause_ms=None
         cwd=str(PROJECT_ROOT),
         env=env,
     ).returncode
+
+
+@db()
+@angreal.command(
+    name="index-embeddings",
+    about="pin the vector columns and build the approximate-search indexes",
+    tool=angreal.ToolDescription(
+        """
+        Pin each tenant's vector columns to the configured model's width and
+        build HNSW indexes on them (KAIROS-T-0190).
+
+        This is deliberately NOT a migration. pgvector refuses to index a column
+        of unspecified width, so the columns must be pinned first — but the width
+        is a deployment fact, not a schema constant: 384 for the bundled local
+        model, 1536 for OpenAI's text-embedding-3-small. A migration pinning 384
+        would refuse every write on any deployment that brought its own endpoint,
+        which is the option A-0021 rule 1 exists to preserve.
+
+        Refuses, rather than converting, if stored rows disagree with the
+        configured width. Re-embed first.
+
+        ## When to use
+        - After the first backfill, once vectors exist to index
+        - After changing model, once `db backfill-embeddings` has re-embedded
+
+        ## Related tasks
+        - `db backfill-embeddings` - produce the vectors this indexes
+
+        ## Output
+        Per tenant: what was pinned or built, and how long it took. Idempotent —
+        a second run reports "already pinned and indexed".
+        """,
+        risk_level="caution",
+    ),
+)
+@angreal.argument(
+    name="tenant", long="tenant", takes_value=True,
+    help="only this tenant slug (default: every tenant)",
+)
+def index_embeddings(tenant=None):
+    """Pin vector columns to the configured width and build HNSW indexes."""
+    args = ["embed-index"]
+    if tenant is not None:
+        args += ["--tenant", tenant]
+
+    env = os.environ.copy()
+    env.setdefault("DATABASE_URL", DATABASE_URL)
+    env.setdefault("KAIROS_EMBED_CACHE", str(PROJECT_ROOT / "target" / "embed-cache"))
+
+    print("Building kairos-server...", flush=True)
+    code = subprocess.run(
+        ["cargo", "build", "--quiet", "-p", "kairos-server", "--bin", "kairos-server"],
+        cwd=str(PROJECT_ROOT),
+    ).returncode
+    if code:
+        return code
+    return subprocess.run(
+        [str(PROJECT_ROOT / "target" / "debug" / "kairos-server"), *args],
+        cwd=str(PROJECT_ROOT),
+        env=env,
+    ).returncode

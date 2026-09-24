@@ -53,6 +53,20 @@ pub enum EmbeddingError {
         /// What the caller said it was.
         declared: usize,
     },
+    /// Stored rows disagree with the width the columns are being pinned to.
+    #[error(
+        "{rows} row(s) in {table} are not {wanted}-dimensional, so the column cannot be \
+         pinned to {wanted}. Re-embed under the configured model first — \
+         `angreal db backfill-embeddings`, or `kairos-server embed-backfill`."
+    )]
+    MixedDimensions {
+        /// Which table.
+        table: &'static str,
+        /// The width being pinned to.
+        wanted: usize,
+        /// How many rows disagree.
+        rows: i64,
+    },
 }
 
 /// Which model produced a stored vector, as recorded beside it.
@@ -525,4 +539,142 @@ mod tests {
         };
         assert_eq!(racy.missing(), 0);
     }
+}
+
+/// What [`pin_and_index`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexReport {
+    /// The width the columns were pinned to.
+    pub dimension: usize,
+    /// Whether this call changed the column types (false if already pinned).
+    pub pinned: bool,
+    /// Indexes created by this call, by name. Empty on a second run.
+    pub created: Vec<String>,
+    /// How long the whole thing took, in milliseconds — the number worth
+    /// recording, because it is what an operator is deciding about when they
+    /// choose a maintenance window.
+    pub elapsed_ms: u128,
+}
+
+/// Pin the vector columns to `dimension` and build approximate-search indexes.
+///
+/// # Why this is a command and not a migration
+///
+/// pgvector refuses to index a column of unspecified width — `CREATE INDEX …
+/// USING hnsw` on one fails with *"column does not have dimensions"* — so the
+/// columns must be pinned before they can be indexed.
+///
+/// But the width is a **deployment** fact, not a schema constant. It is decided
+/// by which provider a deployment configured: 384 for the bundled local model,
+/// 1536 for OpenAI's `text-embedding-3-small`, something else again for whatever
+/// an operator runs on their own GPU. A migration pinning 384 would refuse every
+/// write on any deployment that brought its own endpoint — which is the option
+/// [[KAIROS-A-0021]] rule 1 exists to preserve.
+///
+/// So this runs when a deployment knows its own answer, and the migration
+/// (KAIROS-T-0187) deliberately left `vector` unmodified.
+///
+/// # Why it refuses rather than converting
+///
+/// If any stored row disagrees with `dimension`, this stops. The alternative is
+/// an `ALTER` that fails halfway through a table-rewrite, or worse, succeeds
+/// after silently dropping rows. Re-embedding under the configured model is the
+/// fix, and it is what the backfill already does.
+///
+/// # Index choice
+///
+/// HNSW rather than IVFFlat: IVFFlat picks its lists from whatever data is
+/// present when it is built, so it degrades as a tenant grows and needs
+/// rebuilding; HNSW does not. Cosine ops because cosine is the measure used
+/// everywhere else in this initiative — an index built for a different distance
+/// would simply not be used by the query.
+///
+/// Idempotent: a second run reports no work.
+pub fn pin_and_index(
+    conn: &mut PgConnection,
+    dimension: usize,
+) -> Result<IndexReport, EmbeddingError> {
+    let started = std::time::Instant::now();
+
+    // Refuse before touching anything if the stored rows disagree.
+    for table in ["item_embeddings", "item_chunks"] {
+        let rows = sql_query(format!(
+            "SELECT count(*)::bigint AS count FROM {table} WHERE dimension <> $1"
+        ))
+        .bind::<Integer, _>(dimension as i32)
+        .get_result::<CountRow>(conn)?;
+        if rows.count > 0 {
+            return Err(EmbeddingError::MixedDimensions {
+                table,
+                wanted: dimension,
+                rows: rows.count,
+            });
+        }
+    }
+
+    let mut report = IndexReport {
+        dimension,
+        pinned: false,
+        created: Vec::new(),
+        elapsed_ms: 0,
+    };
+
+    for (table, index) in [
+        ("item_embeddings", "idx_item_embeddings_hnsw"),
+        ("item_chunks", "idx_item_chunks_hnsw"),
+    ] {
+        if !is_pinned(conn, table, dimension)? {
+            sql_query(format!(
+                "ALTER TABLE {table} ALTER COLUMN embedding \
+                 TYPE public.vector({dimension}) USING embedding::public.vector({dimension})"
+            ))
+            .execute(conn)?;
+            report.pinned = true;
+        }
+        let existed = sql_query(
+            "SELECT count(*)::bigint AS count FROM pg_indexes \
+                                 WHERE schemaname = current_schema() AND indexname = $1",
+        )
+        .bind::<Text, _>(index)
+        .get_result::<CountRow>(conn)?
+        .count
+            > 0;
+        if !existed {
+            sql_query(format!(
+                "CREATE INDEX {index} ON {table} \
+                 USING hnsw (embedding public.vector_cosine_ops)"
+            ))
+            .execute(conn)?;
+            report.created.push(index.to_string());
+        }
+    }
+
+    report.elapsed_ms = started.elapsed().as_millis();
+    Ok(report)
+}
+
+/// Whether `table`'s `embedding` column is already `vector(dimension)`.
+fn is_pinned(
+    conn: &mut PgConnection,
+    table: &str,
+    dimension: usize,
+) -> Result<bool, EmbeddingError> {
+    // `atttypmod` carries pgvector's width, offset by the usual 4-byte header
+    // convention PostgreSQL uses for type modifiers; -1 means unspecified.
+    let row = sql_query(
+        "SELECT a.atttypmod::bigint AS count \
+         FROM pg_attribute a \
+         JOIN pg_class c ON c.oid = a.attrelid \
+         JOIN pg_namespace n ON n.oid = c.relnamespace \
+         WHERE n.nspname = current_schema() AND c.relname = $1 AND a.attname = 'embedding'",
+    )
+    .bind::<Text, _>(table)
+    .get_result::<CountRow>(conn)?;
+    Ok(row.count == dimension as i64)
+}
+
+#[derive(QueryableByName)]
+struct CountRow {
+    #[diesel(sql_type = BigInt)]
+    count: i64,
 }

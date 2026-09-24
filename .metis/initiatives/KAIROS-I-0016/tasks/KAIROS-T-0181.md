@@ -130,3 +130,31 @@ The outputs quoted in the page are from that run.
 gate traffic on — `/readyz`, because it is the one that checks the database.
 That distinction costs nothing to explain here and is expensive to discover in
 production.
+
+**2026-09-24 — verified against the published artifacts.** v0.1.1 release run
+`35940424537`: **all nine jobs green**, including the new `publish the image
+manifest` job.
+
+The manifest carries both architectures:
+
+```
+linux/arm64  sha256:3f2ba41ab8e8b…
+linux/amd64  sha256:c50de0c36b03e…
+```
+
+Then the tutorial's own commands, run verbatim on an **arm64** kind cluster
+against the **published** chart and image rather than local builds:
+
+| step | result |
+|---|---|
+| `helm install … oci://ghcr.io/colliery-io/charts/kairos --version 0.1.1` | deployed |
+| image pulled | `ghcr.io/colliery-io/kairos:0.1.1` |
+| `uname -m` in the container | `aarch64` |
+| `/healthz` | `ok` |
+| `/readyz` | `ready` |
+| `/` | HTTP 200 |
+
+That closes the loop the honest way: the lesson was executed against exactly
+what a reader will run, not against a local build that happened to work.
+
+Cluster deleted, local test image removed, kube context restored.

@@ -11,6 +11,19 @@ not something a re-tag fixes.
 So the bump is mechanical here, and `angreal release check` applies the same
 guards locally, before the tag exists.
 
+## Push main before the tag
+
+The workflow triggers do not overlap. `ci.yml` is `push: branches: [main]`;
+`e2e.yml` and `release.yml` are `push: tags: ["v*"]`. So no single push runs
+every gate, and `release.yml` runs no gates of its own — it publishes. Tagging
+before main lands means the tarballs, the image and the chart are all built
+from code `ci.yml` has never run, on commits no branch can reach.
+
+v0.2.0 was pushed in the wrong order for exactly this reason, on the argument
+that `docs.yml` would otherwise publish a book naming a chart version not yet
+up. It does — for about as long as the image job takes. That is worth much
+less than a gate.
+
 ## Why an explicit table rather than a search-and-replace
 
 Some version strings in this repository are HISTORY and must not move. The
@@ -208,13 +221,20 @@ def release_check():
         return 1
 
     print(f"\n{expected} is consistent everywhere. Next:")
-    print(f"    git push origin {tag}      # release.yml; main unmoved")
-    print("    # wait for it to go green")
-    print("    git push origin main       # docs.yml publishes the book")
+    print("    git push origin main       # ci.yml gates it")
+    print("    # wait for ci.yml to go green")
+    print(f"    git push origin {tag}      # e2e.yml + release.yml publish")
     print(
-        "\ndocs.yml fires on pushes to main touching docs/**, and the image job\n"
-        "takes up to 90 minutes. Push main first and the published book tells\n"
-        "people to install a chart version that does not exist yet."
+        "\nMAIN FIRST, and not for taste. No single push runs every gate:\n"
+        "  ci.yml       push: branches: [main]  fmt, clippy, unit, integration\n"
+        "  e2e.yml      push: tags: ['v*']      the end-to-end smoke\n"
+        "  release.yml  push: tags: ['v*']      publishes, and gates NOTHING\n"
+        "                                      but the three version guards\n"
+        "\nTag first and the artefacts publish from code ci.yml has never seen,\n"
+        "on commits no branch can reach. Pushing main first costs only this:\n"
+        "docs.yml publishes the book immediately, so for as long as the image\n"
+        "job runs it names a chart version that is not up yet. That is a\n"
+        "cosmetic window on one page, and the cheaper of the two."
     )
     return 0
 

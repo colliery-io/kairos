@@ -1,0 +1,21 @@
+# (e) The production shape (KAIROS-T-0188): the bundle OFF and an external
+# database, which must render exactly what the chart rendered before the bundle
+# existed. Paired with ci/bundled-postgres-values.yaml so both switch positions
+# are covered rather than just the new one.
+#
+# Also exercises the embedding endpoint's API key travelling the same route as
+# DATABASE_URL.
+postgresql:
+  enabled: false
+database:
+  url: "postgres://kairos:change-me@my-postgres:5432/kairos"
+embeddings:
+  url: "https://api.openai.com/v1"
+  model: "text-embedding-3-small"
+  apiKey: "sk-not-a-real-key"
+config:
+  oidc:
+    issuerUrl: "https://idp.example.com/"
+    audience: "kairos"
+  tenancy:
+    singleTenant: "acme"

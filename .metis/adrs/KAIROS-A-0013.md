@@ -53,8 +53,20 @@ postgres:16 # sole state; named volume
 - Prometheus metrics at `/metrics`: HTTP request histograms by route/status, connection-pool gauges, per-tenant request counters
 - OpenTelemetry trace export only when `KAIROS_OTEL_ENDPOINT` is set — off by default
 
-### State and backup
+### State and backup — amended by KAIROS-A-0021 (2026-09-24): the Helm chart may bundle an evaluation database
 PostgreSQL is the only state (vision constraint). The operations doc ships `pg_dump`-based backup/restore guidance covering all `org_*` schemas plus public. No server-local files to back up; identity state lives entirely in the customer's IdP (A-0016).
+
+**Amendment (KAIROS-A-0021 rule 2, implemented in KAIROS-T-0188).** Kairos now
+requires the `pgvector` extension, so "bring your own Postgres" acquired a
+condition an operator may not be able to satisfy on a first afternoon. The Helm
+chart therefore *may* stand a PostgreSQL up inside the release.
+
+The substance of this decision is unchanged: state is still the operator's, the
+bundled database is an evaluation convenience they can decline, and the
+documentation says so in every place it appears. What changed is that an absolute
+became a default. `postgresql.enabled` is tri-state — unset means *on unless you
+name a database*, so an existing release upgrades without edits and keeps the
+database it has.
 
 ## Alternatives Analysis
 

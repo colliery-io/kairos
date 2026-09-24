@@ -192,7 +192,36 @@ ConfigMap that the Deployment loads with `envFrom`. Three exceptions: the
 `config.webClientSecret*` values never reach the ConfigMap — the secret is
 Secret-sourced, like `DATABASE_URL` — and `config.otelEndpoint` together with
 the five `config.retention.*` values are emitted only when non-empty. The chart
-provides neither PostgreSQL nor an identity provider.
+provides no identity provider, and provides PostgreSQL only as an evaluation
+convenience you can decline (`postgresql.enabled`).
+
+### Bundled database
+
+| Value | Type | Default | Description |
+|---|---|---|---|
+| `postgresql.enabled` | bool, optional | *(unset)* | Tri-state. Unset: on **unless** `database.url`/`existingSecret` is set. `true`: on, and naming an external database is refused at render time. `false`: off. Evaluation only — one replica, no backups. |
+| `postgresql.image.repository` / `.tag` | string | `pgvector/pgvector` / `pg16` | Must carry `pgvector`; the plain `postgres` image does not. |
+| `postgresql.auth.database` / `.username` / `.password` | string | `kairos` / `kairos` / `kairos-evaluation-only` | The password is in values and in release history by construction. Fixed rather than generated so an upgrade does not change it out from under the volume. |
+| `postgresql.persistence.size` | string | `8Gi` | `0` uses an `emptyDir`, which loses the data when the pod restarts. |
+| `postgresql.persistence.storageClass` | string | `""` | Cluster default when empty. |
+
+### Semantic retrieval
+
+The local model ships inside the image, so retrieval works with none of these
+set. `KAIROS_EMBED_API_KEY` is Secret-sourced like `DATABASE_URL` and never
+reaches the ConfigMap.
+
+| Value | Env var | Default | Description |
+|---|---|---|---|
+| `embeddings.provider` | `KAIROS_EMBED_PROVIDER` | — | `local` \| `remote` \| `none`. Empty means local. `none` disables embeddings; search still works from text alone. |
+| `embeddings.url` | `KAIROS_EMBED_URL` | — | OpenAI-compatible base URL. Setting it selects the remote provider on its own. |
+| `embeddings.model` | `KAIROS_EMBED_MODEL` | — | Model name to request from that endpoint. |
+| `embeddings.apiKey` / `embeddings.existingSecret` (+`existingSecretKey`) | `KAIROS_EMBED_API_KEY` | — | **Secret.** A local Ollama needs none. |
+
+The server reads two more that the chart does not surface, because a deployment
+should not normally need them: `KAIROS_EMBED_CACHE` (where the local model lives;
+the image sets it to `/var/lib/kairos/models`) and `KAIROS_EMBED_REFRESH_SECS`
+(how often the background refresher looks for work, default 10, `0` disables).
 
 ### Workload
 

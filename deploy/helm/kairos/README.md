@@ -9,10 +9,12 @@ endpoints (`/healthz`, `/readyz`, `/metrics`) from **one container**
 ## What this chart does NOT include
 
 Per **KAIROS-A-0016** (identity is external) and **KAIROS-A-0013** (Postgres is
-the operator's sole state), the chart bundles **neither a database nor an
-identity provider**. You must bring:
+the operator's sole state), the chart bundles **no identity provider**, and
+bundles a database only as an evaluation convenience you can decline (see below).
+You must bring:
 
-- **An external PostgreSQL, carrying `pgvector`**, reachable via
+- **An external PostgreSQL, carrying `pgvector`** for any real deployment,
+  reachable via
   `DATABASE_URL`. The server applies pending public migrations on boot
   (KAIROS-T-0007) before it reports ready — **there is no migration Job to
   run** — and the first of those migrations installs the `vector` extension.
@@ -24,8 +26,37 @@ identity provider**. You must bring:
   `OIDC_ISSUER_URL` / `OIDC_AUDIENCE` at it and register Kairos there as an OIDC
   app (plus an optional SCIM app for user lifecycle).
 
-There is deliberately no Postgres subchart — a stateful dependency in the chart
-would contradict A-0016's "state and identity are the operator's" posture.
+### The bundled database, and what it is not
+
+Since **KAIROS-A-0021 rule 2** the chart *can* stand a PostgreSQL up for you, and
+`helm install` with nothing but the two OIDC values produces a running
+deployment. That exists because Kairos now requires the `pgvector` extension, and
+"bring your own Postgres, and it must have an extension your provider may not
+have enabled" is a poor first afternoon.
+
+**It is for evaluation.** One replica, one PVC, no backups, no failover, and a
+password that lives in values and in your release history. A production
+deployment sets `postgresql.enabled: false` and points `database.url` at a
+managed instance — RDS, Cloud SQL and Azure Database for PostgreSQL all offer
+pgvector.
+
+The earlier posture is not reversed so much as narrowed. State is still the
+operator's; what changed is that the absolute became a default you can decline.
+A-0013 and A-0016 record the amendment.
+
+`postgresql.enabled` has **three** states rather than two:
+
+| value | effect |
+|---|---|
+| *(unset, the default)* | bundled — **unless** you set `database.url`/`existingSecret` |
+| `true` | bundled, and naming an external database is an error |
+| `false` | no bundle; exactly the chart as it was before |
+
+The first row is what makes `helm upgrade` safe for a release that already
+exists: those all name a database, so they keep it, and you need change nothing.
+Asking for both explicitly is refused at render time rather than quietly
+resolved — an upgrade that picked one for you would either abandon your database
+or stand a second one up beside it, and you would find out later.
 
 ## Install
 
@@ -140,7 +171,11 @@ Secret loaded via `valueFrom`.
 
 | Key | Env var | Default | Notes |
 |-----|---------|---------|-------|
-| `database.url` / `database.existingSecret` (+`existingSecretKey`) | `DATABASE_URL` | — | **Secret.** Set one. |
+| `postgresql.enabled` | — | *(unset)* | Bundled evaluation database. Unset = on unless `database.*` is set; `false` = off. **Not for production.** |
+| `postgresql.auth.*`, `postgresql.persistence.size` | — | `kairos` / `8Gi` | Bundled database only. `size: 0` uses an emptyDir and loses the data. |
+| `database.url` / `database.existingSecret` (+`existingSecretKey`) | `DATABASE_URL` | — | **Secret.** Set one, or leave both empty for the bundled database. |
+| `embeddings.provider` / `url` / `model` | `KAIROS_EMBED_*` | — | Semantic retrieval. The local model ships in the image; set `url` for an OpenAI-compatible endpoint. |
+| `embeddings.apiKey` / `embeddings.existingSecret` (+`existingSecretKey`) | `KAIROS_EMBED_API_KEY` | — | **Secret**, handled like `database.url`. A local Ollama needs none. |
 | `config.oidc.issuerUrl` | `OIDC_ISSUER_URL` | — | Required (external IdP). |
 | `config.oidc.audience` | `OIDC_AUDIENCE` | — | Required. String or list; a list (or comma-separated string) is an `aud` allow-list for per-client-audience IdPs like Google Workspace (KAIROS-T-0055). |
 | `config.webClientId` | `KAIROS_WEB_CLIENT_ID` | `kairos-web` | GUI PKCE client id. |

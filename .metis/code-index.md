@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-24T00:14:07Z | 281 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-09-24T20:35:09Z | 301 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -48,22 +48,27 @@
 │   │       ├── types_team_pages.rs
 │   │       └── ws.rs
 │   ├── kairos-core/
-│   │   └── src/
-│   │       ├── abac.rs
-│   │       ├── board.rs
-│   │       ├── forge.rs
-│   │       ├── graph.rs
-│   │       ├── items.rs
-│   │       ├── lib.rs
-│   │       ├── repositories.rs
-│   │       ├── retention.rs
-│   │       ├── search.rs
-│   │       └── short_code.rs
+│   │   ├── src/
+│   │   │   ├── abac.rs
+│   │   │   ├── board.rs
+│   │   │   ├── chunk.rs
+│   │   │   ├── forge.rs
+│   │   │   ├── graph.rs
+│   │   │   ├── items.rs
+│   │   │   ├── lib.rs
+│   │   │   ├── primary.rs
+│   │   │   ├── repositories.rs
+│   │   │   ├── retention.rs
+│   │   │   ├── search.rs
+│   │   │   └── short_code.rs
+│   │   └── tests/
+│   │       └── corpus_agreement.rs
 │   ├── kairos-db/
 │   │   ├── src/
 │   │   │   ├── abac.rs
 │   │   │   ├── api_keys.rs
 │   │   │   ├── boards.rs
+│   │   │   ├── embeddings.rs
 │   │   │   ├── events.rs
 │   │   │   ├── forge.rs
 │   │   │   ├── graph.rs
@@ -97,6 +102,7 @@
 │   │       ├── api_keys.rs
 │   │       ├── board_move.rs
 │   │       ├── board_rules.rs
+│   │       ├── embeddings.rs
 │   │       ├── graph.rs
 │   │       ├── isolation.rs
 │   │       ├── models_roundtrip.rs
@@ -108,6 +114,17 @@
 │   │       ├── team_pages.rs
 │   │       ├── tenant_provisioning.rs
 │   │       └── write_path.rs
+│   ├── kairos-embed/
+│   │   ├── src/
+│   │   │   ├── bin/
+│   │   │   │   └── fetch-model.rs
+│   │   │   ├── config.rs
+│   │   │   ├── deterministic.rs
+│   │   │   ├── lib.rs
+│   │   │   ├── local.rs
+│   │   │   └── remote.rs
+│   │   └── tests/
+│   │       └── local_model.rs
 │   ├── kairos-server/
 │   │   ├── examples/
 │   │   │   └── e2e_golden_path.rs
@@ -147,6 +164,7 @@
 │   │   │   ├── app.rs
 │   │   │   ├── blocking.rs
 │   │   │   ├── config.rs
+│   │   │   ├── embedding.rs
 │   │   │   ├── error.rs
 │   │   │   ├── forge/
 │   │   │   │   ├── auth.rs
@@ -184,6 +202,7 @@
 │   │       ├── client_roundtrip.rs
 │   │       ├── common/
 │   │       │   └── mod.rs
+│   │       ├── embedding_service.rs
 │   │       ├── entities.rs
 │   │       ├── file_backlog.rs
 │   │       ├── forge_connections.rs
@@ -293,6 +312,12 @@
 │       ├── session_start.py
 │       └── test_session_start.py
 ├── scripts/
+│   ├── corpus/
+│   │   ├── analyze.rs
+│   │   ├── embed.rs
+│   │   ├── extract.py
+│   │   ├── prose-budget.rs
+│   │   └── stats.py
 │   └── render-openapi.py
 └── uat/
     ├── checks/
@@ -311,6 +336,7 @@
     │   ├── housekeeping.journey.ts
     │   ├── incident.journey.ts
     │   ├── machine-access.journey.ts
+    │   ├── multi-repo-agent.journey.ts
     │   ├── new-kind-of-work.journey.ts
     │   ├── onboarding.journey.ts
     │   ├── operations.journey.ts
@@ -508,21 +534,21 @@
 
 #### crates/kairos-cli/src/commands/search.rs
 
-- pub `SearchArgs` struct L21-101 — `{ query: Option<String>, entity_type: Vec<String>, board: Option<String>, column...` — Search and traverse all entity types (POST /api/search).
-- pub `build_request` function L133-214 — `(&self) -> Result<SearchRequest, CliError>` — Compose the S-0005 request body from the flags (or take
-- pub `run` function L273-282 — `(self) -> Result<(), CliError>` — (KAIROS-A-0007 / KAIROS-T-0037).
--  `SearchArgs` type L103-283 — `= SearchArgs` — (KAIROS-A-0007 / KAIROS-T-0037).
--  `has_flag_query` function L106-129 — `(&self) -> bool` — Whether any flag other than `--query-json` (and the pagination
--  `parse_metadata` function L217-231 — `(&self) -> Result<Option<BTreeMap<String, String>>, CliError>` — `--metadata k=v` pairs into the S-0005 metadata map.
--  `build_traverse` function L236-271 — `(&self) -> Result<Option<SearchTraverse>, CliError>` — The traverse clause: `--from`/`--from-id` anchor it; the companion
--  `non_empty` function L285-287 — `(values: &[String]) -> Option<Vec<String>>` — (KAIROS-A-0007 / KAIROS-T-0037).
--  `print_results` function L294-328 — `(response: &SearchResponse)` — The human rendering: one CODE/TITLE/VER section per non-empty group.
--  `section` function L295-313 — `(label: &str, items: &[T])` — (KAIROS-A-0007 / KAIROS-T-0037).
--  `tests` module L331-481 — `-` — (KAIROS-A-0007 / KAIROS-T-0037).
--  `flags_compose_the_s0005_body` function L337-374 — `()` — The filter flags compose the S-0005 body: metadata k=v parsing,
--  `traverse_flags` function L380-418 — `()` — Traversal flags: anchored by --from, direction defaults to
--  `repo_alone_is_a_filter` function L425-436 — `()` — `kairos search --repo <slug>` on its own is a complete request
--  `query_json_escape_hatch` function L442-480 — `()` — --query-json is the verbatim escape hatch: parsed as the full
+- pub `SearchArgs` struct L21-102 — `{ query: Option<String>, entity_type: Vec<String>, board: Option<String>, column...` — Search and traverse all entity types (POST /api/search).
+- pub `build_request` function L134-215 — `(&self) -> Result<SearchRequest, CliError>` — Compose the S-0005 request body from the flags (or take
+- pub `run` function L274-283 — `(self) -> Result<(), CliError>` — (KAIROS-A-0007 / KAIROS-T-0037).
+-  `SearchArgs` type L104-284 — `= SearchArgs` — (KAIROS-A-0007 / KAIROS-T-0037).
+-  `has_flag_query` function L107-130 — `(&self) -> bool` — Whether any flag other than `--query-json` (and the pagination
+-  `parse_metadata` function L218-232 — `(&self) -> Result<Option<BTreeMap<String, String>>, CliError>` — `--metadata k=v` pairs into the S-0005 metadata map.
+-  `build_traverse` function L237-272 — `(&self) -> Result<Option<SearchTraverse>, CliError>` — The traverse clause: `--from`/`--from-id` anchor it; the companion
+-  `non_empty` function L286-288 — `(values: &[String]) -> Option<Vec<String>>` — (KAIROS-A-0007 / KAIROS-T-0037).
+-  `print_results` function L295-329 — `(response: &SearchResponse)` — The human rendering: one CODE/TITLE/VER section per non-empty group.
+-  `section` function L296-314 — `(label: &str, items: &[T])` — (KAIROS-A-0007 / KAIROS-T-0037).
+-  `tests` module L332-482 — `-` — (KAIROS-A-0007 / KAIROS-T-0037).
+-  `flags_compose_the_s0005_body` function L338-375 — `()` — The filter flags compose the S-0005 body: metadata k=v parsing,
+-  `traverse_flags` function L381-419 — `()` — Traversal flags: anchored by --from, direction defaults to
+-  `repo_alone_is_a_filter` function L426-437 — `()` — `kairos search --repo <slug>` on its own is a complete request
+-  `query_json_escape_hatch` function L443-481 — `()` — --query-json is the verbatim escape hatch: parsed as the full
 
 #### crates/kairos-cli/src/commands/service_accounts.rs
 
@@ -691,7 +717,7 @@
 -  `run_cli` function L62-75 — `(config_dir: &std::path::Path, args: &[&str]) -> (i32, String, String)` — Run the `kairos` binary with `KAIROS_CONFIG_DIR` pointed at the test's
 -  `approve_device_grant` function L79-123 — `(user_code: &str)` — Approve a pending device grant headlessly: submit the user code, then
 -  `alice_password_token` function L127-149 — `() -> String` — A real alice token via the password grant (JIT provisioning + fixture
--  `cli_login_whoami_refresh_logout_live` function L152-433 — `()` — credentials to the form's URL, landing on `/device/callback`.
+-  `cli_login_whoami_refresh_logout_live` function L152-435 — `()` — credentials to the form's URL, landing on `/device/callback`.
 
 #### crates/kairos-cli/tests/cli_tree_live.rs
 
@@ -706,7 +732,7 @@
 -  `approve_device_grant` function L70-107 — `(user_code: &str)` — Approve a pending device grant headlessly (T-0036's proven recipe):
 -  `alice_password_token` function L111-133 — `() -> String` — A real alice token via the password grant (JIT provisioning + fixture
 -  `cli_login` function L137-172 — `(config_dir: &std::path::Path, base_url: &str)` — Drive `kairos login` with the headless device-grant approval; panics on
--  `cli_command_tree_golden_path_live` function L175-636 — `()` — members list → orgs show → teams list.
+-  `cli_command_tree_golden_path_live` function L175-638 — `()` — members list → orgs show → teams list.
 
 ### crates/kairos-client/src
 
@@ -1154,6 +1180,47 @@
 -  `parse_default_config_round_trips_the_a0002_delivery_shape` function L685-701 — `()` — these rules, and persists the outcome.
 -  `parse_default_config_rejects_malformed_rows` function L704-740 — `()` — these rules, and persists the outcome.
 
+#### crates/kairos-core/src/chunk.rs
+
+- pub `Chunk` struct L41-56 — `{ ordinal: usize, heading: Option<String>, char_start: usize, char_end: usize, t...` — One chunk of an item's content.
+- pub `len_chars` function L60-62 — `(&self) -> usize` — Length in characters.
+- pub `ChunkConfig` struct L67-78 — `{ max_chars: usize, window: usize, overlap: usize }` — Chunking sizes.
+- pub `chunk` function L102-104 — `(content: &str) -> Vec<Chunk>` — Split `content` on heading boundaries, with a sliding-window fallback for
+- pub `chunk_with` function L107-142 — `(content: &str, config: &ChunkConfig) -> Vec<Chunk>` — [`chunk`] with explicit sizes.
+-  `Chunk` type L58-63 — `= Chunk` — astral-plane characters needs to convert rather than index directly.
+-  `ChunkConfig` type L80-88 — `impl Default for ChunkConfig` — astral-plane characters needs to convert rather than index directly.
+-  `default` function L81-87 — `() -> Self` — astral-plane characters needs to convert rather than index directly.
+-  `ChunkConfig` type L90-98 — `= ChunkConfig` — astral-plane characters needs to convert rather than index directly.
+-  `stride` function L92-97 — `(&self) -> usize` — The distance between window starts.
+-  `push` function L144-153 — `(out: &mut Vec<Chunk>, heading: Option<String>, start: usize, text: String)` — astral-plane characters needs to convert rather than index directly.
+-  `Section` struct L155-159 — `{ heading: Option<String>, start: usize, text: String }` — astral-plane characters needs to convert rather than index directly.
+-  `split_sections` function L162-192 — `(content: &str) -> Vec<Section>` — Split into sections at ATX heading lines, keeping each section's start offset.
+-  `split_keeping_newlines` function L195-208 — `(content: &str) -> Vec<&str>` — Lines with their terminators kept, so character offsets stay exact.
+-  `heading_text` function L216-230 — `(line: &str) -> Option<String>` — The text of an ATX heading line, or `None` if the line is not one.
+-  `tests` module L233-492 — `-` — astral-plane characters needs to convert rather than index directly.
+-  `headings` function L236-238 — `(chunks: &[Chunk]) -> Vec<Option<&str>>` — astral-plane characters needs to convert rather than index directly.
+-  `assert_offsets_are_exact` function L242-252 — `(content: &str, chunks: &[Chunk])` — Offsets must point back into the original content exactly, or a citation
+-  `ordinals_are_contiguous_from_zero` function L255-261 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `sections_split_on_headings_and_keep_the_literal_text` function L264-274 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `template_markers_in_headings_are_preserved_verbatim` function L280-287 — `()` — The template markers the corpus is full of must survive verbatim — 1,439
+-  `content_before_the_first_heading_has_no_heading` function L290-297 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `content_with_no_headings_at_all_is_windowed` function L301-307 — `()` — The rule-3 fallback.
+-  `a_short_headingless_document_is_one_chunk` function L310-316 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `an_oversized_section_is_windowed_but_keeps_its_heading` function L319-328 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `windows_overlap_by_the_configured_amount` function L332-346 — `()` — Windows overlap so a sentence crossing a boundary is intact somewhere.
+-  `the_final_window_ends_exactly_at_the_end` function L350-361 — `()` — The last window must not be dropped, and must not run past the end.
+-  `an_overlap_at_least_as_big_as_the_window_still_terminates` function L365-374 — `()` — A pathological configuration must terminate rather than allocate forever.
+-  `empty_sections_are_dropped` function L377-381 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `empty_and_whitespace_content_produce_no_chunks` function L384-387 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `all_six_heading_levels_are_recognised` function L390-396 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `seven_hashes_is_not_a_heading` function L399-403 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `hashes_without_a_space_are_not_a_heading` function L408-412 — `()` — `#hashtag` is not a heading.
+-  `a_closing_hash_sequence_is_not_part_of_the_heading` function L415-418 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `setext_underlines_and_thematic_breaks_do_not_split` function L423-428 — `()` — `---` is a thematic break and a front-matter fence as often as it is a
+-  `offsets_count_characters_not_bytes` function L433-440 — `()` — Offsets are characters, not bytes: a citation into a document with
+-  `crlf_line_endings_are_handled` function L443-448 — `()` — astral-plane characters needs to convert rather than index directly.
+-  `a_realistic_document_chunks_the_way_the_corpus_did` function L453-491 — `()` — The shape the measurement found: every real document has headings, most
+
 #### crates/kairos-core/src/forge.rs
 
 - pub `LinkKind` enum L30-33 — `Branch | PullRequest` — What a link points at.
@@ -1230,13 +1297,43 @@
 
 - pub `abac` module L7 — `-` — transitions, ABAC capability checks, and short-code generation.
 - pub `board` module L8 — `-` — `kairos-db` and `kairos-server`.
-- pub `forge` module L9 — `-` — `kairos-db` and `kairos-server`.
-- pub `graph` module L10 — `-` — `kairos-db` and `kairos-server`.
-- pub `items` module L11 — `-` — `kairos-db` and `kairos-server`.
-- pub `repositories` module L12 — `-` — `kairos-db` and `kairos-server`.
-- pub `retention` module L13 — `-` — `kairos-db` and `kairos-server`.
-- pub `search` module L14 — `-` — `kairos-db` and `kairos-server`.
-- pub `short_code` module L15 — `-` — `kairos-db` and `kairos-server`.
+- pub `chunk` module L9 — `-` — `kairos-db` and `kairos-server`.
+- pub `forge` module L10 — `-` — `kairos-db` and `kairos-server`.
+- pub `graph` module L11 — `-` — `kairos-db` and `kairos-server`.
+- pub `items` module L12 — `-` — `kairos-db` and `kairos-server`.
+- pub `primary` module L13 — `-` — `kairos-db` and `kairos-server`.
+- pub `repositories` module L14 — `-` — `kairos-db` and `kairos-server`.
+- pub `retention` module L15 — `-` — `kairos-db` and `kairos-server`.
+- pub `search` module L16 — `-` — `kairos-db` and `kairos-server`.
+- pub `short_code` module L17 — `-` — `kairos-db` and `kairos-server`.
+
+#### crates/kairos-core/src/primary.rs
+
+- pub `PrimaryInputs` struct L81-98 — `{ title: &'a str, repository: Option<&'a str>, team: Option<&'a str>, parent_tit...` — The structural facts about an item that go into its primary vector.
+- pub `PrimaryConfig` struct L102-108 — `{ prose_chars: usize }` — How much of each input to use.
+- pub `primary_text` function L117-119 — `(item_type: ItemType, inputs: &PrimaryInputs<'_>) -> String` — Compose the text whose embedding is the item's primary vector.
+- pub `primary_text_with` function L127-159 — `( item_type: ItemType, inputs: &PrimaryInputs<'_>, config: &PrimaryConfig, ) -> ...` — [`primary_text`] with an explicit budget.
+- pub `content_hash` function L400-412 — `(text: &str) -> String` — SHA-256 of the exact text that was embedded, as lowercase hex.
+-  `PrimaryConfig` type L110-114 — `impl Default for PrimaryConfig` — emphatic.
+-  `default` function L111-113 — `() -> Self` — emphatic.
+-  `opening_prose` function L167-189 — `(content: &str, budget: usize) -> Option<String>` — The item's opening prose, up to `budget` characters.
+-  `non_blank` function L191-193 — `(value: Option<&str>) -> Option<&str>` — emphatic.
+-  `type_label` function L200-208 — `(item_type: ItemType) -> &'static str` — How an entity type is named to the model.
+-  `tests` module L211-387 — `-` — emphatic.
+-  `meta` function L214-219 — `(pairs: &[(&str, &str)]) -> Vec<(String, String)>` — emphatic.
+-  `the_title_and_type_lead` function L222-232 — `()` — emphatic.
+-  `every_structural_input_appears` function L235-257 — `()` — emphatic.
+-  `absent_and_blank_inputs_leave_no_line` function L263-278 — `()` — Absent inputs must leave no trace — a dangling `repository:` line would
+-  `composition_is_stable` function L283-295 — `()` — Stability is what makes content hashing able to skip work: the same inputs
+-  `prose_is_bounded_and_does_not_end_mid_word` function L298-317 — `()` — emphatic.
+-  `the_opening_skips_empty_sections` function L323-335 — `()` — The opening comes from the chunker, so a document whose first section is a
+-  `content_that_is_only_headings_contributes_nothing` function L338-345 — `()` — emphatic.
+-  `a_zero_budget_omits_prose_entirely` function L348-356 — `()` — emphatic.
+-  `every_type_has_a_stable_label` function L361-371 — `()` — The labels are part of the embedded text, so they are asserted rather than
+-  `prose_budget_counts_characters_not_bytes` function L374-386 — `()` — emphatic.
+-  `hash_tests` module L415-435 — `-` — emphatic.
+-  `it_is_the_known_sha256_of_the_empty_string` function L419-426 — `()` — emphatic.
+-  `it_is_stable_and_sensitive` function L429-434 — `()` — emphatic.
 
 #### crates/kairos-core/src/repositories.rs
 
@@ -1301,58 +1398,64 @@
 
 #### crates/kairos-core/src/search.rs
 
-- pub `MAX_TRAVERSE_DEPTH` variable L48 — `: u32` — Server cap on `traverse.depth` (A-0007: "server-capped to prevent
-- pub `MAX_LIMIT` variable L51 — `: i64` — Server cap on `limit`.
-- pub `DEFAULT_LIMIT` variable L55 — `: i64` — Default `limit` when the request omits it (the S-0005 examples' page
-- pub `SearchRequest` struct L66-85 — `{ q: Option<String>, filter: Option<SearchFilter>, traverse: Option<Traverse>, s...` — The `POST /api/search` request body (KAIROS-A-0007 / S-0005).
-- pub `effective_limit` function L89-91 — `(&self) -> i64` — The page size to use: `limit` or [`DEFAULT_LIMIT`].
-- pub `effective_offset` function L94-96 — `(&self) -> i64` — The offset to use: `offset` or 0.
-- pub `effective_sort` function L99-104 — `(&self) -> Sort` — The sort to use: `sort` or `created_at desc`.
-- pub `SearchFilter` struct L111-157 — `{ entity_type: Option<Vec<SearchEntityType>>, board_id: Option<Uuid>, column_id:...` — The `filter` capability (A-0007: fields are AND with each other; array
-- pub `is_constraining` function L169-182 — `(&self) -> bool` — Whether this filter says anything at all — the at-least-one-capability
-- pub `SearchEntityType` enum L188-199 — `Strategy | Initiative | Task | Document | Adr` — The `filter.entity_type` vocabulary (the five S-0004 entity tables).
-- pub `item_type` function L203-211 — `(self) -> ItemType` — The corresponding [`ItemType`].
-- pub `SearchTaskType` enum L217-226 — `Task | Bug | TechDebt | Support` — The `filter.task_type` vocabulary (`tasks.task_type` CHECK set).
-- pub `as_str` function L230-237 — `(self) -> &'static str` — The TEXT value stored in `tasks.task_type`.
-- pub `SearchWorkClass` enum L243-248 — `Planned | Support` — A `tasks.work_class` lane in a search filter (KAIROS-T-0077).
-- pub `as_str` function L252-257 — `(self) -> &'static str` — The TEXT value stored in `tasks.work_class`.
-- pub `Traverse` struct L264-278 — `{ from: TraverseFrom, relationships: Vec<SearchRelationship>, direction: Directi...` — The `traverse` capability (A-0007: recursive walk of
-- pub `TraverseFrom` struct L284-291 — `{ short_code: Option<String>, id: Option<Uuid> }` — `traverse.from`: exactly one of `short_code`/`id` (enforced by
-- pub `SearchRelationship` enum L297-308 — `Parent | Supports | Informs | Supersedes | Blocks` — The `traverse.relationships` vocabulary (`item_relationships.
-- pub `as_str` function L312-320 — `(self) -> &'static str` — The TEXT value stored in `item_relationships.relationship`.
-- pub `Direction` enum L326-333 — `Outbound | Inbound | Both` — `traverse.direction` (A-0007).
-- pub `Sort` struct L339-344 — `{ field: SortField, order: SortOrder }` — The `sort` clause; applies to the combined cross-type result set before
-- pub `SortField` enum L350-357 — `CreatedAt | UpdatedAt | Title` — Sortable fields — attributes every entity type carries, so the combined
-- pub `SortOrder` enum L362-367 — `Asc | Desc` — Sort direction.
-- pub `SearchValidationError` enum L375-437 — `NoCapability | BlankQuery | EmptyEntityTypes | EmptyTaskTypes | EmptyWorkClasses...` — A structurally invalid search request (HTTP 400 at the API layer).
-- pub `validate` function L442-523 — `(request: &SearchRequest) -> Result<(), SearchValidationError>` — Validate a [`SearchRequest`] against the module-docs contract.
-- pub `metadata_like_pattern` function L533-545 — `(value: &str) -> String` — Translate a metadata filter value into a SQL LIKE pattern (module docs):
--  `SearchRequest` type L87-105 — `= SearchRequest` — translates to a LIKE pattern equivalent to equality.
--  `SearchFilter` type L159-183 — `= SearchFilter` — translates to a LIKE pattern equivalent to equality.
--  `SearchEntityType` type L201-212 — `= SearchEntityType` — translates to a LIKE pattern equivalent to equality.
--  `SearchTaskType` type L228-238 — `= SearchTaskType` — translates to a LIKE pattern equivalent to equality.
--  `SearchWorkClass` type L250-258 — `= SearchWorkClass` — translates to a LIKE pattern equivalent to equality.
--  `SearchRelationship` type L310-321 — `= SearchRelationship` — translates to a LIKE pattern equivalent to equality.
--  `tests` module L548-970 — `-` — translates to a LIKE pattern equivalent to equality.
--  `q` function L551-556 — `(text: &str) -> SearchRequest` — translates to a LIKE pattern equivalent to equality.
--  `traverse` function L558-568 — `(depth: Option<u32>) -> Traverse` — translates to a LIKE pattern equivalent to equality.
--  `empty_request_is_no_capability` function L573-578 — `()` — translates to a LIKE pattern equivalent to equality.
--  `empty_filter_is_no_capability` function L581-597 — `()` — translates to a LIKE pattern equivalent to equality.
--  `include_deleted_alone_is_a_capability` function L605-616 — `()` — KAIROS-T-0157 / KAIROS-A-0020: `include_deleted` on its own is a
--  `each_capability_alone_is_valid` function L619-634 — `()` — translates to a LIKE pattern equivalent to equality.
--  `blank_q_is_rejected_even_alongside_other_capabilities` function L637-643 — `()` — translates to a LIKE pattern equivalent to equality.
--  `empty_or_lists_are_rejected` function L648-682 — `()` — translates to a LIKE pattern equivalent to equality.
--  `work_class_filter_alone_is_a_capability` function L687-696 — `()` — KAIROS-T-0077: a work_class-only filter IS constraining — it must
--  `blank_metadata_keys_are_rejected` function L699-711 — `()` — translates to a LIKE pattern equivalent to equality.
--  `date_ranges_must_be_sane` function L714-751 — `()` — translates to a LIKE pattern equivalent to equality.
--  `traverse_depth_is_required_and_capped` function L756-775 — `()` — translates to a LIKE pattern equivalent to equality.
--  `traverse_from_names_exactly_one_reference` function L778-806 — `()` — translates to a LIKE pattern equivalent to equality.
--  `traverse_relationships_must_be_non_empty` function L809-821 — `()` — translates to a LIKE pattern equivalent to equality.
--  `limit_is_capped_and_offset_non_negative` function L826-855 — `()` — translates to a LIKE pattern equivalent to equality.
--  `effective_defaults` function L858-865 — `()` — translates to a LIKE pattern equivalent to equality.
--  `full_s0005_request_deserializes` function L870-918 — `()` — translates to a LIKE pattern equivalent to equality.
--  `unknown_vocabulary_is_rejected_by_serde` function L921-951 — `()` — translates to a LIKE pattern equivalent to equality.
--  `metadata_like_pattern_translates_globs_and_escapes_metacharacters` function L956-969 — `()` — translates to a LIKE pattern equivalent to equality.
+- pub `MAX_TRAVERSE_DEPTH` variable L51 — `: u32` — Server cap on `traverse.depth` (A-0007: "server-capped to prevent
+- pub `MAX_LIMIT` variable L54 — `: i64` — Server cap on `limit`.
+- pub `DEFAULT_LIMIT` variable L58 — `: i64` — Default `limit` when the request omits it (the S-0005 examples' page
+- pub `SearchRequest` struct L69-89 — `{ q: Option<String>, filter: Option<SearchFilter>, traverse: Option<Traverse>, s...` — The `POST /api/search` request body (KAIROS-A-0007 / S-0005).
+- pub `effective_limit` function L93-95 — `(&self) -> i64` — The page size to use: `limit` or [`DEFAULT_LIMIT`].
+- pub `effective_offset` function L98-100 — `(&self) -> i64` — The offset to use: `offset` or 0.
+- pub `effective_sort` function L109-118 — `(&self) -> Sort` — The sort to use: `sort` if given, else the default for this request.
+- pub `SearchFilter` struct L125-171 — `{ entity_type: Option<Vec<SearchEntityType>>, board_id: Option<Uuid>, column_id:...` — The `filter` capability (A-0007: fields are AND with each other; array
+- pub `is_constraining` function L183-196 — `(&self) -> bool` — Whether this filter says anything at all — the at-least-one-capability
+- pub `SearchEntityType` enum L202-213 — `Strategy | Initiative | Task | Document | Adr` — The `filter.entity_type` vocabulary (the five S-0004 entity tables).
+- pub `item_type` function L217-225 — `(self) -> ItemType` — The corresponding [`ItemType`].
+- pub `SearchTaskType` enum L231-240 — `Task | Bug | TechDebt | Support` — The `filter.task_type` vocabulary (`tasks.task_type` CHECK set).
+- pub `as_str` function L244-251 — `(self) -> &'static str` — The TEXT value stored in `tasks.task_type`.
+- pub `SearchWorkClass` enum L257-262 — `Planned | Support` — A `tasks.work_class` lane in a search filter (KAIROS-T-0077).
+- pub `as_str` function L266-271 — `(self) -> &'static str` — The TEXT value stored in `tasks.work_class`.
+- pub `Traverse` struct L278-292 — `{ from: TraverseFrom, relationships: Vec<SearchRelationship>, direction: Directi...` — The `traverse` capability (A-0007: recursive walk of
+- pub `TraverseFrom` struct L298-305 — `{ short_code: Option<String>, id: Option<Uuid> }` — `traverse.from`: exactly one of `short_code`/`id` (enforced by
+- pub `SearchRelationship` enum L311-322 — `Parent | Supports | Informs | Supersedes | Blocks` — The `traverse.relationships` vocabulary (`item_relationships.
+- pub `as_str` function L326-334 — `(self) -> &'static str` — The TEXT value stored in `item_relationships.relationship`.
+- pub `Direction` enum L340-347 — `Outbound | Inbound | Both` — `traverse.direction` (A-0007).
+- pub `Sort` struct L353-358 — `{ field: SortField, order: SortOrder }` — The `sort` clause; applies to the combined cross-type result set before
+- pub `SortField` enum L364-375 — `CreatedAt | UpdatedAt | Title | Relevance` — Sortable fields — attributes every entity type carries, so the combined
+- pub `requires_query` function L379-381 — `(&self) -> bool` — Whether this field needs `q` present to mean anything.
+- pub `SortOrder` enum L387-392 — `Asc | Desc` — Sort direction.
+- pub `SearchValidationError` enum L400-466 — `NoCapability | BlankQuery | EmptyEntityTypes | EmptyTaskTypes | EmptyWorkClasses...` — A structurally invalid search request (HTTP 400 at the API layer).
+- pub `validate` function L471-559 — `(request: &SearchRequest) -> Result<(), SearchValidationError>` — Validate a [`SearchRequest`] against the module-docs contract.
+- pub `metadata_like_pattern` function L569-581 — `(value: &str) -> String` — Translate a metadata filter value into a SQL LIKE pattern (module docs):
+-  `SearchRequest` type L91-119 — `= SearchRequest` — translates to a LIKE pattern equivalent to equality.
+-  `SearchFilter` type L173-197 — `= SearchFilter` — translates to a LIKE pattern equivalent to equality.
+-  `SearchEntityType` type L215-226 — `= SearchEntityType` — translates to a LIKE pattern equivalent to equality.
+-  `SearchTaskType` type L242-252 — `= SearchTaskType` — translates to a LIKE pattern equivalent to equality.
+-  `SearchWorkClass` type L264-272 — `= SearchWorkClass` — translates to a LIKE pattern equivalent to equality.
+-  `SearchRelationship` type L324-335 — `= SearchRelationship` — translates to a LIKE pattern equivalent to equality.
+-  `SortField` type L377-382 — `= SortField` — translates to a LIKE pattern equivalent to equality.
+-  `tests` module L584-1071 — `-` — translates to a LIKE pattern equivalent to equality.
+-  `q` function L587-592 — `(text: &str) -> SearchRequest` — translates to a LIKE pattern equivalent to equality.
+-  `traverse` function L594-604 — `(depth: Option<u32>) -> Traverse` — translates to a LIKE pattern equivalent to equality.
+-  `empty_request_is_no_capability` function L609-614 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `empty_filter_is_no_capability` function L617-633 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `include_deleted_alone_is_a_capability` function L641-652 — `()` — KAIROS-T-0157 / KAIROS-A-0020: `include_deleted` on its own is a
+-  `each_capability_alone_is_valid` function L655-670 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `blank_q_is_rejected_even_alongside_other_capabilities` function L673-679 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `empty_or_lists_are_rejected` function L684-718 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `work_class_filter_alone_is_a_capability` function L723-732 — `()` — KAIROS-T-0077: a work_class-only filter IS constraining — it must
+-  `blank_metadata_keys_are_rejected` function L735-747 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `date_ranges_must_be_sane` function L750-787 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `traverse_depth_is_required_and_capped` function L792-811 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `traverse_from_names_exactly_one_reference` function L814-842 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `traverse_relationships_must_be_non_empty` function L845-857 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `limit_is_capped_and_offset_non_negative` function L862-891 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `effective_defaults` function L894-898 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `default_sort_is_relevance_only_when_there_is_a_query` function L903-918 — `()` — KAIROS-T-0186: the default sort depends on whether there is a query to
+-  `explicit_sort_overrides_the_default` function L923-934 — `()` — An explicit sort is always honoured, including where it differs from the
+-  `relevance_without_a_query_is_rejected` function L940-958 — `()` — Relevance to nothing is not a thing: it is a 400, not a quiet fallback
+-  `relevance_round_trips_as_snake_case` function L961-966 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `full_s0005_request_deserializes` function L971-1019 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `unknown_vocabulary_is_rejected_by_serde` function L1022-1052 — `()` — translates to a LIKE pattern equivalent to equality.
+-  `metadata_like_pattern_translates_globs_and_escapes_metacharacters` function L1057-1070 — `()` — translates to a LIKE pattern equivalent to equality.
 
 #### crates/kairos-core/src/short_code.rs
 
@@ -1370,6 +1473,20 @@
 -  `short_code_zero_pads_to_four` function L111-118 — `()` — default at the call site, not the format.
 -  `short_code_grows_past_9999_without_truncation` function L121-130 — `()` — default at the call site, not the format.
 -  `default_prefix_uppercases_and_sanitizes` function L133-140 — `()` — default at the call site, not the format.
+
+### crates/kairos-core/tests
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/kairos-core/tests/corpus_agreement.rs
+
+-  `WINDOWED_FRACTION` variable L42 — `: f64` — What `scripts/corpus/extract.py` reported on 2026-09-24, for provenance:
+-  `WINDOWED_TOLERANCE` variable L43 — `: f64` — written down in KAIROS-T-0190's status updates with the date they were taken.
+-  `corpus_root` function L45-53 — `() -> Option<PathBuf>` — written down in KAIROS-T-0190's status updates with the date they were taken.
+-  `documents` function L66-110 — `(root: &Path) -> Vec<String>` — Every Metis document under `root`, matching the Python extractor's rules:
+-  `split_frontmatter` function L112-116 — `(text: &str) -> Option<(&str, &str)>` — written down in KAIROS-T-0190's status updates with the date they were taken.
+-  `sections` function L126-134 — `(body: &str) -> Vec<kairos_core::chunk::Chunk>` — The document's sections before any windowing.
+-  `the_rust_chunker_agrees_with_the_measured_one` function L137-234 — `()` — written down in KAIROS-T-0190's status updates with the date they were taken.
 
 ### crates/kairos-db/src
 
@@ -1430,6 +1547,37 @@
 -  `transition_item_fn` macro L309-364 — `-` — Generate `transition_<entity>` for an item table with NOT NULL
 -  `column_board_id` function L889-898 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<Uuid, BoardError>` — The `board_id` of a LIVE column, or [`BoardError::ColumnNotFound`] —
 -  `count_items_in_column` function L911-936 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<u64, BoardError>` — How many LIVE workflow items occupy `column_id`, across every entity
+
+#### crates/kairos-db/src/embeddings.rs
+
+- pub `EmbeddingError` enum L42-70 — `Database | DimensionMismatch | MixedDimensions` — Errors from the embedding store.
+- pub `StoredModel` struct L77-84 — `{ provider: String, model: String, dimension: usize }` — Which model produced a stored vector, as recorded beside it.
+- pub `PendingItem` struct L88-116 — `{ id: Uuid, entity_type: String, short_code: String, title: String, content: Str...` — An item that needs embedding, with everything needed to compose its text.
+- pub `EmbeddingCounts` struct L120-128 — `{ items: i64, embedded: i64, wrong_model: i64 }` — How far behind the vectors are.
+- pub `missing` function L132-134 — `(&self) -> i64` — Items with no primary vector at all.
+- pub `pending_primary` function L181-219 — `( conn: &mut PgConnection, model: &StoredModel, limit: i64, ) -> Result<Vec<Pend...` — Items whose primary vector is missing or whose content hash has moved on.
+- pub `metadata_for` function L232-261 — `( conn: &mut PgConnection, item_ids: &[Uuid], ) -> Result<Vec<(Uuid, String, Str...` — Stamped metadata for a batch of items, as `(item_id, label, value)`.
+- pub `store_primary` function L268-299 — `( conn: &mut PgConnection, item_id: Uuid, entity_type: &str, vector: &[f32], mod...` — Write (or replace) an item's primary vector.
+- pub `ChunkWrite` struct L303-325 — `{ ordinal: i32, heading: Option<&'a str>, char_start: i32, char_end: i32, text: ...` — One chunk as the caller wants it stored.
+- pub `stored_chunk_hashes` function L330-356 — `( conn: &mut PgConnection, item_id: Uuid, model: &StoredModel, ) -> Result<Vec<(...` — Which of an item's chunks are already stored and current.
+- pub `sync_chunks` function L369-426 — `( conn: &mut PgConnection, item_id: Uuid, entity_type: &str, chunks: &[ChunkWrit...` — Bring an item's stored chunks in line with `chunks`, in one transaction.
+- pub `forget_item` function L435-446 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<(), EmbeddingError>` — Forget everything stored for an item.
+- pub `counts` function L454-486 — `( conn: &mut PgConnection, model: &StoredModel, ) -> Result<EmbeddingCounts, Emb...` — How far behind the vectors are, for the configured model.
+- pub `IndexReport` struct L546-557 — `{ dimension: usize, pinned: bool, created: Vec<String>, elapsed_ms: u128 }` — What [`pin_and_index`] did.
+- pub `pin_and_index` function L593-654 — `( conn: &mut PgConnection, dimension: usize, ) -> Result<IndexReport, EmbeddingE...` — Pin the vector columns to `dimension` and build approximate-search indexes.
+-  `EmbeddingCounts` type L130-135 — `= EmbeddingCounts` — tell which section moved; a per-chunk hash can.
+-  `vector_literal` function L143-160 — `(v: &[f32]) -> String` — Format a vector as a pgvector literal.
+-  `check_dimension` function L162-170 — `(vector: &[f32], declared: usize) -> Result<(), EmbeddingError>` — tell which section moved; a per-chunk hash can.
+-  `Row` struct L240-247 — `{ item_id: Uuid, label: String, value: String }` — tell which section moved; a per-chunk hash can.
+-  `Row` struct L336-341 — `{ ordinal: i32, content_hash: String }` — tell which section moved; a per-chunk hash can.
+-  `Row` struct L459-466 — `{ items: i64, embedded: i64, wrong_model: i64 }` — tell which section moved; a per-chunk hash can.
+-  `tests` module L489-542 — `-` — tell which section moved; a per-chunk hash can.
+-  `a_vector_literal_is_pgvector_shaped` function L493-496 — `()` — tell which section moved; a per-chunk hash can.
+-  `a_vector_literal_round_trips_f32` function L501-510 — `()` — The literal must round-trip: a lossy format would silently change every
+-  `a_declared_dimension_that_lies_is_refused` function L513-523 — `()` — tell which section moved; a per-chunk hash can.
+-  `missing_is_items_minus_embedded_and_never_negative` function L526-541 — `()` — tell which section moved; a per-chunk hash can.
+-  `is_pinned` function L657-674 — `( conn: &mut PgConnection, table: &str, dimension: usize, ) -> Result<bool, Embe...` — Whether `table`'s `embedding` column is already `vector(dimension)`.
+-  `CountRow` struct L677-680 — `{ count: i64 }` — tell which section moved; a per-chunk hash can.
 
 #### crates/kairos-db/src/events.rs
 
@@ -1553,31 +1701,36 @@
 - pub `abac` module L9 — `-` — models, typed queries, embedded migrations (public + tenant trees), and
 - pub `api_keys` module L10 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
 - pub `boards` module L11 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `events` module L12 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `forge` module L13 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `graph` module L14 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `items` module L15 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `migrations` module L16 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `models` module L17 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `pool` module L18 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `repositories` module L19 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `retention` module L20 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `schema` module L21 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `scim` module L22 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `search` module L23 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `seed` module L24 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `service_accounts` module L25 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `team_pages` module L26 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `tenant` module L27 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `embeddings` module L12 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `events` module L13 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `forge` module L14 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `graph` module L15 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `items` module L16 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `migrations` module L17 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `models` module L18 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `pool` module L19 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `repositories` module L20 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `retention` module L21 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `schema` module L22 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `scim` module L23 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `search` module L24 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `seed` module L25 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `service_accounts` module L26 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `team_pages` module L27 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `tenant` module L28 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
 
 #### crates/kairos-db/src/migrations.rs
 
 - pub `PUBLIC_MIGRATIONS` variable L30 — `: EmbeddedMigrations` — The embedded public-schema migration tree (`crates/kairos-db/migrations/public`).
 - pub `TENANT_MIGRATIONS` variable L37 — `: EmbeddedMigrations` — The embedded tenant-schema migration tree (`crates/kairos-db/migrations/tenant`).
-- pub `MigrationError` enum L41-49 — `Connection | Migration` — Errors from establishing a migration connection or applying migrations.
-- pub `establish_migration_connection` function L54-56 — `(database_url: &str) -> Result<PgConnection, MigrationError>` — Establish the dedicated synchronous connection used for running
-- pub `run_public_migrations` function L67-72 — `(conn: &mut PgConnection) -> Result<Vec<String>, MigrationError>` — Run all pending public-schema migrations on `conn`.
-- pub `has_pending_public_migrations` function L79-82 — `(conn: &mut PgConnection) -> Result<bool, MigrationError>` — Whether the embedded public-schema migration tree has any migration not
+- pub `MigrationError` enum L41-64 — `Connection | Migration | MissingExtension` — Errors from establishing a migration connection or applying migrations.
+- pub `check_required_extensions` function L88-90 — `(conn: &mut PgConnection) -> Result<(), MigrationError>` — Check that every extension in [`REQUIRED_EXTENSIONS`] can be created on this
+- pub `check_extensions` function L98-125 — `( conn: &mut PgConnection, required: &[(&'static str, &'static str)], ) -> Resul...` — [`check_required_extensions`] against an explicit list.
+- pub `establish_migration_connection` function L130-132 — `(database_url: &str) -> Result<PgConnection, MigrationError>` — Establish the dedicated synchronous connection used for running
+- pub `run_public_migrations` function L143-155 — `(conn: &mut PgConnection) -> Result<Vec<String>, MigrationError>` — Run all pending public-schema migrations on `conn`.
+- pub `has_pending_public_migrations` function L162-165 — `(conn: &mut PgConnection) -> Result<bool, MigrationError>` — Whether the embedded public-schema migration tree has any migration not
+-  `REQUIRED_EXTENSIONS` variable L75-80 — `: &[(&str, &str)]` — Extensions Kairos requires of the database it is pointed at, with the
+-  `NameRow` struct L106-109 — `{ name: String }` — pool (per KAIROS-A-0009) remains the runtime data path.
 
 #### crates/kairos-db/src/pool.rs
 
@@ -1659,34 +1812,36 @@
 
 #### crates/kairos-db/src/search.rs
 
-- pub `SearchError` enum L93-107 — `Invalid | TraverseRootNotFound | Database` — Errors from the search pipeline.
-- pub `SearchResults` struct L113-130 — `{ strategies: Vec<Strategy>, initiatives: Vec<Initiative>, tasks: Vec<Task>, doc...` — Search results grouped by entity type (A-0007 response shape), each
-- pub `SearchStats` struct L136-141 — `{ hydration_queries: usize, total_queries: usize }` — Query-count instrumentation for one `execute_search` run — the proof
-- pub `execute_search` function L145-150 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<SearchResults, S...` — Run the A-0007 search pipeline (module docs) for `request` in the
-- pub `execute_search_with_stats` function L154-262 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<(SearchResults, ...` — [`execute_search`], also returning the [`SearchStats`] query counters
--  `IdRow` struct L269-272 — `{ id: Uuid }` — read-only, so no transaction is opened.
--  `resolve_root` function L279-314 — `( conn: &mut PgConnection, from: &TraverseFrom, include_deleted: bool, stats: &m...` — Resolve `traverse.from` to an entity id via `entity_directory`.
--  `traverse_ids` function L320-369 — `( conn: &mut PgConnection, root: Uuid, traverse: &Traverse, stats: &mut SearchSt...` — Recursive-CTE walk from `root` (module docs, step 1).
--  `text_match_ids` function L380-399 — `( conn: &mut PgConnection, q: &str, include_deleted: bool, stats: &mut SearchSta...` — Full-text match via the `searchable_items` view (module docs, step 2).
--  `metadata_match_ids` function L405-431 — `( conn: &mut PgConnection, metadata: &std::collections::BTreeMap<String, String>...` — Ids satisfying EVERY metadata entry (module docs, step 3): one query,
--  `TypedIdRow` struct L438-443 — `{ id: Uuid, entity_type: String }` — read-only, so no transaction is opened.
--  `parse_entity_type` function L448-461 — `(value: &str) -> Result<ItemType, SearchError>` — Parse an `entity_type` literal from type resolution.
--  `partition_by_type` function L469-498 — `( conn: &mut PgConnection, ids: &HashSet<Uuid>, include_deleted: bool, stats: &m...` — Resolve candidate ids to `(id, entity_type)` and partition by type
--  `applicable_types` function L504-536 — `(filter: Option<&SearchFilter>) -> Vec<ItemType>` — Which entity types can match the structural filter at all (module docs,
--  `model_task_type` function L545-552 — `(task_type: SearchTaskType) -> TaskType` — The stored counterpart of a [`SearchTaskType`].
--  `model_work_class` function L555-560 — `(work_class: SearchWorkClass) -> WorkClass` — The stored counterpart of a [`SearchWorkClass`] (KAIROS-T-0077).
--  `hydrate_strategies` function L562-596 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_initiatives` function L598-637 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_tasks` function L639-688 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_documents` function L690-718 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `hydrate_adrs` function L720-754 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
--  `AnyItem` enum L761-767 — `Strategy | Initiative | Task | Document | Adr` — One hydrated row of any entity type, for the combined sort.
--  `AnyItem` type L769-809 — `= AnyItem` — read-only, so no transaction is opened.
--  `created_at` function L770-778 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
--  `updated_at` function L780-788 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
--  `title` function L790-798 — `(&self) -> &str` — read-only, so no transaction is opened.
--  `short_code` function L800-808 — `(&self) -> &str` — read-only, so no transaction is opened.
--  `sort_items` function L813-826 — `(items: &mut [AnyItem], sort: Sort)` — Sort the combined rows by the requested field/order, tie-broken by
+- pub `SearchError` enum L97-111 — `Invalid | TraverseRootNotFound | Database` — Errors from the search pipeline.
+- pub `SearchResults` struct L117-134 — `{ strategies: Vec<Strategy>, initiatives: Vec<Initiative>, tasks: Vec<Task>, doc...` — Search results grouped by entity type (A-0007 response shape), each
+- pub `SearchStats` struct L140-145 — `{ hydration_queries: usize, total_queries: usize }` — Query-count instrumentation for one `execute_search` run — the proof
+- pub `execute_search` function L149-154 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<SearchResults, S...` — Run the A-0007 search pipeline (module docs) for `request` in the
+- pub `execute_search_with_stats` function L158-269 — `( conn: &mut PgConnection, request: &SearchRequest, ) -> Result<(SearchResults, ...` — [`execute_search`], also returning the [`SearchStats`] query counters
+-  `IdRow` struct L276-279 — `{ id: Uuid }` — read-only, so no transaction is opened.
+-  `ScoredIdRow` struct L283-288 — `{ id: Uuid, score: f32 }` — An id plus its `ts_rank_cd` relevance against `q` (KAIROS-T-0186).
+-  `resolve_root` function L295-330 — `( conn: &mut PgConnection, from: &TraverseFrom, include_deleted: bool, stats: &m...` — Resolve `traverse.from` to an entity id via `entity_directory`.
+-  `traverse_ids` function L336-385 — `( conn: &mut PgConnection, root: Uuid, traverse: &Traverse, stats: &mut SearchSt...` — Recursive-CTE walk from `root` (module docs, step 1).
+-  `text_match_ids` function L400-420 — `( conn: &mut PgConnection, q: &str, include_deleted: bool, stats: &mut SearchSta...` — Full-text match via the `searchable_items` view (module docs, step 2).
+-  `metadata_match_ids` function L426-452 — `( conn: &mut PgConnection, metadata: &std::collections::BTreeMap<String, String>...` — Ids satisfying EVERY metadata entry (module docs, step 3): one query,
+-  `TypedIdRow` struct L459-464 — `{ id: Uuid, entity_type: String }` — read-only, so no transaction is opened.
+-  `parse_entity_type` function L469-482 — `(value: &str) -> Result<ItemType, SearchError>` — Parse an `entity_type` literal from type resolution.
+-  `partition_by_type` function L490-519 — `( conn: &mut PgConnection, ids: &HashSet<Uuid>, include_deleted: bool, stats: &m...` — Resolve candidate ids to `(id, entity_type)` and partition by type
+-  `applicable_types` function L525-557 — `(filter: Option<&SearchFilter>) -> Vec<ItemType>` — Which entity types can match the structural filter at all (module docs,
+-  `model_task_type` function L566-573 — `(task_type: SearchTaskType) -> TaskType` — The stored counterpart of a [`SearchTaskType`].
+-  `model_work_class` function L576-581 — `(work_class: SearchWorkClass) -> WorkClass` — The stored counterpart of a [`SearchWorkClass`] (KAIROS-T-0077).
+-  `hydrate_strategies` function L583-617 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_initiatives` function L619-658 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_tasks` function L660-709 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_documents` function L711-739 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `hydrate_adrs` function L741-775 — `( conn: &mut PgConnection, ids: Option<Vec<Uuid>>, filter: Option<&SearchFilter>...` — read-only, so no transaction is opened.
+-  `AnyItem` enum L782-788 — `Strategy | Initiative | Task | Document | Adr` — One hydrated row of any entity type, for the combined sort.
+-  `AnyItem` type L790-840 — `= AnyItem` — read-only, so no transaction is opened.
+-  `created_at` function L791-799 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
+-  `updated_at` function L801-809 — `(&self) -> DateTime<Utc>` — read-only, so no transaction is opened.
+-  `title` function L811-819 — `(&self) -> &str` — read-only, so no transaction is opened.
+-  `short_code` function L821-829 — `(&self) -> &str` — read-only, so no transaction is opened.
+-  `id` function L831-839 — `(&self) -> Uuid` — read-only, so no transaction is opened.
+-  `sort_items` function L854-873 — `(items: &mut [AnyItem], sort: Sort, relevance: &HashMap<Uuid, f32>)` — Sort the combined rows by the requested field/order, tie-broken by
 
 #### crates/kairos-db/src/seed.rs
 
@@ -1992,6 +2147,20 @@
 -  `dead_end_names` function L171-177 — `(conn: &mut PgConnection, board: Uuid) -> Vec<String>` — removed
 -  `board_rules_lifecycle` function L180-755 — `()` — removed
 
+#### crates/kairos-db/tests/embeddings.rs
+
+-  `DEFAULT_DATABASE_URL` variable L29 — `: &str` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `SCRATCH_DB` variable L30 — `: &str` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `DIM` variable L34 — `: usize` — The width the local model produces (KAIROS-T-0189), so the fixtures exercise
+-  `admin_database_url` function L36-38 — `() -> String` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `with_database` function L40-43 — `(url: &str, db_name: &str) -> String` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `unit` function L46-50 — `(seed: u32) -> Vec<f32>` — A deterministic unit vector, so assertions can be exact.
+-  `model` function L52-58 — `() -> StoredModel` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `Count` struct L61-64 — `{ count: i64 }` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `count_rows` function L66-71 — `(conn: &mut PgConnection, sql: &str) -> i64` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `embedding_store_lifecycle` function L74-583 — `()` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+-  `Stamp` struct L366-369 — `{ updated_at: chrono::DateTime<chrono::Utc> }` — `angreal test integration`), per KAIROS-A-0012: the database is never mocked.
+
 #### crates/kairos-db/tests/graph.rs
 
 -  `DEFAULT_DATABASE_URL` variable L42 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
@@ -2140,7 +2309,7 @@
 -  `task_ids` function L141-143 — `(results: &SearchResults) -> HashSet<Uuid>` — within the stated budget with exactly one task-hydration query
 -  `all_ids` function L145-153 — `(results: &SearchResults) -> HashSet<Uuid>` — within the stated budget with exactly one task-hydration query
 -  `returned_row_count` function L155-161 — `(results: &SearchResults) -> usize` — within the stated budget with exactly one task-hydration query
--  `unified_search_pipeline` function L164-929 — `()` — within the stated budget with exactly one task-hydration query
+-  `unified_search_pipeline` function L164-1067 — `()` — within the stated budget with exactly one task-hydration query
 
 #### crates/kairos-db/tests/seed_demo.rs
 
@@ -2165,27 +2334,27 @@
 
 #### crates/kairos-db/tests/tenant_provisioning.rs
 
--  `DEFAULT_DATABASE_URL` variable L33 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
--  `SCRATCH_DB` variable L35 — `: &str` — `system_board_defaults` rows are seeded.
--  `EXPECTED_TABLES` variable L40-71 — `: [&str; 30]` — The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
--  `EXPECTED_VIEWS` variable L73 — `: [&str; 2]` — `system_board_defaults` rows are seeded.
--  `EXPECTED_SEQUENCES` variable L75-81 — `: [&str; 5]` — `system_board_defaults` rows are seeded.
--  `EXPECTED_INDEXES` variable L88-112 — `: [&str; 23]` — Every named index a freshly provisioned tenant carries: the S-0004
--  `admin_database_url` function L114-116 — `() -> String` — `system_board_defaults` rows are seeded.
--  `with_database` function L119-124 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
--  `NameRow` struct L127-130 — `{ name: String }` — `system_board_defaults` rows are seeded.
--  `CountRow` struct L133-136 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
--  `names` function L138-148 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_tables` function L150-158 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_views` function L160-166 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_sequences` function L168-175 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_indexes` function L177-183 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_exists` function L185-192 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
--  `count` function L194-199 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
--  `board_columns` function L202-214 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
--  `board_transitions` function L217-232 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
--  `transitions` function L234-236 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
--  `tenant_provisioning_lifecycle` function L239-689 — `()` — `system_board_defaults` rows are seeded.
+-  `DEFAULT_DATABASE_URL` variable L34 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
+-  `SCRATCH_DB` variable L36 — `: &str` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_TABLES` variable L41-75 — `: [&str; 32]` — The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
+-  `EXPECTED_VIEWS` variable L77 — `: [&str; 2]` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_SEQUENCES` variable L79-85 — `: [&str; 5]` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_INDEXES` variable L92-116 — `: [&str; 23]` — Every named index a freshly provisioned tenant carries: the S-0004
+-  `admin_database_url` function L118-120 — `() -> String` — `system_board_defaults` rows are seeded.
+-  `with_database` function L123-128 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
+-  `NameRow` struct L131-134 — `{ name: String }` — `system_board_defaults` rows are seeded.
+-  `CountRow` struct L137-140 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
+-  `names` function L142-152 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_tables` function L154-162 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_views` function L164-170 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_sequences` function L172-179 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_indexes` function L181-187 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_exists` function L189-196 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
+-  `count` function L198-203 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
+-  `board_columns` function L206-218 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
+-  `board_transitions` function L221-236 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
+-  `transitions` function L238-240 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
+-  `tenant_provisioning_lifecycle` function L243-849 — `()` — `system_board_defaults` rows are seeded.
 
 #### crates/kairos-db/tests/write_path.rs
 
@@ -2205,6 +2374,151 @@
 -  `code_number` function L169-174 — `(code: &str) -> i64` — The numeric part of a `{PREFIX}-{L}-{NNNN}` short code.
 -  `write_path_lifecycle` function L177-830 — `()` — records ONE activity row with the cascade count + short codes
 -  `WRITERS` variable L373 — `: usize` — records ONE activity row with the cascade count + short codes
+
+### crates/kairos-embed/src/bin
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/kairos-embed/src/bin/fetch-model.rs
+
+-  `main` function L22-64 — `() -> std::process::ExitCode` — Idempotent: a populated cache makes this a load and a probe.
+
+### crates/kairos-embed/src
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/kairos-embed/src/config.rs
+
+- pub `ProviderKind` enum L34-43 — `Local | Remote | Deterministic | None` — Which provider a deployment wants.
+- pub `EmbedConfig` struct L47-56 — `{ kind: ProviderKind, local: crate::local::LocalConfig, remote: Option<crate::re...` — Everything needed to build a provider.
+- pub `ConfigError` enum L60-82 — `UnknownProvider | RemoteWithoutUrl | RemoteWithoutModel | BadNumber | ProviderNo...` — A configuration that could not be read.
+- pub `from_env` function L86-88 — `() -> Result<Self, ConfigError>` — Read the configuration from the process environment.
+- pub `from_vars` function L93-157 — `(get: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Read from an arbitrary lookup, so this is testable without touching the
+- pub `build` function L164-190 — `(&self) -> Result<Option<Arc<dyn EmbeddingProvider>>, EmbedError>` — Build the provider, or `None` for [`ProviderKind::None`].
+-  `EmbedConfig` type L84-191 — `= EmbedConfig` — outbound calls — says so, and gets search that still works.
+-  `tests` module L194-315 — `-` — outbound calls — says so, and gets search that still works.
+-  `vars` function L198-204 — `(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<>` — outbound calls — says so, and gets search that still works.
+-  `the_default_is_local_with_nothing_set` function L208-216 — `()` — Rule 1 is only satisfied if the default needs no configuration.
+-  `a_url_alone_selects_remote` function L221-235 — `()` — Setting a URL is saying what you want; it should not also require saying
+-  `remote_without_a_url_or_model_is_refused` function L238-247 — `()` — outbound calls — says so, and gets search that still works.
+-  `an_unknown_provider_is_refused_by_name` function L250-257 — `()` — outbound calls — says so, and gets search that still works.
+-  `none_builds_no_provider_and_is_not_an_error` function L261-267 — `()` — Switching embeddings off is a choice, not a failure.
+-  `deterministic_builds_without_any_other_configuration` function L270-279 — `()` — outbound calls — says so, and gets search that still works.
+-  `a_bad_timeout_names_the_variable` function L282-293 — `()` — outbound calls — says so, and gets search that still works.
+-  `blank_values_are_treated_as_unset` function L296-302 — `()` — outbound calls — says so, and gets search that still works.
+-  `the_cache_directory_and_download_flag_are_read` function L306-314 — `()` — outbound calls — says so, and gets search that still works.
+
+#### crates/kairos-embed/src/deterministic.rs
+
+- pub `DeterministicProvider` struct L20-22 — `{ id: ModelId }` — Hash-derived embeddings: same text, same vector, always.
+- pub `new` function L29-33 — `(dimension: usize) -> Self` — A provider producing `dimension`-wide vectors.
+-  `DeterministicProvider` type L24-34 — `= DeterministicProvider` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `DeterministicProvider` type L36-43 — `impl Default for DeterministicProvider` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `default` function L40-42 — `() -> Self` — 384 wide, matching the local default (`bge-small-en-v1.5-q`), so swapping
+-  `DeterministicProvider` type L45-85 — `impl EmbeddingProvider for DeterministicProvider` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `model_id` function L46-48 — `(&self) -> &ModelId` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `embed` function L50-84 — `(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError>` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `tests` module L88-167 — `-` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `texts` function L92-94 — `(items: &[&str]) -> Vec<String>` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `the_same_text_always_gives_the_same_vector` function L98-107 — `()` — The property the whole thing exists for.
+-  `a_vector_does_not_depend_on_its_company` function L112-122 — `()` — And it does not depend on what else was in the batch — the failure that
+-  `order_is_preserved` function L125-131 — `()` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `different_texts_are_not_similar` function L134-142 — `()` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `vectors_are_unit_length_like_a_real_provider` function L145-151 — `()` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `any_width_is_reachable` function L154-160 — `()` — model, and KAIROS-T-0189's own measurements are where that happens.
+-  `an_empty_batch_is_an_empty_result_not_an_error` function L163-166 — `()` — model, and KAIROS-T-0189's own measurements are where that happens.
+
+#### crates/kairos-embed/src/lib.rs
+
+- pub `local` module L42 — `-` — re-embedding in response is KAIROS-T-0190's.
+- pub `remote` module L44 — `-` — re-embedding in response is KAIROS-T-0190's.
+- pub `Embedding` type L52 — `= Vec<f32>` — One embedding: a dense vector in whichever space its [`ModelId`] names.
+- pub `ModelId` struct L61-70 — `{ provider: String, model: String, dimension: usize }` — Which model produced a vector, and how wide it is.
+- pub `new` function L74-80 — `(provider: impl Into<String>, model: impl Into<String>, dimension: usize) -> Sel...` — A new identity.
+- pub `mismatch` function L89-109 — `(&self, stored: &ModelId) -> Option<Mismatch>` — How `stored` differs from `self`, or `None` if they agree.
+- pub `Mismatch` enum L120-159 — `Dimension | Model | Provider` — A disagreement between the configured model and a stored vector's model.
+- pub `is_fatal` function L165-167 — `(&self) -> bool` — Whether this mismatch makes stored vectors unusable rather than merely
+- pub `EmbedError` enum L172-199 — `Unavailable | Failed | CountMismatch | WidthMismatch` — Why embedding failed.
+- pub `EmbeddingProvider` interface L217-232 — `{ fn model_id(), fn embed(), fn embed_one() }` — Turns text into vectors.
+- pub `cosine` function L267-278 — `(a: &[f32], b: &[f32]) -> Option<f32>` — Cosine similarity between two vectors in the same space.
+-  `config` module L46 — `-` — re-embedding in response is KAIROS-T-0190's.
+-  `deterministic` module L47 — `-` — re-embedding in response is KAIROS-T-0190's.
+-  `ModelId` type L72-110 — `= ModelId` — re-embedding in response is KAIROS-T-0190's.
+-  `ModelId` type L112-116 — `= ModelId` — re-embedding in response is KAIROS-T-0190's.
+-  `fmt` function L113-115 — `(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result` — re-embedding in response is KAIROS-T-0190's.
+-  `Mismatch` type L161-168 — `= Mismatch` — re-embedding in response is KAIROS-T-0190's.
+-  `embed_one` function L228-231 — `(&self, text: &str) -> Result<Embedding, EmbedError>` — Embed one text.
+-  `validate_batch` function L241-259 — `( id: &ModelId, texts: &[String], vectors: Vec<Embedding>, ) -> Result<Vec<Embed...` — Check a provider's own output before it reaches a caller: one vector per
+-  `tests` module L281-365 — `-` — re-embedding in response is KAIROS-T-0190's.
+-  `id` function L284-286 — `(provider: &str, model: &str, dim: usize) -> ModelId` — re-embedding in response is KAIROS-T-0190's.
+-  `matching_identities_do_not_mismatch` function L289-292 — `()` — re-embedding in response is KAIROS-T-0190's.
+-  `a_width_difference_outranks_a_model_difference` function L296-306 — `()` — Width first, because it is the one that cannot be compared at all.
+-  `same_width_different_model_is_fatal` function L311-317 — `()` — The trap this exists to catch: same width, different space.
+-  `same_model_different_provider_is_reported_but_not_fatal` function L322-327 — `()` — Same model and width through a different provider is reported but not
+-  `cosine_is_none_across_widths_and_on_zero_vectors` function L330-334 — `()` — re-embedding in response is KAIROS-T-0190's.
+-  `cosine_is_one_for_identical_and_zero_for_orthogonal` function L337-342 — `()` — re-embedding in response is KAIROS-T-0190's.
+-  `a_short_batch_is_refused_rather_than_misaligned` function L345-350 — `()` — re-embedding in response is KAIROS-T-0190's.
+-  `a_wrong_width_is_refused` function L353-364 — `()` — re-embedding in response is KAIROS-T-0190's.
+
+#### crates/kairos-embed/src/local.rs
+
+- pub `LocalConfig` struct L87-98 — `{ cache_dir: PathBuf, allow_download: bool }` — How to start the local provider.
+- pub `LocalProvider` struct L110-118 — `{ model: Mutex<TextEmbedding>, id: ModelId }` — ONNX inference in-process.
+- pub `new` function L125-170 — `(config: &LocalConfig) -> Result<Self, EmbedError>` — Load the model from `config.cache_dir`.
+-  `MODEL` variable L58 — `: EmbeddingModel` — The model this provider uses.
+-  `MODEL_NAME` variable L63 — `: &str` — Stable name recorded with every vector.
+-  `DIMENSION` variable L66 — `: usize` — Vector width, asserted against the model at startup rather than trusted.
+-  `MODEL_CACHE_NEEDLE` variable L70 — `: &str` — What a cache directory for this model is called, once separators are
+-  `normalise` function L74-76 — `(name: &str) -> String` — Lowercase and drop the separators that differ between the model's several
+-  `BATCH` variable L83 — `: usize` — How many texts go to the model at once.
+-  `LocalConfig` type L100-107 — `impl Default for LocalConfig` — reason.
+-  `default` function L101-106 — `() -> Self` — reason.
+-  `LocalProvider` type L120-194 — `= LocalProvider` — reason.
+-  `is_cached` function L186-193 — `(config: &LocalConfig) -> bool` — Whether `cache_dir` already holds something for this model.
+-  `LocalProvider` type L196-215 — `impl EmbeddingProvider for LocalProvider` — reason.
+-  `model_id` function L197-199 — `(&self) -> &ModelId` — reason.
+-  `embed` function L201-214 — `(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError>` — reason.
+-  `tests` module L218-291 — `-` — reason.
+-  `a_cache_miss_explains_itself_instead_of_downloading` function L224-241 — `()` — The cache-miss path is the one an operator meets, so its message is worth
+-  `is_cached_is_false_for_a_missing_directory` function L244-249 — `()` — reason.
+-  `the_real_cache_directory_name_is_recognised` function L254-262 — `()` — The real directory name fastembed creates must read as a hit.
+-  `is_cached_is_true_for_a_directory_holding_the_model` function L266-276 — `()` — And end to end through `is_cached`, against a directory on disk.
+-  `is_cached_is_false_for_an_empty_directory` function L281-290 — `()` — An empty directory is a miss, not a hit — otherwise an image whose model
+
+#### crates/kairos-embed/src/remote.rs
+
+- pub `RemoteConfig` struct L37-48 — `{ base_url: String, model: String, api_key: Option<String>, timeout: Duration }` — How to reach an OpenAI-compatible embeddings endpoint.
+- pub `new` function L52-59 — `(base_url: impl Into<String>, model: impl Into<String>) -> Self` — A configuration with the default timeout.
+- pub `RemoteProvider` struct L63-67 — `{ client: reqwest::blocking::Client, config: RemoteConfig, id: ModelId }` — Embeddings from an OpenAI-compatible HTTP endpoint.
+- pub `new` function L89-126 — `(config: RemoteConfig) -> Result<Self, EmbedError>` — Connect, and learn the vector width by embedding one probe text.
+-  `RemoteConfig` type L50-60 — `= RemoteConfig` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `EmbeddingsResponse` struct L70-72 — `{ data: Vec<EmbeddingDatum> }` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `EmbeddingDatum` struct L75-80 — `{ index: usize, embedding: Vec<f32> }` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `RemoteProvider` type L82-177 — `= RemoteProvider` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `request` function L129-176 — `(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError>` — One HTTP round trip, vectors restored to input order.
+-  `RemoteProvider` type L179-191 — `impl EmbeddingProvider for RemoteProvider` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `model_id` function L180-182 — `(&self) -> &ModelId` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `embed` function L184-190 — `(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError>` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `tests` module L194-253 — `-` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `the_url_is_built_without_a_double_slash` function L198-204 — `()` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `an_unreachable_endpoint_names_itself` function L207-221 — `()` — the vectors are placed by their `index` rather than taken in arrival order.
+-  `vectors_are_placed_by_index_not_arrival_order` function L226-241 — `()` — Out-of-order responses are the failure that would silently attach every
+-  `a_response_missing_an_input_is_detected` function L244-252 — `()` — the vectors are placed by their `index` rather than taken in arrival order.
+
+### crates/kairos-embed/tests
+
+> *Semantic summary to be generated by AI agent.*
+
+#### crates/kairos-embed/tests/local_model.rs
+
+-  `PROVIDER` variable L31-39 — `: LazyLock<LocalProvider>` — ONE provider, shared by every test in this file.
+-  `provider` function L41-43 — `() -> &'static LocalProvider` — an integration test rather than a unit one.
+-  `texts` function L45-47 — `(items: &[&str]) -> Vec<String>` — an integration test rather than a unit one.
+-  `the_local_model_embeds_and_advertises_itself_honestly` function L50-66 — `()` — an integration test rather than a unit one.
+-  `the_same_text_gives_the_same_vector_whatever_it_travels_with` function L75-100 — `()` — **The property the model was chosen for.** A dynamically quantized model
+-  `related_text_is_closer_than_unrelated_text` function L106-130 — `()` — And the vectors mean something, which the deterministic provider cannot show.
+-  `batched_and_unbatched_agree` function L135-151 — `()` — Batching must not change the answer.
+-  `an_empty_batch_costs_nothing` function L156-159 — `()` — The empty batch is a real case — a backfill whose page happens to be fully
 
 ### crates/kairos-server/examples
 
@@ -2378,10 +2692,10 @@
 -  `to_core` function L165-178 — `(request: &dto_search::SearchRequest) -> Result<core_search::SearchRequest, ApiE...` — Convert the wire request into the typed `kairos_core::search` request.
 -  `filter_to_core` function L180-255 — `( filter: &dto_search::SearchFilter, ) -> Result<core_search::SearchFilter, ApiE...` — DTO carries `archived_at`, and it is non-null exactly for those rows.
 -  `traverse_to_core` function L257-288 — `( traverse: &dto_search::SearchTraverse, ) -> Result<core_search::Traverse, ApiE...` — DTO carries `archived_at`, and it is non-null exactly for those rows.
--  `sort_to_core` function L290-295 — `(sort: &dto_search::SearchSort) -> Result<core_search::Sort, ApiError>` — DTO carries `archived_at`, and it is non-null exactly for those rows.
--  `map_validation_error` function L305-333 — `(e: SearchValidationError) -> ApiError` — [`SearchValidationError`] → 400 `VALIDATION`.
--  `map_search_error` function L336-344 — `(e: SearchError) -> ApiError` — [`SearchError`] → HTTP (module docs).
--  `into_response` function L352-377 — `(results: SearchResults) -> dto_search::SearchResponse` — Convert the pipeline's typed results into the S-0005 response shape
+-  `sort_to_core` function L290-299 — `(sort: &dto_search::SearchSort) -> Result<core_search::Sort, ApiError>` — DTO carries `archived_at`, and it is non-null exactly for those rows.
+-  `map_validation_error` function L309-340 — `(e: SearchValidationError) -> ApiError` — [`SearchValidationError`] → 400 `VALIDATION`.
+-  `map_search_error` function L343-351 — `(e: SearchError) -> ApiError` — [`SearchError`] → HTTP (module docs).
+-  `into_response` function L359-384 — `(results: SearchResults) -> dto_search::SearchResponse` — Convert the pipeline's typed results into the S-0005 response shape
 
 #### crates/kairos-server/src/api/strategies.rs
 
@@ -2696,21 +3010,22 @@
 
 #### crates/kairos-server/src/app.rs
 
-- pub `AppState` struct L27-41 — `{ config: Arc<AppConfig>, pool: TenantPool, blocking: BlockingTenantPool, auth: ...` — Shared state behind every request: config, the tenant-pinning pool, and
-- pub `BuildError` enum L45-52 — `Pool | Oidc` — Why [`build_state`] failed (startup-time, fail-fast).
-- pub `build_state` function L60-71 — `(config: AppConfig) -> Result<AppState, BuildError>` — Build the shared state: connect the pool and resolve the OIDC issuer
-- pub `state_with` function L77-86 — `(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>) -> AppState` — Build a state from an existing pool and a pre-built [`Authenticator`]
-- pub `router` function L90-209 — `(state: AppState) -> Router` — The production router: `/healthz` open; everything under `/api` behind
-- pub `WhoamiTeam` struct L213-220 — `{ id: Uuid, slug: String, name: String }` — A team the caller belongs to (from the tenant schema's `team_members`).
-- pub `WhoamiBoardCapabilities` struct L230-238 — `{ board_id: Uuid, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
-- pub `WhoamiResponse` struct L243-261 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — `GET /api/whoami` — the S-0006 whoami precursor: proves the full
-- pub `WhoamiRepository` struct L265-272 — `{ id: Uuid, slug: String, forge: String, repo_full_name: String, team_slug: Stri...` — One repository of [`WhoamiResponse::repositories`].
-- pub `WhoamiUser` struct L276-285 — `{ id: Uuid, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
-- pub `WhoamiOrganization` struct L289-296 — `{ id: Uuid, slug: String, role: &'static str }` — The `organization` object of [`WhoamiResponse`].
-- pub `serve` function L404-418 — `(config: AppConfig) -> Result<(), String>` — Run the server: build state, bind `KAIROS_BIND_ADDR`, serve with
--  `POOL_SIZE` variable L56 — `: u32` — Pool size for the server.
--  `whoami` function L299-399 — `( Extension(auth): Extension<AuthContext>, Extension(tenant): Extension<TenantCo...` — The probe endpoint behind the full middleware stack (KAIROS-T-0017).
--  `shutdown_signal` function L421-427 — `()` — Resolves when ctrl-c (SIGINT) arrives.
+- pub `AppState` struct L27-47 — `{ config: Arc<AppConfig>, pool: TenantPool, blocking: BlockingTenantPool, auth: ...` — Shared state behind every request: config, the tenant-pinning pool, and
+- pub `BuildError` enum L51-58 — `Pool | Oidc` — Why [`build_state`] failed (startup-time, fail-fast).
+- pub `build_state` function L66-78 — `(config: AppConfig) -> Result<AppState, BuildError>` — Build the shared state: connect the pool and resolve the OIDC issuer
+- pub `state_with` function L119-131 — `(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>) -> AppState` — Build a state from an existing pool and a pre-built [`Authenticator`]
+- pub `router` function L135-254 — `(state: AppState) -> Router` — The production router: `/healthz` open; everything under `/api` behind
+- pub `WhoamiTeam` struct L258-265 — `{ id: Uuid, slug: String, name: String }` — A team the caller belongs to (from the tenant schema's `team_members`).
+- pub `WhoamiBoardCapabilities` struct L275-283 — `{ board_id: Uuid, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
+- pub `WhoamiResponse` struct L288-306 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — `GET /api/whoami` — the S-0006 whoami precursor: proves the full
+- pub `WhoamiRepository` struct L310-317 — `{ id: Uuid, slug: String, forge: String, repo_full_name: String, team_slug: Stri...` — One repository of [`WhoamiResponse::repositories`].
+- pub `WhoamiUser` struct L321-330 — `{ id: Uuid, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
+- pub `WhoamiOrganization` struct L334-341 — `{ id: Uuid, slug: String, role: &'static str }` — The `organization` object of [`WhoamiResponse`].
+- pub `serve` function L449-478 — `(config: AppConfig) -> Result<(), String>` — Run the server: build state, bind `KAIROS_BIND_ADDR`, serve with
+-  `POOL_SIZE` variable L62 — `: u32` — Pool size for the server.
+-  `build_embedding_service` function L90-113 — `() -> Option<Arc<crate::embedding::EmbeddingService>>` — Build the embedding service, or `None`.
+-  `whoami` function L344-444 — `( Extension(auth): Extension<AuthContext>, Extension(tenant): Extension<TenantCo...` — The probe endpoint behind the full middleware stack (KAIROS-T-0017).
+-  `shutdown_signal` function L481-487 — `()` — Resolves when ctrl-c (SIGINT) arrives.
 
 #### crates/kairos-server/src/blocking.rs
 
@@ -2730,20 +3045,44 @@
 - pub `ApiBearer` enum L33-41 — `AccessToken | IdToken` — `KAIROS_API_BEARER` — which OIDC token the browser GUI (and CLI) present
 - pub `as_str` function L46-51 — `(self) -> &'static str` — The wire name, as sent to the SPA in `/api/config` and used as the
 - pub `ConfigError` enum L57-74 — `Missing | Invalid` — A configuration error worth failing startup over.
-- pub `AppConfig` struct L78-143 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: String, oidc_aud...` — Everything the server needs to run, resolved once at startup.
-- pub `from_env` function L148-150 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
-- pub `from_lookup` function L154-244 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
+- pub `AppConfig` struct L78-152 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: String, oidc_aud...` — Everything the server needs to run, resolved once at startup.
+- pub `from_env` function L157-159 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
+- pub `from_lookup` function L163-256 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
 -  `ApiBearer` type L43-52 — `= ApiBearer` — variants directly instead of mutating process environment.
--  `AppConfig` type L145-245 — `= AppConfig` — variants directly instead of mutating process environment.
--  `tests` module L248-361 — `-` — variants directly instead of mutating process environment.
--  `lookup` function L252-258 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
--  `MINIMAL` variable L260-264 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
--  `minimal_config_applies_defaults` function L267-285 — `()` — variants directly instead of mutating process environment.
--  `missing_required_var_names_it` function L288-291 — `()` — variants directly instead of mutating process environment.
--  `empty_value_is_treated_as_unset` function L294-299 — `()` — variants directly instead of mutating process environment.
--  `invalid_bind_addr_and_log_format_are_rejected` function L302-322 — `()` — variants directly instead of mutating process environment.
--  `api_bearer_id_token_is_parsed` function L325-331 — `()` — variants directly instead of mutating process environment.
--  `optional_vars_are_carried_through` function L334-360 — `()` — variants directly instead of mutating process environment.
+-  `AppConfig` type L154-257 — `= AppConfig` — variants directly instead of mutating process environment.
+-  `tests` module L260-373 — `-` — variants directly instead of mutating process environment.
+-  `lookup` function L264-270 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
+-  `MINIMAL` variable L272-276 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
+-  `minimal_config_applies_defaults` function L279-297 — `()` — variants directly instead of mutating process environment.
+-  `missing_required_var_names_it` function L300-303 — `()` — variants directly instead of mutating process environment.
+-  `empty_value_is_treated_as_unset` function L306-311 — `()` — variants directly instead of mutating process environment.
+-  `invalid_bind_addr_and_log_format_are_rejected` function L314-334 — `()` — variants directly instead of mutating process environment.
+-  `api_bearer_id_token_is_parsed` function L337-343 — `()` — variants directly instead of mutating process environment.
+-  `optional_vars_are_carried_through` function L346-372 — `()` — variants directly instead of mutating process environment.
+
+#### crates/kairos-server/src/embedding.rs
+
+- pub `RefreshError` enum L48-58 — `Store | Provider | UnknownEntityType` — Errors from a refresh.
+- pub `RefreshOutcome` struct L62-69 — `{ primary_embedded: bool, chunks_embedded: usize, chunks_total: usize }` — What a refresh actually did.
+- pub `did_work` function L73-75 — `(&self) -> bool` — Whether anything at all was sent to the model.
+- pub `embedded` function L78-80 — `(&self) -> usize` — How many texts were embedded.
+- pub `BatchOutcome` struct L85-92 — `{ items_seen: usize, items_changed: usize, texts_embedded: usize }` — What a batch did.
+- pub `REFRESH_BATCH` variable L100 — `: i64` — How many items a background sweep looks at per tenant per tick.
+- pub `EmbeddingService` struct L103-106 — `{ provider: Arc<dyn EmbeddingProvider>, model: StoredModel }` — Keeps an item's vectors in line with its text.
+- pub `new` function L129-137 — `(provider: Arc<dyn EmbeddingProvider>) -> Self` — Wrap a provider.
+- pub `model` function L140-142 — `(&self) -> &StoredModel` — The model every stored row is compared against.
+- pub `model_display` function L145-150 — `(&self) -> String` — The model, for a log line an operator will read.
+- pub `refresh_item` function L156-241 — `( &self, conn: &mut diesel::pg::PgConnection, item: &PendingItem, metadata: &[(S...` — Bring one item's vectors up to date.
+- pub `refresh_batch` function L248-275 — `( &self, conn: &mut diesel::pg::PgConnection, limit: i64, ) -> Result<BatchOutco...` — Refresh up to `limit` items, oldest short code first.
+- pub `run_refresher` function L304-358 — `( blocking: crate::blocking::BlockingTenantPool, service: Arc<EmbeddingService>,...` — Run a refresh sweep across every tenant, for ever.
+-  `RefreshOutcome` type L71-81 — `= RefreshOutcome` — directly from a handler.
+-  `EmbeddingService` type L108-114 — `= EmbeddingService` — directly from a handler.
+-  `fmt` function L109-113 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — directly from a handler.
+-  `parse_entity_type` function L116-125 — `(value: &str) -> Result<ItemType, RefreshError>` — directly from a handler.
+-  `EmbeddingService` type L127-276 — `= EmbeddingService` — directly from a handler.
+-  `tests` module L361-398 — `-` — directly from a handler.
+-  `every_entity_type_parses_and_nothing_else_does` function L365-377 — `()` — directly from a handler.
+-  `an_outcome_reports_what_it_sent_to_the_model` function L380-397 — `()` — directly from a handler.
 
 #### crates/kairos-server/src/error.rs
 
@@ -2773,16 +3112,17 @@
 - pub `app` module L17 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `blocking` module L18 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `config` module L19 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `error` module L20 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `forge` module L21 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `metrics` module L22 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `middleware` module L23 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `ws` module L24 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `mcp` module L26 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `scim` module L28 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `service_accounts` module L30 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `web` module L32 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `init_tracing` function L40-52 — `(config: &AppConfig)` — Initialize `tracing-subscriber` per KAIROS-A-0013: `KAIROS_LOG_LEVEL`
+- pub `embedding` module L20 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `error` module L21 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `forge` module L22 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `metrics` module L23 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `middleware` module L24 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `ws` module L25 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `mcp` module L27 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `scim` module L29 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `service_accounts` module L31 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `web` module L33 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `init_tracing` function L41-53 — `(config: &AppConfig)` — Initialize `tracing-subscriber` per KAIROS-A-0013: `KAIROS_LOG_LEVEL`
 
 #### crates/kairos-server/src/main.rs
 
@@ -2795,14 +3135,18 @@
 -  `list_tenants` function L140-156 — `(conn: &mut PgConnection) -> Result<(), String>` — version and exits 0.
 -  `seed_demo` function L163-202 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — The `seed-demo` subcommand (KAIROS-T-0035, KAIROS-A-0012 fixtures):
 -  `serve` function L207-216 — `() -> Result<(), String>` — The `serve` subcommand (KAIROS-T-0017): fail-fast config, tracing init
--  `run` function L218-243 — `() -> Result<bool, String>` — version and exits 0.
--  `main` function L245-257 — `() -> ExitCode` — version and exits 0.
--  `tests` module L260-295 — `-` — version and exits 0.
--  `smoke` function L264-266 — `()` — version and exits 0.
--  `args` function L268-270 — `(list: &[&str]) -> Vec<String>` — version and exits 0.
--  `flag_value_parses_pairs` function L273-281 — `()` — version and exits 0.
--  `flag_value_rejects_missing_value` function L284-287 — `()` — version and exits 0.
--  `has_flag_detects_presence` function L290-294 — `()` — version and exits 0.
+-  `embed_backfill` function L235-329 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-backfill [--tenant <slug>] [--batch N] [--max-batches N] [--pause-ms N]`
+-  `flag` function L238-243 — `(args: &[String], name: &str) -> Option<String>` — version and exits 0.
+-  `number` function L244-251 — `(args: &[String], name: &str, default: u64) -> Result<u64, String>` — version and exits 0.
+-  `embed_index` function L338-392 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-index [--tenant <slug>]` (KAIROS-T-0190): pin the vector columns to
+-  `run` function L394-421 — `() -> Result<bool, String>` — version and exits 0.
+-  `main` function L423-435 — `() -> ExitCode` — version and exits 0.
+-  `tests` module L438-473 — `-` — version and exits 0.
+-  `smoke` function L442-444 — `()` — version and exits 0.
+-  `args` function L446-448 — `(list: &[&str]) -> Vec<String>` — version and exits 0.
+-  `flag_value_parses_pairs` function L451-459 — `()` — version and exits 0.
+-  `flag_value_rejects_missing_value` function L462-465 — `()` — version and exits 0.
+-  `has_flag_detects_presence` function L468-472 — `()` — version and exits 0.
 
 #### crates/kairos-server/src/metrics.rs
 
@@ -2945,81 +3289,81 @@
 - pub `BoardItemsParams` struct L90-103 — `{ board: String, column: Option<String>, repository: Option<String>, include_del...` — `activity_log` writes as the API path).
 - pub `GetItemParams` struct L107-110 — `{ short_code: String }` — `activity_log` writes as the API path).
 - pub `GetHistoryParams` struct L114-121 — `{ short_code: String, limit: Option<i64>, version: Option<i32> }` — `activity_log` writes as the API path).
-- pub `SearchParams` struct L125-138 — `{ q: Option<String>, filter: Option<SearchFilterParams>, traverse: Option<Search...` — `activity_log` writes as the API path).
-- pub `SearchFilterParams` struct L142-171 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — `activity_log` writes as the API path).
-- pub `SearchTraverseParams` struct L175-184 — `{ from: String, relationships: Vec<String>, direction: String, depth: Option<u32...` — `activity_log` writes as the API path).
-- pub `SearchSortParams` struct L188-193 — `{ field: String, order: String }` — `activity_log` writes as the API path).
-- pub `CreateItemParams` struct L197-231 — `{ item_type: String, title: String, board: Option<String>, parent: Option<String...` — `activity_log` writes as the API path).
-- pub `UpdateItemParams` struct L235-245 — `{ short_code: String, title: Option<String>, content: String, version: i32 }` — `activity_log` writes as the API path).
-- pub `EditItemParams` struct L249-260 — `{ short_code: String, search: String, replace: String, replace_all: bool }` — `activity_log` writes as the API path).
-- pub `TransitionItemParams` struct L264-270 — `{ short_code: String, to_column: String }` — `activity_log` writes as the API path).
-- pub `MoveItemParams` struct L274-280 — `{ short_code: String, to_board: String }` — `activity_log` writes as the API path).
-- pub `LinkItemsParams` struct L284-291 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
-- pub `UnlinkItemsParams` struct L295-302 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
-- pub `SetMetadataParams` struct L306-313 — `{ short_code: String, values: BTreeMap<String, Option<String>> }` — `activity_log` writes as the API path).
-- pub `RestoreItemParams` struct L317-320 — `{ short_code: String }` — `activity_log` writes as the API path).
-- pub `DeleteItemParams` struct L324-330 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
-- pub `whoami` function L353-438 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
-- pub `list_repositories` function L443-486 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
-- pub `get_repository` function L491-560 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
-- pub `my_boards` function L565-637 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `board_items` function L642-704 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `get_item` function L709-833 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
-- pub `get_history` function L838-911 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `search` function L916-955 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
-- pub `create_item` function L960-972 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `update_item` function L977-1002 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `edit_item` function L1007-1063 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `move_item` function L1068-1124 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
-- pub `transition_item` function L1129-1190 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
-- pub `link_items` function L1195-1224 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
-- pub `unlink_items` function L1229-1258 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `set_metadata` function L1263-1355 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
-- pub `delete_item` function L1360-1392 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
-- pub `restore_item` function L1397-1442 — `( &self, Parameters(params): Parameters<RestoreItemParams>, context: RequestCont...` — `activity_log` writes as the API path).
--  `KairosMcp` type L337-1443 — `= KairosMcp` — `activity_log` writes as the API path).
--  `run_tool` function L340-348 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
--  `ItemView` struct L1450-1476 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
--  `load_item` function L1485-1660 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
--  `authorize_item_write` function L1665-1680 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
--  `require_capability_explained` function L1687-1730 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
--  `board_by_ref` function L1733-1748 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
--  `team_by_ref` function L1751-1770 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
--  `board_by_id` function L1773-1780 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
--  `board_columns` function L1785-1787 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
--  `board_columns_including_removed` function L1796-1813 — `( conn: &mut PgConnection, board_id: Uuid, liveness: Liveness, ) -> Result<Vec<B...` — A board's columns in position order, removed ones included when the
--  `column_label` function L1821-1830 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
--  `resolve_column` function L1834-1851 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
--  `BoardItemRow` struct L1854-1866 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
--  `BoardStrategySelect` type L1873 — `= (Uuid, String, String, Option<DateTime<Utc>>)` — What each family's board listing selects.
--  `BoardInitiativeSelect` type L1874 — `= (Uuid, String, String, bool, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
--  `BoardTaskSelect` type L1875-1883 — `= ( Uuid, String, String, TaskType, WorkClass, Option<Uuid>, Option<DateTime<Utc...` — `activity_log` writes as the API path).
--  `BoardAdrSelect` type L1884 — `= (Option<Uuid>, String, String, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
--  `board_item_rows` function L1895-2031 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
--  `column_item_counts` function L2036-2045 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
--  `repo_slug_map` function L2049-2064 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
--  `repo_label` function L2067-2084 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
--  `require_live_typed` function L2088-2096 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
--  `metadata_lines` function L2100-2113 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
--  `ChainRow` struct L2116-2125 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
--  `parent_chain` function L2138-2162 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
--  `relationship_lines` function L2173-2231 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
--  `line` function L2181-2188 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
--  `map_update_error` function L2242-2270 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
--  `map_link_error` function L2280-2295 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
--  `level_of` function L2302-2310 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
--  `default_board_for` function L2314-2336 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
--  `resolve_template` function L2339-2370 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
--  `reject_field` function L2374-2386 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
--  `create_item_impl` function L2391-2674 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
--  `field_invalid` function L2682-2684 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
--  `uuid_field` function L2686-2689 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
--  `timestamp_field` function L2691-2700 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
--  `enum_field` function L2704-2715 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
--  `search_to_core` function L2719-2849 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
--  `map_search_error` function L2853-2861 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
--  `archived_marker` function L2867-2873 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
--  `render_search_results` function L2877-2949 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
+- pub `SearchParams` struct L125-140 — `{ q: Option<String>, filter: Option<SearchFilterParams>, traverse: Option<Search...` — `activity_log` writes as the API path).
+- pub `SearchFilterParams` struct L144-173 — `{ entity_type: Option<Vec<String>>, board_id: Option<String>, column_id: Option<...` — `activity_log` writes as the API path).
+- pub `SearchTraverseParams` struct L177-186 — `{ from: String, relationships: Vec<String>, direction: String, depth: Option<u32...` — `activity_log` writes as the API path).
+- pub `SearchSortParams` struct L190-195 — `{ field: String, order: String }` — `activity_log` writes as the API path).
+- pub `CreateItemParams` struct L199-233 — `{ item_type: String, title: String, board: Option<String>, parent: Option<String...` — `activity_log` writes as the API path).
+- pub `UpdateItemParams` struct L237-247 — `{ short_code: String, title: Option<String>, content: String, version: i32 }` — `activity_log` writes as the API path).
+- pub `EditItemParams` struct L251-262 — `{ short_code: String, search: String, replace: String, replace_all: bool }` — `activity_log` writes as the API path).
+- pub `TransitionItemParams` struct L266-272 — `{ short_code: String, to_column: String }` — `activity_log` writes as the API path).
+- pub `MoveItemParams` struct L276-282 — `{ short_code: String, to_board: String }` — `activity_log` writes as the API path).
+- pub `LinkItemsParams` struct L286-293 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
+- pub `UnlinkItemsParams` struct L297-304 — `{ source: String, target: String, relationship: String }` — `activity_log` writes as the API path).
+- pub `SetMetadataParams` struct L308-315 — `{ short_code: String, values: BTreeMap<String, Option<String>> }` — `activity_log` writes as the API path).
+- pub `RestoreItemParams` struct L319-322 — `{ short_code: String }` — `activity_log` writes as the API path).
+- pub `DeleteItemParams` struct L326-332 — `{ short_code: String, confirm: bool }` — `activity_log` writes as the API path).
+- pub `whoami` function L355-440 — `( &self, context: RequestContext<RoleServer>, ) -> Result<CallToolResult, ErrorD...` — `activity_log` writes as the API path).
+- pub `list_repositories` function L445-488 — `( &self, Parameters(params): Parameters<ListRepositoriesParams>, context: Reques...` — `activity_log` writes as the API path).
+- pub `get_repository` function L493-562 — `( &self, Parameters(params): Parameters<GetRepositoryParams>, context: RequestCo...` — `activity_log` writes as the API path).
+- pub `my_boards` function L567-639 — `( &self, Parameters(params): Parameters<MyBoardsParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `board_items` function L644-706 — `( &self, Parameters(params): Parameters<BoardItemsParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `get_item` function L711-835 — `( &self, Parameters(params): Parameters<GetItemParams>, context: RequestContext<...` — `activity_log` writes as the API path).
+- pub `get_history` function L840-913 — `( &self, Parameters(params): Parameters<GetHistoryParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `search` function L918-957 — `( &self, Parameters(params): Parameters<SearchParams>, context: RequestContext<R...` — `activity_log` writes as the API path).
+- pub `create_item` function L962-974 — `( &self, Parameters(params): Parameters<CreateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `update_item` function L979-1004 — `( &self, Parameters(params): Parameters<UpdateItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `edit_item` function L1009-1065 — `( &self, Parameters(params): Parameters<EditItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `move_item` function L1070-1126 — `( &self, Parameters(params): Parameters<MoveItemParams>, context: RequestContext...` — `activity_log` writes as the API path).
+- pub `transition_item` function L1131-1192 — `( &self, Parameters(params): Parameters<TransitionItemParams>, context: RequestC...` — `activity_log` writes as the API path).
+- pub `link_items` function L1197-1226 — `( &self, Parameters(params): Parameters<LinkItemsParams>, context: RequestContex...` — `activity_log` writes as the API path).
+- pub `unlink_items` function L1231-1260 — `( &self, Parameters(params): Parameters<UnlinkItemsParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `set_metadata` function L1265-1357 — `( &self, Parameters(params): Parameters<SetMetadataParams>, context: RequestCont...` — `activity_log` writes as the API path).
+- pub `delete_item` function L1362-1394 — `( &self, Parameters(params): Parameters<DeleteItemParams>, context: RequestConte...` — `activity_log` writes as the API path).
+- pub `restore_item` function L1399-1444 — `( &self, Parameters(params): Parameters<RestoreItemParams>, context: RequestCont...` — `activity_log` writes as the API path).
+-  `KairosMcp` type L339-1445 — `= KairosMcp` — `activity_log` writes as the API path).
+-  `run_tool` function L342-350 — `(&self, tenant: &TenantContext, f: F) -> Result<CallToolResult, ErrorData>` — Run one closure on a tenant-pinned sync connection (the T-0018
+-  `ItemView` struct L1452-1478 — `{ id: Uuid, item_type: ItemType, short_code: String, title: String, content: Str...` — A uniform projection of any live item, whatever its table.
+-  `load_item` function L1487-1662 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Ite...` — Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
+-  `authorize_item_write` function L1667-1682 — `( conn: &mut PgConnection, slug: &str, user: Uuid, item: &ItemView, ) -> Result<...` — The A-0006 write gate for an item: `manage_<type>` on the item's
+-  `require_capability_explained` function L1689-1732 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user: Uuid, capab...` — `require_capability`, but when the caller is a cross-team filer — no
+-  `board_by_ref` function L1735-1750 — `(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError>` — Resolve a board by UUID or slug; 404 `NOT_FOUND` otherwise.
+-  `team_by_ref` function L1753-1772 — `( conn: &mut PgConnection, reference: &str, ) -> Result<kairos_db::models::teams...` — Resolve a team by UUID or slug; 422 otherwise (a filter value).
+-  `board_by_id` function L1775-1782 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError>` — A board row by id (must exist — callers hold a FK to it).
+-  `board_columns` function L1787-1789 — `(conn: &mut PgConnection, board_id: Uuid) -> Result<Vec<BoardColumn>, ApiError>` — A board's LIVE columns in position order — what the board is now, so
+-  `board_columns_including_removed` function L1798-1815 — `( conn: &mut PgConnection, board_id: Uuid, liveness: Liveness, ) -> Result<Vec<B...` — A board's columns in position order, removed ones included when the
+-  `column_label` function L1823-1832 — `(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiError>` — The name of ANY column, removed ones included — the audit answer, not
+-  `resolve_column` function L1836-1853 — `(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError>` — Resolve a column reference (UUID or case-insensitive name) against a
+-  `BoardItemRow` struct L1856-1868 — `{ column_id: Uuid, short_code: String, title: String, repository_id: Option<Uuid...` — One compact row of a board listing.
+-  `BoardStrategySelect` type L1875 — `= (Uuid, String, String, Option<DateTime<Utc>>)` — What each family's board listing selects.
+-  `BoardInitiativeSelect` type L1876 — `= (Uuid, String, String, bool, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `BoardTaskSelect` type L1877-1885 — `= ( Uuid, String, String, TaskType, WorkClass, Option<Uuid>, Option<DateTime<Utc...` — `activity_log` writes as the API path).
+-  `BoardAdrSelect` type L1886 — `= (Option<Uuid>, String, String, Option<DateTime<Utc>>)` — `activity_log` writes as the API path).
+-  `board_item_rows` function L1897-2033 — `( conn: &mut PgConnection, board_id: Uuid, repository: Option<Uuid>, liveness: L...` — Every item placed on a board (strategies, initiatives, tasks, and
+-  `column_item_counts` function L2038-2047 — `( conn: &mut PgConnection, board_id: Uuid, ) -> Result<HashMap<Uuid, i64>, ApiEr...` — Per-column LIVE item counts for one board — what `list_boards` prints
+-  `repo_slug_map` function L2051-2066 — `( conn: &mut PgConnection, ids: &[Uuid], ) -> Result<BTreeMap<Uuid, String>, Api...` — Slugs for a set of repository ids, one query (KAIROS-T-0111): what the
+-  `repo_label` function L2069-2086 — `(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<String, ApiErro...` — `slug (owner team)` for one task's repository, or `(none)`.
+-  `require_live_typed` function L2090-2098 — `( conn: &mut PgConnection, short_code: &str, field: &str, ) -> Result<(Uuid, Ite...` — A live item by short code WITH its type (the edge-permission check needs
+-  `metadata_lines` function L2102-2115 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — An item's metadata values as compact `- slug: value` lines (ordered by
+-  `ChainRow` struct L2118-2127 — `{ id: Uuid, short_code: String, title: String, deleted_at: Option<DateTime<Utc>>...` — `activity_log` writes as the API path).
+-  `parent_chain` function L2140-2164 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>, ApiError>` — The item's ancestors via incoming `parent` edges, nearest first
+-  `relationship_lines` function L2175-2233 — `(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError>` — Agent-oriented relationship lines for `get_item`: parent chain,
+-  `line` function L2183-2190 — `(neighbor: &kairos_db::graph::Neighbor) -> String` — One neighbour line, tagged when the neighbour is archived.
+-  `map_update_error` function L2244-2272 — `( conn: &mut PgConnection, item: &ItemView, e: items::ItemError, ) -> Result<Api...` — Map an [`items::ItemError`] from a content update to the S-0006 tool
+-  `map_link_error` function L2282-2297 — `(e: GraphError) -> ApiError` — [`GraphError`] → the same codes the REST relationship endpoints emit:
+-  `level_of` function L2304-2312 — `(item_type: ItemType) -> BoardLevel` — The board level whose boards host this item type.
+-  `default_board_for` function L2316-2338 — `(conn: &mut PgConnection, level: BoardLevel) -> Result<Board, ApiError>` — The tenant's single live board of `level`, or a 422 asking the agent to
+-  `resolve_template` function L2341-2372 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a template reference (UUID, slug, or name) to its id.
+-  `reject_field` function L2376-2388 — `( field: &str, value: Option<&String>, item_type: ItemType, applies_to: &str, ) ...` — Reject a type-specific field supplied for the wrong item type (agents
+-  `create_item_impl` function L2393-2676 — `( conn: &mut PgConnection, tenant: &TenantContext, user: Uuid, params: &CreateIt...` — The create_item body: resolve the target board (or parent, for
+-  `field_invalid` function L2684-2686 — `(field: &str, message: impl Into<String>) -> ApiError` — A field-level 422 `VALIDATION` for the search input (the tool-error
+-  `uuid_field` function L2688-2691 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — `activity_log` writes as the API path).
+-  `timestamp_field` function L2693-2702 — `(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError>` — `activity_log` writes as the API path).
+-  `enum_field` function L2706-2717 — `( value: &str, field: &str, allowed: &str, ) -> Result<T, ApiError>` — Parse a closed-vocabulary value through the core model's serde
+-  `search_to_core` function L2721-2855 — `(params: &SearchParams) -> Result<core_search::SearchRequest, ApiError>` — Convert the tool input into the typed `kairos_core::search` request and
+-  `map_search_error` function L2859-2867 — `(e: SearchError) -> ApiError` — [`SearchError`] → tool error (validation was pre-checked, so this is
+-  `archived_marker` function L2873-2879 — `(deleted_at: Option<DateTime<Utc>>) -> &'static str` — `" [archived]"` for a row that has been put away, empty otherwise
+-  `render_search_results` function L2883-2955 — `(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, String>) -> String` — Compact REQ-1.6 rendering: results grouped by type, one line per item
 
 ### crates/kairos-server/src/middleware
 
@@ -3088,14 +3432,14 @@
 - pub `require_tenant` function L113-179 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The tenant layer: resolve the slug, load the organization, require
 -  `TenantDb` type L55-68 — `= TenantDb` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
 -  `host_without_port` function L72-77 — `(host: &str) -> &str` — The host part of a `Host` header value (port stripped; IPv6 literals
--  `tests` module L182-264 — `-` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `config` function L186-205 — `(single_tenant: Option<&str>, base_domain: Option<&str>) -> AppConfig` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `headers` function L207-216 — `(pairs: &[(&str, &str)]) -> HeaderMap` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `single_tenant_mode_wins_over_everything` function L219-223 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `host_subdomain_resolves_against_base_domain` function L226-232 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `non_matching_hosts_fall_through_to_x_tenant` function L235-248 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `x_tenant_is_the_fallback_without_base_domain` function L251-255 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `unresolvable_requests_are_tenant_not_found` function L258-263 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `tests` module L182-265 — `-` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `config` function L186-206 — `(single_tenant: Option<&str>, base_domain: Option<&str>) -> AppConfig` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `headers` function L208-217 — `(pairs: &[(&str, &str)]) -> HeaderMap` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `single_tenant_mode_wins_over_everything` function L220-224 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `host_subdomain_resolves_against_base_domain` function L227-233 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `non_matching_hosts_fall_through_to_x_tenant` function L236-249 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `x_tenant_is_the_fallback_without_base_domain` function L252-256 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `unresolvable_requests_are_tenant_not_found` function L259-264 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
 
 ### crates/kairos-server/src/scim
 
@@ -3349,6 +3693,18 @@
 -  `NoCredentials` type L86-90 — `impl TokenProvider for NoCredentials` — discipline).
 -  `bearer_token` function L87-89 — `(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>>` — discipline).
 -  `typed_error_mapping_roundtrip` function L93-415 — `()` — discipline).
+
+#### crates/kairos-server/tests/embedding_service.rs
+
+-  `DEFAULT_DATABASE_URL` variable L30 — `: &str` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `SCRATCH_DB` variable L31 — `: &str` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `document` function L34-40 — `(status: &str) -> String` — A document with a heading per section, so chunking produces a known count.
+-  `admin_database_url` function L42-44 — `() -> String` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `with_database` function L46-49 — `(url: &str, db_name: &str) -> String` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `refreshing_embeds_only_what_changed` function L52-224 — `()` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `VersionRow` struct L227-230 — `{ version: i32 }` — right thing — that is KAIROS-T-0189's measurements, against a real model.
+-  `the_refresher_picks_up_work_created_after_it_started` function L241-326 — `()` — The background refresher embeds work that arrives after it started
+-  `SCRATCH` variable L242 — `: &str` — right thing — that is KAIROS-T-0189's measurements, against a real model.
 
 #### crates/kairos-server/tests/entities.rs
 
@@ -3616,19 +3972,19 @@
 - pub `drop_scratch_db` function L128-132 — `(admin_conn: &mut PgConnection, scratch_db: &str)` — Drop the scratch database after the test (retries transient errors,
 - pub `dex_token` function L135-167 — `( http: &reqwest::Client, client_id: &str, client_secret: Option<&str>, username...` — Obtain a real token from the live Dex via the password grant.
 - pub `user_token` function L171-180 — `(http: &reqwest::Client, user: &str) -> String` — A user token from the seeded `kairos-cli` public client
-- pub `base_config` function L184-210 — `(scratch_url: &str) -> AppConfig` — The standard test config: multi-tenant with `kairos.test` as the base
-- pub `request` function L215-251 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, headers: &[(&...` — One in-process request against the production router: any method/URI,
-- pub `error_code` function L255-259 — `(body: &Value) -> &str` — The `error.code` of an S-0005 error envelope (panics on any other
-- pub `TestServer` struct L265-270 — `{ addr: std::net::SocketAddr, base_url: String }` — A live instance of the production router on an ephemeral local port —
-- pub `spawn_server` function L273-285 — `(router: Router) -> TestServer` — Serve `router` on an ephemeral 127.0.0.1 port.
-- pub `client` function L290-292 — `(&self, token: &str, tenant: &str) -> KairosClient` — A typed client for this server: fixed bearer token, tenant via the
-- pub `client_untenanted` function L296-298 — `(&self, token: &str) -> KairosClient` — A typed client WITHOUT tenant resolution (cross-tenant
+- pub `base_config` function L184-213 — `(scratch_url: &str) -> AppConfig` — The standard test config: multi-tenant with `kairos.test` as the base
+- pub `request` function L218-254 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, headers: &[(&...` — One in-process request against the production router: any method/URI,
+- pub `error_code` function L258-262 — `(body: &Value) -> &str` — The `error.code` of an S-0005 error envelope (panics on any other
+- pub `TestServer` struct L268-273 — `{ addr: std::net::SocketAddr, base_url: String }` — A live instance of the production router on an ephemeral local port —
+- pub `spawn_server` function L276-288 — `(router: Router) -> TestServer` — Serve `router` on an ephemeral 127.0.0.1 port.
+- pub `client` function L293-295 — `(&self, token: &str, tenant: &str) -> KairosClient` — A typed client for this server: fixed bearer token, tenant via the
+- pub `client_untenanted` function L299-301 — `(&self, token: &str) -> KairosClient` — A typed client WITHOUT tenant resolution (cross-tenant
 -  `DB_SETUP_ATTEMPTS` variable L63 — `: u32` — Attempts for each transient scratch-DB lifecycle op against the SHARED
 -  `DB_SETUP_BACKOFF_BASE` variable L67 — `: std::time::Duration` — Base backoff between scratch-DB retry attempts; doubles each attempt,
 -  `DB_SETUP_BACKOFF_CAP` variable L70 — `: std::time::Duration` — Ceiling on the per-attempt backoff.
 -  `retry_db` function L74-91 — `(what: &str, mut op: impl FnMut() -> Result<T, E>) -> T` — Run a transient shared-Postgres op with bounded exponential backoff,
 -  `connect_admin` function L95-103 — `() -> PgConnection` — Connect to the shared compose Postgres admin database, retrying transient
--  `TestServer` type L287-299 — `= TestServer` — different subset, so unused-item lints are expected noise here.
+-  `TestServer` type L290-302 — `= TestServer` — different subset, so unused-item lints are expected noise here.
 
 ### crates/kairos-soak/src
 
@@ -6973,6 +7329,40 @@
 - pub `test_lists_every_key_and_adds_the_hint_when_reachable` method L75-84 — `def test_lists_every_key_and_adds_the_hint_when_reachable(self)`
 - pub `test_no_hint_when_offline` method L86-92 — `def test_no_hint_when_offline(self)`
 
+### scripts/corpus
+
+> *Semantic summary to be generated by AI agent.*
+
+#### scripts/corpus/analyze.rs
+
+-  `DIM` variable L7 — `: usize` — numbers are exact rather than sampled.
+-  `Meta` struct L10 — `{ project: String, level: String, short_code: String, parent: String, title: Str...` — numbers are exact rather than sampled.
+-  `pct` function L12-16 — `(v: &mut Vec<f32>, p: f64) -> f32` — numbers are exact rather than sampled.
+-  `describe` function L18-24 — `(name: &str, v: &mut Vec<f32>)` — numbers are exact rather than sampled.
+-  `main` function L26-114 — `() -> Result<(), Box<dyn std::error::Error>>` — numbers are exact rather than sampled.
+
+#### scripts/corpus/embed.rs
+
+-  `OPENING_PROSE` variable L7 — `: usize` — does the real cosine distribution look like across 19 Metis corpora (T-0190)?
+-  `Doc` struct L9-16 — `{ project: String, level: String, short_code: String, title: String, parent: Str...` — does the real cosine distribution look like across 19 Metis corpora (T-0190)?
+-  `main` function L18-97 — `() -> Result<(), Box<dyn std::error::Error>>` — does the real cosine distribution look like across 19 Metis corpora (T-0190)?
+
+#### scripts/corpus/extract.py
+
+- pub `frontmatter` function L14-25 — `def frontmatter(text)`
+- pub `window` function L27-34 — `def window(s, start_off)`
+- pub `chunk` function L36-58 — `def chunk(body)` — Heading boundaries as anchors.
+
+#### scripts/corpus/prose-budget.rs
+
+-  `norm_title` function L19-27 — `(t: &str) -> String` — precision was measured at roughly half? (lower is better)
+-  `main` function L29-190 — `() -> Result<(), Box<dyn std::error::Error>>` — precision was measured at roughly half? (lower is better)
+-  `Doc` struct L44-51 — `{ project: String, level: String, short_code: String, title: String, parent_titl...` — precision was measured at roughly half? (lower is better)
+
+#### scripts/corpus/stats.py
+
+- pub `pct` function L4-5 — `def pct(v, p)`
+
 ### scripts
 
 > *Semantic summary to be generated by AI agent.*
@@ -7045,6 +7435,11 @@
 #### uat/journeys/machine-access.journey.ts
 
 -  `machine` function L66 — `const machine = ()`
+
+#### uat/journeys/multi-repo-agent.journey.ts
+
+-  `repoContents` function L32-35 — `function repoContents(mcp: { call(t: string, a?: unknown): Promise<string> }, re...`
+-  `codes` function L287 — `const codes = (hits: any)`
 
 #### uat/journeys/new-kind-of-work.journey.ts
 

@@ -5,12 +5,16 @@ Get a Kairos 0.1.1 deployment serving on a cluster you already run.
 **Before you start**, have all four:
 
 - A cluster and Helm 3.8 or newer (the chart is distributed as an OCI artifact).
-- **A PostgreSQL the cluster can reach, with `pgvector` available.** The chart
-  bundles no database and there is no Postgres subchart. The extension is a
-  requirement, not an option: the first migration installs it, and a database
-  that cannot is refused at startup with a message saying so. Managed Postgres
-  offers pgvector on RDS, Cloud SQL and Azure; `pgvector/pgvector:pg16` is the
-  upstream image with it added.
+- **A PostgreSQL the cluster can reach, with `pgvector` available.** The
+  extension is a requirement, not an option: the first migration installs it, and
+  a database that cannot is refused at startup with a message saying so. Managed
+  Postgres offers pgvector on RDS, Cloud SQL and Azure; `pgvector/pgvector:pg16`
+  is the upstream image with it added.
+
+  If you are only trying Kairos out, you can skip this: the chart will stand a
+  Postgres up for you. See [Trying it out without a
+  database](#trying-it-out-without-a-database) — and do not use it for anything
+  real.
 - **An OIDC issuer with Kairos registered as an app.** The chart bundles no
   identity provider. If you have not registered the clients yet, do
   [Configure an OIDC issuer](configure-an-oidc-issuer.md) first — you need the
@@ -166,6 +170,59 @@ kubectl exec deploy/kairos -- kairos-server migrate-tenants
 Boot migrates the public schema only, and `/readyz` checks only the public
 schema, so a release that adds a tenant migration comes up reporting ready with
 the per-tenant schemas still behind. Nothing tells you; run it every time.
+
+## Trying it out without a database
+
+`helm install` with nothing but the two OIDC values works, because the chart
+stands a PostgreSQL up inside the release:
+
+```sh
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
+  -n kairos --create-namespace \
+  --set config.oidc.issuerUrl=https://idp.example.com/ \
+  --set config.oidc.audience=kairos \
+  --set config.tenancy.singleTenant=demo
+```
+
+That exists because Kairos requires `pgvector`, and asking someone to find a
+Postgres with a particular extension before they can see the product is a poor
+first afternoon.
+
+**Do not run it in production.** One replica, one PVC, no backups, no failover,
+and a password that sits in your values and your release history. When you are
+past evaluating, turn it off and point at a managed instance:
+
+```yaml
+postgresql:
+  enabled: false
+database:
+  url: "postgres://kairos:PASSWORD@my-postgres:5432/kairos"
+```
+
+You do not have to remember to do both. `postgresql.enabled` is **unset** by
+default, which means *on unless you name a database* — so adding `database.url`
+is enough, and every release that already exists keeps the database it has
+through an upgrade without any edit. Setting `postgresql.enabled: true` *and* a
+`database.url` is refused when the chart renders, because that is asking for two
+databases and picking one for you would either abandon yours or quietly stand a
+second up beside it.
+
+## Using a hosted embedding model
+
+Retrieval works out of the box: the model ships inside the image and needs no
+configuration. To use an OpenAI-compatible endpoint instead:
+
+```yaml
+embeddings:
+  url: "https://api.openai.com/v1"
+  model: "text-embedding-3-small"
+  existingSecret: "kairos-embed"      # holding KAIROS_EMBED_API_KEY
+```
+
+The key follows the same pattern as `database.url` — inline as `embeddings.apiKey`
+or from a Secret you already keep. A local Ollama needs no key at all. Setting
+`embeddings.provider: none` turns embeddings off entirely; search still works,
+from text alone.
 
 ## Related
 

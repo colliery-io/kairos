@@ -229,17 +229,90 @@ config:
   # production (KAIROS-A-0005 §6: dev builds only).
   devUi: false
 
+# -- A bundled PostgreSQL, FOR EVALUATION ONLY (KAIROS-A-0021 rule 2,
+# KAIROS-T-0188).
+#
+# Kairos requires the `pgvector` extension, so "bring your own Postgres" now
+# carries a condition an operator may not be able to satisfy on the first
+# afternoon. This exists so `helm install` with nothing but the two OIDC values
+# produces something that runs.
+#
+# IT IS NOT FOR PRODUCTION. One replica, one PVC, no backups, no failover, and a
+# password sitting in values. Disable it and point `database.url` at a managed
+# instance — RDS, Cloud SQL and Azure all offer pgvector. Setting BOTH is refused
+# at render time rather than silently preferring one.
+postgresql:
+  # -- Run a Postgres inside the release. THREE states, not two:
+  #
+  #   unset (this default) — on, UNLESS you set database.url/existingSecret
+  #   true                 — on, and naming an external database is an error
+  #   false                — off; exactly the chart as it was before the bundle
+  #
+  # Unset is what makes `helm upgrade` safe for releases that already exist:
+  # those all name a database, so they keep it without editing anything. A plain
+  # `true` default would have failed their next upgrade, or quietly stood a
+  # second database up beside the real one.
+  enabled:
+  # -- The image. Must carry pgvector; the plain `postgres` image does not.
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  # -- Database name, user, and password. The password is evaluation-grade by
+  # definition — it is in values and in the release history. It is a fixed
+  # default rather than a generated one so that `helm upgrade` does not change it
+  # out from under the volume that still holds the old one.
+  auth:
+    database: kairos
+    username: kairos
+    password: kairos-evaluation-only
+  # -- Storage for the PVC. `size: 0` uses an emptyDir instead, which loses the
+  # data on restart — occasionally what a throwaway demo wants, never what
+  # anything else does.
+  persistence:
+    size: 8Gi
+    storageClass: ""
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 database:
   # -- DATABASE_URL for the external Postgres (KAIROS-A-0013: sole state). This
   # is a SECRET. Provide it EITHER inline here (the chart renders a Secret) OR
   # via existingSecret (recommended for production — keep secrets out of
   # values). e.g. postgres://kairos:PASSWORD@my-pg:5432/kairos
+  #
+  # Leave BOTH empty to use the bundled `postgresql` above. Setting either while
+  # `postgresql.enabled` is true is refused: an upgrade that quietly preferred
+  # one would either abandon the operator's real database or stand a second one
+  # up beside it.
   url: ""
   # -- Name of a pre-existing Secret holding the DATABASE_URL. When set, the
   # chart does NOT render a Secret and reads from this one instead.
   existingSecret: ""
   # -- Key within existingSecret that holds the connection URL.
   existingSecretKey: DATABASE_URL
+
+# -- Semantic retrieval (KAIROS-A-0021). The local model ships inside the image,
+# so retrieval works with none of this set. Point `url` at an OpenAI-compatible
+# endpoint to use one instead.
+embeddings:
+  # -- `local` | `remote` | `none`. Empty means local, the image's own model.
+  # `none` turns embeddings off entirely: search still works, from text alone.
+  provider: ""
+  # -- OpenAI-compatible base URL, e.g. https://api.openai.com/v1. Setting this
+  # selects the remote provider on its own.
+  url: ""
+  # -- Model name to request from that endpoint.
+  model: ""
+  # -- The API key. A SECRET, and handled like `database.url`: inline here (the
+  # chart renders a Secret) or via existingSecret. A local Ollama needs none.
+  apiKey: ""
+  # -- Name of a pre-existing Secret holding the API key.
+  existingSecret: ""
+  # -- Key within existingSecret that holds it.
+  existingSecretKey: KAIROS_EMBED_API_KEY
 
 # -- Extra environment variables appended verbatim to the container. Each entry
 # is a standard EnvVar (name/value or name/valueFrom). Use for anything not

@@ -49,3 +49,18 @@ data:
   {{- with .Values.config.retention.mode }}
   KAIROS_RETENTION_MODE: {{ . | quote }}
   {{- end }}
+  {{/*
+  Semantic retrieval (KAIROS-A-0021, KAIROS-T-0188). All optional: the local
+  model ships inside the image, so an unset block means retrieval works without
+  any of this. KAIROS_EMBED_API_KEY is NOT here — it is a secret, and lives in
+  the Secret beside DATABASE_URL.
+  */}}
+  {{- with .Values.embeddings.provider }}
+  KAIROS_EMBED_PROVIDER: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.embeddings.url }}
+  KAIROS_EMBED_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.embeddings.model }}
+  KAIROS_EMBED_MODEL: {{ . | quote }}
+  {{- end }}

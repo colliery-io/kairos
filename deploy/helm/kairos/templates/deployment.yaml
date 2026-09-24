@@ -55,6 +55,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "kairos.databaseSecretName" . }}
                   key: {{ include "kairos.databaseSecretKey" . }}
+            {{- if include "kairos.embedSecretEnabled" . }}
+            # The embedding endpoint's API key (KAIROS-T-0188): a secret, sourced
+            # the same way DATABASE_URL is.
+            - name: KAIROS_EMBED_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kairos.embedSecretName" . }}
+                  key: {{ include "kairos.embedSecretKey" . }}
+            {{- end }}
             {{- if include "kairos.webClientSecretEnabled" . }}
             # Confidential GUI client secret (KAIROS-T-0056): Google Workspace
             # and other confidential OIDC clients require it at the token relay.

@@ -76,10 +76,98 @@ The name of the Secret that holds DATABASE_URL. When database.existingSecret is
 set the operator brings their own; otherwise the chart renders one.
 */}}
 {{- define "kairos.databaseSecretName" -}}
-{{- if .Values.database.existingSecret }}
+{{- if include "kairos.postgresqlEnabled" . }}
+{{- printf "%s-postgresql" (include "kairos.fullname" .) }}
+{{- else if .Values.database.existingSecret }}
 {{- .Values.database.existingSecret }}
 {{- else }}
 {{- printf "%s-db" (include "kairos.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether the bundled PostgreSQL runs (KAIROS-T-0188).
+
+TRI-STATE on purpose, and this is the important part of the design.
+
+  unset (default)  — bundle ON, unless an external database is named
+  true             — bundle ON, and naming an external database is an error
+  false            — bundle OFF, exactly the pre-bundle chart
+
+The first row is what makes `helm upgrade` safe for every release that already
+exists. Those all set `database.url`, and a plain `enabled: true` default would
+have failed their next upgrade — or worse, quietly stood a second database up
+beside the real one. Treating a named database as evidence that the bundle is not
+wanted is what the operator meant, and it needs no edit from them.
+
+Explicit `true` alongside an external database is still refused, because that is
+someone asking for two databases rather than inheriting a default.
+*/}}
+{{- define "kairos.postgresqlEnabled" -}}
+{{- if kindIs "bool" .Values.postgresql.enabled -}}
+{{- if .Values.postgresql.enabled -}}true{{- end -}}
+{{- else -}}
+{{- if not (or .Values.database.url .Values.database.existingSecret) -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The bundled PostgreSQL's object name and in-cluster hostname (KAIROS-T-0188).
+Kept as helpers so the StatefulSet, its Service and the DATABASE_URL that points
+at it cannot drift apart.
+*/}}
+{{- define "kairos.postgresqlName" -}}
+{{- printf "%s-postgresql" (include "kairos.fullname" .) }}
+{{- end }}
+
+{{/*
+The DATABASE_URL for the bundled instance. `sslmode=disable` because both ends
+are inside the cluster and the bundle is for evaluation; an operator who wants
+TLS to their database wants a managed one, which is the disabled path.
+*/}}
+{{- define "kairos.bundledDatabaseUrl" -}}
+{{- $a := .Values.postgresql.auth -}}
+{{- printf "postgres://%s:%s@%s:5432/%s?sslmode=disable" $a.username $a.password (include "kairos.postgresqlName" .) $a.database }}
+{{- end }}
+
+{{/*
+Refuse a configuration that asks for two databases (KAIROS-T-0188).
+
+Only when the bundle was asked for EXPLICITLY: inheriting the default alongside
+an external database is not a mistake, it is the common case, and the tri-state
+above resolves it silently and correctly.
+*/}}
+{{- define "kairos.validateDatabase" -}}
+{{- if kindIs "bool" .Values.postgresql.enabled }}
+{{- if and .Values.postgresql.enabled (or .Values.database.url .Values.database.existingSecret) }}
+{{- fail "database: postgresql.enabled=true AND database.url/database.existingSecret is set — that is two databases. Drop postgresql.enabled to use your own (the chart works this out on its own), or clear database.* to use the bundled evaluation one." }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Whether the remote embedding API key is configured at all (KAIROS-T-0188, moved
+from KAIROS-T-0189). A local Ollama needs none, so absence is normal.
+*/}}
+{{- define "kairos.embedSecretEnabled" -}}
+{{- if or .Values.embeddings.apiKey .Values.embeddings.existingSecret -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "kairos.embedSecretName" -}}
+{{- if .Values.embeddings.existingSecret }}
+{{- .Values.embeddings.existingSecret }}
+{{- else }}
+{{- printf "%s-embed" (include "kairos.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{- define "kairos.embedSecretKey" -}}
+{{- if .Values.embeddings.existingSecret }}
+{{- .Values.embeddings.existingSecretKey | default "KAIROS_EMBED_API_KEY" }}
+{{- else }}
+{{- "KAIROS_EMBED_API_KEY" }}
 {{- end }}
 {{- end }}
 

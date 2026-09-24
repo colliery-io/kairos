@@ -1,0 +1,141 @@
+{{- include "kairos.validateDatabase" . -}}
+{{- if include "kairos.postgresqlEnabled" . }}
+{{/*
+A bundled PostgreSQL, FOR EVALUATION (KAIROS-A-0021 rule 2, KAIROS-T-0188).
+
+Templated here rather than pulled in as a subchart, for one deciding reason:
+rule 2 requires the `pgvector` extension and the usual community Postgres charts
+ship an image without it. Depending on one would mean overriding its image
+anyway — at which point the dependency buys little and costs a `helm dependency
+update` in the release pipeline, plus a second chart's values surface to
+document and keep aligned.
+
+A StatefulSet rather than a Deployment because this owns a volume, and a
+Deployment rolling a second pod onto the same PVC is a corruption the operator
+gets to discover.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "kairos.postgresqlName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+type: Opaque
+stringData:
+  # Postgres reads these; DATABASE_URL is the same credentials assembled for
+  # Kairos, in one Secret so the two cannot disagree.
+  POSTGRES_DB: {{ .Values.postgresql.auth.database | quote }}
+  POSTGRES_USER: {{ .Values.postgresql.auth.username | quote }}
+  POSTGRES_PASSWORD: {{ .Values.postgresql.auth.password | quote }}
+  DATABASE_URL: {{ include "kairos.bundledDatabaseUrl" . | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kairos.postgresqlName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: postgresql
+      protocol: TCP
+      name: postgresql
+  selector:
+    {{- include "kairos.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kairos.postgresqlName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql
+spec:
+  serviceName: {{ include "kairos.postgresqlName" . }}
+  # One. This is not a highly available database and pretending otherwise by
+  # making the count configurable would be the misleading part.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kairos.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql
+  template:
+    metadata:
+      labels:
+        {{- include "kairos.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgresql
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          envFrom:
+            - secretRef:
+                name: {{ include "kairos.postgresqlName" . }}
+          env:
+            # The image initialises into the volume root by default, which fails
+            # when the volume has a lost+found. A subdirectory is the standard
+            # answer and costs nothing.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.auth.username | quote }}]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgresql.auth.username | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          {{- with .Values.postgresql.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.postgresql.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.postgresql.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if not .Values.postgresql.persistence.size }}
+      volumes:
+        # size: 0 — an emptyDir, so the data goes when the pod does. Sometimes
+        # what a throwaway demo wants; never what anything else does.
+        - name: data
+          emptyDir: {}
+      {{- end }}
+  {{- if .Values.postgresql.persistence.size }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.postgresql.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size | quote }}
+  {{- end }}
+{{- end }}

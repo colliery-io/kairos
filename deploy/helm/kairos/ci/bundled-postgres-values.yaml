@@ -1,0 +1,14 @@
+# (d) The bundled evaluation database (KAIROS-T-0188): nothing but the two OIDC
+# values and a tenant, which is the whole claim — `helm install` with no database
+# configuration produces something that runs.
+#
+# `database.*` is deliberately absent. Setting it alongside postgresql.enabled is
+# refused at render time, and ci/ is where that contract gets exercised.
+postgresql:
+  enabled: true
+config:
+  oidc:
+    issuerUrl: "https://idp.example.com/"
+    audience: "kairos"
+  tenancy:
+    singleTenant: "acme"

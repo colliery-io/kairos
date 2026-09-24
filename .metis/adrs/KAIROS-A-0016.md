@@ -32,6 +32,14 @@ What identity actually requires from Kairos: (1) verify who a request is from �
 
 **Kairos ships no identity provider. Authentication is any spec-compliant OIDC issuer (bring your own). User/group lifecycle is inbound SCIM 2.0 served by Kairos, with JIT + manual membership as the non-SCIM path.**
 
+> **Note on the "state and identity are the operator's" posture
+> (KAIROS-A-0021 rule 2, KAIROS-T-0188).** The Helm chart used to justify having
+> no Postgres subchart by quoting this ADR. It now bundles one, disableable, for
+> evaluation — because `pgvector` became a requirement. **Identity is unchanged
+> and remains wholly external**; it is the *database* half of that posture that
+> softened from an absolute to a default, and [[KAIROS-A-0013]] carries the
+> amendment. Nothing in this ADR is reversed.
+
 ### Authentication (amends KAIROS-A-0010's realm strategy)
 - Configuration remains exactly `OIDC_ISSUER_URL` + `OIDC_AUDIENCE`; validation via discovery + JWKS as built in T-0017. No realm export, no bundled IdP, no Keycloak-specific anything in the product or reference deployment.
 - A-0010's mechanics stand unchanged: local JWKS validation, JIT user provisioning, PKCE (GUI), device grant (CLI), client-credentials service accounts *where the customer's IdP supports them* — flow availability is the IdP's capability matrix, and the docs state per-flow IdP requirements instead of assuming one vendor.

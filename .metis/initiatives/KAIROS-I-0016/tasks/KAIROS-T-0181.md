@@ -4,14 +4,14 @@ level: task
 title: "Tutorial: deploy Kairos to Kubernetes, once the image runs on ARM"
 short_code: "KAIROS-T-0181"
 created_at: 2026-09-23T23:22:09.606448+00:00
-updated_at: 2026-09-23T23:22:09.606448+00:00
+updated_at: 2026-09-24T01:09:01.820855+00:00
 parent: KAIROS-I-0016
 blocked_by: [KAIROS-T-0180]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -73,6 +73,10 @@ is the thing a how-to covers, not a tutorial.
 If the full lesson runs long once the image works, **narrow the promised
 outcome** rather than handing the learner decisions — stop at "the pods are
 running and `/healthz` answers", and leave signing in to a how-to.
+
+## Acceptance Criteria
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

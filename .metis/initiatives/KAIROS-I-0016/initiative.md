@@ -488,3 +488,45 @@ twelve tasks are complete and the book is live; this one unblocks the moment the
 image is multi-arch.
 
 **Ready for review.** The initiative is not transitioned — Dylan reviews.
+
+- 2026-09-24: **All thirteen tasks complete.** The blocked one was finished by
+  fixing its blocker rather than working around it.
+
+  [[KAIROS-T-0180]] (amd64-only image) is fixed in **v0.1.1**: each
+  architecture builds on its own native runner and a manifest job stitches the
+  digests, with no QEMU — which the original deferral note had correctly ruled
+  out. **The architecture was never the problem**; the only thing missing was a
+  runner to build on, and the CLI binary matrix had been doing native builds
+  all along.
+
+  [[KAIROS-T-0181]] (the Kubernetes tutorial) is written and **executed against
+  the published artifacts on an arm64 cluster** — `helm install` from
+  `oci://ghcr.io/colliery-io/charts/kairos --version 0.1.1`, the container
+  reporting `aarch64`, `/healthz` `ok`, `/readyz` `ready`, the GUI 200.
+
+  Final shape: **38 pages** — 2 tutorials, 12 how-to, 17 reference (8 written,
+  9 generated), 5 explanation, 3 mermaid diagrams and 3 screenshots.
+
+- 2026-09-24: **The through-line, stated once.** This initiative set out to
+  write documentation and ended up finding **nine defects**, filed as
+  [[KAIROS-T-0177]], [[KAIROS-T-0178]], [[KAIROS-T-0180]], [[KAIROS-T-0182]],
+  [[KAIROS-T-0183]] and [[KAIROS-T-0184]], plus three stale code comments fixed
+  in passing.
+
+  None was found by testing. Each was found by one of three things:
+
+  - **Enumerating a surface** (R4). Listing every configuration value is how
+    two that go nowhere surfaced; listing every MCP argument is how the
+    `bucket_type` gap surfaced; listing every error code is how
+    `RESTORE_BLOCKED`'s absence surfaced.
+  - **Asking where a fact lives** (E6). Forbidding an explanation page from
+    being a fact's only home is what exposed that the capability vocabulary had
+    no reference home at all.
+  - **Actually executing a procedure** (T1/T6). The tutorial contract's refusal
+    to accept a lesson nobody has run is what turned "arm64 is a nice-to-have"
+    into "the most likely first-run path is broken with no workaround".
+
+  The last one is the one worth remembering: **a documentation standard strict
+  enough to be inconvenient is what found the product's worst first-run bug.**
+
+**Ready for review.** The initiative is not transitioned — Dylan reviews.

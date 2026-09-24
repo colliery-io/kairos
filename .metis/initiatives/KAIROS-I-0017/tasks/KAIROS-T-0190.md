@@ -4,14 +4,14 @@ level: task
 title: "Chunking, the composed primary vector, incremental re-embedding and backfill"
 short_code: "KAIROS-T-0190"
 created_at: 2026-09-24T02:27:55.747474+00:00
-updated_at: 2026-09-24T02:27:55.747474+00:00
+updated_at: 2026-09-24T11:39:32.742673+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0187, KAIROS-T-0189]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -103,12 +103,108 @@ picks any threshold. A threshold chosen without that number is a guess.
 - Backfill on a large tenant is a sustained load on the embedding provider.
   Batch size and rate must be settable.
 
+### 2026-09-24 — the pure half: chunking and the composed primary vector
+
+Docker was down (see [[KAIROS-T-0189]]), so this is the half of the task that
+needs no database: `kairos_core::chunk` and `kairos_core::primary`. Both pure per
+[[KAIROS-A-0009]]. The storage, incremental re-embedding and backfill still need
+Postgres and are not started.
+
+#### `chunk.rs` — heading boundaries as anchors
+
+A faithful port of `scripts/corpus/extract.py`, the chunker the measurement was
+taken with, so the figures quoted in its module docs describe **this** code.
+Twenty unit tests, and the claim is verified rather than asserted:
+`tests/corpus_agreement.rs` runs the Rust chunker over the same nineteen
+repositories and checks the result.
+
+Deliberate decisions, each with its own test:
+
+- **Offsets are Unicode scalars, not bytes.** A byte offset is meaningless to a
+  reader of a citation. The caveat is recorded: JavaScript indices are UTF-16, so
+  a GUI highlighting astral-plane text must convert.
+- **ATX headings only.** `---` is a thematic break and a front-matter fence at
+  least as often as it is a setext underline, and guessing wrong splits a document
+  at a horizontal rule.
+- **`#1234 is the issue` is not a heading** — ATX requires the space. Without that
+  rule, a line mentioning an issue number splits the document.
+- **Empty sections are dropped.** A heading followed by a heading has nothing to
+  embed, and an empty vector is worse than no vector: it is a row that matches
+  everything equally badly.
+- **A pathological overlap still terminates**, rather than allocating forever.
+
+#### The verification test found a real drift, and it was mine
+
+First run: 5,176 documents against Python's 4,927. Two causes, both in the
+comparison rather than the chunker — my dedupe keyed on the raw body where
+Python hashed the concatenated section texts, and my "windowed" count counted
+extra windows where Python counted sections split.
+
+Fixed, the second run gave **4,928 documents, 60,146 sections, 63,303 chunks,
+1,309 windowed (2.2%), 0 documents with no headings** — against Python's 4,927 /
+60,116 / 63,270 / 1,308 / 2.2% / 0.
+
+One document of difference, because **this session wrote it**: the corpus is
+nineteen live repositories and I had authored [[KAIROS-T-0194]] and appended
+status updates to others since the figures were taken.
+
+So the test does **not** assert exact counts, and must not: it would report
+authorship as a chunker fault and be deleted within a week. It asserts what the
+claims actually rest on — **zero** documents without headings, the window
+fallback staying near 2.2%, a median of 8–10 sections, and chunks-per-section
+barely above 1. Those survive drift.
+
+#### `primary.rs` — and a hypothesis of mine that the corpus rejected
+
+Composition is structural only: type, title, repository, team, parent title,
+stamped metadata, bounded opening prose. Ten unit tests.
+
+I expected to implement a **per-entity-type prose budget**. The earlier
+measurement found false positives clustering at initiative level, and the
+hypothesis was that long templated documents have boilerplate openings, so they
+should get less prose. Rather than implement four numbers chosen by intuition, I
+measured it — varying one budget across the corpus, scoring recall@1 on known
+duplicate tickets against the count of unlinked same-project pairs above 0.93:
+
+| prose chars | recall@1 | pairs ≥0.93 | of those, initiative-level |
+|---|---|---|---|
+| 0 | 94% | 324 | **102** |
+| 150 | 80% | 279 | 33 |
+| 300 | 86% | 296 | 38 |
+| **600** | **86%** | **305** | **39** |
+| 1200 | 86% | 340 | 41 |
+
+**The hypothesis is contradicted.** Initiative-level borderline pairs are 102 with
+no prose and 33–41 with it: prose is what *rescues* initiatives, and their generic
+titles are what make them look alike. A per-type table cutting prose for
+initiatives would have worsened precisely the problem it was meant to fix.
+
+So: **one budget, 600 characters, no table.** Past 600 is strictly worse — 1,200
+buys no recall and adds 35 borderline pairs — so the number sits where the curve
+stops paying. 300 is within noise and equally defensible.
+
+A caveat I should state rather than let the table imply otherwise: the ground
+truth is pairs with identical titles, so a title-only composition scores well on
+recall almost by construction. That is why 0 tops the recall column and why it
+cannot be chosen on that basis; the pairs column is the counterweight.
+
+Reproduction: `scripts/corpus/prose-budget.rs`.
+
+#### Still to do in this task
+
+Everything needing a database: reading items, writing `item_embeddings` and
+`item_chunks`, content-hash skipping, incremental re-embedding off the write path,
+the resumable backfill, the vector index on populated tables, and pinning the
+column type to the now-known 384 dimensions. None of it is started.
+
 ## Acceptance Criteria
 
-- [ ] Heading-boundary chunking with sliding-window fallback, storing ordinal,
+## Acceptance Criteria
+
+- [x] Heading-boundary chunking with sliding-window fallback, storing ordinal,
       literal heading text and character range
-- [ ] No code path keys on a heading's name
-- [ ] The primary vector is composed from title, type, repository, team, parent
+- [x] No code path keys on a heading's name
+- [x] The primary vector is composed from title, type, repository, team, parent
       title, stamped metadata and opening prose
 - [ ] Appending to one section re-embeds one chunk, proven by a test
 - [ ] Embedding is off the write path; a provider failure leaves the item created

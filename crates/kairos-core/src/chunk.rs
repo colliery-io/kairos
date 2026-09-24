@@ -116,7 +116,12 @@ pub fn chunk_with(content: &str, config: &ChunkConfig) -> Vec<Chunk> {
     for section in sections {
         let chars: Vec<char> = section.text.chars().collect();
         if chars.len() <= config.max_chars {
-            push(&mut out, section.heading.clone(), section.start, section.text);
+            push(
+                &mut out,
+                section.heading.clone(),
+                section.start,
+                section.text,
+            );
             continue;
         }
         let stride = config.stride();
@@ -386,11 +391,7 @@ mod tests {
         for level in 1..=6 {
             let hashes = "#".repeat(level);
             let chunks = chunk(&format!("{hashes} Title\nbody\n"));
-            assert_eq!(
-                chunks[0].heading.as_deref(),
-                Some("Title"),
-                "level {level}"
-            );
+            assert_eq!(chunks[0].heading.as_deref(), Some("Title"), "level {level}");
         }
     }
 

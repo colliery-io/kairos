@@ -177,12 +177,12 @@ fn opening_prose(content: &str, budget: usize) -> Option<String> {
     let taken: String = text.chars().take(budget).collect();
     // Do not end mid-word when the cut lands inside one: a truncated token is
     // noise to a tokeniser, and losing a few characters costs nothing.
-    if taken.chars().count() < text.chars().count() {
-        if let Some(last_space) = taken.rfind(char::is_whitespace) {
-            let trimmed = taken[..last_space].trim_end();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
+    if taken.chars().count() < text.chars().count()
+        && let Some(last_space) = taken.rfind(char::is_whitespace)
+    {
+        let trimmed = taken[..last_space].trim_end();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
         }
     }
     Some(taken.trim_end().to_string())
@@ -305,7 +305,10 @@ mod tests {
         };
         let text = primary_text_with(ItemType::Task, &inputs, &config);
         let prose = text.lines().last().unwrap();
-        assert!(content.starts_with(prose), "a prefix of the content: {prose:?}");
+        assert!(
+            content.starts_with(prose),
+            "a prefix of the content: {prose:?}"
+        );
         assert!(prose.len() <= 20, "within budget: {prose:?}");
         assert!(
             !content[prose.len()..].starts_with(|c: char| c.is_alphanumeric()),
@@ -325,7 +328,10 @@ mod tests {
         };
         let text = primary_text(ItemType::Task, &inputs);
         assert!(text.contains("The actual prose."), "{text}");
-        assert!(!text.contains("Objective"), "headings are not prose: {text}");
+        assert!(
+            !text.contains("Objective"),
+            "headings are not prose: {text}"
+        );
     }
 
     #[test]

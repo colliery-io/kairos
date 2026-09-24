@@ -191,7 +191,8 @@ fn the_rust_chunker_agrees_with_the_measured_one() {
     // rests on heading-boundary chunking being universally applicable, and it is
     // only universal if this is zero.
     assert_eq!(
-        no_headings, 0,
+        no_headings,
+        0,
         "the docs claim ZERO of {} documents lack headings; {no_headings} do",
         docs.len()
     );

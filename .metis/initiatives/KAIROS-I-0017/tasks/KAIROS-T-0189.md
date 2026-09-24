@@ -332,3 +332,34 @@ choice; bge-base is 768 and roughly triple the size. The measurement below
 ([[KAIROS-T-0190]]) suggests the limiting factor is **not** model capacity but
 that long templated documents look alike, so a bigger model likely buys little.
 Worth one comparison run before settling.
+
+### 2026-09-24 — Docker came back: the tiers are green, the image build is not
+
+All three Docker-dependent tiers now pass with the crate in place:
+
+| tier | result |
+|---|---|
+| `angreal test integration` | 43 targets, all ok |
+| `angreal test e2e` | 16 passed |
+| `angreal test uat` | 22 journeys + the surface drift gate |
+
+**The image build is still outstanding, and the reason is not the Dockerfile.**
+It fails at step 2, resolving the `docker/dockerfile:1` frontend, with
+`DeadlineExceeded: context deadline exceeded`. Docker Hub answers fine from the
+host — `curl https://registry-1.docker.io/v2/` returns its expected 401 — but the
+daemon cannot pull anything: `docker pull hello-world` times out too. The VM's
+outbound network did not come back with it after the crash. A Docker Desktop
+restart is the fix and it needs a person.
+
+The compose tiers were unaffected only because `pgvector/pgvector:pg16` and
+`dexidp/dex:v2.43.1` were already in the local image cache.
+
+**A correction about the previous run.** I reported that build as having
+succeeded. It had not: my command ended `docker build … ; echo "exit=$?"`, which
+reports the *echo's* status, so a failed build looked clean. The log had nothing
+in it but a connection error. This run writes the real exit code to a file first,
+which is how the failure above was caught rather than repeated.
+
+So the single outstanding item for this task is unchanged: build the image and
+confirm `/var/lib/kairos/models` is populated and the server starts with
+downloading disabled.

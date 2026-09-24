@@ -9,6 +9,7 @@
 pub mod abac;
 pub mod api_keys;
 pub mod boards;
+pub mod embeddings;
 pub mod events;
 pub mod forge;
 pub mod graph;

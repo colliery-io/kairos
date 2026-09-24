@@ -28,6 +28,15 @@ pinned to exact versions so this lesson behaves the same every time. **Neither
 is suitable for anything but a tutorial**: no persistence, no backups, one
 hard-coded password.
 
+The Postgres image is `pgvector/pgvector:pg16` rather than `postgres:16`: the
+same upstream Postgres with the `pgvector` extension added. The version this
+lesson pins, 0.1.1, does not need it yet; later versions require it, because the
+extension backs semantic retrieval and their first migration installs it. Using
+the pgvector image now means this deployment keeps working when you upgrade
+rather than failing on a database that cannot install the extension. Managed
+Postgres offers pgvector on RDS, Cloud SQL and Azure, so this is not a reason to
+stop bringing your own.
+
 ## Create the cluster
 
 ```sh
@@ -40,7 +49,7 @@ You should see kind report the cluster ready and `namespace/kairos created`.
 ## Install a throwaway database
 
 ```sh
-kubectl -n kairos create deployment postgres --image=postgres:16 --port=5432
+kubectl -n kairos create deployment postgres --image=pgvector/pgvector:pg16 --port=5432
 kubectl -n kairos set env deployment/postgres \
   POSTGRES_PASSWORD=kairos POSTGRES_USER=kairos POSTGRES_DB=kairos
 kubectl -n kairos expose deployment postgres --port=5432
@@ -220,7 +229,8 @@ That removes the cluster and everything in it, including the database.
 
 Kairos is one stateless image. It brought the interface, the API, MCP and SCIM
 in a single process, and it needed exactly two things from you: somewhere to
-keep state, and somebody to say who users are.
+keep state, and somebody to say who users are — a Postgres, which later versions
+need `pgvector` on, and an OIDC issuer.
 
 That is the whole deployment story, and the rest is making those two things
 production-grade rather than throwaway.

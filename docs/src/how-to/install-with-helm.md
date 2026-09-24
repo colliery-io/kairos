@@ -5,8 +5,12 @@ Get a Kairos 0.1.1 deployment serving on a cluster you already run.
 **Before you start**, have all four:
 
 - A cluster and Helm 3.8 or newer (the chart is distributed as an OCI artifact).
-- **A PostgreSQL the cluster can reach.** The chart bundles no database and
-  there is no Postgres subchart.
+- **A PostgreSQL the cluster can reach, with `pgvector` available.** The chart
+  bundles no database and there is no Postgres subchart. The extension is a
+  requirement, not an option: the first migration installs it, and a database
+  that cannot is refused at startup with a message saying so. Managed Postgres
+  offers pgvector on RDS, Cloud SQL and Azure; `pgvector/pgvector:pg16` is the
+  upstream image with it added.
 - **An OIDC issuer with Kairos registered as an app.** The chart bundles no
   identity provider. If you have not registered the clients yet, do
   [Configure an OIDC issuer](configure-an-oidc-issuer.md) first — you need the

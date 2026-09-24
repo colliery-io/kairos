@@ -2,9 +2,14 @@
 # Kairos dev/test stack (KAIROS-A-0013 dev profile): Postgres 16 + Dex.
 # Dex replaces Keycloak for dev/test per KAIROS-A-0010; Keycloak returns as
 # the production reference deployment in M2/M5.
+#
+# Postgres is `pgvector/pgvector:pg16` — stock `postgres:16` upstream, with
+# pgvector added. KAIROS-A-0021 rule 2 makes the extension a requirement rather
+# than an option (KAIROS-T-0187), and stock postgres:16 ships only `pg_trgm` and
+# `plpgsql`, so the dev stack has to carry it or nothing local can migrate.
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     container_name: kairos-postgres
     environment:
       POSTGRES_USER: kairos

@@ -26,6 +26,7 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::Text;
 
+use kairos_db::migrations::{MigrationError, check_extensions, check_required_extensions};
 use kairos_db::tenant::TenantError;
 use kairos_db::{drop_tenant, migrate_all_tenants, provision_tenant, run_public_migrations};
 
@@ -37,7 +38,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 30] = [
+const EXPECTED_TABLES: [&str; 32] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -49,6 +50,9 @@ const EXPECTED_TABLES: [&str; 30] = [
     "documents",
     "forge_connections",
     "initiatives",
+    // KAIROS-T-0187: the two embedding tables (A-0021 rule 2).
+    "item_chunks",
+    "item_embeddings",
     "item_history",
     "item_links",
     "item_metadata",
@@ -256,6 +260,41 @@ fn tenant_provisioning_lifecycle() {
     let scratch_url = with_database(&admin_url, SCRATCH_DB);
     let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
 
+    // KAIROS-T-0187: the pre-flight extension check, both ways round. The
+    // positive case is what every migration run depends on; the negative case is
+    // the one that matters, and it can only be exercised with a name no server
+    // has — `vector` is present here by definition or nothing below would run.
+    check_required_extensions(&mut conn).expect("pgvector is available on the test server");
+    let missing = check_extensions(
+        &mut conn,
+        &[(
+            "kairos_not_a_real_extension",
+            "this hint should reach the operator",
+        )],
+    )
+    .expect_err("an absent extension must be refused, not ignored");
+    assert!(
+        matches!(
+            missing,
+            MigrationError::MissingExtension {
+                name: "kairos_not_a_real_extension",
+                ..
+            }
+        ),
+        "expected MissingExtension, got {missing:?}"
+    );
+    // The message is why the check exists at all: PostgreSQL's own wording
+    // arrives from inside a migration run and says nothing about what to do.
+    let said = missing.to_string();
+    assert!(
+        said.contains("kairos_not_a_real_extension"),
+        "names it: {said}"
+    );
+    assert!(
+        said.contains("this hint should reach the operator"),
+        "carries the hint: {said}"
+    );
+
     // Public migrations first (organizations + system_* tables).
     run_public_migrations(&mut conn).expect("running public migrations");
 
@@ -383,6 +422,89 @@ fn tenant_provisioning_lifecycle() {
         1,
         "the searchable_items view is weighted in a freshly provisioned tenant"
     );
+    // KAIROS-T-0187: the `vector` extension is installed once at DATABASE scope,
+    // in `public` — not per tenant. Two tenants exist by the end of this test
+    // and there is still exactly one extension.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace \
+             WHERE e.extname = 'vector' AND n.nspname = 'public'"
+        ),
+        1,
+        "pgvector is installed exactly once, in public"
+    );
+    // And the embedding columns carry the pgvector type rather than something
+    // that merely parses. `udt_name` is what distinguishes them.
+    assert_eq!(
+        names(
+            &mut conn,
+            "SELECT table_name::text AS name FROM information_schema.columns \
+             WHERE table_schema = $1 AND column_name = 'embedding' \
+               AND udt_name = 'vector'",
+            "org_acme",
+        ),
+        ["item_chunks", "item_embeddings"],
+        "both embedding columns are the pgvector type in a freshly provisioned tenant"
+    );
+    // The chunk heading is NULLABLE on purpose: a sliding-window chunk from
+    // text with no headings has none (A-0021 rule 3). A NOT NULL here would
+    // force the chunker to invent a label, which is the one thing the rule
+    // forbids.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'org_acme' AND table_name = 'item_chunks' \
+               AND column_name = 'heading' AND is_nullable = 'YES'"
+        ),
+        1,
+        "item_chunks.heading is nullable, for chunks that sit under no heading"
+    );
+    // KAIROS-T-0187: the tables are not just shaped right, they WORK — vectors
+    // round-trip and the distance operator is available. There is no diesel
+    // model yet (KAIROS-T-0190 writes the read/write paths), so this is raw SQL
+    // on purpose: it tests the schema, which is what this task delivers.
+    //
+    // Two rows at width 3 and one at width 4, because the column type is
+    // deliberately unpinned `vector` until T-0190 knows the model. If a future
+    // migration pins it to a fixed width, this insert starts failing and that is
+    // the right place to find out.
+    sql_query(
+        "INSERT INTO org_acme.item_embeddings \
+             (item_id, entity_type, embedding, provider, model, dimension, content_hash) \
+         VALUES \
+             ('00000000-0000-4000-8000-000000000001', 'task', '[1,0,0]', 'test', 'm3', 3, 'h1'), \
+             ('00000000-0000-4000-8000-000000000002', 'task', '[0,1,0]', 'test', 'm3', 3, 'h2'), \
+             ('00000000-0000-4000-8000-000000000003', 'adr',  '[1,0,0,0]', 'test', 'm4', 4, 'h3')",
+    )
+    .execute(&mut conn)
+    .expect("vectors of differing widths insert into the unpinned column");
+    // Cosine distance between two orthogonal unit vectors is exactly 1. If the
+    // extension were missing or the column were text, this would not parse.
+    let orthogonal = count(
+        &mut conn,
+        "SELECT count(*)::bigint AS count FROM org_acme.item_embeddings a, org_acme.item_embeddings b \
+         WHERE a.content_hash = 'h1' AND b.content_hash = 'h2' \
+           AND (a.embedding <=> b.embedding) = 1.0",
+    );
+    assert_eq!(
+        orthogonal, 1,
+        "pgvector's cosine distance operator works on the stored column"
+    );
+    // And the per-row dimension is what makes a model change detectable rather
+    // than a silent comparison across two vector spaces.
+    assert_eq!(
+        count(
+            &mut conn,
+            "SELECT count(DISTINCT dimension)::bigint AS count FROM org_acme.item_embeddings"
+        ),
+        2,
+        "two vector widths coexist, each recording its own dimension"
+    );
+    sql_query("DELETE FROM org_acme.item_embeddings")
+        .execute(&mut conn)
+        .expect("cleaning up the round-trip rows");
 
     // system_board_defaults seeded with all FOUR level configs (A-0002).
     assert_eq!(
@@ -570,10 +692,10 @@ fn tenant_provisioning_lifecycle() {
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
     // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
     // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently
-    // `tsv_weights_title_above_content`, KAIROS-T-0186): revert its DDL (the
-    // down migration's shape) and drop its bookkeeping row in widgets only,
-    // then fleet-migrate and expect exactly that one migration to re-apply.
+    // that predates the NEWEST tenant migration (currently `embedding_tables`,
+    // KAIROS-T-0187): revert its DDL (the down migration's shape) and drop its
+    // bookkeeping row in widgets only, then fleet-migrate and expect exactly
+    // that one migration to re-apply.
     //
     // NOTE: this block is hand-re-pinned to the newest migration on every
     // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
@@ -581,26 +703,23 @@ fn tenant_provisioning_lifecycle() {
     // When re-pinning, carry the outgoing migration's evidence up into the
     // freshly-provisioned assertions rather than deleting it; T-0156's
     // five-table view check moved there when this block stopped covering it,
-    // and T-0159's three-board-index check moved there on this wave.
+    // T-0159's three-board-index check moved there on the T-0186 wave, and
+    // T-0186's own weighting check moved there on this one.
     //
-    // The pre-T-0186 shape is the unweighted tsvector: one `to_tsvector` over
-    // title and content concatenated as text, with no `setweight`. Only
-    // strategies' index is reverted — one is enough to prove the migration
-    // re-applies, and the post-condition below checks all five plus the view.
+    // The pre-T-0187 shape is simply not having the two embedding tables, which
+    // is the cleanest revert this block has ever had: no expression to
+    // reproduce character for character, just two DROPs.
     //
-    // T-0157's evidence did not vanish with the re-pin: its
+    // T-0157's evidence did not vanish across these re-pins: its
     // freshly-provisioned assertion above (no partial `idx_*_tsv`) is the
     // durable half, and the upgrade-path post-condition for it is kept below,
     // since an upgraded tenant is exactly where a missed index hides.
-    sql_query("DROP INDEX org_widgets.idx_strategies_tsv")
+    sql_query("DROP TABLE org_widgets.item_chunks")
         .execute(&mut conn)
-        .expect("dropping widgets' idx_strategies_tsv to simulate an old tenant");
-    sql_query(
-        "CREATE INDEX idx_strategies_tsv ON org_widgets.strategies USING GIN \
-             (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(content, '')))",
-    )
-    .execute(&mut conn)
-    .expect("restoring the pre-T-0186 unweighted idx_strategies_tsv in widgets");
+        .expect("dropping widgets' item_chunks to simulate an old tenant");
+    sql_query("DROP TABLE org_widgets.item_embeddings")
+        .execute(&mut conn)
+        .expect("dropping widgets' item_embeddings to simulate an old tenant");
     sql_query(
         "DELETE FROM org_widgets.__diesel_schema_migrations \
          WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
@@ -653,32 +772,33 @@ fn tenant_provisioning_lifecycle() {
         5,
         "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
     );
-    // KAIROS-T-0186: and the upgraded tenant's full-text indexes carry the
-    // title/content weighting, all five of them. This is the assertion the
-    // re-pinned block above exists to make: an existing tenant whose
-    // `idx_*_tsv` expression no longer matches `searchable_items`' own stops
-    // being index-served for search entirely and silently, so "the migration
-    // ran" is not the same claim as "the index still covers the view".
+    // KAIROS-T-0187: and the upgraded tenant has the two embedding tables back.
+    // This is the assertion the re-pinned block above exists to make.
     assert_eq!(
         count(
             &mut conn,
-            "SELECT count(*) FROM pg_indexes \
-             WHERE schemaname = 'org_widgets' AND indexname LIKE '%\\_tsv' \
-               AND indexdef LIKE '%setweight%'"
+            "SELECT count(*) FROM information_schema.tables \
+             WHERE table_schema = 'org_widgets' \
+               AND table_name IN ('item_embeddings', 'item_chunks')"
         ),
-        5,
-        "all five idx_*_tsv indexes are weighted in widgets after the fleet upgrade"
+        2,
+        "both embedding tables are back in widgets after the fleet upgrade"
     );
-    // And the view was replaced too, not just the indexes — they have to agree.
+    // And their vector columns really are `vector`, not text that looks like it.
+    // The type resolves from `public` while tenant migrations pin `search_path`
+    // to the tenant schema alone, so an unqualified `VECTOR` in the DDL fails —
+    // it did, on the first run. A migration that "ran" is not the same claim as
+    // a column of the right type.
     assert_eq!(
         count(
             &mut conn,
-            "SELECT count(*) FROM pg_views \
-             WHERE schemaname = 'org_widgets' AND viewname = 'searchable_items' \
-               AND definition LIKE '%setweight%'"
+            "SELECT count(*) FROM information_schema.columns \
+             WHERE table_schema = 'org_widgets' \
+               AND table_name IN ('item_embeddings', 'item_chunks') \
+               AND column_name = 'embedding' AND udt_name = 'vector'"
         ),
-        1,
-        "the searchable_items view is weighted in widgets after the fleet upgrade"
+        2,
+        "both embedding columns are the pgvector type in widgets after the fleet upgrade"
     );
 
     // ---- drop-tenant -------------------------------------------------------

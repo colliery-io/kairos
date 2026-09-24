@@ -12,9 +12,14 @@ Per **KAIROS-A-0016** (identity is external) and **KAIROS-A-0013** (Postgres is
 the operator's sole state), the chart bundles **neither a database nor an
 identity provider**. You must bring:
 
-- **An external PostgreSQL** reachable via `DATABASE_URL`. The server applies
-  pending public migrations on boot (KAIROS-T-0007) before it reports ready —
-  **there is no migration Job to run.**
+- **An external PostgreSQL, carrying `pgvector`**, reachable via
+  `DATABASE_URL`. The server applies pending public migrations on boot
+  (KAIROS-T-0007) before it reports ready — **there is no migration Job to
+  run** — and the first of those migrations installs the `vector` extension.
+  A database that cannot install it is refused at startup with a message
+  naming it (KAIROS-A-0021 rule 2, KAIROS-T-0187); pgvector ships with RDS,
+  Cloud SQL and Azure Database for PostgreSQL, and the
+  `pgvector/pgvector:pg16` image is stock Postgres with it added.
 - **An external OIDC issuer** (Okta, Entra ID, Auth0, Keycloak, Dex, …). Point
   `OIDC_ISSUER_URL` / `OIDC_AUDIENCE` at it and register Kairos there as an OIDC
   app (plus an optional SCIM app for user lifecycle).

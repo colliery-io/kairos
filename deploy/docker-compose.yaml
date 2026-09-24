@@ -67,7 +67,12 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:16
+    # pgvector/pgvector:pg16 is stock postgres:16 with pgvector added.
+    # KAIROS-A-0021 rule 2 requires the extension (KAIROS-T-0187); a plain
+    # postgres:16 here cannot run Kairos's migrations. Pointing `DATABASE_URL`
+    # at a managed instance instead is still supported — RDS, Cloud SQL and
+    # Azure all offer pgvector.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: kairos

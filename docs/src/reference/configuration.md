@@ -325,8 +325,9 @@ moot in 0.1.0 because the server reads none of them.
 
 `deploy/docker-compose.yaml` with `deploy/.env`, copied from
 `deploy/.env.example`. The topology is Caddy for TLS and subdomain routing,
-one Kairos container, and PostgreSQL 16 as the sole state. There is no bundled
-identity provider.
+one Kairos container, and PostgreSQL 16 as the sole state — as
+`pgvector/pgvector:pg16`, because Kairos requires the `pgvector` extension and
+stock `postgres:16` does not carry it. There is no bundled identity provider.
 
 | `.env` variable | Default in the example | Consumed by |
 |---|---|---|

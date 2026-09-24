@@ -4,14 +4,14 @@ level: task
 title: "pgvector: the extension, the tenant migration, and the two embedding tables"
 short_code: "KAIROS-T-0187"
 created_at: 2026-09-24T02:27:46.765540+00:00
-updated_at: 2026-09-24T02:27:46.765540+00:00
+updated_at: 2026-09-24T10:20:08.000233+00:00
 parent: KAIROS-I-0017
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/active"
 
 
 exit_criteria_met: false
@@ -93,16 +93,21 @@ promised to work. It has to be re-run, not just edited.
 
 ## Acceptance Criteria
 
-- [ ] A tenant migration creates `item_embeddings` and `item_chunks` with
+## Acceptance Criteria
+
+- [x] A tenant migration creates `item_embeddings` and `item_chunks` with
       provider, model, dimension and content-hash columns
-- [ ] `CREATE EXTENSION vector` runs once at database scope, idempotently
-- [ ] Every Postgres pin in the repository carries pgvector: compose, integration
+- [x] `CREATE EXTENSION vector` runs once at database scope, idempotently
+- [x] Every Postgres pin in the repository carries pgvector: compose, integration
       services, e2e, CI, and the Kubernetes tutorial
-- [ ] The Kubernetes tutorial is **re-executed**, not merely edited
-- [ ] A database without the extension leaves Kairos serving boards and lexical
-      search, with a loud startup log — not unready
-- [ ] No vector index yet, and the reason is recorded
-- [ ] `angreal test` green, including `angreal test integration` against the new
+- [x] The Kubernetes tutorial is **re-executed**, not merely edited
+- [x] ~~A database without the extension leaves Kairos serving boards and lexical
+      search, with a loud startup log — not unready~~ — **dropped**, and the
+      reasoning is in the Status Updates. [[KAIROS-A-0021]] rule 2 makes pgvector
+      a requirement, not an option; what it gets instead is a pre-flight check
+      that names the extension and what to install, before any migration runs
+- [x] No vector index yet, and the reason is recorded
+- [x] `angreal test` green, including `angreal test integration` against the new
       image
 
 ## Status Updates

@@ -1,0 +1,27 @@
+-- KAIROS-T-0187 (KAIROS-I-0017, KAIROS-A-0021 rule 2): pgvector.
+--
+-- The extension is DATABASE-scoped, not schema-scoped, so it belongs here in
+-- the public tree and not in the per-tenant one. Running it per tenant would be
+-- a hundred no-ops and one race, and `CREATE EXTENSION` is not safe to run
+-- concurrently against the same database.
+--
+-- It is installed into `public` explicitly, and tenant DDL refers to the type as
+-- `public.vector`. Tenant migrations pin `search_path` to the tenant schema
+-- ALONE, which is what stops an unqualified name resolving to a public table by
+-- accident, so anything from public must be qualified there. (`gen_random_uuid()`
+-- is unqualified only because it lives in `pg_catalog`, always searched.)
+--
+-- Rule 2 makes pgvector a REQUIREMENT of the database Kairos is pointed at,
+-- rather than something it degrades without. It is available on RDS, Cloud SQL
+-- and Azure, so "bring your own Postgres" survives; and the alternative — a
+-- schema that differs between deployments, with every later migration having to
+-- ask whether the embedding tables exist — is a fork of the schema maintained
+-- forever to spare a `CREATE EXTENSION`.
+--
+-- So this migration is allowed to fail on a database without pgvector. What
+-- stops that being a bad experience is the pre-flight check in
+-- `kairos_db::migrations::check_required_extensions`, which runs first and says
+-- what is missing and what to do about it, instead of letting PostgreSQL's
+-- "extension \"vector\" is not available" be the whole story.
+
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;

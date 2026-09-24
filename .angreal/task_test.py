@@ -214,7 +214,7 @@ def unit():
         - After changing SQL, tenant isolation, auth, or search code
 
         ## Preconditions
-        - Docker available and able to pull postgres:16 / dexidp/dex
+        - Docker available and able to pull pgvector/pgvector:pg16 / dexidp/dex
 
         ## Examples
         ```

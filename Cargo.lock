@@ -2193,6 +2193,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "uuid",
 ]
@@ -2243,6 +2244,7 @@ dependencies = [
  "kairos-client",
  "kairos-core",
  "kairos-db",
+ "kairos-embed",
  "mime_guess",
  "rand 0.9.4",
  "reqwest",

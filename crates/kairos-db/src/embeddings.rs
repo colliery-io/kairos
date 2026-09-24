@@ -284,7 +284,7 @@ pub fn store_primary(
     Ok(())
 }
 
-/// One chunk ready to store.
+/// One chunk as the caller wants it stored.
 #[derive(Debug, Clone)]
 pub struct ChunkWrite<'a> {
     /// Position within the item.
@@ -297,17 +297,22 @@ pub struct ChunkWrite<'a> {
     pub char_end: i32,
     /// The chunk's text.
     pub text: &'a str,
-    /// Its vector.
-    pub vector: &'a [f32],
     /// Hash of `text`.
     pub content_hash: &'a str,
+    /// The chunk's vector, or `None` to mean **unchanged — leave the stored row
+    /// alone**.
+    ///
+    /// This is where the whole cost argument for chunking cashes out. Metis
+    /// instructs agents to append to a Status Updates section every few tool
+    /// calls and a median document has nine sections, so an append must cost one
+    /// embedding rather than nine. A caller that has compared hashes passes
+    /// `None` for the eight that did not move, and no model is asked about them.
+    pub vector: Option<&'a [f32]>,
 }
 
 /// Which of an item's chunks are already stored and current.
 ///
 /// Returned as `(ordinal, content_hash)` so a caller can embed only what moved.
-/// This is the mechanism behind the cost argument for chunking at all: appending
-/// to one section of a nine-section document should cost one embedding.
 pub fn stored_chunk_hashes(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -336,14 +341,18 @@ pub fn stored_chunk_hashes(
         .collect())
 }
 
-/// Replace an item's chunks with `chunks`, in one transaction.
+/// Bring an item's stored chunks in line with `chunks`, in one transaction.
 ///
-/// Delete-then-insert rather than upsert, unlike [`store_primary`], because
-/// chunk ordinals are **not stable identities**: editing a document can change
-/// how many sections it has, and an upsert keyed on `(item_id, ordinal)` would
-/// leave the tail of a now-shorter document behind as orphaned chunks that still
-/// match queries. The transaction is what stops a reader seeing the gap.
-pub fn replace_chunks(
+/// `chunks` is the **complete** new set, in ordinal order. Chunks carrying a
+/// vector are written; chunks carrying `None` are left exactly as they are; and
+/// any stored chunk beyond the end of the new set is deleted.
+///
+/// That deletion is not tidiness. Chunk ordinals are **positions, not
+/// identities**: editing a document changes how many sections it has, and
+/// without it the tail of a now-shorter document would survive as chunks that
+/// still match queries, forever, citing text the document no longer contains.
+/// The transaction is what stops a reader seeing the gap mid-update.
+pub fn sync_chunks(
     conn: &mut PgConnection,
     item_id: Uuid,
     entity_type: &str,
@@ -351,19 +360,38 @@ pub fn replace_chunks(
     model: &StoredModel,
 ) -> Result<(), EmbeddingError> {
     for c in chunks {
-        check_dimension(c.vector, model.dimension)?;
+        if let Some(v) = c.vector {
+            check_dimension(v, model.dimension)?;
+        }
     }
+    let keep = chunks.len() as i32;
     conn.transaction(|conn| {
-        sql_query("DELETE FROM item_chunks WHERE item_id = $1")
+        sql_query("DELETE FROM item_chunks WHERE item_id = $1 AND ordinal >= $2")
             .bind::<SqlUuid, _>(item_id)
+            .bind::<Integer, _>(keep)
             .execute(conn)?;
         for c in chunks {
+            let Some(vector) = c.vector else {
+                continue;
+            };
             sql_query(format!(
                 "INSERT INTO item_chunks \
                      (item_id, entity_type, ordinal, heading, char_start, char_end, \
                       chunk_text, embedding, provider, model, dimension, content_hash) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::public.vector, $8, $9, $10, $11)",
-                vector_literal(c.vector)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, '{}'::public.vector, $8, $9, $10, $11) \
+                 ON CONFLICT (item_id, ordinal) DO UPDATE SET \
+                     entity_type = EXCLUDED.entity_type, \
+                     heading = EXCLUDED.heading, \
+                     char_start = EXCLUDED.char_start, \
+                     char_end = EXCLUDED.char_end, \
+                     chunk_text = EXCLUDED.chunk_text, \
+                     embedding = EXCLUDED.embedding, \
+                     provider = EXCLUDED.provider, \
+                     model = EXCLUDED.model, \
+                     dimension = EXCLUDED.dimension, \
+                     content_hash = EXCLUDED.content_hash, \
+                     updated_at = now()",
+                vector_literal(vector)
             ))
             .bind::<SqlUuid, _>(item_id)
             .bind::<Text, _>(entity_type)

@@ -17,6 +17,7 @@ pub mod api;
 pub mod app;
 pub mod blocking;
 pub mod config;
+pub mod embedding;
 pub mod error;
 pub mod forge;
 pub mod metrics;

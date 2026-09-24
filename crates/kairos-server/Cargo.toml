@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 kairos-core = { workspace = true }
 kairos-db = { workspace = true }
+kairos-embed = { workspace = true }
 kairos-client = { workspace = true }
 # `r2d2` feeds the small sync pool bridging async handlers to the sync
 # kairos-db services (KAIROS-T-0018, see `src/blocking.rs`).

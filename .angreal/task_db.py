@@ -580,3 +580,86 @@ def schema_sync():
                 "to clean up",
                 file=sys.stderr,
             )
+
+
+@db()
+@angreal.command(
+    name="backfill-embeddings",
+    about="bring every tenant's retrieval vectors up to date",
+    tool=angreal.ToolDescription(
+        """
+        Run the embedding backfill (KAIROS-T-0190, A-0021 rules 3 and 4).
+
+        Asks the database what is still stale and embeds a bounded page at a
+        time, so it is resumable by construction: interrupting it loses at most
+        one page and re-running continues from wherever it actually got to.
+        There is no cursor to persist and none to get out of step with reality.
+
+        Unchanged text is never sent to a model — every text is hashed and
+        compared with what is stored — so a second run over a current tenant
+        does no work at all.
+
+        ## When to use
+        - After enabling embeddings on a deployment that already holds work
+        - After changing KAIROS_EMBED_PROVIDER or the model, which invalidates
+          every stored vector: they are in a different vector space
+        - To catch up a tenant whose writes outran the embedder
+
+        ## Related tasks
+        - `dev fetch-model` - populate the local model cache first, from source
+        - `db seed` - the demo tenant this is usually run against locally
+
+        ## Output
+        Per tenant: items updated, texts embedded, elapsed time, and how many
+        items are now current. Embeddings switched off is reported and succeeds:
+        search falls back to lexical by design.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="tenant", long="tenant", takes_value=True,
+    help="only this tenant slug (default: every tenant)",
+)
+@angreal.argument(
+    name="batch", long="batch", takes_value=True, python_type="int",
+    help="items per page (default 100)",
+)
+@angreal.argument(
+    name="max_batches", long="max-batches", takes_value=True, python_type="int",
+    help="stop after this many pages, to take a bite rather than the whole thing",
+)
+@angreal.argument(
+    name="pause_ms", long="pause-ms", takes_value=True, python_type="int",
+    help="sleep between pages, to throttle a shared or metered provider",
+)
+def backfill_embeddings(tenant=None, batch=None, max_batches=None, pause_ms=None):
+    """Embed whatever is stale, a bounded page at a time."""
+    args = ["embed-backfill"]
+    for flag, value in (
+        ("--tenant", tenant),
+        ("--batch", batch),
+        ("--max-batches", max_batches),
+        ("--pause-ms", pause_ms),
+    ):
+        if value is not None:
+            args += [flag, str(value)]
+
+    env = os.environ.copy()
+    env.setdefault("DATABASE_URL", DATABASE_URL)
+    # A source build has no baked model layer, so point at the cache
+    # `dev fetch-model` fills and let this one path download if asked.
+    env.setdefault("KAIROS_EMBED_CACHE", str(PROJECT_ROOT / "target" / "embed-cache"))
+
+    print("Building kairos-server...", flush=True)
+    code = subprocess.run(
+        ["cargo", "build", "--quiet", "-p", "kairos-server", "--bin", "kairos-server"],
+        cwd=str(PROJECT_ROOT),
+    ).returncode
+    if code:
+        return code
+    return subprocess.run(
+        [str(PROJECT_ROOT / "target" / "debug" / "kairos-server"), *args],
+        cwd=str(PROJECT_ROOT),
+        env=env,
+    ).returncode

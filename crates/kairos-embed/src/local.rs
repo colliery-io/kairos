@@ -65,6 +65,16 @@ const MODEL_NAME: &str = "bge-small-en-v1.5-q";
 /// Vector width, asserted against the model at startup rather than trusted.
 const DIMENSION: usize = 384;
 
+/// What a cache directory for this model is called, once separators are
+/// stripped. Compared against [`normalise`]d directory names.
+const MODEL_CACHE_NEEDLE: &str = "bgesmallenv15";
+
+/// Lowercase and drop the separators that differ between the model's several
+/// spellings — `BGESmallENV15Q`, `bge-small-en-v1.5`, `bge_small_en_v1_5`.
+fn normalise(name: &str) -> String {
+    name.to_lowercase().replace(['-', '_', '.'], "")
+}
+
 /// How many texts go to the model at once.
 ///
 /// Measured at 42 texts/s on the corpus at this size. Batching is not optional
@@ -166,17 +176,20 @@ impl LocalProvider {
     /// duplicating its rules here would rot. Getting this wrong fails loudly in
     /// `try_new` a moment later; the check exists to turn "silently downloads
     /// 65 MB" into "says what is missing".
+    ///
+    /// The separators stripped include `.`, and that is not cosmetic: fastembed
+    /// names the directory `models--Qdrant--bge-small-en-v1.5-onnx-Q`, so a
+    /// needle of `bgesmallenv15` compared against a haystack that still contains
+    /// the dot in `v1.5` never matches. The first version of this did exactly
+    /// that and reported a populated cache as missing — found by running the
+    /// backfill, not by reading the code.
     fn is_cached(config: &LocalConfig) -> bool {
         let Ok(entries) = std::fs::read_dir(&config.cache_dir) else {
             return false;
         };
-        entries.flatten().any(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .to_lowercase()
-                .replace(['-', '_'], "")
-                .contains("bgesmallenv15")
-        })
+        entries
+            .flatten()
+            .any(|e| normalise(&e.file_name().to_string_lossy()).contains(MODEL_CACHE_NEEDLE))
     }
 }
 
@@ -233,6 +246,33 @@ mod tests {
             cache_dir: PathBuf::from("/nonexistent/kairos-embed-test"),
             allow_download: false,
         }));
+    }
+
+    /// The real directory name fastembed creates must read as a hit. This is the
+    /// regression test for the bug above: the name carries `v1.5`, dot and all.
+    #[test]
+    fn the_real_cache_directory_name_is_recognised() {
+        assert!(
+            normalise("models--Qdrant--bge-small-en-v1.5-onnx-Q").contains(MODEL_CACHE_NEEDLE),
+            "fastembed's actual directory name must match the needle"
+        );
+        // And the spellings it is not, so the needle is not trivially true.
+        assert!(!normalise("models--Xenova--all-MiniLM-L6-v2").contains(MODEL_CACHE_NEEDLE));
+        assert!(!normalise("models--Qdrant--bge-base-en-v1.5-onnx-Q").contains(MODEL_CACHE_NEEDLE));
+    }
+
+    /// And end to end through `is_cached`, against a directory on disk.
+    #[test]
+    fn is_cached_is_true_for_a_directory_holding_the_model() {
+        let dir = std::env::temp_dir().join(format!("kairos-embed-hit-{}", std::process::id()));
+        let model = dir.join("models--Qdrant--bge-small-en-v1.5-onnx-Q");
+        std::fs::create_dir_all(&model).unwrap();
+        let cached = LocalProvider::is_cached(&LocalConfig {
+            cache_dir: dir.clone(),
+            allow_download: false,
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(cached, "a populated cache must not read as missing");
     }
 
     /// An empty directory is a miss, not a hit — otherwise an image whose model

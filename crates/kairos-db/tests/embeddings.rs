@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use kairos_db::embeddings::{
     ChunkWrite, EmbeddingError, StoredModel, counts, forget_item, metadata_for, pending_primary,
-    replace_chunks, store_primary, stored_chunk_hashes,
+    store_primary, stored_chunk_hashes, sync_chunks,
 };
 use kairos_db::items::{self, CreateInitiative, CreateTask};
 use kairos_db::models::{
@@ -315,8 +315,8 @@ fn embedding_store_lifecycle() {
             char_start: 0,
             char_end: 10,
             text: "first part",
-            vector: &v0,
             content_hash: "c0",
+            vector: Some(&v0),
         },
         ChunkWrite {
             ordinal: 1,
@@ -324,8 +324,8 @@ fn embedding_store_lifecycle() {
             char_start: 10,
             char_end: 21,
             text: "second part",
-            vector: &v1,
             content_hash: "c1",
+            vector: Some(&v1),
         },
         ChunkWrite {
             ordinal: 2,
@@ -333,11 +333,11 @@ fn embedding_store_lifecycle() {
             char_start: 21,
             char_end: 31,
             text: "third part",
-            vector: &v2,
             content_hash: "c2",
+            vector: Some(&v2),
         },
     ];
-    replace_chunks(&mut conn, one.id, "task", &chunks, &m).expect("storing chunks");
+    sync_chunks(&mut conn, one.id, "task", &chunks, &m).expect("storing chunks");
     assert_eq!(
         stored_chunk_hashes(&mut conn, one.id, &m).expect("hashes"),
         vec![
@@ -356,6 +356,73 @@ fn embedding_store_lifecycle() {
         1
     );
 
+    // ---- an unchanged chunk is NOT rewritten ------------------------------
+    // The cost argument for chunking at all: appending to one section of a
+    // nine-section document must cost one embedding, not nine. A caller that has
+    // compared hashes passes `None` for the chunks that did not move, and this
+    // asserts the stored rows really are left alone rather than rewritten with
+    // identical content — `updated_at` is the witness.
+    #[derive(QueryableByName)]
+    struct Stamp {
+        #[diesel(sql_type = diesel::sql_types::Timestamptz)]
+        updated_at: chrono::DateTime<chrono::Utc>,
+    }
+    let stamps = |conn: &mut PgConnection| -> Vec<chrono::DateTime<chrono::Utc>> {
+        sql_query("SELECT updated_at FROM item_chunks WHERE item_id = $1 ORDER BY ordinal")
+            .bind::<diesel::sql_types::Uuid, _>(one.id)
+            .load::<Stamp>(conn)
+            .expect("stamps")
+            .into_iter()
+            .map(|s| s.updated_at)
+            .collect()
+    };
+    let before = stamps(&mut conn);
+    let v1_new = unit(99);
+    let appended = vec![
+        ChunkWrite {
+            ordinal: 0,
+            heading: Some("Objective"),
+            char_start: 0,
+            char_end: 10,
+            text: "first part",
+            content_hash: "c0",
+            vector: None, // unchanged
+        },
+        ChunkWrite {
+            ordinal: 1,
+            heading: None,
+            char_start: 10,
+            char_end: 24,
+            text: "second part v2",
+            content_hash: "c1-v2",
+            vector: Some(&v1_new), // the section that was appended to
+        },
+        ChunkWrite {
+            ordinal: 2,
+            heading: Some("Status Updates"),
+            char_start: 24,
+            char_end: 34,
+            text: "third part",
+            content_hash: "c2",
+            vector: None, // unchanged
+        },
+    ];
+    sync_chunks(&mut conn, one.id, "task", &appended, &m).expect("incremental sync");
+    let after = stamps(&mut conn);
+    assert_eq!(after.len(), 3);
+    assert_eq!(after[0], before[0], "chunk 0 was not touched");
+    assert!(after[1] > before[1], "chunk 1 was rewritten");
+    assert_eq!(after[2], before[2], "chunk 2 was not touched");
+    assert_eq!(
+        stored_chunk_hashes(&mut conn, one.id, &m).expect("hashes"),
+        vec![
+            (0, "c0".to_string()),
+            (1, "c1-v2".to_string()),
+            (2, "c2".to_string())
+        ],
+        "and only the changed chunk's hash moved"
+    );
+
     // ---- a shortened document must not leave orphans ----------------------
     // This is why chunks are replaced rather than upserted: ordinals are
     // positions, not identities, so an upsert keyed on (item_id, ordinal) would
@@ -366,10 +433,10 @@ fn embedding_store_lifecycle() {
         char_start: 0,
         char_end: 12,
         text: "rewritten",
-        vector: &v0,
         content_hash: "c0-v2",
+        vector: Some(&v0),
     }];
-    replace_chunks(&mut conn, one.id, "task", &shorter, &m).expect("replacing chunks");
+    sync_chunks(&mut conn, one.id, "task", &shorter, &m).expect("replacing chunks");
     assert_eq!(
         stored_chunk_hashes(&mut conn, one.id, &m).expect("hashes"),
         vec![(0, "c0-v2".to_string())],

@@ -215,6 +215,119 @@ fn serve() -> Result<(), String> {
     runtime.block_on(kairos_server::app::serve(config))
 }
 
+/// `embed-backfill [--tenant <slug>] [--batch N] [--max-batches N] [--pause-ms N]`
+/// (KAIROS-T-0190): bring every tenant's vectors up to date.
+///
+/// Resumable by construction rather than by bookkeeping. Each pass asks the
+/// database what is still stale and does a bounded page of it, so interrupting
+/// the command loses at most one page and re-running continues from wherever it
+/// actually got to — there is no cursor to persist and no state to get out of
+/// step with reality.
+///
+/// It is also rate-limitable, because a backfill over a large tenant is a
+/// sustained load on an embedding provider that may be shared, metered, or both.
+/// `--pause-ms` is the throttle; `--max-batches` is how an operator takes a
+/// bite rather than the whole thing.
+///
+/// A provider that is switched off (`KAIROS_EMBED_PROVIDER=none`) is not an
+/// error: retrieval degrades to lexical by design (KAIROS-A-0021 rule 7), so
+/// the command says so and succeeds.
+fn embed_backfill(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+
+    fn flag(args: &[String], name: &str) -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    }
+    fn number(args: &[String], name: &str, default: u64) -> Result<u64, String> {
+        match flag(args, name) {
+            None => Ok(default),
+            Some(v) => v
+                .parse()
+                .map_err(|_| format!("embed-backfill: {name} expects a number, got {v:?}")),
+        }
+    }
+
+    let only = flag(args, "--tenant");
+    let batch = number(args, "--batch", 100)? as i64;
+    let max_batches = number(args, "--max-batches", u64::MAX)?;
+    let pause = Duration::from_millis(number(args, "--pause-ms", 0)?);
+
+    let config =
+        kairos_embed::EmbedConfig::from_env().map_err(|e| format!("embed-backfill: {e}"))?;
+    let Some(provider) = config.build().map_err(|e| format!("embed-backfill: {e}"))? else {
+        println!(
+            "embeddings are disabled (KAIROS_EMBED_PROVIDER=none); nothing to backfill.              Search still works — it falls back to lexical."
+        );
+        return Ok(());
+    };
+    let service = kairos_server::embedding::EmbeddingService::new(provider);
+    println!("backfilling with {}", service.model_display());
+
+    let tenants = kairos_db::list_tenants(conn).map_err(|e| format!("embed-backfill: {e}"))?;
+    let targets: Vec<_> = tenants
+        .into_iter()
+        .filter(|t| t.schema_exists)
+        .filter(|t| only.as_deref().is_none_or(|slug| slug == t.slug))
+        .collect();
+    if targets.is_empty() {
+        println!("no tenants to backfill");
+        return Ok(());
+    }
+
+    for tenant in &targets {
+        let schema = kairos_db::tenant::tenant_schema_name(&tenant.slug);
+        {
+            use diesel::RunQueryDsl;
+            diesel::sql_query(format!("SET search_path TO \"{schema}\"")).execute(conn)
+        }
+        .map_err(|e| format!("embed-backfill: pinning {schema}: {e}"))?;
+
+        let started = Instant::now();
+        let (mut items, mut texts, mut batches) = (0usize, 0usize, 0u64);
+        loop {
+            if batches >= max_batches {
+                println!(
+                    "{}: stopping after {batches} batch(es) as asked",
+                    tenant.slug
+                );
+                break;
+            }
+            let outcome = service
+                .refresh_batch(conn, batch)
+                .map_err(|e| format!("embed-backfill: {}: {e}", tenant.slug))?;
+            batches += 1;
+            items += outcome.items_changed;
+            texts += outcome.texts_embedded;
+
+            // Nothing changed in a whole page means the page was already
+            // current. Since pages are ordered and bounded, and the query only
+            // returns live items, a page that needed no work means this tenant
+            // is done — there is no later page that could need more.
+            if outcome.items_changed == 0 || outcome.items_seen < batch as usize {
+                break;
+            }
+            if !pause.is_zero() {
+                std::thread::sleep(pause);
+            }
+        }
+        let counts = kairos_db::embeddings::counts(conn, service.model())
+            .map_err(|e| format!("embed-backfill: {}: {e}", tenant.slug))?;
+        println!(
+            "{}: {items} item(s) updated, {texts} text(s) embedded in {:.1}s \
+             — {}/{} items now current, {} from another model",
+            tenant.slug,
+            started.elapsed().as_secs_f64(),
+            counts.embedded,
+            counts.items,
+            counts.wrong_model,
+        );
+    }
+    Ok(())
+}
+
 fn run() -> Result<bool, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let subcommand = args.first().map(String::as_str);
@@ -235,9 +348,10 @@ fn run() -> Result<bool, String> {
         Some("migrate-tenants") => migrate_tenants(&mut conn).map(|_| true),
         Some("list-tenants") => list_tenants(&mut conn).map(|_| true),
         Some("seed-demo") => seed_demo(&mut conn, &args[1..]).map(|_| true),
+        Some("embed-backfill") => embed_backfill(&mut conn, &args[1..]).map(|_| true),
         Some(other) => Err(format!(
             "unknown subcommand {other:?}; expected one of: serve, migrate, create-tenant, \
-             drop-tenant, migrate-tenants, list-tenants, seed-demo"
+             drop-tenant, migrate-tenants, list-tenants, seed-demo, embed-backfill"
         )),
     }
 }

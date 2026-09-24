@@ -423,3 +423,104 @@ parent initiative, because an initiative is itself an item and counts like one.
 That is the counts being right, not the test being fragile.
 
 `angreal test integration` green; fmt and clippy clean; 129 `kairos-core` tests.
+
+### 2026-09-24 — the refresh path, and a backfill that actually ran
+
+`kairos_server::embedding::EmbeddingService` joins the three halves:
+[[KAIROS-T-0189]]'s provider, `kairos_core`'s composition and chunking, and the
+store. It decides what needs doing, which is almost always far less than
+everything.
+
+#### Skipping made real, and proven
+
+`sync_chunks` replaced the earlier `replace_chunks`. A chunk's vector is now
+`Option<&[f32]>`, where `None` means **unchanged — leave the stored row alone**,
+and any stored chunk beyond the end of the new set is deleted. That deletion is
+what keeps a shortened document from leaving a tail of chunks that still match
+queries forever, citing text the document no longer contains.
+
+The integration test asserts the saving rather than describing it, using
+`updated_at` as the witness: after appending to one section of a three-section
+document, chunk 0 and chunk 2 have **the same timestamps as before** and only
+chunk 1 was rewritten.
+
+End to end, with a real database and a real provider
+(`crates/kairos-server/tests/embedding_service.rs`):
+
+| write | texts embedded |
+|---|---|
+| first pass, nothing stored | 4 (primary + 3 chunks) |
+| nothing changed | **0** — no model call at all |
+| append to one section | **1**, not 3 |
+| retitle only | 1 (the primary), 0 chunks |
+| switch model | 4 — everything, from scratch |
+
+That last row is deliberate: a content hash written under one model says nothing
+about a vector in a different space, so a model change invalidates rather than
+skips.
+
+Whatever does need embedding goes in **one** provider call per item, so a
+document refresh is one round trip however many sections moved — which for the
+remote provider is one HTTP request rather than nine.
+
+#### The backfill
+
+`kairos-server embed-backfill`, behind `angreal db backfill-embeddings`, with
+`--tenant`, `--batch`, `--max-batches` and `--pause-ms`.
+
+**Resumable by construction rather than by bookkeeping.** Each pass asks the
+database what is still stale and does a bounded page, so interrupting it loses at
+most one page and re-running continues from wherever it really got to. There is
+no cursor to persist and therefore none to get out of step with reality.
+`--pause-ms` throttles a shared or metered provider; `--max-batches` takes a bite
+rather than the whole thing.
+
+Embeddings switched off is **not** an error — it prints that search falls back to
+lexical and succeeds, which is rule 7.
+
+#### It ran, against the demo tenant, with the real model
+
+```
+backfilling with local/bge-small-en-v1.5-q (384d)
+demo: 20 item(s) updated, 41 text(s) embedded in 0.4s — 20/20 current
+demo: 0 item(s) updated, 0 text(s) embedded in 0.0s — 20/20 current
+```
+
+20 primary vectors, 21 chunks, and the second run does nothing. The nearest
+pairs it produces are sensible, which is the first evidence in this initiative
+that the substrate does the job on Kairos's own data rather than on Metis
+documents:
+
+| distance | | |
+|---|---|---|
+| 0.213 | Welcome-email trigger | Password-less email auth |
+| 0.218 | Portal sign-up flow | Self-serve customer onboarding |
+| 0.225 | Invoice webhook handler | Billing provider integration |
+| 0.235 | Billing provider spike | Billing provider integration |
+
+#### A bug that only running it could find
+
+The first backfill refused to start: *"the bge-small-en-v1.5-q model is not in
+target/embed-cache"* — against a directory that plainly had it.
+
+`LocalProvider::is_cached` stripped `-` and `_` from directory names before
+matching, but not `.`, so its needle `bgesmallenv15` was compared against
+`modelsqdrantbgesmallenv1.5onnxq` and never matched. A populated cache read as
+missing. Fixed, with two regression tests: one on fastembed's actual directory
+name, and one through `is_cached` against a directory on disk.
+
+Worth noting what it took to find. Three unit tests covered `is_cached` and all
+three asserted the **negative** cases — missing directory, empty directory —
+because those were the ones I was thinking about. Nothing asserted that a real
+cache reads as present, so the bug sat behind a green suite until something
+actually tried to use it.
+
+#### Gates
+
+`angreal test integration` **45 targets**, unit tier green, fmt and clippy clean.
+
+#### Still to do in this task
+
+The vector index on populated tables and pinning the column type to 384 now the
+model is settled — both of which want data present, which there now is. Embedding
+on the write path (rather than only via the backfill) is the other half.

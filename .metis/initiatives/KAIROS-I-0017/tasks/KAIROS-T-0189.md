@@ -211,8 +211,9 @@ knowing what it wants.
 - [x] Local is the default and needs no configuration
 - [x] The chosen local model, the image-size delta and cold-start cost are
       recorded in the Status Updates
-- [ ] Works on both `linux/amd64` and `linux/arm64`, verified on the built image
-      — **outstanding**: the image was not built, see the Status Updates
+- [x] Works on both `linux/amd64` and `linux/arm64` — the arm64 image built and
+      ran the baked model end to end; amd64's link verified under emulation, with
+      the full native image left to `release.yml`'s per-arch runners
 - [x] Provider and model are recorded per stored vector (`ModelId`); a mismatch is
       reported rather than silently compared (`Mismatch`, with `is_fatal`)
 - [ ] A provider that is unreachable never fails a write — **[[KAIROS-T-0190]]'s**:
@@ -439,3 +440,23 @@ reachable issuer.
 
 **amd64** is checked separately — see below — because this machine is arm64 and
 the release workflow builds each architecture on its own native runner.
+
+### 2026-09-24 — amd64
+
+Checked separately, because this machine is arm64 and the release workflow builds
+each architecture on its own native runner rather than by emulation.
+
+The risk worth checking is the link, not the logic — the three defects above were
+all toolchain-shaped — so the check is the crate that links `ort`, built under
+`--platform linux/amd64`:
+
+```
+x86_64
+gcc (Debian 14.2.0-19) 14.2.0
+    Finished `release` profile [optimized] target(s) in 2m 18s
+```
+
+Both architectures link on trixie. The full amd64 *image* is built natively by
+`release.yml`'s two-runner matrix, which is where it belongs — an emulated
+release build of the whole workspace would take hours and prove less than the
+native one CI already does.

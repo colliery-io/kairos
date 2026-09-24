@@ -206,16 +206,19 @@ column type to the now-known 384 dimensions. None of it is started.
 - [x] No code path keys on a heading's name
 - [x] The primary vector is composed from title, type, repository, team, parent
       title, stamped metadata and opening prose
-- [ ] Appending to one section re-embeds one chunk, proven by a test
-- [ ] Embedding is off the write path; a provider failure leaves the item created
+- [x] Appending to one section re-embeds one chunk, proven by a test
+- [x] Embedding is off the write path; a provider failure leaves the item created
       and lexically retrievable
-- [ ] `angreal` drives a resumable, idempotent, rate-limitable backfill
-- [ ] Un-embedded and stale counts are observable
-- [ ] The vector index is created on populated tables, with parameters and build
+- [x] `angreal` drives a resumable, idempotent, rate-limitable backfill
+- [x] Un-embedded and stale counts are observable (`counts`, and the backfill
+      prints them per tenant)
+- [x] The vector index is created on populated tables, with parameters and build
       time recorded
-- [ ] The real pairwise cosine distribution over the seeded tenant is measured
+- [x] The real pairwise cosine distribution over the seeded tenant is measured
       and recorded in the Status Updates
-- [ ] `angreal test` green
+- [x] `angreal test` green across every tier after the write-path change: unit,
+      integration (45 targets), e2e (16), uat (22 journeys + the drift gate);
+      fmt and clippy clean
 
 ## Status Updates
 

@@ -4,14 +4,14 @@ level: task
 title: "Close out: document retrieval in the book, a UAT journey, and the drift gate"
 short_code: "KAIROS-T-0193"
 created_at: 2026-09-24T02:28:04.847090+00:00
-updated_at: 2026-09-24T21:52:18.170837+00:00
+updated_at: 2026-09-24T22:09:43.459533+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0188, KAIROS-T-0191, KAIROS-T-0192]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -88,6 +88,8 @@ has to exist before it can be documented truthfully.
 - `docs.yml` publishes on pushes touching `docs/**`, so these pages go live
   without a version bump. They must be true of the released version or clearly
   marked as unreleased.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

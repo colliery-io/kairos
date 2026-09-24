@@ -287,30 +287,47 @@ fn embed_backfill(conn: &mut PgConnection, args: &[String]) -> Result<(), String
 
         let started = Instant::now();
         let (mut items, mut texts, mut batches) = (0usize, 0usize, 0u64);
-        loop {
-            if batches >= max_batches {
-                println!(
-                    "{}: stopping after {batches} batch(es) as asked",
-                    tenant.slug
-                );
-                break;
-            }
-            let outcome = service
-                .refresh_batch(conn, batch)
-                .map_err(|e| format!("embed-backfill: {}: {e}", tenant.slug))?;
-            batches += 1;
-            items += outcome.items_changed;
-            texts += outcome.texts_embedded;
+        // A FULL PAGED SCAN, repeated while anything changes.
+        //
+        // Not a single pass from offset 0: `pending_primary` returns a page, and
+        // a page that needed no work says nothing about the pages after it. An
+        // earlier version stopped as soon as one page was current and left
+        // everything beyond it unembedded — the same bug the background sweep
+        // had, found by running the whole UAT suite.
+        //
+        // Repeating while changed is what covers staleness too: embedding a page
+        // reorders never-embedded rows out of the front, so a second scan sees
+        // what the first shifted past. It terminates because each scan that
+        // changes nothing ends it, and there are finitely many items.
+        'scans: loop {
+            let mut changed_this_scan = false;
+            let mut offset = 0i64;
+            loop {
+                if batches >= max_batches {
+                    println!(
+                        "{}: stopping after {batches} batch(es) as asked",
+                        tenant.slug
+                    );
+                    break 'scans;
+                }
+                let outcome = service
+                    .refresh_page(conn, batch, offset)
+                    .map_err(|e| format!("embed-backfill: {}: {e}", tenant.slug))?;
+                batches += 1;
+                items += outcome.items_changed;
+                texts += outcome.texts_embedded;
+                changed_this_scan |= outcome.items_changed > 0;
 
-            // Nothing changed in a whole page means the page was already
-            // current. Since pages are ordered and bounded, and the query only
-            // returns live items, a page that needed no work means this tenant
-            // is done — there is no later page that could need more.
-            if outcome.items_changed == 0 || outcome.items_seen < batch as usize {
-                break;
+                if outcome.items_seen < batch as usize {
+                    break;
+                }
+                offset += batch;
+                if !pause.is_zero() {
+                    std::thread::sleep(pause);
+                }
             }
-            if !pause.is_zero() {
-                std::thread::sleep(pause);
+            if !changed_this_scan {
+                break;
             }
         }
         let counts = kairos_db::embeddings::counts(conn, service.model())

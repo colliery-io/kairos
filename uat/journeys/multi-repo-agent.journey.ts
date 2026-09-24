@@ -47,6 +47,7 @@ journey(
     let webTask = '';
     let rankedFirst = '';
     let rankedSecond = '';
+    let proposedTarget = '';
 
     await step(alice, 'creates one agent and puts it on both teams, so it spans all three repositories (setup)', async () => {
       const cli = await alice.cli();
@@ -277,6 +278,142 @@ journey(
       return {
         open_per_repository: ALL_REPOS.map((r) => `${r}: ${perRepo[r]}`),
         next_up: `${filedCrossRepo} in ${PLATFORM_REPO}`,
+      };
+    });
+
+
+    // ---- the retrieval arc (KAIROS-T-0193, A-0021 rules 5-7) ----------------
+    // This is where the initiative's whole claim gets exercised as a persona
+    // would: the agent asks what is related BEFORE starting, is shown work
+    // nobody linked, proposes the edge, and a human decides. It sits here
+    // because the step above is the agent choosing what to pick up next, which
+    // is exactly when a person would ask.
+
+    await step(agent, 'asks what is related before starting, and is given proposals rather than answers', async () => {
+      const mcp = await agent.mcp();
+      // Embedding happens OFF the write path (A-0021 rule 7), so newly filed
+      // work is not instantly retrievable — it is picked up by a background
+      // sweep. Waiting is what a real caller does; asserting immediacy would
+      // test a mechanism the product deliberately does not have.
+      let text = '';
+      await expect
+        .poll(
+          async () => {
+            text = await mcp.call('related_work', { short_code: filedCrossRepo });
+            return text.includes('Ranked across text and meaning');
+          },
+          {
+            timeout: 60_000,
+            message: 'the background refresher should embed newly filed work',
+          },
+        )
+        .toBe(true);
+      // Rule 6 lives in the wording, not only in the documentation: an agent
+      // told flatly that something blocks it will do wrong work confidently.
+      expect(text).toContain('PROPOSALS, not findings');
+      expect(text).toMatch(/possible dependency|possible duplicate|prior art/);
+      // It says which sources answered, so a thin answer is distinguishable
+      // from a complete one (rule 7).
+      expect(text).toMatch(/Ranked across text and meaning|Text only/);
+      // Read the PROPOSAL lines only. The header names the item asked about
+      // ("# Possibly related to DEMO-T-0014"), so scanning the whole response
+      // would find it there and report a bug the retrieval does not have — the
+      // queries exclude the subject by id.
+      const proposalLines = text.split('\n').filter((l) => l.startsWith('- **'));
+      const suggested = shortCodes(proposalLines.join('\n'));
+      expect(suggested.length, 'it proposed something').toBeGreaterThan(0);
+      expect(suggested, 'it does not propose the item itself').not.toContain(filedCrossRepo);
+      return {
+        asked_about: filedCrossRepo,
+        proposed: suggested.slice(0, 3),
+        wording: 'proposals, not findings',
+      };
+    });
+
+    await step(agent, `proposes the link it can see between ${PLATFORM_REPO} and ${WEB_REPO}, and cannot confirm it`, async () => {
+      const mcp = await agent.mcp();
+      // A second cross-repo task, so the proposal is about a genuinely unlinked
+      // pair rather than the one the agent already linked by hand.
+      const text = await mcp.call('create_item', {
+        item_type: 'task',
+        title: named('portal: surface the corrected total in the invoice list'),
+        repository: WEB_REPO,
+        content: `The invoice list shows the same refund total as the detail page, so it \
+          inherits whatever ${PLATFORM_REPO} decides about rounding.`,
+      });
+      [proposedTarget] = shortCodes(text);
+      const api = await alice.api();
+      ledger.add({ kind: 'task', label: proposedTarget, delete: async () => { await api.delete(`/api/tasks/${proposedTarget}`); } });
+
+      const said = await mcp.call('propose_edge', {
+        source: filedCrossRepo,
+        target: proposedTarget,
+        relationship: 'blocks',
+        why: 'Both depend on the same rounding decision; the portal list cannot be right until the service is.',
+      });
+      expect(said).toContain('NOT an edge yet');
+      // The blocked badge must NOT appear yet — a proposal changes nothing.
+      const item = await mcp.call('get_item', { short_code: proposedTarget });
+      expect(item, 'nothing is linked until a person says so').not.toContain(filedCrossRepo);
+      return {
+        proposed: `${filedCrossRepo} blocks ${proposedTarget}`,
+        is_an_edge_yet: false,
+        tool_said: said.split('\n')[0].slice(0, 120),
+      };
+    });
+
+    await step(alice, 'sees the suggestion on the card, with the agent\'s reasoning, and confirms it', async () => {
+      const api = await alice.api();
+      const pending = await api.get(`/api/items/${proposedTarget}/proposals`);
+      expect(pending.length, 'waiting on the item itself, not in a queue').toBe(1);
+      expect(pending[0].state).toBe('pending');
+      expect(
+        pending[0].why,
+        'the agent\'s own words reach the person deciding, not a label',
+      ).toContain('same rounding decision');
+
+      const confirmed = await api.post(`/api/proposals/${pending[0].id}/confirm`, {});
+      expect(confirmed.state).toBe('confirmed');
+
+      // NOW it is an edge.
+      const mcp = await alice.mcp();
+      const item = await mcp.call('get_item', { short_code: proposedTarget });
+      expect(item, 'confirming created the real relationship').toContain(filedCrossRepo);
+      return {
+        reviewed: proposedTarget,
+        reasoning_shown: 'the agent\'s own words',
+        edge_now_exists: `${filedCrossRepo} blocks ${proposedTarget}`,
+      };
+    });
+
+    await step(agent, 'is refused when it tries to decide for itself', async () => {
+      const mcp = await agent.mcp();
+      const text = await mcp.call('create_item', {
+        item_type: 'task',
+        title: named('portal: unrelated housekeeping'),
+        repository: WEB_REPO,
+      });
+      const [spare] = shortCodes(text);
+      const api = await alice.api();
+      ledger.add({ kind: 'task', label: spare, delete: async () => { await api.delete(`/api/tasks/${spare}`); } });
+      await mcp.call('propose_edge', {
+        source: filedCrossRepo,
+        target: spare,
+        relationship: 'blocks',
+        why: 'Filed to check that an agent cannot rule on its own suggestion.',
+      });
+
+      // The agent has no confirm tool at all — deciding is not an agent's to
+      // do — and the REST route refuses its key as well.
+      const tools = await mcp.listTools();
+      expect(tools, 'there is no confirm tool for an agent to reach for').not.toContain('confirm_proposal');
+      const pending = await (await alice.api()).get(`/api/items/${spare}/proposals`);
+      const agentApi = await agent.api();
+      const refused = await agentApi.raw('POST', `/api/proposals/${pending[0].id}/confirm`, {});
+      expect(refused.status, 'a service account may propose but not decide').toBe(403);
+      return {
+        agent_has_confirm_tool: false,
+        rest_refusal: `${refused.status} ${refused.body?.error?.code ?? ''}`.trim(),
       };
     });
 

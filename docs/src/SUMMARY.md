@@ -39,6 +39,7 @@ checklist.
 
 - [Give an agent machine access](how-to/give-an-agent-machine-access.md)
 - [Connect over MCP](how-to/connect-over-mcp.md)
+- [Configure semantic retrieval](how-to/configure-retrieval.md)
 
 # Reference
 
@@ -67,3 +68,4 @@ checklist.
 - [Capabilities and access](explanation/capabilities-and-access.md)
 - [Archiving](explanation/archiving.md)
 - [Repositories as execution scope](explanation/repositories-as-execution-scope.md)
+- [Finding related work](explanation/finding-related-work.md)

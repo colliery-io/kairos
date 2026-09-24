@@ -180,8 +180,16 @@ fn check_dimension(vector: &[f32], declared: usize) -> Result<(), EmbeddingError
 /// in rather than computing it here keeps the composition rules in
 /// `kairos_core::primary` where they are tested, instead of duplicated in SQL.
 ///
-/// Ordered by `short_code` so a resumable backfill walks the same sequence every
-/// run; `limit` bounds the page.
+/// **Never-embedded items first**, then by `short_code`, with `limit`/`offset`
+/// paging the rest. Both halves of that ordering are load-bearing, and the
+/// second was added after a bug that only a full-scale run could find.
+///
+/// A background sweep takes one page per tick. Ordered by `short_code` alone and
+/// always from offset 0, it took *the same* page every time — so once the first
+/// 25 items were current it did no work for ever, and item 26 was never embedded
+/// at all. The caller pages through and wraps; putting never-embedded rows first
+/// means genuinely new work is still picked up promptly rather than waiting for
+/// the cursor to come round to it.
 ///
 /// **Archived items are included.** Not an oversight: prior art in finished work
 /// is one of the three claims retrieval exists to make (KAIROS-T-0191), and
@@ -194,6 +202,7 @@ pub fn pending_primary(
     conn: &mut PgConnection,
     model: &StoredModel,
     limit: i64,
+    offset: i64,
 ) -> Result<Vec<PendingItem>, EmbeddingError> {
     // The 1:1 structural inputs rule 4 asks for. `repository` and `team` are
     // task-level attributes, so they LEFT JOIN through `tasks` and are NULL for
@@ -218,15 +227,30 @@ pub fn pending_primary(
            ON rel.target_id = s.id AND rel.relationship = 'parent' \
          LEFT JOIN entity_directory p \
            ON p.id = rel.source_id AND p.deleted_at IS NULL \
-         ORDER BY s.short_code \
-         LIMIT $4",
+         ORDER BY (e.item_id IS NULL) DESC, s.short_code \
+         LIMIT $4 OFFSET $5",
     )
     .bind::<Text, _>(&model.provider)
     .bind::<Text, _>(&model.model)
     .bind::<Integer, _>(model.dimension as i32)
     .bind::<BigInt, _>(limit)
+    .bind::<BigInt, _>(offset)
     .load::<PendingItem>(conn)?;
     Ok(rows)
+}
+
+/// How many items a sweep has to walk to cover a tenant once.
+pub fn item_count(conn: &mut PgConnection) -> Result<i64, EmbeddingError> {
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = BigInt)]
+        count: i64,
+    }
+    Ok(
+        sql_query("SELECT count(*)::bigint AS count FROM searchable_items")
+            .get_result::<Row>(conn)?
+            .count,
+    )
 }
 
 /// Stamped metadata for a batch of items, as `(item_id, label, value)`.

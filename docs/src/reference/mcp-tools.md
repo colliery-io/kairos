@@ -388,6 +388,75 @@ Removes a relationship edge. Arguments and gating are identical to
 Refuses: as `link_items`, except that a `relationship` with no such edge
 between those items is `NOT_FOUND`.
 
+## Finding related work
+
+### `related_work`
+
+Work that may be related to an item: possible duplicates, prior art in finished
+or put-away work, and dependencies nobody drew.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The item to find related work for. |
+| `limit` | integer | no | 5 | Proposals to return. Clamped to 1–10. |
+
+Returns a short markdown list. Each line carries a **claim**, and one of three:
+
+| claim | means |
+|---|---|
+| `possible dependency` | similar, and no edge joins them and they share no parent |
+| `possible duplicate` | similar, and they already hang off the same parent |
+| `prior art` | similar, and the other item is finished or put away |
+
+Under each, a sentence saying what matched — text, meaning, or both — the literal
+heading of the section it matched in, and what the graph did or did not know.
+
+The response begins by saying which sources answered. `Ranked across text and
+meaning` is a full answer; `Text only` is a **degraded** one — real, but it will
+have missed work phrased differently. See
+[Configure semantic retrieval](../how-to/configure-retrieval.md).
+
+Results are **bounded** and the wording is deliberate: every line says *possible*
+or *prior art*, never *blocks* or *duplicates*. At the measured precision about
+half of the strongest matches are genuinely related, so these are suggestions to
+check rather than facts to act on — the reasoning is
+[why](../explanation/finding-related-work.md).
+
+Items already joined by an edge are not returned: there is nothing to propose and
+nothing you cannot already see.
+
+Returns a plain note, not an error, when the deployment has embeddings disabled.
+
+### `propose_edge`
+
+Proposes a `parent` or `blocks` edge for a **human** to confirm. It does not
+create the edge.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `source` | string | yes | — | Source item's short code. For `parent`, this is the parent. |
+| `target` | string | yes | — | Target item's short code. |
+| `relationship` | string | yes | — | `parent` or `blocks`. Nothing else may be proposed. |
+| `why` | string | yes | — | Your reasoning, in your own words. Kept verbatim and shown to whoever decides. |
+
+There is deliberately **no confirm or reject tool**. Deciding is a person's, and
+an agent cannot rule on its own suggestion — a wrong `parent` edge re-parents
+work onto a board that reports to people who will believe it, and nobody
+re-reads an edge once it exists.
+
+The proposal appears on both items in the interface, with your reasoning, for
+someone to accept or decline. Confirming creates the real edge, and is refused by
+the same cycle and rule checks that refuse any other edge.
+
+Refuses: `VALIDATION` for a relationship outside `parent`/`blocks` or a short
+code naming no live item; `CONFLICT` when an identical proposal is already
+waiting, or when the item already holds ten undecided ones — decide some rather
+than adding more.
+
+Only `parent` and `blocks` are proposable. `supports`, `informs` and `supersedes`
+are editorial, cheap to undo, and remain a person's to draw with
+[`link_items`](#link_items).
+
 ## Archiving
 
 ### `delete_item`

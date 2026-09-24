@@ -141,7 +141,7 @@ fn embedding_store_lifecycle() {
     assert_eq!(c.missing(), 2, "both are behind");
     assert_eq!(c.wrong_model, 0);
 
-    let pending = pending_primary(&mut conn, &m, 100).expect("pending");
+    let pending = pending_primary(&mut conn, &m, 100, 0).expect("pending");
     assert_eq!(pending.len(), 2);
     assert!(
         pending.iter().all(|p| p.stored_hash.is_none()),
@@ -215,7 +215,7 @@ fn embedding_store_lifecycle() {
         .execute(&mut conn)
         .expect("stamping metadata");
 
-    let pending = pending_primary(&mut conn, &m, 100).expect("pending");
+    let pending = pending_primary(&mut conn, &m, 100, 0).expect("pending");
     let enriched = pending
         .iter()
         .find(|p| p.id == one.id)
@@ -252,7 +252,7 @@ fn embedding_store_lifecycle() {
     assert_eq!(c.items, 3);
     assert_eq!(c.missing(), 2);
 
-    let pending = pending_primary(&mut conn, &m, 100).expect("pending");
+    let pending = pending_primary(&mut conn, &m, 100, 0).expect("pending");
     let stored = pending
         .iter()
         .find(|p| p.id == one.id)
@@ -273,7 +273,7 @@ fn embedding_store_lifecycle() {
         1,
         "upsert, not a second row"
     );
-    let pending = pending_primary(&mut conn, &m, 100).expect("pending");
+    let pending = pending_primary(&mut conn, &m, 100, 0).expect("pending");
     assert_eq!(
         pending
             .iter()
@@ -469,7 +469,7 @@ fn embedding_store_lifecycle() {
         c.wrong_model, 1,
         "they count as wrong-model, which is what an operator needs to see"
     );
-    let pending = pending_primary(&mut conn, &other, 100).expect("pending");
+    let pending = pending_primary(&mut conn, &other, 100, 0).expect("pending");
     assert!(
         pending.iter().all(|p| p.stored_hash.is_none()),
         "and every item reads as never embedded under the new model, so a \

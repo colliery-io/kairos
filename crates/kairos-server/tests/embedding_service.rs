@@ -109,7 +109,7 @@ fn refreshing_embeds_only_what_changed() {
     let model = service.model().clone();
 
     let one = |conn: &mut PgConnection| {
-        let items = pending_primary(conn, &model, 10).expect("pending");
+        let items = pending_primary(conn, &model, 10, 0).expect("pending");
         let item = items
             .into_iter()
             .find(|i| i.id == task.id)
@@ -163,7 +163,7 @@ fn refreshing_embeds_only_what_changed() {
     );
 
     // ---- a title change DOES move the primary vector ----------------------
-    let reloaded = pending_primary(&mut conn, &model, 10)
+    let reloaded = pending_primary(&mut conn, &model, 10, 0)
         .expect("pending")
         .into_iter()
         .find(|i| i.id == task.id)
@@ -227,6 +227,109 @@ fn refreshing_embeds_only_what_changed() {
 struct VersionRow {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     version: i32,
+}
+
+/// A sweep must reach past its first page (KAIROS-T-0193).
+///
+/// The regression test for a bug no smaller run could find. `refresh_batch` took
+/// the first page by short code every time, so once those were current it
+/// reported "nothing to do" for ever and items after them were never embedded at
+/// all. It survived every earlier test because every earlier fixture was smaller
+/// than one page.
+#[test]
+fn a_sweep_reaches_items_beyond_the_first_page() {
+    const SCRATCH: &str = "kairos_sweep_paging_test";
+    let admin_url = admin_database_url();
+    let mut admin = PgConnection::establish(&admin_url)
+        .unwrap_or_else(|e| panic!("cannot connect to compose postgres at {admin_url}: {e}"));
+    sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH} WITH (FORCE)"))
+        .execute(&mut admin)
+        .expect("dropping scratch");
+    sql_query(format!("CREATE DATABASE {SCRATCH}"))
+        .execute(&mut admin)
+        .expect("creating scratch");
+    let url = with_database(&admin_url, SCRATCH);
+
+    let mut conn = PgConnection::establish(&url).expect("connecting");
+    run_public_migrations(&mut conn).expect("public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning");
+    let alice = diesel::insert_into(schema::users::table)
+        .values(NewUser {
+            external_id: "dex|alice".into(),
+            email: "alice@acme.test".into(),
+            display_name: "Alice".into(),
+        })
+        .returning(schema::users::id)
+        .get_result::<Uuid>(&mut conn)
+        .expect("alice");
+    let board = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery",
+        "delivery",
+        None,
+        Some(alice),
+    )
+    .expect("board")
+    .id;
+
+    // Three pages' worth at the page size used below.
+    const PAGE: i64 = 5;
+    for i in 0..(PAGE * 3) {
+        items::create_task(
+            &mut conn,
+            CreateTask {
+                board_id: board,
+                column_id: None,
+                title: &format!("Item {i:03}"),
+                content: &document(&format!("Body {i:03}")),
+                task_type: TaskType::Task,
+                work_class: WorkClass::Planned,
+                team_id: None,
+                repository_id: None,
+            },
+            alice,
+        )
+        .expect("task");
+    }
+
+    let provider: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+    let service = EmbeddingService::new(provider);
+    let model = service.model().clone();
+
+    // Repeated pages from offset 0 — exactly what the sweep used to do. It must
+    // converge now, because never-embedded rows sort to the front.
+    for _ in 0..10 {
+        if service
+            .refresh_batch(&mut conn, PAGE)
+            .unwrap()
+            .items_changed
+            == 0
+        {
+            break;
+        }
+    }
+    let c = counts(&mut conn, &model).expect("counts");
+    assert_eq!(
+        c.missing(),
+        0,
+        "every item is embedded, not just the first page: {c:?}"
+    );
+
+    // And paging explicitly reaches the far end: a third page exists and is
+    // disjoint from the first, which offset-0-only never returns.
+    let far = kairos_db::embeddings::pending_primary(&mut conn, &model, PAGE, PAGE * 2)
+        .expect("the third page");
+    assert_eq!(far.len() as i64, PAGE, "a third page exists");
+    let first =
+        kairos_db::embeddings::pending_primary(&mut conn, &model, PAGE, 0).expect("the first page");
+    assert!(
+        far.iter().all(|f| !first.iter().any(|x| x.id == f.id)),
+        "the third page is disjoint from the first — the cursor really moves"
+    );
 }
 
 /// The background refresher embeds work that arrives after it started

@@ -362,6 +362,22 @@ def _gui_server_env(env, extra=None):
         # (without these the connection endpoints answer 501).
         "KAIROS_PUBLIC_URL": E2E_GUI_BASE_URL,
         "KAIROS_WEBHOOK_SIGNING_KEY": "e2e-webhook-signing-key",
+        # KAIROS-T-0193: retrieval is a tested surface, so the test server runs
+        # the real local model rather than degrading to lexical. Without the
+        # cache the provider declines to start (by design — an image is built
+        # with it populated), and `related_work` would answer "not enabled on
+        # this deployment" while every assertion about proposals quietly passed
+        # for the wrong reason. Downloading is allowed HERE and nowhere else:
+        # this is a test harness on a developer machine or a CI runner, not a
+        # deployment.
+        "KAIROS_EMBED_CACHE": str(PROJECT_ROOT / "target" / "embed-cache"),
+        "KAIROS_EMBED_ALLOW_DOWNLOAD": "1",
+        # Two seconds rather than the default ten, and deliberately NOT zero:
+        # embedding happens off the write path by design, so a journey that
+        # created an item and immediately expected a vector would be testing a
+        # mechanism the product does not have. The journey waits, as a real
+        # caller would.
+        "KAIROS_EMBED_REFRESH_SECS": "2",
     })
     if extra:
         gui_env.update(extra)

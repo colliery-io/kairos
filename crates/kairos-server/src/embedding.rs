@@ -250,7 +250,24 @@ impl EmbeddingService {
         conn: &mut diesel::pg::PgConnection,
         limit: i64,
     ) -> Result<BatchOutcome, RefreshError> {
-        let items = pending_primary(conn, &self.model, limit)?;
+        self.refresh_page(conn, limit, 0)
+    }
+
+    /// One page of a sweep, starting at `offset`.
+    ///
+    /// The offset is what makes a repeating sweep converge. Without it, a
+    /// background pass took the same first page every tick, did no work once
+    /// those were current, and never reached anything after them — a tenant's
+    /// twenty-sixth item stayed unembedded for ever. Found by running the whole
+    /// UAT suite, which creates enough work to get past one page; no smaller
+    /// test could have shown it.
+    pub fn refresh_page(
+        &self,
+        conn: &mut diesel::pg::PgConnection,
+        limit: i64,
+        offset: i64,
+    ) -> Result<BatchOutcome, RefreshError> {
+        let items = pending_primary(conn, &self.model, limit, offset)?;
         let ids: Vec<uuid::Uuid> = items.iter().map(|i| i.id).collect();
 
         // One metadata query for the page, not one per item.
@@ -313,6 +330,10 @@ pub async fn run_refresher(
         model = %service.model_display(),
         "embedding refresher started"
     );
+    // Where the next page starts, per tenant. Held here rather than in the
+    // database: it is a fairness hint, not state — losing it on restart costs
+    // one extra pass over an already-current page.
+    let mut cursors: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     let mut ticker = tokio::time::interval(interval);
     // A slow sweep must not cause a burst of catch-up ticks afterwards.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -336,21 +357,33 @@ pub async fn run_refresher(
         for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
             let service = Arc::clone(&service);
             let slug = tenant.slug.clone();
+            let offset = *cursors.get(&slug).unwrap_or(&0);
             let outcome = blocking
                 .run(&tenant.slug, move |conn| {
-                    service
-                        .refresh_batch(conn, batch)
-                        .map_err(crate::error::ApiError::internal)
+                    let total = kairos_db::embeddings::item_count(conn)
+                        .map_err(crate::error::ApiError::internal)?;
+                    let outcome = service
+                        .refresh_page(conn, batch, offset)
+                        .map_err(crate::error::ApiError::internal)?;
+                    // Advance, and wrap at the end so the sweep keeps cycling —
+                    // an edit to an item anywhere in the tenant is picked up on
+                    // the next time round rather than never.
+                    let next = offset + batch;
+                    Ok((outcome, if next >= total { 0 } else { next }))
                 })
                 .await;
             match outcome {
-                Ok(o) if o.items_changed > 0 => tracing::info!(
-                    tenant = %slug,
-                    items = o.items_changed,
-                    texts = o.texts_embedded,
-                    "embedded"
-                ),
-                Ok(_) => {}
+                Ok((o, next)) => {
+                    cursors.insert(slug.clone(), next);
+                    if o.items_changed > 0 {
+                        tracing::info!(
+                            tenant = %slug,
+                            items = o.items_changed,
+                            texts = o.texts_embedded,
+                            "embedded"
+                        );
+                    }
+                }
                 Err(e) => tracing::warn!(tenant = %slug, error = ?e, "embedding refresh failed"),
             }
         }

@@ -4,14 +4,14 @@ level: task
 title: "Edge proposals: an agent proposes a relationship, a human confirms it"
 short_code: "KAIROS-T-0192"
 created_at: 2026-09-24T02:28:01.844440+00:00
-updated_at: 2026-09-24T21:30:39.576212+00:00
+updated_at: 2026-09-24T21:52:12.841080+00:00
 parent: KAIROS-I-0017
 blocked_by: [KAIROS-T-0191]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,8 @@ people. A proposal costs a click. A wrong edge costs a conversation.
   whatever check the existing parent-assignment path already has — not a new one.
 - Rejections are data. Report the confirm/reject ratio somewhere an operator can
   see, because it is the only honest measure of whether this feature works.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

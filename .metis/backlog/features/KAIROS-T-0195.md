@@ -105,3 +105,31 @@ Consequences to carry into implementation:
 
 This is initiative-sized once the tutorial and UAT journey are counted, so it
 wants decomposing rather than doing as one task.
+
+### 2026-09-25 — sizing corrected: a task, not an initiative
+
+I said this was initiative-sized and it is not. I had not checked what already
+exists, and reasoned from [[KAIROS-T-0193]]'s "retrieval has no human surface" as
+though it meant nothing existed — when it meant the *asking* did not.
+
+What is already built:
+
+- **`GET /api/items/{short_code}/related`** ([[KAIROS-T-0191]]) — fully
+  documented, bounded, `503 EMBEDDINGS_DISABLED` when embeddings are off rather
+  than an empty list dressed as "nothing is related", and a `vector: false` flag
+  marking a degraded text-only answer.
+- **`RelatedWorkResponse`/`RelatedProposal` DTOs** in `kairos-client`.
+- **`EdgeProposalsPanel`** on the item page ([[KAIROS-T-0192]]) — a human already
+  sees agent-made proposals there and can confirm or reject them.
+
+What is actually missing:
+
+1. A client method to call `/related` — neither `kairos-client` nor
+   `kairos-web/src/api.rs` has one. The DTO is there; nothing fetches it.
+2. A "Possibly related" panel on the item page that asks, handling the 503 and the
+   degraded case.
+3. The tutorial moment, as browser steps.
+4. Coverage.
+
+That is one task. Doing it as this ticket rather than decomposing an initiative
+around it.

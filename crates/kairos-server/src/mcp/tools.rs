@@ -50,7 +50,7 @@ use kairos_db::models::templates::Template;
 use kairos_db::search::{SearchError, SearchResults};
 use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
-use crate::api::meta::{manage_capability, require_edge_capability, validate_metadata_value};
+use crate::api::meta::{manage_capability, require_edge_capability, validated_metadata_ops};
 use crate::api::{
     Liveness, map_abac_error, map_board_error, map_graph_error, map_item_error, parse_enum,
     require_capability, resolve_short_code,
@@ -1387,32 +1387,18 @@ impl KairosMcp {
         let user = auth.user_id;
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
-            use kairos_db::models::templates::{MetadataDefinition, NewItemMetadata};
-            use kairos_db::schema::{item_metadata, metadata_definitions as definitions};
+            use kairos_db::models::templates::NewItemMetadata;
+            use kairos_db::schema::item_metadata;
 
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             authorize_item_write(conn, &slug, user, &item)?;
 
-            // Phase 1 — resolve + validate every entry (no writes yet); a
-            // bad entry rejects the whole call (A-0003, same as the API).
-            let mut ops: Vec<(Uuid, Option<String>)> = Vec::with_capacity(params.values.len());
-            for (definition_slug, value) in &params.values {
-                let definition: MetadataDefinition = definitions::table
-                    .filter(definitions::slug.eq(definition_slug))
-                    .select(MetadataDefinition::as_select())
-                    .first(conn)
-                    .optional()
-                    .map_err(ApiError::internal)?
-                    .ok_or_else(|| {
-                        ApiError::validation(format!(
-                            "unknown metadata definition slug {definition_slug:?}"
-                        ))
-                    })?;
-                if let Some(value) = value {
-                    validate_metadata_value(conn, &definition, value)?;
-                }
-                ops.push((definition.id, value.clone()));
-            }
+            // Phase 1 — resolve + validate every entry (no writes yet); a bad
+            // entry rejects the whole call (A-0003). The SAME function the REST
+            // handler calls (KAIROS-T-0096): this loop used to be a copy that
+            // had drifted, missing the KAIROS-T-0078 entity-type scoping guard,
+            // so MCP would stamp a documents-only definition onto a task.
+            let ops = validated_metadata_ops(conn, item.item_type, &params.values)?;
 
             // Phase 2 — apply atomically (same shape as the API handler).
             conn.transaction::<_, diesel::result::Error, _>(|conn| {

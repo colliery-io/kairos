@@ -276,6 +276,70 @@ pub fn validate_metadata_value(
     }
 }
 
+/// Resolve and validate every entry of a metadata write, writing nothing.
+///
+/// Phase 1 of both the REST `PATCH .../metadata` handler and the MCP
+/// `set_metadata` tool. **It is shared on purpose** (KAIROS-T-0096): the two
+/// loops used to be near-identical copies, and the KAIROS-T-0078 entity-type
+/// scoping guard landed on the REST copy only. So an agent could stamp a
+/// documents-only definition like `document_type` onto a task through MCP,
+/// while the GUI refused the same write with a 422 and never offered the field.
+///
+/// That is the shape of bug worth designing against rather than fixing twice.
+/// Agents are a first-class writer here (KAIROS-A-0011), so MCP is not a side
+/// door with relaxed rules — and any future rule added to one path would have
+/// gone the same way. There is now one path to add it to.
+///
+/// A bad entry rejects the whole write: nothing is applied until every entry
+/// validates (KAIROS-A-0003).
+pub fn validated_metadata_ops(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    values: &std::collections::BTreeMap<String, Option<String>>,
+) -> Result<Vec<(Uuid, Option<String>)>, ApiError> {
+    use kairos_db::schema::metadata_definitions as definitions;
+
+    let mut ops: Vec<(Uuid, Option<String>)> = Vec::with_capacity(values.len());
+    for (definition_slug, value) in values {
+        let definition: MetadataDefinition = definitions::table
+            .filter(definitions::slug.eq(definition_slug))
+            .select(MetadataDefinition::as_select())
+            .first(conn)
+            .optional()
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| {
+                ApiError::validation(format!(
+                    "unknown metadata definition slug {definition_slug:?}"
+                ))
+            })?;
+
+        // KAIROS-T-0078: entity-type scoping is enforced on the write path, not
+        // merely hidden in pickers. Clearing an out-of-scope value stays
+        // allowed, deliberately — that is how an item gets rid of a value some
+        // earlier version let it acquire, and refusing the cleanup would strand
+        // exactly the rows this guard is meant to prevent.
+        if value.is_some()
+            && !kairos_db::items::definition_applies_to(
+                conn,
+                definition.id,
+                item_type.entity_type(),
+            )
+            .map_err(ApiError::internal)?
+        {
+            return Err(ApiError::validation(format!(
+                "metadata definition {definition_slug:?} does not apply to {} items",
+                item_type.entity_type()
+            )));
+        }
+
+        if let Some(value) = value {
+            validate_metadata_value(conn, &definition, value)?;
+        }
+        ops.push((definition.id, value.clone()));
+    }
+    Ok(ops)
+}
+
 /// An item's metadata values hydrated with their definitions, ordered by
 /// definition slug — the shared payload of the metadata GET and PATCH.
 pub fn item_metadata_response(

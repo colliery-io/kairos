@@ -17,11 +17,10 @@ use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use kairos_client::types_meta as dto;
 use kairos_db::abac;
-use kairos_db::models::templates::{MetadataDefinition, NewItemMetadata};
-use uuid::Uuid;
+use kairos_db::models::templates::NewItemMetadata;
 
 use super::{
-    item_metadata_response, manage_capability, resolve_family_item, validate_metadata_value,
+    item_metadata_response, manage_capability, resolve_family_item, validated_metadata_ops,
 };
 use crate::api::Liveness;
 use crate::api::{map_abac_error, require_capability};
@@ -104,44 +103,10 @@ pub(crate) async fn update_metadata(
             let board = abac::resolve_authorization_board(conn, item_id).map_err(map_abac_error)?;
             require_capability(conn, &slug, board, user, manage_capability(item_type))?;
 
-            // Phase 1 — resolve + validate every entry (no writes yet):
-            // a bad entry rejects the whole PATCH.
-            use kairos_db::schema::metadata_definitions as definitions;
-            let mut ops: Vec<(Uuid, Option<String>)> = Vec::with_capacity(body.values.len());
-            for (definition_slug, value) in &body.values {
-                let definition: MetadataDefinition = definitions::table
-                    .filter(definitions::slug.eq(definition_slug))
-                    .select(MetadataDefinition::as_select())
-                    .first(conn)
-                    .optional()
-                    .map_err(ApiError::internal)?
-                    .ok_or_else(|| {
-                        ApiError::validation(format!(
-                            "unknown metadata definition slug {definition_slug:?}"
-                        ))
-                    })?;
-                // KAIROS-T-0078: entity-type scoping is enforced on the
-                // write path, not just hidden in pickers. Clears of
-                // out-of-scope values are still allowed (cleanup).
-                if value.is_some()
-                    && !kairos_db::items::definition_applies_to(
-                        conn,
-                        definition.id,
-                        item_type.entity_type(),
-                    )
-                    .map_err(ApiError::internal)?
-                {
-                    return Err(ApiError::validation(format!(
-                        "metadata definition {definition_slug:?} does not apply to \
-                         {} items",
-                        item_type.entity_type()
-                    )));
-                }
-                if let Some(value) = value {
-                    validate_metadata_value(conn, &definition, value)?;
-                }
-                ops.push((definition.id, value.clone()));
-            }
+            // Phase 1 — resolve + validate every entry (no writes yet): a bad
+            // entry rejects the whole PATCH. Shared with MCP `set_metadata`
+            // (KAIROS-T-0096), which is where the T-0078 guard used to be absent.
+            let ops = validated_metadata_ops(conn, item_type, &body.values)?;
 
             // Phase 2 — apply all upserts/deletes in one transaction.
             use kairos_db::schema::item_metadata;

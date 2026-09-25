@@ -659,6 +659,60 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(err.contains("YYYY-MM-DD"), "{err}");
 
+    // --- KAIROS-T-0096: set_metadata respects entity-type scoping ------------
+    //
+    // The KAIROS-T-0078 scoping guard was enforced on the REST path only, so an
+    // agent could stamp a documents-only definition onto a task through MCP
+    // while the GUI refused the identical write with a 422 and never offered the
+    // field. Agents are a first-class writer (KAIROS-A-0011), so MCP is not a
+    // side door with relaxed rules.
+    //
+    // `document_type` is scoped to `document` in the system defaults; `priority`
+    // is unscoped.
+    let err = session
+        .call_err(
+            "set_metadata",
+            json!({
+                "short_code": task_code,
+                "values": {"document_type": "prd"},
+            }),
+        )
+        .await;
+    assert!(
+        err.contains("document_type") && err.contains("does not apply to"),
+        "the refusal must name the definition and the entity type: {err}"
+    );
+
+    // An in-scope definition on the same item still works, so the guard is
+    // scoping and not simply refusing metadata over MCP.
+    let text = session
+        .call_ok(
+            "set_metadata",
+            json!({
+                "short_code": task_code,
+                "values": {"priority": "high"},
+            }),
+        )
+        .await;
+    assert!(text.contains("priority"), "{text}");
+
+    // And a CLEAR of an out-of-scope definition stays allowed, on purpose: it is
+    // how an item sheds a value some earlier version let it acquire, and
+    // refusing the cleanup would strand exactly the rows the guard prevents.
+    let text = session
+        .call_ok(
+            "set_metadata",
+            json!({
+                "short_code": task_code,
+                "values": {"document_type": null},
+            }),
+        )
+        .await;
+    assert!(
+        !text.to_lowercase().contains("does not apply"),
+        "clearing an out-of-scope value must be allowed: {text}"
+    );
+
     // --- get_item: full content, placement, version, parent chain -----------
     let text = session
         .call_ok("get_item", json!({"short_code": task_code}))

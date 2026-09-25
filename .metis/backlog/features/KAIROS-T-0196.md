@@ -89,3 +89,30 @@ variables that went nowhere. Two were the reverse defect (documented, never
 forwarded) and were fixed. This one was the forward defect: offered, documented,
 and read by nothing. Removing it was the honest fix for a bug ticket; adding the
 feature it was pretending to be is this ticket.
+
+## Decision — 2026-09-25 (Dylan)
+
+**Wire it up properly.** Kairos exports OTLP traces; the removed switch comes back
+connected to something.
+
+Against my recommendation, which was to record "no traces" in an ADR on the
+grounds that metrics plus structured logs is enough for a single-binary self-hosted
+product. Taking the decision as made: the argument for tracing is that `/metrics`
+answers "is it up" and logs answer "what happened", and neither answers "which of
+these eleven queries made the board take four seconds" — which is the question an
+operator actually has, and the one this product has no answer to.
+
+Scope, from the notes above plus what T-0177's test now enforces:
+
+- `opentelemetry`, `opentelemetry-otlp`, `tracing-opentelemetry`, layered onto the
+  subscriber `KAIROS_LOG_FORMAT` already configures.
+- `KAIROS_OTEL_ENDPOINT` read by `config.rs`. **This is what makes it real**: the
+  [[KAIROS-T-0177]] drift test fails on a variable the deployments set and the
+  binary does not read, in either direction — so the chart value cannot come back
+  without the code, and the code cannot land without the chart value.
+- The chart value, the compose variable, and
+  `docs/src/reference/configuration.md` restored together.
+- **A sampling decision, which is the real design work.** Tracing every request
+  against a work-item board buys a lot of storage to learn very little. Head
+  sampling with a configurable ratio is the cheap answer; tail sampling needs a
+  collector and is the operator's business, not ours.

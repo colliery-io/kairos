@@ -76,3 +76,32 @@ Whoever picks this up should read
 first. The counter-intuitive part — *a good answer here often looks like a weak
 one* — is a presentation problem, and presenting these as though they were search
 results would undo the care taken in the wording elsewhere.
+
+## Decision — 2026-09-25 (Dylan)
+
+**GUI panel first.** A "Possibly related" section on the item detail page, where
+someone already is when the question occurs to them — rather than a `kairos
+related` CLI verb.
+
+Noted against my own recommendation, which was the CLI verb on the grounds that it
+was smaller and would unblock the tutorial [[KAIROS-T-0193]] could not write. The
+counter-argument is the stronger one: the CLI verb is reachable but not
+*discoverable*, and "didn't we try this?" is a question people have while looking
+at the work, not while composing a command. A panel is where the question actually
+arrives.
+
+Consequences to carry into implementation:
+
+- The tutorial step becomes browser steps rather than a CLI line, so it belongs in
+  `run-kairos-locally.md`'s existing browser section.
+- The panel needs the proposal wording to survive into a visual design — "possibly
+  related", the claim type, and the *why*. The whole point of
+  [[KAIROS-A-0021]] rule 5 is that these are proposals, and a UI that renders them
+  as a confident list of links would undo that in a way the MCP text cannot.
+- `propose_edge` already exists for agents; the panel needs the human side of the
+  same flow, which [[KAIROS-T-0192]] built the confirm/reject for. So this is
+  mostly a read surface plus a button that already has a backend.
+- A CLI verb is still worth having later, and is now explicitly *not* blocking.
+
+This is initiative-sized once the tutorial and UAT journey are counted, so it
+wants decomposing rather than doing as one task.

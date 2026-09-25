@@ -97,3 +97,37 @@ touches `user_name`, and that is when the missing fallback became obvious.
 Already described accurately in `reference/scim.md` ("is JIT-provisioned as a
 **second** user row, without the membership"), so an operator who reads the
 reference is warned. Nothing tracked fixing it.
+
+## Decision — 2026-09-25 (Dylan)
+
+**Fall back to email, but only on a verified claim.**
+
+```
+match users.external_id == claims.sub
+  else if claims.email_verified == true  -> match users.email
+  else                                    -> create a new row (today's behaviour)
+```
+
+The trust boundary is explicit and narrow: Kairos believes the IdP when it asserts
+`email_verified`, and believes nothing otherwise. That matters because the failure
+mode of a looser rule is not a duplicate row, it is **one user binding to another
+user's identity** — an IdP that lets someone set an unverified email would
+otherwise let them claim a provisioned account with that address.
+
+An IdP that omits `email_verified` falls through to creating a row, which is
+exactly what happens today, so no deployment gets worse.
+
+Not chosen, and why it is worth recording: gating on "a SCIM-provisioned row nobody
+has logged into yet" trusts no new claim at all, but needs a column to track first
+login and only ever helps the first login. The verified-email rule is simpler and
+also fixes the case where a person's row was created by an earlier JIT login.
+
+To carry into implementation:
+
+- `A-0010` gains the trust boundary in writing — which claim is believed, and what
+  stops it being used to bind to someone else's row.
+- On adopting a row, `external_id` is UPDATED to the presented `sub`, so the next
+  login takes the fast path. That write is the whole point; without it the fallback
+  runs for ever.
+- The integration test from the acceptance criteria, plus a negative: the same
+  shape with `email_verified` absent or false must still create a second row.

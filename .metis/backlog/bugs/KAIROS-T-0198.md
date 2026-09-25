@@ -100,3 +100,26 @@ The two honest options:
 the right reason. Not fixed there because it is an upstream component and a
 Kairos-side workaround would have hidden it — the GUI has a lot of forms, and this
 affects all of them.
+
+## Decision — 2026-09-25 (Dylan)
+
+**Generated `id` + `for`, inside the component.**
+
+`TextInput` mints a unique id per instance and the label points at it. Chosen over
+wrapping the input in the label (which associates implicitly but makes the label the
+layout parent, constraining the existing `.cl-field` CSS) and over a caller-supplied
+`id` prop (which touches every call site and lets one be forgotten).
+
+The deciding point is that only this option makes the label *clickable*, which is a
+usability gain for every user rather than only for assistive technology — and it
+leaves the markup shape alone, so no stylesheet has to change.
+
+Implementation note: Leptos has no `useId`, so the component needs its own
+counter. A process-wide `AtomicUsize` is sufficient — ids only have to be unique
+within a document, and the CSR bundle is one document.
+
+This is an upstream change in `colliery-io-aurora`, so it lands there, gets a
+release, and reaches Kairos as a version bump. The audit of the other form
+components (`Switch`, `Select`, anything else pairing a label with a control) goes
+in the same pass — this one clearly was not caught by anything, so the others are
+unlikely to be better.

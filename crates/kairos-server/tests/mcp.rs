@@ -468,6 +468,13 @@ async fn mcp_endpoint_against_live_stack() {
         .expect("grant manage_tasks");
     abac::grant_capability(&mut conn, delivery.id, alice, "transition_items", alice)
         .expect("grant transition_items");
+    // KAIROS-T-0178: needed to create an ADR over MCP and prove
+    // `decision_date` persists. An explicit narrow grant, in keeping with the
+    // rest of this fixture — alice stays a plain member with no admin bypass,
+    // which is what makes the ABAC assertions further down mean anything.
+    let adr_board = board_id_of(&mut conn, BoardLevel::Adr);
+    abac::grant_capability(&mut conn, adr_board, alice, "manage_adrs", alice)
+        .expect("grant manage_adrs");
     sql_query("SET search_path TO public")
         .execute(&mut conn)
         .expect("resetting search_path");
@@ -579,6 +586,78 @@ async fn mcp_endpoint_against_live_stack() {
         "{text}"
     );
     let task_code = extract_code(&text, "ACME-T-");
+
+    // --- KAIROS-T-0178: a bucket initiative and a dated ADR, over MCP --------
+    //
+    // Both fields were hardcoded `None` in the tool, so an initiative created
+    // over MCP could never be a bucket at all â while `get_item` happily
+    // reported `bucket:` on read. Asserted through get_item rather than the
+    // create response, because the question is whether the value was PERSISTED.
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "initiative",
+                "title": "Keeping the flux capacitor serviced",
+                "bucket_type": "tech_debt",
+            }),
+        )
+        .await;
+    let bucket_code = extract_code(&text, "ACME-I-");
+    let text = session
+        .call_ok("get_item", json!({"short_code": bucket_code}))
+        .await;
+    assert!(
+        text.contains("- bucket: tech_debt"),
+        "bucket_type must reach the row, not just the request: {text}"
+    );
+
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "adr",
+                "title": "Use a DeLorean",
+                "decision_maker": "alice",
+                "decision_date": "1985-10-26",
+            }),
+        )
+        .await;
+    let adr_code = extract_code(&text, "ACME-A-");
+    let text = session
+        .call_ok("get_item", json!({"short_code": adr_code}))
+        .await;
+    assert!(text.contains("- decision_date: 1985-10-26"), "{text}");
+    assert!(text.contains("- decision_maker: alice"), "{text}");
+
+    // Wrong item_type is refused by name, as the other per-type fields are.
+    let err = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "not an initiative",
+                "bucket_type": "tech_debt",
+            }),
+        )
+        .await;
+    assert!(
+        err.contains("bucket_type") && err.contains("initiatives"),
+        "the refusal must name the field and the type it belongs to: {err}"
+    );
+
+    // And a malformed date is a typed refusal, not a silently dropped field.
+    let err = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "adr",
+                "title": "badly dated",
+                "decision_date": "26-10-1985",
+            }),
+        )
+        .await;
+    assert!(err.contains("YYYY-MM-DD"), "{err}");
 
     // --- get_item: full content, placement, version, parent chain -----------
     let text = session
@@ -797,11 +876,13 @@ async fn mcp_endpoint_against_live_stack() {
     assert!(text.contains("NOT_FOUND"), "{text}");
 
     // --- NFR-1.3: every mutation above landed in activity_log ---------------
-    // 3 creates (board create wrote none: system-provisioned), 1 transition,
-    // 1 delete — written by the SAME services the API handlers call.
+    // 4 item creates — the initiative, its task, and (KAIROS-T-0178) the bucket
+    // initiative and the dated ADR. The board create wrote none: it is
+    // system-provisioned. Plus 1 transition and 1 delete, all written by the
+    // SAME services the API handlers call.
     assert_eq!(
         activity_count(&mut conn, alice, "create"),
-        2,
+        4,
         "item creates"
     );
     assert_eq!(activity_count(&mut conn, alice, "transition"), 1);

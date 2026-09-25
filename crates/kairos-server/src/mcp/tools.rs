@@ -254,8 +254,22 @@ pub struct CreateItemParams {
     pub hypothesis: Option<String>,
     /// Initiatives only: t-shirt complexity xs | s | m | l | xl.
     pub complexity: Option<String>,
+    /// Initiatives only: makes this a BUCKET rather than a dated initiative
+    /// (KAIROS-A-0002) — tech_debt | bug | ad_hoc. `is_bucket` is derived from
+    /// it. Omit for an ordinary initiative.
+    pub bucket_type: Option<String>,
     /// ADRs only: who makes/made the decision.
     pub decision_maker: Option<String>,
+    /// ADRs only: the decision's date, YYYY-MM-DD.
+    pub decision_date: Option<String>,
+    //
+    // There is deliberately NO `column` / `column_id` here (KAIROS-T-0178).
+    // Every item lands in its board's entry column, and `transition_item` is
+    // the only way work moves. Placing an item directly would bypass the
+    // transition graph the board exists to enforce — an agent could skip
+    // states a human cannot. The absence is documented in the tool description
+    // rather than left silent, because an agent reading the schema cannot ask
+    // whether a missing field is a restriction or an omission.
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -1059,7 +1073,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: pass `repository` (slug/UUID) to issue the task against a codebase; it routes to the owning team's delivery board. Any member may create a task against another team's repository — it lands in that board's Backlog for their triage. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: pass `repository` (slug/UUID) to issue the task against a codebase; it routes to the owning team's delivery board. Any member may create a task against another team's repository — it lands in that board's Backlog for their triage. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -2534,10 +2548,24 @@ fn create_item_impl(
             "initiatives",
         )?;
     }
+    if item_type != ItemType::Initiative {
+        reject_field(
+            "bucket_type",
+            params.bucket_type.as_ref(),
+            item_type,
+            "initiatives",
+        )?;
+    }
     if item_type != ItemType::Adr {
         reject_field(
             "decision_maker",
             params.decision_maker.as_ref(),
+            item_type,
+            "ADRs",
+        )?;
+        reject_field(
+            "decision_date",
+            params.decision_date.as_ref(),
             item_type,
             "ADRs",
         )?;
@@ -2694,6 +2722,13 @@ fn create_item_impl(
                 .as_deref()
                 .map(|v| parse_enum(v, "complexity", Complexity::ALL))
                 .transpose()?;
+            // Same parse as POST /api/initiatives, so the three surfaces agree
+            // on the vocabulary and on the error text (KAIROS-T-0178).
+            let bucket_type = params
+                .bucket_type
+                .as_deref()
+                .map(|v| parse_enum(v, "bucket_type", BucketType::ALL))
+                .transpose()?;
             let created = items::create_initiative(
                 conn,
                 items::CreateInitiative {
@@ -2702,7 +2737,7 @@ fn create_item_impl(
                     title: &params.title,
                     content,
                     complexity,
-                    bucket_type: None,
+                    bucket_type,
                 },
                 user,
             )
@@ -2747,6 +2782,18 @@ fn create_item_impl(
             (created.short_code, created.title, created.id)
         }
         ItemType::Adr => {
+            // Same parse and same message as POST /api/adrs.
+            let decision_date = params
+                .decision_date
+                .as_deref()
+                .map(|value| {
+                    value.parse::<chrono::NaiveDate>().map_err(|_| {
+                        ApiError::validation(format!(
+                            "decision_date must be YYYY-MM-DD, got {value:?}"
+                        ))
+                    })
+                })
+                .transpose()?;
             let created = items::create_adr(
                 conn,
                 items::CreateAdr {
@@ -2755,7 +2802,7 @@ fn create_item_impl(
                     title: &params.title,
                     content,
                     decision_maker: params.decision_maker.as_deref(),
-                    decision_date: None,
+                    decision_date,
                 },
                 user,
             )
@@ -3084,4 +3131,147 @@ fn render_search_results(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, St
         }
     }
     out
+}
+
+#[cfg(test)]
+mod create_item_parity_tests {
+    //! KAIROS-T-0178: three surfaces create work items — the CLI, REST, and this
+    //! MCP tool — and they drifted apart silently.
+    //!
+    //! `bucket_type` was the one that mattered: an initiative created over MCP
+    //! could never be a bucket, because `create_item` hardcoded `None`. An agent
+    //! reading the tool schema saw no such field and had no way to know whether
+    //! that was a deliberate restriction or an omission. `get_item` reported
+    //! `bucket` on read, which made it worse: the concept was visible and
+    //! unreachable.
+    //!
+    //! This test diffs the MCP parameter names against the REST create requests,
+    //! which are the widest surface. Deliberate differences live in
+    //! `DELIBERATELY_ABSENT` with a reason each, so the next divergence is either
+    //! a decision someone wrote down or a failing test.
+
+    use std::collections::BTreeSet;
+
+    /// Field names declared by a `pub struct X { .. }` block in some source.
+    fn struct_fields(source: &str, name: &str) -> BTreeSet<String> {
+        let header = format!("pub struct {name} {{");
+        let start = source
+            .find(&header)
+            .unwrap_or_else(|| panic!("{name} not found"))
+            + header.len();
+        let body = &source[start..];
+        let end = body
+            .find("\n}")
+            .unwrap_or_else(|| panic!("{name} unterminated"));
+        body[..end]
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim();
+                let rest = line.strip_prefix("pub ")?;
+                let (field, _) = rest.split_once(':')?;
+                (!field.contains(' ')).then(|| field.to_string())
+            })
+            .collect()
+    }
+
+    fn read(rel: &str) -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// REST fields `create_item` deliberately does not take, each with the reason
+    /// it does not. Adding an entry here is a decision; leaving one out is a bug.
+    const DELIBERATELY_ABSENT: &[(&str, &str)] = &[
+        (
+            "column_id",
+            "Every item is created in its board's entry column, and transition_item \
+             is the only way work moves. Accepting a column would let an agent \
+             place an item past states the board's transition graph exists to \
+             enforce — something a human using the GUI cannot do.",
+        ),
+        (
+            "board_id",
+            "MCP takes `board` instead, a slug OR uuid, and defaults it when the \
+             tenant has exactly one board of the right level. Strictly wider.",
+        ),
+        ("template_id", "MCP takes `template`, by id OR name."),
+        (
+            "repository_id",
+            "MCP takes `repository`, by slug OR uuid, which also routes the task.",
+        ),
+        (
+            "team_id",
+            "Derived from the repository's owning team by the shared routing \
+             helper; accepting it separately would let the two disagree.",
+        ),
+        (
+            "parent_short_code",
+            "MCP takes `parent`, which is the same thing under a shorter name — a \
+             short code, the identifier an agent actually has, since short codes \
+             are what every other tool returns.",
+        ),
+    ];
+
+    #[test]
+    fn create_item_covers_every_rest_create_field() {
+        let mcp = struct_fields(&read("src/mcp/tools.rs"), "CreateItemParams");
+        let dtos = read("../kairos-client/src/types.rs");
+
+        let mut rest = BTreeSet::new();
+        for request in [
+            "CreateStrategyRequest",
+            "CreateInitiativeRequest",
+            "CreateTaskRequest",
+            "CreateDocumentRequest",
+            "CreateAdrRequest",
+        ] {
+            rest.extend(struct_fields(&dtos, request));
+        }
+
+        let excused: BTreeSet<&str> = DELIBERATELY_ABSENT.iter().map(|(f, _)| *f).collect();
+        let missing: Vec<&String> = rest
+            .iter()
+            .filter(|f| !mcp.contains(*f) && !excused.contains(f.as_str()))
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "REST can set these on create and the MCP tool cannot: {missing:?}\n\
+             Kairos treats agents as a first-class audience, so a field an agent \
+             cannot set is a capability an agent does not have. Either add it to \
+             CreateItemParams, or add it to DELIBERATELY_ABSENT with the reason \
+             and say so in the tool description — an agent reading the schema \
+             cannot ask why a field is missing."
+        );
+    }
+
+    #[test]
+    fn the_two_fields_an_agent_could_not_reach_are_reachable() {
+        // Named, because these are the ones that were actually broken:
+        // bucket_type made buckets unreachable over MCP entirely.
+        let mcp = struct_fields(&read("src/mcp/tools.rs"), "CreateItemParams");
+        for field in ["bucket_type", "decision_date"] {
+            assert!(mcp.contains(field), "create_item lost {field}");
+        }
+    }
+
+    #[test]
+    fn the_absence_of_column_is_documented_not_merely_true() {
+        // A silent absence is the defect this ticket was filed about, so the
+        // reason has to be where an agent will read it: the tool description.
+        let source = read("src/mcp/tools.rs");
+        let start = source
+            .find("description = \"Create a work item")
+            .expect("create_item tool description");
+        let description = &source[start..start + 1400];
+        assert!(
+            description.contains("no `column` argument"),
+            "the create_item description must state that `column` is deliberately \
+             excluded, and why"
+        );
+        assert!(
+            description.contains("bucket_type"),
+            "the create_item description must mention bucket_type"
+        );
+    }
 }

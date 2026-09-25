@@ -229,7 +229,9 @@ Creates a work item and returns its new short code.
 | `work_class` | string | no | `support` for support-type tasks, otherwise `planned` | Tasks only. `planned`, `support`. |
 | `hypothesis` | string | no | — | Strategies only. |
 | `complexity` | string | no | — | Initiatives only. `xs`, `s`, `m`, `l`, `xl`. |
+| `bucket_type` | string | no | — | Initiatives only. `tech_debt`, `bug`, `ad_hoc`. Makes the initiative a bucket rather than a dated one; `is_bucket` is derived from it. |
 | `decision_maker` | string | no | — | ADRs only. |
+| `decision_date` | string | no | — | ADRs only. `YYYY-MM-DD`. |
 
 `board` may be omitted when the tenant has exactly one live board of the
 matching level. Documents take no board: they inherit their parent's board for
@@ -239,14 +241,20 @@ Any member may create a task against another team's repository. It lands in
 that board's Backlog behind the owning team's triage, through the computed
 `file_backlog` capability.
 
-`create_item` has no column argument: a new item always lands in its board's
-first column. It also has no `bucket_type` and no `decision_date`, both of which
-the CLI's `create` verbs accept — an initiative created over MCP is never a
-bucket, and an ADR created over MCP carries no decision date. Both fields are
-readable through `get_item` and settable through the REST API.
+**`create_item` has no column argument, and that is deliberate.** A new item
+always lands in its board's first column, and `transition_item` is the only way
+work moves. Accepting a column would let an agent place an item past states the
+board's transition graph exists to enforce — something a person using the GUI
+cannot do. The restriction is stated rather than left to be inferred, because an
+agent reading the schema cannot ask whether a missing field is a rule or an
+oversight.
+
+`bucket_type` and `decision_date` used to be missing too, which was an oversight
+rather than a rule: an initiative created over MCP could never be a bucket, and
+both fields were already *readable* through `get_item`. They are accepted now.
 
 Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
-`work_class` or `complexity` outside its vocabulary; for a type-specific
+`work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
 argument passed with the wrong `item_type`, naming the type it belongs to; for a
 document without `parent`, or whose parent is not a strategy, initiative or
 task; for a `parent` that does not name a live item; for an unknown template,

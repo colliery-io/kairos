@@ -17,7 +17,7 @@ tags:
 
 exit_criteria_met: false
 initiative_id: NULL
-
+---
 # Archived work loses its content: a soft-deleted item and its history both 404
 
 ## Objective

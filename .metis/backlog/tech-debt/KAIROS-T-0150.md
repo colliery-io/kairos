@@ -4,19 +4,20 @@ level: task
 title: "CLI: kairos tasks create --board should take a slug like every other board reference"
 short_code: "KAIROS-T-0150"
 created_at: 2026-09-23T10:23:34.950030+00:00
-updated_at: 2026-09-23T10:23:34.950030+00:00
+updated_at: 2026-09-25T02:00:40.825307+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#tech-debt"
+  - "#phase/todo"
 
 
 exit_criteria_met: false
 initiative_id: NULL
+---
 
 # CLI: kairos tasks create --board should take a slug like every other board reference
 
@@ -41,6 +42,8 @@ So the one command a person is most likely to type first is the one that makes t
 `crates/kairos-cli/src/commands/entities.rs`: `TaskCreateArgs.board` is passed straight through as `board_id`. The server already resolves slugs for the move endpoint via a board-by-ref helper in `crates/kairos-server/src/api/tasks.rs` (`board_id_by_ref`) — the cheapest fix is for `POST /api/tasks` to accept a slug in `board_id` the same way, which also fixes the MCP and HTTP callers rather than papering over it in the CLI alone. Decide which layer resolves: doing it server-side keeps one rule; doing it CLI-side keeps the wire type strict. My preference is server-side, matching `--repo`.
 
 Also check `strategies|initiatives|adrs create --board` for the same wart while you are there.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

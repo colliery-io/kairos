@@ -4,14 +4,14 @@ level: initiative
 title: "Team Lifecycle - Delete a Team Once Its Board Is Clear, Move Tasks Between Delivery Boards"
 short_code: "KAIROS-I-0012"
 created_at: 2026-09-23T01:49:01.122765+00:00
-updated_at: 2026-09-23T01:51:51.555536+00:00
+updated_at: 2026-09-25T00:04:00.000959+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

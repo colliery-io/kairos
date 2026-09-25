@@ -4,14 +4,14 @@ level: initiative
 title: "More User Journeys - The Stories the UAT Tier Does Not Tell Yet"
 short_code: "KAIROS-I-0014"
 created_at: 2026-09-23T03:40:55.286890+00:00
-updated_at: 2026-09-23T03:46:37.734227+00:00
+updated_at: 2026-09-25T00:04:33.609637+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false

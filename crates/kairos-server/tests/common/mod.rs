@@ -209,6 +209,11 @@ pub fn base_config(scratch_url: &str) -> AppConfig {
         // unconfigured 501 path clear these on a copy.
         public_url: Some("https://kairos.test".to_string()),
         webhook_signing_key: Some("test-webhook-signing-key".to_string()),
+        // KAIROS-T-0196: no trace export in tests. Spans are still created — the
+        // request span is unconditional — they just go nowhere, which is what an
+        // unconfigured deployment does too.
+        otel_endpoint: None,
+        otel_sample_ratio: 1.0,
     }
 }
 

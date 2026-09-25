@@ -202,6 +202,8 @@ mod tests {
             web_client_secret: None,
             public_url: None,
             webhook_signing_key: None,
+            otel_endpoint: None,
+            otel_sample_ratio: 1.0,
         }
     }
 

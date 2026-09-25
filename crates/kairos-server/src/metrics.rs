@@ -187,14 +187,59 @@ pub async fn track_metrics(State(state): State<AppState>, req: Request, next: Ne
         .map(|m| m.as_str().to_string())
         .unwrap_or_else(|| "unmatched".to_string());
 
+    // KAIROS-T-0196: one span per request, which is what makes the OTLP export
+    // worth having.
+    //
+    // Wiring the exporter was necessary and not sufficient: before this, Kairos
+    // created NO spans anywhere — no TraceLayer, no #[instrument], nothing — so a
+    // configured collector received an empty stream and the feature looked broken
+    // rather than absent. Found by pointing the exporter at a fake collector and
+    // getting zero posts.
+    //
+    // It lives here rather than in a tower-http TraceLayer because this
+    // middleware already wraps the whole router and already computes the route
+    // pattern, the status and the tenant. Adding a dependency to re-derive them
+    // would be the worse trade.
+    //
+    // `route` is the MATCHED PATTERN, never the concrete path — the same reason
+    // the metrics labels use it. A span name carrying real ids would make every
+    // request its own operation in a collector's UI, which is how you turn a
+    // trace view into a list.
+    let span = tracing::info_span!(
+        "http.request",
+        otel.name = %format!("{method} {route}"),
+        otel.kind = "server",
+        http.request.method = %method,
+        http.route = %route,
+        // Filled after the response, hence Empty: a span's fields are fixed at
+        // creation, so anything known only afterwards has to be reserved now.
+        http.response.status_code = tracing::field::Empty,
+        otel.status_code = tracing::field::Empty,
+        kairos.tenant = tracing::field::Empty,
+    );
+
     let start = Instant::now();
-    let response = next.run(req).await;
+    let response = {
+        use tracing::Instrument as _;
+        next.run(req).instrument(span.clone()).await
+    };
     let elapsed = start.elapsed().as_secs_f64();
+
+    let status = response.status();
+    span.record("http.response.status_code", status.as_u16());
+    // OpenTelemetry's span status is a three-state thing (unset/ok/error), and
+    // only 5xx is OUR error: a 404 or a 403 is the server working correctly, and
+    // marking those as errors would make every permission check look like an
+    // incident.
+    if status.is_server_error() {
+        span.record("otel.status_code", "ERROR");
+    }
 
     state
         .metrics
-        .record_http(&method, &route, response.status().as_u16(), elapsed);
+        .record_http(&method, &route, status.as_u16(), elapsed);
     if let Some(tenant) = response.extensions().get::<TenantContext>() {
+        span.record("kairos.tenant", tenant.slug.as_str());
         state.metrics.record_tenant(&tenant.slug);
     }
     response

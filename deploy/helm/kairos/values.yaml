@@ -205,6 +205,22 @@ config:
     # -- KAIROS_LOG_FORMAT — json (default) or pretty.
     format: json
 
+  # -- Trace export (KAIROS-T-0196). Off unless `endpoint` is set: no exporter is
+  # built and no span leaves the process.
+  otel:
+    # -- KAIROS_OTEL_ENDPOINT — the OTLP/HTTP **traces** endpoint. Note the path
+    # and the port: Kairos exports over HTTP (4318), not gRPC (4317), so this is
+    # e.g. `http://otel-collector.observability:4318/v1/traces`. Pointing it at a
+    # gRPC port gives you a connection that accepts and then rejects the payload,
+    # which is a confusing way to find out.
+    endpoint: ""
+    # -- KAIROS_OTEL_SAMPLE_RATIO — head sampling, 0.0–1.0. Emitted only when set;
+    # the server defaults to 1.0, because someone who configured a collector wants
+    # to see spans in it. Turn it down on a busy deployment. Tail sampling (keep
+    # the slow and failed traces) belongs in your collector, which can see a whole
+    # trace where this process cannot.
+    sampleRatio: ""
+
   # Data retention (KAIROS-A-0004 / KAIROS-A-0013). Defaults match the server's
   # built-in defaults; only overridden values are emitted into the ConfigMap.
   retention:

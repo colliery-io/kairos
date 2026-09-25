@@ -149,6 +149,29 @@ pub struct AppConfig {
     /// [`crate::forge::auth`]). Absent ⇒ forge connections cannot be
     /// created or verified; the feature is simply off.
     pub webhook_signing_key: Option<String>,
+    /// `KAIROS_OTEL_ENDPOINT` (KAIROS-T-0196): the OTLP/HTTP traces endpoint,
+    /// e.g. `http://otel-collector:4318/v1/traces`. **Unset means no tracing at
+    /// all** — no exporter is built and no span leaves the process. This is the
+    /// switch, and it is off by default.
+    ///
+    /// Note the port: OTLP over HTTP is 4318. A collector's gRPC port (4317) will
+    /// accept the connection and reject the payload, which is a confusing way to
+    /// find out, so the how-to says so.
+    pub otel_endpoint: Option<String>,
+    /// `KAIROS_OTEL_SAMPLE_RATIO` (KAIROS-T-0196): head sampling, 0.0..=1.0,
+    /// default **1.0**.
+    ///
+    /// Sampling everything is the right default for a switch that is off unless
+    /// you turned it on: someone who configured a collector wants to see spans in
+    /// it, and a default that quietly dropped 99% of them would read as a bug. A
+    /// busy deployment turns it down; that is a decision about *volume*, which is
+    /// the operator's, not ours.
+    ///
+    /// Head sampling only. Tail sampling — keep the slow and failed traces, drop
+    /// the boring ones — is a collector feature and a better place for the
+    /// decision, because the collector can see the whole trace and this process
+    /// cannot.
+    pub otel_sample_ratio: f64,
 }
 
 impl AppConfig {
@@ -222,6 +245,26 @@ impl AppConfig {
             }
         };
 
+        // KAIROS-T-0196. The ratio is validated here rather than clamped, because
+        // a typo'd sampling rate is the kind of thing an operator should hear
+        // about at boot rather than discover from a suspiciously empty collector.
+        let otel_sample_ratio = match get("KAIROS_OTEL_SAMPLE_RATIO") {
+            None => 1.0,
+            Some(raw) => {
+                let parsed: f64 = raw.trim().parse().map_err(|_| ConfigError::Invalid {
+                    var: "KAIROS_OTEL_SAMPLE_RATIO",
+                    message: format!("{raw:?} is not a number between 0.0 and 1.0"),
+                })?;
+                if !(0.0..=1.0).contains(&parsed) {
+                    return Err(ConfigError::Invalid {
+                        var: "KAIROS_OTEL_SAMPLE_RATIO",
+                        message: format!("{parsed} is outside 0.0..=1.0"),
+                    });
+                }
+                parsed
+            }
+        };
+
         let deployment_admins = get("KAIROS_DEPLOYMENT_ADMINS")
             .map(|raw| {
                 raw.split(',')
@@ -252,6 +295,8 @@ impl AppConfig {
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),
             public_url: get("KAIROS_PUBLIC_URL").map(|url| url.trim_end_matches('/').to_string()),
             webhook_signing_key: get("KAIROS_WEBHOOK_SIGNING_KEY"),
+            otel_endpoint: get("KAIROS_OTEL_ENDPOINT"),
+            otel_sample_ratio,
         })
     }
 }
@@ -369,6 +414,62 @@ mod tests {
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:9999");
         assert_eq!(config.log_format, LogFormat::Pretty);
         assert_eq!(config.log_level, "debug");
+    }
+
+    // ---------------------------------------------------------------------
+    // KAIROS-T-0196: trace export is off unless asked for, and a bad sampling
+    // rate is heard about at boot.
+
+    #[test]
+    fn tracing_is_off_by_default_and_samples_everything_when_on() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert_eq!(
+            config.otel_endpoint, None,
+            "no endpoint means no exporter is built and no span leaves the process"
+        );
+        assert_eq!(
+            config.otel_sample_ratio, 1.0,
+            "someone who configures a collector wants to see spans in it; a default \
+             that quietly dropped most of them would read as a bug"
+        );
+    }
+
+    #[test]
+    fn a_bad_sample_ratio_fails_at_boot_rather_than_silently() {
+        // Refused rather than clamped, deliberately. A typo'd sampling rate that
+        // is clamped produces a collector that is mysteriously emptier than
+        // expected, and nothing anywhere says why.
+        for bad in ["1.5", "-0.1", "half", "", "100%"] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_OTEL_SAMPLE_RATIO", bad));
+            let result = AppConfig::from_lookup(lookup(&vars));
+            if bad.is_empty() {
+                // Empty is "unset" everywhere else in this config, and must stay
+                // so here — an operator who blanks a value is turning it off.
+                assert_eq!(
+                    result.expect("empty is unset").otel_sample_ratio,
+                    1.0,
+                    "an empty value is unset, not invalid"
+                );
+            } else {
+                let err = result.expect_err("{bad} must be refused");
+                assert!(
+                    err.to_string()
+                        .starts_with("KAIROS_OTEL_SAMPLE_RATIO is invalid"),
+                    "the error must name the variable: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_sampling_bounds_are_inclusive() {
+        for (value, expected) in [("0", 0.0), ("0.0", 0.0), ("1", 1.0), ("0.25", 0.25)] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_OTEL_SAMPLE_RATIO", value));
+            let config = AppConfig::from_lookup(lookup(&vars)).expect("valid ratio");
+            assert_eq!(config.otel_sample_ratio, expected, "ratio {value}");
+        }
     }
 
     // ---------------------------------------------------------------------

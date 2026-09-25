@@ -1,4 +1,4 @@
-# (c) All optionals on: HPA + ServiceMonitor + custom retention + devUi,
+# (c) All optionals on: HPA + ServiceMonitor + otel + custom retention + devUi,
 # single-host ingress, existing DB Secret with a custom key.
 database:
   existingSecret: kairos-db
@@ -13,6 +13,9 @@ config:
   log:
     level: debug
     format: pretty
+  otel:
+    endpoint: "http://otel-collector.observability:4318/v1/traces"
+    sampleRatio: "0.1"
   retention:
     historyHotDays: 30
     historyKeepLatest: 10

@@ -186,6 +186,8 @@ Secret loaded via `valueFrom`.
 | `config.deploymentAdmins` | `KAIROS_DEPLOYMENT_ADMINS` | `""` | Comma-separated OIDC subs. |
 | `config.log.level` | `KAIROS_LOG_LEVEL` | `info` | |
 | `config.log.format` | `KAIROS_LOG_FORMAT` | `json` | `json` or `pretty`. |
+| `config.otel.endpoint` | `KAIROS_OTEL_ENDPOINT` | `""` | OTLP/**HTTP** traces endpoint, e.g. `http://collector:4318/v1/traces`. Empty disables tracing entirely. |
+| `config.otel.sampleRatio` | `KAIROS_OTEL_SAMPLE_RATIO` | `""` | Head sampling 0.0–1.0; server default `1.0`. Emitted only when set. |
 | `config.retention.historyHotDays` | `KAIROS_HISTORY_HOT_DAYS` | server `90` | Emitted only when set. |
 | `config.retention.historyKeepLatest` | `KAIROS_HISTORY_KEEP_LATEST` | server `5` | Emitted only when set. |
 | `config.retention.activityRetentionDays` | `KAIROS_ACTIVITY_RETENTION_DAYS` | server `365` | Emitted only when set. |

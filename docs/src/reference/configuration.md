@@ -36,6 +36,28 @@ them; their own parsing rules differ, and are stated in that section.
 | `KAIROS_LOG_FORMAT` | `json` \| `pretty` | `json` | Log encoding. Any other value fails startup. |
 | `KAIROS_PUBLIC_URL` | URL | unset | The deployment's externally reachable base URL. Required to render the webhook delivery URL an operator pastes into a forge. A trailing slash is stripped. Not inferred from the request `Host` header. |
 
+### Trace export
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_OTEL_ENDPOINT` | URL | unset | The OTLP/**HTTP** traces endpoint, e.g. `http://collector:4318/v1/traces`. **Unset disables tracing entirely** — no exporter is built and no span leaves the process. A URL that cannot be reached does not stop Kairos serving; it logs `otel: tracing is DISABLED` and carries on. |
+| `KAIROS_OTEL_SAMPLE_RATIO` | 0.0–1.0 | `1.0` | Head sampling. Refused at startup if it does not parse or falls outside the range, rather than clamped — a clamped typo produces a collector that is mysteriously empty. An empty value means unset. |
+
+Kairos exports over **HTTP/protobuf, not gRPC**, so the port is `4318` and the
+path is part of the endpoint. A collector's gRPC port (`4317`) will accept the
+connection and then reject the payload, which is a slow way to discover this.
+
+Sampling is head-only: the decision is made when a trace starts, and it respects
+a decision an upstream caller already made rather than cutting a trace in half.
+Keeping only the slow and failed traces is *tail* sampling, which belongs in your
+collector — it can see a whole trace, and this process cannot.
+
+One span per HTTP request is produced, named `<METHOD> <matched route>` — the
+route **pattern**, never the concrete path, so a collector groups requests by
+operation instead of showing one operation per id. It carries the method, route,
+status code and tenant, and is marked as an error only for 5xx: a 404 or a 403 is
+the server working correctly.
+
 ### Tenant resolution
 
 | Variable | Type | Default | Description |
@@ -185,7 +207,8 @@ authentication error (exit 2) naming the file.
 ConfigMap that the Deployment loads with `envFrom`. Two exceptions: the
 `config.webClientSecret*` values never reach the ConfigMap — the secret is
 Secret-sourced, like `DATABASE_URL` — and the five `config.retention.*` values
-are emitted only when non-empty. The chart provides no identity provider, and
+plus the two `config.otel.*` values are emitted only when non-empty. The chart
+provides no identity provider, and
 provides PostgreSQL only as an evaluation convenience you can decline
 (`postgresql.enabled`).
 
@@ -322,6 +345,8 @@ The read-only root filesystem is compatible with a filesystem
 | `config.log.level` | string | `info` | Sets `KAIROS_LOG_LEVEL`. |
 | `config.log.format` | string | `json` | Sets `KAIROS_LOG_FORMAT`. |
 | `config.devUi` | bool | `false` | Sets `KAIROS_DEV_UI`. |
+| `config.otel.endpoint` | string | `""` | Sets `KAIROS_OTEL_ENDPOINT`. Emitted only when non-empty; empty disables tracing. |
+| `config.otel.sampleRatio` | string | `""` | Sets `KAIROS_OTEL_SAMPLE_RATIO`. Emitted only when non-empty. |
 | `config.retention.historyHotDays` | integer or null | `null` | Sets `KAIROS_HISTORY_HOT_DAYS`. Emitted only when non-empty. |
 | `config.retention.historyKeepLatest` | integer or null | `null` | Sets `KAIROS_HISTORY_KEEP_LATEST`. Emitted only when non-empty. |
 | `config.retention.activityRetentionDays` | integer or null | `null` | Sets `KAIROS_ACTIVITY_RETENTION_DAYS`. Emitted only when non-empty. |

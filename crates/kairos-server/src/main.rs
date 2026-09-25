@@ -206,13 +206,29 @@ fn seed_demo(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
 /// (main stays sync because the migration path is sync, KAIROS-T-0007).
 fn serve() -> Result<(), String> {
     let config = kairos_server::config::AppConfig::from_env().map_err(|e| e.to_string())?;
-    kairos_server::init_tracing(&config);
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("failed to start tokio runtime: {e}"))?;
-    runtime.block_on(kairos_server::app::serve(config))
+
+    // KAIROS-T-0196: the tracing guard is held until `serve` returns.
+    //
+    // Binding it to `_guard` rather than `_` is load-bearing: `let _ = ...` drops
+    // immediately, and dropping the guard flushes and shuts tracing down, so the
+    // process would export nothing.
+    //
+    // Initialised inside the runtime for ordinary reasons — spans want to be
+    // recordable from the first async work — not because the exporter needs a
+    // reactor. It does not: the OTLP exporter uses BLOCKING reqwest on the batch
+    // processor's own thread. That pairing is not cosmetic. An async client there
+    // has no runtime to drive it, so spans are recorded and silently never sent,
+    // with no error anywhere. Found by pointing the exporter at a fake collector
+    // and receiving zero posts; see the note on the dependency in Cargo.toml.
+    runtime.block_on(async move {
+        let _guard = kairos_server::init_tracing(&config);
+        kairos_server::app::serve(config).await
+    })
 }
 
 /// `embed-backfill [--tenant <slug>] [--batch N] [--max-batches N] [--pause-ms N]`

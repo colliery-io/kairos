@@ -65,6 +65,10 @@ services:
       KAIROS_BIND_ADDR: 0.0.0.0:8080
       KAIROS_LOG_FORMAT: json
       KAIROS_LOG_LEVEL: ${KAIROS_LOG_LEVEL:-info}
+      # KAIROS-T-0196: OTLP/HTTP traces endpoint (note :4318, not gRPC :4317).
+      # Unset means no tracing at all.
+      KAIROS_OTEL_ENDPOINT: ${KAIROS_OTEL_ENDPOINT:-}
+      KAIROS_OTEL_SAMPLE_RATIO: ${KAIROS_OTEL_SAMPLE_RATIO:-}
     # The image applies pending migrations on boot (KAIROS-T-0007) before it
     # binds, so no separate migrate step is required. Liveness is the image's
     # own HEALTHCHECK against /healthz.

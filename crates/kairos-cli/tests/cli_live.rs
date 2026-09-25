@@ -198,6 +198,10 @@ async fn cli_login_whoami_refresh_logout_live() {
         web_client_secret: None,
         public_url: None,
         webhook_signing_key: None,
+
+        otel_endpoint: None,
+
+        otel_sample_ratio: 1.0,
     };
     let router = app::router(app::state_with(config, pool, auth));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

@@ -94,7 +94,7 @@ clap = { version = "4.6.1", features = ["derive"] }
 # Frontend (KAIROS-A-0015). `aurora-dark` is published on crates.io as
 # `colliery-io-aurora` (repo: github.com/colliery-io/aurora-dark).
 leptos = "0.8.20"
-aurora-dark = { package = "colliery-io-aurora", version = "0.1.0" }
+aurora-dark = { package = "colliery-io-aurora", version = "0.3.0" }
 
 # API docs / MCP
 utoipa = "5.5.0"

@@ -4,15 +4,15 @@ level: task
 title: "Form inputs are unlabelled for assistive technology: TextInput has no label association"
 short_code: "KAIROS-T-0198"
 created_at: 2026-09-25T02:22:28.709454+00:00
-updated_at: 2026-09-25T02:22:28.709454+00:00
+updated_at: 2026-09-25T11:51:23.728374+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -87,8 +87,14 @@ The two honest options:
 
 ## Acceptance Criteria
 
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
 - [x] A `TextInput` with a label exposes that label as its accessible name
-- [~] `getByLabel('Slug')` resolves the input, and the KAIROS-T-0094 e2e
+- [x] `getByLabel('Slug')` resolves the input, and the KAIROS-T-0094 e2e
       workaround is replaced with it
 - [x] The other aurora form components are audited in the same pass, and any
       with the same gap are fixed or listed here
@@ -194,3 +200,27 @@ a tree declaring an unpublished version does not resolve and CI could not build 
 
 Both already exercised together, so this is re-applying a verified change rather
 than attempting one.
+
+### 2026-09-25 — published and consumed; closed
+
+`colliery-io-aurora` **0.3.0** is on crates.io (publish workflow green on tag
+`v0.3.0`), and Kairos consumes it from the registry rather than a path.
+
+The two follow-up steps went in exactly as recorded, because they had already been
+exercised together under `[patch.crates-io]`:
+
+- `Cargo.toml`: `colliery-io-aurora` `0.1.0` → **`0.3.0`**, a two-minor jump that
+  also picks up 0.2.0's `hlin` feature and breaks nothing here
+- `e2e/tests/teampages.spec.ts`: the `.cl-field` wrapper helper is now
+  `create.getByLabel(name)`, and the comment explaining why it could not be used is
+  gone
+
+`Cargo.lock` confirms `source = "registry+https://github.com/rust-lang/crates.io-index"`
+at 0.3.0 — not the local path the verification ran against.
+
+Gates: lint clean, `angreal web lint` clean, release wasm build green, **403 unit
+tests**, integration **47/47**, e2e **17**, uat **22 journeys**.
+
+The workaround is gone from the test suite, which was the point: a test can navigate
+the DOM structurally and a screen reader cannot, so leaving the wrapper in place would
+have left the fix looking optional.

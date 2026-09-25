@@ -104,15 +104,9 @@ test('team pages: landing layout → announcements → page edit + 409 merge →
     // so it is worth asserting rather than trusting position.
     await expect(create.getByText('created at the top level of the tree')).toBeVisible();
 
-    // Fields are located through their label's `.cl-field` wrapper rather than
-    // with getByLabel: aurora's TextInput renders a `<label>` with no `for` and
-    // an `<input>` with no `id`, so there is no association to query. Worth
-    // knowing rather than working around silently — it means these inputs are
-    // unlabelled for a screen reader too (filed as KAIROS-T-0198).
-    const field = (name: string) =>
-      create
-        .locator('.cl-field', { has: page.locator('.cl-field__label', { hasText: name }) })
-        .locator('input');
+    // KAIROS-T-0198 fixed the label association upstream, so this is just
+    // getByLabel now.
+    const field = (name: string) => create.getByLabel(name);
 
     await create.locator('select').selectOption('folder');
     await field('Slug').fill('incidents');

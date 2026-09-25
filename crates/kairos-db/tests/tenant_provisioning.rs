@@ -26,7 +26,10 @@ use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::sql_types::Text;
 
-use kairos_db::migrations::{MigrationError, check_extensions, check_required_extensions};
+use diesel_migrations::MigrationHarness;
+use kairos_db::migrations::{
+    MigrationError, TENANT_MIGRATIONS, check_extensions, check_required_extensions,
+};
 use kairos_db::tenant::TenantError;
 use kairos_db::{drop_tenant, migrate_all_tenants, provision_tenant, run_public_migrations};
 
@@ -88,9 +91,11 @@ const EXPECTED_SEQUENCES: [&str; 5] = [
 
 /// Every named index a freshly provisioned tenant carries: the S-0004
 /// tenant DDL (partial + GIN included) plus the ones later migrations add.
-/// `board_columns_live_*` are KAIROS-T-0161's partial unique indexes; they
-/// are asserted here because the fleet-upgrade block below is re-pinned to
-/// the newest migration on every schema wave and so stops covering them.
+/// `board_columns_live_*` are KAIROS-T-0161's partial unique indexes. This list
+/// was where evidence went to survive the fleet-upgrade block's re-pinning; that
+/// block no longer re-pins (KAIROS-T-0093), and it now compares the whole schema
+/// rather than named objects — so this list is a readable statement of what a
+/// tenant carries, not a rescue from a test that kept forgetting.
 const EXPECTED_INDEXES: [&str; 23] = [
     "board_columns_live_name_key",
     "board_columns_live_position_key",
@@ -186,6 +191,65 @@ fn schema_indexes(conn: &mut PgConnection, schema: &str) -> Vec<String> {
         "SELECT indexname::text AS name FROM pg_indexes WHERE schemaname = $1",
         schema,
     )
+}
+
+/// Everything about a tenant schema's shape that a migration can change, as one
+/// comparable value (KAIROS-T-0093).
+///
+/// Deliberately includes index *definitions* rather than just index names: two of
+/// this month's defects were a plain unique where a partial one was meant
+/// (KAIROS-T-0161, KAIROS-T-0184), and a name-only comparison cannot see the
+/// difference. Column types and nullability are in for the same reason — a
+/// backfilled `NOT NULL` that the upgrade path leaves nullable would otherwise
+/// pass.
+///
+/// The schema name itself is stripped from index definitions, or every row would
+/// differ trivially between two tenants.
+fn schema_shape(conn: &mut PgConnection, schema: &str) -> Vec<String> {
+    let mut shape = Vec::new();
+
+    for table in schema_tables(conn, schema) {
+        shape.push(format!("table {table}"));
+    }
+    for view in schema_views(conn, schema) {
+        shape.push(format!("view {view}"));
+    }
+    for sequence in schema_sequences(conn, schema) {
+        shape.push(format!("sequence {sequence}"));
+    }
+
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = diesel::sql_types::Text)]
+        line: String,
+    }
+
+    let columns: Vec<Row> = sql_query(
+        "SELECT table_name || '.' || column_name || ' ' || data_type || ' ' \
+              || is_nullable || ' ' || coalesce(column_default, '-') AS line \
+           FROM information_schema.columns \
+          WHERE table_schema = $1 \
+          ORDER BY table_name, column_name",
+    )
+    .bind::<diesel::sql_types::Text, _>(schema)
+    .load(conn)
+    .expect("loading columns");
+    for row in columns {
+        shape.push(format!("column {}", row.line));
+    }
+
+    let indexes: Vec<Row> = sql_query(
+        "SELECT indexname || ' :: ' || replace(indexdef, quote_ident($1) || '.', '') AS line \
+           FROM pg_indexes WHERE schemaname = $1 ORDER BY indexname",
+    )
+    .bind::<diesel::sql_types::Text, _>(schema)
+    .load(conn)
+    .expect("loading indexes");
+    for row in indexes {
+        shape.push(format!("index {}", row.line));
+    }
+
+    shape
 }
 
 fn schema_exists(conn: &mut PgConnection, schema: &str) -> bool {
@@ -340,10 +404,10 @@ fn tenant_provisioning_lifecycle() {
         EXPECTED_VIEWS,
         "a freshly provisioned tenant's directory views expose deleted_at"
     );
-    // Carried forward from KAIROS-T-0156's fleet-upgrade block, which the
-    // re-pin below retires: both views read all FIVE entity tables. It was
-    // the proof that a view rebuild is a rebuild rather than a patch, and
-    // it is just as true of a freshly provisioned tenant.
+    // Carried forward from KAIROS-T-0156's fleet-upgrade block when a re-pin
+    // retired it: both views read all FIVE entity tables. It was the proof that
+    // a view rebuild is a rebuild rather than a patch, and it is just as true of
+    // a freshly provisioned tenant.
     for view in EXPECTED_VIEWS {
         assert_eq!(
             count(
@@ -692,56 +756,33 @@ fn tenant_provisioning_lifecycle() {
     );
 
     // ---- fleet migration applies a NEW migration to an EXISTING tenant ----
-    // (KAIROS-T-0025 pattern check: the migrate-tenants path is how already
-    // provisioned schemas pick up later tenant migrations.) Simulate a tenant
-    // that predates the NEWEST tenant migration (currently `edge_proposals`,
-    // KAIROS-T-0192): revert its DDL (the down migration's shape) and drop its
-    // bookkeeping row in widgets only, then fleet-migrate and expect exactly
-    // that one migration to re-apply.
     //
-    // NOTE: this block is hand-re-pinned to the newest migration on every
-    // schema wave — the recurring maintenance chore KAIROS-T-0093 exists
-    // to remove by deriving the target from the embedded migration list.
-    // When re-pinning, carry the outgoing migration's evidence up into the
-    // freshly-provisioned assertions rather than deleting it; T-0156's
-    // five-table view check moved there when this block stopped covering it,
-    // T-0159's three-board-index check moved there on the T-0186 wave, T-0186's
-    // weighting check on the T-0187 wave, and T-0187's embedding tables on this
-    // one.
+    // KAIROS-T-0025 pattern check: `migrate_all_tenants` is how already
+    // provisioned schemas pick up later tenant migrations. Simulate a tenant
+    // that predates the newest one, fleet-migrate, and require it to catch up.
     //
-    // The pre-T-0192 shape is simply not having `edge_proposals`: one DROP.
+    // KAIROS-T-0093: the target migration is DERIVED, not named. This block was
+    // hand-re-pinned on five schema waves (T-0156, T-0159, T-0186, T-0187,
+    // T-0192/T-0182), and each re-pin had the same two costs: someone had to
+    // remember, and if they did not, the test silently exercised a stale
+    // migration instead of the newest — which is the one that most needs
+    // covering. There is nothing left here to re-pin.
     //
-    // T-0157's evidence did not vanish across these re-pins: its
-    // freshly-provisioned assertion above (no partial `idx_*_tsv`) is the
-    // durable half, and the upgrade-path post-condition for it is kept below,
-    // since an upgraded tenant is exactly where a missed index hides.
-    sql_query("DROP TABLE org_widgets.edge_proposals")
-        .execute(&mut conn)
-        .expect("dropping widgets' edge_proposals to simulate an old tenant");
-    // Name the migration being simulated, rather than taking max(version).
-    //
-    // This block has been re-pinned four times — KAIROS-T-0186, T-0187, T-0192
-    // and now T-0182 — because `max(version)` means "whatever migration was
-    // added last", so every new tenant migration broke a test about
-    // edge_proposals. The failure was also misleading: the newest migration got
-    // rolled back and re-applied while `edge_proposals` stayed dropped, so the
-    // assertion that failed was three screens away from the cause.
-    //
-    // Diesel re-applies any version absent from the bookkeeping table, not just
-    // the newest, so deleting a row in the middle is a valid "old tenant" and
-    // stays valid as migrations accumulate after it.
-    const EDGE_PROPOSALS_MIGRATION: &str = "20260924000001";
-    let removed = sql_query(format!(
-        "DELETE FROM org_widgets.__diesel_schema_migrations WHERE version = '{EDGE_PROPOSALS_MIGRATION}'"
-    ))
-    .execute(&mut conn)
-    .expect("deleting the edge_proposals migration bookkeeping row in widgets");
-    assert_eq!(
-        removed, 1,
-        "{EDGE_PROPOSALS_MIGRATION} should be the applied edge_proposals \
-         migration; if this fails the version was renamed, and the simulated \
-         old tenant below is simulating nothing"
-    );
+    // `revert_last_migration` runs the newest migration's OWN `down.sql` and
+    // removes its bookkeeping row, so this also became the only thing that
+    // exercises a down script. That is worth having: down scripts are written,
+    // reviewed, committed and never run.
+    let reverted = conn
+        .transaction::<String, diesel::result::Error, _>(|conn| {
+            // SET LOCAL, so the pin reverts with the transaction — the same way
+            // provision_tenant does it.
+            sql_query("SET LOCAL search_path TO \"org_widgets\"").execute(conn)?;
+            let name = MigrationHarness::revert_last_migration(conn, TENANT_MIGRATIONS)
+                .expect("reverting widgets' newest tenant migration");
+            Ok(name.to_string())
+        })
+        .expect("reverting the newest migration in widgets");
+    println!("simulated an old tenant by reverting {reverted} in org_widgets");
 
     let outcomes = migrate_all_tenants(&mut conn).expect("fleet migration (upgrade path)");
     let summary: Vec<(String, usize)> = outcomes
@@ -788,33 +829,44 @@ fn tenant_provisioning_lifecycle() {
         5,
         "all five idx_*_tsv indexes are non-partial in widgets after the fleet upgrade"
     );
-    // KAIROS-T-0192: and the upgraded tenant has `edge_proposals` back. This is
-    // the assertion the re-pinned block above exists to make.
-    assert_eq!(
-        count(
-            &mut conn,
-            "SELECT count(*) FROM information_schema.tables \
-             WHERE table_schema = 'org_widgets' AND table_name = 'edge_proposals'"
-        ),
-        1,
-        "edge_proposals is back in widgets after the fleet upgrade"
+    // KAIROS-T-0093: the assertion that replaces every per-migration one this
+    // block used to carry — an UPGRADED tenant's schema must equal a
+    // never-touched one's.
+    //
+    // `globex` is the reference: provisioned in the same run, fully migrated,
+    // and the summary above already asserts it applied nothing. So any
+    // difference here is the upgrade path producing a schema that fresh
+    // provisioning does not, which is the real risk and is what no amount of
+    // per-migration table-name checking covers.
+    //
+    // It is also migration-agnostic, which is the point: a new migration gets
+    // upgrade-path coverage the moment it lands, with no edit here, whether it
+    // adds a table, an index, a column, or a predicate on an existing index.
+    // Reported as a symmetric difference, not as two whole schemas. A full
+    // dump is over four hundred lines per side, and a reader who has to find
+    // the one differing row themselves will not thank anyone.
+    let upgraded: BTreeSet<String> = schema_shape(&mut conn, "org_widgets").into_iter().collect();
+    let fresh: BTreeSet<String> = schema_shape(&mut conn, "org_globex").into_iter().collect();
+    let only_upgraded: Vec<&String> = upgraded.difference(&fresh).collect();
+    let only_fresh: Vec<&String> = fresh.difference(&upgraded).collect();
+    assert!(
+        only_upgraded.is_empty() && only_fresh.is_empty(),
+        "an upgraded tenant's schema must be indistinguishable from a freshly \
+         provisioned one, and these differ.\n\
+         \n\
+         Only in the UPGRADED tenant (org_widgets): {only_upgraded:#?}\n\
+         Only in the FRESH tenant (org_globex):    {only_fresh:#?}\n\
+         \n\
+         `migrate_all_tenants` and `provision_tenant` disagree. Usual causes: a \
+         migration whose up.sql does not reproduce what the initial tree \
+         creates; an index created without the predicate its fresh counterpart \
+         has; or a down.sql that leaves residue behind, since this test reverts \
+         the newest migration and re-applies it."
     );
-    // Its partial unique index with it — the thing that stops an agent loop
-    // burying the signal under its own output. A table without it would pass a
-    // shape check and fail in production.
-    assert_eq!(
-        count(
-            &mut conn,
-            "SELECT count(*) FROM pg_indexes \
-             WHERE schemaname = 'org_widgets' \
-               AND indexname = 'idx_edge_proposals_pending' \
-               AND indexdef LIKE '%WHERE%pending%'"
-        ),
-        1,
-        "the pending-uniqueness index is partial, so a rejected pair can be \
-         proposed again on better evidence"
-    );
-    // KAIROS-T-0187's evidence, carried up rather than deleted with the re-pin.
+    // KAIROS-T-0187's evidence, carried up rather than deleted when a re-pin
+    // retired its block. The schema comparison above now covers this class of
+    // check generically; these stay because a named assertion says WHY a table
+    // matters, which a set difference cannot.
     assert_eq!(
         count(
             &mut conn,

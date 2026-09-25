@@ -17,7 +17,7 @@
 //!   every admin surface — boards, teams, streams, members, templates,
 //!   metadata — unchanged.
 //! - **Non-admins who hold a board-config capability** (`configure_boards`
-//!   or `manage_members`, incl. globs like `configure_*`/`manage_*`/`*`) on
+//!   or `administer_members`, incl. globs like `configure_*`/`manage_*`/`*`) on
 //!   at least one board now reach the admin section too, but only its
 //!   per-board configuration surface (`/admin/boards` + `/admin/boards/:id`).
 //!   The org-admin-only surfaces (teams, streams, org members, templates,
@@ -94,7 +94,7 @@ pub fn AdminPage() -> impl IntoView {
 
 /// The graceful denied path: what a plain `member` with no board-config
 /// grants sees on a direct visit to any `/admin` route (the nav never shows
-/// Admin to them). Holders of `configure_boards`/`manage_members` no longer
+/// Admin to them). Holders of `configure_boards`/`administer_members` no longer
 /// land here — they get the boards surface (KAIROS-T-0052).
 #[component]
 fn NotAdminGate(role: String) -> impl IntoView {
@@ -105,7 +105,7 @@ fn NotAdminGate(role: String) -> impl IntoView {
                 <Text>
                     "Organization administration needs the "<b>"admin"</b>
                     " role, or a board-scoped "<b>"configure_boards"</b>" / "
-                    <b>"manage_members"</b>" grant; you are signed in as a "
+                    <b>"administer_members"</b>" grant; you are signed in as a "
                     <b>{role}</b>" with no such grants."
                 </Text>
                 <Text dimmed=true size="sm">

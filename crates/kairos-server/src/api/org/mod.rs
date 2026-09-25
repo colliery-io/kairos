@@ -10,7 +10,7 @@
 //!
 //! - board config writes (PATCH board, columns, transitions):
 //!   `configure_boards` on that board (A-0006);
-//! - board member/capability writes: `manage_members` on that board;
+//! - board member/capability writes: `administer_members` on that board;
 //! - board create/delete, teams, streams, org membership: tenant-wide
 //!   config → org-admin-only (the A-0006 fallback; the 403 names the
 //!   pseudo-capability with `board_id: null`);

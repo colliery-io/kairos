@@ -6,7 +6,7 @@
 //! Gating: board creation/deletion is org-admin-only (no/whole-board
 //! context → the A-0006 tenant-config fallback); PATCH board + column +
 //! transition writes require `configure_boards` on the board; member/
-//! capability writes require `manage_members`. Reads are open tenant-wide.
+//! capability writes require `administer_members`. Reads are open tenant-wide.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -40,7 +40,7 @@ use crate::middleware::tenant::TenantContext;
 /// The A-0006 capability for board configuration writes.
 const CONFIGURE: &str = "configure_boards";
 /// The A-0006 capability for board membership/capability administration.
-const MANAGE_MEMBERS: &str = "manage_members";
+const ADMINISTER_MEMBERS: &str = "administer_members";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -1151,7 +1151,7 @@ pub(crate) async fn list_board_members(
 }
 
 /// Add a member with capabilities (T-0011 grants; duplicate grant → 409).
-/// Requires `manage_members` on the board (or org admin).
+/// Requires `administer_members` on the board (or org admin).
 #[utoipa::path(
     post,
     path = "/api/boards/{id}/members",
@@ -1160,7 +1160,7 @@ pub(crate) async fn list_board_members(
     request_body = dto::AddBoardMemberRequest,
     responses(
         (status = 201, description = "Granted", body = dto::BoardMember),
-        (status = 403, description = "Missing manage_members", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "Missing administer_members", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "A capability was already granted", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Unknown user or capability outside the A-0006 vocabulary", body = kairos_client::types::ErrorEnvelope),
@@ -1182,7 +1182,7 @@ pub(crate) async fn add_board_member(
         .blocking
         .run(&tenant.slug, move |conn| {
             let board = load_board(conn, board_id)?;
-            require_capability(conn, &slug, Some(board.id), user, MANAGE_MEMBERS)?;
+            require_capability(conn, &slug, Some(board.id), user, ADMINISTER_MEMBERS)?;
             require_user_exists(conn, target)?;
             for capability in &body.capabilities {
                 abac::grant_capability(conn, board_id, target, capability, user)
@@ -1196,7 +1196,7 @@ pub(crate) async fn add_board_member(
 
 /// Replace a member's capability set (revokes what is absent, grants what
 /// is new — each change is a T-0011 grant/revoke with its activity row).
-/// Requires `manage_members` on the board (or org admin).
+/// Requires `administer_members` on the board (or org admin).
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}/members/{user_id}",
@@ -1208,7 +1208,7 @@ pub(crate) async fn add_board_member(
     request_body = dto::ReplaceCapabilitiesRequest,
     responses(
         (status = 200, description = "The member's new capability set", body = dto::BoardMember),
-        (status = 403, description = "Missing manage_members", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "Missing administer_members", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board, or user is not a member", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Capability outside the A-0006 vocabulary", body = kairos_client::types::ErrorEnvelope),
     ),
@@ -1229,7 +1229,7 @@ pub(crate) async fn replace_capabilities(
         .blocking
         .run(&tenant.slug, move |conn| {
             let board = load_board(conn, board_id)?;
-            require_capability(conn, &slug, Some(board.id), user, MANAGE_MEMBERS)?;
+            require_capability(conn, &slug, Some(board.id), user, ADMINISTER_MEMBERS)?;
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(
@@ -1253,7 +1253,7 @@ pub(crate) async fn replace_capabilities(
 }
 
 /// Remove a member: revoke ALL their capabilities on the board (T-0011
-/// revokes, one activity row each). Requires `manage_members` (or org
+/// revokes, one activity row each). Requires `administer_members` (or org
 /// admin).
 #[utoipa::path(
     delete,
@@ -1265,7 +1265,7 @@ pub(crate) async fn replace_capabilities(
     ),
     responses(
         (status = 200, description = "All grants revoked", body = dto::RemoveBoardMemberResponse),
-        (status = 403, description = "Missing manage_members", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "Missing administer_members", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board, or user is not a member", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -1283,7 +1283,7 @@ pub(crate) async fn remove_board_member(
         .blocking
         .run(&tenant.slug, move |conn| {
             let board = load_board(conn, board_id)?;
-            require_capability(conn, &slug, Some(board.id), user, MANAGE_MEMBERS)?;
+            require_capability(conn, &slug, Some(board.id), user, ADMINISTER_MEMBERS)?;
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(

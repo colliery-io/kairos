@@ -247,7 +247,7 @@ A-0006 auditability).
 ### `POST /api/boards/{id}/members`
 
 Add a member with capabilities (T-0011 grants; duplicate grant → 409).
-Requires `manage_members` on the board (or org admin).
+Requires `administer_members` on the board (or org admin).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -258,7 +258,7 @@ Request body (required): `application/json`, [`AddBoardMemberRequest`](schemas.m
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`BoardMember`](schemas.md#boardmember) | Granted |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_members |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing administer_members |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A capability was already granted |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown user or capability outside the A-0006 vocabulary |
@@ -266,7 +266,7 @@ Request body (required): `application/json`, [`AddBoardMemberRequest`](schemas.m
 ### `DELETE /api/boards/{id}/members/{user_id}`
 
 Remove a member: revoke ALL their capabilities on the board (T-0011
-revokes, one activity row each). Requires `manage_members` (or org
+revokes, one activity row each). Requires `administer_members` (or org
 admin).
 
 | Parameter | In | Required | Type | Description |
@@ -277,14 +277,14 @@ admin).
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`RemoveBoardMemberResponse`](schemas.md#removeboardmemberresponse) | All grants revoked |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_members |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing administer_members |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board, or user is not a member |
 
 ### `PATCH /api/boards/{id}/members/{user_id}`
 
 Replace a member's capability set (revokes what is absent, grants what
 is new — each change is a T-0011 grant/revoke with its activity row).
-Requires `manage_members` on the board (or org admin).
+Requires `administer_members` on the board (or org admin).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -296,7 +296,7 @@ Request body (required): `application/json`, [`ReplaceCapabilitiesRequest`](sche
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`BoardMember`](schemas.md#boardmember) | The member's new capability set |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_members |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing administer_members |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board, or user is not a member |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Capability outside the A-0006 vocabulary |
 

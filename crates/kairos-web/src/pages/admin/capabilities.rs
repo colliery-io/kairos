@@ -11,7 +11,7 @@
 //!   to a note.
 //! - **Content** — a family switch for `manage_*` plus per-type switches
 //!   (`manage_strategies` … `manage_adrs`). Globs match by prefix
-//!   (SQL `LIKE`), so `manage_*` also covers `manage_members`; the family
+//!   (SQL `LIKE`), so `manage_*` also covers `administer_members`; the family
 //!   switch says so and the Administration group shows "covered".
 //! - **Workflow** — `transition_items` (the only member of `transition_*`
 //!   today; the editor emits the concrete capability, and normalizes a
@@ -20,7 +20,7 @@
 //!   `configure_boards`. KAIROS-T-0182 removed `configure_templates` and
 //!   `configure_metadata` from the vocabulary — they authorised nothing, and
 //!   could not, being tenant-wide resources behind a board-scoped grant.
-//! - **Administration** — `manage_members` (add/remove members, grant
+//! - **Administration** — `administer_members` (add/remove members, grant
 //!   capabilities).
 //!
 //! The grant sent to the server is exactly the enabled set: globs travel
@@ -42,7 +42,7 @@ const SINGLES: &[&str] = &[
     "manage_adrs",
     "transition_items",
     "configure_boards",
-    "manage_members",
+    "administer_members",
 ];
 
 /// The editor's state as plain booleans — the pure, testable core.
@@ -115,7 +115,7 @@ pub struct EditorState {
     pub manage_adrs: RwSignal<bool>,
     pub transition_items: RwSignal<bool>,
     pub configure_boards: RwSignal<bool>,
-    pub manage_members: RwSignal<bool>,
+    pub administer_members: RwSignal<bool>,
 }
 
 impl Default for EditorState {
@@ -145,7 +145,7 @@ impl EditorState {
             manage_adrs: single("manage_adrs"),
             transition_items: single("transition_items"),
             configure_boards: single("configure_boards"),
-            manage_members: single("manage_members"),
+            administer_members: single("administer_members"),
         }
     }
 
@@ -158,7 +158,7 @@ impl EditorState {
             "manage_adrs" => self.manage_adrs,
             "transition_items" => self.transition_items,
             "configure_boards" => self.configure_boards,
-            _ => self.manage_members,
+            _ => self.administer_members,
         }
     }
 
@@ -225,7 +225,7 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                         <Code>"manage_*"</Code>
                         <Text dimmed=true size="xs">
                             "prefix glob: every content type, plus board member \
-                             administration (manage_members)"
+                             administration (administer_members)"
                         </Text>
                     </Group>
                     <Show
@@ -285,9 +285,9 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                             </Text>
                         }
                     >
-                        <CapabilityRow checked=state.manage_members
+                        <CapabilityRow checked=state.administer_members
                             label="Members: add/remove, grant capabilities"
-                            name="manage_members"/>
+                            name="administer_members"/>
                     </Show>
                 </Stack>
             </Show>
@@ -335,8 +335,15 @@ mod tests {
         assert_eq!(compose_selection(&flags), vec!["*"]);
     }
 
-    /// Family globs travel as globs and swallow their covered singles —
-    /// including `manage_members`, which `manage_*` prefix-matches.
+    /// Family globs travel as globs and swallow their covered singles.
+    ///
+    /// `administer_members` is deliberately in this fixture and deliberately
+    /// SURVIVES (KAIROS-T-0183). While it was called `manage_members` it was
+    /// swallowed here, because `compose_selection` tests the literal prefix —
+    /// so an admin who ticked board administration and the `manage_*` family
+    /// sent one `manage_*` row, and got board administration whether they meant
+    /// it or not. The rename fixes this without touching the collapsing logic:
+    /// `administer_members` simply does not start with `manage_`.
     #[test]
     fn family_glob_swallows_covered_singles() {
         let flags = SelectionFlags {
@@ -345,14 +352,19 @@ mod tests {
             configure_all: false,
             singles: caps(&[
                 "manage_tasks",
-                "manage_members",
+                "administer_members",
                 "transition_items",
                 "configure_boards",
             ]),
         };
         assert_eq!(
             compose_selection(&flags),
-            caps(&["manage_*", "transition_items", "configure_boards"])
+            caps(&[
+                "manage_*",
+                "administer_members",
+                "transition_items",
+                "configure_boards"
+            ])
         );
     }
 

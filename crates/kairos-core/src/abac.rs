@@ -62,11 +62,21 @@ pub const CONFIGURE_BOARDS: &str = "configure_boards";
 // metadata board-scoped is a schema change, not a bug fix — see
 // KAIROS-T-0182 if that is ever wanted.
 /// Add/remove users from the board, grant/revoke capabilities.
-pub const MANAGE_MEMBERS: &str = "manage_members";
+///
+/// Named `administer_members` and NOT `manage_members` (KAIROS-T-0183,
+/// amending KAIROS-A-0006). Matching is textual, so while it was called
+/// `manage_members` the [`GLOB_MANAGE`] glob covered it — an admin granting
+/// `manage_*` as shorthand for "the work-item capabilities" also handed over
+/// the power to grant and revoke other people's capabilities. Renaming it out
+/// of the prefix makes `manage_*` mean what it reads, without a second rule in
+/// the matcher.
+pub const ADMINISTER_MEMBERS: &str = "administer_members";
 
 /// Glob: all capabilities on the board (full access).
 pub const GLOB_ALL: &str = "*";
-/// Glob: all `manage_*` capabilities.
+/// Glob: all `manage_<entity>` capabilities — and, since KAIROS-T-0183
+/// renamed [`ADMINISTER_MEMBERS`] out of the prefix, exactly those. It is a
+/// genuine family glob now rather than one by appearance.
 pub const GLOB_MANAGE: &str = "manage_*";
 /// Glob: all `configure_*` capabilities — currently just
 /// [`CONFIGURE_BOARDS`], since KAIROS-T-0182 removed the other two. Kept as a
@@ -87,7 +97,7 @@ pub const CAPABILITIES: &[&str] = &[
     MANAGE_ADRS,
     TRANSITION_ITEMS,
     CONFIGURE_BOARDS,
-    MANAGE_MEMBERS,
+    ADMINISTER_MEMBERS,
 ];
 
 /// Every sanctioned glob form (trailing-`*` only, per A-0006).
@@ -95,7 +105,7 @@ pub const GLOBS: &[&str] = &[GLOB_ALL, GLOB_MANAGE, GLOB_CONFIGURE, GLOB_TRANSIT
 
 /// The capabilities IMPLIED by membership of a board's owning team
 /// (KAIROS-T-0072 amendment to A-0006): day-to-day delivery work only.
-/// Deliberately narrow — no `configure_*`, no `manage_members`, and none of
+/// Deliberately narrow — no `configure_*`, no `administer_members`, and none of
 /// the strategy/initiative/ADR `manage_*` families: those remain explicit
 /// grants (or org-admin).
 pub const TEAM_IMPLIED_CAPABILITIES: &[&str] = &[MANAGE_TASKS, MANAGE_DOCUMENTS, TRANSITION_ITEMS];
@@ -263,7 +273,6 @@ mod tests {
             MANAGE_TASKS,
             MANAGE_DOCUMENTS,
             MANAGE_ADRS,
-            MANAGE_MEMBERS,
         ] {
             assert!(
                 capability_matches(GLOB_MANAGE, capability),
@@ -276,6 +285,35 @@ mod tests {
         assert!(capability_matches(GLOB_MANAGE, "manage_"));
         // But not a non-prefix ('manage' is shorter than 'manage_').
         assert!(!capability_matches(GLOB_MANAGE, "manage"));
+    }
+
+    /// KAIROS-T-0183, asserted BY NAME rather than left to be derived from the
+    /// matching rule: board administration is not part of the `manage_*` family.
+    ///
+    /// Before the rename this was the reverse, and asserted as such, so the
+    /// behaviour looked intentional whatever anyone intended. The decision
+    /// recorded here is that granting `manage_*` must NOT hand over the power to
+    /// grant capabilities to others.
+    ///
+    /// Note that the matcher itself is unchanged and still a plain textual
+    /// translation of A-0006's `LIKE` â which is why this test is about the
+    /// vocabulary rather than about `capability_matches`.
+    #[test]
+    fn manage_glob_does_not_confer_board_administration() {
+        assert!(!capability_matches(GLOB_MANAGE, ADMINISTER_MEMBERS));
+        assert!(!is_authorized(
+            &[GLOB_MANAGE.to_string()],
+            ADMINISTER_MEMBERS
+        ));
+        // It takes its own grant, or `*`.
+        assert!(is_authorized(
+            &[ADMINISTER_MEMBERS.to_string()],
+            ADMINISTER_MEMBERS
+        ));
+        assert!(is_authorized(&[GLOB_ALL.to_string()], ADMINISTER_MEMBERS));
+        // And the old name is not a back door: it is out of the vocabulary, so
+        // a stored grant of it matches nothing the API will ever require.
+        assert!(!CAPABILITIES.contains(&"manage_members"));
     }
 
     #[test]
@@ -405,7 +443,7 @@ mod tests {
         assert!(!team_implies(MANAGE_INITIATIVES));
         assert!(!team_implies(MANAGE_ADRS));
         assert!(!team_implies(CONFIGURE_BOARDS));
-        assert!(!team_implies(MANAGE_MEMBERS));
+        assert!(!team_implies(ADMINISTER_MEMBERS));
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));
         assert!(!team_implies(GLOB_MANAGE));

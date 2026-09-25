@@ -16,7 +16,7 @@ use crate::api::{Whoami, WhoamiBoardCapabilities};
 /// Capabilities that unlock the per-board admin configuration surface
 /// (A-0006): board configuration and board member/grant management. A
 /// non-admin holding either on some board may reach `/admin/boards`.
-pub(crate) const BOARD_CONFIG_CAPS: [&str; 2] = ["configure_boards", "manage_members"];
+pub(crate) const BOARD_CONFIG_CAPS: [&str; 2] = ["configure_boards", "administer_members"];
 
 /// Does the stored grant `granted` satisfy the concrete `required`
 /// capability? A local mirror of the A-0006 SQL LIKE translation
@@ -111,11 +111,15 @@ mod tests {
     fn glob_semantics_mirror_a0006() {
         assert!(capability_matches("*", "configure_boards"));
         assert!(capability_matches("configure_*", "configure_boards"));
-        assert!(capability_matches("manage_*", "manage_members"));
+        assert!(capability_matches("manage_*", "manage_tasks"));
         assert!(capability_matches("configure_boards", "configure_boards"));
         // Non-matches.
-        assert!(!capability_matches("configure_*", "manage_members"));
-        assert!(!capability_matches("manage_tasks", "manage_members"));
+        // KAIROS-T-0183: board administration is outside the manage_* family,
+        // and the GUI's copy of the rule has to agree with the server's or the
+        // interface shows access the API will refuse.
+        assert!(!capability_matches("manage_*", "administer_members"));
+        assert!(!capability_matches("configure_*", "administer_members"));
+        assert!(!capability_matches("manage_tasks", "administer_members"));
         assert!(!capability_matches("transition_items", "configure_boards"));
     }
 
@@ -135,8 +139,8 @@ mod tests {
 
     #[test]
     fn member_with_board_config_grant_can_access_but_is_not_admin() {
-        // A non-admin holding manage_members on one board.
-        let holder = me("member", &[("platform-delivery", &["manage_members"])]);
+        // A non-admin holding administer_members on one board.
+        let holder = me("member", &[("platform-delivery", &["administer_members"])]);
         assert!(!is_org_admin(&holder));
         assert!(has_board_config(&holder));
         assert!(can_access(&holder));

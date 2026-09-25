@@ -99,15 +99,39 @@ The system defines a fixed set of capabilities:
 > and two were not, and the admin interface rendered all four identically. A
 > capability nobody checks is indistinguishable from one nobody has used yet.
 
-**Board administration**:
-- `manage_members` — add/remove users from the board, grant/revoke capabilities
+**Board administration** — amended by KAIROS-T-0183 (2026-09-25):
+- `administer_members` — add/remove users from the board, grant/revoke capabilities
+
+> **Amendment (KAIROS-T-0183).** This capability was `manage_members`, and is
+> renamed. Matching here is a textual `LIKE` translation, so under the old name
+> the `manage_*` glob covered it: an admin granting `manage_*` as shorthand for
+> "the work-item capabilities" also granted the power to grant and revoke other
+> people's capabilities. Nothing in the product surfaced the difference, and
+> `manage_*` is a plausible thing to type.
+>
+> The other three globs are genuine family globs. `manage_*` read like one and
+> was not, because board administration shared the prefix without being a
+> work-item capability.
+>
+> Renaming was chosen over special-casing the matcher deliberately. This ADR
+> requires the pure matcher and the single-query SQL check to implement the same
+> rule, and that rule is currently one sentence; an exception would have to live
+> in both places and could drift. The rename needs no exception —
+> `administer_members` simply is not in the `manage_` family.
+>
+> **Breaking.** A holder of `manage_*` loses board administration on upgrade,
+> which is the point. The migration renames explicit grants and deliberately
+> does NOT compensate glob holders: it cannot tell an admin who meant "all the
+> manage capabilities" from one who meant "and administration too", because the
+> vocabulary never let them say. An operator who did intend it grants
+> `administer_members`, which is now something they can express.
 
 ### Glob Matching
 
 Capabilities support glob patterns for convenience:
 
 - `*` — all capabilities on this board (full access)
-- `manage_*` — all manage capabilities
+- `manage_*` — all `manage_<entity>` capabilities (and, since KAIROS-T-0183, exactly those — board administration is `administer_members`)
 - `configure_*` — all configuration capabilities
 - `transition_*` — all transition capabilities (currently just `transition_items`, but future-proof)
 
@@ -150,7 +174,7 @@ Membership of a board's **owning team** (`boards.team_id` → `team_members`) is
 - `manage_documents`
 - `transition_items`
 
-Nothing else is implied — `configure_*`, `manage_members`, and the strategy/initiative/ADR `manage_*` families remain explicit grants (or org admin). Nothing is stored and nothing needs syncing: the implication is evaluated inside the same single-query check (an `OR EXISTS` arm over the team-membership join, gated by `kairos_core::abac::team_implies`), and leaving the team is the revocation.
+Nothing else is implied — `configure_*`, `administer_members`, and the strategy/initiative/ADR `manage_*` families remain explicit grants (or org admin). Nothing is stored and nothing needs syncing: the implication is evaluated inside the same single-query check (an `OR EXISTS` arm over the team-membership join, gated by `kairos_core::abac::team_implies`), and leaving the team is the revocation.
 
 Motivation: UAT showed a team member could not work their own team's delivery board without an org admin hand-granting capabilities per member per board — "join the team ⇒ work the team's board" is the expected behavior. Rejected alternatives: auto-granting rows on team join (sync/revocation ambiguity once admins customize grants) and keeping the pure whitelist with seeded defaults (leaves the onboarding chore in place). A team-owned board at a non-delivery level grants its team the same narrow set — acceptable: the set contains no configuration or membership powers, and the level's own `manage_<family>` (e.g. `manage_strategies`) is not in it. Explicit grants and their audit story are unchanged; the implied source is derivable (team roster + board ownership) rather than logged per grant.
 

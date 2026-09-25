@@ -797,7 +797,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
     let err = rejection(bob.create_strategy(&bobs_plan).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
 
-    // alice lacks manage_members; capability vocabulary is validated.
+    // alice lacks administer_members; capability vocabulary is validated.
     let err = rejection(
         alice
             .add_board_member(
@@ -811,7 +811,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
     );
     match &err {
         Error::Forbidden { capability, .. } => {
-            assert_eq!(capability.as_deref(), Some("manage_members"));
+            assert_eq!(capability.as_deref(), Some("administer_members"));
         }
         other => panic!("expected Forbidden, got {other}"),
     }
@@ -939,7 +939,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         &delivery_board,
         &AddBoardMemberRequest {
             user_id: bob_id.to_string(),
-            capabilities: vec!["configure_boards".into(), "manage_members".into()],
+            capabilities: vec!["configure_boards".into(), "administer_members".into()],
         },
     )
     .await
@@ -951,9 +951,11 @@ async fn org_and_admin_endpoints_against_live_stack() {
     let board_caps = &me.capabilities[0];
     assert_eq!(board_caps.board_id, delivery_board);
     assert_eq!(board_caps.board_slug, delivery_slug);
+    // Sorted, so the rename in KAIROS-T-0183 moved this: `administer_members`
+    // sorts before `configure_boards` where `manage_members` sorted after it.
     assert_eq!(
         board_caps.grants,
-        ["configure_boards", "manage_members"],
+        ["administer_members", "configure_boards"],
         "grants present and sorted: {me:?}"
     );
 
@@ -964,7 +966,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         caps.iter().any(|b| {
             b.grants
                 .iter()
-                .any(|g| g == "configure_boards" || g == "manage_members")
+                .any(|g| g == "configure_boards" || g == "administer_members")
         })
     };
     assert!(holds_board_config(&me.capabilities), "bob is admitted");

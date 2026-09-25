@@ -285,7 +285,6 @@ fn abac_capability_lifecycle() {
         rules::MANAGE_TASKS,
         rules::MANAGE_DOCUMENTS,
         rules::MANAGE_ADRS,
-        rules::MANAGE_MEMBERS,
     ] {
         assert_check(
             &mut conn,
@@ -296,6 +295,20 @@ fn abac_capability_lifecycle() {
             true,
         );
     }
+    // KAIROS-T-0183: board administration is NOT in the manage_* family, and
+    // this is the assertion that matters most — it checks the SQL and the pure
+    // matcher agree about it. While the capability was called `manage_members`
+    // this loop expected `true`, in both layers, which is why the accidental
+    // privilege looked deliberate: it was consistently implemented and
+    // consistently tested.
+    assert_check(
+        &mut conn,
+        initiative_board,
+        helper,
+        "manage_*",
+        rules::ADMINISTER_MEMBERS,
+        false,
+    );
     assert_check(
         &mut conn,
         initiative_board,
@@ -702,7 +715,7 @@ fn team_membership_implies_delivery_capabilities() {
     // Nothing configuration- or membership-shaped is implied.
     for withheld in [
         rules::CONFIGURE_BOARDS,
-        rules::MANAGE_MEMBERS,
+        rules::ADMINISTER_MEMBERS,
         rules::MANAGE_STRATEGIES,
         rules::MANAGE_INITIATIVES,
         rules::MANAGE_ADRS,

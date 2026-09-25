@@ -23,7 +23,7 @@ else is refused at grant time.
 | `manage_adrs` | Create, edit and delete ADRs on the board |
 | `transition_items` | Move items between the board's columns, and between the Planned and Support lanes |
 | `configure_boards` | Add, rename, reorder and remove columns and transitions |
-| `manage_members` | Add and remove board members, and grant and revoke their capabilities |
+| `administer_members` | Add and remove board members, and grant and revoke their capabilities |
 
 ### Templates and metadata definitions are not delegable
 
@@ -54,22 +54,32 @@ are the only patterns a grant may carry.
 | Grant | Satisfies |
 |---|---|
 | `*` | Every capability |
-| `manage_*` | `manage_strategies`, `manage_initiatives`, `manage_tasks`, `manage_documents`, `manage_adrs`, **and `manage_members`** |
+| `manage_*` | `manage_strategies`, `manage_initiatives`, `manage_tasks`, `manage_documents`, `manage_adrs` |
 | `configure_*` | `configure_boards` (its only member today) |
 | `transition_*` | `transition_items` |
 
-`manage_*` covers `manage_members` because the match is textual, not
-family-aware: `manage_members` begins with `manage_`. A grant of `manage_*` is
-therefore a grant of board administration, including granting and revoking
-other members' capabilities. To give someone every work-item capability
-*without* that, grant the five `manage_<type>` names individually.
+Each glob is a genuine family: `manage_*` gives the five work-item capabilities
+and nothing else.
+
+That is worth stating because it was once not true. Board administration used to
+be called `manage_members`, and matching is textual rather than family-aware, so
+`manage_*` covered it — granting what looked like "all the work-item
+capabilities" also granted the power to grant and revoke other people's
+capabilities. It is now `administer_members`, outside the prefix, and takes its
+own grant. If you want someone to have both, grant `manage_*` and
+`administer_members`.
+
+**Upgrading:** explicit `manage_members` grants are renamed for you. A holder of
+`manage_*` loses board administration, which is the fix rather than a side
+effect — grant `administer_members` to anyone who should keep it. `*` holders
+are unaffected.
 
 ### Matching rules
 
 `*` matches any sequence of characters, including an empty one. Every other
 character matches itself. Matching is **case-sensitive**.
 
-The API accepts only the fourteen values in the two tables above as a stored
+The API accepts only the twelve values in the two tables above as a stored
 grant; anything else — including a pattern such as `manage_*s` — is refused at
 grant time with `VALIDATION`. The matcher itself is general, and the rules
 below describe it, because it is the matcher that decides authorisation and it
@@ -107,7 +117,7 @@ check rather than by a stored row:
   is what matters — a team member can do the daily work of their own delivery
   board without anyone granting it, and cannot configure that board or touch
   another team's. Configuration (`configure_*`) and membership
-  (`manage_members`) are deliberately excluded.
+  (`administer_members`) are deliberately excluded.
 
 ## How a board is resolved
 

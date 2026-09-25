@@ -258,7 +258,7 @@ mod tests {
             "capabilities": [{
                 "board_id": "c3f4a5b6-1234-4c66-9e46-94e0d9e0f70f",
                 "board_slug": "platform-delivery",
-                "grants": ["configure_boards", "manage_members"]
+                "grants": ["configure_boards", "administer_members"]
             }]
         });
         let whoami: Whoami = serde_json::from_value(body).expect("mirror decodes");

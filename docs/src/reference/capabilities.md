@@ -23,21 +23,24 @@ else is refused at grant time.
 | `manage_adrs` | Create, edit and delete ADRs on the board |
 | `transition_items` | Move items between the board's columns, and between the Planned and Support lanes |
 | `configure_boards` | Add, rename, reorder and remove columns and transitions |
-| `configure_templates` | **Nothing — see below.** Intended: create and edit document templates |
-| `configure_metadata` | **Nothing — see below.** Intended: create and edit metadata definitions |
 | `manage_members` | Add and remove board members, and grant and revoke their capabilities |
 
-### Two of these do not work
+### Templates and metadata definitions are not delegable
 
-`configure_templates` and `configure_metadata` can be granted, are shown as
-granted in the admin interface, and **authorise nothing**. Template and
-metadata-definition writes are org-admin only, and no handler consults either
-capability. Tracked as
-[KAIROS-T-0182](https://github.com/colliery-io/kairos/blob/main/.metis/backlog/bugs/KAIROS-T-0182.md).
+Writes to document templates and metadata definitions are **org-admin only**,
+and there is no capability that delegates them. Releases up to and including 0.2.0
+offered `configure_templates` and `configure_metadata`; both authorised nothing,
+and were removed rather than wired up.
 
-Do not rely on them to delegate that work: grant it and the grantee still gets
-403. `configure_boards` and `manage_members`, which look identical in the
-interface, are enforced normally.
+The reason is structural rather than an oversight. A grant is a
+`(board, user, capability)` triple, and neither templates nor metadata
+definitions belong to a board — they are tenant-wide, scoped at most by item
+type. So "configure metadata on this board" could only ever have meant "edit
+definitions that affect every board", which is the authority an org admin already
+has. Delegating it properly would mean scoping those resources to boards first.
+
+If you granted either capability, nothing changes for the grantee: the grant
+never worked. The inert rows are removed by migration.
 
 A grant is a `(board, user, capability)` triple. The model is a **whitelist**:
 a user with no grants on a board has no write access to it. Reads are open
@@ -52,7 +55,7 @@ are the only patterns a grant may carry.
 |---|---|
 | `*` | Every capability |
 | `manage_*` | `manage_strategies`, `manage_initiatives`, `manage_tasks`, `manage_documents`, `manage_adrs`, **and `manage_members`** |
-| `configure_*` | `configure_boards`, `configure_templates`, `configure_metadata` |
+| `configure_*` | `configure_boards` (its only member today) |
 | `transition_*` | `transition_items` |
 
 `manage_*` covers `manage_members` because the match is textual, not

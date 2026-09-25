@@ -51,10 +51,16 @@ pub const MANAGE_ADRS: &str = "manage_adrs";
 pub const TRANSITION_ITEMS: &str = "transition_items";
 /// Modify board columns, transitions, settings.
 pub const CONFIGURE_BOARDS: &str = "configure_boards";
-/// Create/modify templates and metadata definitions.
-pub const CONFIGURE_TEMPLATES: &str = "configure_templates";
-/// Create/modify metadata definitions.
-pub const CONFIGURE_METADATA: &str = "configure_metadata";
+// `configure_templates` and `configure_metadata` were in this vocabulary and
+// are deliberately NOT (KAIROS-T-0182, amending KAIROS-A-0006). A grant is
+// keyed (board_id, user_id, capability), and `templates` and
+// `metadata_definitions` have no board_id — they are tenant-wide, scoped by
+// entity_type at most. So "configure_metadata on board X" could only ever have
+// authorised edits affecting every board, which is org-admin authority wearing
+// a board-scoped costume. Both stayed unchecked by any handler for their whole
+// life; the admin UI rendered them beside two that worked. Making templates and
+// metadata board-scoped is a schema change, not a bug fix — see
+// KAIROS-T-0182 if that is ever wanted.
 /// Add/remove users from the board, grant/revoke capabilities.
 pub const MANAGE_MEMBERS: &str = "manage_members";
 
@@ -62,7 +68,11 @@ pub const MANAGE_MEMBERS: &str = "manage_members";
 pub const GLOB_ALL: &str = "*";
 /// Glob: all `manage_*` capabilities.
 pub const GLOB_MANAGE: &str = "manage_*";
-/// Glob: all `configure_*` capabilities.
+/// Glob: all `configure_*` capabilities — currently just
+/// [`CONFIGURE_BOARDS`], since KAIROS-T-0182 removed the other two. Kept as a
+/// glob rather than collapsed into the specific capability: it is a stable
+/// grant an admin may already hold, and it keeps meaning "whatever configuring
+/// this board comes to mean".
 pub const GLOB_CONFIGURE: &str = "configure_*";
 /// Glob: all `transition_*` capabilities (currently just
 /// [`TRANSITION_ITEMS`], but future-proof).
@@ -77,8 +87,6 @@ pub const CAPABILITIES: &[&str] = &[
     MANAGE_ADRS,
     TRANSITION_ITEMS,
     CONFIGURE_BOARDS,
-    CONFIGURE_TEMPLATES,
-    CONFIGURE_METADATA,
     MANAGE_MEMBERS,
 ];
 
@@ -272,7 +280,11 @@ mod tests {
 
     #[test]
     fn configure_and_transition_globs() {
-        for capability in [CONFIGURE_BOARDS, CONFIGURE_TEMPLATES, CONFIGURE_METADATA] {
+        // Textual, not vocabulary-aware: the glob matches any `configure_`
+        // prefix, including capabilities that do not exist. That is what the
+        // A-0006 LIKE translation does, and KAIROS-T-0182 shrinking the
+        // vocabulary to one member must not quietly change it.
+        for capability in [CONFIGURE_BOARDS, "configure_boards_someday"] {
             assert!(capability_matches(GLOB_CONFIGURE, capability));
         }
         assert!(!capability_matches(GLOB_CONFIGURE, MANAGE_TASKS));
@@ -358,7 +370,6 @@ mod tests {
         let grants = vec![MANAGE_TASKS.to_string(), GLOB_CONFIGURE.to_string()];
         assert!(is_authorized(&grants, MANAGE_TASKS));
         assert!(is_authorized(&grants, CONFIGURE_BOARDS));
-        assert!(is_authorized(&grants, CONFIGURE_METADATA));
         assert!(!is_authorized(&grants, MANAGE_DOCUMENTS));
         assert!(!is_authorized(&grants, TRANSITION_ITEMS));
         // No grants, no access.
@@ -394,8 +405,6 @@ mod tests {
         assert!(!team_implies(MANAGE_INITIATIVES));
         assert!(!team_implies(MANAGE_ADRS));
         assert!(!team_implies(CONFIGURE_BOARDS));
-        assert!(!team_implies(CONFIGURE_TEMPLATES));
-        assert!(!team_implies(CONFIGURE_METADATA));
         assert!(!team_implies(MANAGE_MEMBERS));
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));

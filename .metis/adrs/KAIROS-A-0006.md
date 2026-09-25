@@ -75,10 +75,29 @@ The system defines a fixed set of capabilities:
 **Workflow capabilities**:
 - `transition_items` — move items between board columns
 
-**Configuration capabilities**:
+**Configuration capabilities** — amended by KAIROS-T-0182 (2026-09-25):
 - `configure_boards` — modify board columns, transitions, settings
-- `configure_templates` — create/modify templates and metadata definitions
-- `configure_metadata` — create/modify metadata definitions
+
+> **Amendment (KAIROS-T-0182).** `configure_templates` and `configure_metadata`
+> are **removed from the vocabulary**. They were listed here from the start, were
+> consulted by no handler for their whole life, and could not have been: a grant
+> is keyed `(board_id, user_id, capability)`, while `templates` and
+> `metadata_definitions` carry no `board_id` — they are tenant-wide, scoped at
+> most by `entity_type`. "Configure metadata on board X" could therefore only
+> ever have authorised edits affecting every board, which is precisely the
+> org-admin authority it was meant to delegate away from.
+>
+> Template and metadata-definition writes stay org-admin. Making them delegable
+> means giving those resources a board scope first, which is a schema change, not
+> a permissions fix.
+>
+> `configure_*` survives as a glob and still covers `configure_boards`. The
+> decision this amendment reverses is the vocabulary entry, not the family.
+>
+> The failure mode is worth recording, because it is the argument for the test
+> that now guards it: two of the four non-`manage_*` capabilities were enforced
+> and two were not, and the admin interface rendered all four identically. A
+> capability nobody checks is indistinguishable from one nobody has used yet.
 
 **Board administration**:
 - `manage_members` — add/remove users from the board, grant/revoke capabilities

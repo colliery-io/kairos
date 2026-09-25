@@ -17,7 +17,9 @@
 //!   today; the editor emits the concrete capability, and normalizes a
 //!   stored `transition_*` grant to it on load).
 //! - **Configuration** — a family switch for `configure_*` plus
-//!   `configure_boards` / `configure_templates` / `configure_metadata`.
+//!   `configure_boards`. KAIROS-T-0182 removed `configure_templates` and
+//!   `configure_metadata` from the vocabulary — they authorised nothing, and
+//!   could not, being tenant-wide resources behind a board-scoped grant.
 //! - **Administration** — `manage_members` (add/remove members, grant
 //!   capabilities).
 //!
@@ -40,8 +42,6 @@ const SINGLES: &[&str] = &[
     "manage_adrs",
     "transition_items",
     "configure_boards",
-    "configure_templates",
-    "configure_metadata",
     "manage_members",
 ];
 
@@ -115,8 +115,6 @@ pub struct EditorState {
     pub manage_adrs: RwSignal<bool>,
     pub transition_items: RwSignal<bool>,
     pub configure_boards: RwSignal<bool>,
-    pub configure_templates: RwSignal<bool>,
-    pub configure_metadata: RwSignal<bool>,
     pub manage_members: RwSignal<bool>,
 }
 
@@ -147,8 +145,6 @@ impl EditorState {
             manage_adrs: single("manage_adrs"),
             transition_items: single("transition_items"),
             configure_boards: single("configure_boards"),
-            configure_templates: single("configure_templates"),
-            configure_metadata: single("configure_metadata"),
             manage_members: single("manage_members"),
         }
     }
@@ -162,7 +158,6 @@ impl EditorState {
             "manage_adrs" => self.manage_adrs,
             "transition_items" => self.transition_items,
             "configure_boards" => self.configure_boards,
-            "configure_templates" => self.configure_templates,
             _ => self.manage_members,
         }
     }
@@ -278,10 +273,6 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                         <Stack gap="xs">
                             <CapabilityRow checked=state.configure_boards
                                 label="Board configuration" name="configure_boards"/>
-                            <CapabilityRow checked=state.configure_templates
-                                label="Templates" name="configure_templates"/>
-                            <CapabilityRow checked=state.configure_metadata
-                                label="Metadata definitions" name="configure_metadata"/>
                         </Stack>
                     </Show>
                     <Divider/>

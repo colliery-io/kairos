@@ -1,0 +1,11 @@
+-- Deliberately empty.
+--
+-- The up migration deletes grant rows that authorised nothing. There is no
+-- information to restore: which (board, user) pairs held an inert grant is not
+-- recoverable, and re-inserting guesses would fabricate an access record.
+--
+-- Rolling back is also harmless without this: the capabilities are not in the
+-- vocabulary, so nothing reads or grants them either way. Per KAIROS-A-0013
+-- migrations are forward-only in practice; this file exists so `diesel` has a
+-- complete pair.
+SELECT 1;

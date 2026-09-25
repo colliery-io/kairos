@@ -338,3 +338,92 @@ pub fn require_user_exists(
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::validation(format!("user {user_id} does not exist")))
 }
+
+#[cfg(test)]
+mod vocabulary_tests {
+    //! KAIROS-T-0182: a capability nobody checks looks exactly like one nobody
+    //! has used yet.
+    //!
+    //! `configure_templates` and `configure_metadata` sat in the grantable
+    //! vocabulary for their whole life, rendered as checkboxes beside two that
+    //! worked, and were consulted by no handler anywhere. An admin could grant
+    //! one, see it granted, and the grantee got 403 on everything it named.
+    //!
+    //! This test is the reason that cannot recur. It scans the server source
+    //! for every member of the vocabulary, which is crude but catches exactly
+    //! the failure that happened: a word in a list that nothing reads.
+
+    use super::capability_vocabulary;
+    use std::collections::BTreeSet;
+
+    /// Every `.rs` file under the server's `src/`, where request handling lives.
+    fn server_sources() -> Vec<std::path::PathBuf> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).expect("readable dir") {
+                let path = entry.expect("dir entry").path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut out = Vec::new();
+        walk(&root, &mut out);
+        out
+    }
+
+    #[test]
+    fn every_grantable_capability_is_consulted_somewhere() {
+        // This file names the removed two in prose and holds the vocabulary
+        // itself, so reading it would make the scan trivially pass. Skip it.
+        let haystack: String = server_sources()
+            .into_iter()
+            .filter(|p| !p.ends_with("api/org/mod.rs"))
+            .map(|p| std::fs::read_to_string(&p).expect("readable source"))
+            .collect();
+
+        let unchecked: BTreeSet<&str> = kairos_core::abac::CAPABILITIES
+            .iter()
+            .copied()
+            .filter(|capability| !haystack.contains(*capability))
+            .collect();
+
+        assert!(
+            unchecked.is_empty(),
+            "these capabilities are grantable and no handler mentions them, so \
+             granting one authorises nothing while the admin UI shows it \
+             granted: {unchecked:?}\n\
+             Either gate the relevant handlers on them, or remove them from \
+             kairos_core::abac::CAPABILITIES. A vocabulary that promises \
+             delegation the model does not support is worse than a shorter one."
+        );
+    }
+
+    #[test]
+    fn the_two_capabilities_that_authorised_nothing_are_gone() {
+        // Named explicitly so a future re-add has to argue with a test rather
+        // than slip in beside the working ones. Re-adding either is only
+        // correct alongside a board_id on `templates` / `metadata_definitions`
+        // — without that, a (board_id, user_id, capability) grant cannot scope
+        // a tenant-wide resource.
+        for gone in ["configure_templates", "configure_metadata"] {
+            assert!(
+                !capability_vocabulary().any(|known| known == gone),
+                "{gone} is back in the vocabulary; see KAIROS-T-0182"
+            );
+        }
+    }
+
+    #[test]
+    fn the_configure_glob_still_covers_board_configuration() {
+        // GLOB_CONFIGURE lost two of its three members. It must still match the
+        // remaining one, or an admin holding `configure_*` silently loses board
+        // configuration.
+        assert!(kairos_core::abac::capability_matches(
+            kairos_core::abac::GLOB_CONFIGURE,
+            kairos_core::abac::CONFIGURE_BOARDS,
+        ));
+    }
+}

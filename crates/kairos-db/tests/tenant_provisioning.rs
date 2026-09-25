@@ -718,12 +718,30 @@ fn tenant_provisioning_lifecycle() {
     sql_query("DROP TABLE org_widgets.edge_proposals")
         .execute(&mut conn)
         .expect("dropping widgets' edge_proposals to simulate an old tenant");
-    sql_query(
-        "DELETE FROM org_widgets.__diesel_schema_migrations \
-         WHERE version = (SELECT max(version) FROM org_widgets.__diesel_schema_migrations)",
-    )
+    // Name the migration being simulated, rather than taking max(version).
+    //
+    // This block has been re-pinned four times — KAIROS-T-0186, T-0187, T-0192
+    // and now T-0182 — because `max(version)` means "whatever migration was
+    // added last", so every new tenant migration broke a test about
+    // edge_proposals. The failure was also misleading: the newest migration got
+    // rolled back and re-applied while `edge_proposals` stayed dropped, so the
+    // assertion that failed was three screens away from the cause.
+    //
+    // Diesel re-applies any version absent from the bookkeeping table, not just
+    // the newest, so deleting a row in the middle is a valid "old tenant" and
+    // stays valid as migrations accumulate after it.
+    const EDGE_PROPOSALS_MIGRATION: &str = "20260924000001";
+    let removed = sql_query(format!(
+        "DELETE FROM org_widgets.__diesel_schema_migrations WHERE version = '{EDGE_PROPOSALS_MIGRATION}'"
+    ))
     .execute(&mut conn)
-    .expect("deleting the newest migration bookkeeping row in widgets");
+    .expect("deleting the edge_proposals migration bookkeeping row in widgets");
+    assert_eq!(
+        removed, 1,
+        "{EDGE_PROPOSALS_MIGRATION} should be the applied edge_proposals \
+         migration; if this fails the version was renamed, and the simulated \
+         old tenant below is simulating nothing"
+    );
 
     let outcomes = migrate_all_tenants(&mut conn).expect("fleet migration (upgrade path)");
     let summary: Vec<(String, usize)> = outcomes

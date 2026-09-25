@@ -52,7 +52,7 @@ pub struct Strategy {
     pub updated_at: String,
     /// When this work was put away, RFC 3339; absent while it is live.
     /// Archiving hides work from default listings and nothing more
-    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// (KAIROS-A-0020) â anything serving an archived row marks it, so an
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -90,7 +90,7 @@ pub struct Initiative {
     pub updated_at: String,
     /// When this work was put away, RFC 3339; absent while it is live.
     /// Archiving hides work from default listings and nothing more
-    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// (KAIROS-A-0020) â anything serving an archived row marks it, so an
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -112,7 +112,7 @@ pub struct Task {
     pub column_id: String,
     /// `task|bug|tech_debt|support`.
     pub task_type: String,
-    /// Planned/Support lane (`planned|support`, KAIROS-T-0077) — was this
+    /// Planned/Support lane (`planned|support`, KAIROS-T-0077) â was this
     /// work planned, or unplanned intake? Orthogonal to `task_type`.
     pub work_class: String,
     /// Owning team (UUID), if assigned.
@@ -138,7 +138,7 @@ pub struct Task {
     pub updated_at: String,
     /// When this work was put away, RFC 3339; absent while it is live.
     /// Archiving hides work from default listings and nothing more
-    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// (KAIROS-A-0020) â anything serving an archived row marks it, so an
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -147,7 +147,7 @@ pub struct Task {
 /// A supporting document, as returned by `/api/documents`. Documents do not
 /// live on boards; they attach to a workflow item via a `supports` edge and
 /// inherit that item's board for authorization (KAIROS-A-0006). Their
-/// `lifecycle` is an editorial label (KAIROS-T-0078) — never board
+/// `lifecycle` is an editorial label (KAIROS-T-0078) â never board
 /// position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Document {
@@ -161,7 +161,7 @@ pub struct Document {
     /// Template the document was stamped from (UUID), if any.
     pub template_id: Option<String>,
     /// Editorial lifecycle: `draft|review|published|archived`
-    /// (KAIROS-T-0078). A label with free transitions — never a board
+    /// (KAIROS-T-0078). A label with free transitions â never a board
     /// column, never metadata.
     pub lifecycle: String,
     /// Optimistic-concurrency version (KAIROS-A-0004).
@@ -176,7 +176,7 @@ pub struct Document {
     pub updated_at: String,
     /// When this work was put away, RFC 3339; absent while it is live.
     /// Archiving hides work from default listings and nothing more
-    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// (KAIROS-A-0020) â anything serving an archived row marks it, so an
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -212,7 +212,7 @@ pub struct Adr {
     pub updated_at: String,
     /// When this work was put away, RFC 3339; absent while it is live.
     /// Archiving hides work from default listings and nothing more
-    /// (KAIROS-A-0020) — anything serving an archived row marks it, so an
+    /// (KAIROS-A-0020) â anything serving an archived row marks it, so an
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
@@ -225,7 +225,7 @@ pub struct Adr {
 /// Body of `POST /api/strategies`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateStrategyRequest {
-    /// Board to create the strategy on (UUID).
+    /// Board to create the strategy on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
     /// Column to place it in (UUID); defaults to the board's first column.
     #[serde(default)]
@@ -241,7 +241,7 @@ pub struct CreateStrategyRequest {
 /// Body of `POST /api/initiatives`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateInitiativeRequest {
-    /// Board to create the initiative on (UUID).
+    /// Board to create the initiative on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
     /// Column to place it in (UUID); defaults to the board's first column.
     #[serde(default)]
@@ -262,7 +262,8 @@ pub struct CreateInitiativeRequest {
 /// Body of `POST /api/tasks`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateTaskRequest {
-    /// Board to create the task on (UUID). Optional since KAIROS-T-0104:
+    /// Board to create the task on — SLUG or UUID (KAIROS-T-0150).
+    /// Optional since KAIROS-T-0104:
     /// when `repository` is given the task is ROUTED to the owning
     /// team's delivery board (A-0019); when both are given they must
     /// agree; neither is a 422.
@@ -305,7 +306,7 @@ pub struct SetLifecycleRequest {
     pub lifecycle: String,
 }
 
-/// transitions — the board rules engine is never consulted.
+/// transitions â the board rules engine is never consulted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SetWorkClassRequest {
     /// `planned|support`.
@@ -337,7 +338,7 @@ pub struct CreateDocumentRequest {
 /// org-admin-only, KAIROS-A-0006 fallback).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateAdrRequest {
-    /// ADR board (UUID); omit for an off-board ADR.
+    /// ADR board — SLUG or UUID (KAIROS-T-0150); omit for an off-board ADR.
     #[serde(default)]
     pub board_id: Option<String>,
     /// Column (UUID); defaults to the board's first column when `board_id`
@@ -355,7 +356,7 @@ pub struct CreateAdrRequest {
     pub decision_date: Option<String>,
 }
 
-/// Body of `PATCH /api/{family}/{short_code}` — the KAIROS-A-0004
+/// Body of `PATCH /api/{family}/{short_code}` â the KAIROS-A-0004
 /// optimistic-concurrency content edit. `version` is the version the edit
 /// is based on; a stale value gets 409 `CONFLICT` with the current entity
 /// in `details.current`.
@@ -396,7 +397,7 @@ pub struct MoveTaskRequest {
 pub struct ListEnvelope<T: ToSchema> {
     pub items: Vec<T>,
     /// Rows matching the request, ignoring pagination. Live rows only
-    /// unless the request asked for archived work as well — `total` and
+    /// unless the request asked for archived work as well â `total` and
     /// `items` always answer the same question (KAIROS-T-0159).
     pub total: i64,
     /// The applied limit.
@@ -418,12 +419,12 @@ pub struct Pagination {
     pub offset: Option<i64>,
 }
 
-/// `?limit=&offset=&include_deleted=` — the query of the five entity
+/// `?limit=&offset=&include_deleted=` â the query of the five entity
 /// family lists: S-0005 pagination plus the KAIROS-A-0020 archived opt-in.
 ///
 /// Separate from [`Pagination`] on purpose. The other paginated listings
 /// (boards, teams, members, tenants, templates, streams) have no archived
-/// mode, and a shared struct would advertise a parameter they ignore —
+/// mode, and a shared struct would advertise a parameter they ignore â
 /// which is how an auditor comes to believe they asked for archived work
 /// and got none.
 ///
@@ -439,7 +440,7 @@ pub struct ListQuery {
     #[serde(default)]
     pub offset: Option<i64>,
     /// Include archived (put-away) rows, each marked with `archived_at`
-    /// (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing
+    /// (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing
     /// nobody asked hides them. `total` widens with the page, never
     /// independently of it.
     #[serde(default)]
@@ -467,7 +468,7 @@ impl From<Pagination> for ListQuery {
     }
 }
 
-/// Response of `DELETE /api/{family}/{short_code}` — the soft delete and
+/// Response of `DELETE /api/{family}/{short_code}` â the soft delete and
 /// its KAIROS-A-0001 cascade.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct DeleteResponse {
@@ -482,7 +483,7 @@ pub struct DeleteResponse {
 /// Response of `POST /api/{entity_type}/{short_code}/restore`
 /// (KAIROS-T-0160, KAIROS-A-0020): the archived item is live again.
 ///
-/// A restore deliberately does NOT un-cascade — a cascade delete was an act
+/// A restore deliberately does NOT un-cascade â a cascade delete was an act
 /// on a subtree, and resurrecting descendants would undo decisions nobody
 /// asked to revisit. The descendants still away are named here instead, so
 /// "I restored it and half of it is missing" is answered before it is asked.
@@ -492,12 +493,12 @@ pub struct RestoreResponse {
     pub short_code: String,
     /// How many of its descendants are still archived.
     pub still_archived_count: i64,
-    /// Their short codes, sorted — restore them with further calls.
+    /// Their short codes, sorted â restore them with further calls.
     pub still_archived_short_codes: Vec<String>,
 }
 
 /// Response of `GET /api/{entity_type}/{short_code}/cascade-preview`
-/// (KAIROS-T-0051) — the AUTHORITATIVE KAIROS-A-0001 descendant set a
+/// (KAIROS-T-0051) â the AUTHORITATIVE KAIROS-A-0001 descendant set a
 /// soft-delete of this item WOULD cascade to, computed WITHOUT deleting.
 /// The fields mirror [`DeleteResponse`] so a client can render the same
 /// warning before the delete as it shows after, and `cascaded_short_codes`

@@ -21,7 +21,7 @@ is that a listing nobody asked hides put-away work.
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -118,7 +118,7 @@ is that a listing nobody asked hides put-away work.
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -217,7 +217,7 @@ is that a listing nobody asked hides put-away work.
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -326,6 +326,7 @@ Request body (required): `application/json`, [`SetTaskRepositoryRequest`](schema
 
 ### `POST /api/tasks/{short_code}/transition`
 
+A live board by slug or UUID; 404 otherwise.
 Move a task to another column (requires `transition_items` on the
 task's board).
 
@@ -378,7 +379,7 @@ editorially archived and perfectly live.
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -481,7 +482,7 @@ is that a listing nobody asked hides put-away work.
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
 
 | Response | Body | Meaning |
 |---|---|---|

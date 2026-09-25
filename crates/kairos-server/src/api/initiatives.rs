@@ -16,8 +16,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_list, map_board_error, map_item_error, parse_enum, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, parse_enum,
+    parse_opt_uuid, parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -166,7 +166,7 @@ pub(crate) async fn create_initiative(
     Extension(tenant): Extension<TenantContext>,
     Json(body): Json<dto::CreateInitiativeRequest>,
 ) -> Result<(StatusCode, Json<dto::Initiative>), ApiError> {
-    let board_id = parse_uuid(&body.board_id, "board_id")?;
+    // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let complexity = body
         .complexity
@@ -183,6 +183,7 @@ pub(crate) async fn create_initiative(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            let board_id = board_id_by_ref(conn, &body.board_id)?;
             require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
             let created = items::create_initiative(
                 conn,

@@ -15,8 +15,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_list, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, parse_opt_uuid,
+    parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -164,13 +164,15 @@ pub(crate) async fn create_strategy(
     Extension(tenant): Extension<TenantContext>,
     Json(body): Json<dto::CreateStrategyRequest>,
 ) -> Result<(StatusCode, Json<dto::Strategy>), ApiError> {
-    let board_id = parse_uuid(&body.board_id, "board_id")?;
+    // KAIROS-T-0150: `board_id` takes a slug or a UUID, so resolution needs a
+    // connection and moves inside the closure.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            let board_id = board_id_by_ref(conn, &body.board_id)?;
             require_capability(conn, &slug, Some(board_id), user, MANAGE)?;
             let created = items::create_strategy(
                 conn,

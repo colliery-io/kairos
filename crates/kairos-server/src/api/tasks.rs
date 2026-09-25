@@ -17,8 +17,8 @@ use uuid::Uuid;
 
 use super::convert::{IntoDto, attach_repositories, attach_repository};
 use super::{
-    Liveness, clamp_list, map_board_error, map_item_error, parse_enum, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref,
+    parse_enum, parse_opt_uuid, parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -234,7 +234,7 @@ pub(crate) async fn create_task(
     Extension(tenant): Extension<TenantContext>,
     Json(body): Json<dto::CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<dto::Task>), ApiError> {
-    let board_id = parse_opt_uuid(body.board_id.as_deref(), "board_id")?;
+    // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let team_id = parse_opt_uuid(body.team_id.as_deref(), "team_id")?;
     let repository = body.repository.clone();
@@ -261,6 +261,7 @@ pub(crate) async fn create_task(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
             let route = resolve_routing(conn, board_id, team_id, repository.as_deref())?;
             require_task_create_capability(conn, &slug, user, &route, column_id)?;
             let created = items::create_task(
@@ -510,23 +511,6 @@ pub(crate) async fn move_task(
 }
 
 /// A live board by slug or UUID; 404 otherwise.
-fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
-    use kairos_db::schema::boards::dsl;
-    let mut query = dsl::boards
-        .filter(dsl::deleted_at.is_null())
-        .select(dsl::id)
-        .into_boxed();
-    query = match Uuid::parse_str(reference) {
-        Ok(id) => query.filter(dsl::id.eq(id)),
-        Err(_) => query.filter(dsl::slug.eq(reference)),
-    };
-    query
-        .first(conn)
-        .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
-}
-
 /// Move a task to another column (requires `transition_items` on the
 /// task's board).
 #[utoipa::path(

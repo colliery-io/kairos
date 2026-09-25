@@ -61,7 +61,7 @@ An Architecture Decision Record, as returned by `/api/adrs`. Board placement is 
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) — anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string`, nullable | no | ADR board (UUID), if placed on one. |
 | `column_id` | `string`, nullable | no | Current column (UUID), if placed on a board. |
 | `content` | `string` | yes | Markdown content. |
@@ -201,7 +201,7 @@ An allowed column-to-column transition edge.
 
 ## CascadePreviewResponse
 
-Response of `GET /api/{entity_type}/{short_code}/cascade-preview` (KAIROS-T-0051) — the AUTHORITATIVE KAIROS-A-0001 descendant set a soft-delete of this item WOULD cascade to, computed WITHOUT deleting. The fields mirror [`DeleteResponse`] so a client can render the same warning before the delete as it shows after, and `cascaded_short_codes` is identical to the `DeleteResponse` a subsequent delete would return (barring concurrent edits).
+Response of `GET /api/{entity_type}/{short_code}/cascade-preview` (KAIROS-T-0051) â the AUTHORITATIVE KAIROS-A-0001 descendant set a soft-delete of this item WOULD cascade to, computed WITHOUT deleting. The fields mirror [`DeleteResponse`] so a client can render the same warning before the delete as it shows after, and `cascaded_short_codes` is identical to the `DeleteResponse` a subsequent delete would return (barring concurrent edits).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -239,7 +239,7 @@ Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board_id` | `string`, nullable | no | ADR board (UUID); omit for an off-board ADR. |
+| `board_id` | `string`, nullable | no | ADR board — SLUG or UUID (KAIROS-T-0150); omit for an off-board ADR. |
 | `column_id` | `string`, nullable | no | Column (UUID); defaults to the board's first column when `board_id` is set. |
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `decision_date` | `string`, nullable | no | `YYYY-MM-DD`. |
@@ -300,7 +300,7 @@ Body of `POST /api/initiatives`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board_id` | `string` | yes | Board to create the initiative on (UUID). |
+| `board_id` | `string` | yes | Board to create the initiative on — SLUG or UUID (KAIROS-T-0150). |
 | `bucket_type` | `string`, nullable | no | Marks the initiative as a bucket of this kind (`tech_debt|bug|ad_hoc`); `is_bucket` is derived. |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
 | `complexity` | `string`, nullable | no | T-shirt sizing (`xs|s|m|l|xl`). |
@@ -365,7 +365,7 @@ Body of `POST /api/strategies`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board_id` | `string` | yes | Board to create the strategy on (UUID). |
+| `board_id` | `string` | yes | Board to create the strategy on — SLUG or UUID (KAIROS-T-0150). |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `hypothesis` | `string`, nullable | no |  |
@@ -387,7 +387,7 @@ Body of `POST /api/tasks`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board_id` | `string`, nullable | no | Board to create the task on (UUID). Optional since KAIROS-T-0104: when `repository` is given the task is ROUTED to the owning team's delivery board (A-0019); when both are given they must agree; neither is a 422. |
+| `board_id` | `string`, nullable | no | Board to create the task on — SLUG or UUID (KAIROS-T-0150). Optional since KAIROS-T-0104: when `repository` is given the task is ROUTED to the owning team's delivery board (A-0019); when both are given they must agree; neither is a 422. |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `repository` | `string`, nullable | no | Repository to issue the task against (slug or UUID, KAIROS-T-0104). Routes the task: repo -> owning team -> that team's delivery board. `repository` is THE reference field name on the wire (KAIROS-T-0115); `repository_id` is accepted as an alias for one release. |
@@ -464,7 +464,7 @@ Response of connection creation and rotation: the connection plus the delivery U
 
 ## DeleteResponse
 
-Response of `DELETE /api/{family}/{short_code}` — the soft delete and its KAIROS-A-0001 cascade.
+Response of `DELETE /api/{family}/{short_code}` â the soft delete and its KAIROS-A-0001 cascade.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -496,16 +496,16 @@ A delivery stream (`/api/delivery-streams`).
 
 ## Document
 
-A supporting document, as returned by `/api/documents`. Documents do not live on boards; they attach to a workflow item via a `supports` edge and inherit that item's board for authorization (KAIROS-A-0006). Their `lifecycle` is an editorial label (KAIROS-T-0078) — never board position.
+A supporting document, as returned by `/api/documents`. Documents do not live on boards; they attach to a workflow item via a `supports` edge and inherit that item's board for authorization (KAIROS-A-0006). Their `lifecycle` is an editorial label (KAIROS-T-0078) â never board position.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) — anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `content` | `string` | yes | Markdown content. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `created_by` | `string` | yes | Creator user id (UUID). |
 | `id` | `string` | yes | Entity id (UUID). |
-| `lifecycle` | `string` | yes | Editorial lifecycle: `draft|review|published|archived` (KAIROS-T-0078). A label with free transitions — never a board column, never metadata. |
+| `lifecycle` | `string` | yes | Editorial lifecycle: `draft|review|published|archived` (KAIROS-T-0078). A label with free transitions â never a board column, never metadata. |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-D-{NNNN}`). |
 | `template_id` | `string`, nullable | no | Template the document was stamped from (UUID), if any. |
 | `title` | `string` | yes |  |
@@ -610,7 +610,7 @@ An initiative (Flight Level 2), as returned by `/api/initiatives`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) — anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the initiative sits on (UUID). |
 | `bucket_type` | `string`, nullable | no | Bucket kind (`tech_debt|bug|ad_hoc`), set iff `is_bucket`. |
 | `column_id` | `string` | yes | Current column (UUID). |
@@ -672,7 +672,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Adr
 
@@ -683,7 +683,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Board
 
@@ -694,7 +694,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_DeliveryStream
 
@@ -705,7 +705,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Document
 
@@ -716,7 +716,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_HistoryVersion
 
@@ -727,7 +727,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Initiative
 
@@ -738,7 +738,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_MetadataDefinition
 
@@ -749,7 +749,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_OrgMember
 
@@ -760,7 +760,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Strategy
 
@@ -771,7 +771,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Task
 
@@ -782,7 +782,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Team
 
@@ -793,7 +793,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_Template
 
@@ -804,7 +804,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## ListEnvelope_TenantSummary
 
@@ -815,7 +815,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `items` | array of `object` | yes |  |
 | `limit` | `integer` | yes | The applied limit. |
 | `offset` | `integer` | yes | The applied offset. |
-| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well — `total` and `items` always answer the same question (KAIROS-T-0159). |
+| `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
 ## MetadataDefinition
 
@@ -1018,13 +1018,13 @@ The owning team, embedded on [`Repository`].
 
 ## RestoreResponse
 
-Response of `POST /api/{entity_type}/{short_code}/restore` (KAIROS-T-0160, KAIROS-A-0020): the archived item is live again. A restore deliberately does NOT un-cascade — a cascade delete was an act on a subtree, and resurrecting descendants would undo decisions nobody asked to revisit. The descendants still away are named here instead, so "I restored it and half of it is missing" is answered before it is asked.
+Response of `POST /api/{entity_type}/{short_code}/restore` (KAIROS-T-0160, KAIROS-A-0020): the archived item is live again. A restore deliberately does NOT un-cascade â a cascade delete was an act on a subtree, and resurrecting descendants would undo decisions nobody asked to revisit. The descendants still away are named here instead, so "I restored it and half of it is missing" is answered before it is asked.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `short_code` | `string` | yes | The restored item's short code. |
 | `still_archived_count` | `integer` | yes | How many of its descendants are still archived. |
-| `still_archived_short_codes` | array of `string` | yes | Their short codes, sorted — restore them with further calls. |
+| `still_archived_short_codes` | array of `string` | yes | Their short codes, sorted â restore them with further calls. |
 
 ## ScimTokenCreatedResponse
 
@@ -1188,7 +1188,7 @@ Body of `PUT /api/tasks/{short_code}/repository` — bind the task to a reposito
 
 ## SetWorkClassRequest
 
-transitions — the board rules engine is never consulted.
+transitions â the board rules engine is never consulted.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -1200,7 +1200,7 @@ A strategy (Flight Level 3), as returned by `/api/strategies`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) — anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the strategy sits on (UUID). |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `content` | `string` | yes | Markdown content. |
@@ -1220,7 +1220,7 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) — anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the task sits on (UUID). |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `content` | `string` | yes | Markdown content. |
@@ -1236,7 +1236,7 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 | `updated_at` | `string` | yes | RFC 3339. |
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
-| `work_class` | `string` | yes | Planned/Support lane (`planned|support`, KAIROS-T-0077) — was this work planned, or unplanned intake? Orthogonal to `task_type`. |
+| `work_class` | `string` | yes | Planned/Support lane (`planned|support`, KAIROS-T-0077) â was this work planned, or unplanned intake? Orthogonal to `task_type`. |
 
 ## Team
 
@@ -1452,7 +1452,7 @@ Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set t
 
 ## UpdateContentRequest
 
-Body of `PATCH /api/{family}/{short_code}` — the KAIROS-A-0004 optimistic-concurrency content edit. `version` is the version the edit is based on; a stale value gets 409 `CONFLICT` with the current entity in `details.current`.
+Body of `PATCH /api/{family}/{short_code}` â the KAIROS-A-0004 optimistic-concurrency content edit. `version` is the version the edit is based on; a stale value gets 409 `CONFLICT` with the current entity in `details.current`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|

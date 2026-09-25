@@ -20,8 +20,8 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_list, map_board_error, map_item_error, parse_opt_uuid, parse_uuid,
-    require_capability, short_code_not_found,
+    Liveness, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref, parse_opt_uuid,
+    parse_uuid, require_capability, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -158,7 +158,7 @@ pub(crate) async fn create_adr(
     Extension(tenant): Extension<TenantContext>,
     Json(body): Json<dto::CreateAdrRequest>,
 ) -> Result<(StatusCode, Json<dto::Adr>), ApiError> {
-    let board_id = parse_opt_uuid(body.board_id.as_deref(), "board_id")?;
+    // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
     let decision_date = body
         .decision_date
@@ -174,6 +174,7 @@ pub(crate) async fn create_adr(
     let created = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
             require_capability(conn, &slug, board_id, user, MANAGE)?;
             let created = items::create_adr(
                 conn,

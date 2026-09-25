@@ -539,6 +539,93 @@ async fn entity_endpoints_against_live_stack() {
     let task_bug_code = task_bug.short_code.clone();
     assert_eq!(task_bug.task_type, "bug");
 
+    // KAIROS-T-0150: every create endpoint takes a board SLUG as well as a UUID,
+    // the way `tasks move --to-board` and `--repo` already did. Resolved
+    // server-side, so the CLI, REST callers and MCP get the same rule rather than
+    // each reimplementing the lookup.
+    let delivery_slug: String = {
+        use kairos_db::schema::boards;
+        boards::table
+            .filter(boards::id.eq(delivery_board))
+            .select(boards::slug)
+            .first(&mut conn)
+            .expect("delivery board slug")
+    };
+    let by_slug = alice
+        .create_task(&CreateTaskRequest {
+            board_id: Some(delivery_slug.clone()),
+            repository: None,
+            column_id: None,
+            title: "Created by board slug".into(),
+            content: "KAIROS-T-0150".into(),
+            task_type: None,
+            work_class: None,
+            team_id: None,
+        })
+        .await
+        .expect("creating a task by board slug");
+    assert_eq!(
+        by_slug.board_id,
+        delivery_board.to_string(),
+        "a slug must resolve to the same board a UUID does"
+    );
+
+    // An unknown reference is a 404 naming it — not a UUID parse error, which is
+    // the whole point for someone who typed a slug on purpose.
+    let err = rejection(
+        alice
+            .create_task(&CreateTaskRequest {
+                board_id: Some("no-such-board".into()),
+                repository: None,
+                column_id: None,
+                title: "should not exist".into(),
+                content: String::new(),
+                task_type: None,
+                work_class: None,
+                team_id: None,
+            })
+            .await,
+    );
+    match &err {
+        Error::NotFound { message, .. } => {
+            assert!(
+                message.contains("no-such-board"),
+                "the refusal must name what was typed: {message}"
+            );
+            // Matching NotFound is the substantive assertion: a 404 means "no
+            // board called that", where the old behaviour was a 422 VALIDATION
+            // complaining the value was not a UUID. The message does mention
+            // UUIDs, and should — it is telling the reader both forms are
+            // accepted, which is the opposite of sending them to look one up.
+            assert!(
+                message.contains("slug or UUID"),
+                "the refusal should say both forms are accepted: {message}"
+            );
+        }
+        other => panic!("expected NotFound for an unknown board slug, got {other}"),
+    }
+
+    // The same rule on the other three families.
+    let strategy_slug: String = {
+        use kairos_db::schema::boards;
+        boards::table
+            .filter(boards::id.eq(strategy_board))
+            .select(boards::slug)
+            .first(&mut conn)
+            .expect("strategy board slug")
+    };
+    let strategy_by_slug = alice
+        .create_strategy(&CreateStrategyRequest {
+            board_id: strategy_slug,
+            column_id: None,
+            title: "Strategy by slug".into(),
+            content: String::new(),
+            hypothesis: None,
+        })
+        .await
+        .expect("creating a strategy by board slug");
+    assert_eq!(strategy_by_slug.board_id, strategy_board.to_string());
+
     // KAIROS-T-0077: the Planned/Support lane axis. Defaults: planned in
     // general, support for support-type tickets; explicitly settable and
     // independent of task_type (the recorded no-bug-lane decision).
@@ -610,7 +697,8 @@ async fn entity_endpoints_against_live_stack() {
         .list_tasks(Pagination::default())
         .await
         .expect("listing tasks");
-    assert_eq!(body.total, 4);
+    // 5 since KAIROS-T-0150 added one created by board slug.
+    assert_eq!(body.total, 5);
     assert_eq!(body.limit, 50, "default limit");
 
     // 409 with current state.
@@ -686,9 +774,20 @@ async fn entity_endpoints_against_live_stack() {
         other => panic!("expected Forbidden, got {other}"),
     }
 
-    // Create against an unknown board / malformed UUID → 422 VALIDATION.
-    // Uuid::nil() is a valid UUID but no such board: alice holds no grant
-    // on it either — the ABAC check runs first and correctly 403s.
+    // Create against a board that does not exist → 404, in BOTH spellings.
+    //
+    // KAIROS-T-0150 changed this, and in two ways worth naming:
+    //
+    //   Uuid::nil() used to 403. It is a well-formed UUID, so the old code
+    //   parsed it, handed it to the ABAC check, and reported a missing
+    //   capability on a board that does not exist. Now resolution happens first
+    //   and says the true thing: there is no such board. A 404 here leaks
+    //   nothing an authorised reader could not already see — A-0006 makes reads
+    //   open tenant-wide, so board existence is not a secret within a tenant.
+    //
+    //   "not-a-uuid" used to be 422 VALIDATION, a parse error. It is now a slug
+    //   that does not match any board, which is the whole point of the ticket:
+    //   an unrecognised reference is a missing board, not a malformed id.
     let err = rejection(
         alice
             .create_task(&CreateTaskRequest {
@@ -703,7 +802,7 @@ async fn entity_endpoints_against_live_stack() {
             })
             .await,
     );
-    assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
     let err = rejection(
         alice
             .create_task(&CreateTaskRequest {
@@ -718,10 +817,7 @@ async fn entity_endpoints_against_live_stack() {
             })
             .await,
     );
-    assert!(
-        matches!(err, Error::Validation { status: 422, .. }),
-        "{err}"
-    );
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
     // Direct delete of a leaf task: cascade 0.
     let body = alice

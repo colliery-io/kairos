@@ -27,11 +27,11 @@ journey(
     await step(alice, 'writes a task she will spend the rest of this story correcting', async () => {
       const cli = await alice.cli();
       const api = await alice.api();
-      // `tasks create --board` takes a UUID (unlike `tasks move
-      // --to-board` and `--repo`, which accept a slug) — resolve it.
-      const board = await api.boardBySlug('platform-delivery');
+      // KAIROS-T-0150: the board goes in by SLUG, the way a person would type
+      // it. This step used to resolve the UUID through the API first, with a
+      // comment explaining why it had to.
       const created = await cli.json([
-        'tasks', 'create', '--board', board.id,
+        'tasks', 'create', '--board', 'platform-delivery',
         '--title', named('task: retention sweeper thresholds'),
         '--content', 'Sweep history older than 30 days.',
       ]);

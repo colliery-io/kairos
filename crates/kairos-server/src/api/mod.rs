@@ -125,6 +125,48 @@ pub fn parse_opt_uuid(value: Option<&str>, field: &str) -> Result<Option<Uuid>, 
     value.map(|v| parse_uuid(v, field)).transpose()
 }
 
+/// Resolve a board reference — **slug or UUID** — to a live board's id
+/// (KAIROS-T-0150).
+///
+/// Every other board reference a person types already accepts both: `tasks move
+/// --to-board`, `--repo` on create and search, and the MCP `board_items` /
+/// `move_item` tools. The create endpoints took a UUID only, so the one command
+/// someone is most likely to type first was the one that sent them to look up an
+/// id.
+///
+/// Resolved server-side rather than in the CLI, deliberately: one rule, in one
+/// place, for the CLI, the REST callers and MCP alike. Resolving it in the CLI
+/// would have kept the wire type strict at the cost of leaving the REST API with
+/// the wart and every other client to reimplement the lookup.
+///
+/// An unknown reference is a 404 naming it, not a UUID parse error — the
+/// difference between "no board called that" and "that is not a UUID" is the
+/// whole point for someone who typed a slug on purpose.
+pub fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError> {
+    use kairos_db::schema::boards::dsl;
+    let mut query = dsl::boards
+        .filter(dsl::deleted_at.is_null())
+        .select(dsl::id)
+        .into_boxed();
+    query = match Uuid::parse_str(reference) {
+        Ok(id) => query.filter(dsl::id.eq(id)),
+        Err(_) => query.filter(dsl::slug.eq(reference)),
+    };
+    query
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
+}
+
+/// [`board_id_by_ref`] for an optional reference.
+pub fn opt_board_id_by_ref(
+    conn: &mut PgConnection,
+    reference: Option<&str>,
+) -> Result<Option<Uuid>, ApiError> {
+    reference.map(|r| board_id_by_ref(conn, r)).transpose()
+}
+
 /// Parse a TEXT-backed enum body field (`task_type`, `complexity`,
 /// `bucket_type`) via its `FromStr`, naming the allowed values on failure.
 pub fn parse_enum<T>(value: &str, field: &str, allowed: &[T]) -> Result<T, ApiError>

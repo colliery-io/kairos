@@ -605,8 +605,8 @@ pub fn emit_deleted(common: &Common, response: &DeleteResponse) -> Result<(), Cl
 /// Arguments of `kairos strategies create`.
 #[derive(Args, Debug)]
 pub struct StrategyCreateArgs {
-    /// Board to create the strategy on (UUID)
-    #[arg(long, value_name = "BOARD_ID")]
+    /// Board to create the strategy on (slug or UUID)
+    #[arg(long, value_name = "BOARD")]
     pub board: String,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]
@@ -639,8 +639,8 @@ impl StrategyCreateArgs {
 /// Arguments of `kairos initiatives create`.
 #[derive(Args, Debug)]
 pub struct InitiativeCreateArgs {
-    /// Board to create the initiative on (UUID)
-    #[arg(long, value_name = "BOARD_ID")]
+    /// Board to create the initiative on (slug or UUID)
+    #[arg(long, value_name = "BOARD")]
     pub board: String,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]
@@ -677,10 +677,10 @@ impl InitiativeCreateArgs {
 /// Arguments of `kairos tasks create`.
 #[derive(Args, Debug)]
 pub struct TaskCreateArgs {
-    /// Delivery board to create the task on (UUID). Optional when --repo
-    /// is given: the task is routed to the repository's owning team's
-    /// delivery board (KAIROS-A-0019)
-    #[arg(long, value_name = "BOARD_ID", required_unless_present = "repo")]
+    /// Delivery board to create the task on (slug or UUID). Optional when
+    /// --repo is given: the task is routed to the repository's owning
+    /// team's delivery board (KAIROS-A-0019)
+    #[arg(long, value_name = "BOARD", required_unless_present = "repo")]
     pub board: Option<String>,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]
@@ -762,8 +762,8 @@ pub struct AdrCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
-    /// ADR board (UUID); omit for an off-board ADR (org-admin only)
-    #[arg(long, value_name = "BOARD_ID")]
+    /// ADR board (slug or UUID); omit for an off-board ADR (org-admin only)
+    #[arg(long, value_name = "BOARD")]
     pub board: Option<String>,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]

@@ -300,11 +300,17 @@ async fn typed_error_mapping_roundtrip() {
     assert_eq!(err.code(), Some("INVALID_TRANSITION"));
 
     // --- 422 Validation: malformed UUID reference ---------------------------------
+    //
+    // `column_id` rather than `board_id`: since KAIROS-T-0150 a board reference
+    // is a slug OR a UUID, so an unparseable one is a 404 "no such board" rather
+    // than a 422. `column_id` is still a UUID-only field, which is what this
+    // assertion needs — it is about the Error::Validation mapping, not about
+    // boards.
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
-            board_id: Some("not-a-uuid".into()),
+            board_id: None,
             repository: None,
-            column_id: None,
+            column_id: Some("not-a-uuid".into()),
             title: "x".into(),
             content: String::new(),
             task_type: None,

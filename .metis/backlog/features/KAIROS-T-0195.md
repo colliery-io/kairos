@@ -4,15 +4,15 @@ level: task
 title: "Retrieval has no human surface: no CLI verb, and the GUI cannot ask what is related"
 short_code: "KAIROS-T-0195"
 created_at: 2026-09-24T22:03:09.445333+00:00
-updated_at: 2026-09-24T22:03:09.445333+00:00
+updated_at: 2026-09-25T11:28:50.825537+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#feature"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -133,3 +133,97 @@ What is actually missing:
 
 That is one task. Doing it as this ticket rather than decomposing an initiative
 around it.
+## Status Updates
+
+### 2026-09-25 — a person can ask now
+
+`RelatedWorkPanel` on the item detail page, below the agent-made **Suggested
+links** — the same idea from the other direction: one you were handed, one you
+asked for.
+
+Scope was much smaller than I first said, and I was wrong about that in a way
+worth recording: I called this initiative-sized off [[KAIROS-T-0193]]'s note that
+"retrieval has no human surface", without checking. The REST endpoint, the DTOs and
+the confirm/reject panel were all already built. What was actually missing was a
+client method and a panel. See the sizing correction above.
+
+### Design decisions, and why they are not cosmetic
+
+- **It does not search on page load.** Retrieval costs a vector search per ask, and
+  most visits to an item are not someone wondering what it duplicates. A button
+  also makes it a question the person asked rather than a claim the page makes,
+  which is the framing [[KAIROS-A-0021]] rule 5 wants.
+- **No score is shown.** The score is a fused rank comparable within one response
+  and nowhere else. On screen a number reads as a confidence whatever the label
+  says, and the e2e test asserts no `0.xx` appears in the panel — the one assertion
+  most likely to be lost in a future redesign.
+- **The empty case is worded, not blank**: "that is this search coming up short
+  rather than proof that nothing is related." An empty list is exactly the kind of
+  answer people over-read.
+- **`503` is not an error.** A deployment with embeddings off gets one dimmed
+  sentence, because the person just clicked and deserves an answer rather than
+  silence — but not an alert, because nothing is broken.
+- **A degraded answer says so.** `vector: false` surfaces the server's own note in
+  a warning: still useful, and it will have missed work phrased differently.
+
+### The tutorial moment T-0193 could not write
+
+[[KAIROS-T-0193]] recorded "no tutorial page" *because* there was no human surface,
+and filed this ticket instead. `run-kairos-locally.md` now has the step — and it
+spends most of its words teaching scepticism rather than clicking, because the
+measurement is the interesting part: related pairs average 0.80 similarity,
+unrelated pairs reach 0.82, so about half the strongest matches are wrong. A
+tutorial that presented this as a magic "related items" feature would teach the
+wrong thing about the product.
+
+### I broke the smoke test and blamed the test first
+
+Adding the panel, `angreal test e2e` started failing in `smoke.spec` on a
+save-confirmation toast. I assumed a flake, then suspected my panel, then suspected
+[[KAIROS-T-0197]]'s auth change — three e2e runs of guessing — before reading
+Playwright's DOM snapshot, which showed the toast present but mangled: `Saved â the
+item is now at v2.`
+
+**I had corrupted `item.rs`.** A `perl -0777 -i -pe` with a `\x{2014}` escape and no
+encoding layer rewrote the whole file's bytes, mangling **89 non-ASCII characters**
+— em dashes, ellipses, a checkmark — across comments and UI strings. The
+"Wide character in print" warning perl emitted at the time was the tell, and I did
+not read it.
+
+Fixed by restoring from git and re-applying through the byte-safe helper I had been
+using everywhere else. Verified zero mojibake in every file this branch touches, not
+just the one I noticed.
+
+Two lessons worth keeping: the DOM snapshot was the fastest path to the answer and I
+reached for it fourth; and a warning from a tool mid-edit is evidence, not noise.
+
+### Coverage, and what it actually proved
+
+`e2e/tests/related-work.spec.ts`: the panel exists, has **not** searched on load,
+asks when clicked, and the answer is framed as proposals with a claim pill, a
+clickable short code, a *why*, and no score.
+
+It accepts three outcomes — proposals, honest-empty, or not-enabled — because all
+three are legitimate and asserting "results appeared" would make the test depend on
+the seed's similarity scores, which are not a contract. **But a test that accepts
+three outcomes can silently stop asserting the interesting one**, so it prints which
+one it got. This run:
+
+```
+[related-work] outcome: proposals rendered
+```
+
+So the proposal-rendering path is genuinely exercised, against real retrieval on the
+GUI server — not the 503 branch. Worth knowing: the e2e tier runs two servers, and
+only the GUI one has the embedding cache.
+
+### Gates
+
+lint clean, `angreal web lint` clean, release wasm build green, **403 unit tests**,
+integration **47/47**, e2e **17** (one new), uat **22 journeys**, docs build green.
+
+### Still not done
+
+No CLI verb. It is no longer blocking anything — the tutorial has its browser steps
+and the panel is the discoverable surface — so `kairos related <code>` is worth
+having for scripting and is not worth holding this ticket open for.

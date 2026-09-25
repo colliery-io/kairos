@@ -1278,6 +1278,47 @@ pub async fn confirm_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposa
     crate::api::post_json(auth, &format!("/api/proposals/{id}/confirm"), &()).await
 }
 
+/// One possibly-related item (KAIROS-T-0195).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RelatedProposal {
+    /// The related item's short code.
+    pub short_code: String,
+    /// Its title.
+    pub title: String,
+    /// Its entity type.
+    pub entity_type: String,
+    /// `implicit_dependency` | `near_duplicate` | `prior_art`.
+    pub claim: String,
+    /// Fused rank score. Comparable within this response and NOWHERE else — it
+    /// is not a percentage and not a confidence, which is why the panel does not
+    /// render it as one.
+    pub score: f32,
+    /// Why, in a sentence a person can disagree with.
+    pub why: String,
+}
+
+/// The answer to "what is related to this?" (KAIROS-T-0195).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RelatedWork {
+    /// Bounded, best first. Empty means one search came up short — NOT proof
+    /// that nothing is related.
+    pub proposals: Vec<RelatedProposal>,
+    /// Whether vector search contributed. False is a **degraded** answer: text
+    /// only, so it will have missed work phrased differently.
+    pub vector: bool,
+    /// A sentence saying which searches ran.
+    pub note: String,
+}
+
+/// `GET /api/items/{short_code}/related` → what might be related, as proposals.
+///
+/// A `503` here is not a failure: it means this deployment has embeddings turned
+/// off. The caller distinguishes it so the panel can stay silent rather than
+/// showing an error for a feature nobody enabled.
+pub async fn fetch_related_work(auth: Auth, code: String) -> Result<RelatedWork, ApiError> {
+    get_json(auth, &format!("/api/items/{code}/related")).await
+}
+
 /// `POST /api/proposals/{id}/reject` — recorded, not erased.
 pub async fn reject_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
     crate::api::post_json(auth, &format!("/api/proposals/{id}/reject"), &()).await

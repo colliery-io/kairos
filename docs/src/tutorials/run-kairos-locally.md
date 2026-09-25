@@ -247,11 +247,46 @@ Kairos knows which moves this board allows and refuses the rest — naming the
 columns you could have moved to instead. [Errors](../reference/errors.md)
 describes that refusal, and every other one.
 
+## Ask what else touches this work
+
+Open any seeded task in the browser — click a card on a board — and scroll to
+**Possibly related**.
+
+It has not searched yet. Click **Find related work**.
+
+You should get a short list: each entry has a claim (`prior_art`,
+`near_duplicate`, `implicit_dependency`), a short code you can click, and a
+sentence saying *why* it was suggested.
+
+Now read that list sceptically, because that is the point.
+
+These are **suggestions, not findings**. Kairos measured this on 4,927 real
+documents before building it: pairs of genuinely related work average 0.80
+similarity, and pairs of unrelated work reach 0.82. The distributions overlap, so
+no threshold can separate them, and roughly **half of the strongest matches are
+wrong**. There is no score on screen for the same reason — a number reads as a
+confidence no matter what the label says.
+
+So the panel's job is not to tell you the answer. It is to put three or four
+things in front of you that you would not have thought to look at, cheaply enough
+that being wrong half the time is still a good trade. You do the judging.
+
+If you see *"Semantic retrieval is not enabled on this deployment"*, the server has
+no embedding model — the dev server needs `KAIROS_EMBED_ALLOW_DOWNLOAD=1` once to
+fetch it. If you see *"Nothing surfaced"*, that is one search coming up short
+rather than proof, which is worded that way deliberately.
+
+An agent asks the same question through the same endpoint, and can propose a link
+for you to confirm — the **Suggested links** panel just above is where those
+arrive. Neither of you can create a relationship the other has not seen:
+[Finding related work](../explanation/finding-related-work.md) explains why that
+is a rule rather than a limitation.
+
 ## What you have
 
 A Kairos deployment running against a real database and a real identity
-provider, with demo data, your own task on a board, and two ways of reaching
-it.
+provider, with demo data, your own task on a board, two ways of reaching it, and
+a way to ask what else it might touch.
 
 When you are finished:
 

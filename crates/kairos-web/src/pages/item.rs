@@ -318,6 +318,10 @@ fn ItemLoaded(
                 <MetadataPanel family code=short_code.clone() read_only=archived/>
                 <DevelopmentPanel family code=short_code.clone()/>
                 <EdgeProposalsPanel code=short_code.clone()/>
+                // KAIROS-T-0195: below the agent-made suggestions, because this
+                // is the same idea from the other direction — one you were
+                // handed, one you asked for.
+                <RelatedWorkPanel code=short_code.clone()/>
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
@@ -1405,6 +1409,130 @@ fn EdgeProposalsPanel(#[prop(into)] code: String) -> impl IntoView {
                 }.into_any()
             }
         }}
+    }
+}
+
+/// "Possibly related" — the human side of retrieval (KAIROS-T-0195).
+///
+/// Before this, a person could only ever REACT to what an agent thought to look
+/// at: `EdgeProposalsPanel` above shows proposals an agent made, and there was no
+/// way to ask the question yourself. "Didn't we try this?" is at least as much a
+/// human question — it is the one [[KAIROS-I-0017]] is named after.
+///
+/// # Why it reads the way it does
+///
+/// KAIROS-A-0021 rule 5 is that these are PROPOSALS, not findings, and the
+/// measurement behind it is uncomfortable: related pairs average 0.80 similarity
+/// and unrelated pairs reach 0.82, so roughly half the strongest matches are
+/// wrong. A panel that rendered this as a confident list of links would undo in
+/// pixels what the MCP text is careful to say in words. Hence: "possibly", the
+/// claim as a pill, the *why* as a sentence you can disagree with, and **no score
+/// shown** — the score is a fused rank comparable within one response and nowhere
+/// else, and a number on screen reads as a confidence whatever the label says.
+///
+/// Renders nothing when there is nothing to say, including when this deployment
+/// has embeddings off (a `503`, which is not an error worth showing) — a
+/// permanently visible "no suggestions" box trains people to stop looking.
+#[component]
+fn RelatedWorkPanel(#[prop(into)] code: String) -> impl IntoView {
+    let auth = use_auth();
+    let code = StoredValue::new(code);
+    let asked = RwSignal::new(false);
+
+    // Deliberately NOT fetched on page load. Retrieval costs a vector search per
+    // ask, and most visits to an item are not someone wondering what it
+    // duplicates. A button also makes it a question the person asked, which is
+    // the framing rule 5 wants.
+    let related = LocalResource::new(move || {
+        let _ = auth.token();
+        let ask = asked.get();
+        async move {
+            if !ask {
+                return None;
+            }
+            Some(api::fetch_related_work(auth, code.get_value()).await)
+        }
+    });
+
+    view! {
+        <Panel title="Possibly related" caption="ask what else touches this work">
+            <Stack gap="sm">
+                <Show
+                    when=move || asked.get()
+                    fallback=move || view! {
+                        <Group gap="sm">
+                            <Button
+                                variant="default"
+                                size="xs"
+                                on_click=Callback::new(move |_| asked.set(true))
+                            >
+                                "Find related work"
+                            </Button>
+                            <Text size="xs" dimmed=true>
+                                "Searches titles, content and the graph for work that \
+                                 might overlap this."
+                            </Text>
+                        </Group>
+                    }
+                >
+                    {move || match related.get().flatten() {
+                        None => view! { <Text size="xs" dimmed=true>"Searching…"</Text> }.into_any(),
+                        // 503 means embeddings are off on this deployment. Not an
+                        // error: say so plainly once, since the person just
+                        // clicked and deserves an answer rather than silence.
+                        Some(Err(ApiError::Http { status: 503, .. })) => view! {
+                            <Text size="xs" dimmed=true>
+                                "Semantic retrieval is not enabled on this deployment."
+                            </Text>
+                        }.into_any(),
+                        Some(Err(e)) => view! {
+                            <Alert title="Could not search" color=token::BAD>
+                                <Text size="sm">{api::error_text(&e)}</Text>
+                            </Alert>
+                        }.into_any(),
+                        Some(Ok(found)) => {
+                            let degraded = !found.vector;
+                            let note = found.note.clone();
+                            if found.proposals.is_empty() {
+                                return view! {
+                                    <Text size="xs" dimmed=true>
+                                        // Precise on purpose: an empty answer is one
+                                        // search coming up short, not proof.
+                                        "Nothing surfaced. That is this search coming up \
+                                         short rather than proof that nothing is related."
+                                    </Text>
+                                }.into_any();
+                            }
+                            view! {
+                                <Stack gap="sm">
+                                    <Text dimmed=true size="xs">
+                                        "These are suggestions, not findings — similar wording \
+                                         is not the same as related work. Open one to judge it."
+                                    </Text>
+                                    {degraded.then(|| view! {
+                                        <Alert title="Text-only answer" color=token::GOLD>
+                                            <Text size="sm">{note.clone()}</Text>
+                                        </Alert>
+                                    })}
+                                    {found.proposals.into_iter().map(|p| view! {
+                                        <Stack gap="xs">
+                                            <Group gap="xs">
+                                                <Pill color=token::VIOLET>{p.claim.clone()}</Pill>
+                                                <Anchor href=format!("/items/{}", p.short_code)>
+                                                    {p.short_code.clone()}
+                                                </Anchor>
+                                                <Text size="xs">{p.title.clone()}</Text>
+                                            </Group>
+                                            <Text size="xs" dimmed=true>{p.why.clone()}</Text>
+                                        </Stack>
+                                    }).collect_view()}
+                                </Stack>
+                            }.into_any()
+                        }
+                    }}
+                </Show>
+            </Stack>
+        </Panel>
     }
 }
 

@@ -71,6 +71,37 @@ pub struct TokenClaims {
     pub email: Option<String>,
     /// Display name (`profile` scope).
     pub name: Option<String>,
+    /// `email_verified` (KAIROS-T-0197). The ONLY claim besides `sub` that
+    /// Kairos will bind an identity on, and only when it is literally true.
+    ///
+    /// Deserialized leniently on purpose. Strict OIDC says this is a boolean,
+    /// but IdPs exist that send the string `"true"`, and a plain
+    /// `Option<bool>` would fail to deserialize the whole token rather than
+    /// just this field — turning an interop quirk into "nobody at this company
+    /// can log in". Anything unrecognised becomes `None`, which means *not
+    /// verified*, which means the fallback does not fire. Failing closed is the
+    /// safe direction here: the cost is a duplicate user row, and the cost of
+    /// failing open is one person binding to another person's identity.
+    #[serde(default, deserialize_with = "lenient_bool")]
+    pub email_verified: Option<bool>,
+}
+
+/// `true`/`false`, or the strings `"true"`/`"false"` (case-insensitively).
+/// Anything else — a number, a null, an object, a typo — is `None`.
+fn lenient_bool<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize;
+    Ok(match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Bool(value) => Some(value),
+        serde_json::Value::String(value) => match value.to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// Why building an [`Authenticator`] failed (startup-time, fail-fast).
@@ -358,11 +389,80 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
         .await
         .optional()
         .map_err(ApiError::internal)?;
+    // Whether a row for this subject exists, captured before the move below —
+    // the adoption fallback must only run when there is none.
+    let subject_is_known = existing.is_some();
     if let Some(user) = existing
         && user.email == email
         && user.display_name == display_name
     {
         return Ok(user);
+    }
+
+    // KAIROS-T-0197: adopt an existing row for this person rather than creating a
+    // second one.
+    //
+    // The inbound SCIM join already has an email fallback, precisely so it links
+    // to a JIT-created row instead of duplicating it. This direction had none, so
+    // a user SCIM created with an `external_id` that is not the `sub` they later
+    // present — which is every IdP that does not send `externalId` — logged in as
+    // a DIFFERENT user, with none of the access provisioned for them. The admin
+    // saw a provisioned member; the person was nobody.
+    //
+    // The trust boundary, decided deliberately and narrow: Kairos believes the
+    // IdP when it asserts `email_verified`, and believes nothing otherwise. The
+    // failure mode of a looser rule is not a duplicate row, it is one user
+    // binding to another user's identity — an IdP that lets someone set an
+    // unverified address would otherwise let them claim a provisioned account at
+    // that address. An IdP that omits the claim falls through to creating a row,
+    // which is exactly today's behaviour, so no deployment gets worse.
+    //
+    // Adopting UPDATES external_id to the presented sub, which is the point: the
+    // next login takes the fast path above and this fallback never runs again for
+    // them. Without that write it would run for ever.
+    // Why a verified email is safe to bind on HERE, specifically: a deployment
+    // has exactly ONE issuer (`OIDC_ISSUER_URL` is a single value, KAIROS-A-0016),
+    // and an issuer will not verify the same address for two different accounts.
+    // So within one Kairos, a verified email identifies one person. That argument
+    // does not survive multiple issuers, and this code would have to change with
+    // it — which is why it is written down rather than left implicit.
+    //
+    // The residual case this does NOT distinguish: a row carrying this email and
+    // some other real `sub`. Under one issuer that should not arise, since a
+    // subject is stable per person, and there is no field that would let us tell a
+    // SCIM-created placeholder subject from a genuine one. Selected
+    // earliest-created-first to match the inbound SCIM join's own tie-break, so at
+    // least both directions agree about which row wins.
+    if !subject_is_known && claims.email_verified == Some(true) {
+        let adoptable: Option<Uuid> = users::table
+            .filter(users::email.eq(&email))
+            .order(users::created_at.asc())
+            .select(users::id)
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(ApiError::internal)?;
+        if let Some(id) = adoptable {
+            // Re-key to the presented subject, so the next login takes the fast
+            // path above and this never runs again for them. Without this write
+            // the fallback would run for ever.
+            let adopted: User = diesel::update(users::table.filter(users::id.eq(id)))
+                .set((
+                    users::external_id.eq(&claims.sub),
+                    users::display_name.eq(&display_name),
+                    users::updated_at.eq(diesel::dsl::now),
+                ))
+                .returning(User::as_returning())
+                .get_result(&mut conn)
+                .await
+                .map_err(ApiError::internal)?;
+            tracing::info!(
+                user_id = %adopted.id,
+                "KAIROS-T-0197: adopted an existing row on a verified email rather \
+                 than creating a second identity"
+            );
+            return Ok(adopted);
+        }
     }
 
     diesel::insert_into(users::table)
@@ -679,5 +779,83 @@ BWKiTzkt91ge2HS8jjYZyPRxuojSqlQMbhlcJWYXEWjfEcHgo1Z8Iw/4TxU7oDzj
         let api: ApiError = VerifyError::MissingToken.into();
         assert_eq!(api.status, axum::http::StatusCode::UNAUTHORIZED);
         assert_eq!(api.code, "UNAUTHORIZED");
+    }
+
+    // ---------------------------------------------------------------------
+    // KAIROS-T-0197: the trust boundary of the login-side email fallback.
+    //
+    // Dex always sends `email_verified: true`, so the integration test can only
+    // exercise the path where the fallback FIRES. These cover the half that
+    // matters more: every input on which it must NOT fire.
+    //
+    // The fallback's condition is `claims.email_verified == Some(true)`, so what
+    // is really being tested is that nothing other than a literal true
+    // deserializes to `Some(true)` — because the cost of a false positive here is
+    // one person binding to another person's identity.
+
+    fn claims_from(json: serde_json::Value) -> Result<TokenClaims, serde_json::Error> {
+        serde_json::from_value(json)
+    }
+
+    #[test]
+    fn a_literal_true_is_the_only_thing_that_verifies_an_email() {
+        let verified = |value: serde_json::Value| -> Option<bool> {
+            claims_from(serde_json::json!({
+                "sub": "s", "email": "a@b.test", "email_verified": value
+            }))
+            .expect("claims parse")
+            .email_verified
+        };
+
+        // The two spellings a real IdP uses.
+        assert_eq!(verified(serde_json::json!(true)), Some(true));
+        assert_eq!(verified(serde_json::json!("true")), Some(true));
+        assert_eq!(verified(serde_json::json!("TRUE")), Some(true));
+
+        // Explicitly not verified.
+        assert_eq!(verified(serde_json::json!(false)), Some(false));
+        assert_eq!(verified(serde_json::json!("false")), Some(false));
+
+        // Anything else is UNKNOWN, which the fallback treats as not verified.
+        // Note `1` in particular: a truthy-looking value that must not verify.
+        for junk in [
+            serde_json::json!(1),
+            serde_json::json!(0),
+            serde_json::json!("yes"),
+            serde_json::json!("1"),
+            serde_json::json!(null),
+            serde_json::json!({}),
+            serde_json::json!([true]),
+        ] {
+            assert_eq!(
+                verified(junk.clone()),
+                None,
+                "{junk} must not read as a verified email"
+            );
+        }
+    }
+
+    #[test]
+    fn an_absent_email_verified_is_not_a_verified_email() {
+        // The common case for an IdP that simply does not send the claim. It must
+        // parse — refusing the token would lock out every such deployment — and
+        // it must not verify.
+        let claims = claims_from(serde_json::json!({ "sub": "s", "email": "a@b.test" }))
+            .expect("a token without email_verified must still parse");
+        assert_eq!(claims.email_verified, None);
+    }
+
+    #[test]
+    fn an_unparseable_email_verified_does_not_reject_the_token() {
+        // The reason lenient_bool exists. A strict Option<bool> would fail the
+        // WHOLE token here, so one IdP's spelling of a claim Kairos barely uses
+        // would mean nobody at that company can log in at all. Failing closed on
+        // the claim beats failing closed on the login.
+        let claims = claims_from(serde_json::json!({
+            "sub": "s", "email": "a@b.test", "email_verified": { "nested": "nonsense" }
+        }))
+        .expect("an odd email_verified must not reject the token");
+        assert_eq!(claims.email_verified, None);
+        assert_eq!(claims.sub, "s");
     }
 }

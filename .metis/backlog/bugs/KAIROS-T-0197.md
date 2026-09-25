@@ -4,15 +4,15 @@ level: task
 title: "A SCIM-created user who logs in gets a second row and no membership"
 short_code: "KAIROS-T-0197"
 created_at: 2026-09-25T01:08:23.252852+00:00
-updated_at: 2026-09-25T01:08:23.252852+00:00
+updated_at: 2026-09-25T02:44:24.656553+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/backlog"
   - "#bug"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -79,13 +79,19 @@ That is exactly why this is filed rather than fixed in passing.
 
 ## Acceptance Criteria
 
-- [ ] A login by a SCIM-provisioned user binds to the row SCIM created, with its
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] A login by a SCIM-provisioned user binds to the row SCIM created, with its
       membership, rather than creating a second one
-- [ ] The fallback's trust assumptions are written down — what claim is believed,
+- [x] The fallback's trust assumptions are written down — what claim is believed,
       and what stops it being used to bind to another person's row
-- [ ] An integration test: SCIM-create without `externalId`, grant a role, then
+- [x] An integration test: SCIM-create without `externalId`, grant a role, then
       log in with an unrelated `sub` and assert one row and the role intact
-- [ ] `reference/scim.md` stops describing the duplicate row as behaviour
+- [x] `reference/scim.md` stops describing the duplicate row as behaviour
 
 ## Status Updates
 
@@ -131,3 +137,60 @@ To carry into implementation:
   runs for ever.
 - The integration test from the acceptance criteria, plus a negative: the same
   shape with `email_verified` absent or false must still create a second row.
+## Status Updates (continued)
+
+### 2026-09-25 — implemented on the decided trust boundary
+
+The login path falls back to `users.email`, and only on `email_verified == true`.
+Adopting a row re-keys `external_id` to the presented `sub`, so it happens once per
+person and the fast path serves them afterwards.
+
+### The argument that makes it safe, and its limit
+
+A deployment has exactly **one** issuer (`OIDC_ISSUER_URL` is a single value), and
+an issuer will not verify one address for two accounts — so within one Kairos a
+verified email identifies one person. That is the whole basis for binding on it,
+and it is written into the code and into the [[KAIROS-A-0010]] amendment rather
+than left implicit, because **it does not survive multiple issuers**. If Kairos
+ever supports more than one, this fallback has to change with it.
+
+The residual case the code cannot distinguish: a row carrying this email and some
+other genuine `sub`. Under one issuer that should not arise, since a subject is
+stable per person — and there is no field that would let us tell a SCIM-created
+placeholder subject from a real one. The row is selected earliest-created-first,
+matching the inbound SCIM join's own tie-break, so at least both directions agree
+about which row wins. Recorded as a known limit rather than papered over.
+
+### Failing closed, at the cost of an outage that nearly was
+
+`email_verified` is parsed leniently — bool, or the strings `"true"`/`"false"`.
+That is not laziness about the value; it is about the TYPE. A plain
+`Option<bool>` would fail to deserialize **the whole token** when an IdP sends
+`"true"`, so one vendor's spelling of a claim Kairos barely uses would mean nobody
+at that company can log in at all. The leniency converts that into "not verified",
+which costs a duplicate row.
+
+Anything else — `1`, `0`, `"yes"`, `null`, an object, an array — is `None`, which
+means not verified, which means the fallback does not fire. `1` is in the unit test
+by name, because a truthy-looking number is the value most likely to slip through a
+looser implementation.
+
+### Verified in both directions
+
+- **Integration**: carol is SCIM-provisioned with a `userName` and no
+  `externalId`, so her `external_id` is her email rather than her subject. She then
+  logs in with a real Dex token (opaque `sub`, `email_verified: true`) and the test
+  asserts she is the *same* user SCIM created, her membership survived, there is
+  exactly **one** row for her email, and her `external_id` is now Dex's subject.
+  Confirmed by disabling the fallback, which fails on "she must log in AS the user
+  SCIM provisioned".
+- **Unit**: the trust boundary itself, which the integration test cannot reach
+  because Dex always sends `true`. Every value that must not verify, plus the two
+  that must, plus a token with the claim absent and one with it malformed — both of
+  which must still parse, since rejecting them would be the outage described above.
+
+### Gates
+
+lint clean, **400 unit tests**, integration **47/47**, e2e **16**, uat **22
+journeys**, docs build green. `reference/scim.md` now documents adoption and the
+verified-email condition instead of describing the duplicate row as behaviour.

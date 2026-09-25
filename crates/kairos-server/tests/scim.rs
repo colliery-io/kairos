@@ -120,6 +120,16 @@ fn user_row(conn: &mut PgConnection, email: &str) -> (Uuid, String) {
         .unwrap_or_else(|e| panic!("user {email} not provisioned: {e}"))
 }
 
+/// How many `public.users` rows carry this email (KAIROS-T-0197: the bug was a
+/// second row, so counting is the assertion).
+fn count_users_with_email(conn: &mut PgConnection, email: &str) -> i64 {
+    users::table
+        .filter(users::email.eq(email))
+        .count()
+        .get_result(conn)
+        .expect("counting users by email")
+}
+
 /// The member's role in acme, if any.
 fn acme_role(conn: &mut PgConnection, org_id: Uuid, user_id: Uuid) -> Option<String> {
     use kairos_db::schema::organization_members::dsl;
@@ -375,6 +385,71 @@ async fn scim_provisioning_against_live_stack() {
         1
     );
 
+    // --- KAIROS-T-0197: a SCIM-provisioned user LOGS IN ----------------------
+    //
+    // carol is provisioned with `userName` and an email and NO `externalId`,
+    // which is what an IdP that does not send one produces: `external_id` is set
+    // from userName, so it is not the `sub` she will present. Before this fix,
+    // her first login found no row for that subject and JIT-created a SECOND
+    // one — with no membership, because JIT never grants it. The admin saw a
+    // provisioned member; carol logged in as nobody.
+    let (status, carol_scim) = scim(
+        &router,
+        Method::POST,
+        "/scim/v2/Users",
+        Some(&scim_token),
+        Some(json!({
+            "schemas": ["urn:ietf:params:scim:core:2.0:User"],
+            "userName": "carol@kairos.test",
+            "displayName": "Carol Provisioned",
+            "emails": [{"value": "carol@kairos.test", "primary": true}],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{carol_scim}");
+    let carol_scim_id = carol_scim["id"].as_str().expect("id").to_string();
+    let (carol_uuid, carol_sub_before) = user_row(&mut conn, "carol@kairos.test");
+    assert_eq!(
+        carol_sub_before, "carol@kairos.test",
+        "with no externalId, SCIM sets external_id from userName — which is the \
+         whole premise of this bug"
+    );
+    assert_eq!(
+        acme_role(&mut conn, org_id, carol_uuid).as_deref(),
+        Some("member")
+    );
+
+    // Her real token: Dex's subject is opaque and nothing like her userName, and
+    // Dex asserts email_verified — which is the only claim this fallback trusts.
+    let carol = user_token(&http, "carol").await;
+    let (status, me) = api(&router, Method::GET, "/api/whoami", &carol, None).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    assert_eq!(
+        me["user"]["id"], carol_scim_id,
+        "she must log in AS the user SCIM provisioned, not as a new one: {me}"
+    );
+    assert_eq!(
+        me["organization"]["role"], "member",
+        "the membership provisioned for her must survive her first login: {me}"
+    );
+
+    // Exactly one row, and its external_id is now the presented subject — so the
+    // next login takes the fast path and the fallback never runs for her again.
+    assert_eq!(
+        count_users_with_email(&mut conn, "carol@kairos.test"),
+        1,
+        "adopting the row must not leave a duplicate behind"
+    );
+    let (_, carol_sub_after) = user_row(&mut conn, "carol@kairos.test");
+    assert_ne!(
+        carol_sub_after, carol_sub_before,
+        "external_id must be re-keyed to the OIDC subject"
+    );
+    assert!(
+        carol_sub_after.starts_with("Ci"),
+        "and re-keyed to DEX's subject specifically: {carol_sub_after}"
+    );
+
     // Duplicate provision → 409 uniqueness.
     let (status, body) = scim(
         &router,
@@ -528,7 +603,8 @@ async fn scim_provisioning_against_live_stack() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["totalResults"], 4);
+    // 5 since KAIROS-T-0197 provisioned carol to exercise the login fallback.
+    assert_eq!(body["totalResults"], 5);
     assert_eq!(body["startIndex"], 2);
     assert_eq!(body["itemsPerPage"], 2);
     assert_eq!(

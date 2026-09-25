@@ -60,12 +60,25 @@ identifier the IdP uses, commonly an email. Earlier versions served both from
 a deployment that never sent a distinct `userName` sees no change.
 
 SCIM never overwrites the login join key, so a user who has already logged in
-keeps the `sub` on their row and the email fallback links them. A
-SCIM-*created* user whose stored `external_id` is not the `sub` their later
-login presents is JIT-provisioned as a **second** user row, without the
-membership.
+keeps the `sub` on their row and the email fallback links them.
 
-Where several rows share the email, the **earliest-created** one wins.
+A SCIM-*created* user whose stored `external_id` is not the `sub` their later login
+presents — which is every IdP that does not send `externalId` — is matched on their
+email at first login and **adopted**, and their `external_id` is re-keyed to the
+presented subject. They log in as the user who was provisioned for them, with the
+membership that was granted.
+
+**This requires a verified email.** The login-side fallback fires only when the
+token asserts `email_verified` as literally true; an IdP that omits the claim, or
+sends anything else, gets a second user row without the membership instead — the
+behaviour of earlier versions. The trust boundary is deliberate and is written up in
+[KAIROS-A-0010](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0010.md):
+Kairos believes one claim and only when a single issuer asserts it, because the cost
+of being too lax is one person binding to another's identity, while the cost of
+being too strict is a duplicate row.
+
+Where several rows share the email, the **earliest-created** one wins, in both
+directions.
 
 Outbound, `userName` comes from `users.user_name` and `externalId` from
 `users.external_id`.

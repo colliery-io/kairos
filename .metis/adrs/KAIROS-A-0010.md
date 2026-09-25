@@ -39,8 +39,42 @@ The vision fixes Keycloak as the OIDC provider (swappable for any OIDC-compliant
 - Runs before tenant middleware, which then requires an `organization_members` row for the resolved tenant → 403 otherwise
 - No token introspection round-trips to Keycloak on the request path — the server stays stateless (vision constraint)
 
-### User provisioning (JIT)
+### User provisioning (JIT) — amended by KAIROS-T-0197 (2026-09-25)
 First authenticated request upserts `public.users` from token claims: `sub` → `external_id`, plus `email`, `name` → `display_name`. Org membership is **never** auto-granted: an org admin invites users (`organization_members` row). A user who authenticates but belongs to no org gets 403 with a "request access" error code.
+
+> **Amendment (KAIROS-T-0197): one identity claim, and its trust boundary.**
+>
+> Matching on `sub` alone was not enough. A user SCIM provisioned without an
+> `externalId` has an `external_id` taken from their `userName`, so it is not the
+> `sub` they later present — and their first login found no row, JIT-created a
+> **second** one, and left them with none of the access provisioned for them. The
+> inbound SCIM join had an email fallback for exactly this reason (A-0016); this
+> direction had none, and the asymmetry was the bug.
+>
+> The login path now falls back to matching on `users.email`, **only when the token
+> asserts `email_verified` as literally true.** On adopting a row it re-keys
+> `external_id` to the presented `sub`, so the fallback runs once per person and
+> never again.
+>
+> **What Kairos trusts, stated so it can be challenged:** the issuer's
+> `email_verified` claim, and nothing else. The argument that makes this safe is
+> that a deployment has exactly **one** issuer (`OIDC_ISSUER_URL` is a single
+> value, A-0016), and an issuer will not verify one address for two accounts — so
+> within one Kairos a verified email identifies one person. **That argument does
+> not survive multiple issuers**, and this fallback would have to change alongside
+> any decision to support them.
+>
+> Failing closed is deliberate at every step. An absent claim, a `false`, a `1`, a
+> string that is not `"true"`, or a malformed value all mean *not verified*, and
+> the fallback does not fire — the deployment simply behaves as it did before.
+> `email_verified` is parsed leniently (bool or the strings `"true"`/`"false"`)
+> because a strict `Option<bool>` would reject the entire token over one IdP's
+> spelling, turning an interop quirk into a total outage; the leniency is about
+> the *type*, never the value.
+>
+> The cost of being wrong is asymmetric and that is what set the boundary: too
+> strict costs a duplicate user row, too loose costs one person binding to
+> another's identity.
 
 ### Flows per client
 | Client | Flow | Token handling |

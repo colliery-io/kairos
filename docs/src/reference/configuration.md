@@ -105,12 +105,6 @@ Past the hot window, compaction keeps the first and last snapshot per item per
 UTC calendar month and treats the intermediate versions as prune candidates.
 See [Archiving](../explanation/archiving.md).
 
-### Recognised by the Helm chart but not by the server
-
-| Variable | Status |
-|---|---|
-| `KAIROS_OTEL_ENDPOINT` | The chart emits it into the ConfigMap when `config.otelEndpoint` is non-empty. No Kairos crate reads it and the binary has no OpenTelemetry dependency, so setting it has no effect in 0.1.0. |
-
 ## Default board configurations
 
 Provisioning a tenant seeds one configuration per flight level, and creating a
@@ -188,12 +182,12 @@ authentication error (exit 2) naming the file.
 ## Helm chart values
 
 `deploy/helm/kairos/values.yaml`. Most values under `config` become entries in a
-ConfigMap that the Deployment loads with `envFrom`. Three exceptions: the
+ConfigMap that the Deployment loads with `envFrom`. Two exceptions: the
 `config.webClientSecret*` values never reach the ConfigMap — the secret is
-Secret-sourced, like `DATABASE_URL` — and `config.otelEndpoint` together with
-the five `config.retention.*` values are emitted only when non-empty. The chart
-provides no identity provider, and provides PostgreSQL only as an evaluation
-convenience you can decline (`postgresql.enabled`).
+Secret-sourced, like `DATABASE_URL` — and the five `config.retention.*` values
+are emitted only when non-empty. The chart provides no identity provider, and
+provides PostgreSQL only as an evaluation convenience you can decline
+(`postgresql.enabled`).
 
 ### Bundled database
 
@@ -328,7 +322,6 @@ The read-only root filesystem is compatible with a filesystem
 | `config.log.level` | string | `info` | Sets `KAIROS_LOG_LEVEL`. |
 | `config.log.format` | string | `json` | Sets `KAIROS_LOG_FORMAT`. |
 | `config.devUi` | bool | `false` | Sets `KAIROS_DEV_UI`. |
-| `config.otelEndpoint` | string | `""` | Sets `KAIROS_OTEL_ENDPOINT`, which the server does not read. Emitted only when non-empty. |
 | `config.retention.historyHotDays` | integer or null | `null` | Sets `KAIROS_HISTORY_HOT_DAYS`. Emitted only when non-empty. |
 | `config.retention.historyKeepLatest` | integer or null | `null` | Sets `KAIROS_HISTORY_KEEP_LATEST`. Emitted only when non-empty. |
 | `config.retention.activityRetentionDays` | integer or null | `null` | Sets `KAIROS_ACTIVITY_RETENTION_DAYS`. Emitted only when non-empty. |

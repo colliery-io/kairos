@@ -186,7 +186,6 @@ Secret loaded via `valueFrom`.
 | `config.deploymentAdmins` | `KAIROS_DEPLOYMENT_ADMINS` | `""` | Comma-separated OIDC subs. |
 | `config.log.level` | `KAIROS_LOG_LEVEL` | `info` | |
 | `config.log.format` | `KAIROS_LOG_FORMAT` | `json` | `json` or `pretty`. |
-| `config.otelEndpoint` | `KAIROS_OTEL_ENDPOINT` | `""` | Emitted only when set. |
 | `config.retention.historyHotDays` | `KAIROS_HISTORY_HOT_DAYS` | server `90` | Emitted only when set. |
 | `config.retention.historyKeepLatest` | `KAIROS_HISTORY_KEEP_LATEST` | server `5` | Emitted only when set. |
 | `config.retention.activityRetentionDays` | `KAIROS_ACTIVITY_RETENTION_DAYS` | server `365` | Emitted only when set. |

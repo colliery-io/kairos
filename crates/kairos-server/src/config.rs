@@ -370,4 +370,221 @@ mod tests {
         assert_eq!(config.log_format, LogFormat::Pretty);
         assert_eq!(config.log_level, "debug");
     }
+
+    // ---------------------------------------------------------------------
+    // KAIROS-T-0177: three places must agree about the environment, and
+    // nothing used to check that they did.
+    //
+    //   1. what the BINARY reads     (this crate, kairos-embed, kairos-core)
+    //   2. what the DEPLOYMENTS set  (docker-compose.yaml, the chart templates)
+    //   3. what the OPERATOR is told (deploy/.env.example)
+    //
+    // All three had drifted independently and in both directions: compose
+    // documented `KAIROS_API_BEARER` and `KAIROS_WEB_CLIENT_SECRET` and
+    // forwarded neither, while the chart emitted `KAIROS_OTEL_ENDPOINT`, which
+    // no crate has ever read.
+    //
+    // Both failures are invisible by construction. Every one of these
+    // variables is legitimately optional, so "dropped on the floor" and "not
+    // set on purpose" produce the same observable behaviour — right up until
+    // someone's Google Workspace login fails for reasons that point nowhere
+    // near a compose file.
+    //
+    // The set the binary reads is RECORDED rather than grepped: all three
+    // config types take a lookup closure, so a closure that remembers what it
+    // was asked for is the authoritative answer and cannot drift from the code
+    // the way a regex over `config.rs` would.
+
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("repo root")
+    }
+
+    fn read_repo(rel: &str) -> String {
+        let path = repo_root().join(rel);
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    }
+
+    /// Every variable the binary asks for, across all three config types and
+    /// every branch of them.
+    fn read_by_binary() -> BTreeSet<String> {
+        let seen = RefCell::new(BTreeSet::new());
+        let record = |var: &str, value: Option<String>| {
+            seen.borrow_mut().insert(var.to_string());
+            value
+        };
+
+        // The server's own config. MINIMAL satisfies the three required vars so
+        // the function runs to completion instead of bailing at the first one;
+        // every other `get` is unconditional, so one pass sees them all.
+        let minimal: HashMap<&str, &str> = MINIMAL.iter().copied().collect();
+        AppConfig::from_lookup(|var| record(var, minimal.get(var).map(|v| v.to_string())))
+            .expect("MINIMAL is a valid config");
+
+        // Embedding config branches on the provider, and the remote and local
+        // arms read disjoint variables. Drive every arm, or the union is short.
+        for provider in ["none", "local", "remote", "deterministic"] {
+            let _ = kairos_embed::EmbedConfig::from_vars(|var| {
+                record(
+                    var,
+                    Some(match var {
+                        "KAIROS_EMBED_PROVIDER" => provider.to_string(),
+                        "KAIROS_EMBED_URL" => "http://embed.invalid/v1".to_string(),
+                        "KAIROS_EMBED_MODEL" => "a-model".to_string(),
+                        "KAIROS_EMBED_TIMEOUT_SECS" => "5".to_string(),
+                        "KAIROS_EMBED_ALLOW_DOWNLOAD" => "false".to_string(),
+                        _ => "x".to_string(),
+                    }),
+                )
+            });
+        }
+
+        // Retention (KAIROS-A-0004) reads each variable only when it is set, so
+        // answer every lookup to reach all five.
+        kairos_core::retention::RetentionConfig::from_lookup(|var| {
+            record(
+                var,
+                Some(match var {
+                    "KAIROS_RETENTION_MODE" => "archive".to_string(),
+                    "KAIROS_ARCHIVE_TARGET" => "table".to_string(),
+                    _ => "1".to_string(),
+                }),
+            )
+        })
+        .expect("those values are valid");
+
+        seen.into_inner()
+    }
+
+    /// Environment keys a YAML `environment:`/`data:` block sets, by the shape
+    /// both compose and the chart templates share: `SCREAMING_SNAKE: value` at
+    /// some indentation. Helm control lines (`{{- if ... }}`) do not match.
+    fn env_keys_in(yaml: &str) -> BTreeSet<String> {
+        yaml.lines()
+            .filter_map(|line| {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with('#') {
+                    return None;
+                }
+                let (key, _) = trimmed.split_once(':')?;
+                let ok = !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    && key.starts_with(|c: char| c.is_ascii_uppercase());
+                ok.then(|| key.to_string())
+            })
+            .collect()
+    }
+
+    /// Variables `.env.example` tells an operator to set (`NAME=` at column 0,
+    /// commented-out examples included — being commented out is how that file
+    /// shows an optional value, not how it hides one).
+    fn documented_in_env_example() -> BTreeSet<String> {
+        read_repo("deploy/.env.example")
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim_start_matches('#').trim_start();
+                let (key, _) = line.split_once('=')?;
+                let ok = !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+                    && key.starts_with(|c: char| c.is_ascii_uppercase());
+                ok.then(|| key.to_string())
+            })
+            .collect()
+    }
+
+    /// Consumed by the deployment machinery itself rather than by the binary,
+    /// so they are correctly absent from the server's environment.
+    const NOT_THE_BINARYS: &[&str] = &[
+        // Caddy templates its site address from this.
+        "KAIROS_SITE_ADDRESS",
+        // Selects the image tag; compose reads it, the container never sees it.
+        "KAIROS_VERSION",
+        // Composed into DATABASE_URL by compose; the server gets the URL.
+        "POSTGRES_PASSWORD",
+        // These two initialise the PostgreSQL container itself (compose's
+        // postgres service and the chart's optional bundled StatefulSet).
+        // They are that image's interface, not ours.
+        "POSTGRES_DB",
+        "POSTGRES_USER",
+    ];
+
+    #[test]
+    fn deployments_set_only_variables_the_binary_reads() {
+        let read = read_by_binary();
+        let mut emitted = env_keys_in(&read_repo("deploy/docker-compose.yaml"));
+        for template in [
+            "configmap.yaml",
+            "secret.yaml",
+            "embed-secret.yaml",
+            "webauth-secret.yaml",
+            "deployment.yaml",
+            "postgresql.yaml",
+        ] {
+            emitted.extend(env_keys_in(&read_repo(&format!(
+                "deploy/helm/kairos/templates/{template}"
+            ))));
+        }
+
+        let unread: Vec<_> = emitted
+            .iter()
+            .filter(|v| !read.contains(*v) && !NOT_THE_BINARYS.contains(&v.as_str()))
+            .cloned()
+            .collect();
+
+        assert!(
+            unread.is_empty(),
+            "the reference deployments set variables no crate reads, so setting \
+             them does nothing and saying so in values.yaml is a lie: {unread:?}\n\
+             Either wire them up, or remove them from the deployment AND its \
+             documentation. If one is consumed by compose/Helm rather than by \
+             the server, add it to NOT_THE_BINARYS with the reason."
+        );
+    }
+
+    #[test]
+    fn compose_forwards_every_variable_the_env_example_documents() {
+        let documented = documented_in_env_example();
+        let forwarded = env_keys_in(&read_repo("deploy/docker-compose.yaml"));
+
+        let dropped: Vec<_> = documented
+            .iter()
+            .filter(|v| !forwarded.contains(*v) && !NOT_THE_BINARYS.contains(&v.as_str()))
+            .cloned()
+            .collect();
+
+        assert!(
+            dropped.is_empty(),
+            "deploy/.env.example tells the operator to set these and \
+             docker-compose.yaml does not forward them, so the server never \
+             sees them: {dropped:?}\n\
+             This is the KAIROS-T-0177 defect. It is silent, because these \
+             variables are optional and unset is indistinguishable from \
+             ignored."
+        );
+    }
+
+    #[test]
+    fn the_variables_google_workspace_requires_reach_the_container() {
+        // Named separately from the set-diff tests above because these two are
+        // the ones that actually broke a real deployment, and a future
+        // refactor of the generic checks should not be able to lose them.
+        let compose = read_repo("deploy/docker-compose.yaml");
+        let forwarded = env_keys_in(&compose);
+        for var in ["KAIROS_API_BEARER", "KAIROS_WEB_CLIENT_SECRET"] {
+            assert!(
+                forwarded.contains(var),
+                "{var} is required for Google Workspace and is not forwarded by \
+                 the compose stack"
+            );
+        }
+    }
 }

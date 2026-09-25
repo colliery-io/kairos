@@ -29,9 +29,6 @@ data:
   KAIROS_LOG_LEVEL: {{ .Values.config.log.level | quote }}
   KAIROS_LOG_FORMAT: {{ .Values.config.log.format | quote }}
   KAIROS_DEV_UI: {{ .Values.config.devUi | quote }}
-  {{- with .Values.config.otelEndpoint }}
-  KAIROS_OTEL_ENDPOINT: {{ . | quote }}
-  {{- end }}
   # Retention (KAIROS-A-0004): only overrides are emitted; unset keys fall back
   # to the server's built-in defaults.
   {{- with .Values.config.retention.historyHotDays }}

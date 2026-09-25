@@ -205,10 +205,6 @@ config:
     # -- KAIROS_LOG_FORMAT — json (default) or pretty.
     format: json
 
-  # -- KAIROS_OTEL_ENDPOINT — OpenTelemetry OTLP trace endpoint. Emitted only
-  # when non-empty; off by default (KAIROS-A-0013).
-  otelEndpoint: ""
-
   # Data retention (KAIROS-A-0004 / KAIROS-A-0013). Defaults match the server's
   # built-in defaults; only overridden values are emitted into the ConfigMap.
   retention:

@@ -49,6 +49,14 @@ services:
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set OIDC_ISSUER_URL to your IdP issuer}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:?set OIDC_AUDIENCE (the OAuth client id / API audience)}
       KAIROS_WEB_CLIENT_ID: ${KAIROS_WEB_CLIENT_ID:-kairos-web}
+      # Both of these are OPTIONAL in general and MANDATORY for Google /
+      # Google Workspace (KAIROS-T-0177): its access tokens are opaque, so
+      # the API must validate the id_token instead, and its "Web
+      # application" OAuth clients reject the code exchange without a
+      # secret even under PKCE. Absent, the server silently falls back and
+      # the operator sees a login that does not work.
+      KAIROS_API_BEARER: ${KAIROS_API_BEARER:-}
+      KAIROS_WEB_CLIENT_SECRET: ${KAIROS_WEB_CLIENT_SECRET:-}
       # Tenant addressing: wildcard subdomains (acme.<base> -> tenant acme),
       # or pin one tenant for single-tenant installs (leave the other empty).
       KAIROS_BASE_DOMAIN: ${KAIROS_BASE_DOMAIN:-}

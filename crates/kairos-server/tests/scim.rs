@@ -592,15 +592,84 @@ async fn scim_provisioning_against_live_stack() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["displayName"], "David Lister");
+    // KAIROS-T-0184 item 1: a userName change is ACCEPTED now, and this
+    // assertion used to expect 400 mutability.
+    //
+    // The old contract broke a whole class of deployment outright: where the
+    // IdP's userName is the login email and the OIDC subject is opaque, the IdP
+    // has a legitimate reason to send userName on every PUT, and got 400 every
+    // time, for ever. The sync never converged, and a clearer error message
+    // would not have fixed it, because nothing the admin could do would.
     let (status, body) = scim(
         &router,
         Method::PUT,
         &format!("/scim/v2/Users/{dave_id}"),
         Some(&scim_token),
-        Some(json!({"userName": "different-sub", "emails": [{"value": "dave@kairos.test"}]})),
+        Some(json!({
+            "userName": "dave.lister@jupiter-mining.test",
+            "displayName": "David Lister",
+            "emails": [{"value": "dave@kairos.test"}],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["userName"], "dave.lister@jupiter-mining.test",
+        "{body}"
+    );
+    // And crucially: the OIDC subject did NOT move with it. That is the whole
+    // reason the two were split — if a provisioning PUT could re-key
+    // external_id, it would lock the user out of their next login.
+    assert_eq!(body["externalId"], "dave-oidc-sub", "{body}");
+    let (_, stored_sub) = user_row(&mut conn, "dave@kairos.test");
+    assert_eq!(stored_sub, "dave-oidc-sub", "the login key must not move");
+
+    // item 4: a userName filter searches userName. Against the old shared
+    // column this found nothing — and an IdP that finds nothing during
+    // reconciliation concludes the user is absent and re-creates them.
+    let (status, body) = scim(
+        &router,
+        Method::GET,
+        "/scim/v2/Users?filter=userName%20eq%20%22dave.lister%40jupiter-mining.test%22",
+        Some(&scim_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["totalResults"], 1, "{body}");
+    assert_eq!(body["Resources"][0]["id"], dave_id.to_string(), "{body}");
+
+    // externalId still filters on the subject, separately.
+    let (status, body) = scim(
+        &router,
+        Method::GET,
+        "/scim/v2/Users?filter=externalId%20eq%20%22dave-oidc-sub%22",
+        Some(&scim_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["totalResults"], 1, "{body}");
+
+    // externalId, by contrast, is STILL immutable — and the refusal now names
+    // the field and the remedy, rather than saying "userName/externalId" to an
+    // admin who can see neither.
+    let (status, body) = scim(
+        &router,
+        Method::PUT,
+        &format!("/scim/v2/Users/{dave_id}"),
+        Some(&scim_token),
+        Some(json!({
+            "userName": "dave.lister@jupiter-mining.test",
+            "externalId": "a-different-subject",
+            "emails": [{"value": "dave@kairos.test"}],
+        })),
     )
     .await;
     assert_scim_error(status, &body, StatusCode::BAD_REQUEST, Some("mutability"));
+    let detail = body["detail"].as_str().unwrap_or_default();
+    assert!(detail.contains("externalId"), "{body}");
+    assert!(detail.contains("userName"), "names the remedy: {body}");
 
     // =======================================================================
     // Deprovision semantics: membership loss beats a still-valid OIDC token
@@ -618,7 +687,21 @@ async fn scim_provisioning_against_live_stack() {
         Some(&scim_token),
         Some(json!({
             "schemas": [PATCH_URN],
-            "Operations": [{"op": "Replace", "value": {"active": "False"}}],
+            // KAIROS-T-0184 item 3: the KEY is capitalised deliberately.
+            //
+            // SCIM attribute names are case-insensitive (RFC 7643 §2.1), and the
+            // `path` form already lowercased — but the pathless arm matched
+            // exactly, so `{"Active": ...}` fell through to the
+            // ignored-for-IdP-compatibility arm and returned **200 with the user
+            // still provisioned**. A swallowed deprovision is the worst shape
+            // this bug could take: the IdP is told it succeeded, so it never
+            // retries, and the person keeps their access.
+            //
+            // The assertions below are the test. `active: false` in the response
+            // and a revoked membership both fail if the key is ignored. The
+            // value is also mixed-case ("False"), which was already handled.
+            // The lowercase key is covered earlier in this test.
+            "Operations": [{"op": "Replace", "value": {"Active": "False"}}],
         })),
     )
     .await;
@@ -760,6 +843,52 @@ async fn scim_provisioning_against_live_stack() {
     )
     .await;
     assert_scim_error(status, &body, StatusCode::CONFLICT, Some("uniqueness"));
+
+    // KAIROS-T-0184 item 2: deleting a team group and re-adding it must work.
+    //
+    // `teams.slug` was UNIQUE with no `deleted_at` predicate while DELETE only
+    // soft-deletes, so a routine IdP reorganisation — remove a group, add it
+    // back — got 409 uniqueness PERMANENTLY, and the team name was
+    // unrecoverable. Same landmine as KAIROS-T-0161 on board_columns; same fix,
+    // a partial unique index.
+    //
+    // Done on a throwaway group rather than kairos-team-platform, which the
+    // membership assertions below still need.
+    let (status, body) = scim(
+        &router,
+        Method::POST,
+        "/scim/v2/Groups",
+        Some(&scim_token),
+        Some(json!({"displayName": "kairos-team-recycled"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let recycled_id = body["id"].as_str().expect("group id").to_string();
+    let (status, _) = scim(
+        &router,
+        Method::DELETE,
+        &format!("/scim/v2/Groups/{recycled_id}"),
+        Some(&scim_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, body) = scim(
+        &router,
+        Method::POST,
+        "/scim/v2/Groups",
+        Some(&scim_token),
+        Some(json!({"displayName": "kairos-team-recycled"})),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "re-creating a deleted team group must not be refused for ever: {body}"
+    );
+    // A NEW team, not the soft-deleted one resurrected — the old row is still
+    // there, still deleted, still holding its audit history.
+    assert_ne!(body["id"].as_str().unwrap(), recycled_id, "{body}");
 
     // Group filter.
     let (status, body) = scim(

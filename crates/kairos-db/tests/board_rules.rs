@@ -208,6 +208,7 @@ fn board_rules_lifecycle() {
     let actor: User = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|it-actor".into(),
+            user_name: "dex|it-actor".into(),
             email: "actor@example.com".into(),
             display_name: "IT Actor".into(),
         })

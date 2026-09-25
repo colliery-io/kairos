@@ -68,7 +68,13 @@ pub const USER_KIND_SERVICE_ACCOUNT: &str = "service_account";
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct User {
     pub id: Uuid,
+    /// The OIDC `sub`. Logins join on this (`middleware::auth`), which is why
+    /// SCIM cannot change it — see [`Self::user_name`].
     pub external_id: String,
+    /// SCIM `userName` (KAIROS-T-0184). Distinct from `external_id` because they
+    /// are distinct things: an IdP commonly uses the login email here while the
+    /// `sub` is opaque. Mutable, and what a `userName` filter searches.
+    pub user_name: String,
     pub email: String,
     pub display_name: String,
     /// `"human"` (default) or `"service_account"` (see the `USER_KIND_*` consts).
@@ -90,6 +96,7 @@ impl User {
 #[diesel(table_name = users)]
 pub struct NewUser {
     pub external_id: String,
+    pub user_name: String,
     pub email: String,
     pub display_name: String,
 }
@@ -101,6 +108,7 @@ pub struct NewUser {
 #[diesel(table_name = users)]
 pub struct NewServiceAccountUser {
     pub external_id: String,
+    pub user_name: String,
     pub email: String,
     pub display_name: String,
     pub kind: String,
@@ -115,8 +123,12 @@ impl NewServiceAccountUser {
         email: impl Into<String>,
         display_name: impl Into<String>,
     ) -> Self {
+        let external_id = external_id.into();
         Self {
-            external_id: external_id.into(),
+            // A service account has no IdP and so no meaningful `userName`; the
+            // synthetic `svc:<uuid>` keeps the column unique without implying one.
+            user_name: external_id.clone(),
+            external_id,
             email: email.into(),
             display_name: display_name.into(),
             kind: USER_KIND_SERVICE_ACCOUNT.to_string(),

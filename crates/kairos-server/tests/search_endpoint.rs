@@ -274,6 +274,7 @@ async fn search_endpoint_against_live_stack() {
     let seeder: Uuid = diesel::insert_into(users::table)
         .values(NewUser {
             external_id: "dex|seeder".into(),
+            user_name: "dex|seeder".into(),
             email: "seeder@acme.test".into(),
             display_name: "Seeder".into(),
         })

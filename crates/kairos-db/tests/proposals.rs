@@ -54,6 +54,7 @@ fn edge_proposal_lifecycle() {
     let alice = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|alice".into(),
+            user_name: "dex|alice".into(),
             email: "alice@acme.test".into(),
             display_name: "Alice".into(),
         })
@@ -63,6 +64,7 @@ fn edge_proposal_lifecycle() {
     let agent = diesel::insert_into(schema::users::table)
         .values(kairos_db::models::public::NewServiceAccountUser {
             external_id: "svc|agent".into(),
+            user_name: "svc|agent".into(),
             email: "agent@acme.test".into(),
             display_name: "Agent".into(),
             kind: kairos_db::models::public::USER_KIND_SERVICE_ACCOUNT.into(),

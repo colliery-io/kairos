@@ -71,6 +71,7 @@ fn insert_user(conn: &mut PgConnection, external_id: &str, email: &str, name: &s
     diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: external_id.into(),
+            user_name: external_id.into(),
             email: email.into(),
             display_name: name.into(),
         })

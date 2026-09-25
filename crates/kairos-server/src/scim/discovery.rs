@@ -49,9 +49,15 @@ fn user_schema() -> Value {
         "attributes": [
             {
                 "name": "userName", "type": "string", "multiValued": false,
-                "required": true, "caseExact": true, "mutability": "immutable",
+                "required": true, "caseExact": true, "mutability": "readWrite",
                 "returned": "default", "uniqueness": "server",
-                "description": "The OIDC subject (users.external_id)"
+                // readWrite since KAIROS-T-0184. It was immutable while it was
+                // served from `users.external_id`, the OIDC subject — which made
+                // every PUT fail for ever at any IdP whose userName is a login
+                // email and whose subject is opaque. It has its own column now.
+                "description": "The login identifier (users.user_name), commonly \
+                                an email. Mutable. Distinct from externalId, \
+                                which carries the OIDC subject and is not."
             },
             {
                 "name": "displayName", "type": "string", "multiValued": false,

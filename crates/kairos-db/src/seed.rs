@@ -258,6 +258,9 @@ fn upsert_demo_users(conn: &mut PgConnection) -> Result<Vec<Uuid>, SeedError> {
         let user: User = diesel::insert_into(users::table)
             .values(NewUser {
                 external_id: external_id.to_string(),
+                // The demo fixture has no IdP, so `userName` is the subject, which
+                // is what a JIT login would set it to as well (KAIROS-T-0184).
+                user_name: external_id.to_string(),
                 email: email.to_string(),
                 display_name: display_name.to_string(),
             })

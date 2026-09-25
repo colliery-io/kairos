@@ -257,6 +257,7 @@ async fn ws_events_against_live_stack() {
     let widget_actor: Uuid = diesel::insert_into(users::table)
         .values(NewUser {
             external_id: "ws-widgets-actor".into(),
+            user_name: "ws-widgets-actor".into(),
             email: "widgets-actor@kairos.test".into(),
             display_name: "Widgets Actor".into(),
         })

@@ -49,9 +49,15 @@ Inbound SCIM Users bind to `public.users` in this order:
 | Priority | SCIM attribute | Kairos column |
 |---|---|---|
 | 1 | `externalId` | `users.external_id` (the OIDC `sub`) |
-| 2 | `userName` | `users.external_id` |
+| 2 | `userName` | `users.user_name` |
 | 3 | first `emails[].value` (primary preferred; or an email-shaped `userName`) | `users.email` |
-| 4 | *no match* | new row created with `external_id = externalId ?? userName` |
+| 4 | *no match* | new row created with `external_id = externalId ?? userName`, `user_name = userName` |
+
+`userName` and `externalId` are **two columns**, because they are two things:
+`externalId` is the OIDC subject logins join on, and `userName` is the login
+identifier the IdP uses, commonly an email. Earlier versions served both from
+`users.external_id`; existing rows were backfilled `user_name = external_id`, so
+a deployment that never sent a distinct `userName` sees no change.
 
 SCIM never overwrites the login join key, so a user who has already logged in
 keeps the `sub` on their row and the email fallback links them. A
@@ -61,13 +67,14 @@ membership.
 
 Where several rows share the email, the **earliest-created** one wins.
 
-Outbound, both `userName` and `externalId` are served from
+Outbound, `userName` comes from `users.user_name` and `externalId` from
 `users.external_id`.
 
-**A `userName` filter searches `users.external_id`, not the email.**
-`userName eq "…"` and `externalId eq "…"` are the same query. An IdP whose
-`userName` is the login email, against users whose `external_id` is an opaque
-`sub`, will find nothing — including during its own reconciliation sweeps.
+`userName eq "…"` and `externalId eq "…"` are **different queries**, each
+searching its own column. They were the same query in earlier versions, which
+meant an IdP filtering by login email against opaque subjects found nothing —
+including during its own reconciliation sweeps, where finding nothing means
+"absent", which means re-create.
 
 Configuring an IdP to satisfy this is
 [Make the identity join work](../how-to/provision-users-with-scim.md#make-the-identity-join-work).
@@ -120,7 +127,7 @@ way; rename teams via `/api/teams`.
 | `DELETE` of `kairos-admins` | 400 `mutability` — it is built in and always exists |
 | `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the count. Move or delete the items through `/api` first; until then the IdP's delete will never succeed |
 | `POST` of `kairos-admins` | 409 `uniqueness` — it always exists |
-| `POST` of a team slug that already exists, **including a soft-deleted team** | 409 `uniqueness`. `teams.slug` is unconditionally unique, so a team group that has been deleted can never be re-created under the same name; use a different slug |
+| `POST` of a team slug that already exists **and is live** | 409 `uniqueness` |
 | `POST` where the `<slug>-delivery` board slug collides | 409 `uniqueness` |
 | `members` not an array, a member without `value`, or a `value` that is not a UUID | 400 `invalidValue` |
 | A `remove` on `path: "members"` with no value | Accepted, and removes **every** member |
@@ -134,15 +141,15 @@ way; rename teams via `/api/teams`.
 | Groups | POST, GET (id/list), PATCH, PUT, DELETE |
 | Filtering | `userName eq "…"`, `externalId eq "…"` (Users); `displayName eq "…"` (Groups) — anything else 400 `invalidFilter` |
 | Pagination | `startIndex` (1-based) / `count`. `count` defaults to **100** and is clamped to 0–200; `startIndex` is clamped up to 1. Clamping is silent, and the echoed `startIndex` is the clamped value. `count=0` is a valid empty page, not an error |
-| PATCH paths (Users) | `active` (bool or `"True"`/`"False"` strings), `displayName`, or a no-path value object (unknown attributes there are ignored). Path matching is case-insensitive; **keys inside a no-path value object are not** |
+| PATCH paths (Users) | `active` (bool or `"True"`/`"False"` strings), `displayName`, or a no-path value object (unknown attributes there are ignored). Attribute names are case-insensitive throughout, in the `path` form and inside a no-path value object alike (RFC 7643 §2.1) |
 | PATCH paths (Groups) | `members` add/remove/replace incl. `members[value eq "…"]`, which is matched byte-exactly — lowercase `members`, single spaces, double quotes |
 | Bulk / sorting / ETags / password | not supported, and advertised as such in `ServiceProviderConfig` |
 | `/Me` | not implemented. RFC 7643 has no field for advertising that, so it is not advertised: it is simply unrouted |
 
-Because the no-path object's keys are case-sensitive, a PATCH carrying
-`{"value": {"Active": false}}` is **silently ignored** — 200, and the user
-stays provisioned. Send `active`, or use `"path": "active"`, where a capital
-`Active` does work.
+A deleted team group can be re-created under the same name. `teams.slug` is
+unique among **live** teams only, so a routine reorganisation — remove a group,
+add it back — works. The soft-deleted row stays, holding its audit history; the
+re-created team is a new one with a new id.
 
 ### Errors
 
@@ -172,7 +179,8 @@ The handler refusals, beyond the group ones tabled above:
 | `POST` Users whose new row collides on `external_id` | 409 `uniqueness` |
 | `POST`/`PUT` Users with no derivable email — no `emails[].value` and an `userName` without `@` | 400 `invalidValue` |
 | `POST`/`PUT` Users with a missing or blank `userName` | 400 `invalidValue` |
-| `PUT` Users changing `userName` or `externalId` | 400 `mutability`. An IdP whose `userName` is the login email, against a user whose `external_id` is an opaque `sub`, gets this on **every** PUT it sends |
+| `PUT` Users changing `externalId` | 400 `mutability`. It carries the OIDC subject logins join on, so changing it would lock the user out rather than rename them. The message names the stored and received values and points at `userName`. Changing `userName` is allowed; re-keying the identity itself means deprovision and re-provision |
+| `PUT` Users changing `userName` to one another user holds | 409 `uniqueness` |
 | `active` present but neither a bool nor `"true"`/`"false"` | 400 `invalidValue` |
 | `op: "remove"` on a User | 400 `invalidPath` |
 | A PATCH `op` that is not add, replace or remove | 400 `invalidValue` |

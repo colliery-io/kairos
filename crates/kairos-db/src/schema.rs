@@ -9,6 +9,12 @@
 //   2. Public tables: SCHEMA-QUALIFIED (`public.*`) so they resolve
 //      no matter which tenant search_path is pinned.
 
+pub mod sql_types {
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "vector"))]
+    pub struct Vector;
+}
+
 diesel::table! {
     activity_log (id) {
         id -> Uuid,
@@ -130,6 +136,23 @@ diesel::table! {
 }
 
 diesel::table! {
+    edge_proposals (id) {
+        id -> Uuid,
+        source_id -> Uuid,
+        target_id -> Uuid,
+        relationship -> Text,
+        state -> Text,
+        claim -> Text,
+        why -> Text,
+        score -> Float4,
+        proposed_by -> Uuid,
+        decided_by -> Nullable<Uuid>,
+        decided_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     forge_connections (id) {
         id -> Uuid,
         forge -> Text,
@@ -156,6 +179,46 @@ diesel::table! {
         created_by -> Uuid,
         updated_by -> Uuid,
         deleted_at -> Nullable<Timestamptz>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::Vector;
+
+    item_chunks (id) {
+        id -> Uuid,
+        item_id -> Uuid,
+        entity_type -> Text,
+        ordinal -> Int4,
+        heading -> Nullable<Text>,
+        char_start -> Int4,
+        char_end -> Int4,
+        chunk_text -> Text,
+        embedding -> Vector,
+        provider -> Text,
+        model -> Text,
+        dimension -> Int4,
+        content_hash -> Text,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::Vector;
+
+    item_embeddings (item_id) {
+        item_id -> Uuid,
+        entity_type -> Text,
+        embedding -> Vector,
+        provider -> Text,
+        model -> Text,
+        dimension -> Int4,
+        content_hash -> Text,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }
@@ -437,8 +500,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     boards,
     delivery_streams,
     documents,
+    edge_proposals,
     forge_connections,
     initiatives,
+    item_chunks,
+    item_embeddings,
     item_history,
     item_links,
     item_metadata,
@@ -546,6 +612,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         kind -> Text,
+        user_name -> Text,
     }
 }
 

@@ -76,6 +76,7 @@ fn related_work_proposes_and_degrades() {
     let alice = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|alice".into(),
+            user_name: "dex|alice".into(),
             email: "alice@acme.test".into(),
             display_name: "Alice".into(),
         })

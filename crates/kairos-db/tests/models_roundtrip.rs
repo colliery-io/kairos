@@ -162,6 +162,7 @@ async fn models_round_trip() {
     let user: User = diesel::insert_into(s::users::table)
         .values(NewUser {
             external_id: "oidc|roundtrip".into(),
+            user_name: "oidc|roundtrip".into(),
             email: "roundtrip@example.com".into(),
             display_name: "Round Trip".into(),
         })

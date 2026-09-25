@@ -71,6 +71,7 @@ fn refreshing_embeds_only_what_changed() {
     let alice = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|alice".into(),
+            user_name: "dex|alice".into(),
             email: "alice@acme.test".into(),
             display_name: "Alice".into(),
         })
@@ -259,6 +260,7 @@ fn a_sweep_reaches_items_beyond_the_first_page() {
     let alice = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|alice".into(),
+            user_name: "dex|alice".into(),
             email: "alice@acme.test".into(),
             display_name: "Alice".into(),
         })
@@ -363,6 +365,7 @@ async fn the_refresher_picks_up_work_created_after_it_started() {
     let alice = diesel::insert_into(schema::users::table)
         .values(NewUser {
             external_id: "dex|alice".into(),
+            user_name: "dex|alice".into(),
             email: "alice@acme.test".into(),
             display_name: "Alice".into(),
         })

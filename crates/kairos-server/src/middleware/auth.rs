@@ -368,6 +368,11 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
     diesel::insert_into(users::table)
         .values(NewUser {
             external_id: claims.sub.clone(),
+            // JIT has no SCIM payload to take a `userName` from, so it takes the
+            // subject — which is exactly what SCIM served as `userName` before
+            // KAIROS-T-0184 split the two, so a JIT user looks unchanged. It is
+            // also unique for free, since `external_id` is.
+            user_name: claims.sub.clone(),
             email,
             display_name,
         })

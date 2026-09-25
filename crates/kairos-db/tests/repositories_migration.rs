@@ -135,8 +135,8 @@ fn repositories_migration_on_populated_tables() {
     // A user for created_by, and two teams.
     let actor = Uuid::new_v4();
     sql_query(
-        "INSERT INTO public.users (id, external_id, email, display_name) \
-         VALUES ($1, 'mig:actor', 'mig@kairos.test', 'Migration Actor')",
+        "INSERT INTO public.users (id, external_id, user_name, email, display_name) \
+         VALUES ($1, 'mig:actor', 'mig:actor', 'mig@kairos.test', 'Migration Actor')",
     )
     .bind::<diesel::sql_types::Uuid, _>(actor)
     .execute(&mut conn)

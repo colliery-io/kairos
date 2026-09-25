@@ -289,6 +289,22 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
         links,
         repositories,
     } = view_model;
+    // KAIROS-T-0094: who may add a root-level page. Same rule and same source as
+    // the announcement composer further down — org admin, or a member of THIS
+    // team. Read from the shared whoami resource rather than refetched.
+    let whoami_for_gate = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let gate_team_id = StoredValue::new(team.id.clone());
+    let can_author = move || {
+        whoami_for_gate
+            .and_then(|resource| resource.get())
+            .and_then(|result| {
+                result.ok().map(|me| {
+                    me.organization.role == "admin"
+                        || me.teams.iter().any(|t| t.id == gate_team_id.get_value())
+                })
+            })
+            .unwrap_or(false)
+    };
     let sub = format!("team · {}", team.slug);
     let type_pill = team.team_type.clone();
     let header_right: Children = Box::new(move || {
@@ -372,6 +388,28 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
             <Panel title="Documentation" caption="the team's page tree — folders expand, pages open">
                 <DocTree pages=pages.clone() team_slug=team_slug.clone()/>
             </Panel>
+            // KAIROS-T-0094: root-level creation. The API always allowed it
+            // (`POST /api/teams/{id}/pages` with no parent_id) and no UI offered
+            // it, so adding a top-level sibling of Documentation meant an API
+            // call. The create form only ever appeared inside folder indexes.
+            //
+            // Gated on membership or org-admin, matching the announcement
+            // composer below: a non-member sees no affordance rather than a
+            // button that 403s.
+            {
+                let team_id_for_create = team.id.clone();
+                move || {
+                    can_author().then(|| {
+                        view! {
+                            <doc::CreateForm
+                                team_id=team_id_for_create.clone()
+                                parent_id=None
+                                on_changed
+                            />
+                        }
+                    })
+                }
+            }
             <Panel title="Work documents" caption="documents attached to this team's work items">
                 {if work_documents.is_empty() {
                     view! {

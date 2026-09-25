@@ -248,7 +248,7 @@ fn FolderIndex(
             }}
         </Panel>
         {manage.then(|| view! {
-            <CreateForm team_id=team.id.clone() parent_id=folder.id.clone() on_changed/>
+            <CreateForm team_id=team.id.clone() parent_id=Some(folder.id.clone()) on_changed/>
             <StructurePanel team pages node=folder on_changed/>
         })}
     }
@@ -332,7 +332,11 @@ fn PageView(
 /// The create surface inside a folder (KAIROS-T-0086): kind + slug +
 /// title → POST.
 #[component]
-fn CreateForm(team_id: String, parent_id: String, on_changed: Callback<()>) -> impl IntoView {
+pub(crate) fn CreateForm(
+    team_id: String,
+    parent_id: Option<String>,
+    on_changed: Callback<()>,
+) -> impl IntoView {
     let auth = use_auth();
     let team_id = StoredValue::new(team_id);
     let parent_id = StoredValue::new(parent_id);
@@ -341,6 +345,13 @@ fn CreateForm(team_id: String, parent_id: String, on_changed: Callback<()>) -> i
     let title = RwSignal::new(String::new());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
+    // KAIROS-T-0094: the same form serves a folder index and the tree root, so
+    // the caption has to say which one the reader is looking at.
+    let caption = if parent_id.get_value().is_some() {
+        "created inside this folder"
+    } else {
+        "created at the top level of the tree"
+    };
 
     let create = move |_| {
         let slug_value = slug.get_untracked().trim().to_string();
@@ -354,7 +365,7 @@ fn CreateForm(team_id: String, parent_id: String, on_changed: Callback<()>) -> i
             let result = api::create_page(
                 auth,
                 &team_id.get_value(),
-                Some(&parent_id.get_value()),
+                parent_id.get_value().as_deref(),
                 &kind.get_untracked(),
                 &slug_value,
                 &title_value,
@@ -373,7 +384,7 @@ fn CreateForm(team_id: String, parent_id: String, on_changed: Callback<()>) -> i
     };
 
     view! {
-        <Panel title="New page or folder" caption="created inside this folder">
+        <Panel title="New page or folder" caption=caption>
             <Stack gap="sm">
                 {move || error.get().map(|message| view! {
                     <Alert title="Create failed" color=token::BAD>

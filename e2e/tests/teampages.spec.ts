@@ -93,7 +93,51 @@ test('team pages: landing layout → announcements → page edit + 409 merge →
     await expect(work.getByText('PRD: Portal sign-up flow')).toHaveCount(0);
   });
 
-  // 3. Post an announcement as a team member -------------------------------
+  // 3. Root-level creation (KAIROS-T-0094) ---------------------------------
+  // The API always allowed a root page (`POST .../pages` with no parent_id) and
+  // no UI offered one, so adding a top-level section meant an API call — the
+  // create form lived only inside folder indexes.
+  await test.step('member creates a root-level folder from the team page', async () => {
+    const create = panel(page, 'New page or folder');
+    await expect(create).toBeVisible();
+    // The caption is the only thing distinguishing this from the in-folder form,
+    // so it is worth asserting rather than trusting position.
+    await expect(create.getByText('created at the top level of the tree')).toBeVisible();
+
+    // Fields are located through their label's `.cl-field` wrapper rather than
+    // with getByLabel: aurora's TextInput renders a `<label>` with no `for` and
+    // an `<input>` with no `id`, so there is no association to query. Worth
+    // knowing rather than working around silently — it means these inputs are
+    // unlabelled for a screen reader too (filed as KAIROS-T-0198).
+    const field = (name: string) =>
+      create
+        .locator('.cl-field', { has: page.locator('.cl-field__label', { hasText: name }) })
+        .locator('input');
+
+    await create.locator('select').selectOption('folder');
+    await field('Slug').fill('incidents');
+    await field('Title').fill('Incidents');
+    await create.getByRole('button', { name: 'Create' }).click();
+
+    // It lands as a sibling of Documentation, not nested inside it.
+    const docs = panel(page, 'Documentation');
+    await expect(
+      docs.locator('details.kairos-doctree__folder', {
+        has: page.locator('summary', { hasText: 'Incidents' }),
+      }),
+    ).toBeVisible();
+
+    // A duplicate root slug surfaces the server's typed 422 rather than a
+    // silent no-op: sibling uniqueness among NULL parents is the COALESCE
+    // partial index from KAIROS-T-0082/T-0184.
+    await create.locator('select').selectOption('folder');
+    await field('Slug').fill('incidents');
+    await field('Title').fill('Incidents again');
+    await create.getByRole('button', { name: 'Create' }).click();
+    await expect(create.getByText('Create failed')).toBeVisible();
+  });
+
+  // 4. Post an announcement as a team member -------------------------------
   const posted = `Bob's standup note ${Date.now()}`;
   await test.step('member posts an announcement', async () => {
     const announcements = panel(page, 'Announcements');
@@ -223,6 +267,9 @@ test('team pages: landing layout → announcements → page edit + 409 merge →
     // But no post box, and no edit affordance on web's pages.
     await expect(announcements.locator('textarea')).toHaveCount(0);
     await expect(announcements.getByRole('button', { name: 'Post' })).toHaveCount(0);
+    // KAIROS-T-0094: and no root-create form either. A non-member sees no
+    // affordance rather than a button that 403s.
+    await expect(panel(page, 'New page or folder')).toHaveCount(0);
     await panel(page, 'Charter')
       .getByRole('link', { name: 'Open / edit the charter' })
       .click();

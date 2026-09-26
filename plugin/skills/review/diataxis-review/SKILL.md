@@ -8,6 +8,10 @@ disable-model-invocation: true
 
 [The Diataxis reference](../../../references/diataxis.md) is the single source of truth for this review — the four modes and their criteria, classification heuristics, mode-mixing anti-patterns, structural checks, finding format, and severity levels live there and nowhere else. Read it end to end before opening a page and apply it verbatim; this file only sequences the work.
 
+**How the procedural pages are written** is governed by a second source of truth: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009). Diataxis decides what a page is *for*; STE decides how a tutorial, how-to or reference page is *worded*. Read it before reviewing any page in those three modes, and cite its rule IDs (STE-S2, STE-G1, …) the way you cite Diataxis rules.
+
+**Do not apply STE to an explanation page.** STE is a controlled language for procedures and is deliberately hostile to argument, so an explanation page is out of its scope — section 1.2 of the reference says so. Flagging an explanation page for a long sentence or a passive voice is a false finding, and one that would flatten exactly the reasoning the mode exists to carry.
+
 ## 1. Scope
 
 Establish which tree is under review: the path the user gave, else the repo's docs root (ask if ambiguous). List every page in scope before classifying any — the structural pass needs the complete inventory.

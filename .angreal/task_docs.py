@@ -77,6 +77,57 @@ def docs_build():
 
 @docs()
 @angreal.command(
+    name="ste",
+    about="check procedural docs against KAIROS-S-0009 (Simplified Technical English)",
+    tool=angreal.ToolDescription(
+        """
+        Check docs/src/{tutorials,how-to,reference} against the mechanical half of
+        KAIROS-S-0009 (ASD-STE100): sentence length, paragraph length, passive voice,
+        gerund chains, and the banned domain synonyms in section 4.1.
+
+        BASELINED. scripts/ste-baseline.json records the violation count per file and
+        the gate fails only when a file gets WORSE. A new file must be clean. The
+        baseline is a ceiling that only goes down.
+
+        NOT CHECKED: STE-V1, the approved vocabulary. It needs ASD's word list as
+        data and ASD owns its copyright, so this repository ships no copy. A clean run
+        is NOT STE conformance.
+
+        Out of scope entirely: explanation/, ADRs, Status Updates, commit messages.
+        STE is hostile to argument and those exist to argue.
+
+        --list      print every violation with its rule ID
+        --baseline  rewrite the baseline from the current tree (lock in improvements)
+        """,
+        risk_level="read_only",
+    ),
+)
+@angreal.argument(
+    name="list_all",
+    long="list",
+    takes_value=False,
+    is_flag=True,
+    help="print every violation with its rule ID",
+)
+@angreal.argument(
+    name="baseline",
+    long="baseline",
+    takes_value=False,
+    is_flag=True,
+    help="rewrite scripts/ste-baseline.json from the current tree",
+)
+def docs_ste(list_all=False, baseline=False):
+    """Run scripts/ste-check.py. Pure Python, no services, no build."""
+    args = [sys.executable, str(PROJECT_ROOT / "scripts" / "ste-check.py")]
+    if list_all:
+        args.append("--list")
+    if baseline:
+        args.append("--baseline")
+    return subprocess.run(args, cwd=str(PROJECT_ROOT)).returncode
+
+
+@docs()
+@angreal.command(
     name="api",
     about="regenerate the REST reference pages from the OpenAPI spec",
 )

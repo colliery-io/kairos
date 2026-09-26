@@ -107,16 +107,28 @@ jobs:
       # into target/tools/, warmed by the rust-cache step) — CI runs the
       # exact same entry point developers do. `angreal web lint` is the
       # docs/gui-conventions.md conventions grep (no hardcoded colors).
-      - name: Gate 5 — GUI conventions grep
+      # Gate 5 — procedural docs follow KAIROS-S-0009 (Simplified Technical English).
+      #
+      # Baselined rather than big-bang: `scripts/ste-baseline.json` holds the current
+      # violation count per file and this fails only when a file gets WORSE, so the
+      # rule applies from KAIROS-T-0207 forward without a corpus rewrite nobody
+      # reviewed. A new file must be clean.
+      #
+      # It does NOT check the approved vocabulary (STE-V1) — ASD owns its copyright, so
+      # this repository ships no word list. Green here is not STE conformance.
+      - name: Gate 5 — Simplified Technical English
+        run: angreal docs ste
+
+      - name: Gate 6 — GUI conventions grep
         run: angreal web lint
 
-      - name: Gate 6 — GUI wasm build
+      - name: Gate 7 — GUI wasm build
         run: angreal web build --release
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      # Gate 7 — the chart actually renders, for every deployment shape in
+      # Gate 8 — the chart actually renders, for every deployment shape in
       # `deploy/helm/kairos/ci/`.
       #
       # `helm lint` is NOT this gate, which is what KAIROS-T-0208 found: it
@@ -128,7 +140,7 @@ jobs:
       # shape renders; the refusals prove the guards actually fire, because a
       # guard that has stopped firing looks exactly like one that was never
       # needed.
-      - name: Gate 7 — Helm chart renders
+      - name: Gate 8 — Helm chart renders
         run: |
           set -euo pipefail
           for values in deploy/helm/kairos/ci/*-values.yaml; do

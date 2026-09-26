@@ -81,6 +81,8 @@ Avoid specific file paths or code snippets — they go stale fast. Exception: if
 
 ## Acceptance criteria
 
+Write them in Simplified Technical English: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009) is the source of truth. A criterion is a testable instruction, so it is procedural text — one instruction per criterion, active voice, present tense, 20 words or fewer, and the domain terms from section 4 rather than a synonym. A criterion nobody can read twice the same way is not a contract.
+
 - [ ] Criterion 1
 - [ ] Criterion 2
 - [ ] Criterion 3

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # render-references.sh — render plugin/references/*.md from their Metis specification sources.
 #
-# The Metis specs (KAIROS-S-0007, KAIROS-S-0008) are the source of truth (KAIROS-A-0014).
+# The Metis specs (KAIROS-S-0007, KAIROS-S-0008, KAIROS-S-0009) are the source of truth
+# (KAIROS-A-0014).
 # Rendering:
 #   1. strips the YAML frontmatter block,
 #   2. strips a leading "## KAIROS-S-000x: ..." header line if present,
@@ -59,3 +60,7 @@ render "$REPO_ROOT/.metis/specifications/KAIROS-S-0007/specification.md" \
 render "$REPO_ROOT/.metis/specifications/KAIROS-S-0008/specification.md" \
        "$REPO_ROOT/plugin/references/diataxis.md" \
        "KAIROS-S-0008"
+
+render "$REPO_ROOT/.metis/specifications/KAIROS-S-0009/specification.md" \
+       "$REPO_ROOT/plugin/references/simplified-technical-english.md" \
+       "KAIROS-S-0009"

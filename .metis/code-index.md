@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-26T13:28:53Z | 309 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-09-26T16:41:38Z | 318 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -75,6 +75,7 @@
 │   │   │   ├── graph.rs
 │   │   │   ├── items.rs
 │   │   │   ├── lib.rs
+│   │   │   ├── local_auth.rs
 │   │   │   ├── migrations.rs
 │   │   │   ├── models/
 │   │   │   │   ├── boards.rs
@@ -107,6 +108,7 @@
 │   │       ├── embeddings.rs
 │   │       ├── graph.rs
 │   │       ├── isolation.rs
+│   │       ├── local_auth.rs
 │   │       ├── models_roundtrip.rs
 │   │       ├── proposals.rs
 │   │       ├── public_migrations.rs
@@ -140,6 +142,7 @@
 │   │   │   │   ├── convert_org.rs
 │   │   │   │   ├── documents.rs
 │   │   │   │   ├── initiatives.rs
+│   │   │   │   ├── local_accounts.rs
 │   │   │   │   ├── meta/
 │   │   │   │   │   ├── activity.rs
 │   │   │   │   │   ├── definitions.rs
@@ -176,6 +179,7 @@
 │   │   │   │   └── webhook.rs
 │   │   │   ├── lib.rs
 │   │   │   ├── local_auth.rs
+│   │   │   ├── login.rs
 │   │   │   ├── main.rs
 │   │   │   ├── mcp/
 │   │   │   │   ├── mod.rs
@@ -213,12 +217,15 @@
 │   │       ├── file_backlog.rs
 │   │       ├── forge_connections.rs
 │   │       ├── forge_webhook.rs
+│   │       ├── local_accounts.rs
+│   │       ├── local_login.rs
 │   │       ├── mcp.rs
 │   │       ├── meta.rs
 │   │       ├── metrics.rs
 │   │       ├── middleware.rs
 │   │       ├── openapi.rs
 │   │       ├── org_endpoints.rs
+│   │       ├── rate_limit.rs
 │   │       ├── related_work.rs
 │   │       ├── repositories_api.rs
 │   │       ├── scim.rs
@@ -308,6 +315,7 @@
 │       ├── graph.spec.ts
 │       ├── lanes.spec.ts
 │       ├── lifecycle.spec.ts
+│       ├── local-login.spec.ts
 │       ├── metadata.spec.ts
 │       ├── progress.spec.ts
 │       ├── related-work.spec.ts
@@ -343,6 +351,7 @@
     │   ├── growing-team.journey.ts
     │   ├── housekeeping.journey.ts
     │   ├── incident.journey.ts
+    │   ├── local-login.journey.ts
     │   ├── machine-access.journey.ts
     │   ├── multi-repo-agent.journey.ts
     │   ├── new-kind-of-work.journey.ts
@@ -674,20 +683,20 @@
 - pub `bearer_for` function L83-88 — `(&self, kind: ApiBearer) -> Option<&str>` — The token to cache/send as the `/api` bearer for the given selection.
 - pub `PollOutcome` enum L93-106 — `Token | Pending | SlowDown | Denied | Expired | Fatal` — One poll of the token endpoint, classified per RFC 8628 §3.5.
 - pub `classify_poll_response` function L109-141 — `(status: u16, body: &str) -> PollOutcome` — Classify a token-endpoint poll response (pure; unit-tested).
-- pub `discover_issuer` function L145-184 — `( http: &reqwest::Client, deployment_url: &str, ) -> Result<String, CliError>` — Discover the deployment's OIDC issuer from its RFC 9728
-- pub `discover_endpoints` function L187-229 — `( http: &reqwest::Client, issuer: &str, ) -> Result<IssuerEndpoints, CliError>` — OIDC discovery: the issuer's token + device-authorization endpoints.
-- pub `start_device_grant` function L232-259 — `( http: &reqwest::Client, endpoints: &IssuerEndpoints, client_id: &str, ) -> Res...` — Start the Device Authorization Grant (RFC 8628 §3.1).
-- pub `poll_device_grant` function L263-313 — `( http: &reqwest::Client, endpoints: &IssuerEndpoints, client_id: &str, grant: &...` — Poll the token endpoint until the user approves, declines, or the code
-- pub `refresh_grant` function L317-342 — `( http: &reqwest::Client, token_endpoint: &str, client_id: &str, refresh_token: ...` — The refresh grant (RFC 6749 §6).
+- pub `discover_issuer` function L145-195 — `( http: &reqwest::Client, deployment_url: &str, ) -> Result<String, CliError>` — Discover the deployment's OIDC issuer from its RFC 9728
+- pub `discover_endpoints` function L198-240 — `( http: &reqwest::Client, issuer: &str, ) -> Result<IssuerEndpoints, CliError>` — OIDC discovery: the issuer's token + device-authorization endpoints.
+- pub `start_device_grant` function L243-270 — `( http: &reqwest::Client, endpoints: &IssuerEndpoints, client_id: &str, ) -> Res...` — Start the Device Authorization Grant (RFC 8628 §3.1).
+- pub `poll_device_grant` function L274-324 — `( http: &reqwest::Client, endpoints: &IssuerEndpoints, client_id: &str, grant: &...` — Poll the token endpoint until the user approves, declines, or the code
+- pub `refresh_grant` function L328-353 — `( http: &reqwest::Client, token_endpoint: &str, client_id: &str, refresh_token: ...` — The refresh grant (RFC 6749 §6).
 -  `PROTECTED_RESOURCE_PATH` variable L40 — `: &str` — The path-suffixed RFC 9728 well-known document for the `/mcp` resource
 -  `TokenResponse` type L79-89 — `= TokenResponse` — 4.
 -  `OAuthError` struct L119-123 — `{ error: String, error_description: Option<String> }` — 4.
 -  `ProtectedResource` struct L166-169 — `{ authorization_servers: Vec<String> }` — 4.
--  `Discovery` struct L207-211 — `{ token_endpoint: String, device_authorization_endpoint: Option<String> }` — 4.
--  `tests` module L345-431 — `-` — 4.
--  `poll_classification` function L350-401 — `()` — Every RFC 8628 poll outcome classifies correctly.
--  `token_response_without_refresh` function L406-410 — `()` — A missing refresh_token in a token response stays None (some IdPs
--  `bearer_selection` function L415-430 — `()` — `bearer_for` picks the right token; `id_token` mode fails cleanly when
+-  `Discovery` struct L218-222 — `{ token_endpoint: String, device_authorization_endpoint: Option<String> }` — 4.
+-  `tests` module L356-442 — `-` — 4.
+-  `poll_classification` function L361-412 — `()` — Every RFC 8628 poll outcome classifies correctly.
+-  `token_response_without_refresh` function L417-421 — `()` — A missing refresh_token in a token response stays None (some IdPs
+-  `bearer_selection` function L426-441 — `()` — `bearer_for` picks the right token; `id_token` mode fails cleanly when
 
 #### crates/kairos-cli/src/provider.rs
 
@@ -725,7 +734,7 @@
 -  `run_cli` function L62-75 — `(config_dir: &std::path::Path, args: &[&str]) -> (i32, String, String)` — Run the `kairos` binary with `KAIROS_CONFIG_DIR` pointed at the test's
 -  `approve_device_grant` function L79-123 — `(user_code: &str)` — Approve a pending device grant headlessly: submit the user code, then
 -  `alice_password_token` function L127-149 — `() -> String` — A real alice token via the password grant (JIT provisioning + fixture
--  `cli_login_whoami_refresh_logout_live` function L152-439 — `()` — credentials to the form's URL, landing on `/device/callback`.
+-  `cli_login_whoami_refresh_logout_live` function L152-448 — `()` — credentials to the form's URL, landing on `/device/callback`.
 
 #### crates/kairos-cli/tests/cli_tree_live.rs
 
@@ -740,7 +749,7 @@
 -  `approve_device_grant` function L70-107 — `(user_code: &str)` — Approve a pending device grant headlessly (T-0036's proven recipe):
 -  `alice_password_token` function L111-133 — `() -> String` — A real alice token via the password grant (JIT provisioning + fixture
 -  `cli_login` function L137-172 — `(config_dir: &std::path::Path, base_url: &str)` — Drive `kairos login` with the headless device-grant approval; panics on
--  `cli_command_tree_golden_path_live` function L175-642 — `()` — members list → orgs show → teams list.
+-  `cli_command_tree_golden_path_live` function L175-651 — `()` — members list → orgs show → teams list.
 
 ### crates/kairos-client/src
 
@@ -1766,19 +1775,42 @@
 - pub `forge` module L14 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
 - pub `graph` module L15 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
 - pub `items` module L16 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `migrations` module L17 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `models` module L18 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `pool` module L19 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `proposals` module L20 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `repositories` module L21 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `retention` module L22 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `schema` module L23 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `scim` module L24 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `search` module L25 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `seed` module L26 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `service_accounts` module L27 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `team_pages` module L28 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
-- pub `tenant` module L29 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `local_auth` module L17 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `migrations` module L18 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `models` module L19 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `pool` module L20 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `proposals` module L21 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `repositories` module L22 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `retention` module L23 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `schema` module L24 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `scim` module L25 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `search` module L26 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `seed` module L27 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `service_accounts` module L28 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `team_pages` module L29 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+- pub `tenant` module L30 — `-` — escape hatch for recursive-CTE traversals and the search pipeline.
+
+#### crates/kairos-db/src/local_auth.rs
+
+- pub `LocalSession` struct L28-42 — `{ id: Uuid, user_id: Uuid, token_hash: String, created_at: DateTime<Utc>, expire...` — A session row (`public.local_sessions`).
+- pub `is_valid_at` function L48-50 — `(&self, now: DateTime<Utc>) -> bool` — Whether the session is usable at `now`.
+- pub `NewLocalSession` struct L56-60 — `{ user_id: Uuid, token_hash: String, expires_at: DateTime<Utc> }` — Insert for [`LocalSession`]; `id`/`created_at` come from column defaults.
+- pub `create_session` function L63-68 — `(conn: &mut PgConnection, new: NewLocalSession) -> QueryResult<LocalSession>` — Insert a session row.
+- pub `find_session_by_hash` function L73-82 — `( conn: &mut PgConnection, token_hash: &str, ) -> QueryResult<Option<LocalSessio...` — The session row with this token hash, if any.
+- pub `revoke_session_by_hash` function L89-97 — `(conn: &mut PgConnection, token_hash: &str) -> QueryResult<usize>` — Revoke one session by its token hash, and report whether anything changed.
+- pub `revoke_all_sessions_for_user` function L100-108 — `(conn: &mut PgConnection, user_id: Uuid) -> QueryResult<usize>` — Revoke every live session a user holds, and report how many.
+- pub `touch_session` function L112-116 — `(conn: &mut PgConnection, id: Uuid) -> QueryResult<usize>` — Record that a session was just used.
+- pub `find_user_by_email` function L124-131 — `(conn: &mut PgConnection, email: &str) -> QueryResult<Option<User>>` — The user with this email, whether or not they have a password.
+- pub `list_sessions_for_user` function L138-147 — `( conn: &mut PgConnection, user_id: Uuid, ) -> QueryResult<Vec<LocalSession>>` — Every session a user holds, newest first, revoked and expired rows included.
+- pub `LOCAL_EXTERNAL_ID_PREFIX` variable L157 — `: &str` — The `external_id` prefix for an account that exists only locally
+- pub `local_external_id` function L160-162 — `(email: &str) -> String` — The synthetic `external_id` for a local account with this email.
+- pub `upsert_local_user` function L179-210 — `( conn: &mut PgConnection, email: &str, display_name: &str, password_hash: &str,...` — Create a local account, or adopt the existing row for this email.
+- pub `set_password` function L224-235 — `( conn: &mut PgConnection, user_id: Uuid, password_hash: &str, ) -> QueryResult<...` — Set (or replace) a user's password hash **and revoke every session they
+- pub `clear_password` function L241-248 — `(conn: &mut PgConnection, user_id: Uuid) -> QueryResult<usize>` — Remove a user's password, revoking their sessions with it.
+- pub `BootstrapSkipped` enum L252-258 — `UsersExist | RacedAnotherReplica` — Why a bootstrap did not happen.
+- pub `bootstrap_admin_if_empty` function L274-310 — `( conn: &mut PgConnection, email: &str, display_name: &str, password_hash: &str,...` — Create the first-boot admin, but **only if the deployment has no users at all**
+- pub `delete_expired_sessions` function L315-321 — `( conn: &mut PgConnection, before: DateTime<Utc>, ) -> QueryResult<usize>` — Delete sessions that expired before `before`.
+-  `LocalSession` type L44-51 — `= LocalSession` — [`set_password`] takes a hash rather than a password.
 
 #### crates/kairos-db/src/migrations.rs
 
@@ -2317,6 +2349,23 @@
 -  `pool_reuse_stress` function L913-1039 — `()` — by construction; each resolves only within its own tenant, never cross.
 -  `DB` variable L914 — `: &str` — by construction; each resolves only within its own tenant, never cross.
 
+#### crates/kairos-db/tests/local_auth.rs
+
+-  `DEFAULT_DATABASE_URL` variable L24 — `: &str` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `admin_url` function L26-28 — `() -> String` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `with_database` function L30-33 — `(url: &str, db: &str) -> String` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `setup` function L37-47 — `(db: &str) -> PgConnection` — A scratch database with public migrations applied.
+-  `teardown` function L49-52 — `(db: &str)` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `make_user` function L54-65 — `(conn: &mut PgConnection, email: &str) -> User` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `mint` function L67-78 — `(conn: &mut PgConnection, user_id: Uuid, hash: &str, ttl_days: i64) -> Uuid` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `a_session_round_trips_and_expiry_and_revocation_are_honored` function L81-149 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `changing_a_password_revokes_every_session` function L152-211 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `looking_a_user_up_does_not_filter_out_oidc_only_accounts` function L214-236 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `deleting_a_user_takes_their_sessions_with_them` function L239-258 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `expired_sessions_can_be_swept` function L261-287 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `adding_a_password_to_an_oidc_identity_does_not_fork_the_person` function L290-340 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+-  `the_bootstrap_admin_is_single_use` function L343-400 — `()` — Runs against the real compose Postgres (KAIROS-A-0012, never mocked).
+
 #### crates/kairos-db/tests/models_roundtrip.rs
 
 - pub `scratch_database` function L62-85 — `(db_name: &str, tenants: &[&str]) -> String` — Drop + recreate `db_name`, run public migrations, provision
@@ -2349,13 +2398,13 @@
 
 -  `DEFAULT_DATABASE_URL` variable L22 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 -  `SCRATCH_DB` variable L24 — `: &str` — touches the dev `kairos` database or interferes with other tests.
--  `EXPECTED_TABLES` variable L28-38 — `: [&str; 9]` — The public-schema tables: the 8 defined by KAIROS-S-0004 plus the
--  `admin_database_url` function L40-42 — `() -> String` — touches the dev `kairos` database or interferes with other tests.
--  `with_database` function L45-50 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
--  `TableName` struct L53-56 — `{ table_name: String }` — touches the dev `kairos` database or interferes with other tests.
--  `public_base_tables` function L58-73 — `(conn: &mut PgConnection) -> Vec<String>` — touches the dev `kairos` database or interferes with other tests.
--  `assert_database_error_kind` function L76-85 — `( result: Result<T, DieselError>, kind: DatabaseErrorKind, context: &str, )` — Expect a database error of `kind` from `result`.
--  `public_migrations_from_empty_database` function L88-154 — `()` — touches the dev `kairos` database or interferes with other tests.
+-  `EXPECTED_TABLES` variable L28-41 — `: [&str; 10]` — The public-schema tables: the 8 defined by KAIROS-S-0004 plus the
+-  `admin_database_url` function L43-45 — `() -> String` — touches the dev `kairos` database or interferes with other tests.
+-  `with_database` function L48-53 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
+-  `TableName` struct L56-59 — `{ table_name: String }` — touches the dev `kairos` database or interferes with other tests.
+-  `public_base_tables` function L61-76 — `(conn: &mut PgConnection) -> Vec<String>` — touches the dev `kairos` database or interferes with other tests.
+-  `assert_database_error_kind` function L79-88 — `( result: Result<T, DieselError>, kind: DatabaseErrorKind, context: &str, )` — Expect a database error of `kind` from `result`.
+-  `public_migrations_from_empty_database` function L91-157 — `()` — touches the dev `kairos` database or interferes with other tests.
 
 #### crates/kairos-db/tests/repositories_migration.rs
 
@@ -2437,27 +2486,27 @@
 
 -  `DEFAULT_DATABASE_URL` variable L37 — `: &str` — Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 -  `SCRATCH_DB` variable L39 — `: &str` — `system_board_defaults` rows are seeded.
--  `EXPECTED_TABLES` variable L44-82 — `: [&str; 34]` — The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
--  `EXPECTED_VIEWS` variable L84 — `: [&str; 2]` — `system_board_defaults` rows are seeded.
--  `EXPECTED_SEQUENCES` variable L86-92 — `: [&str; 5]` — `system_board_defaults` rows are seeded.
--  `EXPECTED_INDEXES` variable L101-125 — `: [&str; 23]` — Every named index a freshly provisioned tenant carries: the S-0004
--  `admin_database_url` function L127-129 — `() -> String` — `system_board_defaults` rows are seeded.
--  `with_database` function L132-137 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
--  `NameRow` struct L140-143 — `{ name: String }` — `system_board_defaults` rows are seeded.
--  `CountRow` struct L146-149 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
--  `names` function L151-161 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_tables` function L163-171 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_views` function L173-179 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_sequences` function L181-188 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_indexes` function L190-196 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
--  `schema_shape` function L210-255 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — Everything about a tenant schema's shape that a migration can change, as one
--  `Row` struct L224-227 — `{ line: String }` — `system_board_defaults` rows are seeded.
--  `schema_exists` function L257-264 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
--  `count` function L266-271 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
--  `board_columns` function L274-286 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
--  `board_transitions` function L289-304 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
--  `transitions` function L306-308 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
--  `tenant_provisioning_lifecycle` function L311-944 — `()` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_TABLES` variable L44-81 — `: [&str; 33]` — The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
+-  `EXPECTED_VIEWS` variable L83 — `: [&str; 2]` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_SEQUENCES` variable L85-91 — `: [&str; 5]` — `system_board_defaults` rows are seeded.
+-  `EXPECTED_INDEXES` variable L100-124 — `: [&str; 23]` — Every named index a freshly provisioned tenant carries: the S-0004
+-  `admin_database_url` function L126-128 — `() -> String` — `system_board_defaults` rows are seeded.
+-  `with_database` function L131-136 — `(url: &str, db_name: &str) -> String` — Replace the database name (final path segment) in a postgres URL.
+-  `NameRow` struct L139-142 — `{ name: String }` — `system_board_defaults` rows are seeded.
+-  `CountRow` struct L145-148 — `{ count: i64 }` — `system_board_defaults` rows are seeded.
+-  `names` function L150-160 — `(conn: &mut PgConnection, query: &str, param: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_tables` function L162-170 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_views` function L172-178 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_sequences` function L180-187 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_indexes` function L189-195 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — `system_board_defaults` rows are seeded.
+-  `schema_shape` function L209-254 — `(conn: &mut PgConnection, schema: &str) -> Vec<String>` — Everything about a tenant schema's shape that a migration can change, as one
+-  `Row` struct L223-226 — `{ line: String }` — `system_board_defaults` rows are seeded.
+-  `schema_exists` function L256-263 — `(conn: &mut PgConnection, schema: &str) -> bool` — `system_board_defaults` rows are seeded.
+-  `count` function L265-270 — `(conn: &mut PgConnection, sql: &str) -> i64` — `system_board_defaults` rows are seeded.
+-  `board_columns` function L273-285 — `(conn: &mut PgConnection, board_slug: &str) -> Vec<String>` — Board columns (ordered by position) for a board slug in `org_acme`.
+-  `board_transitions` function L288-303 — `(conn: &mut PgConnection, board_slug: &str) -> BTreeSet<String>` — Transition pairs `"From -> To"` for a board slug in `org_acme`.
+-  `transitions` function L305-307 — `(pairs: &[(&str, &str)]) -> BTreeSet<String>` — `system_board_defaults` rows are seeded.
+-  `tenant_provisioning_lifecycle` function L310-943 — `()` — `system_board_defaults` rows are seeded.
 
 #### crates/kairos-db/tests/write_path.rs
 
@@ -2737,6 +2786,23 @@
 -  `delete_initiative` function L276-299 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
 -  `transition_initiative` function L316-343 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — T-0018 handler pattern.
 
+#### crates/kairos-server/src/api/local_accounts.rs
+
+- pub `router` function L57-68 — `() -> Router<AppState>` — nothing here invents a third.
+- pub `CreateLocalAccountRequest` struct L72-84 — `{ email: String, display_name: Option<String>, password: String, role: Option<St...` — `POST /api/local-accounts` body.
+- pub `LocalAccountView` struct L88-98 — `{ user_id: String, email: String, display_name: String, created: bool, membershi...` — `POST /api/local-accounts` 201 body.
+- pub `SetPasswordRequest` struct L102-104 — `{ password: String }` — `PUT /api/local-accounts/{user_id}/password` body.
+- pub `SessionView` struct L108-120 — `{ id: String, created_at: String, expires_at: String, last_used_at: Option<Strin...` — One session, for the audit listing.
+- pub `SessionListResponse` struct L124-127 — `{ items: Vec<SessionView>, total: i64 }` — `GET /api/local-accounts/{user_id}/sessions` envelope.
+- pub `create_local_account` function L154-228 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — nothing here invents a third.
+- pub `set_local_password` function L245-277 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — nothing here invents a third.
+- pub `list_sessions` function L291-325 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — nothing here invents a third.
+- pub `revoke_sessions` function L344-371 — `( State(state): State<AppState>, Extension(auth): Extension<AuthContext>, Extens...` — nothing here invents a third.
+-  `MANAGE` variable L55 — `: &str` — The pseudo-capability named in 403s.
+-  `rfc3339` function L129-131 — `(at: chrono::DateTime<chrono::Utc>) -> String` — nothing here invents a third.
+-  `hash_or_reject` function L135-139 — `(password: &str) -> Result<String, ApiError>` — Map a too-short password onto a 422.
+-  `require_member_of` function L381-398 — `( conn: &mut diesel::pg::PgConnection, org_id: Uuid, user_id: Uuid, ) -> Result<...` — The target must be a member of THIS organization.
+
 #### crates/kairos-server/src/api/mod.rs
 
 - pub `adrs` module L29 — `-` — initiatives, tasks, documents, and ADRs — list/get/create/PATCH/DELETE
@@ -2746,46 +2812,47 @@
 - pub `convert_org` module L34 — `-` — aggregation endpoint is KAIROS-T-0023.
 - pub `documents` module L35 — `-` — aggregation endpoint is KAIROS-T-0023.
 - pub `initiatives` module L36 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `meta` module L37 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `org` module L38 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `proposals` module L39 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `search` module L40 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `strategies` module L41 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `tasks` module L42 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `openapi` module L44 — `-` — aggregation endpoint is KAIROS-T-0023.
-- pub `router` function L63-72 — `() -> Router<AppState>` — All five entity family routers, merged (mounted behind the full
-- pub `clamp_pagination` function L84-91 — `(pagination: &dto::Pagination) -> (i64, i64)` — Clamp raw S-0005 pagination params to `(limit, offset)`.
-- pub `clamp_list` function L99-110 — `(query: &dto::ListQuery) -> (i64, i64, Liveness)` — Clamp an entity-family list query to `(limit, offset, liveness)`.
-- pub `parse_uuid` function L118-121 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — Parse a UUID body field (`422 VALIDATION` on malformed input — the DTO
-- pub `parse_opt_uuid` function L124-126 — `(value: Option<&str>, field: &str) -> Result<Option<Uuid>, ApiError>` — [`parse_uuid`] over an optional field.
-- pub `board_id_by_ref` function L145-160 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a board reference — **slug or UUID** — to a live board's id
-- pub `opt_board_id_by_ref` function L163-168 — `( conn: &mut PgConnection, reference: Option<&str>, ) -> Result<Option<Uuid>, Ap...` — [`board_id_by_ref`] for an optional reference.
-- pub `parse_enum` function L172-183 — `(value: &str, field: &str, allowed: &[T]) -> Result<T, ApiError>` — Parse a TEXT-backed enum body field (`task_type`, `complexity`,
-- pub `require_capability` function L194-211 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user_id: Uuid, ca...` — The A-0006 write gate: org admins bypass; otherwise the caller needs a
-- pub `Liveness` enum L234-240 — `LiveOnly | IncludeArchived` — Whether a lookup may return work that has been archived.
-- pub `resolve_short_code` function L252-285 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Opt...` — Resolve a short code to `(id, entity_type)` across all five entity
-- pub `resolve_item_type` function L293-307 — `(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError>` — The type of a live item by id (documents included), via the same
-- pub `short_code_not_found` function L315-317 — `(entity_type: &str, short_code: &str) -> ApiError` — The 404 for `/{short_code}` path segments that resolve to nothing.
-- pub `map_abac_error` function L326-328 — `(e: AbacError) -> ApiError` — [`AbacError`] never carries a client mistake on the check path (grants
-- pub `map_item_error` function L334-376 — `(e: ItemError) -> ApiError` — [`ItemError`] → HTTP.
-- pub `map_board_error` function L382-457 — `(e: BoardError) -> ApiError` — [`BoardError`] → HTTP, for the transition endpoints: invalid moves are
-- pub `map_graph_error` function L462-474 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP, for the document-create `supports` edge: rule
--  `DEFAULT_LIMIT` variable L79 — `: i64` — Default page size when `?limit=` is omitted.
--  `MAX_LIMIT` variable L81 — `: i64` — Hard cap on `?limit=`.
--  `DirectoryRow` struct L218-223 — `{ id: Uuid, entity_type: String }` — aggregation endpoint is KAIROS-T-0023.
+- pub `local_accounts` module L37 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `meta` module L38 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `org` module L39 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `proposals` module L40 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `search` module L41 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `strategies` module L42 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `tasks` module L43 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `openapi` module L45 — `-` — aggregation endpoint is KAIROS-T-0023.
+- pub `router` function L64-73 — `() -> Router<AppState>` — All five entity family routers, merged (mounted behind the full
+- pub `clamp_pagination` function L85-92 — `(pagination: &dto::Pagination) -> (i64, i64)` — Clamp raw S-0005 pagination params to `(limit, offset)`.
+- pub `clamp_list` function L100-111 — `(query: &dto::ListQuery) -> (i64, i64, Liveness)` — Clamp an entity-family list query to `(limit, offset, liveness)`.
+- pub `parse_uuid` function L119-122 — `(value: &str, field: &str) -> Result<Uuid, ApiError>` — Parse a UUID body field (`422 VALIDATION` on malformed input — the DTO
+- pub `parse_opt_uuid` function L125-127 — `(value: Option<&str>, field: &str) -> Result<Option<Uuid>, ApiError>` — [`parse_uuid`] over an optional field.
+- pub `board_id_by_ref` function L146-161 — `(conn: &mut PgConnection, reference: &str) -> Result<Uuid, ApiError>` — Resolve a board reference — **slug or UUID** — to a live board's id
+- pub `opt_board_id_by_ref` function L164-169 — `( conn: &mut PgConnection, reference: Option<&str>, ) -> Result<Option<Uuid>, Ap...` — [`board_id_by_ref`] for an optional reference.
+- pub `parse_enum` function L173-184 — `(value: &str, field: &str, allowed: &[T]) -> Result<T, ApiError>` — Parse a TEXT-backed enum body field (`task_type`, `complexity`,
+- pub `require_capability` function L195-212 — `( conn: &mut PgConnection, slug: &str, board_id: Option<Uuid>, user_id: Uuid, ca...` — The A-0006 write gate: org admins bypass; otherwise the caller needs a
+- pub `Liveness` enum L235-241 — `LiveOnly | IncludeArchived` — Whether a lookup may return work that has been archived.
+- pub `resolve_short_code` function L253-286 — `( conn: &mut PgConnection, short_code: &str, liveness: Liveness, ) -> Result<Opt...` — Resolve a short code to `(id, entity_type)` across all five entity
+- pub `resolve_item_type` function L294-308 — `(conn: &mut PgConnection, id: Uuid) -> Result<Option<ItemType>, ApiError>` — The type of a live item by id (documents included), via the same
+- pub `short_code_not_found` function L316-318 — `(entity_type: &str, short_code: &str) -> ApiError` — The 404 for `/{short_code}` path segments that resolve to nothing.
+- pub `map_abac_error` function L327-329 — `(e: AbacError) -> ApiError` — [`AbacError`] never carries a client mistake on the check path (grants
+- pub `map_item_error` function L335-377 — `(e: ItemError) -> ApiError` — [`ItemError`] → HTTP.
+- pub `map_board_error` function L383-458 — `(e: BoardError) -> ApiError` — [`BoardError`] → HTTP, for the transition endpoints: invalid moves are
+- pub `map_graph_error` function L463-475 — `(e: GraphError) -> ApiError` — [`GraphError`] → HTTP, for the document-create `supports` edge: rule
+-  `DEFAULT_LIMIT` variable L80 — `: i64` — Default page size when `?limit=` is omitted.
+-  `MAX_LIMIT` variable L82 — `: i64` — Hard cap on `?limit=`.
+-  `DirectoryRow` struct L219-224 — `{ id: Uuid, entity_type: String }` — aggregation endpoint is KAIROS-T-0023.
 
 #### crates/kairos-server/src/api/openapi.rs
 
-- pub `spec` function L219-221 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
-- pub `router` function L231-238 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
--  `ApiDoc` struct L215 — `-` — there.
--  `SPEC_JSON` variable L224-226 — `: LazyLock<String>` — The serialized spec, built once per process.
--  `openapi_json` function L251-256 — `() -> impl IntoResponse` — there.
--  `whoami` function L284 — `()` — there.
--  `spa_config` function L309 — `()` — there.
--  `token_relay` function L333 — `()` — there.
--  `swagger_ui` function L341-343 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
--  `SWAGGER_UI_HTML` variable L349-370 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
+- pub `spec` function L231-233 — `() -> utoipa::openapi::OpenApi` — The aggregated OpenAPI document (also consumed by `tests/openapi.rs`,
+- pub `router` function L243-250 — `(dev_ui: bool) -> Router<AppState>` — Build the module's routes.
+-  `ApiDoc` struct L227 — `-` — there.
+-  `SPEC_JSON` variable L236-238 — `: LazyLock<String>` — The serialized spec, built once per process.
+-  `openapi_json` function L263-268 — `() -> impl IntoResponse` — there.
+-  `whoami` function L296 — `()` — there.
+-  `spa_config` function L321 — `()` — there.
+-  `token_relay` function L345 — `()` — there.
+-  `swagger_ui` function L353-355 — `() -> Html<&'static str>` — The dev-only Swagger UI page (`KAIROS_DEV_UI=true`).
+-  `SWAGGER_UI_HTML` variable L361-382 — `: &str` — Kept minimal on purpose: the page is behind the same auth → tenant
 
 #### crates/kairos-server/src/api/proposals.rs
 
@@ -3134,22 +3201,23 @@
 
 #### crates/kairos-server/src/app.rs
 
-- pub `AppState` struct L27-47 — `{ config: Arc<AppConfig>, pool: TenantPool, blocking: BlockingTenantPool, auth: ...` — Shared state behind every request: config, the tenant-pinning pool, and
-- pub `BuildError` enum L51-58 — `Pool | Oidc` — Why [`build_state`] failed (startup-time, fail-fast).
-- pub `build_state` function L66-78 — `(config: AppConfig) -> Result<AppState, BuildError>` — Build the shared state: connect the pool and resolve the OIDC issuer
-- pub `state_with` function L119-131 — `(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>) -> AppState` — Build a state from an existing pool and a pre-built [`Authenticator`]
-- pub `router` function L135-255 — `(state: AppState) -> Router` — The production router: `/healthz` open; everything under `/api` behind
-- pub `WhoamiTeam` struct L259-266 — `{ id: Uuid, slug: String, name: String }` — A team the caller belongs to (from the tenant schema's `team_members`).
-- pub `WhoamiBoardCapabilities` struct L276-284 — `{ board_id: Uuid, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
-- pub `WhoamiResponse` struct L289-307 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — `GET /api/whoami` — the S-0006 whoami precursor: proves the full
-- pub `WhoamiRepository` struct L311-318 — `{ id: Uuid, slug: String, forge: String, repo_full_name: String, team_slug: Stri...` — One repository of [`WhoamiResponse::repositories`].
-- pub `WhoamiUser` struct L322-331 — `{ id: Uuid, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
-- pub `WhoamiOrganization` struct L335-342 — `{ id: Uuid, slug: String, role: &'static str }` — The `organization` object of [`WhoamiResponse`].
-- pub `serve` function L450-479 — `(config: AppConfig) -> Result<(), String>` — Run the server: build state, bind `KAIROS_BIND_ADDR`, serve with
--  `POOL_SIZE` variable L62 — `: u32` — Pool size for the server.
--  `build_embedding_service` function L90-113 — `() -> Option<Arc<crate::embedding::EmbeddingService>>` — Build the embedding service, or `None`.
--  `whoami` function L345-445 — `( Extension(auth): Extension<AuthContext>, Extension(tenant): Extension<TenantCo...` — The probe endpoint behind the full middleware stack (KAIROS-T-0017).
--  `shutdown_signal` function L482-488 — `()` — Resolves when ctrl-c (SIGINT) arrives.
+- pub `AppState` struct L27-54 — `{ config: Arc<AppConfig>, pool: TenantPool, blocking: BlockingTenantPool, auth: ...` — Shared state behind every request: config, the tenant-pinning pool, and
+- pub `BuildError` enum L58-65 — `Pool | Oidc` — Why [`build_state`] failed (startup-time, fail-fast).
+- pub `build_state` function L73-101 — `(config: AppConfig) -> Result<AppState, BuildError>` — Build the shared state: connect the pool and resolve the OIDC issuer
+- pub `state_with` function L142-159 — `(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>) -> AppState` — Build a state from an existing pool and a pre-built [`Authenticator`]
+- pub `router` function L163-316 — `(state: AppState) -> Router` — The production router: `/healthz` open; everything under `/api` behind
+- pub `WhoamiTeam` struct L320-327 — `{ id: Uuid, slug: String, name: String }` — A team the caller belongs to (from the tenant schema's `team_members`).
+- pub `WhoamiBoardCapabilities` struct L337-345 — `{ board_id: Uuid, board_slug: String, grants: Vec<String> }` — One board on which the caller holds explicit capability grants
+- pub `WhoamiResponse` struct L350-368 — `{ user: WhoamiUser, organization: WhoamiOrganization, teams: Vec<WhoamiTeam>, ca...` — `GET /api/whoami` — the S-0006 whoami precursor: proves the full
+- pub `WhoamiRepository` struct L372-379 — `{ id: Uuid, slug: String, forge: String, repo_full_name: String, team_slug: Stri...` — One repository of [`WhoamiResponse::repositories`].
+- pub `WhoamiUser` struct L383-392 — `{ id: Uuid, external_id: String, email: String, display_name: String }` — The `user` object of [`WhoamiResponse`].
+- pub `WhoamiOrganization` struct L396-403 — `{ id: Uuid, slug: String, role: &'static str }` — The `organization` object of [`WhoamiResponse`].
+- pub `serve` function L511-556 — `(config: AppConfig) -> Result<(), String>` — Run the server: build state, bind `KAIROS_BIND_ADDR`, serve with
+-  `POOL_SIZE` variable L69 — `: u32` — Pool size for the server.
+-  `build_embedding_service` function L113-136 — `() -> Option<Arc<crate::embedding::EmbeddingService>>` — Build the embedding service, or `None`.
+-  `whoami` function L406-506 — `( Extension(auth): Extension<AuthContext>, Extension(tenant): Extension<TenantCo...` — The probe endpoint behind the full middleware stack (KAIROS-T-0017).
+-  `bootstrap_first_admin` function L569-640 — `(state: &AppState) -> Result<(), String>` — Create the first-boot admin if `KAIROS_BOOTSTRAP_ADMIN` is set and the
+-  `shutdown_signal` function L643-649 — `()` — Resolves when ctrl-c (SIGINT) arrives.
 
 #### crates/kairos-server/src/blocking.rs
 
@@ -3169,32 +3237,38 @@
 - pub `ApiBearer` enum L33-41 — `AccessToken | IdToken` — `KAIROS_API_BEARER` — which OIDC token the browser GUI (and CLI) present
 - pub `as_str` function L46-51 — `(self) -> &'static str` — The wire name, as sent to the SPA in `/api/config` and used as the
 - pub `ConfigError` enum L57-74 — `Missing | Invalid` — A configuration error worth failing startup over.
-- pub `AppConfig` struct L78-175 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: String, oidc_aud...` — Everything the server needs to run, resolved once at startup.
-- pub `from_env` function L180-182 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
-- pub `from_lookup` function L186-301 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
+- pub `AppConfig` struct L78-254 — `{ database_url: String, bind_addr: SocketAddr, oidc_issuer_url: Option<String>, ...` — Everything the server needs to run, resolved once at startup.
+- pub `from_env` function L259-261 — `() -> Result<Self, ConfigError>` — Read configuration from the process environment, failing fast on
+- pub `from_lookup` function L265-512 — `(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError>` — Testable core of [`Self::from_env`]: resolve from any lookup
 -  `ApiBearer` type L43-52 — `= ApiBearer` — variants directly instead of mutating process environment.
--  `AppConfig` type L177-302 — `= AppConfig` — variants directly instead of mutating process environment.
--  `tests` module L305-691 — `-` — variants directly instead of mutating process environment.
--  `lookup` function L309-315 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
--  `MINIMAL` variable L317-321 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
--  `minimal_config_applies_defaults` function L324-342 — `()` — variants directly instead of mutating process environment.
--  `missing_required_var_names_it` function L345-348 — `()` — variants directly instead of mutating process environment.
--  `empty_value_is_treated_as_unset` function L351-356 — `()` — variants directly instead of mutating process environment.
--  `invalid_bind_addr_and_log_format_are_rejected` function L359-379 — `()` — variants directly instead of mutating process environment.
--  `api_bearer_id_token_is_parsed` function L382-388 — `()` — variants directly instead of mutating process environment.
--  `optional_vars_are_carried_through` function L391-417 — `()` — variants directly instead of mutating process environment.
--  `tracing_is_off_by_default_and_samples_everything_when_on` function L424-435 — `()` — variants directly instead of mutating process environment.
--  `a_bad_sample_ratio_fails_at_boot_rather_than_silently` function L438-463 — `()` — variants directly instead of mutating process environment.
--  `the_sampling_bounds_are_inclusive` function L466-473 — `()` — variants directly instead of mutating process environment.
--  `repo_root` function L502-507 — `() -> std::path::PathBuf` — variants directly instead of mutating process environment.
--  `read_repo` function L509-512 — `(rel: &str) -> String` — variants directly instead of mutating process environment.
--  `read_by_binary` function L516-563 — `() -> BTreeSet<String>` — Every variable the binary asks for, across all three config types and
--  `env_keys_in` function L568-584 — `(yaml: &str) -> BTreeSet<String>` — Environment keys a YAML `environment:`/`data:` block sets, by the shape
--  `documented_in_env_example` function L589-603 — `() -> BTreeSet<String>` — Variables `.env.example` tells an operator to set (`NAME=` at column 0,
--  `NOT_THE_BINARYS` variable L607-619 — `: &[&str]` — Consumed by the deployment machinery itself rather than by the binary,
--  `deployments_set_only_variables_the_binary_reads` function L622-652 — `()` — variants directly instead of mutating process environment.
--  `compose_forwards_every_variable_the_env_example_documents` function L655-674 — `()` — variants directly instead of mutating process environment.
--  `the_variables_google_workspace_requires_reach_the_container` function L677-690 — `()` — variants directly instead of mutating process environment.
+-  `AppConfig` type L256-513 — `= AppConfig` — variants directly instead of mutating process environment.
+-  `parse_num` function L518-530 — `( get: &impl Fn(&str) -> Option<String>, var: &'static str, default: T, ) -> Res...` — Parse an optional numeric variable, or fail naming it.
+-  `tests` module L533-995 — `-` — variants directly instead of mutating process environment.
+-  `lookup` function L537-543 — `(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<String>` — variants directly instead of mutating process environment.
+-  `MINIMAL` variable L545-549 — `: &[(&str, &str)]` — variants directly instead of mutating process environment.
+-  `minimal_config_applies_defaults` function L552-576 — `()` — variants directly instead of mutating process environment.
+-  `local_auth_makes_the_issuer_optional` function L582-591 — `()` — variants directly instead of mutating process environment.
+-  `without_local_auth_the_issuer_is_still_required` function L594-606 — `()` — variants directly instead of mutating process environment.
+-  `half_an_issuer_is_refused` function L609-627 — `()` — variants directly instead of mutating process environment.
+-  `local_auth_and_an_issuer_together_are_valid` function L630-637 — `()` — variants directly instead of mutating process environment.
+-  `a_zero_session_lifetime_is_refused_when_local_auth_is_on` function L640-646 — `()` — variants directly instead of mutating process environment.
+-  `missing_required_var_names_it` function L649-652 — `()` — variants directly instead of mutating process environment.
+-  `empty_value_is_treated_as_unset` function L655-660 — `()` — variants directly instead of mutating process environment.
+-  `invalid_bind_addr_and_log_format_are_rejected` function L663-683 — `()` — variants directly instead of mutating process environment.
+-  `api_bearer_id_token_is_parsed` function L686-692 — `()` — variants directly instead of mutating process environment.
+-  `optional_vars_are_carried_through` function L695-721 — `()` — variants directly instead of mutating process environment.
+-  `tracing_is_off_by_default_and_samples_everything_when_on` function L728-739 — `()` — variants directly instead of mutating process environment.
+-  `a_bad_sample_ratio_fails_at_boot_rather_than_silently` function L742-767 — `()` — variants directly instead of mutating process environment.
+-  `the_sampling_bounds_are_inclusive` function L770-777 — `()` — variants directly instead of mutating process environment.
+-  `repo_root` function L806-811 — `() -> std::path::PathBuf` — variants directly instead of mutating process environment.
+-  `read_repo` function L813-816 — `(rel: &str) -> String` — variants directly instead of mutating process environment.
+-  `read_by_binary` function L820-867 — `() -> BTreeSet<String>` — Every variable the binary asks for, across all three config types and
+-  `env_keys_in` function L872-888 — `(yaml: &str) -> BTreeSet<String>` — Environment keys a YAML `environment:`/`data:` block sets, by the shape
+-  `documented_in_env_example` function L893-907 — `() -> BTreeSet<String>` — Variables `.env.example` tells an operator to set (`NAME=` at column 0,
+-  `NOT_THE_BINARYS` variable L911-923 — `: &[&str]` — Consumed by the deployment machinery itself rather than by the binary,
+-  `deployments_set_only_variables_the_binary_reads` function L926-956 — `()` — variants directly instead of mutating process environment.
+-  `compose_forwards_every_variable_the_env_example_documents` function L959-978 — `()` — variants directly instead of mutating process environment.
+-  `the_variables_google_workspace_requires_reach_the_container` function L981-994 — `()` — variants directly instead of mutating process environment.
 
 #### crates/kairos-server/src/embedding.rs
 
@@ -3232,21 +3306,22 @@
 - pub `new` function L29-36 — `(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self` — Build an error with empty `details`.
 - pub `with_details` function L40-43 — `(mut self, details: Value) -> Self` — Attach structured details.
 - pub `unauthorized` function L46-48 — `(message: impl Into<String>) -> Self` — 401 `UNAUTHORIZED` — missing/invalid bearer token (KAIROS-A-0010).
-- pub `membership_required` function L53-63 — `(slug: &str) -> Self` — 403 `MEMBERSHIP_REQUIRED` — authenticated but not a member of the
-- pub `forbidden` function L66-68 — `(message: impl Into<String>) -> Self` — 403 `FORBIDDEN` — authenticated and a member, but not allowed.
-- pub `tenant_not_found` function L72-74 — `(message: impl Into<String>) -> Self` — 404 `TENANT_NOT_FOUND` — no organization for the resolved slug (or
-- pub `not_found` function L77-79 — `(message: impl Into<String>) -> Self` — 404 `NOT_FOUND` — generic missing resource.
-- pub `conflict` function L84-86 — `(message: impl Into<String>) -> Self` — 409 `CONFLICT` — KAIROS-A-0004 optimistic-concurrency rejection.
-- pub `unprocessable` function L90-92 — `(code: &'static str, message: impl Into<String>) -> Self` — 422 with a caller-chosen code — the semantic-rejection family
-- pub `validation` function L97-99 — `(message: impl Into<String>) -> Self` — 422 `VALIDATION` — a body/reference the request names is malformed
-- pub `capability_required` function L104-113 — `(capability: &str, board_id: Option<uuid::Uuid>) -> Self` — 403 `FORBIDDEN` naming the missing KAIROS-A-0006 capability in
-- pub `internal` function L117-124 — `(context: impl std::fmt::Display) -> Self` — 500 `INTERNAL` — the message is logged; the envelope carries a
--  `ApiError` type L27-125 — `= ApiError` — middleware layer and handler in this crate (KAIROS-T-0017).
--  `ApiError` type L127-138 — `impl IntoResponse for ApiError` — middleware layer and handler in this crate (KAIROS-T-0017).
--  `into_response` function L128-137 — `(self) -> Response` — middleware layer and handler in this crate (KAIROS-T-0017).
--  `tests` module L141-167 — `-` — middleware layer and handler in this crate (KAIROS-T-0017).
--  `envelope_matches_s0005_shape` function L145-157 — `()` — middleware layer and handler in this crate (KAIROS-T-0017).
--  `membership_required_names_the_org_and_access_path` function L160-166 — `()` — middleware layer and handler in this crate (KAIROS-T-0017).
+- pub `too_many_requests` function L60-67 — `(retry_after_secs: u64) -> Self` — 429 `TOO_MANY_REQUESTS` — the auth throttle is holding this caller off
+- pub `membership_required` function L72-82 — `(slug: &str) -> Self` — 403 `MEMBERSHIP_REQUIRED` — authenticated but not a member of the
+- pub `forbidden` function L85-87 — `(message: impl Into<String>) -> Self` — 403 `FORBIDDEN` — authenticated and a member, but not allowed.
+- pub `tenant_not_found` function L91-93 — `(message: impl Into<String>) -> Self` — 404 `TENANT_NOT_FOUND` — no organization for the resolved slug (or
+- pub `not_found` function L96-98 — `(message: impl Into<String>) -> Self` — 404 `NOT_FOUND` — generic missing resource.
+- pub `conflict` function L103-105 — `(message: impl Into<String>) -> Self` — 409 `CONFLICT` — KAIROS-A-0004 optimistic-concurrency rejection.
+- pub `unprocessable` function L109-111 — `(code: &'static str, message: impl Into<String>) -> Self` — 422 with a caller-chosen code — the semantic-rejection family
+- pub `validation` function L116-118 — `(message: impl Into<String>) -> Self` — 422 `VALIDATION` — a body/reference the request names is malformed
+- pub `capability_required` function L123-132 — `(capability: &str, board_id: Option<uuid::Uuid>) -> Self` — 403 `FORBIDDEN` naming the missing KAIROS-A-0006 capability in
+- pub `internal` function L136-143 — `(context: impl std::fmt::Display) -> Self` — 500 `INTERNAL` — the message is logged; the envelope carries a
+-  `ApiError` type L27-144 — `= ApiError` — middleware layer and handler in this crate (KAIROS-T-0017).
+-  `ApiError` type L146-157 — `impl IntoResponse for ApiError` — middleware layer and handler in this crate (KAIROS-T-0017).
+-  `into_response` function L147-156 — `(self) -> Response` — middleware layer and handler in this crate (KAIROS-T-0017).
+-  `tests` module L160-186 — `-` — middleware layer and handler in this crate (KAIROS-T-0017).
+-  `envelope_matches_s0005_shape` function L164-176 — `()` — middleware layer and handler in this crate (KAIROS-T-0017).
+-  `membership_required_names_the_org_and_access_path` function L179-185 — `()` — middleware layer and handler in this crate (KAIROS-T-0017).
 
 #### crates/kairos-server/src/lib.rs
 
@@ -3258,153 +3333,192 @@
 - pub `error` module L21 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `forge` module L22 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `local_auth` module L23 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `rate_limit` module L24 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `login` module L24 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `metrics` module L25 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
 - pub `middleware` module L26 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `ws` module L27 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `mcp` module L29 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `scim` module L31 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `service_accounts` module L33 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `web` module L35 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
-- pub `TracingGuard` struct L49-51 — `{ provider: Option<opentelemetry_sdk::trace::SdkTracerProvider> }` — Held by `main` for the process's life; flushes pending spans on drop.
-- pub `init_tracing` function L75-125 — `(config: &AppConfig) -> TracingGuard` — Initialize `tracing-subscriber` per KAIROS-A-0013: `KAIROS_LOG_LEVEL` filter
--  `TracingGuard` type L53-63 — `impl Drop for TracingGuard` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
--  `drop` function L54-62 — `(&mut self)` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
--  `tracer_provider` function L128-154 — `( endpoint: &str, sample_ratio: f64, ) -> Result<opentelemetry_sdk::trace::SdkTr...` — Build the OTLP/HTTP exporter and a batching provider around it.
+- pub `rate_limit` module L27 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `ws` module L28 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `mcp` module L30 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `scim` module L32 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `service_accounts` module L34 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `web` module L36 — `-` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+- pub `TracingGuard` struct L50-52 — `{ provider: Option<opentelemetry_sdk::trace::SdkTracerProvider> }` — Held by `main` for the process's life; flushes pending spans on drop.
+- pub `init_tracing` function L76-126 — `(config: &AppConfig) -> TracingGuard` — Initialize `tracing-subscriber` per KAIROS-A-0013: `KAIROS_LOG_LEVEL` filter
+-  `TracingGuard` type L54-64 — `impl Drop for TracingGuard` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+-  `drop` function L55-63 — `(&mut self)` — - [`web`] — GUI serving + SPA auth support (A-0015, KAIROS-T-0039)
+-  `tracer_provider` function L129-155 — `( endpoint: &str, sample_ratio: f64, ) -> Result<opentelemetry_sdk::trace::SdkTr...` — Build the OTLP/HTTP exporter and a batching provider around it.
 
 #### crates/kairos-server/src/local_auth.rs
 
-- pub `SESSION_PREFIX` variable L40 — `: &str` — The fixed session-token prefix.
-- pub `SESSION_SECRET_LEN` variable L43 — `: usize` — 32 random bytes → 64 hex characters, matching the API-key secret length.
-- pub `PasswordError` enum L73-81 — `Hash | MalformedStoredHash` — Why a password could not be hashed or verified.
-- pub `hash_password` function L91-99 — `(password: &str) -> Result<String, PasswordError>` — Hash a password for storage.
-- pub `verify_password` function L105-111 — `(password: &str, stored: &str) -> Result<bool, PasswordError>` — Verify a password against a stored PHC string.
-- pub `verify_against_dummy` function L120-126 — `(password: &str) -> bool` — Spend the same work as a real verification, and return false.
-- pub `generate_session_token` function L136-140 — `(slug: &str) -> String` — Mint a session token for `slug`: `kairos_ss_<slug>_<64-hex>`.
-- pub `hash_session_token` function L144-146 — `(token: &str) -> String` — The value stored at rest: hex SHA-256 of the full token.
-- pub `parse_session_token` function L150-158 — `(token: &str) -> Option<(&str, &str)>` — Split a presented token into `(slug, secret)`, or `None` if it is not
-- pub `is_session_token` function L163-165 — `(token: &str) -> bool` — True if the bearer looks like a session token, so `require_auth` takes the
--  `ARGON2_M_COST` variable L62 — `: u32` — argon2id parameters (KAIROS-T-0201).
--  `ARGON2_T_COST` variable L63 — `: u32` — tested without a database.
--  `ARGON2_P_COST` variable L64 — `: u32` — tested without a database.
--  `hasher` function L83-87 — `() -> Argon2<'static>` — tested without a database.
--  `DUMMY` variable L123-124 — `: &str` — tested without a database.
--  `hex` function L128-130 — `(bytes: &[u8]) -> String` — tested without a database.
--  `tests` module L168-266 — `-` — tested without a database.
--  `a_password_verifies_against_its_own_hash_and_nothing_else` function L173-178 — `()` — tested without a database.
--  `the_stored_hash_carries_its_parameters` function L181-187 — `()` — tested without a database.
--  `the_same_password_hashes_differently_every_time` function L190-198 — `()` — tested without a database.
--  `a_malformed_stored_hash_is_an_error_not_a_wrong_password` function L201-213 — `()` — tested without a database.
--  `the_dummy_verification_does_work_and_always_fails` function L216-224 — `()` — tested without a database.
--  `a_session_token_round_trips` function L227-233 — `()` — tested without a database.
--  `session_tokens_are_not_api_keys_and_api_keys_are_not_sessions` function L236-244 — `()` — tested without a database.
--  `a_malformed_session_token_does_not_parse` function L247-257 — `()` — tested without a database.
--  `hashing_a_token_is_stable_and_one_way` function L260-265 — `()` — tested without a database.
+- pub `SESSION_PREFIX` variable L39 — `: &str` — The fixed session-token prefix.
+- pub `SESSION_SECRET_LEN` variable L42 — `: usize` — 32 random bytes → 64 hex characters, matching the API-key secret length.
+- pub `PasswordError` enum L72-80 — `Hash | MalformedStoredHash` — Why a password could not be hashed or verified.
+- pub `hash_password` function L90-98 — `(password: &str) -> Result<String, PasswordError>` — Hash a password for storage.
+- pub `verify_password` function L104-110 — `(password: &str, stored: &str) -> Result<bool, PasswordError>` — Verify a password against a stored PHC string.
+- pub `verify_against_dummy` function L119-125 — `(password: &str) -> bool` — Spend the same work as a real verification, and return false.
+- pub `MIN_PASSWORD_LEN` variable L134 — `: usize` — The shortest password Kairos will store (KAIROS-T-0204).
+- pub `validate_password` function L145-154 — `(password: &str) -> Result<(), PasswordTooShort>` — Check a password is long enough, counting CHARACTERS rather than bytes.
+- pub `PasswordTooShort` struct L163-168 — `{ minimum: usize, got: usize }` — A password below [`MIN_PASSWORD_LEN`].
+- pub `generate_session_token` function L186-190 — `() -> String` — Mint a session token: `kairos_ss_<64-hex>`.
+- pub `hash_session_token` function L194-196 — `(token: &str) -> String` — The value stored at rest: hex SHA-256 of the full token.
+- pub `parse_session_token` function L203-210 — `(token: &str) -> Option<&str>` — The secret part of a presented token, or `None` if it is not shaped like one.
+- pub `is_session_token` function L215-217 — `(token: &str) -> bool` — True if the bearer looks like a session token, so `require_auth` takes the
+-  `ARGON2_M_COST` variable L61 — `: u32` — argon2id parameters (KAIROS-T-0201).
+-  `ARGON2_T_COST` variable L62 — `: u32` — tested without a database.
+-  `ARGON2_P_COST` variable L63 — `: u32` — tested without a database.
+-  `hasher` function L82-86 — `() -> Argon2<'static>` — tested without a database.
+-  `DUMMY` variable L122-123 — `: &str` — tested without a database.
+-  `hex` function L170-172 — `(bytes: &[u8]) -> String` — tested without a database.
+-  `tests` module L220-359 — `-` — tested without a database.
+-  `a_password_verifies_against_its_own_hash_and_nothing_else` function L225-230 — `()` — tested without a database.
+-  `the_stored_hash_carries_its_parameters` function L233-239 — `()` — tested without a database.
+-  `the_same_password_hashes_differently_every_time` function L242-250 — `()` — tested without a database.
+-  `a_malformed_stored_hash_is_an_error_not_a_wrong_password` function L253-265 — `()` — tested without a database.
+-  `the_dummy_verification_does_work_and_always_fails` function L268-276 — `()` — tested without a database.
+-  `the_password_floor_counts_characters_not_bytes` function L279-293 — `()` — tested without a database.
+-  `the_floor_message_is_specific_because_the_setter_knows_the_password` function L296-301 — `()` — tested without a database.
+-  `whitespace_is_part_of_the_password` function L304-315 — `()` — tested without a database.
+-  `a_session_token_round_trips` function L318-324 — `()` — tested without a database.
+-  `session_tokens_are_not_api_keys_and_api_keys_are_not_sessions` function L327-335 — `()` — tested without a database.
+-  `a_malformed_session_token_does_not_parse` function L338-350 — `()` — tested without a database.
+-  `hashing_a_token_is_stable_and_one_way` function L353-358 — `()` — tested without a database.
+
+#### crates/kairos-server/src/login.rs
+
+- pub `router` function L58-62 — `() -> Router<AppState>` — `/api/login` + `/api/logout`.
+- pub `LoginRequest` struct L66-70 — `{ email: String, password: String }` — `POST /api/login` body.
+- pub `LoginResponse` struct L75-83 — `{ token: String, expires_at: String, user: LoginUser }` — `POST /api/login` 200 body.
+- pub `LoginUser` struct L87-91 — `{ id: String, email: String, display_name: String }` — The `user` object of [`LoginResponse`].
+- pub `login` function L132-218 — `(State(state): State<AppState>, req: Request) -> Result<Response, ApiError>` — thread that is tens of milliseconds during which that thread serves nobody.
+- pub `logout` function L231-251 — `(State(state): State<AppState>, req: Request) -> Result<StatusCode, ApiError>` — thread that is tens of milliseconds during which that thread serves nobody.
+- pub `authenticate_session` function L258-303 — `(state: &AppState, token: &str) -> Result<AuthContext, ApiError>` — Authenticate a session bearer, for `require_auth`'s third branch.
+- pub `expiry_from` function L307-309 — `(now: DateTime<Utc>, ttl_secs: u64) -> DateTime<Utc>` — When a session minted now would expire — exposed for tests and for the CLI's
+-  `bad_login` function L98-100 — `() -> ApiError` — The ONE failure for every way a login can fail.
+-  `bad_session` function L103-105 — `() -> ApiError` — The ONE failure for every way a session bearer can fail.
+-  `tests` module L312-351 — `-` — thread that is tens of milliseconds during which that thread serves nobody.
+-  `every_login_failure_carries_the_same_message` function L316-331 — `()` — thread that is tens of milliseconds during which that thread serves nobody.
+-  `a_session_failure_says_nothing_about_which_kind` function L334-341 — `()` — thread that is tens of milliseconds during which that thread serves nobody.
+-  `the_default_session_lifetime_is_a_fortnight` function L344-350 — `()` — thread that is tens of milliseconds during which that thread serves nobody.
 
 #### crates/kairos-server/src/main.rs
 
--  `connect_and_migrate_public` function L43-64 — `() -> Result<PgConnection, String>` — Establish the migration connection from `DATABASE_URL` and apply pending
--  `flag_value` function L67-75 — `(args: &[String], flag: &str) -> Result<Option<String>, String>` — Value of `--flag <value>` in `args`, if present.
--  `has_flag` function L77-79 — `(args: &[String], flag: &str) -> bool` — version and exits 0.
--  `create_tenant` function L81-100 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — version and exits 0.
--  `drop_tenant` function L102-112 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — version and exits 0.
--  `migrate_tenants` function L114-138 — `(conn: &mut PgConnection) -> Result<(), String>` — version and exits 0.
--  `list_tenants` function L140-156 — `(conn: &mut PgConnection) -> Result<(), String>` — version and exits 0.
--  `seed_demo` function L163-202 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — The `seed-demo` subcommand (KAIROS-T-0035, KAIROS-A-0012 fixtures):
--  `serve` function L207-232 — `() -> Result<(), String>` — The `serve` subcommand (KAIROS-T-0017): fail-fast config, tracing init
--  `embed_backfill` function L251-362 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-backfill [--tenant <slug>] [--batch N] [--max-batches N] [--pause-ms N]`
--  `flag` function L254-259 — `(args: &[String], name: &str) -> Option<String>` — version and exits 0.
--  `number` function L260-267 — `(args: &[String], name: &str, default: u64) -> Result<u64, String>` — version and exits 0.
--  `embed_index` function L371-425 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-index [--tenant <slug>]` (KAIROS-T-0190): pin the vector columns to
--  `run` function L427-454 — `() -> Result<bool, String>` — version and exits 0.
--  `main` function L456-468 — `() -> ExitCode` — version and exits 0.
--  `tests` module L471-506 — `-` — version and exits 0.
--  `smoke` function L475-477 — `()` — version and exits 0.
--  `args` function L479-481 — `(list: &[&str]) -> Vec<String>` — version and exits 0.
--  `flag_value_parses_pairs` function L484-492 — `()` — version and exits 0.
--  `flag_value_rejects_missing_value` function L495-498 — `()` — version and exits 0.
--  `has_flag_detects_presence` function L501-505 — `()` — version and exits 0.
+-  `connect_and_migrate_public` function L51-72 — `() -> Result<PgConnection, String>` — Establish the migration connection from `DATABASE_URL` and apply pending
+-  `flag_value` function L75-83 — `(args: &[String], flag: &str) -> Result<Option<String>, String>` — Value of `--flag <value>` in `args`, if present.
+-  `has_flag` function L85-87 — `(args: &[String], flag: &str) -> bool` — version and exits 0.
+-  `create_tenant` function L89-108 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — version and exits 0.
+-  `drop_tenant` function L110-120 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — version and exits 0.
+-  `password_arg` function L127-144 — `(args: &[String], what: &str) -> Result<String, String>` — Read a password from `--password`, or from stdin when it is absent.
+-  `set_password` function L157-206 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `set-password --email <email> [--password <pw>]` (KAIROS-T-0204).
+-  `hash_password_cmd` function L214-223 — `(args: &[String]) -> Result<(), String>` — `hash-password [--password <pw>]` (KAIROS-T-0204).
+-  `migrate_tenants` function L225-249 — `(conn: &mut PgConnection) -> Result<(), String>` — version and exits 0.
+-  `list_tenants` function L251-267 — `(conn: &mut PgConnection) -> Result<(), String>` — version and exits 0.
+-  `seed_demo` function L274-313 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — The `seed-demo` subcommand (KAIROS-T-0035, KAIROS-A-0012 fixtures):
+-  `serve` function L318-343 — `() -> Result<(), String>` — The `serve` subcommand (KAIROS-T-0017): fail-fast config, tracing init
+-  `embed_backfill` function L362-473 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-backfill [--tenant <slug>] [--batch N] [--max-batches N] [--pause-ms N]`
+-  `flag` function L365-370 — `(args: &[String], name: &str) -> Option<String>` — version and exits 0.
+-  `number` function L371-378 — `(args: &[String], name: &str, default: u64) -> Result<u64, String>` — version and exits 0.
+-  `embed_index` function L482-536 — `(conn: &mut PgConnection, args: &[String]) -> Result<(), String>` — `embed-index [--tenant <slug>]` (KAIROS-T-0190): pin the vector columns to
+-  `run` function L538-575 — `() -> Result<bool, String>` — version and exits 0.
+-  `main` function L577-589 — `() -> ExitCode` — version and exits 0.
+-  `tests` module L592-627 — `-` — version and exits 0.
+-  `smoke` function L596-598 — `()` — version and exits 0.
+-  `args` function L600-602 — `(list: &[&str]) -> Vec<String>` — version and exits 0.
+-  `flag_value_parses_pairs` function L605-613 — `()` — version and exits 0.
+-  `flag_value_rejects_missing_value` function L616-619 — `()` — version and exits 0.
+-  `has_flag_detects_presence` function L622-626 — `()` — version and exits 0.
 
 #### crates/kairos-server/src/metrics.rs
 
-- pub `Metrics` struct L86-89 — `{ http: Mutex<BTreeMap<HttpKey, Histogram>>, tenants: Mutex<BTreeMap<String, u64...` — A per-router metrics registry (held as `Arc<Metrics>` in
-- pub `new` function L93-95 — `() -> Self` — Fresh, empty registry.
-- pub `track_metrics` function L179-246 — `(State(state): State<AppState>, req: Request, next: Next) -> Response` — The outer HTTP-metrics layer (KAIROS-A-0013): times every request, then
-- pub `metrics_handler` function L252-283 — `(State(state): State<AppState>) -> Response` — `GET /metrics` (KAIROS-A-0013): the Prometheus scrape endpoint.
-- pub `readyz` function L289-327 — `(State(state): State<AppState>) -> Response` — `GET /readyz` (KAIROS-A-0013): readiness = database connectivity AND no
--  `BUCKETS` variable L50-52 — `: &[f64]` — Histogram bucket upper bounds (`le`), in seconds — the Prometheus client
--  `Histogram` struct L58-65 — `{ buckets: [u64; BUCKETS.len()], sum: f64, count: u64 }` — One HTTP histogram: per-bucket cumulative counts (each entry counts
--  `Histogram` type L67-77 — `= Histogram` — are non-`/api` so they are outside the S-0005 surface entirely.
--  `observe` function L68-76 — `(&mut self, value: f64)` — are non-`/api` so they are outside the S-0005 surface entirely.
--  `HttpKey` type L80 — `= (String, String, String)` — The label triple for an HTTP histogram series.
--  `Metrics` type L91-170 — `= Metrics` — are non-`/api` so they are outside the S-0005 surface entirely.
--  `record_http` function L98-106 — `(&self, method: &str, route: &str, status: u16, secs: f64)` — Record one completed HTTP request into the duration histogram.
--  `record_tenant` function L109-116 — `(&self, tenant: &str)` — Increment the per-tenant request counter.
--  `render_http_and_tenants` function L121-169 — `(&self, out: &mut String)` — Render the accumulated HTTP histograms and per-tenant counters into
--  `tests` module L330-369 — `-` — are non-`/api` so they are outside the S-0005 surface entirely.
--  `histogram_buckets_are_cumulative` function L334-348 — `()` — are non-`/api` so they are outside the S-0005 surface entirely.
--  `render_emits_expected_families` function L351-368 — `()` — are non-`/api` so they are outside the S-0005 surface entirely.
+- pub `Metrics` struct L88-93 — `{ http: Mutex<BTreeMap<HttpKey, Histogram>>, tenants: Mutex<BTreeMap<String, u64...` — A per-router metrics registry (held as `Arc<Metrics>` in
+- pub `new` function L97-99 — `() -> Self` — Fresh, empty registry.
+- pub `record_lockout` function L116-123 — `(&self, kind: &str)` — Increment the lockout counter for a subject kind (`"identity"` or
+- pub `track_metrics` function L210-277 — `(State(state): State<AppState>, req: Request, next: Next) -> Response` — The outer HTTP-metrics layer (KAIROS-A-0013): times every request, then
+- pub `metrics_handler` function L283-314 — `(State(state): State<AppState>) -> Response` — `GET /metrics` (KAIROS-A-0013): the Prometheus scrape endpoint.
+- pub `readyz` function L320-358 — `(State(state): State<AppState>) -> Response` — `GET /readyz` (KAIROS-A-0013): readiness = database connectivity AND no
+-  `BUCKETS` variable L52-54 — `: &[f64]` — Histogram bucket upper bounds (`le`), in seconds — the Prometheus client
+-  `Histogram` struct L60-67 — `{ buckets: [u64; BUCKETS.len()], sum: f64, count: u64 }` — One HTTP histogram: per-bucket cumulative counts (each entry counts
+-  `Histogram` type L69-79 — `= Histogram` — are non-`/api` so they are outside the S-0005 surface entirely.
+-  `observe` function L70-78 — `(&mut self, value: f64)` — are non-`/api` so they are outside the S-0005 surface entirely.
+-  `HttpKey` type L82 — `= (String, String, String)` — The label triple for an HTTP histogram series.
+-  `Metrics` type L95-201 — `= Metrics` — are non-`/api` so they are outside the S-0005 surface entirely.
+-  `record_http` function L102-110 — `(&self, method: &str, route: &str, status: u16, secs: f64)` — Record one completed HTTP request into the duration histogram.
+-  `record_tenant` function L126-133 — `(&self, tenant: &str)` — Increment the per-tenant request counter.
+-  `render_http_and_tenants` function L138-200 — `(&self, out: &mut String)` — Render the accumulated HTTP histograms and per-tenant counters into
+-  `tests` module L361-400 — `-` — are non-`/api` so they are outside the S-0005 surface entirely.
+-  `histogram_buckets_are_cumulative` function L365-379 — `()` — are non-`/api` so they are outside the S-0005 surface entirely.
+-  `render_emits_expected_families` function L382-399 — `()` — are non-`/api` so they are outside the S-0005 surface entirely.
 
 #### crates/kairos-server/src/rate_limit.rs
 
-- pub `Subject` enum L52-57 — `Identity | Source` — What is being counted against.
-- pub `ThrottleConfig` struct L62-69 — `{ max_failures: u32, window: Duration, lockout: Duration }` — Thresholds.
-- pub `AuthThrottle` struct L98-101 — `{ config: ThrottleConfig, buckets: Mutex<HashMap<Subject, Bucket>> }` — The throttle.
-- pub `LockedOut` struct L105-108 — `{ retry_after_secs: u64 }` — A subject is locked out, and for how much longer.
-- pub `new` function L111-116 — `(config: ThrottleConfig) -> Self` — flaky.
-- pub `check` function L123-139 — `(&self, subjects: &[Subject], now: Instant) -> Result<(), LockedOut>` — May these subjects attempt authentication?
-- pub `record_failure` function L143-173 — `(&self, subjects: &[Subject], now: Instant) -> Option<LockedOut>` — Record a failed attempt, and lock out any subject that has now had too
-- pub `record_success` function L180-191 — `(&self, subjects: &[Subject], now: Instant)` — Record a success, clearing the subjects' counters.
-- pub `evict_expired` function L199-208 — `(&self, now: Instant) -> usize` — Drop entries that can no longer affect a decision.
-- pub `tracked` function L211-213 — `(&self) -> usize` — How many subjects are being tracked (for the metric, and for tests).
--  `ThrottleConfig` type L71-85 — `impl Default for ThrottleConfig` — flaky.
--  `default` function L72-84 — `() -> Self` — flaky.
--  `Bucket` struct L88-93 — `{ failures: u32, window_started: Instant, locked_until: Option<Instant> }` — flaky.
--  `AuthThrottle` type L110-214 — `= AuthThrottle` — flaky.
--  `tests` module L217-366 — `-` — flaky.
--  `subjects` function L220-225 — `() -> Vec<Subject>` — flaky.
--  `cfg` function L227-233 — `() -> ThrottleConfig` — flaky.
--  `failures_below_the_threshold_do_not_lock_out` function L236-243 — `()` — flaky.
--  `the_threshold_locks_out_and_the_lockout_expires` function L246-260 — `()` — flaky.
--  `failures_decay_so_a_slow_typist_is_never_locked_out` function L263-273 — `()` — flaky.
--  `identity_and_source_are_counted_separately` function L276-294 — `()` — flaky.
--  `a_success_clears_the_count_but_not_a_live_lockout` function L297-314 — `()` — flaky.
--  `eviction_drops_only_what_cannot_matter` function L317-331 — `()` — flaky.
--  `a_locked_out_subject_is_not_evicted_early` function L334-345 — `()` — flaky.
--  `retry_after_rounds_up` function L348-365 — `()` — flaky.
+- pub `Subject` enum L59-64 — `Identity | Source` — What is being counted against.
+- pub `kind` function L69-74 — `(&self) -> &'static str` — The metric/log label for this kind of subject.
+- pub `ThrottleConfig` struct L80-87 — `{ max_failures: u32, window: Duration, lockout: Duration }` — Thresholds.
+- pub `AuthThrottle` struct L116-119 — `{ config: ThrottleConfig, buckets: Mutex<HashMap<Subject, Bucket>> }` — The throttle.
+- pub `LockedOut` struct L123-126 — `{ retry_after_secs: u64 }` — A subject is locked out, and for how much longer.
+- pub `new` function L129-134 — `(config: ThrottleConfig) -> Self` — flaky.
+- pub `check` function L141-157 — `(&self, subjects: &[Subject], now: Instant) -> Result<(), LockedOut>` — May these subjects attempt authentication?
+- pub `record_failure` function L161-191 — `(&self, subjects: &[Subject], now: Instant) -> Option<LockedOut>` — Record a failed attempt, and lock out any subject that has now had too
+- pub `record_success` function L198-209 — `(&self, subjects: &[Subject], now: Instant)` — Record a success, clearing the subjects' counters.
+- pub `evict_expired` function L217-226 — `(&self, now: Instant) -> usize` — Drop entries that can no longer affect a decision.
+- pub `tracked` function L229-231 — `(&self) -> usize` — How many subjects are being tracked (for the metric, and for tests).
+- pub `from_config` function L236-244 — `(config: &crate::config::AppConfig) -> Option<AuthThrottle>` — Build the throttle this deployment's configuration asks for, or `None` when
+- pub `client_addr` function L269-285 — `(req: &Request, trusted_proxy: bool) -> Option<IpAddr>` — The client address to count against, or `None` when nothing trustworthy is
+- pub `locked_out_response` function L294-300 — `(locked: LockedOut) -> Response` — The 429 for a locked-out caller, with `Retry-After`.
+- pub `Attempt` struct L313-318 — `{ throttle: Option<&'a AuthThrottle>, metrics: &'a crate::metrics::Metrics, subj...` — One authentication attempt, from the throttle's point of view.
+- pub `begin` function L327-345 — `( state: &'a crate::app::AppState, source: Option<IpAddr>, identity: Option<Stri...` — Begin an attempt against `identity` (the thing being authenticated *as*,
+- pub `refuse_if_locked_out` function L353-365 — `(&self) -> Option<Response>` — The 429 to return instead of checking the credential, if this caller is
+- pub `failed` function L368-390 — `(&self)` — Report that the credential did not verify.
+- pub `succeeded` function L393-397 — `(&self)` — Report that the credential verified, clearing the counters.
+-  `Subject` type L66-75 — `= Subject` — flaky.
+-  `ThrottleConfig` type L89-103 — `impl Default for ThrottleConfig` — flaky.
+-  `default` function L90-102 — `() -> Self` — flaky.
+-  `Bucket` struct L106-111 — `{ failures: u32, window_started: Instant, locked_until: Option<Instant> }` — flaky.
+-  `AuthThrottle` type L128-232 — `= AuthThrottle` — flaky.
+-  `EVICT_ABOVE` variable L305 — `: usize` — Above this many tracked subjects, a recorded failure also sweeps the expired
+-  `tests` module L401-559 — `-` — flaky.
+-  `subjects` function L404-409 — `() -> Vec<Subject>` — flaky.
+-  `cfg` function L411-417 — `() -> ThrottleConfig` — flaky.
+-  `failures_below_the_threshold_do_not_lock_out` function L420-427 — `()` — flaky.
+-  `the_threshold_locks_out_and_the_lockout_expires` function L430-444 — `()` — flaky.
+-  `failures_decay_so_a_slow_typist_is_never_locked_out` function L447-457 — `()` — flaky.
+-  `identity_and_source_are_counted_separately` function L460-478 — `()` — flaky.
+-  `a_success_clears_the_count_but_not_a_live_lockout` function L481-498 — `()` — flaky.
+-  `eviction_drops_only_what_cannot_matter` function L501-515 — `()` — flaky.
+-  `a_locked_out_subject_is_not_evicted_early` function L518-538 — `()` — flaky.
+-  `retry_after_rounds_up` function L541-558 — `()` — flaky.
 
 #### crates/kairos-server/src/web.rs
 
-- pub `router` function L124-137 — `(state: &AppState) -> Router<AppState>` — The web routes: `/api/config` + `/api/auth/token`.
-- pub `spa_fallback` function L289-307 — `(State(state): State<AppState>, method: Method, uri: Uri) -> Response` — The router fallback (mounted in [`crate::app::router`]): reserved
+- pub `router` function L137-150 — `(state: &AppState) -> Router<AppState>` — The web routes: `/api/config` + `/api/auth/token`.
+- pub `spa_fallback` function L318-336 — `(State(state): State<AppState>, method: Method, uri: Uri) -> Response` — The router fallback (mounted in [`crate::app::router`]): reserved
 -  `RESERVED_PREFIXES` variable L59-68 — `: &[&str]` — Path prefixes that belong to API surfaces: the SPA fallback never
 -  `IdpEndpoints` struct L73-76 — `{ authorization_endpoint: String, token_endpoint: String }` — Issuer endpoints the SPA flow needs, resolved lazily from OIDC
--  `WebAuth` struct L82-94 — `{ issuer: String, client_id: String, api_bearer: crate::config::ApiBearer, clien...` — Shared context for the two auth routes: issuer + client id from
--  `WebAuth` type L96-116 — `= WebAuth` — tooling).
--  `endpoints` function L100-115 — `(&self) -> Result<&IdpEndpoints, ApiError>` — Discovery document fetch (`{issuer}/.well-known/openid-configuration`),
--  `idp_unreachable` function L118-120 — `(message: String) -> ApiError` — tooling).
--  `SpaConfig` struct L141-148 — `{ issuer: String, client_id: String, authorization_endpoint: String, api_bearer:...` — `GET /api/config` response body (mirrored by `kairos-web::auth`).
--  `spa_config` function L152-162 — `( Extension(web_auth): Extension<Arc<WebAuth>>, ) -> Result<Json<SpaConfig>, Api...` — `GET /api/config` — see module docs.
--  `TokenRelayForm` struct L167-173 — `{ grant_type: String, code: Option<String>, redirect_uri: Option<String>, code_v...` — What the SPA may relay.
--  `relay_params` function L180-223 — `( client_id: &'a str, client_secret: Option<&'a str>, form: &'a TokenRelayForm, ...` — Assemble the whitelisted form parameters to relay to the issuer's token
--  `token_relay` function L230-257 — `( Extension(web_auth): Extension<Arc<WebAuth>>, form: Result<Form<TokenRelayForm...` — `POST /api/auth/token` — the same-origin token relay (module docs).
--  `missing` function L260-262 — `(field: &'static str) -> impl FnOnce() -> ApiError` — Builder for the "required form field is missing" error.
--  `is_reserved` function L269-276 — `(path: &str) -> bool` — Is this path owned by an API surface (never SPA-fallback material)?
--  `wants_index_fallback` function L281-285 — `(rel: &str) -> bool` — Should a missing file fall back to `index.html`? Yes for route-like
--  `serve_from_dir` function L310-331 — `(dist: &std::path::Path, rel: &str) -> Response` — Dev serving: files out of `KAIROS_WEB_DIST`, with the SPA fallback.
--  `serve_embedded_or_placeholder` function L335-350 — `(rel: &str) -> Response` — Release serving: assets embedded by the `embed-web` feature.
--  `Assets` struct L339 — `-` — tooling).
--  `serve_embedded_or_placeholder` function L355-377 — `(_rel: &str) -> Response` — No dist dir, no embedded assets: an honest placeholder so plain
--  `PLACEHOLDER` variable L356-367 — `: &str` — tooling).
--  `asset_response` function L382-398 — `(name: &str, bytes: Bytes) -> Response` — An asset body with content type + cache policy.
--  `tests` module L401-525 — `-` — tooling).
--  `auth_code_form` function L404-412 — `() -> TokenRelayForm` — tooling).
--  `relay_includes_client_secret_only_when_configured` function L417-431 — `()` — The relay appends `client_secret` iff configured (KAIROS-T-0056), and
--  `relay_secret_applies_to_refresh_grant` function L436-447 — `()` — The secret is applied to the refresh grant too (Google refreshes are
--  `relay_rejects_unknown_grant` function L451-460 — `()` — An unsupported grant is rejected even with a secret configured.
--  `reserved_prefixes_match_paths_not_strings` function L463-490 — `()` — tooling).
--  `index_fallback_only_for_route_like_paths` function L493-501 — `()` — tooling).
--  `asset_responses_carry_mime_and_cache_policy` function L504-524 — `()` — tooling).
+-  `WebAuth` struct L82-95 — `{ issuer: Option<String>, client_id: String, api_bearer: crate::config::ApiBeare...` — Shared context for the two auth routes: issuer + client id from
+-  `WebAuth` type L97-129 — `= WebAuth` — tooling).
+-  `endpoints` function L106-128 — `(&self) -> Result<&IdpEndpoints, ApiError>` — Discovery document fetch (`{issuer}/.well-known/openid-configuration`),
+-  `idp_unreachable` function L131-133 — `(message: String) -> ApiError` — tooling).
+-  `SpaConfig` struct L154-168 — `{ issuer: Option<String>, client_id: String, authorization_endpoint: Option<Stri...` — `GET /api/config` response body (mirrored by `kairos-web::auth`).
+-  `spa_config` function L172-191 — `( State(state): State<AppState>, Extension(web_auth): Extension<Arc<WebAuth>>, )...` — `GET /api/config` — see module docs.
+-  `TokenRelayForm` struct L196-202 — `{ grant_type: String, code: Option<String>, redirect_uri: Option<String>, code_v...` — What the SPA may relay.
+-  `relay_params` function L209-252 — `( client_id: &'a str, client_secret: Option<&'a str>, form: &'a TokenRelayForm, ...` — Assemble the whitelisted form parameters to relay to the issuer's token
+-  `token_relay` function L259-286 — `( Extension(web_auth): Extension<Arc<WebAuth>>, form: Result<Form<TokenRelayForm...` — `POST /api/auth/token` — the same-origin token relay (module docs).
+-  `missing` function L289-291 — `(field: &'static str) -> impl FnOnce() -> ApiError` — Builder for the "required form field is missing" error.
+-  `is_reserved` function L298-305 — `(path: &str) -> bool` — Is this path owned by an API surface (never SPA-fallback material)?
+-  `wants_index_fallback` function L310-314 — `(rel: &str) -> bool` — Should a missing file fall back to `index.html`? Yes for route-like
+-  `serve_from_dir` function L339-360 — `(dist: &std::path::Path, rel: &str) -> Response` — Dev serving: files out of `KAIROS_WEB_DIST`, with the SPA fallback.
+-  `serve_embedded_or_placeholder` function L364-379 — `(rel: &str) -> Response` — Release serving: assets embedded by the `embed-web` feature.
+-  `Assets` struct L368 — `-` — tooling).
+-  `serve_embedded_or_placeholder` function L384-406 — `(_rel: &str) -> Response` — No dist dir, no embedded assets: an honest placeholder so plain
+-  `PLACEHOLDER` variable L385-396 — `: &str` — tooling).
+-  `asset_response` function L411-427 — `(name: &str, bytes: Bytes) -> Response` — An asset body with content type + cache policy.
+-  `tests` module L430-554 — `-` — tooling).
+-  `auth_code_form` function L433-441 — `() -> TokenRelayForm` — tooling).
+-  `relay_includes_client_secret_only_when_configured` function L446-460 — `()` — The relay appends `client_secret` iff configured (KAIROS-T-0056), and
+-  `relay_secret_applies_to_refresh_grant` function L465-476 — `()` — The secret is applied to the refresh grant too (Google refreshes are
+-  `relay_rejects_unknown_grant` function L480-489 — `()` — An unsupported grant is rejected even with a secret configured.
+-  `reserved_prefixes_match_paths_not_strings` function L492-519 — `()` — tooling).
+-  `index_fallback_only_for_route_like_paths` function L522-530 — `()` — tooling).
+-  `asset_responses_carry_mime_and_cache_policy` function L533-553 — `()` — tooling).
 
 #### crates/kairos-server/src/ws.rs
 
@@ -3473,7 +3587,7 @@
 -  `WELL_KNOWN_MCP` variable L64 — `: &str` — The RFC 9728 well-known path for the `/mcp` protected resource.
 -  `request_origin` function L106-113 — `(headers: &HeaderMap) -> Option<String>` — `scheme://host` of the request as seen by the client: `Host` header
 -  `advertise_resource_metadata` function L117-129 — `(req: Request, next: Next) -> Response` — Attach the RFC 9728 `WWW-Authenticate` challenge to 401 responses from
--  `protected_resource_metadata` function L134-145 — `( State(state): State<AppState>, headers: HeaderMap, ) -> Json<Value>` — RFC 9728 protected-resource metadata: the `/mcp` resource identifier
+-  `protected_resource_metadata` function L134-154 — `( State(state): State<AppState>, headers: HeaderMap, ) -> Json<Value>` — RFC 9728 protected-resource metadata: the `/mcp` resource identifier
 
 #### crates/kairos-server/src/mcp/service.rs
 
@@ -3591,53 +3705,55 @@
 - pub `AuthContext` struct L53-62 — `{ user_id: Uuid, external_id: String, email: String, display_name: String }` — The authenticated caller, inserted as a request extension for every
 - pub `TokenClaims` struct L67-87 — `{ sub: String, email: Option<String>, name: Option<String>, email_verified: Opti...` — The token claims this crate consumes.
 - pub `DiscoveryError` enum L109-118 — `Discovery` — Why building an [`Authenticator`] failed (startup-time, fail-fast).
-- pub `VerifyError` enum L122-143 — `MissingToken | UnknownKey | Invalid | MissingEmail | KeyFetch` — Why a token was rejected (or could not be checked).
-- pub `Authenticator` struct L174-187 — `{ issuer: String, audiences: Vec<String>, jwks_uri: Option<String>, http: reqwes...` — Validates bearer tokens against one OIDC issuer: JWKS cache keyed by
-- pub `discover` function L214-258 — `(issuer: &str, audience: &str) -> Result<Self, DiscoveryError>` — Resolve the issuer's discovery document, prime the JWKS cache, and
-- pub `with_static_keys` function L263-276 — `( issuer: &str, audience: &str, keys: impl IntoIterator<Item = (String, Decoding...` — Test constructor: fixed keys, no JWKS endpoint (refresh-on-unknown-
-- pub `verify` function L341-356 — `(&self, token: &str) -> Result<TokenClaims, VerifyError>` — Validate `token` (RS256 signature, `iss`, `aud`, `exp`) and return
-- pub `require_auth` function L511-539 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The auth layer: validate the bearer token, JIT-upsert the user, insert
+- pub `VerifyError` enum L122-158 — `MissingToken | UnknownKey | Invalid | MissingEmail | KeyFetch | NoIssuer` — Why a token was rejected (or could not be checked).
+- pub `Authenticator` struct L189-207 — `{ issuer: String, audiences: Vec<String>, jwks_uri: Option<String>, http: reqwes...` — Validates bearer tokens against one OIDC issuer: JWKS cache keyed by
+- pub `discover` function L234-279 — `(issuer: &str, audience: &str) -> Result<Self, DiscoveryError>` — Resolve the issuer's discovery document, prime the JWKS cache, and
+- pub `disabled` function L292-302 — `() -> Self` — Test constructor: fixed keys, no JWKS endpoint (refresh-on-unknown-
+- pub `is_enabled` function L305-307 — `(&self) -> bool` — Whether this deployment has an issuer at all.
+- pub `with_static_keys` function L309-323 — `( issuer: &str, audience: &str, keys: impl IntoIterator<Item = (String, Decoding...` — mode, and an effectively-empty value is a startup error.
+- pub `verify` function L388-406 — `(&self, token: &str) -> Result<TokenClaims, VerifyError>` — Validate `token` (RS256 signature, `iss`, `aud`, `exp`) and return
+- pub `require_auth` function L561-621 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The auth layer: validate the bearer token, JIT-upsert the user, insert
 -  `lenient_bool` function L91-105 — `(deserializer: D) -> Result<Option<bool>, D::Error>` — `true`/`false`, or the strings `"true"`/`"false"` (case-insensitively).
--  `ApiError` type L145-152 — `= ApiError` — mode, and an effectively-empty value is a startup error.
--  `from` function L146-151 — `(err: VerifyError) -> Self` — mode, and an effectively-empty value is a startup error.
--  `DiscoveryDoc` struct L155-157 — `{ jwks_uri: String }` — mode, and an effectively-empty value is a startup error.
--  `JwksDoc` struct L160-162 — `{ keys: Vec<Jwk> }` — mode, and an effectively-empty value is a startup error.
--  `Jwk` struct L165-170 — `{ kty: String, kid: Option<String>, n: Option<String>, e: Option<String> }` — mode, and an effectively-empty value is a startup error.
--  `Authenticator` type L189-197 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
--  `fmt` function L190-196 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — mode, and an effectively-empty value is a startup error.
--  `parse_audiences` function L202-208 — `(raw: &str) -> Vec<String>` — Parse `OIDC_AUDIENCE`: a comma-separated allow-list (KAIROS-T-0055).
--  `Authenticator` type L210-357 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
--  `refresh_keys` function L279-318 — `(&self) -> Result<(), VerifyError>` — Fetch the JWKS and replace the cache with its RSA keys.
--  `key_for` function L322-337 — `(&self, kid: &str) -> Result<Option<DecodingKey>, VerifyError>` — The decoding key for `kid`, refreshing the JWKS once (behind the
--  `bearer_token` function L360-368 — `(req: &Request) -> Result<&str, VerifyError>` — `Authorization: Bearer <token>` or [`VerifyError::MissingToken`].
--  `jit_upsert_user` function L385-499 — `(pool: &TenantPool, claims: &TokenClaims) -> Result<User, ApiError>` — mode, and an effectively-empty value is a startup error.
--  `tests` module L542-870 — `-` — mode, and an effectively-empty value is a startup error.
--  `TEST_RSA_PRIVATE_PEM` variable L556-583 — `: &str` — Throwaway RSA keypair for minting test tokens.
--  `TEST_RSA_PUBLIC_PEM` variable L585-593 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `ISSUER` variable L595 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `AUDIENCE` variable L596 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `KID` variable L597 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `authenticator` function L599-602 — `() -> Authenticator` — mode, and an effectively-empty value is a startup error.
--  `MintClaims` struct L605-612 — `{ iss: &'a str, aud: &'a str, sub: &'a str, exp: i64, email: &'a str, name: &'a ...` — mode, and an effectively-empty value is a startup error.
--  `mint` function L614-627 — `(iss: &str, aud: &str, exp: i64, kid: Option<&str>) -> String` — mode, and an effectively-empty value is a startup error.
--  `future_exp` function L629-631 — `() -> i64` — mode, and an effectively-empty value is a startup error.
--  `chrono_now` function L633-638 — `() -> u64` — mode, and an effectively-empty value is a startup error.
--  `valid_token_yields_claims` function L641-649 — `()` — mode, and an effectively-empty value is a startup error.
--  `expired_token_is_rejected` function L652-663 — `()` — mode, and an effectively-empty value is a startup error.
--  `wrong_audience_is_rejected` function L666-676 — `()` — mode, and an effectively-empty value is a startup error.
--  `any_listed_audience_validates_and_unlisted_is_rejected` function L683-706 — `()` — KAIROS-T-0055: `OIDC_AUDIENCE` as a comma-separated list — a token
--  `audience_parsing_handles_lists_and_blanks` function L713-721 — `()` — KAIROS-T-0055: single-value backward compat is the default test
--  `wrong_issuer_is_rejected` function L724-734 — `()` — mode, and an effectively-empty value is a startup error.
--  `unknown_kid_is_rejected` function L737-743 — `()` — mode, and an effectively-empty value is a startup error.
--  `garbage_token_is_rejected` function L746-752 — `()` — mode, and an effectively-empty value is a startup error.
--  `google_shaped_id_token_validates_and_opaque_access_token_is_rejected` function L762-784 — `()` — KAIROS-T-0054: the middleware is issuer/token-kind agnostic — it
--  `GOOGLE_ISSUER` variable L763 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `GOOGLE_CLIENT_ID` variable L764 — `: &str` — mode, and an effectively-empty value is a startup error.
--  `verify_errors_map_to_401_envelope` function L787-791 — `()` — mode, and an effectively-empty value is a startup error.
--  `claims_from` function L805-807 — `(json: serde_json::Value) -> Result<TokenClaims, serde_json::Error>` — mode, and an effectively-empty value is a startup error.
--  `a_literal_true_is_the_only_thing_that_verifies_an_email` function L810-845 — `()` — mode, and an effectively-empty value is a startup error.
--  `an_absent_email_verified_is_not_a_verified_email` function L848-855 — `()` — mode, and an effectively-empty value is a startup error.
--  `an_unparseable_email_verified_does_not_reject_the_token` function L858-869 — `()` — mode, and an effectively-empty value is a startup error.
+-  `ApiError` type L160-167 — `= ApiError` — mode, and an effectively-empty value is a startup error.
+-  `from` function L161-166 — `(err: VerifyError) -> Self` — mode, and an effectively-empty value is a startup error.
+-  `DiscoveryDoc` struct L170-172 — `{ jwks_uri: String }` — mode, and an effectively-empty value is a startup error.
+-  `JwksDoc` struct L175-177 — `{ keys: Vec<Jwk> }` — mode, and an effectively-empty value is a startup error.
+-  `Jwk` struct L180-185 — `{ kty: String, kid: Option<String>, n: Option<String>, e: Option<String> }` — mode, and an effectively-empty value is a startup error.
+-  `Authenticator` type L209-217 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `fmt` function L210-216 — `(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result` — mode, and an effectively-empty value is a startup error.
+-  `parse_audiences` function L222-228 — `(raw: &str) -> Vec<String>` — Parse `OIDC_AUDIENCE`: a comma-separated allow-list (KAIROS-T-0055).
+-  `Authenticator` type L230-407 — `= Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `refresh_keys` function L326-365 — `(&self) -> Result<(), VerifyError>` — Fetch the JWKS and replace the cache with its RSA keys.
+-  `key_for` function L369-384 — `(&self, kid: &str) -> Result<Option<DecodingKey>, VerifyError>` — The decoding key for `kid`, refreshing the JWKS once (behind the
+-  `bearer_token` function L410-418 — `(req: &Request) -> Result<&str, VerifyError>` — `Authorization: Bearer <token>` or [`VerifyError::MissingToken`].
+-  `jit_upsert_user` function L435-549 — `(pool: &TenantPool, claims: &TokenClaims) -> Result<User, ApiError>` — mode, and an effectively-empty value is a startup error.
+-  `tests` module L624-952 — `-` — mode, and an effectively-empty value is a startup error.
+-  `TEST_RSA_PRIVATE_PEM` variable L638-665 — `: &str` — Throwaway RSA keypair for minting test tokens.
+-  `TEST_RSA_PUBLIC_PEM` variable L667-675 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `ISSUER` variable L677 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `AUDIENCE` variable L678 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `KID` variable L679 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `authenticator` function L681-684 — `() -> Authenticator` — mode, and an effectively-empty value is a startup error.
+-  `MintClaims` struct L687-694 — `{ iss: &'a str, aud: &'a str, sub: &'a str, exp: i64, email: &'a str, name: &'a ...` — mode, and an effectively-empty value is a startup error.
+-  `mint` function L696-709 — `(iss: &str, aud: &str, exp: i64, kid: Option<&str>) -> String` — mode, and an effectively-empty value is a startup error.
+-  `future_exp` function L711-713 — `() -> i64` — mode, and an effectively-empty value is a startup error.
+-  `chrono_now` function L715-720 — `() -> u64` — mode, and an effectively-empty value is a startup error.
+-  `valid_token_yields_claims` function L723-731 — `()` — mode, and an effectively-empty value is a startup error.
+-  `expired_token_is_rejected` function L734-745 — `()` — mode, and an effectively-empty value is a startup error.
+-  `wrong_audience_is_rejected` function L748-758 — `()` — mode, and an effectively-empty value is a startup error.
+-  `any_listed_audience_validates_and_unlisted_is_rejected` function L765-788 — `()` — KAIROS-T-0055: `OIDC_AUDIENCE` as a comma-separated list — a token
+-  `audience_parsing_handles_lists_and_blanks` function L795-803 — `()` — KAIROS-T-0055: single-value backward compat is the default test
+-  `wrong_issuer_is_rejected` function L806-816 — `()` — mode, and an effectively-empty value is a startup error.
+-  `unknown_kid_is_rejected` function L819-825 — `()` — mode, and an effectively-empty value is a startup error.
+-  `garbage_token_is_rejected` function L828-834 — `()` — mode, and an effectively-empty value is a startup error.
+-  `google_shaped_id_token_validates_and_opaque_access_token_is_rejected` function L844-866 — `()` — KAIROS-T-0054: the middleware is issuer/token-kind agnostic — it
+-  `GOOGLE_ISSUER` variable L845 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `GOOGLE_CLIENT_ID` variable L846 — `: &str` — mode, and an effectively-empty value is a startup error.
+-  `verify_errors_map_to_401_envelope` function L869-873 — `()` — mode, and an effectively-empty value is a startup error.
+-  `claims_from` function L887-889 — `(json: serde_json::Value) -> Result<TokenClaims, serde_json::Error>` — mode, and an effectively-empty value is a startup error.
+-  `a_literal_true_is_the_only_thing_that_verifies_an_email` function L892-927 — `()` — mode, and an effectively-empty value is a startup error.
+-  `an_absent_email_verified_is_not_a_verified_email` function L930-937 — `()` — mode, and an effectively-empty value is a startup error.
+-  `an_unparseable_email_verified_does_not_reject_the_token` function L940-951 — `()` — mode, and an effectively-empty value is a startup error.
 
 #### crates/kairos-server/src/middleware/mod.rs
 
@@ -3654,14 +3770,14 @@
 - pub `require_tenant` function L115-197 — `( State(state): State<AppState>, mut req: Request, next: Next, ) -> Result<Respo...` — The tenant layer: resolve the slug, load the organization, require
 -  `TenantDb` type L57-70 — `= TenantDb` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
 -  `host_without_port` function L74-79 — `(host: &str) -> &str` — The host part of a `Host` header value (port stripped; IPv6 literals
--  `tests` module L200-285 — `-` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `config` function L204-226 — `(single_tenant: Option<&str>, base_domain: Option<&str>) -> AppConfig` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `headers` function L228-237 — `(pairs: &[(&str, &str)]) -> HeaderMap` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `single_tenant_mode_wins_over_everything` function L240-244 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `host_subdomain_resolves_against_base_domain` function L247-253 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `non_matching_hosts_fall_through_to_x_tenant` function L256-269 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `x_tenant_is_the_fallback_without_base_domain` function L272-276 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
--  `unresolvable_requests_are_tenant_not_found` function L279-284 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `tests` module L200-294 — `-` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `config` function L204-235 — `(single_tenant: Option<&str>, base_domain: Option<&str>) -> AppConfig` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `headers` function L237-246 — `(pairs: &[(&str, &str)]) -> HeaderMap` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `single_tenant_mode_wins_over_everything` function L249-253 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `host_subdomain_resolves_against_base_domain` function L256-262 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `non_matching_hosts_fall_through_to_x_tenant` function L265-278 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `x_tenant_is_the_fallback_without_base_domain` function L281-285 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
+-  `unresolvable_requests_are_tenant_not_found` function L288-293 — `()` — [`TenantDb`] handle whose connections are pinned to the tenant schema.
 
 ### crates/kairos-server/src/scim
 
@@ -3984,6 +4100,35 @@
 -  `github_pr` function L101-103 — `(code: &str, state: &str, merged: bool, updated_at: &str) -> String` — The common case: PR #42.
 -  `forge_webhook_ingestion_against_live_stack` function L106-469 — `()` — successful no-ops, because a non-2xx makes forges retry forever.
 
+#### crates/kairos-server/tests/local_accounts.rs
+
+-  `common` module L8 — `-` — creating an account, resetting a password, and inspecting and ending sessions —
+-  `SCRATCH_DB` variable L34 — `: &str` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `ADMIN_PASSWORD` variable L35 — `: &str` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `send` function L37-52 — `(router: &Router, request: Request<Body>) -> (StatusCode, Value)` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `as_user` function L54-77 — `( router: &Router, method: Method, uri: &str, token: &str, body: Option<Value>, ...` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `login` function L80-92 — `(router: &Router, email: &str, password: &str) -> String` — Log in and return the session bearer.
+-  `member` function L94-116 — `(conn: &mut PgConnection, email: &str, org_id: Uuid, role: OrgRole) -> User` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `an_org_admin_manages_local_accounts` function L119-392 — `()` — Runs against the LIVE compose Postgres (`angreal services up`).
+-  `the_break_glass_subcommand_needs_no_login` function L395-511 — `()` — Runs against the LIVE compose Postgres (`angreal services up`).
+
+#### crates/kairos-server/tests/local_login.rs
+
+-  `common` module L10 — `-` — `POST /api/login` mints a session bearer, `require_auth` accepts it as its
+-  `PASSWORD` variable L37 — `: &str` — deployment with local auth OFF is unchanged.
+-  `send` function L39-54 — `(router: &Router, request: Request<Body>) -> (StatusCode, Value)` — deployment with local auth OFF is unchanged.
+-  `login` function L60-72 — `(router: &Router, email: &str, password: &str) -> (StatusCode, Value, StdDuratio...` — `POST /api/login`, with how long it took.
+-  `whoami` function L74-83 — `(router: &Router, token: &str) -> (StatusCode, Value)` — deployment with local auth OFF is unchanged.
+-  `logout` function L85-93 — `(router: &Router, token: &str) -> StatusCode` — deployment with local auth OFF is unchanged.
+-  `make_user` function L95-119 — `(conn: &mut PgConnection, email: &str, org_id: Uuid, with_password: bool) -> Use...` — deployment with local auth OFF is unchanged.
+-  `fixture` function L122-134 — `(scratch_db: &str) -> (PgConnection, String, Uuid)` — Scratch DB + provisioned `acme`, and the org id to hang members off.
+-  `teardown` function L138-142 — `(conn: PgConnection, scratch_db: &str)` — Drop the scratch database.
+-  `logging_in_with_a_password_works_and_every_failure_looks_the_same` function L145-274 — `()` — deployment with local auth OFF is unchanged.
+-  `a_burst_of_password_guesses_is_refused` function L277-312 — `()` — deployment with local auth OFF is unchanged.
+-  `with_local_auth_off_there_is_no_login_endpoint` function L315-355 — `()` — deployment with local auth OFF is unchanged.
+-  `a_service_account_cannot_log_in_with_a_password` function L358-396 — `()` — deployment with local auth OFF is unchanged.
+-  `a_deployment_with_no_issuer_still_lets_people_in` function L399-473 — `()` — deployment with local auth OFF is unchanged.
+
 #### crates/kairos-server/tests/mcp.rs
 
 -  `common` module L37 — `-` — per KAIROS-A-0011 / KAIROS-S-0006): a real MCP session over streamable
@@ -4055,7 +4200,7 @@
 -  `write_spec_artifact` function L302-310 — `()` — Generate the CI artifact: write the spec to `target/openapi.json`
 -  `raw_get` function L318-346 — `(router: &Router, uri: &str, token: Option<&str>) -> (StatusCode, String, String...` — A raw in-process request for non-JSON responses (the Swagger UI page):
 -  `probe_uri` function L351-363 — `(spec_path: &str) -> String` — Substitute every `{param}` in a spec path with a literal segment so it
--  `openapi_endpoint_against_live_stack` function L366-500 — `()` — services), uploaded by the workflow's "OpenAPI artifact" step.
+-  `openapi_endpoint_against_live_stack` function L366-504 — `()` — services), uploaded by the workflow's "OpenAPI artifact" step.
 
 #### crates/kairos-server/tests/org_endpoints.rs
 
@@ -4065,6 +4210,16 @@
 -  `rejection` function L59-64 — `(result: Result<T, Error>) -> Error` — Unwrap an expected API rejection (panics on success).
 -  `column_by_name` function L67-72 — `(columns: &'a [BoardColumn], name: &str) -> &'a BoardColumn` — The column with this name from a board-detail column list.
 -  `org_and_admin_endpoints_against_live_stack` function L75-1078 — `()` — - `bob`   — org member used for the capability grant/revoke lifecycle.
+
+#### crates/kairos-server/tests/rate_limit.rs
+
+-  `common` module L16 — `-` — a burst of bad credentials from one source is actually refused, the refusal
+-  `SCRATCH_DB` variable L41 — `: &str` — needed: the API-key path never validates a JWT.
+-  `MAX_FAILURES` variable L46 — `: u32` — After this many failures the throttle locks the source out.
+-  `whoami_from` function L54-92 — `( router: &Router, key: &str, peer: &str, extra: &[(&str, &str)], ) -> (StatusCo...` — A `/api/whoami` request from a specific socket peer.
+-  `metrics_text` function L94-109 — `(router: &Router) -> String` — needed: the API-key path never validates a JWT.
+-  `a_burst_of_failed_authentications_is_refused` function L112-258 — `()` — needed: the API-key path never validates a JWT.
+-  `throttling_off_lets_a_burst_through` function L261-289 — `()` — needed: the API-key path never validates a JWT.
 
 #### crates/kairos-server/tests/related_work.rs
 
@@ -4174,7 +4329,7 @@
 -  `common` module L10 — `-` — A-0015): the public `/api/config` discovery endpoint, the
 -  `SCRATCH_DB` variable L27 — `: &str` — Uniquely named scratch database for this test binary.
 -  `raw_request` function L32-65 — `( router: &Router, method: Method, uri: &str, form_body: Option<&str>, ) -> (Sta...` — One in-process request, returning status + content-type + raw body
--  `web_surfaces_against_live_stack` function L68-232 — `()` — integration suite here.
+-  `web_surfaces_against_live_stack` function L68-244 — `()` — integration suite here.
 
 #### crates/kairos-server/tests/ws_events.rs
 
@@ -4209,19 +4364,19 @@
 - pub `drop_scratch_db` function L128-132 — `(admin_conn: &mut PgConnection, scratch_db: &str)` — Drop the scratch database after the test (retries transient errors,
 - pub `dex_token` function L135-167 — `( http: &reqwest::Client, client_id: &str, client_secret: Option<&str>, username...` — Obtain a real token from the live Dex via the password grant.
 - pub `user_token` function L171-180 — `(http: &reqwest::Client, user: &str) -> String` — A user token from the seeded `kairos-cli` public client
-- pub `base_config` function L184-218 — `(scratch_url: &str) -> AppConfig` — The standard test config: multi-tenant with `kairos.test` as the base
-- pub `request` function L223-259 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, headers: &[(&...` — One in-process request against the production router: any method/URI,
-- pub `error_code` function L263-267 — `(body: &Value) -> &str` — The `error.code` of an S-0005 error envelope (panics on any other
-- pub `TestServer` struct L273-278 — `{ addr: std::net::SocketAddr, base_url: String }` — A live instance of the production router on an ephemeral local port —
-- pub `spawn_server` function L281-293 — `(router: Router) -> TestServer` — Serve `router` on an ephemeral 127.0.0.1 port.
-- pub `client` function L298-300 — `(&self, token: &str, tenant: &str) -> KairosClient` — A typed client for this server: fixed bearer token, tenant via the
-- pub `client_untenanted` function L304-306 — `(&self, token: &str) -> KairosClient` — A typed client WITHOUT tenant resolution (cross-tenant
+- pub `base_config` function L184-227 — `(scratch_url: &str) -> AppConfig` — The standard test config: multi-tenant with `kairos.test` as the base
+- pub `request` function L232-268 — `( router: &Router, method: Method, uri: &str, token: Option<&str>, headers: &[(&...` — One in-process request against the production router: any method/URI,
+- pub `error_code` function L272-276 — `(body: &Value) -> &str` — The `error.code` of an S-0005 error envelope (panics on any other
+- pub `TestServer` struct L282-287 — `{ addr: std::net::SocketAddr, base_url: String }` — A live instance of the production router on an ephemeral local port —
+- pub `spawn_server` function L290-302 — `(router: Router) -> TestServer` — Serve `router` on an ephemeral 127.0.0.1 port.
+- pub `client` function L307-309 — `(&self, token: &str, tenant: &str) -> KairosClient` — A typed client for this server: fixed bearer token, tenant via the
+- pub `client_untenanted` function L313-315 — `(&self, token: &str) -> KairosClient` — A typed client WITHOUT tenant resolution (cross-tenant
 -  `DB_SETUP_ATTEMPTS` variable L63 — `: u32` — Attempts for each transient scratch-DB lifecycle op against the SHARED
 -  `DB_SETUP_BACKOFF_BASE` variable L67 — `: std::time::Duration` — Base backoff between scratch-DB retry attempts; doubles each attempt,
 -  `DB_SETUP_BACKOFF_CAP` variable L70 — `: std::time::Duration` — Ceiling on the per-attempt backoff.
 -  `retry_db` function L74-91 — `(what: &str, mut op: impl FnMut() -> Result<T, E>) -> T` — Run a transient shared-Postgres op with bounded exponential backoff,
 -  `connect_admin` function L95-103 — `() -> PgConnection` — Connect to the shared compose Postgres admin database, retrying transient
--  `TestServer` type L295-307 — `= TestServer` — different subset, so unused-item lints are expected noise here.
+-  `TestServer` type L304-316 — `= TestServer` — different subset, so unused-item lints are expected noise here.
 
 ### crates/kairos-soak/src
 
@@ -4424,69 +4579,81 @@
 #### crates/kairos-web/src/app.rs
 
 - pub `App` function L48-85 — `() -> impl IntoView` — The application root: provides auth, injects the Aurora stylesheet,
-- pub `BrandMark` function L290-298 — `() -> impl IntoView` — The Kairos brand mark — app-supplied (aurora ships no branding), drawn
+- pub `BrandMark` function L312-320 — `() -> impl IntoView` — The Kairos brand mark — app-supplied (aurora ships no branding), drawn
 -  `Shell` function L95-135 — `() -> impl IntoView` — The protected shell: aurora `AppShell` with the Kairos header
 -  `MyTeamsNav` function L142-164 — `(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl IntoView` — "My teams" (KAIROS-T-0068): the caller's own teams from whoami, each
 -  `GuardFallback` function L172-188 — `() -> impl IntoView` — The unauthenticated fallback for the protected shell: while a boot-time
--  `RedirectToIssuer` function L193-231 — `() -> impl IntoView` — The unauthenticated fallback: kick off the PKCE redirect (remembering
--  `NavLink` function L237-247 — `(#[prop(into)] href: String, #[prop(into)] label: String) -> impl IntoView` — One left-nav entry.
--  `WhoamiBadge` function L253-269 — `(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl IntoView` — Who am I, which org, which role — the A-0015 whoami display.
--  `LogoutButton` function L274-285 — `() -> impl IntoView` — Drop the in-memory session; the shell guard (which sees the explicit
+-  `RedirectToIssuer` function L199-253 — `() -> impl IntoView` — The unauthenticated fallback: kick off the PKCE redirect (remembering where the
+-  `NavLink` function L259-269 — `(#[prop(into)] href: String, #[prop(into)] label: String) -> impl IntoView` — One left-nav entry.
+-  `WhoamiBadge` function L275-291 — `(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl IntoView` — Who am I, which org, which role — the A-0015 whoami display.
+-  `LogoutButton` function L296-307 — `() -> impl IntoView` — Drop the in-memory session; the shell guard (which sees the explicit
 
 #### crates/kairos-web/src/auth.rs
 
 - pub `TOKEN_RELAY_PATH` variable L47 — `: &str` — Same-origin path of the server's token relay (see `kairos-server::web`).
 - pub `CONFIG_PATH` variable L49 — `: &str` — Same-origin path of the public SPA config endpoint.
-- pub `ApiBearer` enum L72-78 — `AccessToken | IdToken` — Which token the SPA presents as the `/api` bearer (`api_bearer` in
-- pub `AuthConfig` struct L82-95 — `{ issuer: String, client_id: String, authorization_endpoint: String, api_bearer:...` — What `GET /api/config` returns (mirror of `kairos-server::web`).
-- pub `TokenResponse` struct L99-110 — `{ access_token: String, id_token: Option<String>, refresh_token: Option<String>,...` — A successful token response (authorization_code or refresh_token grant).
-- pub `Session` struct L130-135 — `{ access_token: String, refresh_token: Option<String> }` — The in-memory session (A-0015: never persisted).
-- pub `Auth` struct L140-153 — `{ session: RwSignal<Option<Session>>, config: RwSignal<Option<AuthConfig>>, sign...` — Reactive auth state, provided at the app root ([`provide_auth`]) and
-- pub `provide_auth` function L160-177 — `() -> Auth` — Create the auth state and put it into context.
-- pub `use_auth` function L196-198 — `() -> Auth` — The app-root [`Auth`] (panics outside the app tree — a bug by
-- pub `is_authenticated` function L202-204 — `(&self) -> bool` — Reactive: is there a live session?
-- pub `token` function L207-210 — `(&self) -> Option<String>` — Current bearer token (reactive).
-- pub `signed_out` function L215-217 — `(&self) -> bool` — Reactive: did the user explicitly log out (vs.
-- pub `restoring` function L221-223 — `(&self) -> bool` — Reactive: is the boot-time session restore (KAIROS-T-0071) still in
-- pub `logout` function L229-234 — `(&self)` — Drop the in-memory session AND the stored refresh token (a logout
-- pub `expire` function L241-245 — `(&self)` — Drop the session WITHOUT marking an explicit sign-out (refresh
-- pub `fetch_auth_config` function L340-352 — `() -> Result<AuthConfig, String>` — `GET /api/config` — the SPA's discovery endpoint (decision documented
-- pub `begin_login` function L357-389 — `(auth: Auth, return_to: &str) -> Result<(), String>` — Start the PKCE flow: stash verifier/state/return-path in
-- pub `complete_login` function L393-438 — `(auth: Auth) -> Result<String, String>` — Handle `/callback`: verify `state`, exchange the code through the
--  `SCOPES` variable L53 — `: &str` — Scopes requested at login.
--  `REFRESH_MARGIN_SECS` variable L56 — `: f64` — Refresh the session this many seconds before the access token expires.
--  `KEY_VERIFIER` variable L60 — `: &str` — Workspace (KAIROS-T-0054).
--  `KEY_STATE` variable L61 — `: &str` — Workspace (KAIROS-T-0054).
--  `KEY_RETURN_TO` variable L62 — `: &str` — Workspace (KAIROS-T-0054).
--  `KEY_REFRESH` variable L65 — `: &str` — The refresh token (KAIROS-T-0071): per-tab reload survival.
--  `TokenResponse` type L112-126 — `= TokenResponse` — Workspace (KAIROS-T-0054).
--  `bearer_for` function L117-125 — `(&self, kind: ApiBearer) -> String` — The token to use as the `/api` bearer for the given selection.
--  `restore_session` function L184-192 — `(auth: Auth)` — Boot-time session restore (KAIROS-T-0071): run the refresh grant with
--  `Auth` type L200-336 — `= Auth` — Workspace (KAIROS-T-0054).
--  `install` function L253-289 — `(&self, tokens: TokenResponse)` — Install a token response and schedule the silent refresh.
--  `refresh` function L294-302 — `(self)` — The silent-refresh grant through the relay, from the live session's
--  `refresh_with` function L308-325 — `(self, refresh_token: &str)` — One refresh grant with an explicit token — shared by the in-session
--  `config_cached` function L328-335 — `(&self) -> Result<AuthConfig, String>` — `/api/config`, fetched once and cached in the signal.
--  `post_token` function L441-460 — `(body: &str) -> Result<TokenResponse, String>` — POST a form body to the token relay and parse the token response.
--  `window` function L464-466 — `() -> web_sys::Window` — Workspace (KAIROS-T-0054).
--  `origin` function L468-473 — `() -> Result<String, String>` — Workspace (KAIROS-T-0054).
--  `session_storage` function L475-481 — `() -> Result<web_sys::Storage, String>` — Workspace (KAIROS-T-0054).
--  `clear_stored_refresh` function L484-488 — `()` — Remove the stored refresh token (logout / dead token).
--  `url_encode` function L490-492 — `(value: &str) -> String` — Workspace (KAIROS-T-0054).
--  `random_urlsafe` function L496-504 — `(len: usize) -> Result<String, String>` — `len` random bytes from WebCrypto, base64url-encoded (RFC 7636 §4.1
--  `s256_base64url` function L507-520 — `(verifier: &str) -> Result<String, String>` — The S256 code challenge: `BASE64URL(SHA256(verifier))` (RFC 7636 §4.2).
--  `base64url` function L524-544 — `(bytes: &[u8]) -> String` — Base64url without padding (RFC 4648 §5).
--  `ALPHABET` variable L525 — `: &[u8; 64]` — Workspace (KAIROS-T-0054).
--  `form_encode` function L547-553 — `(pairs: &[(&str, &str)]) -> String` — `application/x-www-form-urlencoded` body from pairs.
--  `form_component` function L556-567 — `(value: &str) -> String` — Percent-encode one form value (conservative: everything but unreserved).
--  `tests` module L570-646 — `-` — Workspace (KAIROS-T-0054).
--  `tokens` function L573-580 — `(access: &str, id: Option<&str>) -> TokenResponse` — Workspace (KAIROS-T-0054).
--  `bearer_selection_follows_api_bearer` function L583-589 — `()` — Workspace (KAIROS-T-0054).
--  `id_token_mode_falls_back_when_absent` function L592-597 — `()` — Workspace (KAIROS-T-0054).
--  `api_bearer_defaults_to_access_token_when_absent` function L600-615 — `()` — Workspace (KAIROS-T-0054).
--  `base64url_matches_rfc4648_vectors` function L619-627 — `()` — RFC 4648 §10 test vectors, translated to base64url-no-padding.
--  `base64url_uses_urlsafe_alphabet` function L630-635 — `()` — Workspace (KAIROS-T-0054).
--  `form_encoding_escapes_reserved_characters` function L638-645 — `()` — Workspace (KAIROS-T-0054).
+- pub `LOGIN_PATH` variable L53 — `: &str` — The local password-login endpoint (KAIROS-T-0203).
+- pub `ApiBearer` enum L76-82 — `AccessToken | IdToken` — Which token the SPA presents as the `/api` bearer (`api_bearer` in
+- pub `AuthConfig` struct L86-112 — `{ issuer: Option<String>, client_id: String, authorization_endpoint: Option<Stri...` — What `GET /api/config` returns (mirror of `kairos-server::web`).
+- pub `can_sso` function L121-123 — `(&self) -> bool` — Whether an SSO redirect can actually be performed.
+- pub `TokenResponse` struct L128-139 — `{ access_token: String, id_token: Option<String>, refresh_token: Option<String>,...` — A successful token response (authorization_code or refresh_token grant).
+- pub `Session` struct L159-164 — `{ access_token: String, refresh_token: Option<String> }` — The in-memory session (A-0015: never persisted).
+- pub `Auth` struct L169-182 — `{ session: RwSignal<Option<Session>>, config: RwSignal<Option<AuthConfig>>, sign...` — Reactive auth state, provided at the app root ([`provide_auth`]) and
+- pub `provide_auth` function L189-206 — `() -> Auth` — Create the auth state and put it into context.
+- pub `use_auth` function L225-227 — `() -> Auth` — The app-root [`Auth`] (panics outside the app tree — a bug by
+- pub `is_authenticated` function L231-233 — `(&self) -> bool` — Reactive: is there a live session?
+- pub `token` function L236-239 — `(&self) -> Option<String>` — Current bearer token (reactive).
+- pub `signed_out` function L244-246 — `(&self) -> bool` — Reactive: did the user explicitly log out (vs.
+- pub `restoring` function L250-252 — `(&self) -> bool` — Reactive: is the boot-time session restore (KAIROS-T-0071) still in
+- pub `logout` function L258-263 — `(&self)` — Drop the in-memory session AND the stored refresh token (a logout
+- pub `expire` function L270-274 — `(&self)` — Drop the session WITHOUT marking an explicit sign-out (refresh
+- pub `config_cached` function L360-367 — `(&self) -> Result<AuthConfig, String>` — `/api/config`, fetched once and cached in the signal.
+- pub `fetch_auth_config` function L372-384 — `() -> Result<AuthConfig, String>` — `GET /api/config` — the SPA's discovery endpoint (decision documented
+- pub `begin_login` function L389-430 — `(auth: Auth, return_to: &str) -> Result<(), String>` — Start the PKCE flow: stash verifier/state/return-path in
+- pub `complete_login` function L434-479 — `(auth: Auth) -> Result<String, String>` — Handle `/callback`: verify `state`, exchange the code through the
+- pub `take_return_to` function L486-496 — `() -> String` — Where to go after a successful sign-in, consuming the stashed value.
+- pub `stash_return_to` function L504-511 — `(path: &str)` — Remember where an unauthenticated visitor was headed before sending them to the
+- pub `password_login` function L529-568 — `(auth: Auth, email: &str, password: &str) -> Result<(), String>` — `POST /api/login` — a local password login (KAIROS-T-0205, KAIROS-T-0203).
+-  `SCOPES` variable L57 — `: &str` — Scopes requested at login.
+-  `REFRESH_MARGIN_SECS` variable L60 — `: f64` — Refresh the session this many seconds before the access token expires.
+-  `KEY_VERIFIER` variable L64 — `: &str` — Workspace (KAIROS-T-0054).
+-  `KEY_STATE` variable L65 — `: &str` — Workspace (KAIROS-T-0054).
+-  `KEY_RETURN_TO` variable L66 — `: &str` — Workspace (KAIROS-T-0054).
+-  `KEY_REFRESH` variable L69 — `: &str` — The refresh token (KAIROS-T-0071): per-tab reload survival.
+-  `AuthConfig` type L114-124 — `= AuthConfig` — Workspace (KAIROS-T-0054).
+-  `TokenResponse` type L141-155 — `= TokenResponse` — Workspace (KAIROS-T-0054).
+-  `bearer_for` function L146-154 — `(&self, kind: ApiBearer) -> String` — The token to use as the `/api` bearer for the given selection.
+-  `restore_session` function L213-221 — `(auth: Auth)` — Boot-time session restore (KAIROS-T-0071): run the refresh grant with
+-  `Auth` type L229-368 — `= Auth` — Workspace (KAIROS-T-0054).
+-  `install` function L282-318 — `(&self, tokens: TokenResponse)` — Install a token response and schedule the silent refresh.
+-  `refresh` function L323-331 — `(self)` — The silent-refresh grant through the relay, from the live session's
+-  `refresh_with` function L337-354 — `(self, refresh_token: &str)` — One refresh grant with an explicit token — shared by the in-session
+-  `LoginRequest` struct L531-534 — `{ email: &'a str, password: &'a str }` — Workspace (KAIROS-T-0054).
+-  `LoginResponse` struct L536-538 — `{ token: String }` — Workspace (KAIROS-T-0054).
+-  `login_error_message` function L575-586 — `(status: u16, body: &str) -> String` — The message to show for a failed login.
+-  `post_token` function L589-608 — `(body: &str) -> Result<TokenResponse, String>` — POST a form body to the token relay and parse the token response.
+-  `window` function L612-614 — `() -> web_sys::Window` — Workspace (KAIROS-T-0054).
+-  `origin` function L616-621 — `() -> Result<String, String>` — Workspace (KAIROS-T-0054).
+-  `session_storage` function L623-629 — `() -> Result<web_sys::Storage, String>` — Workspace (KAIROS-T-0054).
+-  `clear_stored_refresh` function L632-636 — `()` — Remove the stored refresh token (logout / dead token).
+-  `url_encode` function L638-640 — `(value: &str) -> String` — Workspace (KAIROS-T-0054).
+-  `random_urlsafe` function L644-652 — `(len: usize) -> Result<String, String>` — `len` random bytes from WebCrypto, base64url-encoded (RFC 7636 §4.1
+-  `s256_base64url` function L655-668 — `(verifier: &str) -> Result<String, String>` — The S256 code challenge: `BASE64URL(SHA256(verifier))` (RFC 7636 §4.2).
+-  `base64url` function L672-692 — `(bytes: &[u8]) -> String` — Base64url without padding (RFC 4648 §5).
+-  `ALPHABET` variable L673 — `: &[u8; 64]` — Workspace (KAIROS-T-0054).
+-  `form_encode` function L695-701 — `(pairs: &[(&str, &str)]) -> String` — `application/x-www-form-urlencoded` body from pairs.
+-  `form_component` function L704-715 — `(value: &str) -> String` — Percent-encode one form value (conservative: everything but unreserved).
+-  `tests` module L718-832 — `-` — Workspace (KAIROS-T-0054).
+-  `tokens` function L721-728 — `(access: &str, id: Option<&str>) -> TokenResponse` — Workspace (KAIROS-T-0054).
+-  `bearer_selection_follows_api_bearer` function L731-737 — `()` — Workspace (KAIROS-T-0054).
+-  `id_token_mode_falls_back_when_absent` function L740-745 — `()` — Workspace (KAIROS-T-0054).
+-  `api_bearer_defaults_to_access_token_when_absent` function L748-763 — `()` — Workspace (KAIROS-T-0054).
+-  `a_deployment_with_no_issuer_parses_and_offers_no_sso` function L766-777 — `()` — Workspace (KAIROS-T-0054).
+-  `both_paths_at_once_is_representable` function L780-789 — `()` — Workspace (KAIROS-T-0054).
+-  `a_pre_t0208_server_payload_still_parses` function L792-801 — `()` — Workspace (KAIROS-T-0054).
+-  `base64url_matches_rfc4648_vectors` function L805-813 — `()` — RFC 4648 §10 test vectors, translated to base64url-no-padding.
+-  `base64url_uses_urlsafe_alphabet` function L816-821 — `()` — Workspace (KAIROS-T-0054).
+-  `form_encoding_escapes_reserved_characters` function L824-831 — `()` — Workspace (KAIROS-T-0054).
 
 #### crates/kairos-web/src/lib.rs
 
@@ -4501,18 +4668,20 @@
 
 #### crates/kairos-web/src/pages.rs
 
-- pub `LoginPage` function L26-63 — `() -> impl IntoView` — Explicit sign-in page: logout lands here; a button restarts PKCE.
-- pub `CallbackPage` function L68-86 — `() -> impl IntoView` — PKCE redirect target: exchanges the code (via the server relay), then
-- pub `admin` module L127 — `-` — later tasks should keep.
-- pub `NotFoundPage` function L138-148 — `() -> impl IntoView` — Router fallback.
--  `copy_link` module L92 — `-` — later tasks should keep.
--  `boards` module L96 — `-` — later tasks should keep.
--  `item` module L101 — `-` — later tasks should keep.
--  `search` module L106 — `-` — later tasks should keep.
--  `editor` module L113 — `-` — later tasks should keep.
--  `teams` module L115 — `-` — later tasks should keep.
--  `repositories` module L122 — `-` — later tasks should keep.
--  `activity` module L133 — `-` — later tasks should keep.
+- pub `LoginPage` function L40-83 — `() -> impl IntoView` — Explicit sign-in page: logout lands here, and so does any unauthenticated
+- pub `CallbackPage` function L239-257 — `() -> impl IntoView` — PKCE redirect target: exchanges the code (via the server relay), then
+- pub `admin` module L298 — `-` — later tasks should keep.
+- pub `NotFoundPage` function L309-319 — `() -> impl IntoView` — Router fallback.
+-  `ProviderButton` function L87-120 — `() -> impl IntoView` — The "sign in with your identity provider" button: starts PKCE.
+-  `PasswordForm` function L137-234 — `() -> impl IntoView` — The email/password form, for a deployment with local accounts
+-  `copy_link` module L263 — `-` — later tasks should keep.
+-  `boards` module L267 — `-` — later tasks should keep.
+-  `item` module L272 — `-` — later tasks should keep.
+-  `search` module L277 — `-` — later tasks should keep.
+-  `editor` module L284 — `-` — later tasks should keep.
+-  `teams` module L286 — `-` — later tasks should keep.
+-  `repositories` module L293 — `-` — later tasks should keep.
+-  `activity` module L304 — `-` — later tasks should keep.
 
 ### crates/kairos-web/src/pages
 
@@ -7620,13 +7789,13 @@
 
 #### scripts/render-openapi.py
 
-- pub `fail` function L91-93 — `def fail(message)`
-- pub `load_spec` function L96-111 — `def load_spec()`
-- pub `anchor` function L114-123 — `def anchor(text)` — mdBook's heading anchor: lowercase, non-alphanumerics to hyphens.
-- pub `type_of` function L126-157 — `def type_of(schema, spec)` — A short, human type for a schema node.
-- pub `render_operation` function L160-207 — `def render_operation(method, path, op, spec, lines)`
-- pub `render` function L210-325 — `def render(spec)`
-- pub `main` function L328-372 — `def main()`
+- pub `fail` function L100-102 — `def fail(message)`
+- pub `load_spec` function L105-120 — `def load_spec()`
+- pub `anchor` function L123-132 — `def anchor(text)` — mdBook's heading anchor: lowercase, non-alphanumerics to hyphens.
+- pub `type_of` function L135-166 — `def type_of(schema, spec)` — A short, human type for a schema node.
+- pub `render_operation` function L169-216 — `def render_operation(method, path, op, spec, lines)`
+- pub `render` function L219-334 — `def render(spec)`
+- pub `main` function L337-381 — `def main()`
 
 ### uat/checks
 
@@ -7682,6 +7851,11 @@
 -  `laneColumn` function L29-33 — `function laneColumn(page: Page, lane: Lane, name: string): Locator`
 -  `laneCard` function L35-37 — `function laneCard(page: Page, lane: Lane, columnName: string, code: string): Loc...`
 -  `dragInLane` function L41-59 — `function dragInLane(page: Page, code: string, lane: Lane, toColumn: string): Pro...`
+
+#### uat/journeys/local-login.journey.ts
+
+-  `password` function L32 — `const password = (label: string)`
+-  `login` function L35-44 — `function login(email: string, pw: string): Promise<{ status: number; body: any }...`
 
 #### uat/journeys/machine-access.journey.ts
 

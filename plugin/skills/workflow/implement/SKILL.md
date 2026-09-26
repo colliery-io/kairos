@@ -15,6 +15,8 @@ This session is scoped to one **repository** — the `repository` in the Session
 
 **A task on the wrong board is moved, not recreated.** When a ticket is on this board but is really another team's work, `move_item` it to their delivery board (`to_board`) — recreating it there throws away its history, its edges and its author. You need `manage_tasks` on both boards; if the tool refuses, name the board it belongs on and ask the lead. A repository-bound task already sits on its owner's board and can only move once the binding is removed.
 
+Anything procedural you write while implementing — a how-to or reference page, an error message, CLI help text — follows Simplified Technical English: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009). It does **not** apply to your commit message, your code comments, or the reasoning you record on the item; those exist to explain why, and STE cannot. `angreal docs ste` checks the mechanical rules where the project has that task.
+
 The task must be workable: acceptance criteria present and independently verifiable, blockers resolved. When it isn't, stop, note the gap on the item, and tell the lead it needs `/kairos:triage` — surface the gap rather than quietly filling it yourself.
 
 `transition_item` to **Active** before the first change.

@@ -2,6 +2,8 @@
 
 Acceptance criteria written during triage are the contract the implementing agent works from. The item's discussion and history are context — the criteria are what "done" means. Write them into the item's content (`edit_item`) under an `## Acceptance Criteria` heading, as a checklist.
 
+**Write them in Simplified Technical English.** [The STE reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009) is the source of truth, and a criterion is procedural text by definition: it is a testable instruction. One instruction per criterion, active voice, present tense, 20 words or fewer, and the domain terms from its section 4 rather than a synonym. Two readers who understand a criterion differently do not have a contract.
+
 ## Principles
 
 ### Durability over precision

@@ -77,9 +77,9 @@ config:
 
 **Step 5.** Remove both variables.
 
-The bootstrap is single-use. It runs only on a boot that finds no users, and it does
-nothing after that, even with the same email. The variables are now a credential in
-your configuration that does nothing. Remove them.
+The bootstrap is single-use. It runs only on a boot that finds no users. It does
+nothing after that, even with the same email. The variables are now a credential that
+does nothing. Remove them.
 
 The bootstrap email is also a deployment admin. A new deployment has no organization,
 and only a deployment admin can create one.
@@ -96,7 +96,7 @@ The caller becomes the organization's first admin.
 
 ## Create an account for a colleague
 
-An org admin creates local accounts. There is no self-service sign-up.
+An organization admin creates local accounts. There is no self-service sign-up.
 
 ```bash
 curl -X POST https://kairos.example.com/api/local-accounts \
@@ -122,7 +122,7 @@ that person. It does not make a second person. The response field `created` is
 
 ## Reset a password
 
-An org admin resets a password:
+An organization admin resets a password:
 
 ```bash
 curl -X PUT https://kairos.example.com/api/local-accounts/$USER_ID/password \
@@ -190,13 +190,12 @@ already exists. For an empty deployment, use the first-boot admin instead.
 Set `KAIROS_LOCAL_AUTH=false` and restart. The login endpoint disappears. Session
 bearers stop working immediately.
 
-The password hashes stay in the database. To remove one person's password, an org
-admin has no endpoint for it today. Use the database, or leave the hash in place: it
-cannot be used while local auth is off.
+The password hashes stay in the database. There is no endpoint to remove one
+person's password today. Use the database, or leave the hash in place. It does nothing
+while local auth is off.
 
 Make sure an issuer works before you do this. A deployment with no issuer and no
-local accounts refuses to start, which is deliberate — it has no way to let anybody
-in.
+local accounts refuses to start. That is deliberate: it has no way to let anybody in.
 
 ## Related
 

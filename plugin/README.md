@@ -67,9 +67,15 @@ the template must stay deployment-agnostic.
 
 ## `references/` are rendered artifacts
 
-`references/architecture-review.md` and `references/diataxis.md` are rendered from the Metis
-specifications KAIROS-S-0007 and KAIROS-S-0008, which remain the source of truth. Never edit
-the rendered files directly. To re-render after a spec change, run:
+Three files, each rendered from the Metis specification that remains its source of truth:
+
+| Rendered | Source |
+|---|---|
+| `references/architecture-review.md` | KAIROS-S-0007 |
+| `references/diataxis.md` | KAIROS-S-0008 |
+| `references/simplified-technical-english.md` | KAIROS-S-0009 |
+
+Never edit the rendered files directly. To re-render after a spec change, run:
 
 ```
 scripts/render-references.sh

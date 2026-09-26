@@ -78,19 +78,37 @@ tells you why.
 
 ## What you get
 
-One span per HTTP request, named `<METHOD> <route>`:
+A span per HTTP request, with the work inside it as children:
 
 ```
-GET /api/boards/{id}/items      42ms
+GET /api/boards/{id}/items                                   42ms
   http.request.method  GET
   http.route           /api/boards/{id}/items
   http.response.status_code  200
   kairos.tenant        acme
+│
+├── auth.jit_upsert                                           2ms
+├── tenant.resolve                                            3ms
+└── db.query                                                 35ms
+      db.system      postgresql
+      code.filepath  crates/kairos-server/src/api/org/boards.rs
+      code.lineno    538
+      kairos.tenant  acme
 ```
 
-The route is the **matched pattern**, never the concrete path. That is deliberate:
-a span named with a real id would make every request its own operation in your
-collector's UI, which turns a trace view into a list.
+`code.filepath` and `code.lineno` are the point: they name **which query**, to the
+line. A board that takes four seconds shows you the call site responsible rather
+than leaving you to guess which of a handler's queries it was, and a handler that
+makes eleven round trips shows eleven children.
+
+`auth.jit_upsert` and `tenant.resolve` are on every authenticated request, so time
+spent there would otherwise be an unexplained gap before the first query.
+
+The request span's route is the **matched pattern**, never the concrete path. That
+is deliberate: a span named with a real id would make every request its own
+operation in your collector's UI, which turns a trace view into a list. Query spans
+are named by call site for the same reason — grouping by `code.filepath` and
+`code.lineno` is meaningful where grouping by a rendered SQL string is not.
 
 Only **5xx** marks a span as an error. A 404 or a 403 is the server working
 correctly, and flagging those would make every permission check look like an
@@ -109,9 +127,19 @@ receiver answers, a gRPC port does not.
 **Spans appear but stop when the process restarts.** Expected for in-flight
 batches on an unclean kill; Kairos flushes on a normal shutdown.
 
-**You want database or MCP spans.** There are none yet — the request span is the
-whole instrumentation today. It tells you *which* request was slow, not which query
-inside it. That is worth knowing before you plan an investigation around it.
+**A handler shows no `db.query` children.** It did no database work on that request
+— a cache-free read served entirely from the request, or a refusal before the
+handler ran. Check the status code on the request span.
+
+**You want spans inside a query.** There are none: a `db.query` span covers one unit
+of work through the connection pool, so it tells you *which* call site was slow, not
+which index PostgreSQL chose. `EXPLAIN ANALYZE` on the statement at the file and
+line the span names is the next step, and the span exists to tell you where to point
+it.
+
+**You want MCP tool spans.** There are none yet. An MCP call produces a request span
+(`POST /mcp`) with its database children, so slow work is visible — but the tool
+name is not on the span, so you cannot yet group by "how slow is `related_work`".
 
 ## See also
 

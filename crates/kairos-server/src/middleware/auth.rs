@@ -373,6 +373,15 @@ fn bearer_token(req: &Request) -> Result<&str, VerifyError> {
 ///
 /// Fast path: when the row already matches the claims, this is one SELECT
 /// and no write.
+// KAIROS-T-0199: on every authenticated request, so it is worth a span of its own.
+// `skip_all` because the claims carry an email and a subject and a span is
+// telemetry that leaves the process — nothing here should ship a user's identity
+// to a collector by accident.
+#[tracing::instrument(
+    name = "auth.jit_upsert",
+    skip_all,
+    fields(otel.kind = "client", db.system = "postgresql")
+)]
 async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User, ApiError> {
     let email = claims
         .email

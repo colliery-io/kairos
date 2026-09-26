@@ -15,6 +15,7 @@ use diesel::connection::SimpleConnection;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
 use kairos_db::tenant::{is_valid_slug, tenant_schema_name};
+use tracing::Instrument as _;
 
 use crate::error::ApiError;
 
@@ -51,31 +52,66 @@ impl BlockingTenantPool {
     /// `spawn_blocking`. The closure returns `Result<T, ApiError>` so
     /// service errors are mapped to their HTTP codes where the context
     /// lives (in the handler's closure).
-    pub async fn run<T, F>(&self, slug: &str, f: F) -> Result<T, ApiError>
+    /// KAIROS-T-0199: a `fn` returning a future, not an `async fn`.
+    ///
+    /// The signature is the instrumentation. `#[track_caller]` on an `async fn`
+    /// reports the function's own body rather than the call site — Rust warns
+    /// about it (`ungated_async_fn_track_caller`) and it was verified before
+    /// relying on it. A plain `fn` gets the real caller, so the span can name the
+    /// query by `file:line` **without touching any of the 134 call sites**.
+    ///
+    /// Callers are unchanged: `pool.run(slug, |conn| …).await` still compiles and
+    /// still means the same thing.
+    #[track_caller]
+    pub fn run<T, F>(
+        &self,
+        slug: &str,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<T, ApiError>> + Send + use<T, F>
     where
         F: FnOnce(&mut PgConnection) -> Result<T, ApiError> + Send + 'static,
         T: Send + 'static,
     {
+        let location = std::panic::Location::caller();
+        // Created HERE, in the caller's context, which is what makes it a child of
+        // the request span from KAIROS-T-0196 rather than an orphan at the root of
+        // the trace. Building it inside the async block would parent it to
+        // whatever happened to be current when the future was first polled.
+        let span = tracing::info_span!(
+            "db.query",
+            otel.kind = "client",
+            db.system = "postgresql",
+            // OpenTelemetry's own convention for "where in the code" — so a
+            // collector's UI groups by it without configuration.
+            code.filepath = location.file(),
+            code.lineno = location.line(),
+            kairos.tenant = %slug,
+        );
+
         // The tenant middleware already validated the slug; this guard is
         // what makes interpolating the schema name safe by construction.
-        if !is_valid_slug(slug) {
-            return Err(ApiError::internal(format!(
-                "invalid tenant slug {slug:?} reached the blocking pool"
-            )));
-        }
+        let invalid = (!is_valid_slug(slug))
+            .then(|| format!("invalid tenant slug {slug:?} reached the blocking pool"));
         let schema = tenant_schema_name(slug);
         let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut conn = pool.get().map_err(ApiError::internal)?;
-            conn.batch_execute(&format!("SET search_path TO \"{schema}\", public"))
-                .map_err(ApiError::internal)?;
-            let result = f(&mut conn);
-            // Defense-in-depth only — see module docs.
-            let _ = conn.batch_execute("SET search_path TO public");
-            result
-        })
-        .await
-        .map_err(ApiError::internal)?
+
+        async move {
+            if let Some(message) = invalid {
+                return Err(ApiError::internal(message));
+            }
+            tokio::task::spawn_blocking(move || {
+                let mut conn = pool.get().map_err(ApiError::internal)?;
+                conn.batch_execute(&format!("SET search_path TO \"{schema}\", public"))
+                    .map_err(ApiError::internal)?;
+                let result = f(&mut conn);
+                // Defense-in-depth only — see module docs.
+                let _ = conn.batch_execute("SET search_path TO public");
+                result
+            })
+            .await
+            .map_err(ApiError::internal)?
+        }
+        .instrument(span)
     }
 
     /// Run `f` on a sync connection pinned to `search_path = public` (no
@@ -84,20 +120,37 @@ impl BlockingTenantPool {
     /// pending-migration check, which needs a blocking `PgConnection`
     /// (`diesel_migrations` is sync-only). Checking a connection out also
     /// proves sync-pool database connectivity.
-    pub async fn run_public<T, F>(&self, f: F) -> Result<T, ApiError>
+    #[track_caller]
+    pub fn run_public<T, F>(
+        &self,
+        f: F,
+    ) -> impl std::future::Future<Output = Result<T, ApiError>> + Send + use<T, F>
     where
         F: FnOnce(&mut PgConnection) -> Result<T, ApiError> + Send + 'static,
         T: Send + 'static,
     {
+        // Same shape as `run` — see its note on why this is a `fn` and not an
+        // `async fn`. No tenant field: this path deliberately cannot reach one.
+        let location = std::panic::Location::caller();
+        let span = tracing::info_span!(
+            "db.query",
+            otel.kind = "client",
+            db.system = "postgresql",
+            code.filepath = location.file(),
+            code.lineno = location.line(),
+        );
         let pool = self.pool.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut conn = pool.get().map_err(ApiError::internal)?;
-            conn.batch_execute("SET search_path TO public")
-                .map_err(ApiError::internal)?;
-            f(&mut conn)
-        })
-        .await
-        .map_err(ApiError::internal)?
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let mut conn = pool.get().map_err(ApiError::internal)?;
+                conn.batch_execute("SET search_path TO public")
+                    .map_err(ApiError::internal)?;
+                f(&mut conn)
+            })
+            .await
+            .map_err(ApiError::internal)?
+        }
+        .instrument(span)
     }
 
     /// Point-in-time `(total_connections, idle_connections)` for the r2d2

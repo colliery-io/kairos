@@ -27,6 +27,8 @@ use kairos_db::tenant::is_valid_slug;
 use kairos_db::{TenantConnection, TenantPool};
 use uuid::Uuid;
 
+use tracing::Instrument as _;
+
 use crate::app::AppState;
 use crate::config::AppConfig;
 use crate::error::ApiError;
@@ -137,28 +139,44 @@ pub async fn require_tenant(
         )));
     }
 
-    let mut conn = state.pool.public_conn().await.map_err(ApiError::internal)?;
-
-    let org: Option<Organization> = organizations::table
-        .filter(organizations::slug.eq(&slug))
-        .select(Organization::as_select())
-        .first(&mut conn)
-        .await
-        .optional()
-        .map_err(ApiError::internal)?;
-    let org = org
-        .ok_or_else(|| ApiError::tenant_not_found(format!("no organization with slug {slug:?}")))?;
-
-    let role: Option<OrgRole> = organization_members::table
-        .filter(organization_members::organization_id.eq(org.id))
-        .filter(organization_members::user_id.eq(auth.user_id))
-        .select(organization_members::role)
-        .first(&mut conn)
-        .await
-        .optional()
-        .map_err(ApiError::internal)?;
-    let role = role.ok_or_else(|| ApiError::membership_required(&slug))?;
-    drop(conn);
+    // KAIROS-T-0199: this lookup happens on EVERY request, so without a span it is
+    // invisible time between the request starting and the handler's first query.
+    // Named for what it is rather than `db.query` — the function does more than
+    // one statement, and "tenant.resolve took 4ms" is the useful sentence.
+    let tenant_span = tracing::info_span!(
+        "tenant.resolve",
+        otel.kind = "client",
+        db.system = "postgresql",
+        kairos.tenant = %slug,
+    );
+    // Both statements in one span, sharing one connection as they did before.
+    // Two spans would measure the same connection checkout twice and suggest a
+    // round trip that is not there.
+    let (org, role) = async {
+        let mut conn = state.pool.public_conn().await.map_err(ApiError::internal)?;
+        let org: Option<Organization> = organizations::table
+            .filter(organizations::slug.eq(&slug))
+            .select(Organization::as_select())
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(ApiError::internal)?;
+        let org = org.ok_or_else(|| {
+            ApiError::tenant_not_found(format!("no organization with slug {slug:?}"))
+        })?;
+        let role: Option<OrgRole> = organization_members::table
+            .filter(organization_members::organization_id.eq(org.id))
+            .filter(organization_members::user_id.eq(auth.user_id))
+            .select(organization_members::role)
+            .first(&mut conn)
+            .await
+            .optional()
+            .map_err(ApiError::internal)?;
+        let role = role.ok_or_else(|| ApiError::membership_required(&slug))?;
+        Ok::<_, ApiError>((org, role))
+    }
+    .instrument(tenant_span)
+    .await?;
 
     let context = TenantContext {
         org_id: org.id,

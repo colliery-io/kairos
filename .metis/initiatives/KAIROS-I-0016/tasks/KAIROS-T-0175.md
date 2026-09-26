@@ -77,10 +77,6 @@ bending the page.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] README is a landing page plus contributor quickstart, ~80 lines.
 - [ ] All nine original README sections accounted for; none dropped.
 - [ ] `diataxis-review` run over every page, rule IDs cited, findings fixed

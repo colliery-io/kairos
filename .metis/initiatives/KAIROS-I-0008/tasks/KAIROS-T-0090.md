@@ -37,8 +37,6 @@ Put the graph where people are and keep it honest: a full Graph tab on `/items/:
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `/items/:code` offers Details | Graph; Graph renders the shared canvas focused on the item; the choice rides a query param and survives back/refresh; Details is unchanged.
 - [x] An API-side transition/edit to a visible node updates the open graph without user action (WS refetch, T-0074 pattern); positions of unchanged nodes do not move.
 - [x] In-place expansions survive a WS refetch (recorded strategy).

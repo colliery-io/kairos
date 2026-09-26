@@ -54,10 +54,6 @@ the other document types, so it may take more than one hop.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `KAIROS-S-0008` is out of `discovery` and in a settled phase.
 - [ ] Rule IDs are confirmed stable, or renumbered now with the change noted.
 - [ ] `plugin/references/diataxis.md` matches the spec.

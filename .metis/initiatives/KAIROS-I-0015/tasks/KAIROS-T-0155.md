@@ -65,10 +65,6 @@ unaffected by this task.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] MCP `get_item` and `get_history` return archived work, visibly marked.
 - [ ] `kairos <family> get <archived-code>` prints it with the same marker.
 - [ ] MCP write tools still refuse archived items with a clear message.

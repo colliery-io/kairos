@@ -58,8 +58,6 @@ Ship a v1 Helm chart at `deploy/helm/kairos/` so Kairos runs on Kubernetes — t
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `deploy/helm/kairos/` chart: Chart.yaml (apiVersion v2, appVersion 0.1.0), values.yaml, _helpers.tpl, and templates for Deployment, Service, Ingress, ConfigMap (non-secret env), Secret (DATABASE_URL etc.), ServiceAccount, HPA (gated), ServiceMonitor (gated), a `helm test` connection pod, NOTES.txt, .helmignore, and a chart README
 - [x] Deployment runs `ghcr.io/colliery-io/kairos:{appVersion}` (never latest), single container, liveness `/healthz` + readiness `/readyz`, configurable replicas/resources; env surface = the full A-0013 set (DATABASE_URL, OIDC_ISSUER_URL/AUDIENCE, KAIROS_WEB_CLIENT_ID, KAIROS_BASE_DOMAIN xor KAIROS_SINGLE_TENANT, KAIROS_DEPLOYMENT_ADMINS, KAIROS_LOG_*, KAIROS_OTEL_ENDPOINT, retention KAIROS_HISTORY_*/ARCHIVE_TARGET/RETENTION_MODE, KAIROS_DEV_UI default false)
 - [x] External Postgres + external IdP per A-0016 (chart bundles NEITHER; DATABASE_URL from a Secret or `existingSecret`; docs point OIDC_* at the customer IdP). Public migrations run on boot (T-0007) — no migration Job needed; documented

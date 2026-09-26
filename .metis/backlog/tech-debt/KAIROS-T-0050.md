@@ -61,8 +61,6 @@ Register additional localhost callback ports (or drop redirectURIs entirely) for
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `.angreal/dex/config.yaml` kairos-web client registers the explicit range `http://localhost:{8080..8099}/callback`. Chose the RANGE, NOT drop-redirectURIs: verified in isolated Dex v2.43.1 that a public client with no redirectURIs accepts even a non-loopback host at authorize (open-redirect footgun), so dropping is unsafe even in dev.
 - [x] PKCE login verified live from two different ports without CDP interception — full authorize→login→callback→token curl flow issued access tokens from :8083 AND :8093 (in-range); out-of-range :9999 was REJECTED (no code, bounced to Dex root at the approval step), confirming Dex v2.43.1 exact-matches and the range is functional/necessary (reconciles T-0041/T-0044's rejections). Shared :5558 dex restarted (`angreal services reset`) and re-verified: :8095 accepted (authorize 302).
 - [x] docs/gui-conventions.md updated: documents the 8080–8099 multi-port PKCE capability, notes the exact-match behavior + range boundary, and retires the CDP Fetch-interception workaround.

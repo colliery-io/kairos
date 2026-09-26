@@ -99,10 +99,6 @@ fixing exactly that class of problem in prose. So:
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] Screenshots for the tutorial's two browser moments, an archived item
       page, and a marked put-away search hit.
 - [ ] Mermaid diagrams on `flight-levels.md`, `archiving.md` and

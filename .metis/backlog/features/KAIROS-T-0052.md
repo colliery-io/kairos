@@ -61,8 +61,6 @@ Extend `/api/whoami` (and the MCP `whoami` tool per S-0006, whose spec already l
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `/api/whoami` gains `capabilities: [{board_id, board_slug, grants: [..]}]` via one indexed join (board_member_capabilities→boards, filter user_id) in the handler; whoami DTO mirrored in kairos-client `types_org.rs`; utoipa whoami doc-stub prose updated (no schema-body ref, so ApiDoc completeness stays green).
 - [x] MCP `whoami` tool — verified ALREADY S-0006-conformant (lists board capabilities grouped by board with the capability list); no change needed. The gap was REST-only.
 - [x] GUI admin gating upgraded (`pages/admin/gating.rs` + `admin.rs`/`admin/boards.rs`): per-board config visible to holders of the relevant capability (`role == admin` OR holds a board-config grant); org-admin-only surfaces unchanged. kairos-web glob-match is local (no client/core dep in wasm).

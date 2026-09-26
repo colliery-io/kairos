@@ -75,10 +75,6 @@ it was archived at.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `POST /api/{family}/{code}/restore` works for all five families and
       returns the live item.
 - [ ] It requires the same capability as deleting, and a test proves a user

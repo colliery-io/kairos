@@ -46,12 +46,6 @@ P3 — the scaffold's root sections (Charter, Support Processes, Documentation) 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A member/org-admin can create a root-level page or folder from the team UI; non-members see no affordance.
 - [x] Root slug conflicts surface the server's 422 in the standard Alert pattern.
 - [x] teampages.spec covers the root-create path; ladder green for touched tiers.

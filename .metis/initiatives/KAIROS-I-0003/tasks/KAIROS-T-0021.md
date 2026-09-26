@@ -30,8 +30,6 @@ POST /api/search exposing the T-0014 pipeline exactly per A-0007/S-0005: q/filte
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Request schema validated (at least one of q/filter/traverse; depth required+capped on traverse); 400 with field-level detail otherwise
 - [x] Every S-0005 composition example passes as an HTTP-level integration test; results grouped by type, empty groups omitted, total/limit/offset correct
 - [x] utoipa-annotated request/response schemas

@@ -45,10 +45,6 @@ Deflake the smoke spec's "transition via the move menu" step. It failed on the f
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] The open-menu-then-click sequence in smoke step 5 is atomic-with-retry: a mid-sequence board rebuild causes the WHOLE sequence to retry (expect-polling, per the suite's no-arbitrary-sleeps rule), not a doomed click against a detached node — `toPass` block re-resolves the card each attempt and opens the menu only if a rebuild closed it

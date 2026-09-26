@@ -79,10 +79,6 @@ people. A proposal costs a click. A wrong edge costs a conversation.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Proposals are stored with evidence, proposer, timestamp and state
 - [x] An agent can propose a `parent` or `blocks` edge via MCP and REST
 - [x] Only a human-authorised caller can confirm or reject

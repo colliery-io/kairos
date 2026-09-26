@@ -44,10 +44,6 @@ UAT feedback (Dylan, 2026-08-09).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] A decision is recorded on the scoping mechanism: per KAIROS-A-0003, templates declare metadata fields — the panel should show stamped/declared fields for the item (plus possibly an explicit "add metadata" affordance), not the full definition catalog by default

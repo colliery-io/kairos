@@ -30,10 +30,6 @@ ABAC capability service per A-0006: board-scoped whitelist checks with glob matc
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Unit test matrix for glob semantics: exact match, `*`, `manage_*`, non-matching prefixes, empty/hostile strings — matching the SQL LIKE translation in A-0006
 - [x] Grant/revoke operations with `activity_log` entries; UNIQUE constraint honored
 - [x] Document authorization resolves through the `supports` edge to the parent's board (integration test); templates/metadata/relationships restricted to org admin; org-admin bypass covered by tests

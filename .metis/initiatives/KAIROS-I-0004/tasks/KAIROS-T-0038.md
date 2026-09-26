@@ -30,10 +30,6 @@ CLI distribution per A-0015: release binaries and install documentation.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] CI release workflow (tag-triggered) builds `kairos` for macOS arm64/x86_64 and Linux x86_64/arm64, attaches binaries to the GitHub release
 - [x] `cargo install --path crates/kairos-cli` documented; README section for CLI install + quickstart (login → whoami → boards)
 - [x] Version output (`kairos --version`) matches the workspace version; release workflow validated with actionlint (containerized)

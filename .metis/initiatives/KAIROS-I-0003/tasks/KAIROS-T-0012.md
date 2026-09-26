@@ -30,10 +30,6 @@ Write-path services per A-0004: short-code generation, optimistic concurrency wi
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Short codes generated from per-type sequences as `{PREFIX}-{TYPE}-{NNNN}`; unique within tenant; concurrent-create test shows no gaps-panic or dupes
 - [x] Content update: version check → write → history snapshot in one transaction; stale version returns typed conflict carrying current version + content; concurrent-writer integration test produces exactly one success and one conflict
 - [x] Rollback helper copies a historical snapshot forward as a new version

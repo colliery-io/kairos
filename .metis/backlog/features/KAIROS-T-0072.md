@@ -42,10 +42,6 @@ UAT finding: bob (member of platform) could not transition cards on platform-del
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] `kairos-core::abac`: `TEAM_IMPLIED_CAPABILITIES` (`manage_tasks`, `manage_documents`, `transition_items`) + pure `team_implies(required)` helper, unit-tested; `configure_*`, `manage_members`, and the other `manage_*` families are NOT implied

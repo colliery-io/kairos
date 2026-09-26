@@ -30,8 +30,6 @@ Extend the Playwright GUI smoke suite (e2e/, wired by KAIROS-T-0045 into `angrea
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] New spec: bob (non-admin) logs in via real Dex → "My teams" shows `platform` → team page shows the seeded roster (alice, bob), links to the `platform-delivery` board, and shows the `customer-portal` stream

@@ -30,10 +30,6 @@ The axum middleware stack per A-0010/A-0005: OIDC bearer validation (JWKS), JIT 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] JWKS middleware: fetch+cache realm keys by kid (refresh on unknown kid); validate signature/iss/aud/exp; 401 with S-0005 error envelope on failure; verified live against the compose Dex issuer (http://localhost:5558/dex)
 - [x] JIT provisioning: first authenticated request upserts public.users from claims (sub→external_id, email, name); no org membership auto-granted; member-less user → 403 with a "request access" error code
 - [x] Tenant middleware: Host subdomain → org slug → pinned pool connection; X-Tenant header fallback and KAIROS_SINGLE_TENANT mode per A-0013; unknown tenant → 404; non-member → 403

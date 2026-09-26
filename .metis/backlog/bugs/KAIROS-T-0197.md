@@ -79,12 +79,6 @@ That is exactly why this is filed rather than fixed in passing.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A login by a SCIM-provisioned user binds to the row SCIM created, with its
       membership, rather than creating a second one
 - [x] The fallback's trust assumptions are written down — what claim is believed,

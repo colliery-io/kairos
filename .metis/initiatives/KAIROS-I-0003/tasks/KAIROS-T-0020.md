@@ -30,10 +30,6 @@ The remaining item-adjacent families per S-0005: relationships (org-admin), item
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Relationships GET per item + POST/DELETE (org admin; T-0013 validation errors → 422 with typed reason)
 - [x] Metadata GET/PATCH per item validating against definitions (enum membership, date parse); definitions/templates CRUD (org admin)
 - [x] GET history per entity (versions list + specific version content); GET /api/activity with combinable filters + pagination

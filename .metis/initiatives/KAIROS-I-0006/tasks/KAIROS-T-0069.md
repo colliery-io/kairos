@@ -30,8 +30,6 @@ Apply the team lens to existing views: `/boards` groups delivery boards under th
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] `/boards` groups delivery boards by owning team (team names resolved from the shared teams read); boards without a team (strategy/initiative/ADR/org-level) render in a distinct section — nothing becomes unreachable

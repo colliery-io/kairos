@@ -30,10 +30,6 @@ Port tdd (with its mocking/tests references) and diagnosing-bugs (with its hitl-
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] tdd: red-green-refactor discipline intact incl. the reference files; progress notes land in the active Kairos task via edit_item
 - [x] diagnosing-bugs: reproduce→minimise→hypothesise→instrument→fix→regression-test loop intact; diagnosis log lands in the Kairos task/bug
 - [x] Both model-invoked per upstream; registered + router recorded as merge snippets per lane amendment (see Registration Snippets — orchestrator applies); skill-reviewer run

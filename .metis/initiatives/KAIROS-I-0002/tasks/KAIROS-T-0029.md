@@ -30,10 +30,6 @@ Port triage and implement (workflow bucket): delivery-board backlog triage with 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] triage: upstream's state-machine discipline rebound to board columns + item types (backlog→todo grooming, bug prioritization, stale-item archival per S-0003's ceremony actions); cross-team blockers escalate via blocks edges + initiative-board visibility, per the vision
 - [x] implement: takes a short code (or picks from my_boards todo), transitions todo→active, works the task updating it via edit_item as working memory (the metis-ralph discipline), demonstrates acceptance criteria, transitions active→completed only when done; explicitly instructs recording evidence in the task
 - [x] Both user-invoked (implement may also be model-reachable — decide per upstream and A-0014, document); registered + router updated (amended: snippets recorded in Status Updates, orchestrator merges); skill-reviewer run

@@ -38,8 +38,6 @@ The wire contract a real graph needs: stop discarding what the traverse CTE alre
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `traverse_edges` returns typed directed edges with min-depth; cycle-safe on the seeded blocks web; unit/integration-tested in kairos-db (depth bounding, direction, relationship filtering, cross-links between visited nodes).
 - [x] `GET /api/{family}/{code}/graph?depth=N` returns focus + hydrated nodes (short_code, entity_type, title, status) + edges; 404 on dead refs via entity_directory; depth defaults 2 and clamps at MAX_TRAVERSE_DEPTH; openapi registered.
 - [x] Workflow node status is the board column name; document nodes carry lifecycle (two-vocabulary split per A-0018).

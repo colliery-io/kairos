@@ -45,8 +45,6 @@ The server surface for team pages and announcements: by-slug team lookup, pages 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] All routes above exist, registered in openapi, with kairos-client DTOs + methods.
 - [x] Permission matrix integration-tested: team member writes OK; non-member member 403 (naming team membership); org admin OK; all tenant users read.
 - [x] Page content PATCH is version-checked: stale version → 409 with details.current; every content save writes a history row.

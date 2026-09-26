@@ -89,10 +89,6 @@ promise to satisfy it.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `postgresql.enabled` bundles a Postgres carrying pgvector; disabled
       reproduces today's behaviour exactly
 - [x] `helm install` with only the two OIDC values produces a working deployment

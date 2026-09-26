@@ -38,8 +38,6 @@ Surface the documents attached to a team's WORK from the team page: `GET /api/te
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `GET /api/teams/{id}/work-documents` returns exactly the derived set: docs supporting the team's tasks (team_id) or items on the team's delivery board; soft-deleted docs/parents excluded; DISTINCT; 404 unknown team.
 - [x] Integration test builds both membership paths + a negative (doc under an org-level initiative absent) + dedup (doc supporting two team items appears once).
 - [x] kairos-client DTO + method; openapi registered.

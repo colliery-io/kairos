@@ -77,10 +77,6 @@ contradict the new behaviour.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Migration adds `deleted_at` to `board_columns`.
 - [x] A column whose only occupants are archived can be removed; one holding
       a live card still 422s with `COLUMN_NOT_EMPTY`.

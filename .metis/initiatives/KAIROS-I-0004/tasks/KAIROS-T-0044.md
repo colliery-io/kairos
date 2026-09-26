@@ -30,10 +30,6 @@ Activity and history per A-0015.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Item history view: version list, view any version, diff two versions (text diff client-side), rollback via the documented flow (copy-forward as new version)
 - [x] Activity feed: filterable (entity, actor, action, since), paginated; entity links to detail
 

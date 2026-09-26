@@ -73,10 +73,6 @@ filter moves into the query.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A tenant migration recreates both views exposing `deleted_at`.
 - [x] Every consumer names its liveness mode explicitly.
 - [x] `crates/kairos-db/tests/search.rs:637-679` passes unmodified.

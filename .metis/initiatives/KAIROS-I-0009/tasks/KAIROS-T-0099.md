@@ -49,8 +49,6 @@ The ingestion endpoint: accept deliveries from GitHub and GitLab, resolve the te
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `POST /webhooks/{forge}/{tenant}/{connection_id}` ingests GitHub and GitLab branch + PR/MR deliveries and creates/updates `item_links`.
 - [x] Signature verified over raw bytes in constant time on both forges; a bad signature, unknown connection, unknown tenant, and malformed slug are indistinguishable in the response.
 - [x] Deliveries matching no live short code return 2xx and change nothing; unknown event types (pings) likewise.

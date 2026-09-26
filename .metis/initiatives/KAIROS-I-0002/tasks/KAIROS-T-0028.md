@@ -30,10 +30,6 @@ Port to-prd → to-initiative and to-issues → decompose (workflow bucket): con
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] to-initiative: synthesizes the conversation into create_item(initiative) on a coordination board + create_item(document, template=prd, parent=the initiative); no interview (grilling is separate); uses S-0006 tools by name
 - [x] decompose: vertical-slice/tracer-bullet discipline preserved from upstream (incl. expand–contract for wide refactors); creates tasks via create_item with parent linkage, wires blocks edges via link_items, quizzes the user on granularity/dependencies before publishing; publishes in dependency order
 - [x] Both user-invoked; registered in plugin.json + router updated (amended per orchestrator lane: registration/router recorded as exact snippets in Status Updates for merge-time application — shared files); skill-reviewer findings addressed/recorded

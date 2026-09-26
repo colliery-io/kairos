@@ -30,10 +30,6 @@ The diesel layer per A-0009 (as amended): single `schema.rs`, models, enum mappi
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Single `crates/kairos-db/src/schema.rs`: tenant tables unqualified, public tables schema-qualified; `angreal db schema-sync` reproduces it with zero diff against the migrated dev DB
 - [x] Queryable/Insertable/AsChangeset models for all entity + organizational + board + metadata + auth tables; TEXT-CHECK enums mapped to Rust enums via FromSql/ToSql with unit tests
 - [x] bb8 + diesel-async pool helper: checkout sets `search_path` to the requested tenant, return resets it; targeted integration test proves two tenants served interleaved from one pool with no leakage

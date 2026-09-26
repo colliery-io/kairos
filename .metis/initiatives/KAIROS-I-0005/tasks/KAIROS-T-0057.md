@@ -33,8 +33,6 @@ query module. Mirrors the SCIM-token data layer (`kairos-db/src/scim.rs`,
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] Public migration adds `public.users.kind TEXT NOT NULL DEFAULT 'human'`

@@ -54,8 +54,6 @@ None (first task). Reads `e2e/helpers/*.ts`, `.angreal/task_test.py`, `crates/ka
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `angreal test uat --journey smoke` boots compose, runs the smoke journey green, writes `uat/reports/<run>/report.md` + `.json` (four rows: GUI / CLI / MCP / compose-only admin), tears down — run `muclufwa`.
 - [x] `--keep-running` then `--server http://localhost:41080 --journey smoke` passed in server mode with the compose-only step reported "skipped: needs a deployment-admin token" — run `muclm8d2`.
 - [x] A deliberately failing journey (temporary file) exited 1 ("UAT FAILED at phase: UAT: playwright test"), rendered a ❌ row with the plain-text expect message, `failing-step2-alice.png` and `failing-alice.trace.zip` in the run dir — run `muclmg0d`.

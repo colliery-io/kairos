@@ -48,8 +48,6 @@ T-0131.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green (hand-run; `--server` parity in T-0136's full runs): 8 steps — directory, page edit, the "Edit conflict" → "Take theirs" walk, the announcement seen by alice, carol offered zero write controls, `my_boards`.
 - [x] `mcp:my_boards` deleted from ALLOW.
 - [x] The announcement is ledgered and deleted, and the seeded page's original text is restored in teardown.

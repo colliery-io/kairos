@@ -30,10 +30,6 @@ The GUI's Playwright smoke tier per A-0012 tier 4, replacing the e2e placeholder
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Playwright suite (package.json confined to an e2e dir; node_modules gitignored): login via Dex → board view renders seeded data → create item → transition via UI → live WS update observed (second context mutation reflects) → item detail edit + 409 path → logout
 - [x] Wired into `angreal test e2e` (compose up → seed → API golden path → Playwright headless → down), exit codes propagate
 - [x] Runtime + flake posture recorded (retries policy); CI wiring documented (may be a separate nightly job if runtime demands — decide and document)

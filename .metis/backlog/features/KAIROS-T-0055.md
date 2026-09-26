@@ -49,10 +49,6 @@ Workspace**, where the GUI, CLI, and service-account clients each have their own
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] `OIDC_AUDIENCE` accepts a comma-separated list (single value still works,

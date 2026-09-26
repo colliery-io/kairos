@@ -49,8 +49,6 @@ P2 — active daily friction across projects.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Compose, Dex config, and every angreal task default use the 41xxx block; `angreal services up` exposes only 41432/41558.
 - [x] All test-tier defaults (kairos-db/server/cli test DATABASE_URLs, ISSUER consts, e2e helpers/config/specs, soak + golden-path defaults) point at the new block.
 - [x] Docs that name dev URLs updated (e2e README, gui-conventions, bootstrap skill).

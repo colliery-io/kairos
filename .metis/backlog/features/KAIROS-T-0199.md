@@ -82,12 +82,6 @@ than reason about.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Each `BlockingTenantPool::run` / `run_public` call produces a span that is a
       **child of the request span**, verified against a collector rather than
       inferred

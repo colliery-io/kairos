@@ -30,10 +30,6 @@ Admin surfaces per A-0015.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Board config: columns add/rename/reorder/remove, transition add/remove (rule violations rendered from the typed 422s); board members + capability grants (vocabulary + globs from A-0006 presented sanely)
 - [x] Teams (CRUD, members; team creation surfaces its new delivery board), delivery streams (CRUD, team membership), org members (list/add-by-email/role/remove with LAST_ADMIN handling), templates + metadata definitions CRUD
 - [x] All admin routes visible only to users whose capabilities/role allow them (probe via whoami + graceful 403 handling)

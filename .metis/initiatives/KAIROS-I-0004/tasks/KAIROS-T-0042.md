@@ -30,10 +30,6 @@ Search and relationship exploration per A-0015.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Search page: text query + filter builder (entity types, board, column, task type, metadata key/values, date range) + optional traverse root/direction/depth; results grouped by type, paginated; result rows link to detail
 - [x] Relationships view on item detail expanded: parent chain breadcrumb, children, blockers/blocking (both directions), supporting documents/ADRs; org-admin link/unlink affordances with the API's typed errors surfaced
 

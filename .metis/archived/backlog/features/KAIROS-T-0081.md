@@ -68,8 +68,6 @@ P2 — real UAT feedback, but the boards/team surfaces (T-0075–T-0080) are the
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [ ] `GET /api/{family}/{code}/graph?depth=N` returns the focal item + neighborhood as hydrated nodes (short_code, entity_type, title, status) and typed directed edges (source, target, relationship, depth); root via entity_directory with 404 on dead refs; depth defaults 2, capped at MAX_TRAVERSE_DEPTH.
 - [ ] `/search/relationships/:code` renders an SVG graph: Strategy/Initiative/Task fixed layered columns; parent shown as containment/lane grouping (not arrows); blocks as solid directional arrows; **no force-directed layout anywhere**.
 - [ ] Layout is deterministic: identical node positions across reloads for the same subgraph.

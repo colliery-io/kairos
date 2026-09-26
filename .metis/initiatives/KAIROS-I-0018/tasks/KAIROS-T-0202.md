@@ -78,8 +78,6 @@ operator wants to see, so a counter and a log line are part of this, not a follo
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Repeated failed authentications from one source, or against one identity, are
       throttled; the threshold and window are configurable with sensible defaults
 - [x] The lockout decays; a legitimate user who mistypes is not locked out for long

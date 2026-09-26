@@ -30,10 +30,6 @@ Complete kairos-client as the typed API client (used by CLI, tests, skills verif
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] kairos-client: typed methods for every endpoint family + search + auth token handling (bearer injection, 401/403/409/422 typed errors); DTOs shared with the server (single source)
 - [x] The API integration suite is refactored to consume kairos-client end-to-end (no ad-hoc reqwest in tests except protocol-level cases like malformed tokens/raw WS)
 - [x] Coverage checklist recorded in the task doc: every S-0005 endpoint family exercised through the client, auth failure matrix, tenant isolation at HTTP level (two tenants via API), WS events through a client helper

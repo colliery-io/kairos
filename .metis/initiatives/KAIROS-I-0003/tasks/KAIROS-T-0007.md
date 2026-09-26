@@ -30,10 +30,6 @@ initiative_id: KAIROS-I-0003
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] From an empty database, the runner creates all 8 public tables with the exact columns/constraints in KAIROS-S-0004 (org slug CHECK, uniques); re-run is a no-op (idempotent)
 - [x] Runner callable as a library function (used by tests) and on server boot; `angreal db migrate` wired to it
 - [x] Integration test asserts table existence + a constraint sample (e.g. duplicate org slug rejected)

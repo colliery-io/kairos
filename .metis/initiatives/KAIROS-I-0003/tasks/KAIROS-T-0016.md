@@ -30,10 +30,6 @@ Adversarial tenant-isolation test suite — the standing proof of the product's 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Provisions ≥2 tenants whose items share identical short codes; asserts zero cross-tenant visibility through every core service: CRUD reads, search (q/filter/traverse), relationship queries, history, metadata, capability checks — `cross_read_visibility_sweep` + `short_code_collision`
 - [x] Cross-tenant write attempts fail; nothing in tenant B changes when acting in tenant A (asserted by full-table checksums or row counts) — `cross_write_battery` (8 attacks, per-table md5 fingerprints of BOTH tenants unchanged)
 - [x] Pool-reuse stress: interleaved operations across tenants on the shared pool show no search_path leakage under concurrency — `pool_reuse_stress` (60 ops, 10 barrier-synced rounds, 2-conn pool)

@@ -30,8 +30,6 @@ The plugin's meta bucket and authoring foundations per KAIROS-A-0014: port writi
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Upstream sources obtained (clone https://github.com/mattpocock/skills if no local copy) and the four skills ported into plugin/skills/meta/ with A-0014's invocation split (grilling model-invoked; grill-me, writing-great-skills user-invoked; handoff user-invoked and rewritten thin — Kairos boards are the persistent memory, handoff only compacts conversation context)
 - [x] Ports are Kairos-native: no issue-tracker/mattpocock references; grilling unchanged in discipline; writing-great-skills kept as the normative authoring reference
 - [x] /kairos router skill created mapping the CURRENT user-invoked surface (it will grow; include the sync rule in its own text)

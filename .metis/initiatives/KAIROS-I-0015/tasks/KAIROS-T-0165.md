@@ -84,10 +84,6 @@ two green runs had hidden.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `housekeeping` asserts retrievability; header comment and narration
       rewritten.
 - [ ] A journey covers `restore_item`; the gate reads 18/18 tools with

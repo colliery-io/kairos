@@ -38,8 +38,6 @@ Jira-style dependency badges on board cards: blocked-by and blocks counts visibl
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Board items payload carries blocked_by/blocks counts; soft-deleted neighbors excluded; server integration test covers both directions and the exclusion.
 - [x] Cards show the badges only when nonzero, in neutral accents (no red anywhere); the seeded blocks web renders visible badges on the stock demo.
 - [x] Badge click navigates to the item's graph view.

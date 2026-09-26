@@ -82,12 +82,6 @@ which is how the disagreement survived.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Each of `configure_templates` and `configure_metadata` is **either**
       consulted by the handlers it names **or** removed from
       `kairos_core::abac::CAPABILITIES` and from the admin interface.

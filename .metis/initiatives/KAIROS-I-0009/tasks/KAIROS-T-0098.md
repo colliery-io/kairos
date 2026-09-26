@@ -48,8 +48,6 @@ Turn two different forge webhook payloads into one internal event shape, and pul
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `kairos-core::forge` normalizes GitHub and GitLab branch + PR/MR payloads into one `ForgeEvent`; unknown/ping events return `None` rather than erroring.
 - [x] GitHub merged-vs-closed is correct (`closed` + `merged: true` → `Merged`), and draft state maps on both forges; one test per state-table row.
 - [x] Short-code extraction finds codes in branch names, PR titles, and PR bodies; deduplicates; ignores lowercase and malformed codes; the type-letter set derives from `ItemType`.

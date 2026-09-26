@@ -30,10 +30,6 @@ The two new review skills driven by the SHIPPED references: architecture-review 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] architecture-review: scan → classify by altitude → report per the reference's Section 1-5 (finding format verbatim, anti-pattern self-check); keeps upstream improve-codebase-architecture's HTML-report presentation + grilling loop for the chosen candidate; ADR-conflict checks read Kairos ADRs via search/get_item
 - [x] diataxis-review: classify pages per the reference (declared vs actual mode, rule IDs cited in every finding, severity levels); optional filing of findings as Tech-Debt items on the team's delivery board via create_item
 - [x] Both user-invoked; each SKILL.md cites its reference via context pointer and never restates the rules (single source of truth); registered + router — AMENDED by orchestrator lane rule: this task does not edit plugin.json or the router; exact registration + router entries recorded in Status Updates for the orchestrator to merge; skill-reviewer run on both skills

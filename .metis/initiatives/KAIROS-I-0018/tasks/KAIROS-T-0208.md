@@ -100,8 +100,6 @@ the server's, and for the same reason.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `KAIROS_LOCAL_AUTH=true` with no `OIDC_ISSUER_URL` boots, and `/api/login` works
 - [x] `KAIROS_LOCAL_AUTH=false` with no issuer is still refused at boot, with the
       message it gives today — asserted, not assumed

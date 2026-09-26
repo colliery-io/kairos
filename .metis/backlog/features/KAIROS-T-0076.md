@@ -55,8 +55,6 @@ P1 — direct UAT feedback on the primary board surface.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Clicking the short code on a board card navigates to `/items/{short_code}` (SPA navigation — the leptos router intercepts the anchor exactly as it did the title's).
 - [x] The card title renders as plain text (`span.kairos-card__title`) — no anchor; hover affordance removed from CSS.
 - [x] A copy-link button renders next to the short code on cards; it writes the absolute item URL, flashes ✓ (1.5s), and `stop_propagation`/`prevent_default` keep it out of navigation and drag.

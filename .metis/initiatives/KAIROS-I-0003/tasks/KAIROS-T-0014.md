@@ -30,10 +30,6 @@ The unified search/traverse pipeline per A-0007 as a kairos-core service (consum
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Each capability works alone: `q` (tsquery via searchable_items), `filter` (every S-0005 filter field incl. metadata glob values and date ranges), `traverse` (recursive CTE, required depth, server cap)
 - [x] All composition examples from KAIROS-S-0005 pass as integration tests, including q+filter+traverse combined
 - [x] Hydration bounded at ≤5 queries regardless of result size (assert query count); results grouped by type, fully typed

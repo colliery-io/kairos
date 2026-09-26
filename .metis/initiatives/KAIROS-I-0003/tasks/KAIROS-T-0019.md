@@ -30,10 +30,6 @@ Organizational + admin endpoint families per S-0005: boards (CRUD + columns + tr
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Boards family incl. column/transition config with T-0010 rules (non-empty column removal → 422 etc.); board items view GET /api/boards/{id}/items grouped by column
 - [x] Teams/members, delivery-streams/teams, board-members capability endpoints (grant/revoke semantics from T-0011, org-admin-only where A-0006 says so); team creation creates the team's delivery board (per A-0002/T-0010 deferred-delivery-board decision)
 - [x] POST/GET/DELETE /api/admin/tenants wired to T-0008 provisioning (org-admin/deployment-admin gated — document the chosen authority model for deployment-level admin in the task doc)

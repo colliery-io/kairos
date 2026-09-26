@@ -68,8 +68,6 @@ Every major tool ships the **snapshot rollup first, chart second**. **GitHub** s
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Migration adds `is_done` to board_columns (guarded, default false); admin ColumnsPanel gains Mark/Unmark done + done pill; the dead-end heuristic renders a gold suggest-only "dead end" pill and never sets the flag; fresh boards seed Completed (workflow) / Decided+Superseded (ADR) via `seeded_done_column` — verified by the graph integration test.
 - [x] `GET /api/{family}/{code}/children-progress` returns {total, done, has_done_columns, by_column} over direct parent children; soft-deleted excluded; 404-consistent with relationships (meta.rs test: rollup follows a child walked to Completed; leaf empty; mismatch 404).
 - [x] Board-items embeds a `children_progress` map (parent short code → {done, total, has_done}) computed by `board_children_progress` — structurally ONE grouped query for the whole board (the db test exercises the batch; no per-item query exists to count).

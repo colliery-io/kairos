@@ -40,8 +40,6 @@ kairos-web's first graph rendering: replace the body of `/search/relationships/:
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `/search/relationships/:code` renders the SVG graph: three fixed columns, parent as containment lanes (never arrows), blocks as the only drawn arrows with direction markers; no force-directed layout anywhere.
 - [x] Layout is deterministic — a native unit test on `graph_layout` proves identical positions for identical input, including barycenter tie-breaks.
 - [x] Default depth-2; nodes with undisplayed neighbors show `+N` (from the contract's `degree`); expanding merges in place without remount or lost prior expansions.

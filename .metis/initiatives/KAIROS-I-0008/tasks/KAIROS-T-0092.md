@@ -37,8 +37,6 @@ Make the graph demonstrable and regression-proof: fixture check, a graph e2e spe
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] graph.spec covers: badge click-through, canvas render, deterministic reload, expand-in-place, refocus + back, side panel presence/suppression, detail tab, WS live update, traverse relabel — green without retries.
 - [x] Seeded demo shows visible badges and a depth-2-worthy blocks web; any fixture additions asserted in seed_demo.
 - [x] Existing specs updated for the detail tab and the relationships-page replacement; no dead selectors.

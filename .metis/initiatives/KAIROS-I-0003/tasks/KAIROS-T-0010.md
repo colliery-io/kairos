@@ -30,10 +30,6 @@ kairos-core board service per A-0002: transition validation, column management r
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Transition allowed iff `(board_id, from_column_id, to_column_id)` exists in `board_transitions`; invalid attempts return a typed error carrying the allowed target columns (feeds S-0006 REQ-1.4 later)
 - [x] Column rules enforced: no removal of non-empty columns, position reordering, add with unique name/position
 - [x] New boards seed the A-0002 defaults per level exactly (strategy/initiative/delivery incl. Blocked bidirectionals/adr) — integration-tested against a fresh tenant

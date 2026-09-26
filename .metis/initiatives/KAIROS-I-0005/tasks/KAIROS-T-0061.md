@@ -32,8 +32,6 @@ key instead of interactive OAuth. Depends on [[KAIROS-T-0059]]/[[KAIROS-T-0060]]
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] A "Service accounts & API keys" section (README or a `docs/` page) covering:

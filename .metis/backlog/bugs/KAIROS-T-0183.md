@@ -62,12 +62,6 @@ ten checkboxes flat, and `manage_*` is a plausible thing to type into a grant.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A decision, recorded: either `manage_*` is intended to include
       `manage_members`, or it is not.
 - [x] **If it is not**: `manage_members` is renamed out of the prefix (e.g.

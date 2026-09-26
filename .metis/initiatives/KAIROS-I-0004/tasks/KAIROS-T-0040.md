@@ -30,10 +30,6 @@ Board views per A-0015: column layout, transitions, live updates.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Board list + board view (columns from board config, items grouped; all four entity types); item cards show short code, title, type, key metadata
 - [x] Transition via drag or click-to-move offering ONLY valid targets (read from board transitions); invalid never offered; errors surfaced via the conventions' error pattern
 - [x] /ws/events subscription (board_id filter): item events refresh affected cards without polling; reconnect per best-effort semantics (silent re-fetch)

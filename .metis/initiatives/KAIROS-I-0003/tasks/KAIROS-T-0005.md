@@ -30,8 +30,6 @@ CI skeleton (GitHub Actions) that runs the A-0012 gates on every push/PR via ang
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Workflow: checkout → toolchain → docker available → `cargo fmt --check` → `cargo clippy --workspace -- -D warnings` → `angreal test unit` → `angreal test integration`
 - [x] Workflow YAML validated (actionlint or equivalent); job matrix/caching for cargo configured
 - [x] README/Status Update documents the activation step: create GitHub remote, push, enable branch protection requiring the workflow

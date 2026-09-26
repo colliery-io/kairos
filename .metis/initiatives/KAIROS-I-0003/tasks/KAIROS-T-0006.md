@@ -30,10 +30,6 @@ Plugin skeleton per KAIROS-A-0014: manifests, directory tree, and the two distri
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `.claude-plugin/plugin.json` (name `kairos`) and `.claude-plugin/marketplace.json` valid; plugin skill buckets `plugin/skills/{workflow,engineering,review,meta}/` created (empty is fine), `plugin/hooks/` and `plugin/.mcp.json` template (deployment-URL placeholder) in place
 - [x] `plugin/references/architecture-review.md` and `plugin/references/diataxis.md` rendered from KAIROS-S-0007/KAIROS-S-0008 bodies (no Metis frontmatter; content otherwise identical), with a documented re-render procedure (script or README note)
 - [x] Structure passes the plugin-validator agent / `claude plugin` local validation

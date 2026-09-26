@@ -30,8 +30,6 @@ Add user-facing team pages to kairos-web: a `/teams` directory and a `/teams/:sl
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] Team read wrappers (`list_teams`, `get_team`, `list_team_members`, `list_stream_teams`) are shared between admin and user-facing pages (hoisted from `pages/admin/api.rs` or equivalent) — no duplicated fetch code

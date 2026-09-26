@@ -30,10 +30,6 @@ Item detail per A-0015: content editing with optimistic-concurrency UX.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Detail route per entity type: title, content (markdown edit + preview), metadata panel (typed editors: enum dropdowns, date pickers, strings per A-0003 definitions), board/column, relationships summary, history link
 - [x] Save uses version; on 409 the merge UI shows server-current vs yours side-by-side with keep-mine/take-theirs/manual-merge; retry carries the new version
 - [x] Create-from-template flow (template picker shows content preview + declared fields)

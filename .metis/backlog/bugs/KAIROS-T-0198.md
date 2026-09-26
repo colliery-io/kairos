@@ -87,12 +87,6 @@ The two honest options:
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A `TextInput` with a label exposes that label as its accessible name
 - [x] `getByLabel('Slug')` resolves the input, and the KAIROS-T-0094 e2e
       workaround is replaced with it

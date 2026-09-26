@@ -117,10 +117,6 @@ your own lines rather than `git add`-ing your working copy; the recipe is in
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `reference/capabilities.md`: the full vocabulary, glob semantics
       including the literal-`%`/`_` case, what is computed vs granted, document
       board resolution, and the archived-items fact.

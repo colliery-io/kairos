@@ -69,10 +69,6 @@ reviewer does not re-litigate it.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `how-to/provision-users-with-scim.md` exists, listed under
       `## For operators`, and keeps the per-IdP conditionals.
 - [ ] `reference/scim.md` is reference only — no numbered procedure, no

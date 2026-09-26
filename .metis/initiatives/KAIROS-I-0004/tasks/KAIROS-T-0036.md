@@ -30,10 +30,6 @@ The `kairos` CLI's auth and configuration layer per KAIROS-A-0015/A-0010: device
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `kairos login --url <deployment>` runs the Device Authorization Grant (prints verification URL + user code, polls), discovers the issuer from the deployment's protected-resource metadata or explicit `--issuer`; tokens + refresh cached in `~/.config/kairos/credentials.json` (0600) keyed by deployment
 - [x] Automatic refresh on expiry; `kairos logout` clears; clear errors for unreachable deployment / declined grant
 - [x] `kairos whoami` prints user, org, role, teams via kairos-client against /api/whoami

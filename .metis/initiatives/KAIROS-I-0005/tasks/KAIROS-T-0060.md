@@ -33,8 +33,6 @@ methods. Depends on [[KAIROS-T-0059]].
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] `kairos-client` gains typed methods for the T-0059 endpoints

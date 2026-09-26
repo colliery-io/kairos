@@ -87,8 +87,6 @@ best-effort rather than on the critical path.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `POST /api/login` returns a session bearer for a correct email and password
 - [x] `require_auth` accepts it, and `/api/whoami` identifies the right person
 - [x] With `KAIROS_LOCAL_AUTH` off, `/api/login` is **not routed** (404, not 401)

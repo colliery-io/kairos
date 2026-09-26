@@ -41,10 +41,6 @@ UAT feedback (Dylan, 2026-08-09).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] `/boards` renders boards in level bands: strategy on top, then initiative, then delivery (ADR board placement decided during implementation — alongside strategy or its own band)

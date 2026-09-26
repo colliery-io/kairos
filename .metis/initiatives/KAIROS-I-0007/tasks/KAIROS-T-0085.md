@@ -37,8 +37,6 @@ Rebuild `/teams/:slug` as the fixed v1 landing layout: header, rendered Charter,
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] /teams/:slug renders all v1 panels in the fixed order; charter markdown renders through the safe pipeline.
 - [x] Announcements: pinned-first ordering, member/org-admin post box, no comment/reaction surface anywhere.
 - [x] Documentation tree shows the seeded scaffold with folder nesting; pages link to the T-0086 route.

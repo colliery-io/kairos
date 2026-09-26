@@ -49,8 +49,6 @@ Make the feature demonstrable and regression-proof: seeded demo links, an e2e sp
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Seed provisions demo connections + links covering open/draft/merged/branch; `seed_demo` counts updated and asserted.
 - [x] `forge.spec.ts` drives real signed deliveries: open → merged live over WS → replay stays merged → bad signature is a no-op → team rollup shows only in-flight work. Green without retries.
 - [x] A reusable signed-delivery helper lives in `e2e/helpers/`.

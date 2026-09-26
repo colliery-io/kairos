@@ -41,10 +41,6 @@ UAT feedback (Dylan, 2026-08-09).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] The per-column composer (`ComposerCard` in `crates/kairos-web/src/pages/boards.rs`) is removed from column rendering

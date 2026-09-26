@@ -41,10 +41,6 @@ UAT feedback (Dylan, 2026-08-09).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] Cards are draggable between columns with pointer input (HTML5 drag events or pointer-event implementation in Leptos)

@@ -74,8 +74,6 @@ that does not depend on the IdP at all.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `/api/config` reports whether local auth is enabled
 - [x] The form appears only when it is; the provider button appears only when an
       issuer is configured; both appear when both are

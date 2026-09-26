@@ -40,12 +40,6 @@ Ship the A-0013 observability surface that never got an owning task: Prometheus 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `GET /metrics` (unauthenticated, per Prometheus convention — outside the auth stack like /healthz; document) serves Prometheus text format: HTTP request histograms labeled by route/method/status, connection-pool gauges (bb8 + the blocking r2d2 bridge), per-tenant request counters
 - [x] `GET /readyz` verified present with A-0013 semantics (DB connectivity + pending-migration check) — implement if missing
 - [ ] Soak harness re-run (10-min smoke) with `require_metrics` armed: pool-stability assertions active and green — **FOLLOW-UP** (see Status Updates: solo-infeasible under shared-services mode; armed path now satisfiable, lighter pool-gauge proof done)

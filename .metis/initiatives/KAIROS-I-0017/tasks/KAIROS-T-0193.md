@@ -91,10 +91,6 @@ has to exist before it can be documented truthfully.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Explanation, how-to and reference pages for retrieval, added to `SUMMARY.md`
 - [x] The REST reference is regenerated and `--check` passes
 - [x] The tutorial decision is made and recorded — **no tutorial page**, because

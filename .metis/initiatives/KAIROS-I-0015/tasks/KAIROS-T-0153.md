@@ -54,10 +54,6 @@ Do not touch the *mutating* paths' liveness checks (`items.rs:325/650/702/792`)
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `resolve_authorization_board` returns the owning board for an archived
       strategy, initiative, task, document and ADR.
 - [ ] A test proves a non-admin team member resolves the *same* capability

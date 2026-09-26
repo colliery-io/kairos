@@ -52,10 +52,6 @@ relay already performs the exchange server-side.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] New optional `KAIROS_WEB_CLIENT_SECRET` config (unset by default →

@@ -4,14 +4,14 @@ level: task
 title: "Admin surfaces and the break-glass CLI, including the first-boot admin"
 short_code: "KAIROS-T-0204"
 created_at: 2026-09-26T12:44:50.779267+00:00
-updated_at: 2026-09-26T15:17:17.657397+00:00
+updated_at: 2026-09-26T16:39:43.239152+00:00
 parent: KAIROS-I-0018
 blocked_by: [KAIROS-T-0203]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -76,6 +76,8 @@ An admin creating a local account for an email that already has an OIDC user mus
 [[KAIROS-T-0197]]'s identity question returning: that task established one person is
 one row and joined on a verified email. Local accounts are a second source of
 identity for the same address and must not fork it.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

@@ -4,14 +4,14 @@ level: task
 title: "The GUI offers a password form when the deployment has local auth on"
 short_code: "KAIROS-T-0205"
 created_at: 2026-09-26T12:45:25.798830+00:00
-updated_at: 2026-09-26T15:49:14.350059+00:00
+updated_at: 2026-09-26T16:40:09.805454+00:00
 parent: KAIROS-I-0018
 blocked_by: [KAIROS-T-0203]
 archived: false
 
 tags:
   - "#task"
-  - "#phase/active"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -71,6 +71,8 @@ security posture, not a convenience.
 `e2e` drives a real browser against a real server. The existing specs log in through
 Dex's form; this one logs in through **Kairos's own**, which makes it the first spec
 that does not depend on the IdP at all.
+
+## Acceptance Criteria
 
 ## Acceptance Criteria
 

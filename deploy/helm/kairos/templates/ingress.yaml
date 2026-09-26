@@ -53,6 +53,21 @@ spec:
     - host: {{ . | quote }}
       http:
         paths:
+          {{- /*
+          The bundled Dex is routed at /dex BEFORE the catch-all, because the
+          catch-all is a Prefix match on "/" and would otherwise swallow it
+          (KAIROS-T-0200). Ingress controllers match the longest prefix, but
+          ordering it first makes the intent legible rather than relying on that.
+          */}}
+          {{- if include "kairos.dexEnabled" $ }}
+          - path: /dex
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kairos.dexName" $ }}
+                port:
+                  number: 5556
+          {{- end }}
           - path: {{ $path }}
             pathType: {{ $pathType }}
             backend:

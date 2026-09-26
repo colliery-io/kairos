@@ -1,0 +1,154 @@
+{{- include "kairos.validateDex" . -}}
+{{- if include "kairos.dexEnabled" . }}
+{{/*
+A bundled Dex, FOR EVALUATION (KAIROS-T-0200, KAIROS-I-0018).
+
+Templated rather than pulled in as a subchart, for the same reason the bundled
+PostgreSQL is: the configuration Kairos needs is specific (two named clients with
+exact redirect URIs derived from this release's ingress), so depending on the
+upstream chart would mean overriding most of its values anyway — and would add a
+`helm dependency update` to the release pipeline plus a second values surface to
+document and keep aligned.
+
+A Deployment rather than a StatefulSet, unlike the database: storage is `memory`,
+so there is nothing to persist and nothing to corrupt by rolling a second pod.
+That is also the sharpest reason this is evaluation-only — a restart rotates the
+signing keys and invalidates every token in flight.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kairos.dexName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dex
+data:
+  config.yaml: |
+    # The issuer is the public URL, not the Service name. See
+    # `kairos.dexIssuerUrl` in _helpers.tpl for why that is not a choice.
+    issuer: {{ include "kairos.dexIssuerUrl" . }}
+    storage:
+      type: memory
+    web:
+      http: 0.0.0.0:5556
+    oauth2:
+      # Dex has no client_credentials grant; Kairos issues its own API keys for
+      # machine access, so nothing here depends on it (KAIROS-A-0017).
+      grantTypes:
+        - authorization_code
+        - refresh_token
+        - "urn:ietf:params:oauth:grant-type:device_code"
+      responseTypes:
+        - code
+      skipApprovalScreen: true
+    enablePasswordDB: true
+    staticPasswords:
+      - email: {{ .Values.dex.adminEmail | quote }}
+        username: {{ .Values.dex.adminEmail | quote }}
+        userID: "00000000-0000-0000-0000-000000000001"
+        hash: {{ .Values.dex.adminPasswordHash | quote }}
+      {{- range .Values.dex.extraUsers }}
+      - email: {{ .email | quote }}
+        username: {{ .username | default .email | quote }}
+        userID: {{ .userID | quote }}
+        hash: {{ .hash | quote }}
+      {{- end }}
+    staticClients:
+      # The GUI: Authorization Code + PKCE, public (no secret), matching the
+      # server's KAIROS_WEB_CLIENT_ID default. Dex exact-matches redirect URIs,
+      # so this has to be the real callback the browser will arrive at.
+      - id: {{ .Values.config.webClientId | quote }}
+        name: Kairos Web GUI
+        public: true
+        redirectURIs:
+          - {{ printf "%s/callback" (include "kairos.publicBaseUrl" .) | quote }}
+      # The CLI: device grant, public. No redirect URI — the device flow has none.
+      - id: kairos-cli
+        name: Kairos CLI
+        public: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kairos.dexName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dex
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5556
+      targetPort: dex
+      protocol: TCP
+      name: dex
+  selector:
+    {{- include "kairos.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: dex
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kairos.dexName" . }}
+  labels:
+    {{- include "kairos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dex
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "kairos.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dex
+  template:
+    metadata:
+      labels:
+        {{- include "kairos.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: dex
+      annotations:
+        # Roll the pod when the config changes. Without this, editing a user or a
+        # redirect URI leaves the old config running and the failure looks like
+        # Dex ignoring the chart.
+        #
+        # Hashes the INPUTS rather than the rendered template: including
+        # `dex.yaml` from inside `dex.yaml` is infinite recursion, and the inputs
+        # are the more precise trigger anyway.
+        checksum/config: {{ printf "%s|%s|%s" (toYaml .Values.dex) (include "kairos.dexIssuerUrl" .) (include "kairos.publicBaseUrl" .) | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: dex
+          image: "{{ .Values.dex.image.repository }}:{{ .Values.dex.image.tag }}"
+          imagePullPolicy: {{ .Values.dex.image.pullPolicy }}
+          args: ["dex", "serve", "/etc/dex/config.yaml"]
+          ports:
+            - name: dex
+              containerPort: 5556
+              protocol: TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /dex/healthz
+              port: dex
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /dex/healthz
+              port: dex
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex
+              readOnly: true
+          resources:
+            {{- toYaml .Values.dex.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kairos.dexName" . }}
+{{- end }}

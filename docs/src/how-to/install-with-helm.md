@@ -207,6 +207,72 @@ through an upgrade without any edit. Setting `postgresql.enabled: true` *and* a
 databases and picking one for you would either abandon yours or quietly stand a
 second up beside it.
 
+## Evaluating without an identity provider
+
+Kairos requires an OIDC issuer, which for an evaluator means running Dex by hand or
+standing up a cloud OAuth client before seeing the product at all. So the chart can
+stand a Dex up inside the release, the same way it can stand up a PostgreSQL.
+
+You need three things: an ingress, an email, and a bcrypt hash.
+
+```sh
+# The chart ships NO default password. Generate one — nothing to install:
+HASH=$(docker run --rm httpd:2.4 htpasswd -bnBC 10 "" 'your-password' | tr -d ':\n')
+
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
+  -n kairos --create-namespace \
+  --set ingress.enabled=true \
+  --set ingress.tenancyMode=single \
+  --set ingress.host=kairos.example.com \
+  --set config.tenancy.singleTenant=demo \
+  --set dex.adminEmail=you@example.com \
+  --set-string dex.adminPasswordHash="$HASH"
+```
+
+No `config.oidc.issuerUrl` and no `config.oidc.audience`: both are derived from the
+bundled Dex. You get a PostgreSQL too, since naming neither gets you both.
+
+**Do not run it in production, and mean it more than you did for the database.** One
+replica, **in-memory storage — so every restart rotates the signing keys and
+invalidates every token in flight** — one static user, and a password hash in your
+values and your release history. There is no user lifecycle, no password reset, no
+MFA, and no audit trail. Point `config.oidc.issuerUrl` at a real issuer before
+anybody who is not you logs in:
+
+```yaml
+config:
+  oidc:
+    issuerUrl: https://idp.example.com/
+    audience: kairos
+```
+
+As with the database you do not have to remember to turn the bundle off.
+`dex.enabled` is **unset** by default, meaning *on unless you name an issuer* — so
+adding `issuerUrl` is enough, and every release that already exists keeps its issuer
+through an upgrade without any edit. Setting `dex.enabled: true` *and* an
+`issuerUrl` is refused at render time, because that is asking for two issuers.
+
+### Why this one needs an ingress
+
+The bundled PostgreSQL does not, and the difference is worth understanding rather
+than working around.
+
+An OIDC issuer URL is not just an address to fetch from — it is an **identity**. Dex
+stamps it into the `iss` claim of every token it mints, and Kairos rejects a token
+whose `iss` is not the issuer it was configured with. So the URL has to be the same
+string in two places that see the cluster differently: the browser being redirected
+to log in, and the server validating the token afterwards.
+
+An in-cluster Service name like `http://kairos-dex:5556/dex` cannot be that string,
+because a browser cannot resolve it. So the chart routes Dex at `/dex` on your
+ingress and uses that public URL for both sides. The server then reaches its own
+issuer by hairpinning out through the ingress and back — which works, and is another
+reason this is for evaluation rather than production.
+
+If TLS is not enabled on the ingress the issuer is `http://`, which browsers
+increasingly dislike for a login form. Enable `ingress.tls` for anything beyond a
+first look.
+
 ## Using a hosted embedding model
 
 Retrieval works out of the box: the model ships inside the image and needs no

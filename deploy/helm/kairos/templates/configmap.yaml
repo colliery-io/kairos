@@ -6,9 +6,23 @@ metadata:
   labels:
     {{- include "kairos.labels" . | nindent 4 }}
 data:
-  # Identity is external (KAIROS-A-0016) — these point at the operator's IdP.
-  OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer)" .Values.config.oidc.issuerUrl | quote }}
-  {{- $audience := required "config.oidc.audience is required (the OAuth client id / API audience, or a list of them — KAIROS-T-0055)" .Values.config.oidc.audience }}
+  {{- /*
+  Identity is the operator's (KAIROS-A-0016) — unless they asked the chart for a
+  bundled Dex, in which case the issuer and the audience are this release's own
+  (KAIROS-T-0200). `required` still applies when there is no bundle, so a
+  deployment that names neither an issuer nor a Dex still fails loudly.
+  */}}
+  {{- if include "kairos.dexEnabled" . }}
+  OIDC_ISSUER_URL: {{ include "kairos.dexIssuerUrl" . | quote }}
+  {{- else }}
+  OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer), or leave it empty to use the bundled Dex" .Values.config.oidc.issuerUrl | quote }}
+  {{- end }}
+  {{- $audience := .Values.config.oidc.audience }}
+  {{- if and (not $audience) (include "kairos.dexEnabled" .) }}
+  {{- /* The bundled Dex mints tokens for the GUI and CLI clients only. */}}
+  {{- $audience = list .Values.config.webClientId "kairos-cli" }}
+  {{- end }}
+  {{- $audience = required "config.oidc.audience is required (the OAuth client id / API audience, or a list of them — KAIROS-T-0055)" $audience }}
   {{- /* A list renders as the comma-separated form the server parses. */}}
   OIDC_AUDIENCE: {{ if kindIs "slice" $audience }}{{ join "," $audience | quote }}{{ else }}{{ $audience | quote }}{{ end }}
   KAIROS_WEB_CLIENT_ID: {{ .Values.config.webClientId | quote }}

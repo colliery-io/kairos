@@ -225,3 +225,22 @@ A real `kind` cluster smoke test is a documented follow-up (see the task's
 Status Updates). The CI gate for this chart is `helm lint` + `helm template`
 across three value sets + `kubeconform` schema validation on the rendered
 manifests.
+
+## Bundled Dex (evaluation only)
+
+| Value | Env / effect | Default | Notes |
+|---|---|---|---|
+| `dex.enabled` | — | *(unset)* | Tri-state. Unset: on **unless** `config.oidc.issuerUrl` is set. `true`: on, and naming an issuer is refused at render time. `false`: off. |
+| `dex.image.repository` / `.tag` | — | `ghcr.io/dexidp/dex` / `v2.43.1` | Pinned, like every image in this chart. |
+| `dex.adminEmail` | the one static user | `""` | Required when bundled. |
+| `dex.adminPasswordHash` | its bcrypt hash | `""` | **Required** when bundled — the chart ships no default, because a default is a known credential in every install. `docker run --rm httpd:2.4 htpasswd -bnBC 10 "" 'pw' \| tr -d ':\n'` |
+| `dex.extraUsers` | more static users | `[]` | `{email, username, userID, hash}`. |
+| `dex.resources` | — | 25m / 64Mi | |
+
+Requires `ingress.enabled`: the issuer URL is stamped into every token's `iss`, so
+the browser and the server must use the same one and an in-cluster Service name is
+not reachable from a browser. The chart routes Dex at `/dex` on your ingress.
+
+In-memory storage, so a restart invalidates every token. No user lifecycle, no
+password reset, no MFA, no audit trail. See
+[Install with Helm](https://colliery-io.github.io/kairos/how-to/install-with-helm.html).

@@ -146,6 +146,101 @@ above resolves it silently and correctly.
 {{- end }}
 
 {{/*
+Whether the bundled Dex runs (KAIROS-T-0200).
+
+TRI-STATE, for exactly the reason `kairos.postgresqlEnabled` is:
+
+  unset (default)  — bundle ON, unless an OIDC issuer is named
+  true             — bundle ON, and naming an issuer is an error
+  false            — bundle OFF, exactly the pre-bundle chart
+
+The first row is what makes `helm upgrade` safe for every release that already
+exists: all of them set `config.oidc.issuerUrl`, so all of them resolve to OFF
+and keep the issuer they have, with no values edit.
+*/}}
+{{- define "kairos.dexEnabled" -}}
+{{- if kindIs "bool" .Values.dex.enabled -}}
+{{- if .Values.dex.enabled -}}true{{- end -}}
+{{- else -}}
+{{- if not .Values.config.oidc.issuerUrl -}}true{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "kairos.dexName" -}}
+{{- printf "%s-dex" (include "kairos.fullname" .) }}
+{{- end }}
+
+{{/*
+The bundled Dex's issuer URL (KAIROS-T-0200).
+
+This is the hard part of the whole task, and it is why a bundled Dex NEEDS an
+ingress where a bundled PostgreSQL does not.
+
+An OIDC issuer URL is not merely an address to fetch from — it is an identity.
+Dex stamps it into every token's `iss`, and the server rejects a token whose
+`iss` is not the issuer it was configured with. So the URL has to be the SAME
+string in two places that see the cluster differently: the browser being
+redirected to log in, and the server validating the token afterwards.
+
+An in-cluster Service DNS name (`http://release-dex:5556/dex`) is not resolvable
+from a browser, so it cannot be the issuer. The answer is to serve Dex through
+the same ingress as Kairos, under `/dex`, and use that public URL for both. The
+server reaches it by the same name the browser does, which is a hairpin through
+the ingress — acceptable, and the reason this is evaluation-only.
+*/}}
+{{/*
+The deployment's browser-facing base URL, derived from the ingress the same way
+the Ingress template derives its hosts (KAIROS-T-0200).
+
+`https` when `ingress.tls.enabled`, `http` otherwise — a guess, but the only one
+available from values, and a wrong scheme here shows up immediately as a failed
+redirect rather than silently.
+
+Note `ingress.tls` is a MAP with an `enabled` key, not a list of TLS blocks. An
+earlier draft of this helper used `gt (len .Values.ingress.tls) 0`, which counts
+map keys and is therefore always true — every deployment would have been told it
+was on https. Read the value, not its size.
+*/}}
+{{- define "kairos.publicBaseUrl" -}}
+{{- $scheme := ternary "https" "http" .Values.ingress.tls.enabled -}}
+{{- $host := "" -}}
+{{- if eq .Values.ingress.tenancyMode "single" -}}
+{{- $host = .Values.ingress.host -}}
+{{- else -}}
+{{- $host = .Values.config.tenancy.baseDomain -}}
+{{- end -}}
+{{- printf "%s://%s" $scheme $host -}}
+{{- end }}
+
+{{- define "kairos.dexIssuerUrl" -}}
+{{- printf "%s/dex" (include "kairos.publicBaseUrl" .) -}}
+{{- end }}
+
+{{/*
+Refuse the two configurations that cannot mean anything (KAIROS-T-0200).
+*/}}
+{{- define "kairos.validateDex" -}}
+{{- /*
+The contradiction is checked FIRST, deliberately. An operator who set
+dex.enabled=true alongside an issuer has asked for two issuers, and telling them
+to enable an ingress instead would send them to fix the wrong thing.
+*/}}
+{{- if kindIs "bool" .Values.dex.enabled }}
+{{- if and .Values.dex.enabled .Values.config.oidc.issuerUrl }}
+{{- fail "dex: dex.enabled=true AND config.oidc.issuerUrl is set — that is two issuers. Drop dex.enabled to use your own (the chart works this out on its own), or clear config.oidc.issuerUrl to use the bundled evaluation one." }}
+{{- end }}
+{{- end }}
+{{- if include "kairos.dexEnabled" . }}
+{{- if not .Values.ingress.enabled }}
+{{- fail "dex: the bundled Dex needs ingress.enabled=true. An OIDC issuer URL is an identity stamped into every token, so it must be the same string for the browser and for the server — an in-cluster Service name is not reachable from a browser. Set ingress.enabled and a host, or bring your own issuer with config.oidc.issuerUrl." }}
+{{- end }}
+{{- if not .Values.dex.adminPasswordHash }}
+{{- fail "dex: set dex.adminEmail and dex.adminPasswordHash. The chart deliberately ships NO default password — a default would be a known credential in every install of Kairos. Generate one with:\n  docker run --rm httpd:2.4 htpasswd -bnBC 10 \"\" 'your-password' | tr -d ':\\n'" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
 Whether the remote embedding API key is configured at all (KAIROS-T-0188, moved
 from KAIROS-T-0189). A local Ollama needs none, so absence is normal.
 */}}

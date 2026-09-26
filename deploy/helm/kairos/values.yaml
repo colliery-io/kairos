@@ -241,6 +241,54 @@ config:
   # production (KAIROS-A-0005 §6: dev builds only).
   devUi: false
 
+# -- A bundled Dex, FOR EVALUATION ONLY (KAIROS-T-0200, KAIROS-I-0018).
+#
+# Kairos requires an OIDC issuer to start, so evaluating it meant running Dex by
+# hand or standing up a cloud OAuth client. This exists so `helm install` with a
+# host and a password hash produces something you can log into.
+#
+# IT IS NOT FOR PRODUCTION, and the reasons are worse than the bundled database's.
+# One replica, in-memory storage — so every restart invalidates every token and
+# signs with fresh keys — static users, and a password hash in your values file
+# and your release history. There is no user lifecycle, no password reset, no MFA
+# and no audit trail. Point `config.oidc.issuerUrl` at a real issuer before anyone
+# who is not you logs in. Setting BOTH is refused at render time.
+#
+# It also needs an ingress, which the bundled database does not: an issuer URL is
+# an identity stamped into every token, so the browser and the server have to use
+# the same one, and an in-cluster Service name is not reachable from a browser.
+dex:
+  # -- Run a Dex inside the release. THREE states, not two:
+  #
+  #   unset (default) — ON, unless config.oidc.issuerUrl names an issuer
+  #   true            — ON, and naming an issuer is refused
+  #   false           — OFF, exactly the pre-bundle chart
+  #
+  # Unset is what makes `helm upgrade` safe for existing releases: they all name
+  # an issuer, so they all resolve to OFF and keep it.
+  enabled:
+  # -- Dex image. Pinned, as every image in this chart is (KAIROS-A-0013).
+  image:
+    repository: ghcr.io/dexidp/dex
+    tag: "v2.43.1"
+    pullPolicy: IfNotPresent
+  # -- The one static user the bundled Dex knows about.
+  adminEmail: ""
+  # -- Its bcrypt hash. **REQUIRED when Dex is bundled**, because the chart ships
+  # no default — a default would be a known credential in every Kairos install.
+  # Generate one without installing anything:
+  #
+  #   docker run --rm httpd:2.4 htpasswd -bnBC 10 "" 'your-password' | tr -d ':\n'
+  adminPasswordHash: ""
+  # -- Extra static users, same shape: {email, username, userID, hash}.
+  extraUsers: []
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
 # -- A bundled PostgreSQL, FOR EVALUATION ONLY (KAIROS-A-0021 rule 2,
 # KAIROS-T-0188).
 #

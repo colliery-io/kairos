@@ -1,0 +1,20 @@
+# (f) The bundled Dex: no issuer named, so the chart stands one up
+# (KAIROS-T-0200). Also exercises the bundled PostgreSQL, since an evaluator who
+# names neither gets both — which is the configuration this initiative exists to
+# make work.
+#
+# An ingress is REQUIRED here and not in the other sets: an OIDC issuer URL is an
+# identity stamped into every token, so the browser and the server must use the
+# same one, and an in-cluster Service name is not reachable from a browser.
+ingress:
+  enabled: true
+  tenancyMode: single
+  host: kairos.evaluation.test
+config:
+  tenancy:
+    singleTenant: demo
+  # No oidc.issuerUrl and no oidc.audience: both are derived from the bundled Dex.
+dex:
+  adminEmail: evaluator@kairos.evaluation.test
+  # bcrypt of "evaluation-only" — a CI fixture, never a default the chart ships.
+  adminPasswordHash: "$2y$10$aYjgPOoV4C/ny/7LJpk1puwsj0AyT3gf7eNtH16KCQzm3bU4smCAW"

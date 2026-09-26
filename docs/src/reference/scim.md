@@ -1,6 +1,6 @@
 # `/scim/v2` — inbound SCIM 2.0 provisioning
 
-Kairos 0.1.0. The rest of the HTTP surface is specified by OpenAPI
+Kairos 0.3.0. The rest of the HTTP surface is specified by OpenAPI
 (`GET /api/openapi.json`), but this endpoint speaks the RFC 7643/7644 wire
 protocol to identity providers rather than the `/api` envelope, so it is
 described here. Implementation: `crates/kairos-server/src/scim/`.

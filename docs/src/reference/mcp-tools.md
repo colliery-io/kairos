@@ -4,7 +4,7 @@ Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
 eighteen tools, frozen by name and shape; a drift gate in the test suite
 asserts that `tools/list` returns these eighteen and no others.
 
-This page describes Kairos 0.1.0. Argument names, types and defaults are those
+This page describes Kairos 0.3.0. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
 
 ## Conventions

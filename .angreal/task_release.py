@@ -106,6 +106,75 @@ VERSION_SITES = [
         rf"^Pulled: ghcr\.io/colliery-io/charts/kairos:{SEMVER}$",
         "the output the tutorial promises the reader will see",
     ),
+    # The reference pages each state which version they describe. These were
+    # stale by TWO releases when KAIROS-T-0093's table was written — 0.1.0 while
+    # 0.2.0 shipped — because nothing owned them. That is exactly the failure this
+    # table exists to prevent, and they were missed because the table was built
+    # from the sites a release had already touched rather than from a search.
+    (
+        "docs/src/reference/cli.md",
+        rf"This page describes `kairos` {SEMVER}\.",
+        "the CLI reference's stated version",
+    ),
+    (
+        "docs/src/reference/mcp-tools.md",
+        rf"This page describes Kairos {SEMVER}\.",
+        "the MCP reference's stated version",
+    ),
+    (
+        "docs/src/reference/events.md",
+        rf"^Kairos {SEMVER}\. This is the deployment's only push channel",
+        "the events reference's stated version",
+    ),
+    (
+        "docs/src/reference/scim.md",
+        rf"^Kairos {SEMVER}\. The rest of the HTTP surface",
+        "the SCIM reference's stated version",
+    ),
+    (
+        "docs/src/reference/configuration.md",
+        rf"in one place\. Kairos {SEMVER}\.",
+        "the configuration reference's stated version",
+    ),
+    # Retention is still unimplemented — nothing calls the sweeper — so these
+    # sentences stay true and only their version needs to move. Verified before
+    # restating rather than assumed: the only caller of RetentionConfig in the
+    # server is KAIROS-T-0177's own drift test.
+    (
+        "docs/src/how-to/back-up-and-restore.md",
+        rf"\*\*Nothing prunes anything in {SEMVER}\.\*\*",
+        "the backup how-to's note that retention is inert",
+    ),
+    (
+        "docs/src/reference/configuration.md",
+        rf"\*\*In {SEMVER} the server reads none of the five variables below",
+        "the configuration reference's retention warning",
+    ),
+    (
+        "docs/src/reference/configuration.md",
+        rf"moot in {SEMVER} because the server reads none of them\.",
+        "the same warning's restatement under the chart values",
+    ),
+    # Illustrative image tags. Not wrong when stale, but a reader can copy them,
+    # and an example pointing two releases back makes the docs look abandoned.
+    # Deliberately NOT the historical statements: "the image is multi-arch from
+    # v0.1.1" and "releases up to and including 0.2.0 offered …" are facts about
+    # those versions and must never move.
+    (
+        "docs/src/reference/configuration.md",
+        rf"An explicit value pins a published release, e\.g\. `\"{SEMVER}\"`",
+        "the image.tag example",
+    ),
+    (
+        "docs/src/reference/configuration.md",
+        rf"\| `KAIROS_VERSION` \| `{SEMVER}` \|",
+        "the KAIROS_VERSION example in the Compose table",
+    ),
+    (
+        "deploy/helm/kairos/values.yaml",
+        rf"specific published release, e\.g\. \"{SEMVER}\"\.",
+        "the image.tag example in values.yaml",
+    ),
     (
         "docs/src/reference/rest-api.md",
         rf"OpenAPI 3\.1\.0, Kairos {SEMVER}\.",

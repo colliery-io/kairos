@@ -42,3 +42,8 @@ crates/kairos-web/dist/
 
 # mdBook render output (KAIROS-T-0167) — the site is built by CI.
 docs/book/
+
+# The MCP endpoint of the deployment this checkout is wired to (/kairos:bootstrap).
+# It names a deployment, so it is per-checkout wiring like kairos.local.md above;
+# plugin/.mcp.json is the deployment-agnostic template.
+/.mcp.json

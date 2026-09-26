@@ -4,14 +4,14 @@ level: initiative
 title: "Login without an IdP — a bundled Dex and native local accounts"
 short_code: "KAIROS-I-0018"
 created_at: 2026-09-26T12:34:33.435909+00:00
-updated_at: 2026-09-26T12:34:33.435909+00:00
+updated_at: 2026-09-26T12:51:02.766699+00:00
 parent: 
 blocked_by: []
 archived: false
 
 tags:
   - "#initiative"
-  - "#phase/discovery"
+  - "#phase/active"
 
 
 exit_criteria_met: false

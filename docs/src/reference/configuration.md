@@ -36,6 +36,65 @@ them; their own parsing rules differ, and are stated in that section.
 | `KAIROS_LOG_FORMAT` | `json` \| `pretty` | `json` | Log encoding. Any other value fails startup. |
 | `KAIROS_PUBLIC_URL` | URL | unset | The deployment's externally reachable base URL. Required to render the webhook delivery URL an operator pastes into a forge. A trailing slash is stripped. Not inferred from the request `Host` header. |
 
+### Failed-authentication throttling
+
+Repeated failed authentications are throttled (KAIROS-T-0202). This matters most
+for the local password login (KAIROS-I-0018): an OIDC token and an API key are
+both high-entropy random values that nobody guesses, but a password is guessable
+by definition.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_AUTH_MAX_FAILURES` | integer | `5` | Failures inside the window before a lockout. **`0` turns throttling off** — the escape hatch for a throttle that is misfiring, so that the fix does not need a new build. |
+| `KAIROS_AUTH_FAILURE_WINDOW_SECS` | integer | `300` | How long failures accumulate. A failure older than this is forgotten, so someone who mistypes once a week never accumulates a lockout. |
+| `KAIROS_AUTH_LOCKOUT_SECS` | integer | `60` | How long a lockout lasts. Short on purpose — see below. |
+| `KAIROS_TRUSTED_PROXY` | bool | `false` | Whether `X-Forwarded-For` is trusted for the client address. See below. |
+
+Two things are counted separately: the **identity** being attempted, and the
+**source** it came from. Neither alone is enough. Counting only identities lets an
+attacker try one password each against a thousand accounts; counting only sources
+is meaningless behind a proxy, where every request shares one address.
+
+The lockout is deliberately short. A long one is a denial-of-service an attacker
+can aim at an account they know the name of, and it turns one person's typo into a
+support request. Five more failures locks the subject out again, so a script gains
+nothing from the brevity.
+
+#### What is trusted for the client address
+
+`X-Forwarded-For` is read **only** when `KAIROS_TRUSTED_PROXY` is on, and it is
+off by default. The header is caller-supplied: anyone can send one. On a directly
+exposed server, trusting it gives an attacker a new source per request, which does
+not weaken a source-based throttle so much as remove it.
+
+Turn it on only when **every** request reaches Kairos through a proxy you control
+that appends the peer it saw. The reference compose stack qualifies and sets it
+itself — the Kairos container publishes no port, so Caddy is the only way in. A
+server you expose directly does not qualify. The chart follows `ingress.enabled`
+unless you say otherwise, because behind an Ingress the socket peer is the
+ingress controller and the header is the only real client address there is.
+
+When the header is trusted, the **last** value in the list is used, not the first.
+A proxy appends, so the list reads `<whatever the client sent>, <what the proxy
+saw>`; the first element is the one under the caller's control.
+
+#### Where the state lives
+
+In process, in memory. The consequences are worth knowing:
+
+- Lockouts are **per replica**. A Deployment scaled to three pods, or behind the
+  chart's HPA, allows roughly three times the configured failures overall.
+- A restart forgets every lockout.
+
+This is the right trade for the single-binary deployments Kairos targets
+(KAIROS-A-0013): the alternative puts a database write on the failure path of an
+endpoint that is under attack, which is the moment you least want extra writes.
+If you run many replicas and need a shared limit, rate-limit at the ingress.
+
+A lockout increments `kairos_auth_lockouts_total{subject="identity"|"source"}` on
+`/metrics` and logs at WARN. The subject *kind* is recorded; the email address or
+IP is not, because a log line outlives the incident it was gathered for.
+
 ### Trace export
 
 | Variable | Type | Default | Description |
@@ -347,6 +406,10 @@ The read-only root filesystem is compatible with a filesystem
 | `config.devUi` | bool | `false` | Sets `KAIROS_DEV_UI`. |
 | `config.otel.endpoint` | string | `""` | Sets `KAIROS_OTEL_ENDPOINT`. Emitted only when non-empty; empty disables tracing. |
 | `config.otel.sampleRatio` | string | `""` | Sets `KAIROS_OTEL_SAMPLE_RATIO`. Emitted only when non-empty. |
+| `config.auth.maxFailures` | integer or `""` | `""` | Sets `KAIROS_AUTH_MAX_FAILURES`. Emitted when set, **including `0`**, which turns throttling off. |
+| `config.auth.failureWindowSecs` | integer or `""` | `""` | Sets `KAIROS_AUTH_FAILURE_WINDOW_SECS`. Emitted only when set. |
+| `config.auth.lockoutSecs` | integer or `""` | `""` | Sets `KAIROS_AUTH_LOCKOUT_SECS`. Emitted only when set. |
+| `config.auth.trustedProxy` | bool or `""` | `""` | Sets `KAIROS_TRUSTED_PROXY`. Empty **follows `ingress.enabled`**: behind an Ingress the socket peer is the controller, so the header is the only real client address; with no Ingress the header is caller-supplied. Set it explicitly for a gateway of your own. |
 | `config.retention.historyHotDays` | integer or null | `null` | Sets `KAIROS_HISTORY_HOT_DAYS`. Emitted only when non-empty. |
 | `config.retention.historyKeepLatest` | integer or null | `null` | Sets `KAIROS_HISTORY_KEEP_LATEST`. Emitted only when non-empty. |
 | `config.retention.activityRetentionDays` | integer or null | `null` | Sets `KAIROS_ACTIVITY_RETENTION_DAYS`. Emitted only when non-empty. |

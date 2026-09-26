@@ -47,6 +47,25 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, "UNAUTHORIZED", message)
     }
 
+    /// 429 `TOO_MANY_REQUESTS` — the auth throttle is holding this caller off
+    /// (KAIROS-T-0202).
+    ///
+    /// The message is deliberately uniform. It says nothing about which subject
+    /// tripped the limit, and nothing about the account: a throttled attempt
+    /// against an account that does not exist must read exactly like one against
+    /// an account that does, or the 429 becomes an account-enumeration oracle.
+    ///
+    /// `Retry-After` is attached by the caller, not here — see
+    /// [`crate::rate_limit::locked_out_response`].
+    pub fn too_many_requests(retry_after_secs: u64) -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "TOO_MANY_REQUESTS",
+            "too many failed authentication attempts; try again shortly",
+        )
+        .with_details(json!({ "retry_after_secs": retry_after_secs }))
+    }
+
     /// 403 `MEMBERSHIP_REQUIRED` — authenticated but not a member of the
     /// resolved organization; per KAIROS-A-0010 the message tells the user
     /// to request access from an org admin.

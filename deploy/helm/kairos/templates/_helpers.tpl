@@ -166,6 +166,57 @@ and keep the issuer they have, with no values edit.
 {{- end -}}
 {{- end }}
 
+{{/*
+An optional setting's value, or "" when the operator left it alone
+(KAIROS-T-0202).
+
+`with` cannot do this job alone: it treats 0 as unset, and one of these settings
+uses 0 as a MEANINGFUL value — KAIROS_AUTH_MAX_FAILURES=0 is how an operator
+turns throttling off. A `{{ with .Values...maxFailures }}` would have quietly
+dropped it and left the throttle running, which is the worst way for an escape
+hatch to fail: the operator did the documented thing and nothing happened.
+
+Returns a string, so `{{- with include "kairos.setValue" ... }}` is truthy for
+"0" and falsy for "".
+*/}}
+{{- define "kairos.setValue" -}}
+{{- if kindIs "string" . -}}
+{{- . -}}
+{{- else if not (kindIs "invalid" .) -}}
+{{- . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether the server should trust X-Forwarded-For (KAIROS-T-0202).
+
+Tri-state, like `kairos.dexEnabled`, because the right answer depends on the
+topology and the topology is already described in these values:
+
+  unset (default) — FOLLOW ingress.enabled
+  true / false    — as you say
+
+Following the ingress is not a guess. Behind the chart's Ingress the socket peer
+IS the ingress controller, so counting it would pool every client on earth into a
+single bucket, and one clumsy client would lock out everybody. With no Ingress
+there is nothing in front of the pod, the header is caller-supplied, and trusting
+it would hand an attacker a fresh identity per request — which does not weaken a
+source-based throttle so much as delete it.
+
+A gateway of your own is the case the override exists for: the chart cannot see
+it, so you say so.
+*/}}
+{{- define "kairos.trustedProxy" -}}
+{{- $tp := .Values.config.auth.trustedProxy -}}
+{{- if kindIs "bool" $tp -}}
+{{- $tp -}}
+{{- else if and (kindIs "string" $tp) (ne $tp "") -}}
+{{- $tp -}}
+{{- else -}}
+{{- .Values.ingress.enabled -}}
+{{- end -}}
+{{- end }}
+
 {{- define "kairos.dexName" -}}
 {{- printf "%s-dex" (include "kairos.fullname" .) }}
 {{- end }}

@@ -24,6 +24,8 @@
 //! - `http_requests_by_tenant_total` — per-tenant request counter
 //!   (`tenant="<slug>"`), attributed from the resolved [`TenantContext`] the
 //!   tenant middleware stamps onto the response.
+//! - `kairos_auth_lockouts_total` — authentication lockouts by subject kind
+//!   (`subject="identity"|"source"`, KAIROS-T-0202).
 //!
 //! `/metrics` and `/readyz` sit OUTSIDE the auth stack (mounted beside
 //! `/healthz` in [`crate::app::router`]): Prometheus scrapers and
@@ -86,6 +88,8 @@ type HttpKey = (String, String, String); // (method, route, status)
 pub struct Metrics {
     http: Mutex<BTreeMap<HttpKey, Histogram>>,
     tenants: Mutex<BTreeMap<String, u64>>,
+    /// Authentication lockouts, keyed by subject kind (KAIROS-T-0202).
+    lockouts: Mutex<BTreeMap<String, u64>>,
 }
 
 impl Metrics {
@@ -103,6 +107,19 @@ impl Metrics {
             .entry(key)
             .or_default()
             .observe(secs);
+    }
+
+    /// Increment the lockout counter for a subject kind (`"identity"` or
+    /// `"source"`). Called by the auth throttle (KAIROS-T-0202); a series that
+    /// climbs is either an attack or a broken client, and an operator wants to
+    /// see which before users start reporting it.
+    pub fn record_lockout(&self, kind: &str) {
+        *self
+            .lockouts
+            .lock()
+            .expect("metrics.lockouts mutex")
+            .entry(kind.to_string())
+            .or_insert(0) += 1;
     }
 
     /// Increment the per-tenant request counter.
@@ -163,6 +180,20 @@ impl Metrics {
             writeln!(
                 out,
                 "http_requests_by_tenant_total{{tenant=\"{tenant}\"}} {count}"
+            )
+            .expect("write metrics");
+        }
+        drop(tenants);
+
+        out.push_str(
+            "# HELP kairos_auth_lockouts_total Authentication lockouts, by subject kind.\n\
+             # TYPE kairos_auth_lockouts_total counter\n",
+        );
+        let lockouts = self.lockouts.lock().expect("metrics.lockouts mutex");
+        for (kind, count) in lockouts.iter() {
+            writeln!(
+                out,
+                "kairos_auth_lockouts_total{{subject=\"{kind}\"}} {count}"
             )
             .expect("write metrics");
         }

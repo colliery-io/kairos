@@ -224,6 +224,10 @@ async fn cli_command_tree_golden_path_live() {
         otel_endpoint: None,
 
         otel_sample_ratio: 1.0,
+        auth_max_failures: 5,
+        auth_failure_window_secs: 300,
+        auth_lockout_secs: 60,
+        trusted_proxy: false,
     };
     let router = app::router(app::state_with(config, pool, auth));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

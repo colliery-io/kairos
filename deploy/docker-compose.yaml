@@ -69,6 +69,18 @@ services:
       # Unset means no tracing at all.
       KAIROS_OTEL_ENDPOINT: ${KAIROS_OTEL_ENDPOINT:-}
       KAIROS_OTEL_SAMPLE_RATIO: ${KAIROS_OTEL_SAMPLE_RATIO:-}
+      # KAIROS-T-0202: failed-authentication throttling. The defaults suit a
+      # small deployment; 0 failures turns throttling off.
+      KAIROS_AUTH_MAX_FAILURES: ${KAIROS_AUTH_MAX_FAILURES:-}
+      KAIROS_AUTH_FAILURE_WINDOW_SECS: ${KAIROS_AUTH_FAILURE_WINDOW_SECS:-}
+      KAIROS_AUTH_LOCKOUT_SECS: ${KAIROS_AUTH_LOCKOUT_SECS:-}
+      # Hard-coded, like KAIROS_BIND_ADDR above, because it is a fact about THIS
+      # topology rather than a choice: the kairos service only `expose`s 8080, so
+      # every request arrives through Caddy, and Caddy appends the peer it saw to
+      # X-Forwarded-For. Without this the throttle would count every client in
+      # the world as one source — Caddy's — and one clumsy client could lock out
+      # everybody. Do NOT copy this line into a stack that publishes port 8080.
+      KAIROS_TRUSTED_PROXY: "true"
     # The image applies pending migrations on boot (KAIROS-T-0007) before it
     # binds, so no separate migrate step is required. Liveness is the image's
     # own HEALTHCHECK against /healthz.

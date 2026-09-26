@@ -23,6 +23,7 @@ pub mod forge;
 pub mod local_auth;
 pub mod metrics;
 pub mod middleware;
+pub mod rate_limit;
 pub mod ws;
 
 pub mod mcp;

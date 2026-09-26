@@ -188,6 +188,10 @@ Secret loaded via `valueFrom`.
 | `config.log.format` | `KAIROS_LOG_FORMAT` | `json` | `json` or `pretty`. |
 | `config.otel.endpoint` | `KAIROS_OTEL_ENDPOINT` | `""` | OTLP/**HTTP** traces endpoint, e.g. `http://collector:4318/v1/traces`. Empty disables tracing entirely. |
 | `config.otel.sampleRatio` | `KAIROS_OTEL_SAMPLE_RATIO` | `""` | Head sampling 0.0–1.0; server default `1.0`. Emitted only when set. |
+| `config.auth.maxFailures` | `KAIROS_AUTH_MAX_FAILURES` | `""` | Failed authentications before a lockout; server default `5`. Emitted when set, **including `0`**, which turns throttling off. |
+| `config.auth.failureWindowSecs` | `KAIROS_AUTH_FAILURE_WINDOW_SECS` | `""` | How long failures accumulate; server default `300`. Emitted only when set. |
+| `config.auth.lockoutSecs` | `KAIROS_AUTH_LOCKOUT_SECS` | `""` | How long a lockout lasts; server default `60`. Emitted only when set. |
+| `config.auth.trustedProxy` | `KAIROS_TRUSTED_PROXY` | `""` | Trust `X-Forwarded-For` for the client address. Empty **follows `ingress.enabled`** — behind an Ingress the socket peer is the ingress controller, so the header is the only real client address; without one it is caller-supplied and trusting it would remove the throttle rather than weaken it. |
 | `config.retention.historyHotDays` | `KAIROS_HISTORY_HOT_DAYS` | server `90` | Emitted only when set. |
 | `config.retention.historyKeepLatest` | `KAIROS_HISTORY_KEEP_LATEST` | server `5` | Emitted only when set. |
 | `config.retention.activityRetentionDays` | `KAIROS_ACTIVITY_RETENTION_DAYS` | server `365` | Emitted only when set. |

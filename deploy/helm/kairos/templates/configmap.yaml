@@ -49,6 +49,23 @@ data:
   {{- with .Values.config.otel.sampleRatio }}
   KAIROS_OTEL_SAMPLE_RATIO: {{ . | quote }}
   {{- end }}
+  # Failed-authentication throttling (KAIROS-T-0202). Only overrides are
+  # emitted; unset keys fall back to the server's defaults.
+  {{- with include "kairos.setValue" .Values.config.auth.maxFailures }}
+  KAIROS_AUTH_MAX_FAILURES: {{ . | quote }}
+  {{- end }}
+  {{- with include "kairos.setValue" .Values.config.auth.failureWindowSecs }}
+  KAIROS_AUTH_FAILURE_WINDOW_SECS: {{ . | quote }}
+  {{- end }}
+  {{- with include "kairos.setValue" .Values.config.auth.lockoutSecs }}
+  KAIROS_AUTH_LOCKOUT_SECS: {{ . | quote }}
+  {{- end }}
+  # Whether X-Forwarded-For is trusted. Unset FOLLOWS THE INGRESS, because that
+  # is what decides the answer: behind the chart's Ingress the socket peer is
+  # the ingress controller, so counting it would pool every client into one
+  # bucket; with no Ingress there is nothing in front and the header is
+  # caller-supplied. An explicit value wins, for a gateway of your own.
+  KAIROS_TRUSTED_PROXY: {{ include "kairos.trustedProxy" . | quote }}
   # Retention (KAIROS-A-0004): only overrides are emitted; unset keys fall back
   # to the server's built-in defaults.
   {{- with .Values.config.retention.historyHotDays }}

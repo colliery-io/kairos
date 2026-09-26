@@ -518,8 +518,28 @@ pub async fn require_auth(
     // Service-account API key (KAIROS-T-0058): resolves to a user principal +
     // its tenant, with the same AuthContext shape as the OIDC path.
     if crate::service_accounts::auth::is_api_key(&token) {
+        // KAIROS-T-0202. Counted by SOURCE only, never by the key's tenant slug.
+        // The slug is not a secret and every legitimate client of an org shares
+        // it, so an identity bucket here would let one CI job with a stale key
+        // lock a whole organization out of its own API. The identity grain belongs
+        // to the password endpoint, where the account being guessed belongs to one
+        // person.
+        let source = crate::rate_limit::client_addr(&req, state.config.trusted_proxy);
+        let attempt = crate::rate_limit::Attempt::begin(&state, source, None);
+        if let Some(refused) = attempt.refuse_if_locked_out() {
+            return Ok(refused);
+        }
         let (auth, slug) =
-            crate::service_accounts::auth::authenticate_api_key(&state, &token).await?;
+            match crate::service_accounts::auth::authenticate_api_key(&state, &token).await {
+                Ok(resolved) => {
+                    attempt.succeeded();
+                    resolved
+                }
+                Err(e) => {
+                    attempt.failed();
+                    return Err(e);
+                }
+            };
         req.extensions_mut().insert(auth);
         req.extensions_mut()
             .insert(crate::service_accounts::auth::ApiKeyTenant(slug));

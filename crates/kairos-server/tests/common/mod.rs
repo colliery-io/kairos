@@ -214,6 +214,10 @@ pub fn base_config(scratch_url: &str) -> AppConfig {
         // unconfigured deployment does too.
         otel_endpoint: None,
         otel_sample_ratio: 1.0,
+        auth_max_failures: 5,
+        auth_failure_window_secs: 300,
+        auth_lockout_secs: 60,
+        trusted_proxy: false,
     }
 }
 

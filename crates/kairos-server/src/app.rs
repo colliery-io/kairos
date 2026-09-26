@@ -44,6 +44,13 @@ pub struct AppState {
     /// KAIROS-T-0049). Per-`AppState` (not a process-global recorder) so
     /// in-process test routers stay isolated — see [`crate::metrics`].
     pub metrics: Arc<crate::metrics::Metrics>,
+    /// The failed-authentication throttle (KAIROS-T-0202), or `None` when
+    /// `KAIROS_AUTH_MAX_FAILURES` is 0 and throttling is off.
+    ///
+    /// Per-`AppState` for the same reason as [`crate::metrics::Metrics`]: a
+    /// process-global would let one in-process test router's lockouts refuse
+    /// another's requests.
+    pub throttle: Option<Arc<crate::rate_limit::AuthThrottle>>,
 }
 
 /// Why [`build_state`] failed (startup-time, fail-fast).
@@ -67,6 +74,7 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
     let pool = TenantPool::new(&config.database_url, POOL_SIZE).await?;
     let blocking = BlockingTenantPool::new(&config.database_url, POOL_SIZE);
     let auth = Authenticator::discover(&config.oidc_issuer_url, &config.oidc_audience).await?;
+    let throttle = crate::rate_limit::from_config(&config).map(Arc::new);
     Ok(AppState {
         config: Arc::new(config),
         pool,
@@ -74,6 +82,7 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
         auth: Arc::new(auth),
         embedding: build_embedding_service(),
         metrics: Arc::new(crate::metrics::Metrics::new()),
+        throttle,
     })
 }
 
@@ -118,6 +127,10 @@ fn build_embedding_service() -> Option<Arc<crate::embedding::EmbeddingService>> 
 /// here from `config.database_url` either way.
 pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>) -> AppState {
     let blocking = BlockingTenantPool::new(&config.database_url, POOL_SIZE);
+    // KAIROS-T-0202: built from the passed config like everything else here, so a
+    // test that wants a throttle sets the variables and a test that does not set
+    // `KAIROS_AUTH_MAX_FAILURES` to 0.
+    let throttle = crate::rate_limit::from_config(&config).map(Arc::new);
     AppState {
         config: Arc::new(config),
         pool,
@@ -127,6 +140,7 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
         // 65 MB model into every in-process router.
         embedding: None,
         metrics: Arc::new(crate::metrics::Metrics::new()),
+        throttle,
     }
 }
 
@@ -472,10 +486,17 @@ pub async fn serve(config: AppConfig) -> Result<(), String> {
         .map_err(|e| format!("cannot bind KAIROS_BIND_ADDR {bind_addr}: {e}"))?;
     tracing::info!(%bind_addr, "kairos-server listening");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .map_err(|e| format!("server error: {e}"))
+    // KAIROS-T-0202: the throttle needs the socket peer for its source bucket,
+    // and `ConnectInfo` is the only place axum will put it. Tests that drive the
+    // router with `oneshot` insert no `ConnectInfo`, which the throttle treats as
+    // "no address to attribute" rather than as an error.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .map_err(|e| format!("server error: {e}"))
 }
 
 /// Resolves when ctrl-c (SIGINT) arrives.

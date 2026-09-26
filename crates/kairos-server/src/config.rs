@@ -172,6 +172,33 @@ pub struct AppConfig {
     /// decision, because the collector can see the whole trace and this process
     /// cannot.
     pub otel_sample_ratio: f64,
+    /// `KAIROS_AUTH_MAX_FAILURES` (KAIROS-T-0202): failed authentications within
+    /// [`Self::auth_failure_window_secs`] before a lockout, default **5**.
+    ///
+    /// **0 turns throttling off entirely.** That escape hatch exists because a
+    /// throttle that misfires locks people out of their own deployment, and the
+    /// fix must not require a new build.
+    pub auth_max_failures: u32,
+    /// `KAIROS_AUTH_FAILURE_WINDOW_SECS` (KAIROS-T-0202): how long failures
+    /// accumulate before they are forgotten, default **300**.
+    pub auth_failure_window_secs: u64,
+    /// `KAIROS_AUTH_LOCKOUT_SECS` (KAIROS-T-0202): how long a lockout lasts once
+    /// tripped, default **60**.
+    ///
+    /// Short on purpose. A long lockout is a denial-of-service an attacker can
+    /// aim at a known account, and it turns one person's typo into a support
+    /// request.
+    pub auth_lockout_secs: u64,
+    /// `KAIROS_TRUSTED_PROXY` (KAIROS-T-0202): trust `X-Forwarded-For` for the
+    /// client address, default **false**.
+    ///
+    /// Off by default because the header is caller-supplied. Anyone can send
+    /// `X-Forwarded-For: <anything>`, so trusting it on a directly exposed server
+    /// hands an attacker a fresh identity per request — it does not weaken the
+    /// throttle, it removes it. Turn it on only when every request arrives through
+    /// a proxy you control that appends the peer it saw (the reference compose
+    /// stack's Caddy does; a direct deployment has nothing in front of it).
+    pub trusted_proxy: bool,
 }
 
 impl AppConfig {
@@ -265,6 +292,24 @@ impl AppConfig {
             }
         };
 
+        // KAIROS-T-0202. Parsed strictly for the same reason as the sampling ratio
+        // above: a typo in a security limit must be heard at boot, not inferred
+        // later from a throttle that never fires.
+        let auth_max_failures = parse_num::<u32>(&get, "KAIROS_AUTH_MAX_FAILURES", 5)?;
+        let auth_failure_window_secs =
+            parse_num::<u64>(&get, "KAIROS_AUTH_FAILURE_WINDOW_SECS", 300)?;
+        let auth_lockout_secs = parse_num::<u64>(&get, "KAIROS_AUTH_LOCKOUT_SECS", 60)?;
+        let trusted_proxy = match get("KAIROS_TRUSTED_PROXY").as_deref() {
+            None | Some("") | Some("false") | Some("0") => false,
+            Some("true") | Some("1") => true,
+            Some(other) => {
+                return Err(ConfigError::Invalid {
+                    var: "KAIROS_TRUSTED_PROXY",
+                    message: format!("{other:?} is not one of: true, 1, false, 0"),
+                });
+            }
+        };
+
         let deployment_admins = get("KAIROS_DEPLOYMENT_ADMINS")
             .map(|raw| {
                 raw.split(',')
@@ -297,7 +342,28 @@ impl AppConfig {
             webhook_signing_key: get("KAIROS_WEBHOOK_SIGNING_KEY"),
             otel_endpoint: get("KAIROS_OTEL_ENDPOINT"),
             otel_sample_ratio,
+            auth_max_failures,
+            auth_failure_window_secs,
+            auth_lockout_secs,
+            trusted_proxy,
         })
+    }
+}
+
+/// Parse an optional numeric variable, or fail naming it. An empty value is
+/// unset, matching every other variable here — the chart emits empty strings for
+/// values the operator left alone.
+fn parse_num<T: std::str::FromStr>(
+    get: &impl Fn(&str) -> Option<String>,
+    var: &'static str,
+    default: T,
+) -> Result<T, ConfigError> {
+    match get(var) {
+        None => Ok(default),
+        Some(raw) => raw.trim().parse().map_err(|_| ConfigError::Invalid {
+            var,
+            message: format!("{raw:?} is not a whole number"),
+        }),
     }
 }
 

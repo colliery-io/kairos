@@ -239,6 +239,26 @@ config:
 
   # -- KAIROS_DEV_UI — mount the Swagger UI at /api/docs. Keep false in
   # production (KAIROS-A-0005 §6: dev builds only).
+  auth:
+    # -- KAIROS_AUTH_MAX_FAILURES (KAIROS-T-0202) — failed authentications
+    # allowed inside the window before a lockout. Emitted only when set;
+    # the server's default is 5. Set "0" to turn throttling OFF.
+    maxFailures: ""
+    # -- KAIROS_AUTH_FAILURE_WINDOW_SECS — how long failures accumulate before
+    # they are forgotten. Emitted only when set; the default is 300.
+    failureWindowSecs: ""
+    # -- KAIROS_AUTH_LOCKOUT_SECS — how long a lockout lasts. Emitted only when
+    # set; the default is 60, short on purpose so a mistyped password is not a
+    # support request and a lockout is not a denial-of-service.
+    lockoutSecs: ""
+    # -- KAIROS_TRUSTED_PROXY — trust X-Forwarded-For for the client address.
+    # Empty FOLLOWS ingress.enabled, which is the right answer either way:
+    # behind an Ingress the socket peer is the controller, so the header is the
+    # only real client address; with no Ingress the header is caller-supplied
+    # and trusting it would hand an attacker a new identity per request. Set
+    # "true" explicitly when you front Kairos with a gateway of your own.
+    trustedProxy: ""
+
   devUi: false
 
 # -- A bundled Dex, FOR EVALUATION ONLY (KAIROS-T-0200, KAIROS-I-0018).

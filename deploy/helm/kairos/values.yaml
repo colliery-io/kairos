@@ -259,6 +259,20 @@ config:
     # "true" explicitly when you front Kairos with a gateway of your own.
     trustedProxy: ""
 
+  # -- Local password accounts (KAIROS-T-0203, KAIROS-I-0018).
+  localAuth:
+    # -- Accept local accounts in ADDITION to the issuer above. With this false
+    # (the default), KAIROS_LOCAL_AUTH is off and /api/login is not routed — a
+    # deployment with an issuer has no password endpoint to attack.
+    #
+    # Accounts are created by an org admin. There is no self-service sign-up and
+    # no password-reset email; the intended uses are a small team with no
+    # identity provider, and a break-glass admin for when an issuer is down.
+    enabled: false
+    # -- KAIROS_SESSION_TTL_SECS — how long a session bearer lasts. Emitted only
+    # when set; the server's default is 1209600 (14 days).
+    sessionTtlSecs: ""
+
   devUi: false
 
 # -- A bundled Dex, FOR EVALUATION ONLY (KAIROS-T-0200, KAIROS-I-0018).

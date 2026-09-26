@@ -203,6 +203,13 @@ use crate::app::AppState;
         crate::service_accounts::routes::create_key,
         crate::service_accounts::routes::list_keys,
         crate::service_accounts::routes::revoke_key,
+        // Local password login (KAIROS-T-0203). Documented unconditionally even
+        // though the routes are mounted only when KAIROS_LOCAL_AUTH is on: the spec
+        // is the API contract, and an operator reading it needs to know the
+        // endpoint exists and what switches it on. The route-vs-spec test asserts
+        // set equality over the sources, not over one deployment's router.
+        crate::login::login,
+        crate::login::logout,
         // This module + the app.rs whoami probe (doc stub below).
         openapi_json,
         whoami,

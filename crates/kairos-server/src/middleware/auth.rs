@@ -546,6 +546,18 @@ pub async fn require_auth(
         return Ok(next.run(req).await);
     }
 
+    // Local session bearer (KAIROS-T-0203): the THIRD branch, and its position is
+    // deliberate. Both local branches are cheap local checks — a prefix, then one
+    // indexed lookup — and the OIDC path may touch the network for JWKS, so the
+    // cheap ones go first. Equally deliberate: an unrecognised token shape falls
+    // through to OIDC, so nothing that authenticates today stops working when local
+    // auth is switched on.
+    if crate::local_auth::is_session_token(&token) {
+        let auth = crate::login::authenticate_session(&state, &token).await?;
+        req.extensions_mut().insert(auth);
+        return Ok(next.run(req).await);
+    }
+
     let claims = state.auth.verify(&token).await?;
     let user = jit_upsert_user(&state.pool, &claims).await?;
 

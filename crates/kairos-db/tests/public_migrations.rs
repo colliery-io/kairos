@@ -25,7 +25,10 @@ const SCRATCH_DB: &str = "kairos_public_migrations_test";
 
 /// The public-schema tables: the 8 defined by KAIROS-S-0004 plus the
 /// KAIROS-T-0078 system metadata scopes.
-const EXPECTED_TABLES: [&str; 9] = [
+const EXPECTED_TABLES: [&str; 10] = [
+    // KAIROS-T-0203: public, not tenant-scoped, so that revoking every session a
+    // person holds is one statement rather than a sweep across org_* schemas.
+    "local_sessions",
     "organization_members",
     "organizations",
     "system_board_defaults",

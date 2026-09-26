@@ -147,6 +147,19 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
 /// The production router: `/healthz` open; everything under `/api` behind
 /// the full auth → tenant stack.
 pub fn router(state: AppState) -> Router {
+    // Local password login (KAIROS-T-0203). Mounted only when KAIROS_LOCAL_AUTH is
+    // on, and OUTSIDE the auth stack: login holds no credential yet, and logout has
+    // to work with a session that has already expired. Off, these routes DO NOT
+    // EXIST — a deployment with an issuer has no password endpoint to attack, which
+    // is a stronger property than a handler that declines.
+    // An EMPTY router when it is off, rather than an Option, so the merge below is
+    // unconditional and there is no second assembly path to keep in step.
+    let local_auth = if state.config.local_auth {
+        crate::login::router()
+    } else {
+        Router::new()
+    };
+
     let protected = Router::new()
         .route("/api/whoami", get(whoami))
         // The S-0005 entity endpoint families (KAIROS-T-0018).
@@ -247,6 +260,8 @@ pub fn router(state: AppState) -> Router {
         // invisible to the openapi route-vs-spec scanner).
         .route("/readyz", get(crate::metrics::readyz))
         .route("/metrics", get(crate::metrics::metrics_handler))
+        // Local password login (KAIROS-T-0203), empty unless KAIROS_LOCAL_AUTH is on.
+        .merge(local_auth)
         .merge(protected)
         // Cross-tenant deployment-admin routes (KAIROS-T-0019): behind auth
         // only, NO tenant middleware — see api::org::admin module docs.

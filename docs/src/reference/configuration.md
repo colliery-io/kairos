@@ -36,6 +36,45 @@ them; their own parsing rules differ, and are stated in that section.
 | `KAIROS_LOG_FORMAT` | `json` \| `pretty` | `json` | Log encoding. Any other value fails startup. |
 | `KAIROS_PUBLIC_URL` | URL | unset | The deployment's externally reachable base URL. Required to render the webhook delivery URL an operator pastes into a forge. A trailing slash is stripped. Not inferred from the request `Host` header. |
 
+### Local password accounts
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_LOCAL_AUTH` | bool | `false` | Accept local password accounts in addition to the OIDC issuer. Off means `POST /api/login` is **not routed** — a 404 from an absent route, not a 401 from a handler that declines. |
+| `KAIROS_SESSION_TTL_SECS` | integer | `1209600` (14 days) | How long a session bearer lasts. |
+
+Local accounts are **additive**, not an alternative: a deployment may have both an
+issuer and local accounts, and neither path knows about the other. A person with one
+email address is one `users` row either way (KAIROS-T-0197).
+
+Accounts are created by an org admin. There is no self-service sign-up and no
+password-reset email — the two intended uses are a small team with no identity
+provider, and a break-glass admin for when an issuer is unreachable.
+
+A successful login returns an opaque bearer, `kairos_ss_<64-hex>`, which the client
+presents as `Authorization: Bearer <token>`. Only its SHA-256 is stored, so a
+database dump yields nothing usable. Unlike a service-account API key it carries no
+tenant: a session stands in for an OIDC token, and an OIDC token is deployment-wide,
+so one login covers every organization the person belongs to and membership is
+enforced per request as usual.
+
+Two weeks is the default lifetime because it is a decision and not an accident.
+Forever would be a permanent credential handed out by a login form; an hour logs
+people out in the middle of the work they came to do.
+
+`POST /api/logout` revokes the presented session. **Changing a password revokes
+every other session that person holds** — enforced in the storage layer, in the same
+transaction as the password write, because a password change after a suspected
+compromise that left the attacker logged in would defeat the only thing the person
+was trying to do.
+
+Every way a login can fail — unknown email, wrong password, an account that has no
+password because it authenticates through the issuer, a revoked or expired session —
+returns one 401 with one message, and an unknown email deliberately costs the same
+argon2 work as a real attempt. Otherwise the response time would answer the question
+the message refuses to. Failed logins are throttled per account and per source; see
+[Failed-authentication throttling](#failed-authentication-throttling).
+
 ### Failed-authentication throttling
 
 Repeated failed authentications are throttled (KAIROS-T-0202). This matters most

@@ -29,7 +29,6 @@
 
 use argon2::password_hash::phc::PasswordHash;
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, PasswordVerifier, Version};
-use kairos_db::tenant::is_valid_slug;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
@@ -129,14 +128,22 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Mint a session token for `slug`: `kairos_ss_<slug>_<64-hex>`.
+/// Mint a session token: `kairos_ss_<64-hex>`.
 ///
-/// The tenant is embedded for the same reason an API key embeds it: the bearer
-/// then carries its own tenant and does not need one resolved from the `Host`.
-pub fn generate_session_token(slug: &str) -> String {
+/// **No tenant in it**, unlike an API key, and that is the difference worth
+/// understanding. A key embeds its slug because the script presenting it has no
+/// other way to say which organization it means. A session has one — the browser
+/// is already at `acme.kairos.example` — so the token stays a bare secret and the
+/// tenant middleware resolves the org as it does for an OIDC token, which is what
+/// a session actually stands in for.
+///
+/// The consequence is the useful one: a person in two organizations logs in once,
+/// and revoking every session they hold is a single statement rather than a sweep
+/// across schemas (KAIROS-T-0203).
+pub fn generate_session_token() -> String {
     let mut secret = [0u8; 32];
     rand::rng().fill_bytes(&mut secret);
-    format!("{SESSION_PREFIX}{slug}_{}", hex(&secret))
+    format!("{SESSION_PREFIX}{}", hex(&secret))
 }
 
 /// The value stored at rest: hex SHA-256 of the full token. Correct here and
@@ -145,16 +152,18 @@ pub fn hash_session_token(token: &str) -> String {
     hex(&Sha256::digest(token.as_bytes()))
 }
 
-/// Split a presented token into `(slug, secret)`, or `None` if it is not
-/// shaped like one.
-pub fn parse_session_token(token: &str) -> Option<(&str, &str)> {
-    let rest = token.strip_prefix(SESSION_PREFIX)?;
-    let (slug, secret) = rest.rsplit_once('_')?;
-    let secret_ok = secret.len() == SESSION_SECRET_LEN
+/// The secret part of a presented token, or `None` if it is not shaped like one.
+///
+/// Shape is checked before the database is touched, so a bearer that cannot
+/// possibly be a session costs no query. It is NOT a security check — the hash
+/// lookup is — it is a cheap way to reject noise.
+pub fn parse_session_token(token: &str) -> Option<&str> {
+    let secret = token.strip_prefix(SESSION_PREFIX)?;
+    let ok = secret.len() == SESSION_SECRET_LEN
         && secret
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    (secret_ok && is_valid_slug(slug)).then_some((slug, secret))
+    ok.then_some(secret)
 }
 
 /// True if the bearer looks like a session token, so `require_auth` takes the
@@ -225,18 +234,18 @@ mod tests {
 
     #[test]
     fn a_session_token_round_trips() {
-        let token = generate_session_token("acme");
+        let token = generate_session_token();
         assert!(is_session_token(&token));
-        let (slug, secret) = parse_session_token(&token).expect("parses");
-        assert_eq!(slug, "acme");
+        let secret = parse_session_token(&token).expect("parses");
         assert_eq!(secret.len(), SESSION_SECRET_LEN);
+        assert!(!token.contains("acme"), "a session carries no tenant");
     }
 
     #[test]
     fn session_tokens_are_not_api_keys_and_api_keys_are_not_sessions() {
         // The prefixes differ by one character, so this is exactly the assertion
         // a later rename would break. Both directions, deliberately.
-        let session = generate_session_token("acme");
+        let session = generate_session_token();
         let key = crate::service_accounts::auth::generate_key("acme");
         assert!(is_session_token(&session) && !is_api_key(&session));
         assert!(is_api_key(&key) && !is_session_token(&key));
@@ -246,19 +255,21 @@ mod tests {
     #[test]
     fn a_malformed_session_token_does_not_parse() {
         for bad in [
-            "kairos_ss_acme_short",
-            "kairos_ss_acme_ZZZZ",
-            "kairos_ss_BADSLUG_0000000000000000000000000000000000000000000000000000000000000000",
-            "kairos_ss_nosecret",
+            "kairos_ss_short",
+            &format!("kairos_ss_{}", "Z".repeat(64)), // non-hex
+            &format!("kairos_ss_{}", "a".repeat(63)), // one short
+            &format!("kairos_ss_{}", "a".repeat(65)), // one long
+            "kairos_ss_",
             "bearer-looking-jwt.eyJ.x",
         ] {
+            let bad: &str = bad;
             assert!(parse_session_token(bad).is_none(), "{bad:?} must not parse");
         }
     }
 
     #[test]
     fn hashing_a_token_is_stable_and_one_way() {
-        let token = generate_session_token("acme");
+        let token = generate_session_token();
         assert_eq!(hash_session_token(&token), hash_session_token(&token));
         assert_eq!(hash_session_token(&token).len(), 64);
         assert!(!hash_session_token(&token).contains(&token));

@@ -199,6 +199,28 @@ pub struct AppConfig {
     /// a proxy you control that appends the peer it saw (the reference compose
     /// stack's Caddy does; a direct deployment has nothing in front of it).
     pub trusted_proxy: bool,
+    /// `KAIROS_LOCAL_AUTH` (KAIROS-T-0203): accept local password accounts,
+    /// default **false**.
+    ///
+    /// Off means `/api/login` is **not routed at all** — not a 401, not a 404 from
+    /// a handler that refuses, simply absent. A deployment that authenticates
+    /// through an issuer has no password endpoint to attack, which is a stronger
+    /// statement than one that exists and declines.
+    ///
+    /// It is additive rather than alternative (KAIROS-I-0018): a deployment may
+    /// have both an issuer and local accounts, and neither path knows about the
+    /// other.
+    pub local_auth: bool,
+    /// `KAIROS_SESSION_TTL_SECS` (KAIROS-T-0203): how long a session bearer lasts,
+    /// default **1209600** (14 days).
+    ///
+    /// A decision, not an accident. A session is a bearer token a browser keeps and
+    /// the CLI may write to disk, so "forever" is a permanent credential handed out
+    /// by a login form; an hour is hostile, because it logs people out in the middle
+    /// of the work they came to do. Two weeks is about as long as someone keeps a
+    /// tab open, and short enough that a token copied off a laptop stops working
+    /// without anyone noticing it needed to.
+    pub session_ttl_secs: u64,
 }
 
 impl AppConfig {
@@ -310,6 +332,28 @@ impl AppConfig {
             }
         };
 
+        // KAIROS-T-0203.
+        let local_auth = match get("KAIROS_LOCAL_AUTH").as_deref() {
+            None | Some("") | Some("false") | Some("0") => false,
+            Some("true") | Some("1") => true,
+            Some(other) => {
+                return Err(ConfigError::Invalid {
+                    var: "KAIROS_LOCAL_AUTH",
+                    message: format!("{other:?} is not one of: true, 1, false, 0"),
+                });
+            }
+        };
+        let session_ttl_secs =
+            parse_num::<u64>(&get, "KAIROS_SESSION_TTL_SECS", 14 * 24 * 60 * 60)?;
+        if local_auth && session_ttl_secs == 0 {
+            return Err(ConfigError::Invalid {
+                var: "KAIROS_SESSION_TTL_SECS",
+                message: "0 would mint sessions that have already expired; \
+                          to switch local login off set KAIROS_LOCAL_AUTH=false"
+                    .to_string(),
+            });
+        }
+
         let deployment_admins = get("KAIROS_DEPLOYMENT_ADMINS")
             .map(|raw| {
                 raw.split(',')
@@ -346,6 +390,8 @@ impl AppConfig {
             auth_failure_window_secs,
             auth_lockout_secs,
             trusted_proxy,
+            local_auth,
+            session_ttl_secs,
         })
     }
 }

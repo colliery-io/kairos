@@ -14,6 +14,7 @@ pub mod events;
 pub mod forge;
 pub mod graph;
 pub mod items;
+pub mod local_auth;
 pub mod migrations;
 pub mod models;
 pub mod pool;

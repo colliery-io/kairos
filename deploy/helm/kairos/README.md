@@ -191,6 +191,8 @@ Secret loaded via `valueFrom`.
 | `config.auth.maxFailures` | `KAIROS_AUTH_MAX_FAILURES` | `""` | Failed authentications before a lockout; server default `5`. Emitted when set, **including `0`**, which turns throttling off. |
 | `config.auth.failureWindowSecs` | `KAIROS_AUTH_FAILURE_WINDOW_SECS` | `""` | How long failures accumulate; server default `300`. Emitted only when set. |
 | `config.auth.lockoutSecs` | `KAIROS_AUTH_LOCKOUT_SECS` | `""` | How long a lockout lasts; server default `60`. Emitted only when set. |
+| `config.localAuth.enabled` | `KAIROS_LOCAL_AUTH` | `false` | Accept local password accounts in addition to the issuer. Off means `/api/login` is not routed at all. Accounts are admin-created; there is no self-service sign-up and no reset email. |
+| `config.localAuth.sessionTtlSecs` | `KAIROS_SESSION_TTL_SECS` | `""` | Session bearer lifetime in seconds; server default `1209600` (14 days). Emitted only when set. |
 | `config.auth.trustedProxy` | `KAIROS_TRUSTED_PROXY` | `""` | Trust `X-Forwarded-For` for the client address. Empty **follows `ingress.enabled`** — behind an Ingress the socket peer is the ingress controller, so the header is the only real client address; without one it is caller-supplied and trusting it would remove the throttle rather than weaken it. |
 | `config.retention.historyHotDays` | `KAIROS_HISTORY_HOT_DAYS` | server `90` | Emitted only when set. |
 | `config.retention.historyKeepLatest` | `KAIROS_HISTORY_KEEP_LATEST` | server `5` | Emitted only when set. |

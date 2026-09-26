@@ -21,6 +21,7 @@ pub mod embedding;
 pub mod error;
 pub mod forge;
 pub mod local_auth;
+pub mod login;
 pub mod metrics;
 pub mod middleware;
 pub mod rate_limit;

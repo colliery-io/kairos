@@ -66,6 +66,12 @@ data:
   # bucket; with no Ingress there is nothing in front and the header is
   # caller-supplied. An explicit value wins, for a gateway of your own.
   KAIROS_TRUSTED_PROXY: {{ include "kairos.trustedProxy" . | quote }}
+  # Local password accounts (KAIROS-T-0203). Off unless asked for; with it off
+  # /api/login is not routed at all.
+  KAIROS_LOCAL_AUTH: {{ .Values.config.localAuth.enabled | quote }}
+  {{- with include "kairos.setValue" .Values.config.localAuth.sessionTtlSecs }}
+  KAIROS_SESSION_TTL_SECS: {{ . | quote }}
+  {{- end }}
   # Retention (KAIROS-A-0004): only overrides are emitted; unset keys fall back
   # to the server's built-in defaults.
   {{- with .Values.config.retention.historyHotDays }}

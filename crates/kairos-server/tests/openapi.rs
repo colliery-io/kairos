@@ -385,8 +385,16 @@ async fn openapi_endpoint_against_live_stack() {
             .await
             .expect("OIDC discovery against live Dex"),
     );
+    // KAIROS-T-0203: local auth ON for the probe below. `/api/login` and
+    // `/api/logout` are documented unconditionally — the spec is the API contract —
+    // but they are ROUTED only when KAIROS_LOCAL_AUTH is on. A probe router with
+    // them off would report them as documented-but-unrouted, which is the very
+    // drift this test exists to catch, so the router under probe is the one that
+    // has every documented route.
+    let mut probe_config = base_config(&scratch_url);
+    probe_config.local_auth = true;
     let router = app::router(app::state_with(
-        base_config(&scratch_url),
+        probe_config,
         pool.clone(),
         auth.clone(),
     ));

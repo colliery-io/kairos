@@ -81,6 +81,11 @@ services:
       # the world as one source — Caddy's — and one clumsy client could lock out
       # everybody. Do NOT copy this line into a stack that publishes port 8080.
       KAIROS_TRUSTED_PROXY: "true"
+      # KAIROS-T-0203: local password accounts. OFF by default — with it off,
+      # /api/login is not routed at all, so there is no password endpoint to
+      # attack. Additive: a deployment may have both an issuer and local accounts.
+      KAIROS_LOCAL_AUTH: ${KAIROS_LOCAL_AUTH:-}
+      KAIROS_SESSION_TTL_SECS: ${KAIROS_SESSION_TTL_SECS:-}
     # The image applies pending migrations on boot (KAIROS-T-0007) before it
     # binds, so no separate migrate step is required. Liveness is the image's
     # own HEALTHCHECK against /healthz.

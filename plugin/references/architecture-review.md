@@ -1,6 +1,6 @@
 # Architecture Review Spec
 
-This document is the single source of truth for the `architecture-review` skill. A reviewer (human or AI) applies it verbatim. Every rule below is checkable against the codebase; if a rule cannot be checked, it does not belong here. Rendered from KAIROS-S-0007 (source of truth) — do not edit here.
+This document is the single source of truth for the `architecture-review` skill. A reviewer (human or AI) applies it verbatim. Every rule below is checkable against the codebase; if a rule cannot be checked, it does not belong here. Rendered from COLLIERY-D-0007 (source of truth; was Metis KAIROS-S-0007) — do not edit here.
 
 ## 1. Purpose and process
 

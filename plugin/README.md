@@ -67,15 +67,18 @@ the template must stay deployment-agnostic.
 
 ## `references/` are rendered artifacts
 
-Three files, each rendered from the Metis specification that remains its source of truth:
+Three files, each rendered from the Kairos document that is its source of truth. They were
+Metis specifications until 2026-09-26, and citations of the old code still mean the same text:
 
-| Rendered | Source |
-|---|---|
-| `references/architecture-review.md` | KAIROS-S-0007 |
-| `references/diataxis.md` | KAIROS-S-0008 |
-| `references/simplified-technical-english.md` | KAIROS-S-0009 |
+| Rendered | Source | Was |
+|---|---|---|
+| `references/architecture-review.md` | COLLIERY-D-0007 | KAIROS-S-0007 |
+| `references/diataxis.md` | COLLIERY-D-0008 | KAIROS-S-0008 |
+| `references/simplified-technical-english.md` | COLLIERY-D-0009 | KAIROS-S-0009 |
 
-Never edit the rendered files directly. To re-render after a spec change, run:
+Never edit the rendered files directly. The script reads the documents over the REST API, so it
+needs the deployment reachable and `KAIROS_KEY` (or `KAIROS_MCP_KEY`) set. To re-render after a
+spec change, run:
 
 ```
 scripts/render-references.sh

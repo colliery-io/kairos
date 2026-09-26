@@ -1,6 +1,6 @@
 # Diataxis Documentation Spec
 
-Source of truth for the `diataxis-review` skill. Based on the Diataxis framework (Daniele Procida, diataxis.fr). Every rule below is checkable: a reviewer must be able to cite a rule ID and point to text on the page that satisfies or violates it. Rendered from KAIROS-S-0008 (source of truth) — do not edit here.
+Source of truth for the `diataxis-review` skill. Based on the Diataxis framework (Daniele Procida, diataxis.fr). Every rule below is checkable: a reviewer must be able to cite a rule ID and point to text on the page that satisfies or violates it. Rendered from COLLIERY-D-0008 (source of truth; was Metis KAIROS-S-0008) — do not edit here.
 
 ## 1. The compass
 

@@ -93,10 +93,19 @@ than in the book:
 | [`e2e/README.md`](e2e/README.md) | the end-to-end smoke |
 | [`docs/gui-conventions.md`](docs/gui-conventions.md) | GUI conventions — design tokens, never raw colours |
 | [`plugin/README.md`](plugin/README.md) | the Claude Code plugin |
-| [`.metis/`](.metis/) | the Flight Levels work record: vision, initiatives, ADRs, specifications |
+| [`.metis/`](.metis/) | the work record up to 2026-09-26, frozen: vision, initiatives, ADRs, specifications |
 
-Architecture decisions are in [`.metis/adrs/`](.metis/adrs/); the testing and
-verification strategy is [`KAIROS-A-0012`](.metis/adrs/KAIROS-A-0012.md).
+Work is managed in Kairos itself since 2026-09-26. The record was copied there
+with its numbers kept, so `KAIROS-T-0042` in a commit or a comment is
+`COLLIERY-T-0042` on the board; a specification `KAIROS-S-n` is the document
+`COLLIERY-D-n`, and the vision is the strategy `COLLIERY-S-0001`.
+[`scripts/migrate-metis-to-kairos.py`](scripts/migrate-metis-to-kairos.py) did
+the copy and `.metis/kairos-migration.json` is its ledger. `.metis/` stays in the
+repository because the code, the commits and the book cite it. Nothing new is
+written there except `code-index.md`, which a session hook keeps current.
+
+Architecture decisions up to that date are in [`.metis/adrs/`](.metis/adrs/); the
+testing and verification strategy is [`KAIROS-A-0012`](.metis/adrs/KAIROS-A-0012.md).
 
 ## CI
 

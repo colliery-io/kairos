@@ -1,6 +1,6 @@
 # Code Index
 
-> Generated: 2026-09-26T16:41:38Z | 318 files | JavaScript, Python, Rust, TypeScript
+> Generated: 2026-09-26T22:43:40Z | 319 files | JavaScript, Python, Rust, TypeScript
 
 ## Project Structure
 
@@ -334,7 +334,8 @@
 │   │   ├── extract.py
 │   │   ├── prose-budget.rs
 │   │   └── stats.py
-│   └── render-openapi.py
+│   ├── render-openapi.py
+│   └── ste-check.py
 └── uat/
     ├── checks/
     │   └── zz-surface-coverage.check.ts
@@ -7796,6 +7797,14 @@
 - pub `render_operation` function L169-216 — `def render_operation(method, path, op, spec, lines)`
 - pub `render` function L219-334 — `def render(spec)`
 - pub `main` function L337-381 — `def main()`
+
+#### scripts/ste-check.py
+
+- pub `scoped_files` function L92-98 — `def scoped_files()`
+- pub `prose_blocks` function L101-139 — `def prose_blocks(text)` — Paragraphs of prose, with everything a rule cannot sensibly apply to removed.
+- pub `sentences` function L142-146 — `def sentences(block)`
+- pub `violations_in` function L149-176 — `def violations_in(path)` — Every violation in one file, as (rule, line-ish, message).
+- pub `main` function L179-247 — `def main(argv)`
 
 ### uat/checks
 

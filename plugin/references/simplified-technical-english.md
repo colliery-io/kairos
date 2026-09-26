@@ -1,6 +1,6 @@
 # Simplified Technical English Spec
 
-Source of truth for how Kairos writes **procedural** text. Based on ASD-STE100, Simplified Technical English, issued by the AeroSpace, Security and Defence Industries Association of Europe. Every rule below has an ID, and a reviewer or a checker must be able to cite that ID and point at the text that satisfies or violates it. Rendered from KAIROS-S-0009 (source of truth) — do not edit here.
+Source of truth for how Kairos writes **procedural** text. Based on ASD-STE100, Simplified Technical English, issued by the AeroSpace, Security and Defence Industries Association of Europe. Every rule below has an ID, and a reviewer or a checker must be able to cite that ID and point at the text that satisfies or violates it. Rendered from COLLIERY-D-0009 (source of truth; was Metis KAIROS-S-0009) — do not edit here.
 
 ## 1. What this is for, and what it is not for
 

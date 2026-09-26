@@ -24,6 +24,7 @@ checklist.
 - [Install with Helm](how-to/install-with-helm.md)
 - [Configure an OIDC issuer](how-to/configure-an-oidc-issuer.md)
 - [Use local accounts](how-to/use-local-accounts.md)
+- [Serve Kairos on a tailnet](how-to/serve-on-a-tailnet.md)
 - [Provision a tenant](how-to/provision-a-tenant.md)
 - [Connect a git forge](how-to/connect-a-git-forge.md)
 - [Back up and restore](how-to/back-up-and-restore.md)

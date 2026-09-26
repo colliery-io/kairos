@@ -920,6 +920,22 @@ mod tests {
         // They are that image's interface, not ours.
         "POSTGRES_DB",
         "POSTGRES_USER",
+        // The tailnet front door (COLLIERY-T-0209, was KAIROS-T-0209). Compose
+        // itself reads this one to decide which services start.
+        "COMPOSE_PROFILES",
+        // What .env.example documents for the `tailscale` profile. Compose maps
+        // each to the TS_ name below; none reaches the kairos container.
+        "TAILSCALE_AUTHKEY",
+        "TAILSCALE_HOSTNAME",
+        "TAILSCALE_EXTRA_ARGS",
+        // The tailscale/tailscale image's own interface, set on the sidecar
+        // service only. That image reads them, not ours.
+        "TS_AUTHKEY",
+        "TS_HOSTNAME",
+        "TS_EXTRA_ARGS",
+        "TS_STATE_DIR",
+        "TS_USERSPACE",
+        "TS_SERVE_CONFIG",
     ];
 
     #[test]

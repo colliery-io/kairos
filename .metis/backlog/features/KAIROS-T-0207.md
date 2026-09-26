@@ -113,8 +113,6 @@ enforced is worse than an acknowledged aspiration.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] A Metis specification is the source of truth: scope, the writing rules, the
       Technical Names and Technical Verbs lists — [[KAIROS-S-0009]]
 - [x] Rendered to `plugin/references/` by `scripts/render-references.sh`, and the

@@ -14,17 +14,31 @@ data:
   */}}
   {{- if include "kairos.dexEnabled" . }}
   OIDC_ISSUER_URL: {{ include "kairos.dexIssuerUrl" . | quote }}
-  {{- else }}
-  OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer), or leave it empty to use the bundled Dex" .Values.config.oidc.issuerUrl | quote }}
+  {{- else if .Values.config.oidc.issuerUrl }}
+  OIDC_ISSUER_URL: {{ .Values.config.oidc.issuerUrl | quote }}
+  {{- else if not .Values.config.localAuth.enabled }}
+  {{- /*
+  KAIROS-T-0208: still required, unless local auth gives people another way in.
+  The guard in kairos.validateDex has already refused "no Dex, no issuer, no
+  local auth", so reaching here means local auth is on and no issuer is emitted.
+  */}}
+  OIDC_ISSUER_URL: {{ required "config.oidc.issuerUrl is required (KAIROS-A-0016: bring your own OIDC issuer), or leave it empty to use the bundled Dex, or set config.localAuth.enabled for password accounts" .Values.config.oidc.issuerUrl | quote }}
   {{- end }}
   {{- $audience := .Values.config.oidc.audience }}
   {{- if and (not $audience) (include "kairos.dexEnabled" .) }}
   {{- /* The bundled Dex mints tokens for the GUI and CLI clients only. */}}
   {{- $audience = list .Values.config.webClientId "kairos-cli" }}
   {{- end }}
+  {{- /*
+  KAIROS-T-0208: an audience only means something next to an issuer, so it is
+  required exactly when one is emitted and omitted when one is not. Emitting it
+  alone would trip the server's own "half an issuer" check at boot.
+  */}}
+  {{- if or (include "kairos.dexEnabled" .) .Values.config.oidc.issuerUrl (not .Values.config.localAuth.enabled) }}
   {{- $audience = required "config.oidc.audience is required (the OAuth client id / API audience, or a list of them — KAIROS-T-0055)" $audience }}
   {{- /* A list renders as the comma-separated form the server parses. */}}
   OIDC_AUDIENCE: {{ if kindIs "slice" $audience }}{{ join "," $audience | quote }}{{ else }}{{ $audience | quote }}{{ end }}
+  {{- end }}
   KAIROS_WEB_CLIENT_ID: {{ .Values.config.webClientId | quote }}
   # Which token the GUI/CLI present as the API bearer (KAIROS-T-0054): set
   # "id_token" for opaque-access-token issuers such as Google Workspace.

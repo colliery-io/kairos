@@ -73,7 +73,21 @@ const POOL_SIZE: u32 = 16;
 pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
     let pool = TenantPool::new(&config.database_url, POOL_SIZE).await?;
     let blocking = BlockingTenantPool::new(&config.database_url, POOL_SIZE);
-    let auth = Authenticator::discover(&config.oidc_issuer_url, &config.oidc_audience).await?;
+    // KAIROS-T-0208: discover only what is there. With no issuer there is no
+    // discovery document to fetch, and a `disabled()` authenticator refuses every
+    // JWT with a message that names the misconfiguration. An issuer that IS named
+    // is still discovered here and still fails fast, so making it optional did not
+    // turn a broken issuer into a runtime surprise.
+    let auth = match (&config.oidc_issuer_url, &config.oidc_audience) {
+        (Some(issuer), Some(audience)) => Authenticator::discover(issuer, audience).await?,
+        _ => {
+            tracing::warn!(
+                "no OIDC issuer configured: this deployment authenticates people by \
+                 password only (KAIROS_LOCAL_AUTH). JWT bearers will be refused."
+            );
+            Authenticator::disabled()
+        }
+    };
     let throttle = crate::rate_limit::from_config(&config).map(Arc::new);
     Ok(AppState {
         config: Arc::new(config),

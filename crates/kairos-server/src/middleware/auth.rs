@@ -140,6 +140,21 @@ pub enum VerifyError {
     /// rather than 401.
     #[error("JWKS refresh failed: {0}")]
     KeyFetch(String),
+    /// This deployment has no OIDC issuer (KAIROS-T-0208), so a JWT cannot be
+    /// validated by anything.
+    ///
+    /// The ONE failure on this path that deliberately says what went wrong.
+    /// Everywhere else a uniform message protects a secret; here there is no
+    /// secret — "this server was not configured with an issuer" is a fact about
+    /// the deployment that no amount of guessing turns into access, and a caller
+    /// who gets a bare "invalid token" would go looking for the fault in their own
+    /// token for a long time.
+    #[error(
+        "this deployment has no OIDC issuer configured, so a JWT cannot be \
+         validated; log in with a password (POST /api/login) or set \
+         OIDC_ISSUER_URL"
+    )]
+    NoIssuer,
 }
 
 impl From<VerifyError> for ApiError {
@@ -184,6 +199,11 @@ pub struct Authenticator {
     /// Stampede guard: concurrent unknown-kid requests serialize here and
     /// re-check the cache before fetching.
     refresh: Mutex<()>,
+    /// False for [`Self::disabled`] — a deployment with no issuer
+    /// (KAIROS-T-0208). Kept as a flag rather than inferred from an empty
+    /// `issuer`, because "the issuer happens to be an empty string" and "there is
+    /// no issuer" must not be the same condition.
+    enabled: bool,
 }
 
 impl std::fmt::Debug for Authenticator {
@@ -247,6 +267,7 @@ impl Authenticator {
             http,
             keys: RwLock::new(HashMap::new()),
             refresh: Mutex::new(()),
+            enabled: true,
         };
         auth.refresh_keys()
             .await
@@ -260,6 +281,31 @@ impl Authenticator {
     /// Test constructor: fixed keys, no JWKS endpoint (refresh-on-unknown-
     /// kid becomes a cache miss). Lets unit tests mint tokens with a local
     /// RSA key and exercise every validation branch offline.
+    /// An authenticator for a deployment with **no OIDC issuer**
+    /// (KAIROS-T-0208): every token is refused with [`VerifyError::NoIssuer`].
+    ///
+    /// A constructor rather than `Option<Arc<Authenticator>>` in
+    /// [`crate::app::AppState`]. That field is threaded through
+    /// `app::state_with`, which around thirty integration tests call, and the
+    /// refusal belongs where the OIDC branch already looks for it — not spread
+    /// across every call site as an `if let Some`.
+    pub fn disabled() -> Self {
+        Self {
+            issuer: String::new(),
+            audiences: Vec::new(),
+            jwks_uri: None,
+            http: reqwest::Client::new(),
+            keys: RwLock::new(HashMap::new()),
+            refresh: Mutex::new(()),
+            enabled: false,
+        }
+    }
+
+    /// Whether this deployment has an issuer at all.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
     pub fn with_static_keys(
         issuer: &str,
         audience: &str,
@@ -272,6 +318,7 @@ impl Authenticator {
             http: reqwest::Client::new(),
             keys: RwLock::new(keys.into_iter().collect()),
             refresh: Mutex::new(()),
+            enabled: true,
         }
     }
 
@@ -339,6 +386,9 @@ impl Authenticator {
     /// Validate `token` (RS256 signature, `iss`, `aud`, `exp`) and return
     /// its claims.
     pub async fn verify(&self, token: &str) -> Result<TokenClaims, VerifyError> {
+        if !self.enabled {
+            return Err(VerifyError::NoIssuer);
+        }
         let header = decode_header(token)?;
         let kid = header.kid.unwrap_or_default();
         let key = self

@@ -205,8 +205,8 @@ mod tests {
         AppConfig {
             database_url: "postgres://unused".to_string(),
             bind_addr: "127.0.0.1:0".parse().expect("addr"),
-            oidc_issuer_url: "http://unused".to_string(),
-            oidc_audience: "unused".to_string(),
+            oidc_issuer_url: Some("http://unused".to_string()),
+            oidc_audience: Some("unused".to_string()),
             base_domain: base_domain.map(str::to_string),
             single_tenant: single_tenant.map(str::to_string),
             deployment_admins: vec![],

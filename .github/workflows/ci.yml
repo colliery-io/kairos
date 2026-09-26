@@ -112,3 +112,52 @@ jobs:
 
       - name: Gate 6 — GUI wasm build
         run: angreal web build --release
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      # Gate 7 — the chart actually renders, for every deployment shape in
+      # `deploy/helm/kairos/ci/`.
+      #
+      # `helm lint` is NOT this gate, which is what KAIROS-T-0208 found: it
+      # reports a template `fail` as INFO and exits 0, so the release workflow's
+      # lint step passed on default values that the chart is supposed to refuse.
+      # `helm template` is the one that returns non-zero.
+      #
+      # The two halves matter separately. The values sets prove each supported
+      # shape renders; the refusals prove the guards actually fire, because a
+      # guard that has stopped firing looks exactly like one that was never
+      # needed.
+      - name: Gate 7 — Helm chart renders
+        run: |
+          set -euo pipefail
+          for values in deploy/helm/kairos/ci/*-values.yaml; do
+            echo "--- rendering with $(basename "$values")"
+            helm template ci-render deploy/helm/kairos --values "$values" >/dev/null
+          done
+
+          echo "--- the guards must refuse these"
+          # No way for anyone to log in (KAIROS-T-0208).
+          if helm template ci-render deploy/helm/kairos \
+               --set dex.enabled=false \
+               --set config.tenancy.singleTenant=demo >/dev/null 2>&1; then
+            echo "FAIL: no issuer, no Dex and no local auth should be refused"
+            exit 1
+          fi
+          # Two issuers (KAIROS-T-0200).
+          if helm template ci-render deploy/helm/kairos \
+               --set dex.enabled=true \
+               --set config.oidc.issuerUrl=https://idp.example \
+               --set config.oidc.audience=kairos \
+               --set config.tenancy.singleTenant=demo >/dev/null 2>&1; then
+            echo "FAIL: dex.enabled=true alongside an issuer should be refused"
+            exit 1
+          fi
+          # Both tenancy modes at once (KAIROS-A-0005 §2).
+          if helm template ci-render deploy/helm/kairos \
+               --set config.localAuth.enabled=true \
+               --set config.tenancy.singleTenant=demo \
+               --set config.tenancy.baseDomain=kairos.example >/dev/null 2>&1; then
+            echo "FAIL: naming both tenancy modes should be refused"
+            exit 1
+          fi

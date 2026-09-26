@@ -176,7 +176,7 @@ Secret loaded via `valueFrom`.
 | `database.url` / `database.existingSecret` (+`existingSecretKey`) | `DATABASE_URL` | — | **Secret.** Set one, or leave both empty for the bundled database. |
 | `embeddings.provider` / `url` / `model` | `KAIROS_EMBED_*` | — | Semantic retrieval. The local model ships in the image; set `url` for an OpenAI-compatible endpoint. |
 | `embeddings.apiKey` / `embeddings.existingSecret` (+`existingSecretKey`) | `KAIROS_EMBED_API_KEY` | — | **Secret**, handled like `database.url`. A local Ollama needs none. |
-| `config.oidc.issuerUrl` | `OIDC_ISSUER_URL` | — | Required (external IdP). |
+| `config.oidc.issuerUrl` | `OIDC_ISSUER_URL` | — | Required (external IdP), **unless** the chart bundles a Dex (`dex.enabled`) or `config.localAuth.enabled` is on. Rendering fails when none of the three provides a way to log in, rather than letting the pod crash-loop on a config the server refuses. |
 | `config.oidc.audience` | `OIDC_AUDIENCE` | — | Required. String or list; a list (or comma-separated string) is an `aud` allow-list for per-client-audience IdPs like Google Workspace (KAIROS-T-0055). |
 | `config.webClientId` | `KAIROS_WEB_CLIENT_ID` | `kairos-web` | GUI PKCE client id. |
 | `config.apiBearer` | `KAIROS_API_BEARER` | `access_token` | `access_token` (Dex/Keycloak) or `id_token` (opaque-access-token IdPs, e.g. Google Workspace). |
@@ -236,7 +236,7 @@ manifests.
 
 | Value | Env / effect | Default | Notes |
 |---|---|---|---|
-| `dex.enabled` | — | *(unset)* | Tri-state. Unset: on **unless** `config.oidc.issuerUrl` is set. `true`: on, and naming an issuer is refused at render time. `false`: off. |
+| `dex.enabled` | — | *(unset)* | Tri-state. Unset: on **unless** `config.oidc.issuerUrl` is set **or** `config.localAuth.enabled` is on. `true`: on, and naming an issuer is refused at render time. `false`: off. The local-auth clause matters: asking for password accounts must not silently also hand you an identity provider with a static password in your values file. |
 | `dex.image.repository` / `.tag` | — | `ghcr.io/dexidp/dex` / `v2.43.1` | Pinned, like every image in this chart. |
 | `dex.adminEmail` | the one static user | `""` | Required when bundled. |
 | `dex.adminPasswordHash` | its bcrypt hash | `""` | **Required** when bundled — the chart ships no default, because a default is a known credential in every install. `docker run --rm httpd:2.4 htpasswd -bnBC 10 "" 'pw' \| tr -d ':\n'` |

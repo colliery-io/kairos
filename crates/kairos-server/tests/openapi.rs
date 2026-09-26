@@ -393,11 +393,7 @@ async fn openapi_endpoint_against_live_stack() {
     // has every documented route.
     let mut probe_config = base_config(&scratch_url);
     probe_config.local_auth = true;
-    let router = app::router(app::state_with(
-        probe_config,
-        pool.clone(),
-        auth.clone(),
-    ));
+    let router = app::router(app::state_with(probe_config, pool.clone(), auth.clone()));
 
     // --- auth posture: the spec sits behind the standard stack ---------------
     let (status, body) = request(

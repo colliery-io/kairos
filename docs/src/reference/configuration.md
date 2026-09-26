@@ -24,8 +24,34 @@ them; their own parsing rules differ, and are stated in that section.
 | Variable | Type | Description |
 |---|---|---|
 | `DATABASE_URL` | Postgres connection URL | The external PostgreSQL, which is the deployment's sole state. Example: `postgres://kairos:kairos@localhost:41432/kairos`. Also read directly by every server subcommand, including `migrate`, before the rest of the configuration is resolved. |
-| `OIDC_ISSUER_URL` | URL | The OIDC issuer. Discovery and JWKS endpoints are derived from it. A trailing slash is stripped. |
-| `OIDC_AUDIENCE` | string, or comma-separated list | The `aud` claim bearer tokens must carry. A comma-separated allow-list is accepted for issuers that mint a distinct `aud` per OAuth client, such as Google Workspace; a token matching any listed audience validates. Enforced non-empty at startup. |
+| `OIDC_ISSUER_URL` | URL | The OIDC issuer. Discovery and JWKS endpoints are derived from it. A trailing slash is stripped. **Not required when `KAIROS_LOCAL_AUTH` is on** — see below. |
+| `OIDC_AUDIENCE` | string, or comma-separated list | The `aud` claim bearer tokens must carry. A comma-separated allow-list is accepted for issuers that mint a distinct `aud` per OAuth client, such as Google Workspace; a token matching any listed audience validates. Enforced non-empty at startup. Required exactly when `OIDC_ISSUER_URL` is set. |
+
+#### Running with no identity provider
+
+The two OIDC variables are required **unless `KAIROS_LOCAL_AUTH` is on**, in which
+case a deployment can run with no identity provider at all: people log in with a
+password and nothing else is needed. That is the point of the exception, and it is what
+makes Kairos runnable by a small team or on a laptop without first standing up Dex or a
+cloud OAuth client.
+
+The condition is *local auth is on*, not *the variable is empty*. A deployment that
+means to use OIDC and mistyped its issuer still fails at startup with the message it
+always gave — coming up with no way for anyone to log in would be a far worse failure
+than refusing to start. For the same reason, setting one of the pair without the other
+is refused: the symptom of a missing audience is every token being rejected, which
+points at the token rather than at the configuration.
+
+With no issuer, a JWT bearer gets a 401 that **says** there is no issuer configured.
+That is the one failure on the auth path that deliberately names its cause: everywhere
+else a uniform message protects a secret, and here there is none — no amount of
+guessing turns "this server has no issuer" into access, and a caller told only
+"invalid token" would search their own token for a fault that is not there.
+
+`GET /api/config` reports `issuer: null` and `local_auth: true`, so the GUI offers a
+password form and no SSO button it cannot honour. `kairos login` says plainly that
+there is nothing to authenticate against; for CLI access on such a deployment, use a
+service-account API key.
 
 ### Network and logging
 
@@ -430,7 +456,7 @@ The read-only root filesystem is compatible with a filesystem
 
 | Value | Type | Default | Description |
 |---|---|---|---|
-| `config.oidc.issuerUrl` | string | `""` | Sets `OIDC_ISSUER_URL`. Required: rendering fails without it. |
+| `config.oidc.issuerUrl` | string | `""` | Sets `OIDC_ISSUER_URL`. Required **unless** the chart is bundling a Dex (`dex.enabled`) or `config.localAuth.enabled` is on; rendering fails when none of the three gives anyone a way to log in. |
 | `config.oidc.audience` | string or list | `""` | Sets `OIDC_AUDIENCE`. Required. A list is joined with commas. |
 | `config.webClientId` | string | `kairos-web` | Sets `KAIROS_WEB_CLIENT_ID`. |
 | `config.apiBearer` | string | `access_token` | Sets `KAIROS_API_BEARER`. |

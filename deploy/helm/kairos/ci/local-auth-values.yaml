@@ -1,0 +1,19 @@
+# (g) No identity provider at all (KAIROS-T-0208): password accounts only.
+#
+# The simplest thing that can possibly work, and the point of the set. Compare
+# bundled-dex-values.yaml, which needs an ingress because an OIDC issuer URL is an
+# identity the browser and the server must agree on. A local account has no issuer,
+# so this configuration needs no ingress, no DNS and no TLS — which makes it the
+# honest answer for a ten-person team or a laptop evaluation.
+#
+# Also asserts, by rendering at all, that `kairos.dexEnabled` does NOT bundle a Dex
+# here. Before KAIROS-T-0208 "no issuer named" meant "the operator forgot"; now it
+# can mean "there deliberately is not one", and an operator who asked for password
+# accounts must not silently receive an identity provider with a static password in
+# their values file.
+config:
+  tenancy:
+    singleTenant: demo
+  localAuth:
+    enabled: true
+  # No oidc.issuerUrl and no oidc.audience, on purpose: there is no issuer.

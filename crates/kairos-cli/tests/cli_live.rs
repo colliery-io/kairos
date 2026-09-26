@@ -181,8 +181,8 @@ async fn cli_login_whoami_refresh_logout_live() {
     let config = AppConfig {
         database_url: scratch_url.clone(),
         bind_addr: "127.0.0.1:0".parse().expect("addr"),
-        oidc_issuer_url: ISSUER.to_string(),
-        oidc_audience: AUDIENCE.to_string(),
+        oidc_issuer_url: Some(ISSUER.to_string()),
+        oidc_audience: Some(AUDIENCE.to_string()),
         base_domain: Some("kairos.test".to_string()),
         single_tenant: None,
         deployment_admins: vec![],

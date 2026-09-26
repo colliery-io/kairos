@@ -172,13 +172,24 @@ pub async fn discover_issuer(
             "unreadable protected-resource metadata from {metadata_url}: {err}"
         ))
     })?;
+    // An EMPTY list is now a meaningful answer rather than a broken deployment
+    // (KAIROS-T-0208): the server is telling us it has no identity provider, so
+    // `kairos login` has nothing to log in to. Saying "pass --issuer" here would be
+    // advice that cannot work — there is no issuer to name.
     metadata
         .authorization_servers
         .into_iter()
         .next()
         .ok_or_else(|| {
             CliError::Failure(format!(
-                "{metadata_url} lists no authorization servers; pass `--issuer` explicitly"
+                "this deployment has no OIDC issuer, so there is nothing for \
+                 `kairos login` to authenticate against.\n\
+                 It authenticates people by password in the browser \
+                 (KAIROS_LOCAL_AUTH). For the CLI, ask an org admin for a \
+                 service-account API key.\n\
+                 If you believe the deployment does have an issuer, it is not \
+                 advertising one at {metadata_url}; you can name it with \
+                 `--issuer <oidc-issuer-url>`."
             ))
         })
 }

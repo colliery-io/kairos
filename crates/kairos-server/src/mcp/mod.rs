@@ -138,7 +138,16 @@ async fn protected_resource_metadata(
     let origin = request_origin(&headers).unwrap_or_else(|| "http://localhost".to_string());
     Json(json!({
         "resource": format!("{origin}/mcp"),
-        "authorization_servers": [state.config.oidc_issuer_url],
+        // KAIROS-T-0208: an EMPTY list when this deployment has no issuer, rather
+        // than a list containing null. An MCP client reads this to find out where to
+        // get a token; "there is nowhere" is the honest answer, and `[null]` would
+        // send it to fetch a discovery document from the string "null".
+        "authorization_servers": state
+            .config
+            .oidc_issuer_url
+            .as_ref()
+            .map(|issuer| vec![issuer.clone()])
+            .unwrap_or_default(),
         "bearer_methods_supported": ["header"],
         "scopes_supported": ["openid", "email", "profile"],
     }))

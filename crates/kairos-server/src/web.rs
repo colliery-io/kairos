@@ -80,7 +80,8 @@ struct IdpEndpoints {
 /// `Extension`, not part of [`AppState`]) so in-process test routers
 /// built via `state_with` need no live issuer until a route is hit.
 struct WebAuth {
-    issuer: String,
+    /// `None` when this deployment has no issuer (KAIROS-T-0208).
+    issuer: Option<String>,
     client_id: String,
     /// Which token the SPA should present as the `/api` bearer (T-0054).
     api_bearer: crate::config::ApiBearer,
@@ -97,10 +98,22 @@ impl WebAuth {
     /// Discovery document fetch (`{issuer}/.well-known/openid-configuration`),
     /// once per process. Failure maps to 502: the deployment's issuer is
     /// down/misconfigured, not the client's fault and not ours.
+    /// The issuer's discovery document, fetched once.
+    ///
+    /// Errors when there is no issuer. Callers that can legitimately be called on a
+    /// no-issuer deployment must check first rather than treating this as a
+    /// failure — see [`spa_config`].
     async fn endpoints(&self) -> Result<&IdpEndpoints, ApiError> {
+        let issuer = self.issuer.clone().ok_or_else(|| {
+            idp_unreachable(
+                "this deployment has no OIDC issuer configured (KAIROS_LOCAL_AUTH \
+                 only); there is no authorization endpoint to discover"
+                    .to_string(),
+            )
+        })?;
         self.endpoints
             .get_or_try_init(|| async {
-                let url = format!("{}/.well-known/openid-configuration", self.issuer);
+                let url = format!("{issuer}/.well-known/openid-configuration");
                 self.http
                     .get(&url)
                     .send()
@@ -139,25 +152,41 @@ pub fn router(state: &AppState) -> Router<AppState> {
 /// `GET /api/config` response body (mirrored by `kairos-web::auth`).
 #[derive(Debug, Serialize)]
 struct SpaConfig {
-    issuer: String,
+    /// `None` when the deployment has no issuer (KAIROS-T-0208). The SPA reads this
+    /// to decide whether to offer an SSO button at all: one that cannot be honoured
+    /// is worse than none, because the person clicks it and lands nowhere.
+    issuer: Option<String>,
     client_id: String,
-    authorization_endpoint: String,
+    /// `None` with no issuer, for the same reason.
+    authorization_endpoint: Option<String>,
     /// Which token the SPA sends as the `/api` bearer: `access_token`
     /// (default) or `id_token` (opaque-access-token issuers, T-0054).
     api_bearer: &'static str,
+    /// Whether `POST /api/login` exists (KAIROS-T-0203). The SPA shows a password
+    /// form when it does. Both may be true: local accounts are additive.
+    local_auth: bool,
 }
 
 /// `GET /api/config` — see module docs. OpenAPI doc-stub lives in
 /// [`crate::api::openapi`] (the whoami pattern).
 async fn spa_config(
+    State(state): State<AppState>,
     Extension(web_auth): Extension<Arc<WebAuth>>,
 ) -> Result<Json<SpaConfig>, ApiError> {
-    let endpoints = web_auth.endpoints().await?;
+    // KAIROS-T-0208: with no issuer, do not attempt discovery. Returning 502
+    // IDP_UNREACHABLE here would be a lie — nothing is unreachable, there is simply
+    // no IdP — and it would leave the SPA unable to render the login page it CAN
+    // offer.
+    let authorization_endpoint = match web_auth.issuer {
+        Some(_) => Some(web_auth.endpoints().await?.authorization_endpoint.clone()),
+        None => None,
+    };
     Ok(Json(SpaConfig {
         issuer: web_auth.issuer.clone(),
         client_id: web_auth.client_id.clone(),
-        authorization_endpoint: endpoints.authorization_endpoint.clone(),
+        authorization_endpoint,
         api_bearer: web_auth.api_bearer.as_str(),
+        local_auth: state.config.local_auth,
     }))
 }
 

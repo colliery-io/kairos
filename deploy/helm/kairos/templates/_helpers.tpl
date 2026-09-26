@@ -150,19 +150,27 @@ Whether the bundled Dex runs (KAIROS-T-0200).
 
 TRI-STATE, for exactly the reason `kairos.postgresqlEnabled` is:
 
-  unset (default)  — bundle ON, unless an OIDC issuer is named
+  unset (default)  — bundle ON, unless an issuer is named OR local auth is on
   true             — bundle ON, and naming an issuer is an error
   false            — bundle OFF, exactly the pre-bundle chart
 
 The first row is what makes `helm upgrade` safe for every release that already
 exists: all of them set `config.oidc.issuerUrl`, so all of them resolve to OFF
 and keep the issuer they have, with no values edit.
+
+The local-auth clause is KAIROS-T-0208. Before it, "no issuer" meant "the
+operator forgot, give them a Dex", because a Kairos with no issuer could not
+start. Now `config.localAuth.enabled` with no issuer is a DELIBERATE and
+supported deployment — password accounts and nothing else — and an operator who
+asks for that must not silently receive an identity provider they did not ask
+for, complete with a static password in their values file. Asking for both is
+still allowed; it just has to be asked for.
 */}}
 {{- define "kairos.dexEnabled" -}}
 {{- if kindIs "bool" .Values.dex.enabled -}}
 {{- if .Values.dex.enabled -}}true{{- end -}}
 {{- else -}}
-{{- if not .Values.config.oidc.issuerUrl -}}true{{- end -}}
+{{- if and (not .Values.config.oidc.issuerUrl) (not .Values.config.localAuth.enabled) -}}true{{- end -}}
 {{- end -}}
 {{- end }}
 
@@ -268,7 +276,8 @@ was on https. Read the value, not its size.
 {{- end }}
 
 {{/*
-Refuse the two configurations that cannot mean anything (KAIROS-T-0200).
+Refuse the configurations that cannot mean anything (KAIROS-T-0200,
+KAIROS-T-0208).
 */}}
 {{- define "kairos.validateDex" -}}
 {{- /*
@@ -283,10 +292,22 @@ to enable an ingress instead would send them to fix the wrong thing.
 {{- end }}
 {{- if include "kairos.dexEnabled" . }}
 {{- if not .Values.ingress.enabled }}
-{{- fail "dex: the bundled Dex needs ingress.enabled=true. An OIDC issuer URL is an identity stamped into every token, so it must be the same string for the browser and for the server — an in-cluster Service name is not reachable from a browser. Set ingress.enabled and a host, or bring your own issuer with config.oidc.issuerUrl." }}
+{{- fail "dex: the bundled Dex needs ingress.enabled=true. An OIDC issuer URL is an identity stamped into every token, so it must be the same string for the browser and for the server — an in-cluster Service name is not reachable from a browser. Three ways forward: set ingress.enabled and a host; bring your own issuer with config.oidc.issuerUrl; or set config.localAuth.enabled=true for password accounts, which needs no issuer and therefore no ingress (KAIROS-T-0208)." }}
 {{- end }}
 {{- if not .Values.dex.adminPasswordHash }}
 {{- fail "dex: set dex.adminEmail and dex.adminPasswordHash. The chart deliberately ships NO default password — a default would be a known credential in every install of Kairos. Generate one with:\n  docker run --rm httpd:2.4 htpasswd -bnBC 10 \"\" 'your-password' | tr -d ':\\n'" }}
+{{- end }}
+{{- end }}
+{{- /*
+KAIROS-T-0208: with no Dex, no issuer and no local auth there is no way for a
+person to log in at all. The server refuses to start in that state, so without
+this the operator would learn it from a CrashLoopBackOff instead of from
+`helm install` — the same failure, discovered several minutes later and with the
+cause several layers away.
+*/}}
+{{- if not (include "kairos.dexEnabled" .) }}
+{{- if and (not .Values.config.oidc.issuerUrl) (not .Values.config.localAuth.enabled) }}
+{{- fail "no way to log in: dex.enabled=false with neither config.oidc.issuerUrl nor config.localAuth.enabled. Pick one — bring your own issuer (KAIROS-A-0016), enable config.localAuth.enabled for password accounts, or drop dex.enabled to get the bundled evaluation Dex." }}
 {{- end }}
 {{- end }}
 {{- end }}

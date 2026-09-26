@@ -81,14 +81,21 @@ pub struct AppConfig {
     /// `KAIROS_BIND_ADDR` — where axum listens (default `127.0.0.1:8080`).
     pub bind_addr: SocketAddr,
     /// `OIDC_ISSUER_URL` — the issuer; discovery + JWKS derive from it.
-    pub oidc_issuer_url: String,
+    ///
+    /// `None` means this deployment has **no identity provider**
+    /// (KAIROS-T-0208), which is valid only with [`Self::local_auth`] on. An
+    /// `Option` rather than an empty string, because "the operator set it to an
+    /// empty value" and "there is no issuer" must not be the same condition —
+    /// the second is a supported deployment and the first is a typo.
+    pub oidc_issuer_url: Option<String>,
     /// `OIDC_AUDIENCE` — the `aud` claim tokens must carry (A-0010; for the
     /// Dex dev stack this is the OAuth client id, e.g. `kairos-cli`).
     /// Accepts a comma-separated allow-list (KAIROS-T-0055) for IdPs that
     /// mint a distinct `aud` per client (Google Workspace): a token
     /// matching ANY listed audience validates. Parsed and enforced
-    /// non-empty at `Authenticator::discover` (startup).
-    pub oidc_audience: String,
+    /// non-empty at `Authenticator::discover` (startup). `None` when there is no
+    /// issuer (KAIROS-T-0208).
+    pub oidc_audience: Option<String>,
     /// `KAIROS_BASE_DOMAIN` — enables Host-subdomain tenant resolution
     /// (`acme.<base>` → tenant `acme`, A-0005 §2).
     pub base_domain: Option<String>,
@@ -244,16 +251,63 @@ impl AppConfig {
             "it is required to reach PostgreSQL \
              (e.g. postgres://kairos:kairos@localhost:41432/kairos)",
         )?;
-        let oidc_issuer_url = required(
-            "OIDC_ISSUER_URL",
-            "it is required to validate bearer tokens \
-             (e.g. http://localhost:41558/dex for the dev stack)",
-        )?;
-        let oidc_audience = required(
-            "OIDC_AUDIENCE",
-            "it is required to validate the `aud` claim of bearer tokens \
-             (the OAuth client id, e.g. kairos-cli for the dev stack)",
-        )?;
+        // KAIROS-T-0203, read here rather than further down because the OIDC
+        // requirement below depends on it.
+        let local_auth = match get("KAIROS_LOCAL_AUTH").as_deref() {
+            None | Some("") | Some("false") | Some("0") => false,
+            Some("true") | Some("1") => true,
+            Some(other) => {
+                return Err(ConfigError::Invalid {
+                    var: "KAIROS_LOCAL_AUTH",
+                    message: format!("{other:?} is not one of: true, 1, false, 0"),
+                });
+            }
+        };
+
+        // KAIROS-T-0208: an issuer is required UNLESS local auth is on, because
+        // then there is another way for a person to log in.
+        //
+        // The condition is "local auth is on", NOT "the variable is empty". A
+        // deployment that means to use OIDC and typo'd its issuer must still fail
+        // at boot with the message it has always had — coming up with no way in at
+        // all would be a far worse failure than refusing to start.
+        let (oidc_issuer_url, oidc_audience) = if local_auth {
+            (get("OIDC_ISSUER_URL"), get("OIDC_AUDIENCE"))
+        } else {
+            (
+                Some(required(
+                    "OIDC_ISSUER_URL",
+                    "it is required to validate bearer tokens \
+                     (e.g. http://localhost:41558/dex for the dev stack), unless \
+                     KAIROS_LOCAL_AUTH is on",
+                )?),
+                Some(required(
+                    "OIDC_AUDIENCE",
+                    "it is required to validate the `aud` claim of bearer tokens \
+                     (the OAuth client id, e.g. kairos-cli for the dev stack), \
+                     unless KAIROS_LOCAL_AUTH is on",
+                )?),
+            )
+        };
+        // Half an issuer is nobody's intention. Naming one without the other means
+        // every token will be refused for a reason that points at the token.
+        match (&oidc_issuer_url, &oidc_audience) {
+            (Some(_), None) => {
+                return Err(ConfigError::Missing {
+                    var: "OIDC_AUDIENCE",
+                    hint: "OIDC_ISSUER_URL names an issuer, so the audience its \
+                           tokens carry is required too",
+                });
+            }
+            (None, Some(_)) => {
+                return Err(ConfigError::Missing {
+                    var: "OIDC_ISSUER_URL",
+                    hint: "OIDC_AUDIENCE is set but no issuer is; set the issuer, \
+                           or unset the audience to run on local accounts alone",
+                });
+            }
+            _ => {}
+        }
 
         let bind_raw = get("KAIROS_BIND_ADDR").unwrap_or_else(|| DEFAULT_BIND_ADDR.to_string());
         let bind_addr: SocketAddr = bind_raw.parse().map_err(|e| ConfigError::Invalid {
@@ -332,17 +386,6 @@ impl AppConfig {
             }
         };
 
-        // KAIROS-T-0203.
-        let local_auth = match get("KAIROS_LOCAL_AUTH").as_deref() {
-            None | Some("") | Some("false") | Some("0") => false,
-            Some("true") | Some("1") => true,
-            Some(other) => {
-                return Err(ConfigError::Invalid {
-                    var: "KAIROS_LOCAL_AUTH",
-                    message: format!("{other:?} is not one of: true, 1, false, 0"),
-                });
-            }
-        };
         let session_ttl_secs =
             parse_num::<u64>(&get, "KAIROS_SESSION_TTL_SECS", 14 * 24 * 60 * 60)?;
         if local_auth && session_ttl_secs == 0 {
@@ -367,7 +410,7 @@ impl AppConfig {
         Ok(Self {
             database_url,
             bind_addr,
-            oidc_issuer_url: oidc_issuer_url.trim_end_matches('/').to_string(),
+            oidc_issuer_url: oidc_issuer_url.map(|url| url.trim_end_matches('/').to_string()),
             oidc_audience,
             base_domain: get("KAIROS_BASE_DOMAIN"),
             single_tenant: get("KAIROS_SINGLE_TENANT"),
@@ -450,7 +493,83 @@ mod tests {
         // No web client secret by default (public client, T-0056).
         assert_eq!(config.web_client_secret, None);
         // Trailing slash on the issuer is normalized away.
-        assert_eq!(config.oidc_issuer_url, "http://localhost:5558/dex");
+        assert_eq!(
+            config.oidc_issuer_url.as_deref(),
+            Some("http://localhost:5558/dex")
+        );
+        // Local auth is off unless asked for (KAIROS-T-0203).
+        assert!(!config.local_auth);
+        assert_eq!(config.session_ttl_secs, 14 * 24 * 60 * 60);
+    }
+
+    // ---------------------------------------------------------------------
+    // KAIROS-T-0208: the issuer is optional ONLY when local auth is on.
+
+    #[test]
+    fn local_auth_makes_the_issuer_optional() {
+        let config = AppConfig::from_lookup(lookup(&[
+            ("DATABASE_URL", "postgres://x/y"),
+            ("KAIROS_LOCAL_AUTH", "true"),
+        ]))
+        .expect("local auth alone is a valid deployment");
+        assert_eq!(config.oidc_issuer_url, None);
+        assert_eq!(config.oidc_audience, None);
+        assert!(config.local_auth);
+    }
+
+    #[test]
+    fn without_local_auth_the_issuer_is_still_required() {
+        // The case that must not regress. A deployment that means to use OIDC and
+        // typo'd its issuer has to fail HERE — coming up with no way to log in at
+        // all would be a far worse failure than refusing to start.
+        let err = AppConfig::from_lookup(lookup(&[("DATABASE_URL", "postgres://x/y")]))
+            .expect_err("no issuer and no local auth is not a deployment");
+        assert!(
+            err.to_string().starts_with("OIDC_ISSUER_URL is not set"),
+            "{err}"
+        );
+        // And the hint says how to opt out, so the operator is not left guessing.
+        assert!(err.to_string().contains("KAIROS_LOCAL_AUTH"), "{err}");
+    }
+
+    #[test]
+    fn half_an_issuer_is_refused() {
+        // Naming one of the pair and not the other is nobody's intention, and the
+        // symptom — every token refused — points at the token rather than at this.
+        for (present, missing) in [
+            ("OIDC_ISSUER_URL", "OIDC_AUDIENCE"),
+            ("OIDC_AUDIENCE", "OIDC_ISSUER_URL"),
+        ] {
+            let err = AppConfig::from_lookup(lookup(&[
+                ("DATABASE_URL", "postgres://x/y"),
+                ("KAIROS_LOCAL_AUTH", "true"),
+                (present, "https://idp.example/x"),
+            ]))
+            .expect_err("half an issuer");
+            assert!(
+                err.to_string().starts_with(missing),
+                "setting only {present} should name {missing}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_auth_and_an_issuer_together_are_valid() {
+        // Additive, per the KAIROS-I-0018 decision: both paths at once.
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_LOCAL_AUTH", "true"));
+        let config = AppConfig::from_lookup(lookup(&vars)).expect("both is valid");
+        assert!(config.local_auth);
+        assert!(config.oidc_issuer_url.is_some());
+    }
+
+    #[test]
+    fn a_zero_session_lifetime_is_refused_when_local_auth_is_on() {
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_LOCAL_AUTH", "true"));
+        vars.push(("KAIROS_SESSION_TTL_SECS", "0"));
+        let err = AppConfig::from_lookup(lookup(&vars)).expect_err("0 mints dead sessions");
+        assert!(err.to_string().contains("KAIROS_SESSION_TTL_SECS"), "{err}");
     }
 
     #[test]

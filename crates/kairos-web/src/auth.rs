@@ -80,18 +80,43 @@ pub enum ApiBearer {
 /// What `GET /api/config` returns (mirror of `kairos-server::web`).
 #[derive(Clone, Debug, Deserialize)]
 pub struct AuthConfig {
-    /// The deployment issuer (`OIDC_ISSUER_URL`).
-    pub issuer: String,
+    /// The deployment issuer (`OIDC_ISSUER_URL`), or `None` when the deployment has
+    /// no identity provider and authenticates by password alone (KAIROS-T-0208).
+    ///
+    /// `Option` plus `#[serde(default)]`, so this mirror keeps deserializing a
+    /// payload from a server that predates the change — it simply reads as "no
+    /// issuer", which for such a server is wrong but harmless, since it also has no
+    /// local auth and [`can_sso`] then reports false.
+    #[serde(default)]
+    pub issuer: Option<String>,
     /// The public OAuth client id registered for the GUI
     /// (`KAIROS_WEB_CLIENT_ID`, `kairos-web` on the dev stack).
     pub client_id: String,
     /// The issuer's authorization endpoint (from OIDC discovery,
-    /// resolved server-side).
-    pub authorization_endpoint: String,
+    /// resolved server-side). `None` with no issuer.
+    #[serde(default)]
+    pub authorization_endpoint: Option<String>,
     /// Which token to send as the `/api` bearer. Absent on older servers →
     /// [`ApiBearer::AccessToken`] (backward compatible).
     #[serde(default)]
     pub api_bearer: ApiBearer,
+    /// Whether `POST /api/login` exists (KAIROS-T-0203), so the GUI can offer a
+    /// password form. Both this and an issuer may be true — local accounts are
+    /// additive.
+    #[serde(default)]
+    pub local_auth: bool,
+}
+
+impl AuthConfig {
+    /// Whether an SSO redirect can actually be performed.
+    ///
+    /// Both an issuer and an authorization endpoint, because a redirect needs the
+    /// endpoint and a button that leads nowhere is worse than no button: the person
+    /// clicks it, lands on an error, and has no way to guess that a password form
+    /// was the answer.
+    pub fn can_sso(&self) -> bool {
+        self.issuer.is_some() && self.authorization_endpoint.is_some()
+    }
 }
 
 /// A successful token response (authorization_code or refresh_token grant).
@@ -371,11 +396,20 @@ pub async fn begin_login(auth: Auth, return_to: &str) -> Result<(), String> {
     stash(KEY_STATE, &state)?;
     stash(KEY_RETURN_TO, return_to)?;
 
+    // KAIROS-T-0208: refuse before touching sessionStorage or the location bar. A
+    // half-started flow leaves a stale verifier behind and the person on a blank
+    // page, which is a worse way to learn this than a sentence.
+    let authorization_endpoint = config.authorization_endpoint.clone().ok_or_else(|| {
+        "this deployment has no identity provider configured; sign in with your \
+         email and password instead"
+            .to_string()
+    })?;
+
     let redirect_uri = format!("{}/callback", origin()?);
     let url = format!(
         "{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}\
          &code_challenge={}&code_challenge_method=S256",
-        config.authorization_endpoint,
+        authorization_endpoint,
         url_encode(&config.client_id),
         url_encode(&redirect_uri),
         url_encode(SCOPES),
@@ -612,6 +646,44 @@ mod tests {
         )
         .expect("parses with api_bearer");
         assert_eq!(config.api_bearer, ApiBearer::IdToken);
+    }
+
+    #[test]
+    fn a_deployment_with_no_issuer_parses_and_offers_no_sso() {
+        // KAIROS-T-0208. The server sends nulls; the mirror must accept them rather
+        // than fail to deserialize and leave the GUI unable to render a login page
+        // it CAN offer.
+        let config: AuthConfig = serde_json::from_str(
+            r#"{"issuer":null,"client_id":"kairos-web",
+                "authorization_endpoint":null,"local_auth":true}"#,
+        )
+        .expect("a no-issuer payload must parse");
+        assert!(!config.can_sso(), "no endpoint to redirect to");
+        assert!(config.local_auth, "but there is a password form");
+    }
+
+    #[test]
+    fn both_paths_at_once_is_representable() {
+        // Local accounts are additive (KAIROS-I-0018), so this is a normal state and
+        // not a contradiction the GUI has to resolve.
+        let config: AuthConfig = serde_json::from_str(
+            r#"{"issuer":"https://idp.example","client_id":"c",
+                "authorization_endpoint":"https://idp.example/auth","local_auth":true}"#,
+        )
+        .expect("parses");
+        assert!(config.can_sso() && config.local_auth);
+    }
+
+    #[test]
+    fn a_pre_t0208_server_payload_still_parses() {
+        // An older server sends no `local_auth` and a plain string issuer.
+        let config: AuthConfig = serde_json::from_str(
+            r#"{"issuer":"https://idp.example","client_id":"c",
+                "authorization_endpoint":"https://idp.example/auth"}"#,
+        )
+        .expect("parses");
+        assert!(config.can_sso());
+        assert!(!config.local_auth);
     }
 
     /// RFC 4648 §10 test vectors, translated to base64url-no-padding.

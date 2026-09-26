@@ -394,3 +394,80 @@ async fn a_service_account_cannot_log_in_with_a_password() {
 
     teardown(conn, scratch_db);
 }
+
+#[tokio::test]
+async fn a_deployment_with_no_issuer_still_lets_people_in() {
+    // KAIROS-T-0208, and KAIROS-I-0018's exit criterion "a ten-person team can run
+    // Kairos with no IdP at all". Before this, the server refused to start without
+    // an issuer it would never use.
+    let scratch_db = "kairos_no_issuer_t0208_test";
+    let (mut conn, scratch_url, org_id) = fixture(scratch_db);
+    make_user(&mut conn, "solo@example.test", org_id, true);
+
+    let pool = TenantPool::new(&scratch_url, 4).await.expect("pool");
+    // What `build_state` constructs when the config names no issuer.
+    let auth = Arc::new(Authenticator::disabled());
+    let mut config = base_config(&scratch_url);
+    config.local_auth = true;
+    config.oidc_issuer_url = None;
+    config.oidc_audience = None;
+    let router = app::router(app::state_with(config, pool, auth));
+
+    // A password is enough to get in and to be recognised.
+    let (status, body, _) = login(&router, "solo@example.test", PASSWORD).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().expect("token").to_string();
+    let (status, body) = whoami(&router, &token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["user"]["email"], "solo@example.test");
+
+    // A JWT-shaped bearer is refused, and the message NAMES the misconfiguration
+    // instead of hiding behind "invalid token". This is the one failure on the auth
+    // path that should say what is wrong: there is no secret to protect, and a
+    // caller told only "invalid" would hunt through their own token for a long time.
+    let jwt_shaped = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.sig";
+    let (status, body) = whoami(&router, jwt_shaped).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");
+    let message = body["error"]["message"].as_str().expect("message");
+    assert!(
+        message.contains("no OIDC issuer"),
+        "the 401 should name the missing issuer, got: {message}"
+    );
+    assert!(
+        message.contains("/api/login") || message.contains("password"),
+        "and should point at what DOES work, got: {message}"
+    );
+
+    // /api/config tells the SPA there is nothing to redirect to, without trying to
+    // discover it. A 502 IDP_UNREACHABLE here would be a lie — nothing is
+    // unreachable — and would stop the GUI rendering the login page it CAN offer.
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("/api/config")
+        .body(Body::empty())
+        .expect("request");
+    let (status, body) = send(&router, request).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["issuer"].is_null(), "{body}");
+    assert!(body["authorization_endpoint"].is_null(), "{body}");
+    assert_eq!(body["local_auth"], true, "{body}");
+
+    // The MCP protected-resource metadata lists NO authorization server, rather
+    // than one called "null" that a client would try to fetch from.
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri("/.well-known/oauth-protected-resource")
+        .body(Body::empty())
+        .expect("request");
+    let (status, body) = send(&router, request).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["authorization_servers"],
+        json!([]),
+        "an empty list, not [null] — a client reads this to find out where to get a \
+         token, and would try to fetch a discovery document from the string \
+         \"null\": {body}"
+    );
+
+    teardown(conn, scratch_db);
+}

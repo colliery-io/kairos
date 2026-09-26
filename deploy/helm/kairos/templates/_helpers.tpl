@@ -397,3 +397,47 @@ misconfigured Ingress host is worse to debug than a template error.
 {{- fail "config.tenancy: set EXACTLY ONE of baseDomain (wildcard subdomain tenancy) or singleTenant (single-tenant mode) — neither is set." -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The first-boot admin's password (KAIROS-T-0204), sourced exactly like the
+confidential-client secret above: a chart-rendered Secret, or one you created.
+
+It is a password, so it never goes near the ConfigMap. Only the EMAIL does.
+*/}}
+{{- define "kairos.bootstrapSecretEnabled" -}}
+{{- if or .Values.config.localAuth.bootstrapPasswordHash .Values.config.localAuth.bootstrapPasswordExistingSecret -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "kairos.bootstrapSecretName" -}}
+{{- if .Values.config.localAuth.bootstrapPasswordExistingSecret }}
+{{- .Values.config.localAuth.bootstrapPasswordExistingSecret }}
+{{- else }}
+{{- printf "%s-bootstrap" (include "kairos.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{- define "kairos.bootstrapSecretKey" -}}
+{{- if .Values.config.localAuth.bootstrapPasswordExistingSecret }}
+{{- .Values.config.localAuth.bootstrapPasswordExistingSecretKey | default "KAIROS_BOOTSTRAP_PASSWORD_HASH" }}
+{{- else }}
+{{- "KAIROS_BOOTSTRAP_PASSWORD_HASH" }}
+{{- end }}
+{{- end }}
+
+{{/*
+Refuse a bootstrap admin that cannot authenticate, and a password with no admin
+(KAIROS-T-0204).
+
+The server refuses to start in either state, so catching it at render time turns a
+CrashLoopBackOff into a sentence from `helm install`.
+*/}}
+{{- define "kairos.validateBootstrap" -}}
+{{- if and .Values.config.localAuth.bootstrapAdmin (not (include "kairos.bootstrapSecretEnabled" .)) }}
+{{- fail "config.localAuth.bootstrapAdmin names a first-boot admin with no password. Set config.localAuth.bootstrapPasswordHash (from `kairos-server hash-password`), or config.localAuth.bootstrapPasswordExistingSecret to point at a Secret you created." }}
+{{- end }}
+{{- if and (include "kairos.bootstrapSecretEnabled" .) (not .Values.config.localAuth.bootstrapAdmin) }}
+{{- fail "a bootstrap password is set but config.localAuth.bootstrapAdmin is empty, so there is no account to put it on. Set the email, or remove the password." }}
+{{- end }}
+{{- end }}

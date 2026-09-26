@@ -130,6 +130,85 @@ pub fn find_user_by_email(conn: &mut PgConnection, email: &str) -> QueryResult<O
         .optional()
 }
 
+/// Every session a user holds, newest first, revoked and expired rows included.
+///
+/// The listing is an audit surface — "which devices am I logged in on, and which
+/// of those did I already end" — so it does not filter, exactly as
+/// [`crate::api_keys::list_keys`] does not.
+pub fn list_sessions_for_user(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+) -> QueryResult<Vec<LocalSession>> {
+    local_sessions::table
+        .filter(local_sessions::user_id.eq(user_id))
+        .order(local_sessions::created_at.desc())
+        .select(LocalSession::as_select())
+        .load(conn)
+}
+
+/// The `external_id` prefix for an account that exists only locally
+/// (KAIROS-T-0204).
+///
+/// `external_id` is normally an OIDC `sub`. A local account has none, so it gets a
+/// synthetic one — the same device `service_accounts` uses with `svc:`. It must be
+/// synthetic rather than empty because `external_id` identifies the principal
+/// everywhere downstream, including `KAIROS_DEPLOYMENT_ADMINS`, and two accounts
+/// with an empty one would be indistinguishable.
+pub const LOCAL_EXTERNAL_ID_PREFIX: &str = "local:";
+
+/// The synthetic `external_id` for a local account with this email.
+pub fn local_external_id(email: &str) -> String {
+    format!("{LOCAL_EXTERNAL_ID_PREFIX}{}", email.trim().to_lowercase())
+}
+
+/// Create a local account, or adopt the existing row for this email.
+///
+/// **One person is one row** (KAIROS-T-0197). An admin adding a password for an
+/// email that already signed in through the issuer must get a password on THAT row,
+/// not a second person with the same address — otherwise the same human owns two
+/// identities, two sets of memberships and two audit trails, and which one they get
+/// depends on how they logged in that day.
+///
+/// So: if a user with this email exists, the password goes on it and its
+/// `external_id` is left ALONE. Rewriting an OIDC `sub` to `local:…` would break
+/// that person's next SSO login, and [`crate::local_auth`]'s session path does not
+/// need the prefix — only a brand-new row does.
+///
+/// Returns the user and whether a row was created (`true`) or adopted (`false`),
+/// because the caller says different things to the admin in each case.
+pub fn upsert_local_user(
+    conn: &mut PgConnection,
+    email: &str,
+    display_name: &str,
+    password_hash: &str,
+) -> QueryResult<(User, bool)> {
+    let email = email.trim().to_lowercase();
+    conn.transaction(|conn| {
+        if let Some(existing) = find_user_by_email(conn, &email)? {
+            set_password(conn, existing.id, password_hash)?;
+            // Re-read: `existing` predates the password write.
+            let refreshed = find_user_by_email(conn, &email)?.expect("just updated");
+            return Ok((refreshed, false));
+        }
+        let user: User = diesel::insert_into(users::table)
+            .values(crate::models::NewUser {
+                external_id: local_external_id(&email),
+                user_name: email.clone(),
+                email: email.clone(),
+                display_name: display_name.to_string(),
+            })
+            .returning(User::as_returning())
+            .get_result(conn)?;
+        // Through `set_password` rather than as part of the INSERT, so there is ONE
+        // place a password is ever written and the revoke-on-change guarantee has no
+        // second path to leak through. A brand-new user has no sessions to revoke,
+        // which makes this free.
+        set_password(conn, user.id, password_hash)?;
+        let created = find_user_by_email(conn, &email)?.expect("just inserted");
+        Ok((created, true))
+    })
+}
+
 /// Set (or replace) a user's password hash **and revoke every session they
 /// hold**, in one transaction.
 ///
@@ -165,6 +244,68 @@ pub fn clear_password(conn: &mut PgConnection, user_id: Uuid) -> QueryResult<usi
             .set(users::password_hash.eq(None::<String>))
             .execute(conn)?;
         revoke_all_sessions_for_user(conn, user_id)
+    })
+}
+
+/// Why a bootstrap did not happen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootstrapSkipped {
+    /// The deployment already has users, so the bootstrap is inert. The normal
+    /// outcome on every boot after the first.
+    UsersExist,
+    /// Another process created the first user between the count and the insert.
+    RacedAnotherReplica,
+}
+
+/// Create the first-boot admin, but **only if the deployment has no users at all**
+/// (KAIROS-T-0204).
+///
+/// The emptiness check and the insert share a transaction, so "no users" cannot go
+/// stale between them within one process. Across processes it still can — two
+/// replicas booting together both see zero — so a unique-violation on
+/// `users.email` is reported as [`BootstrapSkipped::RacedAnotherReplica`] rather
+/// than failing a boot. The outcome an operator cares about, exactly one admin, holds
+/// either way.
+///
+/// "No users at all" rather than "no admin" is deliberate. It is the only condition
+/// that cannot be re-entered: once anybody exists, the bootstrap is dead for the
+/// lifetime of the database, so leaving the variable set in a manifest is untidy
+/// rather than a standing backdoor.
+pub fn bootstrap_admin_if_empty(
+    conn: &mut PgConnection,
+    email: &str,
+    display_name: &str,
+    password_hash: &str,
+) -> QueryResult<Result<User, BootstrapSkipped>> {
+    let email = email.trim().to_lowercase();
+    conn.transaction(|conn| {
+        let existing: i64 = users::table.count().get_result(conn)?;
+        if existing > 0 {
+            return Ok(Err(BootstrapSkipped::UsersExist));
+        }
+        let inserted = diesel::insert_into(users::table)
+            .values(crate::models::NewUser {
+                external_id: local_external_id(&email),
+                user_name: email.clone(),
+                email: email.clone(),
+                display_name: display_name.to_string(),
+            })
+            .returning(User::as_returning())
+            .get_result(conn);
+        let user = match inserted {
+            Ok(user) => user,
+            Err(diesel::result::Error::DatabaseError(
+                diesel::result::DatabaseErrorKind::UniqueViolation,
+                _,
+            )) => return Ok(Err(BootstrapSkipped::RacedAnotherReplica)),
+            Err(e) => return Err(e),
+        };
+        set_password(conn, user.id, password_hash)?;
+        // Re-read: `user` came from the INSERT's RETURNING and so predates the
+        // password write, which would hand the caller a row whose `password_hash` is
+        // still NULL.
+        let created = find_user_by_email(conn, &email)?.expect("just inserted");
+        Ok(Ok(created))
     })
 }
 

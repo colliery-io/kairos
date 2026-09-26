@@ -228,6 +228,9 @@ mod tests {
             trusted_proxy: false,
             local_auth: false,
             session_ttl_secs: 14 * 24 * 60 * 60,
+            bootstrap_admin: None,
+            bootstrap_password: None,
+            bootstrap_password_hash: None,
         }
     }
 

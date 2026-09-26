@@ -791,6 +791,62 @@ kairos admin tenants delete <SLUG> --confirm [OPTIONS]
 
 Drops the tenant's organization and schema. Destructive and unrecoverable.
 
+## Operator subcommands (`kairos-server`)
+
+These are not `kairos` commands. They are subcommands of the **server binary**, run
+against the database with no login and no running server, which is both what makes
+them useful and why they are dangerous. In Kubernetes, `kubectl exec deploy/kairos --
+kairos-server <subcommand>`; in Compose, `docker compose run --rm kairos <subcommand>`.
+
+Everything here needs `DATABASE_URL` and applies pending public migrations first, with
+one deliberate exception noted below.
+
+| Subcommand | What it does |
+|---|---|
+| `serve` | Run the server. What the container's entrypoint invokes. |
+| `migrate` | Apply pending public migrations and exit. |
+| `create-tenant --slug <slug> [--name <name>]` | Provision an organization, its schema and its default boards. |
+| `drop-tenant --slug <slug> --confirm` | Destroy a tenant: schema CASCADE plus the organization row. Refuses without `--confirm`. **Unrecoverable.** |
+| `migrate-tenants` | Apply pending tenant migrations in every tenant schema. |
+| `list-tenants` | List provisioned tenants. |
+| `set-password --email <email> [--password <pw>]` | Set a local account's password. See below. |
+| `hash-password [--password <pw>]` | Print a PHC hash of a password and nothing else. **Needs no database.** |
+| `seed-demo [--force]` | Seed the `demo` fixture tenant. |
+| `embed-backfill`, `embed-index` | Retrieval maintenance; see [Configure retrieval](../how-to/configure-retrieval.md). |
+
+### `set-password` — the break-glass path
+
+```
+kairos-server set-password --email <email> [--password <password>]
+```
+
+For the case the GUI cannot help with: the sole admin of a local-auth deployment has
+forgotten their password, and there is no reset email. It therefore **cannot require a
+login**, which is why it lives here rather than in `kairos`.
+
+Omit `--password` and it reads from stdin. Prefer that: an argument is visible in `ps`,
+in your shell history, and in a container's command line.
+
+It **will not create an account**. Creating one would make this a way to mint an admin
+on any deployment whose database you can reach; the empty-deployment case is
+`KAIROS_BOOTSTRAP_ADMIN`, which is single-use. It also refuses a service account, which
+authenticates with API keys, and a password under 12 characters.
+
+Setting a password **revokes every session that person holds**, and the command says how
+many. That is the point of running it after a suspected compromise.
+
+### `hash-password` — before the deployment exists
+
+```
+kairos-server hash-password [--password <password>]
+```
+
+Prints a PHC string on stdout and nothing else, so `kairos-server hash-password >
+secret` contains exactly the hash. It is the only subcommand that does **not** touch the
+database, because its whole purpose is to produce a value for
+`KAIROS_BOOTSTRAP_PASSWORD_HASH` before there is a deployment to talk to — so the
+plaintext password never has to be written into a manifest.
+
 ## Files
 
 | Path | Mode | Contents |

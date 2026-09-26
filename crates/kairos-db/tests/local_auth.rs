@@ -285,3 +285,116 @@ fn expired_sessions_can_be_swept() {
 
     teardown(db);
 }
+
+#[test]
+fn adding_a_password_to_an_oidc_identity_does_not_fork_the_person() {
+    // KAIROS-T-0197 returning: one person is one row. An admin adding a password for
+    // an email that already signed in through the issuer must get a password on THAT
+    // row. A second row would mean the same human owns two identities, two sets of
+    // memberships and two audit trails, and which one they land in depends on how
+    // they logged in that day.
+    let db = "kairos_local_auth_upsert_test";
+    let mut conn = setup(db);
+
+    let oidc = make_user(&mut conn, "both@example.test");
+    assert_eq!(oidc.external_id, "oidc:both@example.test");
+    assert!(oidc.password_hash.is_none());
+
+    let (adopted, created) =
+        local_auth::upsert_local_user(&mut conn, "both@example.test", "Both Ways", "$hash$one")
+            .expect("upsert");
+    assert!(!created, "the existing person was adopted, not duplicated");
+    assert_eq!(adopted.id, oidc.id);
+    assert_eq!(adopted.password_hash.as_deref(), Some("$hash$one"));
+    // And their OIDC sub is LEFT ALONE — rewriting it to `local:` would break their
+    // next SSO login, which is the opposite of additive.
+    assert_eq!(adopted.external_id, "oidc:both@example.test");
+
+    // A genuinely new email gets a new row with the synthetic prefix.
+    let (fresh, created) =
+        local_auth::upsert_local_user(&mut conn, "  NEW@Example.test ", "New Person", "$hash$two")
+            .expect("upsert");
+    assert!(created);
+    assert_eq!(fresh.email, "new@example.test", "trimmed and lower-cased");
+    assert_eq!(fresh.external_id, "local:new@example.test");
+    assert_eq!(fresh.display_name, "New Person");
+
+    // Re-running on that row is an adoption too, and revokes its sessions — because
+    // upsert goes through `set_password` and there is only one place a password is
+    // written.
+    mint(&mut conn, fresh.id, "fresh-session", 14);
+    let (again, created) =
+        local_auth::upsert_local_user(&mut conn, "new@example.test", "New Person", "$hash$three")
+            .expect("upsert");
+    assert!(!created);
+    assert_eq!(again.password_hash.as_deref(), Some("$hash$three"));
+    assert!(
+        !local_auth::find_session_by_hash(&mut conn, "fresh-session")
+            .expect("query")
+            .expect("row")
+            .is_valid_at(Utc::now()),
+        "changing the password through upsert must revoke too"
+    );
+
+    teardown(db);
+}
+
+#[test]
+fn the_bootstrap_admin_is_single_use() {
+    // The trap this design exists to avoid: an environment variable in a values file
+    // is a permanent credential, in the manifest and in the release history. It is
+    // therefore consumed only when the deployment has NO users, and inert after.
+    let db = "kairos_local_auth_bootstrap_test";
+    let mut conn = setup(db);
+
+    let outcome = local_auth::bootstrap_admin_if_empty(
+        &mut conn,
+        "  Founder@Example.TEST ",
+        "Founder",
+        "$hash$boot",
+    )
+    .expect("query");
+    let admin = outcome.expect("an empty deployment gets its admin");
+    assert_eq!(admin.email, "founder@example.test", "trimmed, lower-cased");
+    assert_eq!(admin.external_id, "local:founder@example.test");
+    assert_eq!(admin.password_hash.as_deref(), Some("$hash$boot"));
+
+    // Second call: inert, because somebody now exists. Not an error — a restart is
+    // normal and must not fail a boot.
+    let outcome = local_auth::bootstrap_admin_if_empty(
+        &mut conn,
+        "someone-else@example.test",
+        "Someone Else",
+        "$hash$again",
+    )
+    .expect("query");
+    assert_eq!(
+        outcome.expect_err("must be skipped"),
+        local_auth::BootstrapSkipped::UsersExist
+    );
+    assert!(
+        local_auth::find_user_by_email(&mut conn, "someone-else@example.test")
+            .expect("query")
+            .is_none(),
+        "no second admin appeared"
+    );
+
+    // Even re-running with the SAME email is inert, rather than resetting the
+    // password of the account it made. Otherwise leaving the variable in a manifest
+    // would silently restore a known password on every restart — a backdoor with a
+    // documented name.
+    let outcome =
+        local_auth::bootstrap_admin_if_empty(&mut conn, "founder@example.test", "F", "$hash$reset")
+            .expect("query");
+    assert!(outcome.is_err(), "same email is inert too");
+    let unchanged = local_auth::find_user_by_email(&mut conn, "founder@example.test")
+        .expect("query")
+        .expect("row");
+    assert_eq!(
+        unchanged.password_hash.as_deref(),
+        Some("$hash$boot"),
+        "the password was NOT reset by a later boot"
+    );
+
+    teardown(db);
+}

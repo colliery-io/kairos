@@ -34,6 +34,7 @@ pub mod convert_meta;
 pub mod convert_org;
 pub mod documents;
 pub mod initiatives;
+pub mod local_accounts;
 pub mod meta;
 pub mod org;
 pub mod proposals;

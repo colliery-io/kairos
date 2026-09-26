@@ -210,6 +210,11 @@ use crate::app::AppState;
         // set equality over the sources, not over one deployment's router.
         crate::login::login,
         crate::login::logout,
+        // Local-account administration (KAIROS-T-0204).
+        crate::api::local_accounts::create_local_account,
+        crate::api::local_accounts::set_local_password,
+        crate::api::local_accounts::list_sessions,
+        crate::api::local_accounts::revoke_sessions,
         // This module + the app.rs whoami probe (doc stub below).
         openapi_json,
         whoami,

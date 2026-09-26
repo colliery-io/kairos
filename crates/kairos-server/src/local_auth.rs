@@ -124,6 +124,49 @@ pub fn verify_against_dummy(password: &str) -> bool {
     matches!(verify_password(password, DUMMY), Ok(true))
 }
 
+/// The shortest password Kairos will store (KAIROS-T-0204).
+///
+/// Twelve, and **no composition rules**. A length floor is the one requirement that
+/// reliably buys entropy; "one upper, one digit, one symbol" mostly buys
+/// `Password1!`, which is in every wordlist, while making people write the password
+/// down. Current NIST guidance says the same: require length, check against known
+/// breached values if you can, and stop there.
+pub const MIN_PASSWORD_LEN: usize = 12;
+
+/// Check a password is long enough, counting CHARACTERS rather than bytes.
+///
+/// `.len()` on a `str` is bytes, which would let a 12-byte four-character CJK
+/// password through and reject a 11-character ASCII one — the opposite of the
+/// intent both times.
+///
+/// Trailing and leading whitespace is NOT trimmed: it is part of the password a
+/// person chose, and trimming it here while not trimming it at login would lock
+/// them out of the account they just created.
+pub fn validate_password(password: &str) -> Result<(), PasswordTooShort> {
+    let len = password.chars().count();
+    if len < MIN_PASSWORD_LEN {
+        return Err(PasswordTooShort {
+            minimum: MIN_PASSWORD_LEN,
+            got: len,
+        });
+    }
+    Ok(())
+}
+
+/// A password below [`MIN_PASSWORD_LEN`].
+///
+/// Carries the minimum and the length given, so the message can be specific. That
+/// is safe here and only here: this is a password being SET by someone who already
+/// knows it, not one being guessed.
+#[derive(Debug, Clone, Copy, thiserror::Error)]
+#[error("password must be at least {minimum} characters ({got} given)")]
+pub struct PasswordTooShort {
+    /// [`MIN_PASSWORD_LEN`].
+    pub minimum: usize,
+    /// How many characters were given.
+    pub got: usize,
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -229,6 +272,45 @@ mod tests {
         assert!(
             verify_password("anything", "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHlzYWx0eXNhbHR5$5rMUxPe7VGYCXUP7pDbxhP0H2jpvpqu5yXDgRDN0Nqk").is_ok(),
             "the dummy hash must be a PARSEABLE PHC string, or no work is done"
+        );
+    }
+
+    #[test]
+    fn the_password_floor_counts_characters_not_bytes() {
+        // 11 characters is short; 12 is not.
+        assert!(validate_password("elevenchars").is_err());
+        assert!(validate_password("twelvechars!").is_ok());
+
+        // Four CJK characters are 12 BYTES. Counting bytes would accept this and
+        // reject an 11-character ASCII password — wrong in both directions.
+        let four_cjk = "\u{6f22}\u{5b57}\u{6f22}\u{5b57}";
+        assert_eq!(four_cjk.len(), 12, "12 bytes");
+        assert_eq!(four_cjk.chars().count(), 4, "4 characters");
+        assert!(
+            validate_password(four_cjk).is_err(),
+            "must count characters"
+        );
+    }
+
+    #[test]
+    fn the_floor_message_is_specific_because_the_setter_knows_the_password() {
+        let err = validate_password("short").expect_err("too short");
+        assert_eq!(err.minimum, MIN_PASSWORD_LEN);
+        assert_eq!(err.got, 5);
+        assert!(err.to_string().contains("at least 12"), "{err}");
+    }
+
+    #[test]
+    fn whitespace_is_part_of_the_password() {
+        // Trimming here while not trimming at login would lock someone out of the
+        // account they had just created.
+        let padded = "  spaces count  ";
+        assert!(validate_password(padded).is_ok());
+        let hash = hash_password(padded).expect("hash");
+        assert!(verify_password(padded, &hash).expect("verify"));
+        assert!(
+            !verify_password(padded.trim(), &hash).expect("verify"),
+            "the trimmed form is a different password"
         );
     }
 

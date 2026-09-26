@@ -14,6 +14,13 @@
 config:
   tenancy:
     singleTenant: demo
+  # No oidc.issuerUrl and no oidc.audience, on purpose: there is no issuer.
   localAuth:
     enabled: true
-  # No oidc.issuerUrl and no oidc.audience, on purpose: there is no issuer.
+    # The first-boot admin (KAIROS-T-0204), which is what makes this shape usable:
+    # without it the deployment comes up with nobody who can log in. Single-use, so
+    # it is consumed on the first boot and inert after.
+    bootstrapAdmin: evaluator@kairos.evaluation.test
+    # argon2id of "evaluation-only" — a CI fixture, never a default the chart ships.
+    # In a values file rather than `--set`, because a PHC string contains commas.
+    bootstrapPasswordHash: "$argon2id$v=19$m=19456,t=2,p=1$yROL5Mc3sMZW2kPUkh17qA$EvF8OvN7/CFwK4MpsPPq0FFx1YDhBKKkWZXmY+v9SW8"

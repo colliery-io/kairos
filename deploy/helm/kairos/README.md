@@ -193,6 +193,9 @@ Secret loaded via `valueFrom`.
 | `config.auth.lockoutSecs` | `KAIROS_AUTH_LOCKOUT_SECS` | `""` | How long a lockout lasts; server default `60`. Emitted only when set. |
 | `config.localAuth.enabled` | `KAIROS_LOCAL_AUTH` | `false` | Accept local password accounts in addition to the issuer. Off means `/api/login` is not routed at all. Accounts are admin-created; there is no self-service sign-up and no reset email. |
 | `config.localAuth.sessionTtlSecs` | `KAIROS_SESSION_TTL_SECS` | `""` | Session bearer lifetime in seconds; server default `1209600` (14 days). Emitted only when set. |
+| `config.localAuth.bootstrapAdmin` | `KAIROS_BOOTSTRAP_ADMIN` | `""` | A first-boot admin, created only on a boot that finds no users at all and inert afterwards. Also becomes a deployment admin, since a fresh deployment has no organization either. Remove it once the account exists. |
+| `config.localAuth.bootstrapPasswordHash` | — | `""` | Its password as a PHC hash (`kairos-server hash-password`), rendered into a Secret, never the ConfigMap. Use a values file, not `--set`: a PHC string contains commas. |
+| `config.localAuth.bootstrapPasswordExistingSecret` | — | `""` | A Secret holding it instead; wins over the above. |
 | `config.auth.trustedProxy` | `KAIROS_TRUSTED_PROXY` | `""` | Trust `X-Forwarded-For` for the client address. Empty **follows `ingress.enabled`** — behind an Ingress the socket peer is the ingress controller, so the header is the only real client address; without one it is caller-supplied and trusting it would remove the throttle rather than weaken it. |
 | `config.retention.historyHotDays` | `KAIROS_HISTORY_HOT_DAYS` | server `90` | Emitted only when set. |
 | `config.retention.historyKeepLatest` | `KAIROS_HISTORY_KEEP_LATEST` | server `5` | Emitted only when set. |

@@ -68,6 +68,61 @@ service-account API key.
 |---|---|---|---|
 | `KAIROS_LOCAL_AUTH` | bool | `false` | Accept local password accounts in addition to the OIDC issuer. Off means `POST /api/login` is **not routed** — a 404 from an absent route, not a 401 from a handler that declines. |
 | `KAIROS_SESSION_TTL_SECS` | integer | `1209600` (14 days) | How long a session bearer lasts. |
+| `KAIROS_BOOTSTRAP_ADMIN` | email | unset | A first-boot admin, created **only on a boot that finds no users at all**. See below. |
+| `KAIROS_BOOTSTRAP_PASSWORD` | string | unset | Its password. Prefer the hash form. |
+| `KAIROS_BOOTSTRAP_PASSWORD_HASH` | PHC string | unset | Its password, already hashed — produce one with `kairos-server hash-password`. Wins over the plaintext when both are set. |
+
+#### The first boot
+
+A fresh deployment with local auth has nobody who can log in and no way to create
+anybody, so `KAIROS_BOOTSTRAP_ADMIN` makes the first account.
+
+The obvious shape has a trap worth designing around rather than discovering: **an
+environment variable in a values file is a permanent credential**, in the deployment
+manifest and in the release history. So the mechanism is **single-use**. It is consumed
+on a boot that finds `public.users` empty, and inert on every boot after — including a
+boot with the same email, which will *not* reset the password of the account it made.
+An idempotent bootstrap would silently restore a known password on every restart, which
+is a backdoor with a documented name.
+
+Every outcome is logged, and the two that are not the happy path are logged at WARN,
+because each is something to act on. When it is consumed, the log says to remove the
+variables. When it is inert, the log says the same and adds why — silence there is how a
+bootstrap password survives in a values file for a year.
+
+The email also becomes a **deployment admin** (as `local:<email>`, the synthetic
+`external_id` a local account gets). That is not a convenience: a fresh deployment has
+no organization either, and creating one is a deployment-admin action, so without it the
+bootstrap admin can log in and do nothing at all — which reads as a broken install
+rather than a missing variable.
+
+Prefer `KAIROS_BOOTSTRAP_PASSWORD_HASH`. `kairos-server hash-password` prints a PHC
+string and nothing else, needs no database, and can be run before the deployment exists,
+so the plaintext never has to be written into a file. In the Helm chart, set it in a
+values file rather than with `--set`: a PHC string contains commas, and `--set` would
+silently truncate it to something that parses as a hash and then never matches the
+password.
+
+#### Recovering an account
+
+There is no password-reset email. Two paths exist instead:
+
+- **An org admin** resets it: `PUT /api/local-accounts/{user_id}/password`.
+- **An operator** resets it with no login at all:
+  `kairos-server set-password --email <email>`, which reads the password from stdin when
+  `--password` is absent. It lives beside `drop-tenant` among the
+  [operator subcommands](cli.md#operator-subcommands-kairos-server), because the case it
+  exists for is that nobody can log in — so requiring a login is precisely what it cannot
+  do. It refuses to *create* an account, since that would be a way to mint an admin on
+  any deployment whose database you can reach.
+
+Either way, **setting a password revokes every session that person held**. A password
+change after a suspected compromise that left the attacker logged in would defeat the
+only thing the person was trying to do.
+
+Passwords must be at least **12 characters**, with no composition rules. A length floor
+reliably buys entropy; "one upper, one digit, one symbol" mostly buys `Password1!` and
+makes people write the password down.
 
 Local accounts are **additive**, not an alternative: a deployment may have both an
 issuer and local accounts, and neither path knows about the other. A person with one
@@ -474,6 +529,12 @@ The read-only root filesystem is compatible with a filesystem
 | `config.auth.maxFailures` | integer or `""` | `""` | Sets `KAIROS_AUTH_MAX_FAILURES`. Emitted when set, **including `0`**, which turns throttling off. |
 | `config.auth.failureWindowSecs` | integer or `""` | `""` | Sets `KAIROS_AUTH_FAILURE_WINDOW_SECS`. Emitted only when set. |
 | `config.auth.lockoutSecs` | integer or `""` | `""` | Sets `KAIROS_AUTH_LOCKOUT_SECS`. Emitted only when set. |
+| `config.localAuth.enabled` | bool | `false` | Sets `KAIROS_LOCAL_AUTH`. |
+| `config.localAuth.sessionTtlSecs` | integer or `""` | `""` | Sets `KAIROS_SESSION_TTL_SECS`. Emitted only when set. |
+| `config.localAuth.bootstrapAdmin` | string | `""` | Sets `KAIROS_BOOTSTRAP_ADMIN`. Rendering fails if it is set without a password, or a password without it. |
+| `config.localAuth.bootstrapPasswordHash` | string | `""` | The first-boot password as a PHC hash, rendered into a Secret (never the ConfigMap). Set it in a values file, not with `--set` — a PHC string contains commas. |
+| `config.localAuth.bootstrapPasswordExistingSecret` | string | `""` | Name of a Secret holding it instead. Wins over the above. |
+| `config.localAuth.bootstrapPasswordExistingSecretKey` | string | `KAIROS_BOOTSTRAP_PASSWORD_HASH` | Key within that Secret. |
 | `config.auth.trustedProxy` | bool or `""` | `""` | Sets `KAIROS_TRUSTED_PROXY`. Empty **follows `ingress.enabled`**: behind an Ingress the socket peer is the controller, so the header is the only real client address; with no Ingress the header is caller-supplied. Set it explicitly for a gateway of your own. |
 | `config.retention.historyHotDays` | integer or null | `null` | Sets `KAIROS_HISTORY_HOT_DAYS`. Emitted only when non-empty. |
 | `config.retention.historyKeepLatest` | integer or null | `null` | Sets `KAIROS_HISTORY_KEEP_LATEST`. Emitted only when non-empty. |

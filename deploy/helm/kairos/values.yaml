@@ -272,6 +272,34 @@ config:
     # -- KAIROS_SESSION_TTL_SECS — how long a session bearer lasts. Emitted only
     # when set; the server's default is 1209600 (14 days).
     sessionTtlSecs: ""
+    # -- KAIROS_BOOTSTRAP_ADMIN (KAIROS-T-0204) — the email of a first-boot admin,
+    # created only on a boot that finds NO users at all, and inert afterwards.
+    #
+    # A fresh local-auth deployment has nobody who can log in and no way to create
+    # anybody. This email also becomes a deployment admin (as `local:<email>`),
+    # because a fresh deployment has no organization either and creating one is a
+    # deployment-admin action.
+    #
+    # REMOVE IT once the account exists. It will do nothing on a later boot, but it
+    # is a credential sitting in your values file and your release history — which is
+    # exactly why the mechanism is single-use rather than idempotent.
+    bootstrapAdmin: ""
+    # -- The first-boot admin's password, as a PHC hash from
+    # `kairos-server hash-password`. Rendered into the Secret beside DATABASE_URL,
+    # never into the ConfigMap. Prefer this over a plaintext password: a hash in a
+    # manifest is not a login.
+    #
+    # Set it in a VALUES FILE, not with `--set`. A PHC string contains commas
+    # (`m=19456,t=2,p=1`) and `--set` treats a comma as a separator, so it would be
+    # silently truncated to `$argon2id$v=19$m=19456` — which parses as a hash and
+    # then never matches the password. `--set-file` works too.
+    bootstrapPasswordHash: ""
+    # -- Name of a pre-existing Secret holding KAIROS_BOOTSTRAP_PASSWORD_HASH. When
+    # set, the chart renders none of its own and this wins over
+    # bootstrapPasswordHash.
+    bootstrapPasswordExistingSecret: ""
+    # -- Key within that Secret.
+    bootstrapPasswordExistingSecretKey: KAIROS_BOOTSTRAP_PASSWORD_HASH
 
   devUi: false
 

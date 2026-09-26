@@ -23,6 +23,14 @@
 //!   CASCADE + org row); refuses without `--confirm`
 //! - `migrate-tenants` — run pending tenant migrations in every tenant schema
 //! - `list-tenants` — list provisioned tenants
+//! - `set-password --email <email> [--password <pw>]` — set a local account's
+//!   password without a working login (KAIROS-T-0204): the break-glass path for
+//!   the sole admin of a local-auth deployment who has forgotten theirs. Lives
+//!   HERE, beside `drop-tenant`, rather than in the authenticated CLI, because
+//!   requiring a login is exactly what it cannot do
+//! - `hash-password [--password <pw>]` — print a PHC hash and nothing else, so
+//!   `KAIROS_BOOTSTRAP_PASSWORD_HASH` can be set without the plaintext ever
+//!   entering a manifest
 //! - `seed-demo [--force]` — seed the `demo` tenant fixture (KAIROS-T-0035,
 //!   A-0012): fixture users/teams/boards/items; existing demo tenant is a
 //!   polite no-op without `--force`
@@ -108,6 +116,109 @@ fn drop_tenant(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
     println!(
         "dropped tenant '{slug}': schema org_{slug} removed (CASCADE), organization row deleted"
     );
+    Ok(())
+}
+
+/// Read a password from `--password`, or from stdin when it is absent.
+///
+/// Stdin is the better path and the reason it exists: an argument is visible in
+/// `ps`, in the shell history, and in a container's command line. The flag stays for
+/// scripting, where the caller has already decided.
+fn password_arg(args: &[String], what: &str) -> Result<String, String> {
+    if let Some(password) = flag_value(args, "--password")? {
+        return Ok(password);
+    }
+    eprintln!("Enter the new {what} (it will not echo if your terminal supports it):");
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+    // Only the trailing newline. Interior and leading spaces are part of what was
+    // typed, and silently trimming them here while the login path does not would
+    // lock the person out of the password they just set.
+    let password = line.trim_end_matches(['\n', '\r']).to_string();
+    if password.is_empty() {
+        return Err("no password given".to_string());
+    }
+    Ok(password)
+}
+
+/// `set-password --email <email> [--password <pw>]` (KAIROS-T-0204).
+///
+/// The break-glass path. It deliberately does NOT require a login, because the case
+/// it exists for is that nobody can log in: the sole admin of a local-auth deployment
+/// has forgotten their password and there is no reset email. It therefore needs
+/// database access, which is why it sits beside `drop-tenant` as an operator
+/// subcommand rather than in the authenticated CLI.
+///
+/// It refuses to CREATE an account. Creating one would make this a way to mint an
+/// admin on any deployment whose database you can reach, and the bootstrap variables
+/// already cover the empty-deployment case with a single-use switch.
+fn set_password(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
+    let email = flag_value(args, "--email")?
+        .ok_or("set-password requires --email <email>")?
+        .trim()
+        .to_lowercase();
+
+    let user = kairos_db::local_auth::find_user_by_email(conn, &email)
+        .map_err(|e| format!("set-password: {e}"))?
+        .ok_or_else(|| {
+            format!(
+                "no user with email {email:?}. This command sets the password of an \
+                 EXISTING account and will not create one — otherwise it would be a \
+                 way to mint an admin on any deployment whose database you can reach. \
+                 For an empty deployment use KAIROS_BOOTSTRAP_ADMIN, which is \
+                 single-use."
+            )
+        })?;
+    if user.is_service_account() {
+        return Err(format!(
+            "{email:?} is a service account; those authenticate with API keys, not \
+             passwords"
+        ));
+    }
+
+    let password = password_arg(args, "password")?;
+    kairos_server::local_auth::validate_password(&password).map_err(|e| e.to_string())?;
+    let hash =
+        kairos_server::local_auth::hash_password(&password).map_err(|e| format!("hashing: {e}"))?;
+    let revoked = kairos_db::local_auth::set_password(conn, user.id, &hash)
+        .map_err(|e| format!("set-password: {e}"))?;
+
+    println!(
+        "set the password for {email} ({}). {revoked} existing session(s) revoked.",
+        user.id
+    );
+    if !user
+        .external_id
+        .starts_with(kairos_db::local_auth::LOCAL_EXTERNAL_ID_PREFIX)
+    {
+        // Worth saying: this row came from an OIDC login, and the person now has two
+        // ways in. That is supported (KAIROS-I-0018: local accounts are additive) but
+        // it is not what everyone expects from a command called set-password.
+        println!(
+            "note: this account also has an OIDC identity ({}), which still works. \
+             The password is an additional way in, not a replacement.",
+            user.external_id
+        );
+    }
+    Ok(())
+}
+
+/// `hash-password [--password <pw>]` (KAIROS-T-0204).
+///
+/// Prints the PHC string and nothing else, so it can be piped straight into a
+/// manifest or a secret. It touches no database, which is the point: an operator can
+/// produce the hash for `KAIROS_BOOTSTRAP_PASSWORD_HASH` before the deployment
+/// exists, and the plaintext never has to be written down anywhere.
+fn hash_password_cmd(args: &[String]) -> Result<(), String> {
+    let password = password_arg(args, "password")?;
+    kairos_server::local_auth::validate_password(&password).map_err(|e| e.to_string())?;
+    let hash =
+        kairos_server::local_auth::hash_password(&password).map_err(|e| format!("hashing: {e}"))?;
+    // stdout carries the hash alone; everything else in this command goes to stderr,
+    // so `kairos-server hash-password > secret` contains what it should.
+    println!("{hash}");
     Ok(())
 }
 
@@ -428,7 +539,15 @@ fn run() -> Result<bool, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let subcommand = args.first().map(String::as_str);
 
-    // Every path (including plain server startup) first applies pending
+    // KAIROS-T-0204: `hash-password` is answered BEFORE connecting, because its
+    // whole purpose is to produce a value for KAIROS_BOOTSTRAP_PASSWORD_HASH before
+    // the deployment exists. Requiring a database to hash a string would make it
+    // useless for the one job it has.
+    if subcommand == Some("hash-password") {
+        return hash_password_cmd(&args[1..]).map(|_| true);
+    }
+
+    // Every other path (including plain server startup) first applies pending
     // public migrations on a dedicated sync connection (KAIROS-T-0007).
     let mut conn = connect_and_migrate_public()?;
 
@@ -443,12 +562,14 @@ fn run() -> Result<bool, String> {
         Some("drop-tenant") => drop_tenant(&mut conn, &args[1..]).map(|_| true),
         Some("migrate-tenants") => migrate_tenants(&mut conn).map(|_| true),
         Some("list-tenants") => list_tenants(&mut conn).map(|_| true),
+        Some("set-password") => set_password(&mut conn, &args[1..]).map(|_| true),
         Some("seed-demo") => seed_demo(&mut conn, &args[1..]).map(|_| true),
         Some("embed-backfill") => embed_backfill(&mut conn, &args[1..]).map(|_| true),
         Some("embed-index") => embed_index(&mut conn, &args[1..]).map(|_| true),
         Some(other) => Err(format!(
             "unknown subcommand {other:?}; expected one of: serve, migrate, create-tenant, \
-             drop-tenant, migrate-tenants, list-tenants, seed-demo, embed-backfill, embed-index"
+             drop-tenant, migrate-tenants, list-tenants, set-password, hash-password, \
+             seed-demo, embed-backfill, embed-index"
         )),
     }
 }

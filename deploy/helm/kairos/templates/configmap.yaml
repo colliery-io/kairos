@@ -86,6 +86,13 @@ data:
   {{- with include "kairos.setValue" .Values.config.localAuth.sessionTtlSecs }}
   KAIROS_SESSION_TTL_SECS: {{ . | quote }}
   {{- end }}
+  {{- /*
+  The first-boot admin's EMAIL only (KAIROS-T-0204). Its password is a credential
+  and goes in the Secret beside DATABASE_URL, never in a ConfigMap.
+  */}}
+  {{- with .Values.config.localAuth.bootstrapAdmin }}
+  KAIROS_BOOTSTRAP_ADMIN: {{ . | quote }}
+  {{- end }}
   # Retention (KAIROS-A-0004): only overrides are emitted; unset keys fall back
   # to the server's built-in defaults.
   {{- with .Values.config.retention.historyHotDays }}

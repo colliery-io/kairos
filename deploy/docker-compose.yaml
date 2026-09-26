@@ -86,6 +86,14 @@ services:
       # attack. Additive: a deployment may have both an issuer and local accounts.
       KAIROS_LOCAL_AUTH: ${KAIROS_LOCAL_AUTH:-}
       KAIROS_SESSION_TTL_SECS: ${KAIROS_SESSION_TTL_SECS:-}
+      # KAIROS-T-0204: the first-boot admin. SINGLE-USE — consumed only on a boot
+      # that finds no users at all, and inert afterwards. Remove both once it has
+      # been consumed: they are a credential sitting in your .env and doing nothing.
+      # Prefer the HASH form (`kairos-server hash-password`) so the plaintext is
+      # never in a file.
+      KAIROS_BOOTSTRAP_ADMIN: ${KAIROS_BOOTSTRAP_ADMIN:-}
+      KAIROS_BOOTSTRAP_PASSWORD: ${KAIROS_BOOTSTRAP_PASSWORD:-}
+      KAIROS_BOOTSTRAP_PASSWORD_HASH: ${KAIROS_BOOTSTRAP_PASSWORD_HASH:-}
     # The image applies pending migrations on boot (KAIROS-T-0007) before it
     # binds, so no separate migrate step is required. Liveness is the image's
     # own HEALTHCHECK against /healthz.

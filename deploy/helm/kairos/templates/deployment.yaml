@@ -73,6 +73,15 @@ spec:
                   name: {{ include "kairos.webClientSecretName" . }}
                   key: {{ include "kairos.webClientSecretKey" . }}
             {{- end }}
+            {{- if include "kairos.bootstrapSecretEnabled" . }}
+            # The first-boot admin's password hash (KAIROS-T-0204), sourced like
+            # every other credential rather than through the ConfigMap.
+            - name: KAIROS_BOOTSTRAP_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kairos.bootstrapSecretName" . }}
+                  key: {{ include "kairos.bootstrapSecretKey" . }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

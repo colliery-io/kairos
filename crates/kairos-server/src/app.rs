@@ -174,6 +174,23 @@ pub fn router(state: AppState) -> Router {
         Router::new()
     };
 
+    // KAIROS-T-0204: the org-admin surfaces for local accounts. Behind the FULL
+    // auth → tenant stack, unlike login itself, and likewise absent when local auth
+    // is off — there are no local accounts to administer.
+    let local_accounts = if state.config.local_auth {
+        crate::api::local_accounts::router()
+            .route_layer(axum_middleware::from_fn_with_state(
+                state.clone(),
+                tenant::require_tenant,
+            ))
+            .route_layer(axum_middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_auth,
+            ))
+    } else {
+        Router::new()
+    };
+
     let protected = Router::new()
         .route("/api/whoami", get(whoami))
         // The S-0005 entity endpoint families (KAIROS-T-0018).
@@ -276,6 +293,7 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(crate::metrics::metrics_handler))
         // Local password login (KAIROS-T-0203), empty unless KAIROS_LOCAL_AUTH is on.
         .merge(local_auth)
+        .merge(local_accounts)
         .merge(protected)
         // Cross-tenant deployment-admin routes (KAIROS-T-0019): behind auth
         // only, NO tenant middleware — see api::org::admin module docs.
@@ -495,6 +513,15 @@ pub async fn serve(config: AppConfig) -> Result<(), String> {
     let refresh_secs = config.embed_refresh_secs;
     let state = build_state(config).await.map_err(|e| e.to_string())?;
 
+    // KAIROS-T-0204: the first-boot admin, before the listener binds. A fresh
+    // local-auth deployment has nobody who can log in, and no way to make anybody.
+    //
+    // A failure here FAILS THE BOOT. An operator who set these variables is telling
+    // us the deployment has no other way in, so carrying on would produce a server
+    // that starts, serves a login page and cannot be logged into — the failure mode
+    // hardest to diagnose from the outside.
+    bootstrap_first_admin(&state).await?;
+
     // The background refresher (KAIROS-T-0190): embedding happens off the write
     // path, so a create never waits on a model. Detached deliberately — it is
     // not part of graceful shutdown, because there is nothing to drain: a sweep
@@ -526,6 +553,90 @@ pub async fn serve(config: AppConfig) -> Result<(), String> {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .map_err(|e| format!("server error: {e}"))
+}
+
+/// Create the first-boot admin if `KAIROS_BOOTSTRAP_ADMIN` is set and the
+/// deployment has no users (KAIROS-T-0204).
+///
+/// Every outcome is logged, and the two that are not the happy path are logged at
+/// WARN, because each means something the operator should act on:
+///
+/// - **consumed** — INFO, and it says to remove the variables.
+/// - **inert** — WARN. The variables are still in the manifest, where they are a
+///   credential nobody is using. Silence here is how a bootstrap password survives
+///   in a values file for a year.
+/// - **raced** — WARN. Harmless, but worth knowing it happened.
+async fn bootstrap_first_admin(state: &AppState) -> Result<(), String> {
+    let Some(email) = state.config.bootstrap_admin.clone() else {
+        return Ok(());
+    };
+
+    // A pre-hashed value wins, and is the documented preference: it keeps the
+    // plaintext out of the manifest entirely.
+    let hash = match (
+        &state.config.bootstrap_password_hash,
+        &state.config.bootstrap_password,
+    ) {
+        (Some(hash), _) => hash.clone(),
+        (None, Some(plain)) => {
+            crate::local_auth::validate_password(plain)
+                .map_err(|e| format!("KAIROS_BOOTSTRAP_PASSWORD: {e}"))?;
+            crate::local_auth::hash_password(plain)
+                .map_err(|e| format!("KAIROS_BOOTSTRAP_PASSWORD: {e}"))?
+        }
+        // config.rs refuses this combination, so reaching it means that check was
+        // removed.
+        (None, None) => {
+            return Err("KAIROS_BOOTSTRAP_ADMIN is set with no password".to_string());
+        }
+    };
+
+    if !state.config.local_auth {
+        // Not fatal: the account is real and will work the moment local auth is
+        // switched on. But it cannot log in today, and an operator who set these
+        // variables plainly expected it to.
+        tracing::warn!(
+            %email,
+            "KAIROS_BOOTSTRAP_ADMIN is set but KAIROS_LOCAL_AUTH is off, so the \
+             account that is about to be created cannot log in with its password"
+        );
+    }
+
+    let for_log = email.clone();
+    let outcome = state
+        .blocking
+        .run_public(move |conn| {
+            kairos_db::local_auth::bootstrap_admin_if_empty(conn, &email, &email, &hash)
+                .map_err(crate::error::ApiError::internal)
+        })
+        .await
+        .map_err(|e| format!("bootstrap admin: {} {}", e.code, e.message))?;
+
+    match outcome {
+        Ok(user) => tracing::info!(
+            email = %for_log,
+            user_id = %user.id,
+            external_id = %user.external_id,
+            "created the first-boot admin. REMOVE KAIROS_BOOTSTRAP_ADMIN and its \
+             password from your configuration now: the account exists, the variables \
+             are a credential sitting in your manifest, and they will do nothing on \
+             the next boot because the deployment is no longer empty."
+        ),
+        Err(kairos_db::local_auth::BootstrapSkipped::UsersExist) => tracing::warn!(
+            email = %for_log,
+            "KAIROS_BOOTSTRAP_ADMIN is set but this deployment already has users, so \
+             it did nothing — as designed, it is single-use. Remove it and its \
+             password: they are a credential in your configuration that is no longer \
+             reachable."
+        ),
+        Err(kairos_db::local_auth::BootstrapSkipped::RacedAnotherReplica) => tracing::warn!(
+            email = %for_log,
+            "another replica created the first user while this one was booting; the \
+             bootstrap admin was not created here. Exactly one exists, which is the \
+             outcome either way."
+        ),
+    }
+    Ok(())
 }
 
 /// Resolves when ctrl-c (SIGINT) arrives.

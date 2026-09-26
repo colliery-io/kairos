@@ -228,6 +228,29 @@ pub struct AppConfig {
     /// tab open, and short enough that a token copied off a laptop stops working
     /// without anyone noticing it needed to.
     pub session_ttl_secs: u64,
+    /// `KAIROS_BOOTSTRAP_ADMIN` (KAIROS-T-0204): the email of a first-boot admin,
+    /// created **only when the deployment has no users at all**.
+    ///
+    /// A fresh local-auth deployment cannot be logged into, so something has to make
+    /// the first account. The obvious shape has a trap that is worth designing around
+    /// rather than discovering: an environment variable in a Helm values file is a
+    /// permanent credential, in the deployment manifest and in the release history.
+    ///
+    /// So it is SINGLE-USE. It is consumed on a boot that finds `public.users` empty
+    /// and is inert on every boot after, and both outcomes are logged. A bootstrap
+    /// that silently kept working would be a backdoor with a documented name.
+    pub bootstrap_admin: Option<String>,
+    /// `KAIROS_BOOTSTRAP_PASSWORD` — the first-boot admin's password.
+    ///
+    /// Prefer [`Self::bootstrap_password_hash`]: a plaintext password here is one
+    /// `kubectl get configmap` away from anybody with read access to the namespace.
+    pub bootstrap_password: Option<String>,
+    /// `KAIROS_BOOTSTRAP_PASSWORD_HASH` — the first-boot admin's password as a PHC
+    /// string, so the plaintext never enters the manifest.
+    ///
+    /// Produce one with `kairos-server hash-password`. Wins over
+    /// [`Self::bootstrap_password`] when both are set.
+    pub bootstrap_password_hash: Option<String>,
 }
 
 impl AppConfig {
@@ -397,7 +420,36 @@ impl AppConfig {
             });
         }
 
-        let deployment_admins = get("KAIROS_DEPLOYMENT_ADMINS")
+        // KAIROS-T-0204.
+        let bootstrap_admin = get("KAIROS_BOOTSTRAP_ADMIN").map(|e| e.trim().to_lowercase());
+        let bootstrap_password = get("KAIROS_BOOTSTRAP_PASSWORD");
+        let bootstrap_password_hash = get("KAIROS_BOOTSTRAP_PASSWORD_HASH");
+        if bootstrap_admin.is_some()
+            && bootstrap_password.is_none()
+            && bootstrap_password_hash.is_none()
+        {
+            return Err(ConfigError::Missing {
+                var: "KAIROS_BOOTSTRAP_PASSWORD",
+                hint: "KAIROS_BOOTSTRAP_ADMIN names an account with no way to \
+                       authenticate; set KAIROS_BOOTSTRAP_PASSWORD, or better \
+                       KAIROS_BOOTSTRAP_PASSWORD_HASH (from `kairos-server \
+                       hash-password`) so the plaintext is never in the manifest",
+            });
+        }
+        if bootstrap_admin.is_none()
+            && (bootstrap_password.is_some() || bootstrap_password_hash.is_some())
+        {
+            // Refused rather than ignored: a password set with no account to put it
+            // on means the operator believes they have bootstrapped an admin, and
+            // they will find out otherwise at the login screen.
+            return Err(ConfigError::Missing {
+                var: "KAIROS_BOOTSTRAP_ADMIN",
+                hint: "a bootstrap password is set but no bootstrap admin email is; \
+                       set the email, or remove the password",
+            });
+        }
+
+        let mut deployment_admins: Vec<String> = get("KAIROS_DEPLOYMENT_ADMINS")
             .map(|raw| {
                 raw.split(',')
                     .map(str::trim)
@@ -406,6 +458,24 @@ impl AppConfig {
                     .collect()
             })
             .unwrap_or_default();
+        // KAIROS-T-0204: the first-boot admin is a deployment admin, automatically.
+        //
+        // Not a convenience. A fresh deployment has no ORGANIZATION either, and
+        // creating one is a deployment-admin action, so a bootstrap admin without
+        // this can log in and do precisely nothing — which reads as a broken install
+        // rather than as a missing variable. The alternative was making the operator
+        // also write `local:their@email` into KAIROS_DEPLOYMENT_ADMINS, which is a
+        // detail about our synthetic `external_id` scheme that nobody should have to
+        // know to get started.
+        //
+        // Added rather than replacing, so an OIDC deployment that adds a break-glass
+        // local admin keeps the admins it already had.
+        if let Some(email) = &bootstrap_admin {
+            let sub = format!("local:{email}");
+            if !deployment_admins.contains(&sub) {
+                deployment_admins.push(sub);
+            }
+        }
 
         Ok(Self {
             database_url,
@@ -435,6 +505,9 @@ impl AppConfig {
             trusted_proxy,
             local_auth,
             session_ttl_secs,
+            bootstrap_admin,
+            bootstrap_password,
+            bootstrap_password_hash,
         })
     }
 }

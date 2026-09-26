@@ -155,14 +155,14 @@ values, which is deliberate — a deployment that cannot say who its users are i
 not a deployment.
 
 ```sh
-helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.3.0 \
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.4.0 \
   -n kairos -f values.yaml --wait --timeout 6m
 ```
 
 Helm pulls the chart from the registry, then the cluster pulls the image:
 
 ```
-Pulled: ghcr.io/colliery-io/charts/kairos:0.3.0
+Pulled: ghcr.io/colliery-io/charts/kairos:0.4.0
 NAME: kairos
 STATUS: deployed
 ```

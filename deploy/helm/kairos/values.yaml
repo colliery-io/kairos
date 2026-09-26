@@ -17,7 +17,7 @@ image:
   repository: ghcr.io/colliery-io/kairos
   # -- Image tag. LEAVE EMPTY to track the chart's appVersion (recommended —
   # the chart never pins `latest`, per KAIROS-A-0013). Set explicitly to run a
-  # specific published release, e.g. "0.3.0".
+  # specific published release, e.g. "0.4.0".
   tag: ""
   # -- Image pull policy.
   pullPolicy: IfNotPresent

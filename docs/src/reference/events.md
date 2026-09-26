@@ -1,6 +1,6 @@
 # `GET /ws/events` — the WebSocket event channel
 
-Kairos 0.3.0. This is the deployment's only push channel; the rest of the HTTP
+Kairos 0.4.0. This is the deployment's only push channel; the rest of the HTTP
 surface is specified by OpenAPI (`GET /api/openapi.json`), which does not model
 WebSockets, so the channel is described here instead. Implementation:
 `crates/kairos-server/src/ws.rs`.

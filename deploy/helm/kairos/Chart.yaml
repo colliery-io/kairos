@@ -9,12 +9,12 @@ description: >-
 type: application
 
 # Chart version — bump on any change to the chart itself.
-version: 0.3.0
+version: 0.4.0
 
 # The Kairos release this chart deploys by default. image.tag defaults to this
 # via the "kairos.image" helper, so the chart never pins `latest`
 # (KAIROS-A-0013: reference deployments use versioned tags only).
-appVersion: "0.3.0"
+appVersion: "0.4.0"
 
 # Ingress uses networking.k8s.io/v1 and (optionally) the monitoring.coreos.com
 # ServiceMonitor CRD; 1.23 is the floor where Ingress v1 + probes here are GA.

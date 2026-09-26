@@ -5,7 +5,7 @@
 
 # REST API
 
-OpenAPI 3.1.0, Kairos 0.3.0. 86 paths, 143 schemas.
+OpenAPI 3.1.0, Kairos 0.4.0. 86 paths, 143 schemas.
 
 Every endpoint is served under the tenant resolved from the request host and requires a bearer token; see [Configuration](configuration.md) for how a deployment resolves both. The live spec is at `/api/openapi.json`.
 

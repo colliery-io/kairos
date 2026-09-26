@@ -20,19 +20,19 @@ and MCP clients.
 ```sh
 # macOS Apple Silicon
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.3.0/kairos-0.3.0-aarch64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.4.0/kairos-0.4.0-aarch64-apple-darwin.tar.gz
 
 # macOS Intel
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.3.0/kairos-0.3.0-x86_64-apple-darwin.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.4.0/kairos-0.4.0-x86_64-apple-darwin.tar.gz
 
 # Linux x86_64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.3.0/kairos-0.3.0-x86_64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.4.0/kairos-0.4.0-x86_64-unknown-linux-gnu.tar.gz
 
 # Linux arm64
 curl -fsSL -o kairos.tar.gz \
-  https://github.com/colliery-io/kairos/releases/download/v0.3.0/kairos-0.3.0-aarch64-unknown-linux-gnu.tar.gz
+  https://github.com/colliery-io/kairos/releases/download/v0.4.0/kairos-0.4.0-aarch64-unknown-linux-gnu.tar.gz
 
 tar -xzf kairos.tar.gz
 install -m 0755 kairos ~/.local/bin/   # or any directory on your PATH
@@ -46,7 +46,7 @@ every command and flag.
 ## Run a deployment
 
 ```sh
-helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.3.0 \
+helm install kairos oci://ghcr.io/colliery-io/charts/kairos --version 0.4.0 \
   -f my-values.yaml
 ```
 

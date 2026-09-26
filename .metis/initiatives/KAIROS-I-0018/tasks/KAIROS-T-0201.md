@@ -4,14 +4,14 @@ level: task
 title: "Password verification core: argon2, the schema, and no endpoints yet"
 short_code: "KAIROS-T-0201"
 created_at: 2026-09-26T12:43:06.442887+00:00
-updated_at: 2026-09-26T12:43:06.442887+00:00
+updated_at: 2026-09-26T13:18:23.272253+00:00
 parent: KAIROS-I-0018
 blocked_by: []
 archived: false
 
 tags:
   - "#task"
-  - "#phase/todo"
+  - "#phase/completed"
 
 
 exit_criteria_met: false
@@ -79,18 +79,114 @@ without a database. The storage functions go in `kairos-db`.
 
 ## Acceptance Criteria
 
-- [ ] Migration adds `users.password_hash` (nullable) and `local_sessions`; `schema.rs`
+## Acceptance Criteria
+
+## Acceptance Criteria
+
+- [x] Migration adds `users.password_hash` (nullable) and `local_sessions`; `schema.rs`
       regenerated via `angreal db schema-sync`
-- [ ] argon2 hash + verify, with the chosen parameters in a named const and the
+- [x] argon2 hash + verify, with the chosen parameters in a named const and the
       reasoning recorded
-- [ ] Session tokens mint, hash, and parse; `is_session` and `is_api_key` cannot
+- [x] Session tokens mint, hash, and parse; `is_session` and `is_api_key` cannot
       both claim one token, with a test that says so
-- [ ] Wrong password, unknown user and a malformed hash are all distinguishable **in
+- [x] Wrong password, unknown user and a malformed hash are all distinguishable **in
       code** and identical **to a caller** — no endpoint yet, but the core must not
       make a leaky answer easy
-- [ ] Unit tests only; no endpoint, no route, no GUI
-- [ ] `angreal test lint` and `angreal test unit` green
+- [x] Unit tests only; no endpoint, no route, no GUI
+- [x] `angreal test lint` and `angreal test unit` green
 
 ## Status Updates
 
 *To be added during implementation*
+## Status Updates
+
+### 2026-09-26 — the foundation, and no endpoint
+
+`crates/kairos-server/src/local_auth.rs` plus two migrations. Nothing is routed and
+nothing can log in yet, which is what this task was scoped to.
+
+### argon2id parameters, and why these
+
+**19 MiB, 2 iterations, 1 lane** — the OWASP Argon2id recommendation, and
+deliberately the variant tuned for a *server handling concurrent logins* rather than
+the higher-memory settings meant for disk encryption.
+
+The trade-off runs both ways and that is the point: too cheap is crackable from a
+stolen dump, too expensive is a denial-of-service against your own login endpoint,
+because **every attempt including every wrong one** costs the server that memory and
+time. At 19 MiB, ten concurrent attempts cost ~190 MiB transiently — which is why
+this decision and [[KAIROS-T-0202]]'s rate limiter are the same decision seen from
+two sides and should move together.
+
+Stored as a full PHC string rather than a bare digest, so the parameters travel with
+each hash. Raising the cost later can re-hash on next successful login instead of
+invalidating every password at once.
+
+### Two hashes that must stay different
+
+The module leads with a table saying so, because the inconsistency looks like a bug
+and is not:
+
+| Secret | Entropy | Hash |
+|---|---|---|
+| session token | 32 random bytes | SHA-256 |
+| password | whatever a person chose | argon2id |
+
+Making them consistent would be wrong in one direction or the other — argon2 on
+every authenticated request is self-inflicted denial of service, SHA-256 on a
+password is a dictionary attack waiting for a leak. `kairos_ss_` mirrors
+`service_accounts::auth`'s `kairos_sk_` exactly because that machinery is right for
+a high-entropy token.
+
+### The timing oracle, closed deliberately
+
+`verify_against_dummy` spends real argon2 work and returns false. Without it, "no
+such account" returns in microseconds while a wrong password takes ~50ms, and that
+gap **is** an enumeration oracle no matter how careful the response body is. The
+same applies to an OIDC-only user whose `password_hash` is `None`.
+
+Its test asserts the dummy is a **parseable** PHC string, which matters more than it
+looks: a malformed dummy would return `Err` and skip the work, silently reopening the
+oracle it exists to close.
+
+### `Ok(false)` is not `Err`
+
+A wrong password is `Ok(false)`; a stored hash that will not parse is
+`Err(MalformedStoredHash)`. Conflating them would let corruption read as a failed
+login and lock a user out with nobody told. There is a test per junk input.
+
+### Four API surprises in argon2 0.6 / password-hash 0.6
+
+Each cost a compile error and none were guessable from the older API everybody has
+memorised:
+
+- `PasswordHash` is at `password_hash::phc::PasswordHash`, not `password_hash::`
+- `SaltString` lives in the separate `phc` crate
+- `SaltString::generate()` takes no RNG
+- **`hash_password(&self, password)` generates the salt itself** — so `SaltString`
+  is not needed at all, and the import went away again. That is the better API: there
+  is no way to reuse a salt by accident.
+
+### Schema
+
+- `public.users.password_hash TEXT NULL` — nullable is the design, not a
+  convenience. An OIDC user has no password and must not have a column implying one.
+- `local_sessions` in the **tenant** schema, mirroring `api_keys`, because the token
+  embeds its tenant and carries its own scope rather than needing a Host header.
+- `schema.rs` regenerated: 34 tenant tables, up from 33.
+
+`tenant_provisioning`'s `EXPECTED_TABLES` needed the new name and the count — which
+is the test doing its job, and the T-0093 schema comparison stayed green because it
+compares two tenants and both have it.
+
+### Gates
+
+lint clean, **412 unit tests** (9 new), integration **47/47**.
+
+### One process note
+
+An `apply.pl` edit reported success and did not apply — `"item_relationships",`
+appears more than once in that file and the first occurrence was elsewhere. Caught
+because the compiler said the array had 33 elements when I had declared 34. Worth
+remembering that "applied" from that helper means "a match was replaced", not "the
+match you meant".

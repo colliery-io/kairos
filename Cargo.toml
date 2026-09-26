@@ -50,6 +50,12 @@ fastembed = "=7.1.0"
 # Errors / serialization
 thiserror = "2.0.18"
 sha2 = "0.10.9"
+
+# Password hashing for local accounts (KAIROS-T-0201). Deliberately NOT used for
+# session tokens or API keys: those are 32 bytes of OS randomness, where a fast
+# hash is correct and a memory-hard one would only slow every request down. A
+# password is low-entropy and needs the opposite.
+argon2 = "0.6.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 

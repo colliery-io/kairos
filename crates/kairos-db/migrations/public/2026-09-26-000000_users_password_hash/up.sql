@@ -1,0 +1,14 @@
+-- KAIROS-T-0201: a local account's password (KAIROS-I-0018).
+--
+-- NULLABLE, and that is the design rather than a convenience. A person
+-- authenticated by an OIDC issuer has no password and must not be given a column
+-- that implies otherwise; a local account has one. Both live in `users` because
+-- both are people, and KAIROS-T-0197 established that one person is one row —
+-- adding a password to an email that already has an OIDC identity updates that
+-- row rather than forking the person.
+--
+-- Stores a full PHC string (`$argon2id$v=19$m=19456,t=2,p=1$<salt>$<hash>`), not
+-- a bare digest, so the parameters travel with each hash. Raising the cost later
+-- can then re-hash on next successful login instead of invalidating every
+-- password at once.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;

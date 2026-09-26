@@ -40,6 +40,9 @@ reqwest = { workspace = true }
 # carries transitively.
 sha2 = "0.10.9"
 rand = "0.9.4"
+# KAIROS-T-0201: local-account password hashing (argon2id). NOT used for API
+# keys or session tokens — those are 32 random bytes, where sha2 above is right.
+argon2 = { workspace = true }
 # The MCP endpoint at /mcp (KAIROS-A-0011, KAIROS-T-0026): official Rust
 # SDK, streamable-HTTP server transport mounted as a tower service.
 rmcp = { workspace = true, features = [

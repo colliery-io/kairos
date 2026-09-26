@@ -79,6 +79,13 @@ pub struct User {
     pub display_name: String,
     /// `"human"` (default) or `"service_account"` (see the `USER_KIND_*` consts).
     pub kind: String,
+    /// argon2id PHC string for a local account, or `None` (KAIROS-T-0201).
+    ///
+    /// `None` is the normal case and means **this person has no local password**,
+    /// not that they are locked out: an OIDC-authenticated user never has one.
+    /// A login attempt against a `None` must fail exactly as a wrong password
+    /// does, or the difference is an account-enumeration oracle.
+    pub password_hash: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

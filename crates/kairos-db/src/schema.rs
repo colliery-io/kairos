@@ -273,6 +273,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    local_sessions (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        token_hash -> Text,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        last_used_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     metadata_definition_scopes (metadata_definition_id, entity_type) {
         metadata_definition_id -> Uuid,
         entity_type -> Text,
@@ -509,6 +521,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     item_links,
     item_metadata,
     item_relationships,
+    local_sessions,
     metadata_definition_scopes,
     metadata_definitions,
     metadata_enum_options,
@@ -613,6 +626,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         kind -> Text,
         user_name -> Text,
+        password_hash -> Nullable<Text>,
     }
 }
 

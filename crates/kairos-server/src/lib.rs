@@ -20,6 +20,7 @@ pub mod config;
 pub mod embedding;
 pub mod error;
 pub mod forge;
+pub mod local_auth;
 pub mod metrics;
 pub mod middleware;
 pub mod ws;

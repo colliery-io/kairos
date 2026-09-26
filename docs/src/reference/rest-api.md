@@ -5,7 +5,7 @@
 
 # REST API
 
-OpenAPI 3.1.0, Kairos 0.3.0. 81 paths, 135 schemas.
+OpenAPI 3.1.0, Kairos 0.3.0. 86 paths, 143 schemas.
 
 Every endpoint is served under the tenant resolved from the request host and requires a bearer token; see [Configuration](configuration.md) for how a deployment resolves both. The live spec is at `/api/openapi.json`.
 
@@ -20,5 +20,6 @@ This page is generated from that spec, so it cannot drift from the router — bu
 - [Tenant configuration](rest/tenant-configuration.md) — 10 operations. Org-admin surfaces: the metadata and template definitions that shape what work items can carry.
 - [Machine access](rest/machine-access.md) — 9 operations. Service accounts, their API keys, and the SCIM tokens for directory sync.
 - [The deployment itself](rest/the-deployment-itself.md) — 8 operations. Activity, administration, and what the deployment reports about itself.
-- [Schemas](rest/schemas.md) — 135 wire shapes, referenced from the operations above.
+- [Signing in](rest/signing-in.md) — 6 operations. Local password accounts (KAIROS-I-0018), present only on a deployment with `KAIROS_LOCAL_AUTH` on. A deployment that authenticates through an OIDC issuer has none of these routes at all — not disabled, absent. `/api/login` and `/api/logout` are unauthenticated by nature. Everything under `/api/local-accounts` is org-admin only, including the reads: a list of somebody's live sessions is a security surface rather than work content.
+- [Schemas](rest/schemas.md) — 143 wire shapes, referenced from the operations above.
 

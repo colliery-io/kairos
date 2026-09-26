@@ -104,11 +104,20 @@ fn bad_session() -> ApiError {
     ApiError::unauthorized("invalid, expired, or revoked session; log in again")
 }
 
-/// `POST /api/login`.
+/// `POST /api/login` — exchange an email and a password for a session bearer.
 ///
-/// Takes the whole [`Request`] rather than an extractor tuple so the client
-/// address comes from [`client_addr`] — the same function the API-key path uses,
-/// so there is one place that decides what is trusted (KAIROS-T-0202).
+/// Present the returned token as `Authorization: Bearer <token>`. It is returned
+/// exactly once; only its hash is stored. Failed attempts are throttled per account
+/// and per source address.
+//
+// NOTE, and it is not a doc comment on purpose: the rustdoc above is PUBLISHED. It
+// becomes `docs/src/reference/rest/signing-in.md` through the OpenAPI spec, so
+// implementation reasoning in it ends up in front of an operator. That is how this
+// paragraph got moved.
+//
+// It takes the whole `Request` rather than an extractor tuple so the client address
+// comes from `client_addr` — the same function the API-key path uses, so there is one
+// place that decides what is trusted (KAIROS-T-0202).
 #[utoipa::path(
     post,
     path = "/api/login",

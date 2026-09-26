@@ -23,6 +23,7 @@ checklist.
 
 - [Install with Helm](how-to/install-with-helm.md)
 - [Configure an OIDC issuer](how-to/configure-an-oidc-issuer.md)
+- [Use local accounts](how-to/use-local-accounts.md)
 - [Provision a tenant](how-to/provision-a-tenant.md)
 - [Connect a git forge](how-to/connect-a-git-forge.md)
 - [Back up and restore](how-to/back-up-and-restore.md)
@@ -55,6 +56,7 @@ checklist.
   - [Tenant configuration](reference/rest/tenant-configuration.md)
   - [Machine access](reference/rest/machine-access.md)
   - [The deployment itself](reference/rest/the-deployment-itself.md)
+  - [Signing in](reference/rest/signing-in.md)
   - [Schemas](reference/rest/schemas.md)
 - [Events](reference/events.md)
 - [SCIM](reference/scim.md)
@@ -67,6 +69,7 @@ checklist.
 - [Flight levels](explanation/flight-levels.md)
 - [Teams and boards](explanation/teams-and-boards.md)
 - [Capabilities and access](explanation/capabilities-and-access.md)
+- [Choosing how people log in](explanation/choosing-how-people-log-in.md)
 - [Archiving](explanation/archiving.md)
 - [Repositories as execution scope](explanation/repositories-as-execution-scope.md)
 - [Finding related work](explanation/finding-related-work.md)

@@ -298,10 +298,30 @@ angreal services down
 The database lives in a Docker volume, so `angreal services up` picks up where
 you left off. `angreal services clean` removes the volume too.
 
+## A note on the identity provider
+
+Kairos can also authenticate people itself, with an email and a password and no
+identity provider at all ([Use local accounts](../how-to/use-local-accounts.md)).
+This lesson deliberately does not use it.
+
+Two reasons. The Dex above costs you nothing extra — it comes up in the same
+`angreal services up` that starts the database you need anyway — whereas local
+accounts would add a password hash to generate and a first-boot admin to configure,
+which is *more* steps rather than fewer. And this lesson teaches the shape Kairos is
+built for: an organisation brings its own issuer. Local accounts are the small-team
+exception, and a first lesson is the wrong place to teach an exception.
+
+If you are here because you want to run Kairos for a handful of people and never
+touch an IdP, read
+[Choosing how people log in](../explanation/choosing-how-people-log-in.md) after
+this — it is the page that tells you whether that is the right call.
+
 ## Where to go next
 
 - [Deploy Kairos to Kubernetes](deploy-to-kubernetes.md) — the same thing for
   real, from the published chart and image
+- [Choosing how people log in](../explanation/choosing-how-people-log-in.md) — your
+  issuer, a bundled Dex, or local accounts
 - [Install with Helm](../how-to/install-with-helm.md) — when you have a cluster
   and a goal rather than a lesson
 - [Flight levels](../explanation/flight-levels.md) — why the boards are

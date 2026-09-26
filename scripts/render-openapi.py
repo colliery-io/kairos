@@ -79,6 +79,15 @@ tokens for directory sync.""",
     ("The deployment itself", """Activity, administration, and what the
 deployment reports about itself.""",
      ["activity", "admin", "meta"]),
+
+    ("Signing in", """Local password accounts (KAIROS-I-0018), present only on a
+deployment with `KAIROS_LOCAL_AUTH` on. A deployment that authenticates through an
+OIDC issuer has none of these routes at all — not disabled, absent.
+
+`/api/login` and `/api/logout` are unauthenticated by nature. Everything under
+`/api/local-accounts` is org-admin only, including the reads: a list of somebody's
+live sessions is a security surface rather than work content.""",
+     ["auth", "local-accounts"]),
 ]
 
 

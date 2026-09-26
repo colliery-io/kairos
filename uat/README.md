@@ -109,15 +109,34 @@ Playwright project, `dependencies: ['journeys']`) and:
 3. subtracts `ALLOW`, and fails naming whatever is left.
 
 ```ts
-const ALLOW: Record<string, string> = {
-  'cli:adrs': 'no persona authors an ADR; the e2e lifecycle spec covers the family',
-};
+// Currently EMPTY — every tool and noun is exercised by a journey. An entry looks
+// like this when one is needed:
+//   'cli:adrs': 'no persona authors an ADR; the e2e lifecycle spec covers the family'
+const ALLOW: Record<string, string> = {};
 ```
 
 An `ALLOW` entry is a claim you are willing to defend — "pending" is fine
 while a ticket is open, a permanent entry needs a real reason. The gate
 also fails on **stale** entries (a surface that is covered now, or no
 longer exists), so the map cannot rot quietly.
+
+### What the gate does NOT see
+
+It reads MCP `tools/list` and `kairos --help` nouns. Three surfaces are therefore
+outside its denominator, and it is better to name them than to let a green gate imply
+a coverage it does not measure:
+
+- **REST endpoints.** Covered instead by `crates/kairos-server/tests/openapi.rs`, which
+  asserts set equality between the routes registered in the sources and the paths in
+  the spec, and then probes each one on the production router.
+- **`kairos-server` subcommands** — the operator surface (`drop-tenant`,
+  `set-password`, `hash-password`, …). Nothing counts these. KAIROS-T-0204 added two and
+  the gate's numbers did not move: it read **MCP 20/20, CLI 16/16, 0 allow-listed**
+  before that work and after it, because neither new verb is a `kairos` noun.
+- **GUI screens.** Covered by the Playwright e2e tier.
+
+Extending the gate to operator subcommands would be a reasonable next step; it is
+recorded here rather than assumed.
 
 The gate needs a whole compose run to speak. A filtered run (`--journey
 planning`) has not exercised the product; a `--server` run skips its
@@ -144,7 +163,9 @@ works; `growing-team`, `reorg` and `quarterly-review` are the org changing
 shape around the work; `operations`, `second-tenant`, `housekeeping` and
 `revival` are a deployment that has been load bearing for a while — long
 enough that work gets put away, and long enough that somebody needs it
-back.
+back. `local-login` is the deployment letting somebody in without an
+identity provider (KAIROS-I-0018), which is where an organisation that has
+one keeps a break-glass admin.
 
 Reading them in order is the fastest way to understand what Kairos claims
 to do. Writing a new one: find where in that life it belongs, and put it

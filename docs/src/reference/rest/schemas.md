@@ -307,6 +307,17 @@ Body of `POST /api/initiatives`.
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `title` | `string` | yes |  |
 
+## CreateLocalAccountRequest
+
+`POST /api/local-accounts` body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `display_name` | `string`, nullable | no | Display name. Defaults to the email when absent. |
+| `email` | `string` | yes | The person's email. Lower-cased and trimmed; it is the login identifier. |
+| `password` | `string` | yes | The initial password. At least [`crate::local_auth::MIN_PASSWORD_LEN`] characters. |
+| `role` | `string`, nullable | no | Organization role, `member` (default) or `admin`. |
+
 ## CreateMetadataDefinitionRequest
 
 Body of `POST /api/metadata-definitions` (org admin).
@@ -817,6 +828,47 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `offset` | `integer` | yes | The applied offset. |
 | `total` | `integer` | yes | Rows matching the request, ignoring pagination. Live rows only unless the request asked for archived work as well â `total` and `items` always answer the same question (KAIROS-T-0159). |
 
+## LocalAccountView
+
+`POST /api/local-accounts` 201 body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `created` | `boolean` | yes | True when a new person was created; false when a password was added to an existing row (an OIDC identity for the same email — KAIROS-T-0197). |
+| `display_name` | `string` | yes |  |
+| `email` | `string` | yes |  |
+| `membership_added` | `boolean` | yes | True when this call added the org membership; false when they were already a member. |
+| `user_id` | `string` | yes |  |
+
+## LoginRequest
+
+`POST /api/login` body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | `string` | yes | The account's email address. Matched case-insensitively. |
+| `password` | `string` | yes |  |
+
+## LoginResponse
+
+`POST /api/login` 200 body. The token is returned EXACTLY ONCE — only its SHA-256 is stored.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `expires_at` | `string` | yes | When it stops working (RFC 3339). |
+| `token` | `string` | yes | The session bearer (`kairos_ss_<64-hex>`). Present it as `Authorization: Bearer <token>`. |
+| `user` | [`LoginUser`](schemas.md#loginuser) | yes | Who it authenticates, so a client need not immediately call `/api/whoami`. |
+
+## LoginUser
+
+The `user` object of [`LoginResponse`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `display_name` | `string` | yes |  |
+| `email` | `string` | yes |  |
+| `id` | `string` | yes |  |
+
 ## MetadataDefinition
 
 A metadata field definition, as returned by `/api/metadata-definitions`.
@@ -1170,6 +1222,28 @@ A service account (never a secret).
 | `id` | `string` | yes |  |
 | `name` | `string` | yes |  |
 
+## SessionListResponse
+
+`GET /api/local-accounts/{user_id}/sessions` envelope.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [`SessionView`](schemas.md#sessionview) | yes |  |
+| `total` | `integer` | yes |  |
+
+## SessionView
+
+One session, for the audit listing. Never the token or its hash.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `active` | `boolean` | yes | Whether the session works right now — revocation and expiry collapsed, so a reader does not have to compare timestamps to answer the only question they actually have. |
+| `created_at` | `string` | yes |  |
+| `expires_at` | `string` | yes |  |
+| `id` | `string` | yes |  |
+| `last_used_at` | `string`, nullable | no | `null` until the session is first used. |
+| `revoked_at` | `string`, nullable | no | `null` while the session is live. |
+
 ## SetLifecycleRequest
 
 Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task between the Planned/Support lanes. Orthogonal to column Body of `PATCH /api/documents/{short_code}/lifecycle` (KAIROS-T-0078): set the document's editorial state. Free transitions; no version bump (the A-0004 contract covers title/content only).
@@ -1177,6 +1251,14 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `lifecycle` | `string` | yes | `draft|review|published|archived`. |
+
+## SetPasswordRequest
+
+`PUT /api/local-accounts/{user_id}/password` body.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `password` | `string` | yes |  |
 
 ## SetTaskRepositoryRequest
 

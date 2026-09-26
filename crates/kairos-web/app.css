@@ -72,6 +72,14 @@ body {
   background: var(--bg);
 }
 
+/* Login: the local password form (KAIROS-T-0205). A real <form>, so it needs to
+   stretch to the panel rather than shrink-wrap its inputs the way a block element
+   would inside a centred flex column. */
+.kairos-login-form {
+  width: 100%;
+  min-width: 16rem;
+}
+
 /* ---- Boards area (KAIROS-T-0040) ---------------------------------------- */
 
 /* Board list: responsive tile grid; each tile is a link styled as a card. */

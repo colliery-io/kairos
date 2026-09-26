@@ -48,6 +48,10 @@ pub const TOKEN_RELAY_PATH: &str = "/api/auth/token";
 /// Same-origin path of the public SPA config endpoint.
 pub const CONFIG_PATH: &str = "/api/config";
 
+/// The local password-login endpoint (KAIROS-T-0203). Present only on deployments
+/// with `KAIROS_LOCAL_AUTH` on, which `AuthConfig::local_auth` reports.
+pub const LOGIN_PATH: &str = "/api/login";
+
 /// Scopes requested at login. `offline_access` asks the issuer for a
 /// refresh token (silent refresh); the rest feed JIT provisioning (A-0010).
 const SCOPES: &str = "openid profile email offline_access";
@@ -350,7 +354,10 @@ impl Auth {
     }
 
     /// `/api/config`, fetched once and cached in the signal.
-    async fn config_cached(&self) -> Result<AuthConfig, String> {
+    ///
+    /// Public because the login page has to know which of the two sign-in paths this
+    /// deployment offers before it can render anything (KAIROS-T-0205).
+    pub async fn config_cached(&self) -> Result<AuthConfig, String> {
         if let Some(config) = self.config.get_untracked() {
             return Ok(config);
         }
@@ -469,6 +476,113 @@ pub async fn complete_login(auth: Auth) -> Result<String, String> {
     let tokens = post_token(&body).await?;
     auth.install(tokens);
     Ok(return_to)
+}
+
+/// Where to go after a successful sign-in, consuming the stashed value.
+///
+/// Shared with the PKCE path (the same `sessionStorage` key), so a deep link that
+/// bounced through the login page lands where the person was actually headed —
+/// whichever way they signed in. Defaults to `/`.
+pub fn take_return_to() -> String {
+    session_storage()
+        .ok()
+        .and_then(|storage| {
+            let value = storage.get_item(KEY_RETURN_TO).ok().flatten();
+            let _ = storage.remove_item(KEY_RETURN_TO);
+            value
+        })
+        .filter(|path| path.starts_with('/'))
+        .unwrap_or_else(|| "/".to_string())
+}
+
+/// Remember where an unauthenticated visitor was headed before sending them to the
+/// login page (KAIROS-T-0205).
+///
+/// Only same-origin paths are stored, and [`take_return_to`] checks again on the way
+/// out: a value that reached this from a URL could otherwise turn the login page into
+/// an open redirect.
+pub fn stash_return_to(path: &str) {
+    if !path.starts_with('/') {
+        return;
+    }
+    if let Ok(storage) = session_storage() {
+        let _ = storage.set_item(KEY_RETURN_TO, path);
+    }
+}
+
+/// `POST /api/login` — a local password login (KAIROS-T-0205, KAIROS-T-0203).
+///
+/// The session bearer lands in the SAME place the OIDC access token does: the
+/// in-memory signal, via `install`. Not `localStorage`, and not `sessionStorage`
+/// either. Per KAIROS-A-0015 the SPA holds its bearer in memory, and a session token
+/// is the credential itself — unlike the refresh token KAIROS-T-0071 stashes, which
+/// can only be redeemed at the issuer.
+///
+/// The consequence is real and deliberate: a page reload ends a password session and
+/// the person logs in again. That is the price of not writing a working API
+/// credential into browser storage.
+///
+/// The server's 401 is returned VERBATIM. It is deliberately uninformative
+/// (KAIROS-T-0203) — one message for a wrong password, an unknown email and an
+/// OIDC-only account — and helping by guessing "no account with that email" here
+/// would rebuild the account-enumeration oracle the endpoint was careful to avoid.
+pub async fn password_login(auth: Auth, email: &str, password: &str) -> Result<(), String> {
+    #[derive(serde::Serialize)]
+    struct LoginRequest<'a> {
+        email: &'a str,
+        password: &'a str,
+    }
+    #[derive(serde::Deserialize)]
+    struct LoginResponse {
+        token: String,
+    }
+
+    let response = gloo_net::http::Request::post(LOGIN_PATH)
+        .json(&LoginRequest { email, password })
+        .map_err(|e| format!("building the login request: {e}"))?
+        .send()
+        .await
+        .map_err(|e| format!("cannot reach {LOGIN_PATH}: {e}"))?;
+
+    if !response.ok() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(login_error_message(status, &body));
+    }
+
+    let login: LoginResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("cannot parse the login response: {e}"))?;
+
+    // No refresh token and no expiry: a session bearer is not refreshable, so there
+    // is nothing for the refresh timer to do. `install` returns early on exactly that
+    // shape, which is why this reuses it rather than reaching into the signal.
+    auth.install(TokenResponse {
+        access_token: login.token,
+        id_token: None,
+        refresh_token: None,
+        expires_in: None,
+    });
+    Ok(())
+}
+
+/// The message to show for a failed login.
+///
+/// The server's own `error.message` when the envelope carries one — rendered without
+/// embellishment, per above — and a plain sentence otherwise, because a raw JSON body
+/// or a bare status code in front of someone trying to log in is not an error message.
+fn login_error_message(status: u16, body: &str) -> String {
+    if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(body)
+        && let Some(message) = envelope["error"]["message"].as_str()
+    {
+        return message.to_string();
+    }
+    match status {
+        429 => "Too many attempts. Wait a moment and try again.".to_string(),
+        500..=599 => "The server could not complete the sign-in. Try again shortly.".to_string(),
+        _ => "Sign-in failed.".to_string(),
+    }
 }
 
 /// POST a form body to the token relay and parse the token response.

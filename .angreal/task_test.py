@@ -63,6 +63,12 @@ E2E_DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgres://kairos:kairos@localhost:41432/kairos"
 )
 E2E_ISSUER = "http://localhost:41558/dex"
+
+# KAIROS-T-0205: the local password the GUI leg signs in with. A FIXTURE, set on the
+# seeded demo tenant by `kairos-server set-password` before the server boots — it is
+# not a default the product ships, and nothing outside this file knows it.
+E2E_LOCAL_EMAIL = "alice@kairos.test"
+E2E_LOCAL_PASSWORD = "alice-local-password"
 SERVER_BIN = PROJECT_ROOT / "target" / "debug" / "kairos-server"
 E2E_RUNNER_BIN = PROJECT_ROOT / "target" / "debug" / "examples" / "e2e_golden_path"
 
@@ -343,6 +349,26 @@ def _prepare_gui_stack(env, phase):
     ).returncode
     if code != 0:
         return _e2e_phase(f"{phase}: seed-demo", code)
+
+    # KAIROS-T-0205: give the seeded admin a local password, so the GUI leg can sign
+    # in through Kairos's OWN form. AFTER the reseed, deliberately — doing it before
+    # would leave the outcome depending on whether seed-demo happens to preserve the
+    # column, which is not a thing this harness should have an opinion about.
+    #
+    # The deployment keeps its Dex issuer, so the login page is also rendering the
+    # "both paths at once" state (KAIROS-I-0018: local accounts are additive).
+    print(f"Setting a local password for {E2E_LOCAL_EMAIL} ({phase})...", flush=True)
+    code = subprocess.run(
+        [
+            str(SERVER_BIN), "set-password",
+            "--email", E2E_LOCAL_EMAIL,
+            "--password", E2E_LOCAL_PASSWORD,
+        ],
+        cwd=str(PROJECT_ROOT),
+        env=env,
+    ).returncode
+    if code != 0:
+        return _e2e_phase(f"{phase}: set-password", code)
     return 0
 
 
@@ -357,6 +383,10 @@ def _gui_server_env(env, extra=None):
         "KAIROS_SINGLE_TENANT": "demo",
         "KAIROS_BASE_DOMAIN": "kairos.test",
         "KAIROS_WEB_DIST": str(WEB_DIST),
+        # KAIROS-T-0205: local accounts ON, alongside the Dex issuer. The login page
+        # then has to render both paths, which is the state that is easiest to get
+        # wrong and the one every existing spec walks past on its way to Dex.
+        "KAIROS_LOCAL_AUTH": "true",
         # KAIROS-T-0102: the forge spec registers a repo and delivers
         # signed webhooks, so the GUI leg needs the integration configured
         # (without these the connection endpoints answer 501).
@@ -454,6 +484,9 @@ def _run_gui_smoke(env):
         pw_env.update({
             "E2E_GUI_BASE_URL": E2E_GUI_BASE_URL,
             "E2E_ISSUER": E2E_ISSUER,
+            # KAIROS-T-0205: the local-login spec signs in with these.
+            "E2E_LOCAL_EMAIL": E2E_LOCAL_EMAIL,
+            "E2E_LOCAL_PASSWORD": E2E_LOCAL_PASSWORD,
         })
         return _e2e_phase(
             "GUI: playwright test",
@@ -568,6 +601,8 @@ def e2e():
             "OIDC_ISSUER_URL": E2E_ISSUER,
             "OIDC_AUDIENCE": "kairos-cli",
             "KAIROS_BASE_DOMAIN": "kairos.test",
+            # Both sign-in paths at once (KAIROS-T-0203, KAIROS-T-0205).
+            "KAIROS_LOCAL_AUTH": "true",
         })
         server = subprocess.Popen(
             [str(SERVER_BIN), "serve"],

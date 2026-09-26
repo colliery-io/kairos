@@ -94,6 +94,18 @@ async fn web_surfaces_against_live_stack() {
         format!("{ISSUER}/auth"),
         "discovery resolved against the live Dex: {config_json}"
     );
+    // KAIROS-T-0205: an OIDC-only deployment reports local_auth FALSE, so the SPA
+    // renders the provider button and no password form.
+    //
+    // This is the server half of "an OIDC-only login page is unchanged". The GUI's
+    // branch is a pure function of these three fields — asserted over all three
+    // combinations in `kairos_web::auth`'s tests — and the e2e suite proves the
+    // provider button still works, so the assertion that cannot be made in a browser
+    // without a second server is made here instead.
+    assert_eq!(
+        config_json["local_auth"], false,
+        "local auth is off unless asked for: {config_json}"
+    );
 
     // --- 2. the token relay refuses non-SPA grants outright --------------
     let (status, _, body) = raw_request(

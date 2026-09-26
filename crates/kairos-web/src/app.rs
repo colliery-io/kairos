@@ -187,12 +187,19 @@ fn GuardFallback() -> impl IntoView {
     }
 }
 
-/// The unauthenticated fallback: kick off the PKCE redirect (remembering
-/// where the user was headed) and show progress while the browser leaves.
+/// The unauthenticated fallback: kick off the PKCE redirect (remembering where the
+/// user was headed) and show progress while the browser leaves.
+///
+/// KAIROS-T-0205: on a deployment with **no issuer**, there is nothing to redirect to,
+/// so this lands on `/login` and the password form instead. Without that branch an
+/// unauthenticated deep link would render "Sign-in unavailable" on a deployment that
+/// can perfectly well sign people in — the worst possible first impression, and the
+/// page is one click away.
 #[component]
 fn RedirectToIssuer() -> impl IntoView {
     let auth = use_auth();
     let error = RwSignal::new(None::<String>);
+    let to_login = RwSignal::new(false);
     let location = use_location();
     let return_to = location.pathname.get_untracked();
 
@@ -209,6 +216,17 @@ fn RedirectToIssuer() -> impl IntoView {
             if cancelled.get_value() {
                 return;
             }
+            // Ask the deployment which sign-in it has before assuming an issuer.
+            // A failed /api/config falls through to the redirect, because that is
+            // what happened before this page could ask, and an issuer that answers
+            // is still the likeliest case.
+            if let Ok(config) = auth.config_cached().await
+                && !config.can_sso()
+            {
+                auth::stash_return_to(&return_to);
+                to_login.set(true);
+                return;
+            }
             if let Err(message) = auth::begin_login(auth, &return_to).await {
                 error.set(Some(message));
             }
@@ -217,14 +235,18 @@ fn RedirectToIssuer() -> impl IntoView {
 
     view! {
         <div class="kairos-center-screen">
-            {move || match error.get() {
-                None => view! { <Loading label="Redirecting to sign-in…"/> }.into_any(),
-                Some(message) => view! {
-                    <Stack gap="sm" center=true>
-                        <Text bright=true bold=true>"Sign-in unavailable"</Text>
-                        <Text dimmed=true size="sm">{message}</Text>
-                    </Stack>
-                }.into_any(),
+            {move || if to_login.get() {
+                view! { <Redirect path="/login"/> }.into_any()
+            } else {
+                match error.get() {
+                    None => view! { <Loading label="Redirecting to sign-in…"/> }.into_any(),
+                    Some(message) => view! {
+                        <Stack gap="sm" center=true>
+                            <Text bright=true bold=true>"Sign-in unavailable"</Text>
+                            <Text dimmed=true size="sm">{message}</Text>
+                        </Stack>
+                    }.into_any(),
+                }
             }}
         </div>
     }

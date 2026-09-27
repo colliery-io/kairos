@@ -44,4 +44,14 @@ services:
 
 volumes:
   postgres_data:
-    name: kairos_postgres_data
+    # `kairos_dev_...`, NOT `kairos_postgres_data` (COLLIERY-T-0226). That
+    # shorter name is exactly what deploy/docker-compose.yaml resolves to: its
+    # project is `kairos` and its volume is `postgres_data`, and compose joins
+    # the two with an underscore. On a machine that runs both - a developer
+    # who also hosts a deployment - `angreal services up` then started a SECOND
+    # PostgreSQL on the deployment's live data directory. It ran crash
+    # recovery over files another server had open, and removed that server's
+    # postmaster.pid on the way out, which made the live server shut itself
+    # down. `angreal services clean` would have deleted the deployment's data.
+    # It happened on 2026-09-27; the data survived, by luck of timing.
+    name: kairos_dev_postgres_data

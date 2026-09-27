@@ -184,6 +184,21 @@ pub fn may_edit_item(facts: EditFacts) -> bool {
     facts.created_item || facts.holds_manage || facts.is_org_admin
 }
 
+/// The `manage_<type>` capability of an item type: the capability of the
+/// edit rule ([`may_edit_item`]). One function for the server and for the
+/// cascade of an archive (COLLIERY-T-0234), so the refusal of an edit and
+/// the reason of an archive name the same capability.
+pub fn manage_capability(item_type: crate::short_code::ItemType) -> &'static str {
+    use crate::short_code::ItemType;
+    match item_type {
+        ItemType::Strategy => MANAGE_STRATEGIES,
+        ItemType::Initiative => MANAGE_INITIATIVES,
+        ItemType::Task => MANAGE_TASKS,
+        ItemType::Document => MANAGE_DOCUMENTS,
+        ItemType::Adr => MANAGE_ADRS,
+    }
+}
+
 /// THE LINK RULE (COLLIERY-T-0228). A principal may write an edge, which
 /// is to create it or to remove it, when the principal may edit the item
 /// at EITHER end ([`may_edit_item`]). The rule is the same for each

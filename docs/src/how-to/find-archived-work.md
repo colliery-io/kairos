@@ -89,6 +89,11 @@ restoring the parent restores only the parent, and the response lists the
 archived descendants it did not touch so each can be a separate decision. If you
 want the subtree back, restore each item.
 
+**A child that you find live below an archived parent is not an error.** The
+archive takes only the children that its caller can edit. A child that the
+caller cannot edit stays live, and keeps its link to the archived parent. To
+put it away too, ask a person who can edit it.
+
 ## When a restore is refused
 
 A write to put-away work is refused as if the item were not there — `NOT_FOUND`,

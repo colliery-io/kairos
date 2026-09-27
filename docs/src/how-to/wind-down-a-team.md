@@ -91,6 +91,11 @@ a puzzle. Two ways to clear each one, and the choice matters:
   than after — restore does not un-cascade, and putting the subtree back is one
   item at a time.
 
+  **It takes only the children that you can edit.** Read the output of the
+  command. It names each child that stays live, and the capability that you
+  need on its board. Archive those children with an account that can edit them,
+  or ask an organization admin to archive the parent.
+
 ### Decide before you archive
 
 Archiving is easy to undo *while the board exists*. Once the team goes, its

@@ -463,14 +463,10 @@ pub(crate) async fn delete_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_item_edit(conn, &slug, user, task.id, ItemType::Task)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Task, task.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the task, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome = super::cascade::archive_item(conn, &slug, user, task.id, ItemType::Task)?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))

@@ -213,8 +213,12 @@ snapshot with `?version=N`.
 
 ### `GET /api/{entity_type}/{short_code}/cascade-preview`
 
-The authoritative KAIROS-A-0001 descendant set a delete of this item
-would cascade to, computed without deleting (open tenant-wide read).
+What an archive of this item BY THE CALLER would take, and what it
+would leave (COLLIERY-T-0234), computed without deleting. An open
+tenant-wide read: it names short codes, which each member can read.
+
+The answer is for the caller who asks. It does not say whether the
+caller may archive the item itself: `DELETE` checks that.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -223,7 +227,7 @@ would cascade to, computed without deleting (open tenant-wide read).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`CascadePreviewResponse`](schemas.md#cascadepreviewresponse) | The transitive descendant set a soft-delete would cascade to (root excluded), matching the eventual DeleteResponse |
+| `200` | [`CascadePreviewResponse`](schemas.md#cascadepreviewresponse) | What a soft-delete by the caller would cascade to (root excluded), and the live descendants that it would leave, matching the eventual DeleteResponse |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 
 ## restore
@@ -289,6 +293,10 @@ reader expects.
 
 Confirm a proposal, creating the edge.
 
+The caller is a person. The link rule applies (COLLIERY-T-0234): the
+caller can edit the item at one end of the edge. A refused confirm
+leaves the proposal pending.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | The proposal |
@@ -297,7 +305,7 @@ Confirm a proposal, creating the edge.
 |---|---|---|
 | `200` | [`EdgeProposalDto`](schemas.md#edgeproposaldto) | Confirmed; the relationship now exists |
 | `400` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The edge was refused by the graph's own rules — a cycle, or a shape the rule matrix forbids |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide. A person needs the link rule: the caller can edit the item at one end; details.any_of names the two capabilities |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such proposal |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Already decided |
 

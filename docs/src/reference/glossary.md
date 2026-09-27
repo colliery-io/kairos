@@ -39,6 +39,10 @@ and perfectly live; a draft document can be put away. Nothing about one implies
 the other. Only the first sense hides an item from listings, and only the first
 is what `include_deleted` and `archived_at` refer to.
 
+An archive is an edit, so the [edit rule](#edit-rule) decides who can put an
+item away. An archive of a parent also puts away the descendants that the
+caller can edit: see [cascade](#cascade).
+
 See [Archiving](../explanation/archiving.md) for why the state is defined this
 way.
 
@@ -93,6 +97,22 @@ org-admin bypass are not enumerated here — see
 [Capabilities and access](../explanation/capabilities-and-access.md) for why
 the model is shaped that way.
 
+## cascade
+
+What an archive does below the named item. The archive follows `parent` edges
+from the named item to its descendants. It applies the [edit rule](#edit-rule)
+to each descendant, for the caller:
+
+- It archives a descendant that the caller can edit.
+- It stops at a descendant that the caller cannot edit, and archives nothing
+  below it.
+
+The response names each descendant that stays, in `not_reached`. A descendant
+that stays keeps its `parent` edge. `supports` edges are not part of the
+cascade: an archive of an item does not archive its documents and ADRs. A
+restore does not cascade. See
+[Archiving](../explanation/archiving.md#the-cascade-takes-only-what-the-caller-can-edit).
+
 ## column
 
 A named position on a board. Columns are ordered, and a board's transition
@@ -123,8 +143,9 @@ different board.
 
 Always a soft delete, and the same act as archiving in sense 1 above: the item
 is stamped, hidden from default listings, and remains readable and restorable.
-It cascades to every descendant reachable through `parent` edges. `restore`
-reverses it for one item; archived descendants stay archived.
+It [cascades](#cascade) through `parent` edges to each descendant that the
+caller can edit. `restore` reverses it for one item; archived descendants stay
+archived.
 
 Nothing in the product hard-deletes a work item. The one genuinely destructive
 operation is dropping a tenant.
@@ -234,7 +255,8 @@ history. Also called a *work item*.
 The rule that decides who can write a [relationship](#relationship). A
 principal can create or remove an edge when the principal can edit the item at
 one end. The [edit rule](#edit-rule) decides each end. The rule is the same
-for each relationship type. See
+for each relationship type. The confirm of an edge proposal writes an edge, so
+the rule applies to the confirm also. See
 [Capabilities](capabilities.md#who-can-write-relationships).
 
 ## metadata definition
@@ -263,7 +285,7 @@ A directed edge between two items. Five types exist:
 
 | Type | Meaning |
 |---|---|
-| `parent` | Hierarchy. A delete cascades along these edges, and they are what a traversal follows to build a parent chain. |
+| `parent` | Hierarchy. A delete [cascades](#cascade) along these edges, and they are what a traversal follows to build a parent chain. |
 | `supports` | A document supporting the item it is attached to. |
 | `informs` | One item informs another without owning it. |
 | `supersedes` | One item replaces another. |

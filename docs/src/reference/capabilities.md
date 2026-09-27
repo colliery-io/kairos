@@ -172,8 +172,34 @@ different board, its creator can continue to edit it.
 | Archive | `DELETE /api/{type}/{short_code}` | `delete_item` |
 | Restore | `POST /api/{type}/{short_code}/restore` | `restore_item` |
 
-An archive cascades through `parent` edges. The server asks the edit rule for
-the named item only, and not for each descendant.
+### An archive applies the rule to each descendant
+
+An archive cascades through `parent` edges. The server applies the edit rule
+to the named item, and then to each descendant. The rule is for the caller of
+the archive.
+
+| Item | The caller can edit it | The caller cannot edit it |
+|---|---|---|
+| The named item | The server archives it. | The server refuses the archive with `FORBIDDEN`. Nothing changes. |
+| A descendant | The server archives it, if the caller can edit each item between it and the named item. | The archive stops there. The descendant stays live, and each item below it stays live. |
+
+A descendant that stays keeps its `parent` edge. The archive removes no edge.
+
+The response has `not_reached`: one entry for each live descendant that stays.
+An entry has one of two reasons:
+
+| Field | Meaning |
+|---|---|
+| `required_capability`, `board_id` | The caller cannot edit this descendant. The caller did not create it, and does not hold this capability on this board. `board_id` is absent when the descendant has no authorization board. |
+| `below` | This descendant is below the item with this short code, where the archive stopped. |
+
+The response has no `not_reached` field when the archive reached each
+descendant. `GET /api/{type}/{short_code}/cascade-preview` gives the same two
+lists for the caller who asks, and changes nothing.
+
+An organization admin can edit each item, so an archive by an admin takes each
+descendant. A restore changes the named item only, so it applies the rule to
+the named item only.
 
 ### What creation does not grant
 
@@ -221,6 +247,12 @@ change. A caller who can edit the two ends of an impossible edge gets
 
 A refusal names two capabilities, one for each end. The caller needs one of
 them.
+
+The confirm of an edge proposal writes an edge, so the link rule applies to
+`POST /api/proposals/{id}/confirm`. The caller must be a person. The caller
+must be able to edit the item at one end of the proposed edge. A refused
+confirm leaves the proposal pending. To propose an edge, and to reject a proposal,
+the link rule is not necessary: they write no edge.
 
 ## Related guides
 

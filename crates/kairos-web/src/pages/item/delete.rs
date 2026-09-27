@@ -6,13 +6,63 @@
 //! not merely the item's direct children; after the delete it shows the
 //! server's cascade report (`DeleteResponse.cascaded_short_codes`), which
 //! matches what the preview warned with.
+//!
+//! The archive stops at a descendant that the user cannot edit, and takes
+//! nothing below it (COLLIERY-T-0234). So the dialog shows two lists,
+//! before and after: what the archive takes, and what it leaves and why.
+//! The server decides the two lists; the words are [`left_heading`] and
+//! [`left_reason`].
 
 use aurora_dark::components::{Alert, Anchor, Button, ErrorState, Group, Loading, Pill, Text};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
-use super::api::{self, DeleteOutcome, Family};
+use super::api::{self, DeleteOutcome, Family, NotReached};
 use crate::auth::use_auth;
+
+/// The heading of the list of items that stay (COLLIERY-T-0234).
+/// `done: false` is the preview, `done: true` is the report.
+pub(crate) fn left_heading(count: usize, done: bool) -> String {
+    let items = if count == 1 { "item" } else { "items" };
+    if done {
+        format!("Left {count} {items} live:")
+    } else {
+        format!("Will leave {count} {items} live:")
+    }
+}
+
+/// Why one item stays (COLLIERY-T-0234): the capability that the user
+/// does not hold, or the item above it where the archive stops. The board
+/// is "its board" and not an id: the user can open the item to see it.
+pub(crate) fn left_reason(item: &NotReached) -> String {
+    match (&item.below, &item.required_capability, &item.board_id) {
+        (Some(stop), _, _) => format!("It is below {stop}."),
+        (None, Some(capability), Some(_)) => format!("You need {capability} on its board."),
+        (None, Some(_), None) => "It has no board. Ask an organization admin.".to_string(),
+        (None, None, _) => "You cannot edit it.".to_string(),
+    }
+}
+
+/// The list of items that stay, with the reason of each. Nothing when the
+/// archive takes each descendant.
+#[component]
+fn LeftLive(items: Vec<NotReached>, done: bool) -> impl IntoView {
+    (!items.is_empty()).then(|| {
+        let heading = left_heading(items.len(), done);
+        view! {
+            <Text size="sm" dimmed=true>{heading}</Text>
+            {items.into_iter().map(|item| {
+                let reason = left_reason(&item);
+                view! {
+                    <Group>
+                        <Pill color=token::MUTED>{item.short_code}</Pill>
+                        <Text size="sm" dimmed=true>{reason}</Text>
+                    </Group>
+                }
+            }).collect_view()}
+        }
+    })
+}
 
 /// The delete confirm dialog. `open` is owned by the page header button.
 #[component]
@@ -110,6 +160,7 @@ fn DeleteFlow(
                         </div>
                     }
                 })}
+                <LeftLive items=report.not_reached.clone() done=true/>
                 <Group justify="end">
                     <Anchor href="/boards">"Back to boards"</Anchor>
                 </Group>
@@ -131,8 +182,14 @@ fn DeleteFlow(
                 {move || match preview.get() {
                     None => view! { <Loading label="Computing the cascade…"/> }.into_any(),
                     Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
-                    Some(Ok(preview)) if preview.cascaded_short_codes.is_empty() => view! {
+                    Some(Ok(preview))
+                        if preview.cascaded_short_codes.is_empty()
+                            && preview.not_reached.is_empty() => view! {
                         <Text size="sm" dimmed=true>"No descendants — only this item will be deleted."</Text>
+                    }.into_any(),
+                    Some(Ok(preview)) if preview.cascaded_short_codes.is_empty() => view! {
+                        <Text size="sm" dimmed=true>"Only this item will be deleted."</Text>
+                        <LeftLive items=preview.not_reached done=false/>
                     }.into_any(),
                     Some(Ok(preview)) => {
                         let count = preview.cascade_count;
@@ -145,6 +202,7 @@ fn DeleteFlow(
                                     <Pill color=token::GOLD>{code}</Pill>
                                 }).collect_view()}
                             </div>
+                            <LeftLive items=preview.not_reached done=false/>
                         }.into_any()
                     }
                 }}
@@ -164,5 +222,66 @@ fn DeleteFlow(
                 </Group>
             }.into_any(),
         }}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(capability: Option<&str>, board: Option<&str>, below: Option<&str>) -> NotReached {
+        NotReached {
+            short_code: "ACME-T-0007".into(),
+            required_capability: capability.map(str::to_string),
+            board_id: board.map(str::to_string),
+            below: below.map(str::to_string),
+        }
+    }
+
+    /// COLLIERY-T-0234: each item that stays has one short reason.
+    #[test]
+    fn each_item_that_stays_has_a_reason() {
+        assert_eq!(
+            left_reason(&item(Some("manage_tasks"), Some("b-1"), None)),
+            "You need manage_tasks on its board."
+        );
+        assert_eq!(
+            left_reason(&item(None, None, Some("ACME-I-0002"))),
+            "It is below ACME-I-0002."
+        );
+        assert_eq!(
+            left_reason(&item(Some("manage_adrs"), None, None)),
+            "It has no board. Ask an organization admin."
+        );
+        assert_eq!(left_reason(&item(None, None, None)), "You cannot edit it.");
+    }
+
+    /// COLLIERY-T-0234: the heading counts, and says before or after.
+    #[test]
+    fn the_heading_says_before_or_after() {
+        assert_eq!(left_heading(1, false), "Will leave 1 item live:");
+        assert_eq!(left_heading(3, false), "Will leave 3 items live:");
+        assert_eq!(left_heading(1, true), "Left 1 item live:");
+        assert_eq!(left_heading(2, true), "Left 2 items live:");
+    }
+
+    /// COLLIERY-T-0234: the two responses decode with and with no
+    /// `not_reached`, so the dialog reads a server of either version.
+    #[test]
+    fn the_responses_decode_with_and_with_no_list() {
+        let old: api::CascadePreview = serde_json::from_str(
+            r#"{"short_code":"ACME-I-0001","cascade_count":0,"cascaded_short_codes":[]}"#,
+        )
+        .expect("decodes");
+        assert!(old.not_reached.is_empty());
+        let new: DeleteOutcome = serde_json::from_str(
+            r#"{"short_code":"ACME-I-0001","cascade_count":0,"cascaded_short_codes":[],
+                "not_reached":[{"short_code":"ACME-T-0007","required_capability":"manage_tasks",
+                                "board_id":"b-1"},
+                               {"short_code":"ACME-T-0008","below":"ACME-T-0007"}]}"#,
+        )
+        .expect("decodes");
+        assert_eq!(new.not_reached.len(), 2);
+        assert_eq!(new.not_reached[1].below.as_deref(), Some("ACME-T-0007"));
     }
 }

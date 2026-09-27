@@ -283,6 +283,11 @@ The delete is a soft delete and cascades to the item's children. Deleted items
 are hidden from `list` unless `--include-deleted` is passed, and are recoverable
 with `restore`.
 
+The cascade takes the descendants that you can edit
+([the edit rule](capabilities.md#the-edit-rule)). It stops at a descendant that
+you cannot edit, and takes nothing below it. The command names each descendant
+that stays, and the reason. With `--json`, they are in `not_reached`.
+
 ### `<noun> restore`
 
 ```

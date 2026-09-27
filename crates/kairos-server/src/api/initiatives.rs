@@ -266,8 +266,11 @@ pub(crate) async fn update_initiative(
 ///
 /// The edit rule applies (COLLIERY-T-0228). The caller created the
 /// initiative, holds `manage_initiatives` on its board, or is an organization admin.
-/// The server applies the rule to the initiative only. The cascade does
-/// not apply it to each descendant.
+///
+/// The cascade applies the same rule to each descendant
+/// (COLLIERY-T-0234). It archives a descendant that the caller can edit.
+/// It stops at a descendant that the caller cannot edit, and archives
+/// nothing below it. `not_reached` names each descendant that stays.
 #[utoipa::path(
     delete,
     path = "/api/initiatives/{short_code}",
@@ -291,14 +294,16 @@ pub(crate) async fn delete_initiative(
         .blocking
         .run(&tenant.slug, move |conn| {
             let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_item_edit(conn, &slug, user, initiative.id, ItemType::Initiative)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Initiative, initiative.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the initiative, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome = super::cascade::archive_item(
+                conn,
+                &slug,
+                user,
+                initiative.id,
+                ItemType::Initiative,
+            )?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))

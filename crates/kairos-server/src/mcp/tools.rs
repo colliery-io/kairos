@@ -984,7 +984,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Propose a `parent` or `blocks` edge between two items for a HUMAN to confirm. You cannot create the edge yourself and cannot confirm your own proposal — that is deliberate: a wrong parent edge re-parents work onto a board that then reports the wrong thing, and nobody re-reads an edge once it exists. Propose when related_work shows something you believe is a real dependency. Say why in your own words; it is shown to whoever decides."
+        description = "Propose a `parent` or `blocks` edge between two items for a HUMAN to confirm. You cannot create the edge yourself and cannot confirm your own proposal — that is deliberate: a wrong parent edge re-parents work onto a board that then reports the wrong thing, and nobody re-reads an edge once it exists. Propose when related_work shows something you believe is a real dependency. Say why in your own words; it is shown to whoever decides. The person who confirms must be able to edit one of the two items."
     )]
     pub async fn propose_edge(
         &self,
@@ -1562,7 +1562,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted. You can delete an item that you created, or with `manage_<type>` on its board."
+        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted. You can delete an item that you created, or with `manage_<type>` on its board. The cascade takes only the descendants that you can edit. It stops at a descendant that you cannot edit, and takes nothing below it. The response names each item that stays, and why."
     )]
     pub async fn delete_item(
         &self,
@@ -1580,9 +1580,10 @@ impl KairosMcp {
                 ));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
-            let outcome = items::soft_delete_item(conn, item.item_type, item.id, user)
-                .map_err(map_item_error)?;
+            // The same archive as REST `DELETE` (COLLIERY-T-0234): the edit
+            // rule for the item, and then for each descendant.
+            let outcome =
+                crate::api::cascade::archive_item(conn, &slug, user, item.id, item.item_type)?;
             let mut out = format!("Deleted {} (soft delete).\n", outcome.root_short_code);
             if outcome.cascaded_short_codes.is_empty() {
                 out.push_str("Cascade: none.\n");
@@ -1593,6 +1594,9 @@ impl KairosMcp {
                     outcome.cascaded_short_codes.join(", ")
                 ));
             }
+            out.push_str(&crate::api::cascade::not_reached_lines(
+                &outcome.not_reached,
+            ));
             Ok(out)
         })
         .await

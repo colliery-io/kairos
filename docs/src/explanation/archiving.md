@@ -129,13 +129,85 @@ prunes history and activity rather than the rows. The only way out of `PutAway`
 is back to `Live`.
 
 **Restore is not the inverse of delete.** The `delete` edge cascades to
-children through `parent` edges; the `restore` edge does not. Restoring a parent
+children through `parent` edges, as far as
+[the caller can edit them](#the-cascade-takes-only-what-the-caller-can-edit);
+the `restore` edge does not. Restoring a parent
 leaves its archived children where they are and names them, because a cascade
 was a decision about a subtree and un-making it silently would undo a choice
 nobody asked to revisit. And the restore edge can refuse outright — if the
 item's board, column, owning team or repository is gone, it has nowhere to
 return to, so the refusal names what is missing rather than re-homing the work
 somewhere it never was.
+
+## The cascade takes only what the caller can edit
+
+An archive cascades: it takes the item, and then the children of the item
+through `parent` edges. The cascade does not take each child. It applies
+[the edit rule](../reference/capabilities.md#the-edit-rule) to each descendant,
+for the caller who asked:
+
+- It archives a descendant that the caller can edit.
+- It stops at a descendant that the caller cannot edit. That descendant stays
+  live.
+- It archives nothing below the descendant where it stopped.
+- The response names each descendant that stays, and gives the reason.
+
+The named item is a different question. The caller must be able to edit it, or
+the archive is refused and nothing changes. If the caller can edit it, it is
+archived, also when some of its children stay.
+
+The rule exists because of an attack, and the attack is short. The
+[link rule](../reference/capabilities.md#the-link-rule) lets a person write an
+edge when they can edit the item at one end. So a person creates an
+initiative, and writes a `parent` edge from that initiative to a task of a
+different team. The edge is permitted: the person can edit the source. Then
+the person archives the initiative. Before this rule, the cascade archived the
+task of the other team, because the server asked about the named item and
+about nothing else. Two permitted steps made a step that is not permitted.
+
+The alternative was to make the link rule stricter, and it is the wrong
+repair. Edges between the work of two teams are what edges are for, and a link
+must stay cheap. The cascade is the operation that changes an item, so the
+cascade is where the question "may this caller change this item?" belongs. An
+archive is an edit. It now asks what each edit asks, for each item that it
+changes.
+
+### Why the cascade takes nothing below a stop
+
+Assume a strategy with an initiative that the caller cannot edit, and below
+that initiative a task that the caller created. The caller can edit the task.
+The cascade leaves it live.
+
+The reason is that an archive is an operation on a subtree. If the cascade
+archived the task, the task would be archived below a live initiative. The
+board of the initiative would lose a child, and no archived parent would
+explain it. A restore of the strategy would not bring the task back, because
+[restore does not un-cascade](#restore-does-not-un-cascade). So a subtree that
+the caller cannot take is left whole. The caller can archive the task with a
+separate call, which is then a decision about the task.
+
+An item can have two parents. If one parent is archived and the other is a
+stop, the item is below a stop, and it stays. When the graph gives two answers,
+the cascade archives less.
+
+### What stays, stays linked
+
+A descendant that the cascade did not reach keeps its `parent` edge to the
+archived parent. The archive removes no edge. This is not a new state: a live
+child with an archived parent was possible before, when a person restored a
+child alone. The relationship list of the child names the parent and marks it
+as archived, because containment is a fact about the record.
+
+The owner of the child can remove the edge, or leave it. If the parent is
+restored, the child is below it again, and nothing was lost.
+
+### The preview answers for the caller who asks
+
+The preview of the cascade uses the same plan as the archive, so the two agree.
+It shows two lists: the descendants that an archive by this caller takes, and
+the descendants that it leaves. A different caller can get a different answer
+for the same item. An organization admin can edit each item, so for an admin
+the second list is empty and the archive takes each descendant, as before.
 
 ## Read-only, and why the freeze needed no new guard
 
@@ -157,6 +229,8 @@ and both are decisions rather than omissions.
 ### Restore does not un-cascade
 
 Archiving a parent cascades to its children. Restoring that parent does not.
+Restore changes the named item only, so it needs the edit rule for that item
+and for no other.
 
 The reason is that a cascade was one act on a subtree, and undoing it is not
 the same act in reverse. Some of those descendants were probably archived

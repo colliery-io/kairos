@@ -207,6 +207,7 @@ Response of `GET /api/{entity_type}/{short_code}/cascade-preview` (KAIROS-T-0051
 |---|---|---|---|
 | `cascade_count` | `integer` | yes | How many live descendants a delete would cascade to (root excluded). |
 | `cascaded_short_codes` | array of `string` | yes | Short codes of the live descendants a delete would cascade to, sorted. |
+| `not_reached` | array of [`NotReached`](schemas.md#notreached) | no | The live descendants that an archive BY THIS CALLER would not reach, sorted by short code (COLLIERY-T-0234). The preview answers for the caller who asks: a different caller can get a different answer. Absent when the archive would reach each descendant. |
 | `short_code` | `string` | yes | The item's short code (the cascade root). |
 
 ## ChildColumnProgress
@@ -481,6 +482,7 @@ Response of `DELETE /api/{family}/{short_code}` â the soft delete and its K
 |---|---|---|---|
 | `cascade_count` | `integer` | yes | How many live descendants were cascaded to (root excluded). |
 | `cascaded_short_codes` | array of `string` | yes | Short codes of the cascaded descendants, sorted. |
+| `not_reached` | array of [`NotReached`](schemas.md#notreached) | no | The live descendants that the archive did not reach, sorted by short code (COLLIERY-T-0234). They stay live and keep their `parent` edge. Absent when the archive reached each descendant. |
 | `short_code` | `string` | yes | The deleted item's short code. |
 
 ## DeletedResponse
@@ -904,6 +906,17 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board` | `string` | yes |  |
+
+## NotReached
+
+One live descendant that an archive does not reach (COLLIERY-T-0234). The archive stops at a descendant that the caller cannot edit, and takes nothing below it. An entry has one of two reasons. `required_capability`, with `board_id`: the caller cannot edit this item. `below`: this item is below the named item, where the archive stopped.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `below` | `string`, nullable | no | The short code of the item above this one where the archive stopped. |
+| `board_id` | `string`, nullable | no | The authorization board of the descendant (UUID). |
+| `required_capability` | `string`, nullable | no | The `manage_<type>` capability that the caller does not hold. |
+| `short_code` | `string` | yes | The short code of the descendant. |
 
 ## OrgDeleteResponse
 

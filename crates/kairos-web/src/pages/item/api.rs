@@ -335,6 +335,21 @@ pub struct TemplateField {
     pub required: bool,
 }
 
+/// mirror of: `kairos_client::types::NotReached` (COLLIERY-T-0234): one
+/// live descendant that an archive does not reach. It has one reason: the
+/// capability that the caller does not hold, or the item above it where
+/// the archive stopped.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotReached {
+    pub short_code: String,
+    #[serde(default)]
+    pub required_capability: Option<String>,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
+    pub below: Option<String>,
+}
+
 /// mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
 /// delete + cascade report).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -343,6 +358,9 @@ pub struct DeleteOutcome {
     pub cascade_count: i64,
     #[serde(default)]
     pub cascaded_short_codes: Vec<String>,
+    /// Absent when the archive reached each descendant (COLLIERY-T-0234).
+    #[serde(default)]
+    pub not_reached: Vec<NotReached>,
 }
 
 /// mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
@@ -355,6 +373,10 @@ pub struct CascadePreview {
     pub cascade_count: i64,
     #[serde(default)]
     pub cascaded_short_codes: Vec<String>,
+    /// What an archive by the signed-in user would leave
+    /// (COLLIERY-T-0234). Absent when it would leave nothing.
+    #[serde(default)]
+    pub not_reached: Vec<NotReached>,
 }
 
 // ---------------------------------------------------------------------------

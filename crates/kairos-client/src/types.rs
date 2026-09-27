@@ -483,6 +483,35 @@ pub struct DeleteResponse {
     pub cascade_count: i64,
     /// Short codes of the cascaded descendants, sorted.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that the archive did not reach, sorted by
+    /// short code (COLLIERY-T-0234). They stay live and keep their
+    /// `parent` edge. Absent when the archive reached each descendant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_reached: Vec<NotReached>,
+}
+
+/// One live descendant that an archive does not reach (COLLIERY-T-0234).
+///
+/// The archive stops at a descendant that the caller cannot edit, and
+/// takes nothing below it. An entry has one of two reasons.
+///
+/// `required_capability`, with `board_id`: the caller cannot edit this
+/// item.
+///
+/// `below`: this item is below the named item, where the archive stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NotReached {
+    /// The short code of the descendant.
+    pub short_code: String,
+    /// The `manage_<type>` capability that the caller does not hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_capability: Option<String>,
+    /// The authorization board of the descendant (UUID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_id: Option<String>,
+    /// The short code of the item above this one where the archive stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below: Option<String>,
 }
 
 /// Response of `POST /api/{entity_type}/{short_code}/restore`
@@ -518,6 +547,12 @@ pub struct CascadePreviewResponse {
     /// Short codes of the live descendants a delete would cascade to,
     /// sorted.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that an archive BY THIS CALLER would not
+    /// reach, sorted by short code (COLLIERY-T-0234). The preview answers
+    /// for the caller who asks: a different caller can get a different
+    /// answer. Absent when the archive would reach each descendant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_reached: Vec<NotReached>,
 }
 
 /// The S-0005 error envelope: `{"error": {"code", "message", "details"}}`.

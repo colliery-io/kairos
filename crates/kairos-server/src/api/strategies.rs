@@ -253,8 +253,11 @@ pub(crate) async fn update_strategy(
 ///
 /// The edit rule applies (COLLIERY-T-0228). The caller created the
 /// strategy, holds `manage_strategies` on its board, or is an organization admin.
-/// The server applies the rule to the strategy only. The cascade does not
-/// apply it to each descendant.
+///
+/// The cascade applies the same rule to each descendant
+/// (COLLIERY-T-0234). It archives a descendant that the caller can edit.
+/// It stops at a descendant that the caller cannot edit, and archives
+/// nothing below it. `not_reached` names each descendant that stays.
 #[utoipa::path(
     delete,
     path = "/api/strategies/{short_code}",
@@ -278,14 +281,11 @@ pub(crate) async fn delete_strategy(
         .blocking
         .run(&tenant.slug, move |conn| {
             let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_item_edit(conn, &slug, user, strategy.id, ItemType::Strategy)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Strategy, strategy.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the strategy, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome =
+                super::cascade::archive_item(conn, &slug, user, strategy.id, ItemType::Strategy)?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))

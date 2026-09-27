@@ -553,6 +553,12 @@ The proposal appears on both items in the interface, with your reasoning, for
 someone to accept or decline. Confirming creates the real edge, and is refused by
 the same cycle and rule checks that refuse any other edge.
 
+To propose, a caller needs no capability: a proposal writes no edge and changes
+no item. The confirm takes the
+[link rule](capabilities.md#who-can-write-relationships). The person who
+confirms must be able to edit the item at one end. A refused confirm leaves the
+proposal pending.
+
 Refuses: `VALIDATION` for a relationship outside `parent`/`blocks` or a short
 code naming no live item; `CONFLICT` when an identical proposal is already
 waiting, or when the item already holds ten undecided ones — decide some rather
@@ -566,20 +572,36 @@ are editorial, cheap to undo, and remain a person's to draw with
 
 ### `delete_item`
 
-Soft-deletes an item. The response lists everything that was cascade-deleted.
+Soft-deletes an item. The response lists everything that was cascade-deleted,
+and names each descendant that the archive did not reach.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 | `confirm` | boolean | yes | — | Must be `true`. |
 
-The delete cascades to every descendant reachable through `parent` edges.
-Deleted items remain retrievable by short code and searchable with
+The delete cascades through `parent` edges to each descendant that the caller
+can edit. Deleted items remain retrievable by short code and searchable with
 `include_deleted`; they are hidden from default listings. "Deleted" and
 "archived" name the same act — see the [Glossary](glossary.md).
 
-The edit rule applies to the named item. The cascade does not ask the rule
-again for each descendant.
+The [edit rule](capabilities.md#the-edit-rule) applies to the named item, and
+then to each descendant. The rule is the same as for REST `DELETE`.
+
+- The tool archives a descendant that the caller can edit.
+- The tool stops at a descendant that the caller cannot edit. That descendant
+  stays live, and each item below it stays live.
+- A descendant that stays keeps its `parent` edge.
+
+When some descendants stay, the output has these lines after the cascade line:
+
+```text
+The archive did not reach 2 item(s). They stay live and keep their parent.
+- ACME-I-0002: you need `manage_initiatives` on board <board-id>.
+- ACME-T-0009: it is below ACME-I-0002.
+```
+
+The output has no such lines when the archive reached each descendant.
 
 Refuses: `VALIDATION` when `confirm` is `false` — checked before the short code
 is looked up, so such a call never reports an unknown item; `NOT_FOUND` for an
@@ -599,7 +621,9 @@ Puts an archived item back on its board.
 Restores only the named item. A cascade delete was an act on a subtree, so
 archived descendants stay archived; the response names them.
 
-The edit rule applies: a caller who can archive an item can restore it.
+The edit rule applies: a caller who can archive an item can restore it. The
+tool changes the named item only, so the rule applies to the named item only.
+A live descendant that an archive did not reach stays as it is.
 
 Refuses: `NOT_FOUND` for an unknown short code; `VALIDATION` when the item is
 not archived; `FORBIDDEN` when the edit rule refuses the caller;

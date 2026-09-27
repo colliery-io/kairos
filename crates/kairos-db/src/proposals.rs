@@ -253,6 +253,16 @@ pub fn pending_for_item(
     .load::<EdgeProposal>(conn)?)
 }
 
+/// One proposal by id, in any state: [`ProposalError::NotFound`] when
+/// there is none.
+///
+/// Public since COLLIERY-T-0234. The server reads the two ends of the
+/// proposal before the confirm, to apply the link rule to the edge that
+/// the confirm writes.
+pub fn get(conn: &mut PgConnection, id: Uuid) -> Result<EdgeProposal, ProposalError> {
+    load(conn, id)
+}
+
 fn load(conn: &mut PgConnection, id: Uuid) -> Result<EdgeProposal, ProposalError> {
     sql_query(
         "SELECT id, source_id, target_id, relationship, state, claim, why, score, \
@@ -273,7 +283,11 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<EdgeProposal, ProposalError
 /// the whole point of this table: an agent proposes, a human decides. A rule
 /// enforced in two handlers is a rule that a third handler will not have, and
 /// the third handler is the one that silently restructures a portfolio.
-fn is_human(conn: &mut PgConnection, actor: Uuid) -> Result<bool, ProposalError> {
+///
+/// Public since COLLIERY-T-0234, so that the server can give this refusal
+/// before the refusal of the link rule, as the order was. [`confirm`] and
+/// [`reject`] still make the check themselves.
+pub fn is_human(conn: &mut PgConnection, actor: Uuid) -> Result<bool, ProposalError> {
     #[derive(QueryableByName)]
     struct Kind {
         #[diesel(sql_type = Text)]
@@ -313,6 +327,10 @@ fn decide(
 /// the proposal stays pending — a refused confirmation is not a decision.
 ///
 /// Transactional: the edge and the state change land together or not at all.
+///
+/// WHO may confirm is not decided here, but for "a person". The link rule
+/// is the rule of the server (`require_edge_write`), and the REST handler
+/// applies it before this call (COLLIERY-T-0234).
 pub fn confirm(
     conn: &mut PgConnection,
     id: Uuid,

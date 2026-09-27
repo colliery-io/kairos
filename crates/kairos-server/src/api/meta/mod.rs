@@ -106,15 +106,11 @@ pub fn item_type_of_family(family: &str) -> Option<ItemType> {
     }
 }
 
-/// The A-0006 manage capability for an entity type.
+/// The A-0006 manage capability for an entity type. The table is in
+/// [`kairos_core::abac::manage_capability`], which the cascade of an
+/// archive reads too (COLLIERY-T-0234).
 pub fn manage_capability(item_type: ItemType) -> &'static str {
-    match item_type {
-        ItemType::Strategy => "manage_strategies",
-        ItemType::Initiative => "manage_initiatives",
-        ItemType::Task => "manage_tasks",
-        ItemType::Document => "manage_documents",
-        ItemType::Adr => "manage_adrs",
-    }
+    kairos_core::abac::manage_capability(item_type)
 }
 
 /// Resolve an `{entity_type}/{short_code}` path pair to an item: the family

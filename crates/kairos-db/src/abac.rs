@@ -34,7 +34,8 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_query;
-use diesel::sql_types::{Bool, Text, Uuid as SqlUuid};
+use diesel::sql_types::{Array, Bool, Nullable, Text, Uuid as SqlUuid};
+use kairos_core::short_code::ItemType;
 use uuid::Uuid;
 
 use crate::models::boards::NewBoardMemberCapability;
@@ -494,4 +495,144 @@ pub fn edit_facts(
         },
         board,
     ))
+}
+
+/// One item, and the facts of the edit rule for one principal
+/// (COLLIERY-T-0234): a row of [`edit_facts_of_items`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemEditFacts {
+    /// The type of the item.
+    pub item_type: ItemType,
+    /// The short code of the item.
+    pub short_code: String,
+    /// The item is not archived.
+    pub live: bool,
+    /// The three facts. The decision is [`kairos_core::abac::may_edit_item`].
+    pub facts: kairos_core::abac::EditFacts,
+    /// The `manage_<type>` capability that `facts.holds_manage` is about.
+    pub manage_capability: &'static str,
+    /// The authorization board that was asked, if the item has one.
+    pub board_id: Option<Uuid>,
+}
+
+#[derive(QueryableByName)]
+struct ItemFactRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = Text)]
+    entity_type: String,
+    #[diesel(sql_type = Text)]
+    short_code: String,
+    #[diesel(sql_type = SqlUuid)]
+    created_by: Uuid,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    board_id: Option<Uuid>,
+    #[diesel(sql_type = Bool)]
+    live: bool,
+}
+
+/// [`edit_facts`] for MANY items and one principal (COLLIERY-T-0234): the
+/// same three facts for each item, loaded for the set and not for each
+/// item. The cascade of an archive calls it with each descendant of the
+/// root.
+///
+/// The cost does not grow with the number of items:
+///
+/// - one read of the five entity tables for the creator, the board, the
+///   type and the short code of each item,
+/// - one read for the admin role,
+/// - one [`check_capability`] for each different pair of board and
+///   capability. It is the function that [`edit_facts`] calls, so the two
+///   cannot give different answers on a grant, a glob or a team.
+///
+/// A document is the exception. Its authorization board is the board of
+/// its `supports` parent ([`resolve_authorization_board`]), which is a
+/// read for each document. No `parent` edge has a document at an end
+/// (`kairos_core::graph::check_link`), so the cascade sends none.
+///
+/// As [`edit_facts`] does, this function loads each fact with no early
+/// return, so the caller can say which capability is missing, on which
+/// board. An id that is in no table has no row in the answer: the caller
+/// must read that as "cannot edit".
+pub fn edit_facts_of_items(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    user_id: Uuid,
+    item_ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, ItemEditFacts>, AbacError> {
+    use std::collections::HashMap;
+
+    let mut facts_of = HashMap::new();
+    if item_ids.is_empty() {
+        return Ok(facts_of);
+    }
+
+    let rows: Vec<ItemFactRow> = sql_query(
+        r"SELECT id, 'strategy' AS entity_type, short_code, created_by,
+                 board_id, deleted_at IS NULL AS live
+            FROM strategies WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'initiative', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM initiatives WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'task', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM tasks WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'adr', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM adrs WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'document', short_code, created_by,
+                 NULL::uuid, deleted_at IS NULL
+            FROM documents WHERE id = ANY($1)",
+    )
+    .bind::<Array<SqlUuid>, _>(item_ids)
+    .load(conn)?;
+
+    let is_org_admin = is_org_admin(conn, org_slug, user_id)?;
+    let mut held: HashMap<(Uuid, &'static str), bool> = HashMap::new();
+
+    for row in rows {
+        let Some(item_type) = ItemType::ALL
+            .iter()
+            .copied()
+            .find(|t| t.entity_type() == row.entity_type)
+        else {
+            continue;
+        };
+        let manage_capability = kairos_core::abac::manage_capability(item_type);
+        let board_id = match item_type {
+            ItemType::Document => resolve_authorization_board(conn, row.id)?,
+            _ => row.board_id,
+        };
+        let holds_manage = match board_id {
+            Some(board_id) => match held.get(&(board_id, manage_capability)) {
+                Some(answer) => *answer,
+                None => {
+                    let answer = check_capability(conn, board_id, user_id, manage_capability)?;
+                    held.insert((board_id, manage_capability), answer);
+                    answer
+                }
+            },
+            None => false,
+        };
+        facts_of.insert(
+            row.id,
+            ItemEditFacts {
+                item_type,
+                short_code: row.short_code,
+                live: row.live,
+                facts: kairos_core::abac::EditFacts {
+                    created_item: row.created_by == user_id,
+                    holds_manage,
+                    is_org_admin,
+                },
+                manage_capability,
+                board_id,
+            },
+        );
+    }
+    Ok(facts_of)
 }

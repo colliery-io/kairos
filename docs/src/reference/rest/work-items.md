@@ -60,8 +60,11 @@ Soft-delete a strategy, cascading to its `parent` descendants
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
 strategy, holds `manage_strategies` on its board, or is an organization admin.
-The server applies the rule to the strategy only. The cascade does not
-apply it to each descendant.
+
+The cascade applies the same rule to each descendant
+(COLLIERY-T-0234). It archives a descendant that the caller can edit.
+It stops at a descendant that the caller cannot edit, and archives
+nothing below it. `not_reached` names each descendant that stays.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -166,8 +169,11 @@ Soft-delete an initiative, cascading to its `parent` descendants
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
 initiative, holds `manage_initiatives` on its board, or is an organization admin.
-The server applies the rule to the initiative only. The cascade does
-not apply it to each descendant.
+
+The cascade applies the same rule to each descendant
+(COLLIERY-T-0234). It archives a descendant that the caller can edit.
+It stops at a descendant that the caller cannot edit, and archives
+nothing below it. `not_reached` names each descendant that stays.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

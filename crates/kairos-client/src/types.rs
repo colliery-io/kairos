@@ -283,8 +283,9 @@ pub struct CreateTaskRequest {
     /// to `support` when `task_type` is `support`, else `planned`.
     #[serde(default)]
     pub work_class: Option<String>,
-    /// Owning team (UUID). Defaults to the repository's owning team when
-    /// `repository` is given; an explicit different team is a 422.
+    /// The task's team (UUID). The BOARD decides it (COLLIERY-T-0216): this
+    /// field may be omitted, or may name the team of the board the task
+    /// lands on. Any other team is a 422, never silently ignored.
     #[serde(default)]
     pub team_id: Option<String>,
     /// Repository to issue the task against (slug or UUID, KAIROS-T-0104).

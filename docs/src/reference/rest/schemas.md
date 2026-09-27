@@ -403,7 +403,7 @@ Body of `POST /api/tasks`.
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `repository` | `string`, nullable | no | Repository to issue the task against (slug or UUID, KAIROS-T-0104). Routes the task: repo -> owning team -> that team's delivery board. `repository` is THE reference field name on the wire (KAIROS-T-0115); `repository_id` is accepted as an alias for one release. |
 | `task_type` | `string`, nullable | no | `task|bug|tech_debt|support`; defaults to `task`. |
-| `team_id` | `string`, nullable | no | Owning team (UUID). Defaults to the repository's owning team when `repository` is given; an explicit different team is a 422. |
+| `team_id` | `string`, nullable | no | The task's team (UUID). The BOARD decides it (COLLIERY-T-0216): this field may be omitted, or may name the team of the board the task lands on. Any other team is a 422, never silently ignored. |
 | `title` | `string` | yes |  |
 | `work_class` | `string`, nullable | no | Planned/Support lane (`planned|support`, KAIROS-T-0077). Defaults to `support` when `task_type` is `support`, else `planned`. |
 

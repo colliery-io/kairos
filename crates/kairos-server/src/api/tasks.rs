@@ -273,7 +273,6 @@ pub(crate) async fn create_task(
                     content: &body.content,
                     task_type,
                     work_class,
-                    team_id: route.team_id,
                     repository_id: route.repository_id,
                 },
                 user,

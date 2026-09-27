@@ -166,7 +166,6 @@ async fn forge_webhook_ingestion_against_live_stack() {
             content: "",
             task_type: TaskType::Task,
             work_class: WorkClass::Planned,
-            team_id: None,
             repository_id: None,
         },
         svc_id,

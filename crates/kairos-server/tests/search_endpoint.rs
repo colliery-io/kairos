@@ -342,7 +342,6 @@ async fn search_endpoint_against_live_stack() {
                 content,
                 task_type,
                 work_class: kairos_db::models::enums::WorkClass::Planned,
-                team_id: None,
                 repository_id: None,
             },
             seeder,

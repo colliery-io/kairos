@@ -2629,12 +2629,12 @@ fn create_item_impl(
             .transpose()?;
         let route = match (explicit.as_ref(), params.repository.as_deref()) {
             (None, None) => {
+                // COLLIERY-T-0216: through the shared routing helper rather
+                // than a hand-built route, so the defaulted board gives the
+                // task its team exactly as a named board does. Built by hand,
+                // this arm left every such task with no team at all.
                 let board = default_board_for(conn, level_of(item_type))?;
-                crate::api::tasks::TaskRoute {
-                    board_id: board.id,
-                    team_id: None,
-                    repository_id: None,
-                }
+                crate::api::tasks::resolve_routing(conn, Some(board.id), None, None)?
             }
             (board, repository) => {
                 crate::api::tasks::resolve_routing(conn, board.map(|b| b.id), None, repository)?
@@ -2759,7 +2759,6 @@ fn create_item_impl(
                     content,
                     task_type,
                     work_class,
-                    team_id: route.team_id,
                     repository_id: route.repository_id,
                 },
                 user,

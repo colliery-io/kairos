@@ -556,7 +556,7 @@ async fn team_pages_endpoints_against_live_stack() {
         .unwrap();
     let platform_uuid: Uuid = team.id.parse().unwrap();
 
-    let mk_task = |conn: &mut PgConnection, board: Uuid, team: Option<Uuid>, title: &str| {
+    let mk_task = |conn: &mut PgConnection, board: Uuid, title: &str| {
         items::create_task(
             conn,
             items::CreateTask {
@@ -566,7 +566,6 @@ async fn team_pages_endpoints_against_live_stack() {
                 content: "",
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
-                team_id: team,
                 repository_id: None,
             },
             alice_id,
@@ -589,10 +588,23 @@ async fn team_pages_endpoints_against_live_stack() {
         doc
     };
 
-    // Membership paths: (a) team_id, (b) delivery-board placement.
-    let t1 = mk_task(&mut conn, platform_board, Some(platform_uuid), "T1 both");
-    let t2 = mk_task(&mut conn, platform_board, None, "T2 board only");
-    let t3 = mk_task(&mut conn, web_board, Some(platform_uuid), "T3 team only");
+    // COLLIERY-T-0216: the board decides a task's team, so a team's work is
+    // the work on ITS board and nothing else. Until then a task could carry
+    // `team_id = platform` while sitting on web's board ("T3 team only"),
+    // and it counted as platform's. That state cannot be written any more,
+    // and T3 is here to prove the other half: work on another team's board
+    // is not this team's, whoever created it.
+    let t1 = mk_task(&mut conn, platform_board, "T1 on the team's board");
+    let t2 = mk_task(&mut conn, platform_board, "T2 on the team's board");
+    let t3 = mk_task(&mut conn, web_board, "T3 on another team's board");
+    for (task, team) in [(&t1, Some(platform_uuid)), (&t2, Some(platform_uuid))] {
+        assert_eq!(
+            task.team_id, team,
+            "{}: the board gave it its team",
+            task.title
+        );
+    }
+    assert_ne!(t3.team_id, Some(platform_uuid), "T3 is web's work");
     let org_board = initiative_board(&mut conn);
     let org_initiative = items::create_initiative(
         &mut conn,
@@ -610,7 +622,7 @@ async fn team_pages_endpoints_against_live_stack() {
 
     let doc_a = mk_doc(&mut conn, "Doc A (team task)", t1.id);
     let doc_b = mk_doc(&mut conn, "Doc B (board item)", t2.id);
-    let doc_c = mk_doc(&mut conn, "Doc C (team task, foreign board)", t3.id);
+    let doc_c = mk_doc(&mut conn, "Doc C (another team's board)", t3.id);
     let _doc_d = mk_doc(&mut conn, "Doc D (org-level, absent)", org_initiative.id);
     // Dedup: one doc supporting TWO team items appears once.
     let doc_e = mk_doc(&mut conn, "Doc E (two parents)", t1.id);
@@ -628,7 +640,7 @@ async fn team_pages_endpoints_against_live_stack() {
         .set(kairos_db::schema::documents::deleted_at.eq(diesel::dsl::now))
         .execute(&mut conn)
         .expect("soft-deleting doc F");
-    let t4 = mk_task(&mut conn, platform_board, Some(platform_uuid), "T4 doomed");
+    let t4 = mk_task(&mut conn, platform_board, "T4 doomed");
     let _doc_g = mk_doc(&mut conn, "Doc G (deleted parent)", t4.id);
     diesel::update(kairos_db::schema::tasks::table.find(t4.id))
         .set(kairos_db::schema::tasks::deleted_at.eq(diesel::dsl::now))
@@ -644,7 +656,6 @@ async fn team_pages_endpoints_against_live_stack() {
     let mut expected = vec![
         (doc_a.short_code.clone(), t1.short_code.clone()),
         (doc_b.short_code.clone(), t2.short_code.clone()),
-        (doc_c.short_code.clone(), t3.short_code.clone()),
         (doc_e.short_code.clone(), t1.short_code.clone()),
     ];
     expected.sort();
@@ -661,7 +672,7 @@ async fn team_pages_endpoints_against_live_stack() {
         .find(|d| d.short_code == doc_a.short_code)
         .unwrap();
     assert_eq!(a_row.lifecycle, "draft");
-    assert_eq!(a_row.parent_title, "T1 both");
+    assert_eq!(a_row.parent_title, "T1 on the team's board");
     assert_eq!(a_row.parent_type, "task");
     // Web's panel sees only the doc whose parent sits on ITS board.
     let web_docs = bob

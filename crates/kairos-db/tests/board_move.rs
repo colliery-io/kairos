@@ -139,7 +139,6 @@ fn move_task_between_delivery_boards() {
             content: "",
             task_type: TaskType::Task,
             work_class: WorkClass::Planned,
-            team_id: Some(platform_id),
             repository_id: None,
         },
         alice,

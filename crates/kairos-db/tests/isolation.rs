@@ -291,7 +291,6 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
             content: &format!("{marker} task body"),
             task_type: TaskType::Task,
             work_class: kairos_db::models::enums::WorkClass::Planned,
-            team_id: None,
             repository_id: None,
         },
         user,

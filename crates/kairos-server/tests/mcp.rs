@@ -1052,6 +1052,25 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     let unbound_code = extract_code(&text, "ACME-T-");
+    // COLLIERY-T-0216: the board decides the team. Over MCP there is no way
+    // to SEND a team, and until this task a task made here simply had none
+    // unless a repository supplied one.
+    {
+        use kairos_db::schema::tasks;
+        sql_query("SET search_path TO org_acme, public")
+            .execute(&mut conn)
+            .expect("pinning search_path");
+        let team: Option<Uuid> = tasks::table
+            .filter(tasks::short_code.eq(&unbound_code))
+            .select(tasks::team_id)
+            .first(&mut conn)
+            .expect("the task exists");
+        assert_eq!(
+            team,
+            Some(platform.id),
+            "a task with no repository takes the team of its board"
+        );
+    }
     // board + repository must agree (KAIROS-T-0112 covers the disagreement):
     // the initiative board is not platform's delivery board.
     let text = session

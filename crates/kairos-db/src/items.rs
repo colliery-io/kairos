@@ -590,11 +590,32 @@ pub struct CreateTask<'a> {
     pub task_type: TaskType,
     /// The Planned/Support lane (KAIROS-T-0077).
     pub work_class: WorkClass,
-    pub team_id: Option<Uuid>,
     /// The repository the task is issued against (KAIROS-A-0019). Plumbed
     /// here; the repo -> team -> board routing rule is enforced by the
     /// service layer above (KAIROS-T-0104).
+    ///
+    /// There is deliberately no `team_id` beside it (COLLIERY-T-0216,
+    /// COLLIERY-A-0023 rule 2): the team of a task is the team of its board,
+    /// so [`create_task`] reads it from the board rather than being told.
+    /// While a caller could send one, it could send the wrong one, and four
+    /// reads - a team's work documents, its link rollup, the search team
+    /// filter and the embedding text - would then file the task under a team
+    /// whose board it is not on.
     pub repository_id: Option<Uuid>,
+}
+
+/// The team a board belongs to, or `None` for a board with no team
+/// (COLLIERY-T-0216). THE source of a task's team: create reads it here and
+/// [`crate::boards::move_task`] reads the target board's the same way, so
+/// the two cannot disagree about whose work a task is.
+pub fn board_team(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uuid>, ItemError> {
+    use crate::schema::boards;
+    Ok(boards::table
+        .filter(boards::id.eq(board_id))
+        .select(boards::team_id)
+        .first::<Option<Uuid>>(conn)
+        .optional()?
+        .flatten())
 }
 
 /// Create a task/bug/tech-debt item (see [`create_strategy`] for the
@@ -606,6 +627,10 @@ pub fn create_task(
 ) -> Result<Task, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         let column_id = resolve_column(conn, input.board_id, input.column_id)?;
+        // COLLIERY-T-0216: the board decides the team. `resolve_column` has
+        // already refused a board that does not exist, so a missing row here
+        // is a teamless board (`None`), which is a valid answer.
+        let team_id = board_team(conn, input.board_id)?;
         let code = next_short_code(conn, ItemType::Task)?;
         let created: Task = diesel::insert_into(crate::schema::tasks::table)
             .values(NewTask {
@@ -616,7 +641,7 @@ pub fn create_task(
                 column_id,
                 task_type: input.task_type,
                 work_class: input.work_class,
-                team_id: input.team_id,
+                team_id,
                 repository_id: input.repository_id,
                 created_by: actor,
                 updated_by: actor,
@@ -689,11 +714,12 @@ pub fn set_task_work_class(
 }
 
 /// Bind a task to a repository, or clear it (KAIROS-T-0103, A-0019).
-/// Like [`set_task_work_class`] this is a routing field, not content:
-/// update + `activity_log` (`repository` action) + `item_updated` event,
-/// no `item_history` version bump. The repo -> team -> board consistency
+/// Like [`set_task_work_class`] this is not content: update +
+/// `activity_log` (`repository` action) + `item_updated` event, no
+/// `item_history` version bump. The repo -> team -> board consistency
 /// rule is the caller's (KAIROS-T-0104); this only checks the repository
-/// is live. Setting the value the task already has is a no-op.
+/// is live, and it never touches `team_id` (COLLIERY-T-0216). Setting the
+/// value the task already has is a no-op.
 pub fn set_task_repository(
     conn: &mut PgConnection,
     task_id: Uuid,
@@ -715,26 +741,27 @@ pub fn set_task_repository(
         if current.repository_id == repository_id {
             return Ok(current);
         }
-        // KAIROS-T-0112: binding also attributes the task to the repository's
-        // owning team (create does the same via routing); clearing leaves
-        // the team as it was.
-        let owner: Option<Uuid> = match repository_id {
-            Some(repo) => {
-                use crate::schema::repositories;
-                let owner: Option<Uuid> = repositories::table
-                    .filter(repositories::id.eq(repo))
-                    .filter(repositories::deleted_at.is_null())
-                    .select(repositories::team_id)
-                    .first(conn)
-                    .optional()?;
-                Some(owner.ok_or(ItemError::RepositoryNotFound(repo))?)
+        // The repository must be live. Its owner is looked up only to prove
+        // that, and is then dropped: until COLLIERY-T-0216 a bind also
+        // rewrote `team_id` to the repository's owner (KAIROS-T-0112), which
+        // moved the task into that team's rollups while it sat on another
+        // team's board. The board decides the team now, and a link to a
+        // repository changes nothing else about the task.
+        if let Some(repo) = repository_id {
+            use crate::schema::repositories;
+            let live: Option<Uuid> = repositories::table
+                .filter(repositories::id.eq(repo))
+                .filter(repositories::deleted_at.is_null())
+                .select(repositories::id)
+                .first(conn)
+                .optional()?;
+            if live.is_none() {
+                return Err(ItemError::RepositoryNotFound(repo));
             }
-            None => None,
-        };
+        }
         let updated: Task = diesel::update(dsl::tasks.filter(dsl::id.eq(task_id)))
             .set((
                 dsl::repository_id.eq(repository_id),
-                dsl::team_id.eq(owner.or(current.team_id)),
                 dsl::updated_by.eq(actor),
                 dsl::updated_at.eq(diesel::dsl::now),
             ))

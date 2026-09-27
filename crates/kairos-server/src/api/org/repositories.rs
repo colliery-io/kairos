@@ -90,6 +90,7 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
         RepositoryError::Database(e) => ApiError::internal(e),
         routing @ (RepositoryError::BoardMismatch { .. }
         | RepositoryError::TeamMismatch { .. }
+        | RepositoryError::TeamNotBoardTeam { .. }
         | RepositoryError::NothingToRouteBy) => ApiError::validation(routing.to_string()),
     }
 }

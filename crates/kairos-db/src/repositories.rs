@@ -83,6 +83,17 @@ pub enum RepositoryError {
          its owning team's delivery board)"
     )]
     NothingToRouteBy,
+    /// The caller named a team that the board does not belong to
+    /// (COLLIERY-T-0216): the board decides a task's team.
+    #[error(
+        "team {team} is not the team of board {board}; the board decides a task's team, \
+         so name the board's own team or none"
+    )]
+    TeamNotBoardTeam {
+        board: Uuid,
+        board_team: Option<Uuid>,
+        team: Uuid,
+    },
     #[error("database error: {0}")]
     Database(#[from] DieselError),
 }
@@ -104,8 +115,10 @@ pub struct TaskRoute {
 /// 2. repository + board → the board must BE that delivery board, and an
 ///    explicit team must be the owner ([`RepositoryError::BoardMismatch`] /
 ///    [`RepositoryError::TeamMismatch`]);
-/// 3. no repository → the caller's board and team as given
-///    ([`RepositoryError::NothingToRouteBy`] when there is no board either).
+/// 3. no repository → the caller's board, and THAT BOARD'S team
+///    ([`RepositoryError::NothingToRouteBy`] when there is no board either;
+///    [`RepositoryError::TeamNotBoardTeam`] when the caller names a team
+///    the board does not belong to - COLLIERY-T-0216).
 pub fn route_task(
     conn: &mut PgConnection,
     board_id: Option<Uuid>,
@@ -116,9 +129,31 @@ pub fn route_task(
         let Some(board_id) = board_id else {
             return Err(RepositoryError::NothingToRouteBy);
         };
+        // COLLIERY-T-0216: the board decides the team. A caller may still
+        // NAME a team, and naming the board's own is harmless; naming any
+        // other is refused rather than quietly ignored, because the caller
+        // believes the task will be that team's work and it will not be.
+        let board_team: Option<Uuid> = {
+            use crate::schema::boards;
+            boards::table
+                .filter(boards::id.eq(board_id))
+                .select(boards::team_id)
+                .first::<Option<Uuid>>(conn)
+                .optional()?
+                .flatten()
+        };
+        if let Some(team_id) = team_id
+            && Some(team_id) != board_team
+        {
+            return Err(RepositoryError::TeamNotBoardTeam {
+                board: board_id,
+                board_team,
+                team: team_id,
+            });
+        }
         return Ok(TaskRoute {
             board_id,
-            team_id,
+            team_id: board_team,
             repository_id: None,
         });
     };

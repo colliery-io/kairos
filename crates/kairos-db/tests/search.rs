@@ -192,12 +192,24 @@ fn unified_search_pipeline() {
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
     let adr_board = board_id_by_slug(&mut conn, "adrs");
+    // COLLIERY-T-0216: the board decides a task's team, so the team filter is
+    // exercised by giving ONE board a team rather than by stamping a team on
+    // one task.
+    let auth_team: Team = diesel::insert_into(schema::teams::table)
+        .values(NewTeam {
+            name: "Auth Team".into(),
+            slug: "auth-team".into(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(Team::as_returning())
+        .get_result(&mut conn)
+        .expect("inserting team");
     let delivery_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(auth_team.id),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -214,16 +226,6 @@ fn unified_search_pipeline() {
     )
     .expect("creating scratch board")
     .id;
-
-    let auth_team: Team = diesel::insert_into(schema::teams::table)
-        .values(NewTeam {
-            name: "Auth Team".into(),
-            slug: "auth-team".into(),
-            team_type: kairos_db::models::TeamType::StreamAligned,
-        })
-        .returning(Team::as_returning())
-        .get_result(&mut conn)
-        .expect("inserting team");
 
     // ---- fixtures: one strategy -> two initiatives -> four tasks, plus a
     // document, an ADR, metadata, blockers, and one soft-deleted task --------
@@ -275,7 +277,7 @@ fn unified_search_pipeline() {
     );
 
     let make_task =
-        |conn: &mut PgConnection, board: Uuid, title: &str, content: &str, task_type, team| {
+        |conn: &mut PgConnection, board: Uuid, title: &str, content: &str, task_type| {
             items::create_task(
                 conn,
                 CreateTask {
@@ -285,7 +287,6 @@ fn unified_search_pipeline() {
                     content,
                     task_type,
                     work_class: kairos_db::models::enums::WorkClass::Planned,
-                    team_id: team,
                     repository_id: None,
                 },
                 alice,
@@ -298,7 +299,6 @@ fn unified_search_pipeline() {
         "Implement login endpoint",
         "Wire up the auth login endpoint issuing authentication tokens",
         TaskType::Bug,
-        Some(auth_team.id),
     );
     let t2 = make_task(
         &mut conn,
@@ -306,7 +306,6 @@ fn unified_search_pipeline() {
         "Fix logout redirect",
         "Logout leaves a dangling redirect loop",
         TaskType::Bug,
-        None,
     );
     let t3 = make_task(
         &mut conn,
@@ -314,7 +313,6 @@ fn unified_search_pipeline() {
         "Refactor session store",
         "Move session persistence behind one interface",
         TaskType::TechDebt,
-        None,
     );
     let t4 = make_task(
         &mut conn,
@@ -322,7 +320,6 @@ fn unified_search_pipeline() {
         "Write onboarding notes",
         "Collect the delivery onboarding notes",
         TaskType::Task,
-        None,
     );
 
     // KAIROS-T-0186 relevance fixtures. Their own board, for the same reason
@@ -346,7 +343,6 @@ fn unified_search_pipeline() {
         "Zephyr ingestion pipeline",
         "Batching and retry behaviour for the inbound feed",
         TaskType::Task,
-        None,
     );
     let rank_body = make_task(
         &mut conn,
@@ -354,7 +350,6 @@ fn unified_search_pipeline() {
         "Inbound feed batching",
         "Retry behaviour for the zephyr feed, which needs care",
         TaskType::Task,
-        None,
     );
     // Identical text, so `ts_rank_cd` scores them equally and only the
     // tie-break can order them.
@@ -364,7 +359,6 @@ fn unified_search_pipeline() {
         "Tessellate the layout",
         "Identical prose, so the scores tie exactly",
         TaskType::Task,
-        None,
     );
     let tie_second = make_task(
         &mut conn,
@@ -372,7 +366,6 @@ fn unified_search_pipeline() {
         "Tessellate the layout",
         "Identical prose, so the scores tie exactly",
         TaskType::Task,
-        None,
     );
 
     // KAIROS-T-0077: one bug rides the Support lane for the work_class
@@ -502,9 +495,10 @@ fn unified_search_pipeline() {
     );
     assert_eq!(task_ids(&results), HashSet::from([t1.id, t2.id, t3.id]));
 
-    // team_id
+    // team_id: the live tasks on the board that belongs to the team
+    // (COLLIERY-T-0216). t4 is on that board too, and is archived.
     let (results, _) = run(&mut conn, json!({"filter": {"team_id": auth_team.id}}));
-    assert_eq!(all_ids(&results), HashSet::from([t1.id]));
+    assert_eq!(all_ids(&results), HashSet::from([t1.id, t2.id, t3.id]));
 
     // is_bucket
     let (results, _) = run(&mut conn, json!({"filter": {"is_bucket": true}}));
@@ -937,7 +931,6 @@ fn unified_search_pipeline() {
                 &format!("Chain link {n:02}"),
                 "chain",
                 TaskType::Task,
-                None,
             )
             .id
         })
@@ -1013,7 +1006,6 @@ fn unified_search_pipeline() {
             &format!("Fan task {n:03}"),
             "fan-out",
             TaskType::Task,
-            None,
         );
         link(&mut conn, i_fan.id, task.id, RelationshipType::Parent);
     }

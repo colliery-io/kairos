@@ -114,7 +114,6 @@ fn related_work_proposes_and_degrades() {
                 content,
                 task_type: TaskType::Task,
                 work_class: WorkClass::Planned,
-                team_id: None,
                 repository_id: None,
             },
             alice,

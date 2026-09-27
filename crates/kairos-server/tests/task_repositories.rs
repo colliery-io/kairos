@@ -1,8 +1,16 @@
 //! Integration test for task ↔ repository binding (KAIROS-T-0104, design
 //! in KAIROS-I-0010 §D2, decision KAIROS-A-0019): create-time routing,
-//! the repo → team → board consistency rule, `PUT …/repository`, and the
-//! repository filter on board items and search — through the typed
-//! `kairos_client` against the booted production router.
+//! `PUT …/repository`, and the repository filter on board items and search
+//! — through the typed `kairos_client` against the booted production
+//! router.
+//!
+//! The rule is COLLIERY-A-0023, which amends A-0019 (COLLIERY-T-0217): a
+//! board or a team chooses where a task goes, and the repository is an
+//! optional link to ANY live repository. Until then this file pinned the
+//! opposite: a repository alone routed the task to its owner's delivery
+//! board, and a board, a team or a `PUT …/repository` that disagreed with
+//! the owner was refused. Each of those cases is still here, with the new
+//! outcome.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_task_repos_t0104_test`.
@@ -27,6 +35,7 @@ use common::{
 use kairos_client::Error;
 use kairos_client::types::CreateTaskRequest;
 use kairos_client::types_org::CreateTeamRequest;
+use kairos_client::types_repositories::UpdateRepositoryRequest;
 use kairos_client::types_search::{SearchFilter, SearchRequest};
 use kairos_db::models::enums::Forge;
 use kairos_db::models::repositories::NewRepository;
@@ -175,15 +184,96 @@ async fn task_repository_binding_against_live_stack() {
     };
 
     // =======================================================================
-    // Create-time routing (§D2 rule 1): repository only → owner's board
+    // A repository alone does not choose a board (COLLIERY-T-0217)
     // =======================================================================
-    let routed = svc
+    // Until COLLIERY-T-0217 this request landed on platform's delivery
+    // board, because platform owns payments-api.
+    let err = rejection(
+        svc.create_task(&CreateTaskRequest {
+            repository: Some("payments-api".into()),
+            ..base.clone()
+        })
+        .await,
+    );
+    let message = validation_message(&err);
+    assert!(
+        message.contains("board") && message.contains("team"),
+        "the refusal names both arguments that are missing: {message}"
+    );
+    assert!(
+        message.contains("does not choose a board"),
+        "and says why the repository was not enough: {message}"
+    );
+    // The pre-rename wire field (KAIROS-T-0115) is the same field, so it is
+    // refused alike.
+    let (status, body) = svc
+        .raw_request(
+            reqwest::Method::POST,
+            "/api/tasks",
+            Some(&serde_json::json!({ "title": "Aliased", "repository_id": "portal-web" })),
+        )
+        .await
+        .expect("raw create");
+    assert_eq!(status, 422, "repository_id alone: {body}");
+    // Nothing at all is the same refusal.
+    let err = rejection(svc.create_task(&base).await);
+    let message = validation_message(&err);
+    assert!(
+        message.contains("board") && message.contains("team"),
+        "{message}"
+    );
+
+    // =======================================================================
+    // A team and no board → the delivery board of that team
+    // =======================================================================
+    let by_team = svc
         .create_task(&CreateTaskRequest {
+            team_id: Some(platform.id.clone()),
+            ..base.clone()
+        })
+        .await
+        .expect("a team names its delivery board");
+    assert_eq!(by_team.board_id, platform_board);
+    assert_eq!(by_team.team_id.as_deref(), Some(platform.id.as_str()));
+    assert_eq!(by_team.repository_id, None);
+    // The team chooses the board and the repository is only carried along:
+    // web's board, platform's repository. Until COLLIERY-T-0217 this was
+    // refused, because web is not the owner of payments-api.
+    let team_and_repo = svc
+        .create_task(&CreateTaskRequest {
+            team_id: Some(web.id.clone()),
             repository: Some("payments-api".into()),
             ..base.clone()
         })
         .await
-        .expect("repo-only create routes to the owning team's delivery board");
+        .expect("a team, and a repository of another team");
+    assert_eq!(team_and_repo.board_id, web_board);
+    assert_eq!(team_and_repo.team_id.as_deref(), Some(web.id.as_str()));
+    assert_eq!(
+        team_and_repo.repository_id.as_deref(),
+        Some(payments.id.to_string().as_str())
+    );
+    // A team that does not exist has no delivery board to name.
+    let err = rejection(
+        svc.create_task(&CreateTaskRequest {
+            team_id: Some(Uuid::new_v4().to_string()),
+            ..base.clone()
+        })
+        .await,
+    );
+    assert!(validation_message(&err).contains("delivery board"), "{err}");
+
+    // =======================================================================
+    // A board and a repository: the board decides, the repository is a link
+    // =======================================================================
+    let routed = svc
+        .create_task(&CreateTaskRequest {
+            board_id: Some(platform_board.clone()),
+            repository: Some("payments-api".into()),
+            ..base.clone()
+        })
+        .await
+        .expect("a board and a repository of the board's own team");
     assert_eq!(routed.board_id, platform_board);
     assert_eq!(routed.team_id.as_deref(), Some(platform.id.as_str()));
     assert_eq!(
@@ -201,6 +291,7 @@ async fn task_repository_binding_against_live_stack() {
     // By UUID works too.
     let by_uuid = svc
         .create_task(&CreateTaskRequest {
+            board_id: Some(web_board.clone()),
             repository: Some(portal.id.to_string()),
             ..base.clone()
         })
@@ -213,7 +304,11 @@ async fn task_repository_binding_against_live_stack() {
         .raw_request(
             reqwest::Method::POST,
             "/api/tasks",
-            Some(&serde_json::json!({ "title": "Aliased", "repository_id": "portal-web" })),
+            Some(&serde_json::json!({
+                "title": "Aliased",
+                "board_id": web_board,
+                "repository_id": "portal-web",
+            })),
         )
         .await
         .expect("raw create");
@@ -221,23 +316,29 @@ async fn task_repository_binding_against_live_stack() {
     assert_eq!(body["repository"]["slug"], "portal-web");
     assert_eq!(by_uuid.team_id.as_deref(), Some(web.id.as_str()));
 
-    // =======================================================================
-    // Rule 2: repository + board must agree; explicit team must be the owner
-    // =======================================================================
-    let err = rejection(
-        svc.create_task(&CreateTaskRequest {
+    // The repository of a DIFFERENT team. Until COLLIERY-T-0217 this was a
+    // 422 that named platform's board as the only one allowed. Now the task
+    // is on the board that was named, with that board's team, and it links
+    // to a repository that team does not own.
+    let cross = svc
+        .create_task(&CreateTaskRequest {
             board_id: Some(web_board.clone()),
             repository: Some("payments-api".into()),
             ..base.clone()
         })
-        .await,
+        .await
+        .expect("web's board, platform's repository");
+    assert_eq!(cross.board_id, web_board, "the task is on the named board");
+    assert_eq!(
+        cross.team_id.as_deref(),
+        Some(web.id.as_str()),
+        "with the team of that board, not the owner of the repository"
     );
-    let message = validation_message(&err);
-    assert!(
-        message.contains("payments-api")
-            && message.contains(&platform.id)
-            && message.contains(&platform_board),
-        "names the repo, its team and the right board: {message}"
+    let embedded = cross.repository.as_ref().expect("the link");
+    assert_eq!(embedded.slug, "payments-api");
+    assert_eq!(
+        embedded.team_id, platform.id,
+        "the repository keeps its owner"
     );
     let agreeing = svc
         .create_task(&CreateTaskRequest {
@@ -248,27 +349,10 @@ async fn task_repository_binding_against_live_stack() {
         .await
         .expect("repo + its own delivery board agree");
     assert_eq!(agreeing.board_id, platform_board);
-    let err = rejection(
-        svc.create_task(&CreateTaskRequest {
-            team_id: Some(web.id.clone()),
-            repository: Some("payments-api".into()),
-            ..base.clone()
-        })
-        .await,
-    );
-    assert!(
-        validation_message(&err).contains("not"),
-        "an explicit team that is not the owner is refused: {err}"
-    );
 
     // =======================================================================
-    // Rule 3: no repository → board required, behaviour unchanged
+    // No repository: a board, behaviour unchanged
     // =======================================================================
-    let err = rejection(svc.create_task(&base).await);
-    assert!(
-        validation_message(&err).contains("board_id is required"),
-        "{err}"
-    );
     let plain = svc
         .create_task(&CreateTaskRequest {
             board_id: Some(platform_board.clone()),
@@ -279,18 +363,20 @@ async fn task_repository_binding_against_live_stack() {
     assert_eq!(plain.repository_id, None);
     assert_eq!(plain.repository, None);
 
-    // Unknown repository → 422.
+    // Unknown repository → 422. The board is named, so the refusal is about
+    // the repository and not about a missing board.
     let err = rejection(
         svc.create_task(&CreateTaskRequest {
+            board_id: Some(platform_board.clone()),
             repository: Some("nope".into()),
             ..base.clone()
         })
         .await,
     );
-    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    assert!(validation_message(&err).contains("nope"), "{err}");
 
     // =======================================================================
-    // PUT /repository: set, re-home within the team, refuse cross-team, clear
+    // PUT /repository: set, change, another team's, unknown, clear
     // =======================================================================
     let bound = svc
         .set_task_repository(&plain.short_code, Some("payments-api"))
@@ -312,20 +398,48 @@ async fn task_repository_binding_against_live_stack() {
         rehomed.repository.as_ref().map(|r| r.slug.as_str()),
         Some("platform-infra")
     );
+    // A repository of another team. Until COLLIERY-T-0217 this was refused:
+    // the repository had to belong to the team of the task's board. It is a
+    // link now, and setting it changes nothing else.
+    let other_team = svc
+        .set_task_repository(&plain.short_code, Some("portal-web"))
+        .await
+        .expect("a repository owned by another team");
+    assert_eq!(
+        other_team.repository.as_ref().map(|r| r.slug.as_str()),
+        Some("portal-web")
+    );
+    assert_eq!(
+        other_team.board_id, platform_board,
+        "the board does not change"
+    );
+    assert_eq!(
+        other_team.team_id.as_deref(),
+        Some(platform.id.as_str()),
+        "the team does not change"
+    );
+    assert_eq!(other_team.column_id, plain.column_id);
+    // The one 422 left: a repository that does not exist.
     let err = rejection(
-        svc.set_task_repository(&plain.short_code, Some("portal-web"))
+        svc.set_task_repository(&plain.short_code, Some("nope"))
             .await,
     );
-    assert!(
-        validation_message(&err).contains("portal-web"),
-        "a repo owned by another team is refused: {err}"
-    );
+    assert!(validation_message(&err).contains("nope"), "{err}");
     let cleared = svc
         .set_task_repository(&plain.short_code, None)
         .await
         .expect("clearing");
     assert_eq!(cleared.repository_id, None);
     assert_eq!(cleared.repository, None);
+    assert_eq!(
+        cleared.board_id, platform_board,
+        "clearing leaves the board"
+    );
+    assert_eq!(
+        cleared.team_id.as_deref(),
+        Some(platform.id.as_str()),
+        "clearing leaves the team"
+    );
     let err = rejection(
         svc.set_task_repository("ACME-T-9999", Some("payments-api"))
             .await,
@@ -342,7 +456,7 @@ async fn task_repository_binding_against_live_stack() {
             .count()
             .get_result(&mut conn)
             .expect("activity rows");
-        assert_eq!(rows, 3, "set, re-home, clear");
+        assert_eq!(rows, 4, "set, re-home, another team's, clear");
     }
 
     // =======================================================================
@@ -375,8 +489,8 @@ async fn task_repository_binding_against_live_stack() {
     let platform_tasks: Vec<_> = items.columns.iter().flat_map(|c| c.tasks.iter()).collect();
     assert_eq!(
         platform_tasks.len(),
-        3,
-        "routed, agreeing, plain: {platform_tasks:?}"
+        4,
+        "by_team, routed, agreeing, plain: {platform_tasks:?}"
     );
     assert!(
         platform_tasks
@@ -436,7 +550,9 @@ async fn task_repository_binding_against_live_stack() {
         })
         .await
         .expect("search by repository");
-    assert_eq!(hits.results.tasks.len(), 2, "{:?}", hits.results.tasks);
+    // Four, on two boards: the repository filter follows the link, not the
+    // board. `team_and_repo` and `cross` are on web's board.
+    assert_eq!(hits.results.tasks.len(), 4, "{:?}", hits.results.tasks);
     assert!(
         hits.results
             .tasks
@@ -458,7 +574,7 @@ async fn task_repository_binding_against_live_stack() {
         })
         .await
         .expect("search by repository uuid");
-    assert_eq!(by_uuid.results.tasks.len(), 2);
+    assert_eq!(by_uuid.results.tasks.len(), 4);
     // The old wire name is still accepted for one release.
     let (status, body) = svc
         .raw_request(
@@ -478,6 +594,47 @@ async fn task_repository_binding_against_live_stack() {
         .await
         .expect("raw search");
     assert_eq!(status, 422, "unknown repository slug is a validation error");
+
+    // =======================================================================
+    // A change of owner leaves the linked tasks where they are
+    // =======================================================================
+    // Ownership is a fact about the repository. Until COLLIERY-T-0217 it was
+    // also the rule for where a bound task could be, so a change of owner
+    // left every bound task in a place the rule no longer allowed.
+    let rehomed_repo = svc
+        .update_repository(
+            "payments-api",
+            &UpdateRepositoryRequest {
+                team: Some("web".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("web takes payments-api");
+    assert_eq!(rehomed_repo.team.slug, "web");
+    for (before, board, team) in [
+        (&routed, &platform_board, &platform.id),
+        (&agreeing, &platform_board, &platform.id),
+        (&cross, &web_board, &web.id),
+        (&team_and_repo, &web_board, &web.id),
+    ] {
+        let after = svc.get_task(&before.short_code).await.expect("get");
+        assert_eq!(
+            &after.board_id, board,
+            "{} stays on its board",
+            after.short_code
+        );
+        assert_eq!(after.column_id, before.column_id);
+        assert_eq!(
+            after.team_id.as_deref(),
+            Some(team.as_str()),
+            "{} keeps the team of its board",
+            after.short_code
+        );
+        let link = after.repository.as_ref().expect("still linked");
+        assert_eq!(link.slug, "payments-api");
+        assert_eq!(link.team_id, web.id, "the link shows the new owner");
+    }
 
     drop(server);
     drop(pool);

@@ -1,9 +1,11 @@
 //! KAIROS-I-0012 — `boards::move_task`: a task moves to another delivery
 //! board, landing in its entry column and following its team, with a
 //! `board_move` activity row and an `item_moved` event for BOTH boards.
-//! The refusals are the interesting part: same board, a non-delivery
-//! target, and the KAIROS-T-0104 rule that a repository-bound task lives
-//! on its owner's board.
+//! The refusals are the interesting part: same board and a non-delivery
+//! target. A repository is NOT one of them (COLLIERY-T-0217,
+//! COLLIERY-A-0023): a task with a repository moves like any other and
+//! keeps the link. Until then the KAIROS-T-0104 rule held such a task on
+//! the board of the repository's owner.
 //!
 //! Against real Postgres from the compose stack (A-0012 tier 2), in its
 //! own scratch database like the other kairos-db integration tests.
@@ -189,7 +191,7 @@ fn move_task_between_delivery_boards() {
     // so they are asserted through a real socket in kairos-server's
     // tests/ws_events.rs, not here.
 
-    // --- the KAIROS-T-0104 rule ---------------------------------------------
+    // --- a repository does not hold the task (COLLIERY-T-0217) --------------
     let payments = repositories::create(
         &mut conn,
         NewRepository {
@@ -205,8 +207,9 @@ fn move_task_between_delivery_boards() {
         },
     )
     .expect("registering the repository");
-    // Back to platform (the owner's board) before binding, so the refusal
-    // below is about the repository rule and not "already there".
+    // Back to platform (the owner's board) before binding, so the move
+    // below takes the task AWAY from the board of the repository's owner:
+    // the case the KAIROS-T-0104 rule refused.
     let back = boards::move_task(&mut conn, task.id, platform_board, alice)
         .expect("back to the platform board");
     assert_eq!(back.board_id, platform_board);
@@ -214,29 +217,28 @@ fn move_task_between_delivery_boards() {
     items::set_task_repository(&mut conn, task.id, Some(payments.id), alice)
         .expect("binding the repository");
 
-    let err = boards::move_task(&mut conn, task.id, web_board, alice)
-        .expect_err("a bound task may not leave its repository's owner");
-    match err {
-        BoardError::RepositoryOwnerMismatch {
-            repository,
-            owner_board_id,
-            ..
-        } => {
-            assert_eq!(repository, "payments-api");
-            assert_eq!(owner_board_id, Some(platform_board));
-        }
-        other => panic!("expected RepositoryOwnerMismatch, got {other}"),
-    }
-    // …and the binding did not move it: it is still on the owner's board.
-    let placement: Uuid = {
+    let moved = boards::move_task(&mut conn, task.id, web_board, alice)
+        .expect("a task with a repository moves to another team's board");
+    assert_eq!(moved.board_id, web_board);
+    assert_ne!(moved.team_id, Some(platform_id));
+    // The task took the new board and that board's team, and kept its link
+    // to a repository that the new team does not own.
+    let placement: (Uuid, Option<Uuid>, Option<Uuid>) = {
         use kairos_db::schema::tasks::dsl;
         dsl::tasks
             .filter(dsl::id.eq(task.id))
-            .select(dsl::board_id)
+            .select((dsl::board_id, dsl::team_id, dsl::repository_id))
             .first(&mut conn)
             .expect("task row")
     };
-    assert_eq!(placement, platform_board);
+    assert_eq!(placement, (web_board, moved.team_id, Some(payments.id)));
+    // The repository did not follow the task: it has the owner it had.
+    assert_eq!(
+        repositories::load(&mut conn, payments.id)
+            .expect("the repository")
+            .team_id,
+        platform_id
+    );
 
     drop(conn);
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))

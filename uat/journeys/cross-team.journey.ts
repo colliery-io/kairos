@@ -1,8 +1,10 @@
 // J4 — "A web engineer needs something from platform and gets it"
 // (KAIROS-I-0011 D4). carol (web team) works as her own agent over MCP and
 // follows the plugin's CROSS-TEAM-FILING recipe to the letter:
-// list_repositories → get_repository → create_item against platform's
-// repo with no board → link_items blocks. Everything else is exactly what
+// list_repositories → get_repository → create_item on platform's board
+// with platform's repo → link_items blocks. She names the board: a
+// repository is a link and does not choose one (COLLIERY-T-0217).
+// Everything else is exactly what
 // the recipe says she cannot do — and the product refuses. bob triages on
 // the platform board in the GUI; carol watches her own board live.
 //
@@ -45,11 +47,12 @@ journey(
       return { repository: THEIR_REPO, owner, their_board: theirBoard, how_to_work_here: howToWorkHere?.slice(0, 80) };
     });
 
-    await step(carol, `files a task against ${THEIR_REPO} with no board; it lands in platform's Backlog`, async () => {
+    await step(carol, `files a task against ${THEIR_REPO} on platform's board; it lands in platform's Backlog`, async () => {
       const mcp = await carol.mcp();
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('platform: bulk invoice export endpoint'),
+        board: theirBoard,
         repository: THEIR_REPO,
         content: 'Portal needs a bulk export of invoices (CSV) for the finance page. Done = endpoint documented and deployed to staging.',
       });
@@ -66,9 +69,13 @@ journey(
 
     await step(carol, `creates her own task on ${MY_REPO} and links the platform task as blocking it`, async () => {
       const mcp = await carol.mcp();
+      const myRepo = await mcp.call('get_repository', { repository: MY_REPO });
+      const myBoard = myRepo.match(/- delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
+      expect(myBoard).toBeTruthy();
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('portal: finance page bulk export button'),
+        board: myBoard,
         repository: MY_REPO,
       });
       [mine] = shortCodes(text);
@@ -139,8 +146,7 @@ journey(
     });
 
     // The seam has a second shape: work that landed on the wrong side of it
-    // is MOVED, not recreated (KAIROS-I-0012). It runs last because it
-    // unbinds the repository the search step above depends on.
+    // is MOVED, not recreated (KAIROS-I-0012).
     await step(bob, 'has no board to move it to — the control is not offered to a one-team member', async () => {
       const page = await bob.gui();
       await openItem(page, filed);
@@ -150,32 +156,22 @@ journey(
       return { board_select_offered: false };
     });
 
-    await step(alice, `tries to move the ticket to the web board while it is still bound to ${THEIR_REPO}`, async () => {
+    await step(alice, `moves the ticket to the web board while it is still bound to ${THEIR_REPO}, and it keeps the repository`, async () => {
       const page = await alice.gui();
       await openItem(page, filed);
       const control = page.locator('[data-testid="move-board"]');
       await expect(control).toBeVisible();
       await control.locator('select').selectOption(carolBoard);
       await control.getByRole('button', { name: 'Move board' }).click();
-      const refusal = control.locator('.cl-alert');
-      await expect(refusal).toContainText('REPOSITORY_OWNER_MISMATCH', { timeout: 10_000 });
-      await expect(refusal).toContainText(THEIR_REPO);
-      return { refused: (await refusal.innerText()).replace(/\s+/g, ' ').slice(0, 150) };
-    });
-
-    await step(alice, 'unbinds the repository, and the same move goes through', async () => {
-      const page = await alice.gui();
-      const repoControl = page.locator('[data-testid="repository-control"]');
-      await repoControl.locator('select').selectOption('(none)');
-      await repoControl.getByRole('button', { name: 'Set repository' }).click();
-      await expect(page.locator('.cl-pill', { hasText: `repo: ${THEIR_REPO}` })).toHaveCount(0, { timeout: 10_000 });
-      const control = page.locator('[data-testid="move-board"]');
-      await control.locator('select').selectOption(carolBoard);
-      await control.getByRole('button', { name: 'Move board' }).click();
+      // Until COLLIERY-T-0217 this was refused with REPOSITORY_OWNER_MISMATCH
+      // and the ticket had to be unbound first. A move does not look at the
+      // repository now.
       await expect(page.getByText(/Moved to /)).toBeVisible({ timeout: 10_000 });
+      const moved = await (await alice.api()).task(filed);
+      expect(moved.repository?.slug, 'the ticket keeps its repository').toBe(THEIR_REPO);
       await openBoard(page, theirBoard);
       await expect(card(page, filed)).toHaveCount(0);
-      return { task: filed, unbound_from: THEIR_REPO, moved_to: carolBoard };
+      return { task: filed, still_bound_to: THEIR_REPO, moved_to: carolBoard };
     });
 
     await step(carol, 'finds it on her board but cannot push it back — platform\'s board is not hers to write', async () => {

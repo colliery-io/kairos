@@ -125,6 +125,9 @@ journey(
         item_type: 'task',
         task_type: 'support',
         title: named('support: checkout 500s for trial accounts'),
+        // The board says where the work goes; the repository is what lets a
+        // stranger file it (COLLIERY-T-0217: it no longer chooses the board).
+        board: team.boardSlug,
         repository: team.repoSlug,
         content: 'Three customers on expiring trials cannot check out. Started ~16:40 UTC.',
       });
@@ -168,6 +171,7 @@ journey(
         task_type: 'bug',
         work_class: 'support',
         title: named('bug: trial expiry check panics on a null plan'),
+        board: team.boardSlug,
         repository: team.repoSlug,
         content: 'Null plan on an expired trial reaches the checkout handler and panics.',
       });

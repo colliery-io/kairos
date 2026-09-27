@@ -5,11 +5,16 @@
 // repositories (409 naming them) and its board holds no live cards (422
 // naming them) — and J6 walks it on an empty team. This journey walks it
 // under load, which is where the interesting part is: re-homing a
-// repository RETARGETS everything bound to it. The card on the old board
-// can now only go one place, the machine scoped to that repository can
-// still SEE its queue but no longer act on it, and both of those are
-// invisible until someone tries. Routing that goes stale after a re-home
-// is the catch.
+// repository changes who OWNS it and nothing else (COLLIERY-A-0023,
+// COLLIERY-T-0217). The board of a task decides its team, and the
+// repository is only a link, so the card bound to the repository stays on
+// the old board with the old team, and may move to any delivery board.
+// What does go stale is the machine: it can still SEE its queue on the new
+// board but cannot act on it until it joins the team that board belongs to.
+//
+// Until COLLIERY-T-0217 a re-home RETARGETED everything bound to the
+// repository: the card could only move to the new owner's board, and any
+// other move was refused with REPOSITORY_OWNER_MISMATCH.
 import { expect } from '@playwright/test';
 import { teamFixture } from '../fixtures/team';
 import { named } from '../run/context';
@@ -17,8 +22,8 @@ import { journey, step } from '../run/narrate';
 import { cardIn, dragCard, openBoard } from '../surfaces/gui';
 import { shortCodes } from '../surfaces/mcp';
 
-// A third board to try to park the card on — the seed's platform board,
-// which owns neither team's repositories.
+// A third board to park the card on for a moment — the seed's platform
+// board, which owns neither team's repositories.
 const OTHER_BOARD = `${process.env.UAT_TEAM ?? 'platform'}-delivery`;
 
 journey(
@@ -102,6 +107,8 @@ journey(
       const created = await mcp.call('create_item', {
         item_type: 'task',
         title: named('task: rebuild the synonym dictionary'),
+        // The board decides where the work is; the repository is the link.
+        board: oldBoardSlug,
         repository: repoSlug,
       });
       [work] = shortCodes(created);
@@ -142,18 +149,36 @@ journey(
       return { repository: repoSlug, owner: surviving.fixture.teamSlug, was: oldTeamSlug };
     });
 
-    await step(alice, 'finds the card\'s routing has gone stale: it may only follow its repository now', async () => {
+    await step(alice, 'finds the card where it was: the re-home changed the owner of the service, not the place of the work', async () => {
+      const api = await alice.api();
+      // The card still sits on the OLD board, with the OLD team, while its
+      // repository belongs to the new owner. That is a valid state: the
+      // board decides the team, and the repository is a link.
+      const task = await api.task(work);
+      expect(task.board_id).toBe(oldBoardId);
+      expect(task.team_id).toBe(oldTeamId);
+      expect(task.repository?.slug).toBe(repoSlug);
+      return { still_on: oldBoardSlug, team: oldTeamSlug, repository: repoSlug, repository_owner: surviving.fixture.teamSlug };
+    });
+
+    await step(alice, 'parks the card on a third board and brings it back: a move does not look at the repository', async () => {
       const cli = await alice.cli();
-      // The card still sits on the OLD board while its repository belongs to
-      // the new owner — the exact state this journey exists to catch. Park
-      // it anywhere else and the product says where it belongs.
-      const refused = await cli.run(['tasks', 'move', work, '--to-board', OTHER_BOARD]);
-      expect(refused.code).not.toBe(0);
-      const said = `${refused.stderr}${refused.stdout}`;
-      expect(said).toContain('REPOSITORY_OWNER_MISMATCH');
-      expect(said).toContain(repoSlug);
-      expect(said).toContain(survivingBoardId);
-      return { still_on: oldBoardSlug, tried: OTHER_BOARD, refused: 'REPOSITORY_OWNER_MISMATCH', must_go_to: surviving.fixture.boardSlug };
+      const api = await alice.api();
+      // Neither board belongs to the owner of the repository. Both moves
+      // were refused before COLLIERY-T-0217.
+      const away = await cli.run(['tasks', 'move', work, '--to-board', OTHER_BOARD]);
+      const said = `${away.stderr}${away.stdout}`;
+      expect(said).not.toContain('REPOSITORY_OWNER_MISMATCH');
+      expect(away.code, said).toBe(0);
+      const parked = await api.task(work);
+      expect(parked.board_id).not.toBe(oldBoardId);
+      expect(parked.repository?.slug, 'the card keeps its repository').toBe(repoSlug);
+      await cli.ok(['tasks', 'move', work, '--to-board', oldBoardSlug]);
+      const back = await api.task(work);
+      expect(back.board_id).toBe(oldBoardId);
+      expect(back.team_id).toBe(oldTeamId);
+      expect(back.repository?.slug).toBe(repoSlug);
+      return { parked_on: OTHER_BOARD, back_on: oldBoardSlug, repository: repoSlug, refused: 'nothing' };
     });
 
     await step(alice, 'is refused again — the board is clear of repositories but not of cards', async () => {
@@ -178,13 +203,13 @@ journey(
       return { task: work, from: oldBoardSlug, to: surviving.fixture.boardSlug, column: landed };
     });
 
-    await step(agent, 'still finds its queue after the re-home — and cannot touch it', async () => {
+    await step(agent, 'still finds its queue after the move — and cannot touch it', async () => {
       const mcp = await agent.mcp();
       // The catch, both halves: the queue query follows the REPOSITORY, so
       // the work is exactly where the machine would look for it…
       const queue = await mcp.call('board_items', { board: surviving.fixture.boardSlug, repository: repoSlug });
       expect(shortCodes(queue)).toContain(work);
-      // …but its powers came from a team that no longer owns the service,
+      // …but its powers came from the team whose board the card has left,
       // so an unattended agent would sit here failing every transition.
       const refused = await mcp.refused('transition_item', { short_code: work, to_column: 'Todo' });
       expect(refused).toContain('transition_items');

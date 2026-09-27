@@ -2,8 +2,10 @@
 //!
 //! A repository is the unit a ticket is issued against and executed in.
 //! Boards and delivery streams stay the planning unit; every repository
-//! has EXACTLY ONE owning team, and that ownership is how a task filed
-//! against a repo is routed (repo -> team -> the team's delivery board).
+//! has EXACTLY ONE owning team. Ownership does not choose the board of a
+//! task: a board or a team does, and a task on any board may link to any
+//! repository (COLLIERY-T-0217, COLLIERY-A-0023). Until then a task filed
+//! against a repo was routed repo -> team -> the team's delivery board.
 //! Webhook wiring is a separate row ([`super::forge::ForgeConnection`])
 //! hanging off the repository; a repository may have none.
 

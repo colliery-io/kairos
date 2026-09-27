@@ -209,8 +209,10 @@ async fn task_move_and_team_deletion_against_live_stack() {
     let err = rejection(svc.move_task(&task.short_code, "no-such-board").await);
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
-    // The KAIROS-T-0104 rule: a bound task lives on its repository's owner's
-    // board, and the refusal says where it may go instead.
+    // COLLIERY-T-0217 (COLLIERY-A-0023): a task WITH a repository moves
+    // like any other. It keeps the repository and takes the team of the new
+    // board. Until then the KAIROS-T-0104 rule refused this move with a
+    // 422, because web does not own payments-api.
     diesel::sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
@@ -232,13 +234,30 @@ async fn task_move_and_team_deletion_against_live_stack() {
     svc.set_task_repository(&task.short_code, Some("payments-api"))
         .await
         .expect("binding the repository");
-    let err = rejection(svc.move_task(&task.short_code, &web_board).await);
-    let message = unprocessable(&err, "REPOSITORY_OWNER_MISMATCH");
-    assert!(message.contains("payments-api"), "{message}");
-    assert!(
-        message.contains(&platform_board),
-        "the refusal names the board it may go to: {message}"
+    let moved = svc
+        .move_task(&task.short_code, &web_board)
+        .await
+        .expect("a task with a repository moves to another team's board");
+    assert_eq!(moved.board_id, web_board);
+    assert_eq!(
+        moved.team_id.as_deref(),
+        Some(web.id.as_str()),
+        "the task takes the team of the new board"
     );
+    assert_eq!(
+        moved.repository.as_ref().map(|r| r.slug.as_str()),
+        Some("payments-api"),
+        "the task keeps its repository"
+    );
+    assert_eq!(
+        moved.repository.as_ref().map(|r| r.team_id.as_str()),
+        Some(platform.id.as_str()),
+        "and the repository keeps its owner"
+    );
+    // Back to platform and unbound, for the team-deletion story below.
+    svc.move_task(&task.short_code, &platform_board)
+        .await
+        .expect("moving it back, still bound");
     svc.set_task_repository(&task.short_code, None)
         .await
         .expect("unbinding");

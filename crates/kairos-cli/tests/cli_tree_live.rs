@@ -617,8 +617,11 @@ async fn cli_command_tree_golden_path_live() {
     assert!(stdout.contains("cargo test before every PR"), "{stdout}");
     assert!(stdout.contains("How to work here"), "{stdout}");
 
-    // A task created with --repo and no --board routes to the owner's board.
-    let (code, stdout, stderr) = run_cli(
+    // --repo without --board and without --team does not choose a board
+    // (COLLIERY-T-0217, COLLIERY-A-0023). The CLI refuses before it sends
+    // anything, and names the argument that is missing. Until then this
+    // routed the task to the board of the repository's owner.
+    let (code, _stdout, stderr) = run_cli(
         config_dir.path(),
         &[
             "tasks",
@@ -631,12 +634,33 @@ async fn cli_command_tree_golden_path_live() {
         ],
     )
     .await;
-    assert_eq!(code, 0, "tasks create --repo failed: {stderr}");
+    assert_ne!(code, 0, "--repo alone must not create a task");
+    assert!(stderr.contains("--board"), "{stderr}");
+
+    // --team without --board names the delivery board of that team, and
+    // --repo is carried along as the link.
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "tasks",
+            "create",
+            "--team",
+            &team.id,
+            "--repo",
+            "payments-api",
+            "--title",
+            "Routed by team",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "tasks create --team --repo failed: {stderr}");
     let routed: serde_json::Value = serde_json::from_str(&stdout).expect("task DTO JSON");
     assert_eq!(
         routed["board_id"].as_str(),
         Some(delivery_board_id.as_str())
     );
+    assert_eq!(routed["team_id"].as_str(), Some(team.id.as_str()));
     assert_eq!(routed["repository"]["slug"], "payments-api");
 
     let (code, stdout, stderr) = run_cli(config_dir.path(), &["repos", "unbind", &bind_code]).await;

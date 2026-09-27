@@ -285,7 +285,9 @@ async fn repository_api_against_live_stack() {
     let err = rejection(alice.list_repositories(Some("nope")).await);
     assert!(matches!(err, Error::Validation { .. }), "{err}");
 
-    // Counts: a task bound to the repo shows up as open work.
+    // Counts: a task bound to the repo shows up as open work. The team
+    // names the board (COLLIERY-T-0217): the repository alone chose it
+    // before, and does not now.
     let task = bob
         .create_task(&CreateTaskRequest {
             board_id: None,
@@ -294,7 +296,7 @@ async fn repository_api_against_live_stack() {
             content: String::new(),
             task_type: None,
             work_class: None,
-            team_id: None,
+            team_id: Some(platform.id.clone()),
             repository: Some("payments-api".into()),
         })
         .await
@@ -355,8 +357,10 @@ async fn repository_api_against_live_stack() {
         matches!(err, Error::Forbidden { .. }),
         "re-home needs manage on both teams: {err}"
     );
-    // A task bound to it before the re-home is left STALE (still on
-    // platform's board) and the detail says so; binding attributes the team.
+    // A task bound to it before the re-home stays on platform's board, with
+    // platform as its team (COLLIERY-T-0217). The detail still counts it as
+    // "stale": `stale_tasks` is unchanged and still measures the old
+    // repo -> team -> board rule. COLLIERY-T-0219 removes that report.
     let pre = bob
         .create_task(&CreateTaskRequest {
             board_id: None,
@@ -365,7 +369,7 @@ async fn repository_api_against_live_stack() {
             content: String::new(),
             task_type: None,
             work_class: None,
-            team_id: None,
+            team_id: Some(platform.id.clone()),
             repository: Some("acme-platform-infra".into()),
         })
         .await
@@ -394,13 +398,34 @@ async fn repository_api_against_live_stack() {
     assert_eq!(rehomed.team.slug, "web");
     let detail = alice.get_repository("infra").await.expect("detail");
     assert_eq!(detail.stale_tasks, 1, "the pre-bound task is now stale");
-    // Re-binding that task to the same repo re-checks the rule against ITS
-    // board (platform) and refuses: the repo now belongs to web.
-    let err = rejection(
-        bob.set_task_repository(&pre.short_code, Some("infra"))
-            .await,
+    // The re-home did not move the task or change its team.
+    let after = bob.get_task(&pre.short_code).await.expect("get");
+    assert_eq!(after.board_id, pre.board_id);
+    assert_eq!(after.team_id.as_deref(), Some(platform.id.as_str()));
+    // Setting the repository of that task is allowed, though the repository
+    // now belongs to web and the task is on platform's board. Until
+    // COLLIERY-T-0217 this re-checked the owner against the board and was a
+    // 422. The task has this repository already, so nothing changes.
+    let rebound = bob
+        .set_task_repository(&pre.short_code, Some("infra"))
+        .await
+        .expect("a repository of another team is a valid link");
+    assert_eq!(rebound.board_id, pre.board_id);
+    assert_eq!(rebound.team_id.as_deref(), Some(platform.id.as_str()));
+    assert_eq!(
+        rebound.repository.as_ref().map(|r| r.slug.as_str()),
+        Some("infra")
     );
-    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    // The count is as it was: the link is valid, but the unchanged
+    // `stale_tasks` still compares the task with the owner (COLLIERY-T-0219).
+    assert_eq!(
+        alice
+            .get_repository("infra")
+            .await
+            .expect("detail")
+            .stale_tasks,
+        1
+    );
     // Unbinding it clears the staleness.
     bob.set_task_repository(&pre.short_code, None)
         .await

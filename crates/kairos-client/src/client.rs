@@ -459,12 +459,9 @@ impl KairosClient {
         .await
     }
 
-    /// `PUT /api/tasks/{short_code}/repository` — bind the task to a
-    /// repository (slug or UUID) or clear it with `None` (KAIROS-T-0104).
-    /// The repository must belong to the team whose delivery board the
-    /// task sits on; requires `manage_tasks` on that board.
     /// `POST /api/tasks/{short_code}/move` — move a task to another delivery
     /// board (slug or UUID); it lands in the entry column (KAIROS-I-0012).
+    /// The task keeps its repository (COLLIERY-T-0217).
     pub async fn move_task(&self, short_code: &str, board: &str) -> Result<Task, Error> {
         self.post_ok(
             &format!("/api/tasks/{short_code}/move"),
@@ -475,6 +472,11 @@ impl KairosClient {
         .await
     }
 
+    /// `PUT /api/tasks/{short_code}/repository` — set the repository the
+    /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
+    /// It can be any live repository, of any team, and the board and the
+    /// team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
+    /// Requires `manage_tasks` on the board of the task.
     pub async fn set_task_repository(
         &self,
         short_code: &str,

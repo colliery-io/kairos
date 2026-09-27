@@ -398,12 +398,12 @@ Body of `POST /api/tasks`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board_id` | `string`, nullable | no | Board to create the task on — SLUG or UUID (KAIROS-T-0150). Optional since KAIROS-T-0104: when `repository` is given the task is ROUTED to the owning team's delivery board (A-0019); when both are given they must agree; neither is a 422. |
+| `board_id` | `string`, nullable | no | Board to create the task on — SLUG or UUID (KAIROS-T-0150). Optional when `team_id` is given: the task then goes to the delivery board of that team. A request with no board and no team is a 422, with or without a `repository` (COLLIERY-T-0217, COLLIERY-A-0023). Until then a `repository` alone chose the board (KAIROS-T-0104). |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
 | `content` | `string` | no | Markdown content; defaults to empty. |
-| `repository` | `string`, nullable | no | Repository to issue the task against (slug or UUID, KAIROS-T-0104). Routes the task: repo -> owning team -> that team's delivery board. `repository` is THE reference field name on the wire (KAIROS-T-0115); `repository_id` is accepted as an alias for one release. |
+| `repository` | `string`, nullable | no | The repository the task links to (slug or UUID, KAIROS-T-0104). An optional link that says where the code is. It can be any live repository, of any team, and it does not choose the board (COLLIERY-T-0217, COLLIERY-A-0023). `repository` is THE reference field name on the wire (KAIROS-T-0115); `repository_id` is accepted as an alias for one release. |
 | `task_type` | `string`, nullable | no | `task|bug|tech_debt|support`; defaults to `task`. |
-| `team_id` | `string`, nullable | no | The task's team (UUID). The BOARD decides it (COLLIERY-T-0216): this field may be omitted, or may name the team of the board the task lands on. Any other team is a 422, never silently ignored. |
+| `team_id` | `string`, nullable | no | A team (UUID). It names the team whose delivery board gets the task, when no board is named (COLLIERY-T-0217); a team without exactly one live delivery board is a 422. With a board it must be that board's team (COLLIERY-T-0216): any other team is a 422, never silently ignored. The BOARD decides the team of the task in both cases. |
 | `title` | `string` | yes |  |
 | `work_class` | `string`, nullable | no | Planned/Support lane (`planned|support`, KAIROS-T-0077). Defaults to `support` when `task_type` is `support`, else `planned`. |
 
@@ -1262,7 +1262,7 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 
 ## SetTaskRepositoryRequest
 
-Body of `PUT /api/tasks/{short_code}/repository` — bind the task to a repository (slug or UUID), or clear it with `null`. The repository must be owned by the team whose delivery board the task sits on.
+Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task links to (slug or UUID), or clear it with `null`. It can be any live repository, of any team. The board and the team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
 
 | Field | Type | Required | Description |
 |---|---|---|---|

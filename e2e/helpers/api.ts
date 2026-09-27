@@ -289,8 +289,11 @@ export async function listRepositories(
 }
 
 /**
- * Create a task over the API. With `repository` and no `boardId` the task
- * routes to the repository's owning team's delivery board (KAIROS-T-0104).
+ * Create a task over the API. `boardId` (slug or UUID) chooses the board;
+ * `repository` is an optional link to any live repository and does not
+ * choose one (COLLIERY-T-0217, COLLIERY-A-0023). A request with no board is
+ * a 422. Until COLLIERY-T-0217 a repository alone routed the task to its
+ * owning team's delivery board (KAIROS-T-0104).
  * Returns the raw task DTO.
  */
 export async function createTask(

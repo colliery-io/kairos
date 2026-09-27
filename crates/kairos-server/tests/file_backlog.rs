@@ -4,6 +4,10 @@
 //! delivery-board Backlog — and NOTHING else opens up. The negative suite
 //! is the contract; it walks the whole write surface rather than sampling.
 //!
+//! COLLIERY-T-0217 (COLLIERY-A-0023): a repository no longer chooses the
+//! board, so every filing here names the board as well as the repository.
+//! The capability rule itself is unchanged (COLLIERY-T-0218 changes it).
+//!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_file_backlog_t0105_test`.
 //!
@@ -297,8 +301,10 @@ async fn file_backlog_against_live_stack() {
         .id
         .clone();
 
+    // The filer names the board and the repository (COLLIERY-T-0217). Until
+    // then the repository alone was enough: it routed to its owner's board.
     let filing = CreateTaskRequest {
-        board_id: None,
+        board_id: Some(platform_board.clone()),
         column_id: None,
         title: "Bulk invoice export".into(),
         content: "Filed from portal-web".into(),
@@ -403,12 +409,15 @@ async fn file_backlog_against_live_stack() {
             .await,
         "filing without a repository",
     );
-    // Not with a repository owned by a different team than the board
-    // (422 from the routing rule, before any capability question).
+    // Not with a repository alone: it does not choose a board
+    // (COLLIERY-T-0217). A 422 from routing, before any capability question.
+    // Until then this place held a different 422: web's board with
+    // platform's repository. That request is valid now; task_repositories.rs
+    // has it as a positive case.
     let err = rejection(
         alice
             .create_task(&CreateTaskRequest {
-                board_id: Some(web.delivery_board_id.clone().expect("web board")),
+                board_id: None,
                 ..filing.clone()
             })
             .await,
@@ -466,10 +475,25 @@ async fn file_backlog_against_live_stack() {
         .await
         .expect("the owning team triages it");
     // Another tenant's member cannot reach into acme at all.
-    let err = rejection(globex_alice.create_task(&filing).await);
     // alice IS a globex member, so the tenant middleware admits her there and
-    // the repository lookup runs in globex's schema — where the slug does
-    // not exist: a 422 from routing, never a leak (KAIROS-T-0116 pinned it).
+    // every lookup runs in globex's schema. The filing names acme's board,
+    // which does not exist there: a 404, never a leak.
+    let err = rejection(globex_alice.create_task(&filing).await);
+    assert!(
+        matches!(err, Error::NotFound { .. }),
+        "another tenant never sees acme's boards: {err}"
+    );
+    // With a board that globex does have, the repository lookup is reached,
+    // and the slug does not exist in globex: a 422 from routing, never a
+    // leak (KAIROS-T-0116 pinned it).
+    let err = rejection(
+        globex_alice
+            .create_task(&CreateTaskRequest {
+                board_id: Some("initiatives".into()),
+                ..filing.clone()
+            })
+            .await,
+    );
     assert!(
         matches!(err, Error::Validation { .. }),
         "another tenant never sees acme's repositories: {err}"
@@ -594,6 +618,7 @@ async fn file_backlog_against_live_stack() {
             json!({
                 "item_type": "task",
                 "title": "Parented under a foreign initiative",
+                "board": platform_board,
                 "repository": "payments-api",
                 "parent": foreign_initiative.short_code,
             }),
@@ -641,6 +666,7 @@ async fn file_backlog_against_live_stack() {
             json!({
                 "item_type": "task",
                 "title": "Parented under her own initiative",
+                "board": platform_board,
                 "repository": "payments-api",
                 "parent": alice_initiative.short_code,
             }),
@@ -692,7 +718,8 @@ async fn file_backlog_against_live_stack() {
     );
 
     // =======================================================================
-    // Same rule over MCP: create_item with `repository` from a non-member
+    // Same rule over MCP: create_item with `board` and `repository` from a
+    // non-member
     // =======================================================================
     let mut mcp = McpSession::open(&server.base_url, &alice_token).await;
     let (is_error, text) = mcp
@@ -701,6 +728,7 @@ async fn file_backlog_against_live_stack() {
             json!({
                 "item_type": "task",
                 "title": "Filed over MCP",
+                "board": platform_board,
                 "repository": "payments-api",
             }),
         )
@@ -717,6 +745,23 @@ async fn file_backlog_against_live_stack() {
         "MCP filing lands in Backlog too"
     );
     assert_eq!(over_mcp.created_by, alice_id.to_string());
+    assert_eq!(over_mcp.board_id, platform_board);
+    // With no `board`, acme has two delivery boards and so no default. The
+    // repository does not supply one (COLLIERY-T-0217).
+    let (is_error, text) = mcp
+        .call(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "No board named",
+                "repository": "payments-api",
+            }),
+        )
+        .await;
+    assert!(
+        is_error && text.contains("pass `board`"),
+        "a repository alone does not choose the board: {text}"
+    );
     let (is_error, text) = mcp
         .call(
             "create_item",

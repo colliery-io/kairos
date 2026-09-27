@@ -240,12 +240,12 @@ pub struct CreateItemParams {
     pub content: Option<String>,
     /// Tasks only: task | bug | tech_debt | support (default task).
     pub task_type: Option<String>,
-    /// Tasks only: the repository to issue the task against (slug or
-    /// UUID, KAIROS-A-0019). ROUTES the task to the repository's owning
-    /// team's delivery board, so `board` becomes optional (and must agree
-    /// when given). Any tenant member may create a task against ANOTHER
-    /// team's repository: it lands in that team's Backlog behind their
-    /// triage gate (the computed `file_backlog` capability).
+    /// Tasks only: the repository the task links to (slug or UUID). It
+    /// says where the code is. It can be any live repository, of any team.
+    /// It does not choose the board: `board` does (COLLIERY-A-0023). Any
+    /// member may create a task with a repository on the board of another
+    /// team: it lands in the entry column of that board (the computed
+    /// `file_backlog` capability).
     pub repository: Option<String>,
     /// Tasks only: Planned/Support lane planned | support (KAIROS-T-0077;
     /// defaults to support for support-type tasks, else planned).
@@ -1073,7 +1073,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: pass `repository` (slug/UUID) to issue the task against a codebase; it routes to the owning team's delivery board. Any member may create a task against another team's repository — it lands in that board's Backlog for their triage. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member may create a task with a `repository` on the board of another team — it lands in the entry column of that board for their triage. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1181,7 +1181,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. A task bound to a repository may only move to that repository's owning team's board: unbind it first (`kairos repos unbind`) or pick that board. To move an item between COLUMNS of its own board, use `transition_item`."
+        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The task keeps its repository; the move does not look at it. To move an item between COLUMNS of its own board, use `transition_item`."
     )]
     pub async fn move_item(
         &self,
@@ -2618,33 +2618,36 @@ fn create_item_impl(
     // Board items: resolve the board (explicit slug/UUID or the single
     // board of the matching level), then manage_<type> on it. Tasks go
     // through the SAME routing + capability helpers as POST /api/tasks
-    // (KAIROS-T-0104/T-0105): a repository routes the task to its owning
-    // team's delivery board, and a non-member may still file into that
-    // board's Backlog.
+    // (KAIROS-T-0104/T-0105), and a non-member may still file into the
+    // entry column of a board when the task links to a repository.
+    //
+    // COLLIERY-T-0217 (COLLIERY-A-0023): the board is the named one, or the
+    // single delivery board of the tenant. The repository is carried along
+    // as the link and has no say. Until then a repository with no `board`
+    // chose its owner's delivery board, and a `board` beside it had to be
+    // that one. MCP has no `team` argument, so the team arm of `route_task`
+    // is never reached from here.
     let (board, route) = if item_type == ItemType::Task {
         let explicit = params
             .board
             .as_deref()
             .map(|reference| board_by_ref(conn, reference))
             .transpose()?;
-        let route = match (explicit.as_ref(), params.repository.as_deref()) {
-            (None, None) => {
-                // COLLIERY-T-0216: through the shared routing helper rather
-                // than a hand-built route, so the defaulted board gives the
-                // task its team exactly as a named board does. Built by hand,
-                // this arm left every such task with no team at all.
-                let board = default_board_for(conn, level_of(item_type))?;
-                crate::api::tasks::resolve_routing(conn, Some(board.id), None, None)?
-            }
-            (board, repository) => {
-                crate::api::tasks::resolve_routing(conn, board.map(|b| b.id), None, repository)?
-            }
-        };
-        crate::api::tasks::require_task_create_capability(conn, slug, user, &route, None)?;
         let board = match explicit {
-            Some(board) if board.id == route.board_id => board,
-            _ => board_by_ref(conn, &route.board_id.to_string())?,
+            Some(board) => board,
+            None => default_board_for(conn, level_of(item_type))?,
         };
+        // COLLIERY-T-0216: through the shared routing helper rather than a
+        // hand-built route, so the defaulted board gives the task its team
+        // exactly as a named board does. Built by hand, the defaulted arm
+        // left every such task with no team at all.
+        let route = crate::api::tasks::resolve_routing(
+            conn,
+            Some(board.id),
+            None,
+            params.repository.as_deref(),
+        )?;
+        crate::api::tasks::require_task_create_capability(conn, slug, user, &route, None)?;
         (board, Some(route))
     } else {
         let board = match params.board.as_deref() {
@@ -3182,12 +3185,14 @@ mod create_item_parity_tests {
         ("template_id", "MCP takes `template`, by id OR name."),
         (
             "repository_id",
-            "MCP takes `repository`, by slug OR uuid, which also routes the task.",
+            "MCP takes `repository`, by slug OR uuid. It is the link of the task \
+             and does not choose the board.",
         ),
         (
             "team_id",
-            "Derived from the repository's owning team by the shared routing \
-             helper; accepting it separately would let the two disagree.",
+            "The board decides the team of a task, and MCP takes `board`. REST \
+             uses `team_id` to name the delivery board of a team; MCP defaults \
+             the board when the tenant has exactly one.",
         ),
         (
             "parent_short_code",

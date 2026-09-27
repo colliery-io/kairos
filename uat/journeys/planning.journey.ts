@@ -76,7 +76,7 @@ journey(
       const cli = await alice.cli();
       const api = await alice.api();
       const platform = await api.boardBySlug('platform-delivery');
-      const t1 = await cli.json(['tasks', 'create', '--repo', 'payments-api', '--title', named('task: export endpoint')]);
+      const t1 = await cli.json(['tasks', 'create', '--board', platform.id, '--repo', 'payments-api', '--title', named('task: export endpoint')]);
       const t2 = await cli.json(['tasks', 'create', '--board', platform.id, '--title', named('task: export schema agreed')]);
       bound = t1.short_code;
       blocker = t2.short_code;

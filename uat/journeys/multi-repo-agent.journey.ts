@@ -6,6 +6,12 @@
 // filing work where it was standing rather than where it belongs, and
 // disturbing a board it only meant to read.
 //
+// The rule it walks is COLLIERY-A-0023 (COLLIERY-T-0217): the BOARD says whose
+// work a task is, and the REPOSITORY is a link that says where the code is.
+// The agent names the board every time, and it may link a task on one team's
+// board to another team's repository. Until COLLIERY-T-0217 the repository
+// chose the board, so the agent named only the repository.
+//
 // It uses the three seeded repositories rather than creating any, because they
 // already span two owner teams and carry genuinely different instructions
 // (`cargo test`, Terraform plan output, `trunk build`). The only thing this
@@ -143,6 +149,7 @@ journey(
       const first = await mcp.call('create_item', {
         item_type: 'task',
         title: named('ledger reconciliation mismatch'),
+        board: webBoard,
         repository: WEB_REPO,
         content: 'The finance page disagrees with the statement after a refund.',
       });
@@ -151,6 +158,7 @@ journey(
       const second = await mcp.call('create_item', {
         item_type: 'task',
         title: named('finance page totals'),
+        board: webBoard,
         repository: WEB_REPO,
         content: 'A ledger reconciliation problem shows up here when a refund lands mid-month.',
       });
@@ -199,12 +207,28 @@ journey(
       return { refused: refusal.split('\n')[0].slice(0, 140) };
     });
 
-    await step(agent, `files the defect against ${PLATFORM_REPO} even though it was working in ${WEB_REPO}, and it lands on platform's board`, async () => {
+    await step(agent, `is refused when it names only ${PLATFORM_REPO}: a repository does not choose a board`, async () => {
+      const mcp = await agent.mcp();
+      // Two delivery boards, so there is no default, and the repository does
+      // not supply one. Nothing is created.
+      const before = await repoContents(mcp, PLATFORM_REPO);
+      const refusal = await mcp.refused('create_item', {
+        item_type: 'task',
+        title: named('payments: refund rounds the wrong way'),
+        repository: PLATFORM_REPO,
+      });
+      expect(refusal).toContain('board');
+      expect(await repoContents(mcp, PLATFORM_REPO)).toEqual(before);
+      return { refused: refusal.split('\n')[0].slice(0, 140), created: 'nothing' };
+    });
+
+    await step(agent, `files the defect on platform's board, linked to ${PLATFORM_REPO}, even though it was working in ${WEB_REPO}`, async () => {
       const mcp = await agent.mcp();
       const api = await alice.api();
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('payments: refund rounds the wrong way'),
+        board: platformBoard,
         repository: PLATFORM_REPO,
         content: `Found while working in ${WEB_REPO}: the refund total is rounded before tax, not after. Done = the service rounds after tax and the finance page agrees.`,
       });
@@ -212,9 +236,9 @@ journey(
       ledger.add({ kind: 'task', label: filedCrossRepo, delete: async () => { await api.delete(`/api/tasks/${filedCrossRepo}`); } });
       const item = await mcp.call('get_item', { short_code: filedCrossRepo });
       const board = field(item, '- board') ?? '';
-      // The routing claim in create_item's own description: the repository
-      // decides the board, not the agent's current working context.
-      expect(board, 'it routed to the repository owner, not where the agent stood').toContain(platformBoard);
+      // The claim in create_item's own description: the board that was
+      // named decides where the task is, not the agent's working context.
+      expect(board, 'it is on the board the agent named, not where the agent stood').toContain(platformBoard);
       expect(board).not.toContain(webBoard);
       expect(board).toContain('Backlog');
       return { short_code: filedCrossRepo, filed_from: WEB_REPO, landed_on: board };
@@ -226,6 +250,7 @@ journey(
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('portal: show the corrected refund total'),
+        board: webBoard,
         repository: WEB_REPO,
       });
       [webTask] = shortCodes(text);
@@ -234,6 +259,30 @@ journey(
       const blocked = await mcp.call('get_item', { short_code: webTask });
       expect(blocked).toContain(filedCrossRepo);
       return { edge: `${filedCrossRepo} blocks ${webTask}`, across: `${PLATFORM_REPO} → ${WEB_REPO}`, tool_said: linked.split('\n')[0] };
+    });
+
+    await step(agent, `raises the web team's own work in ${PLATFORM_REPO}: the board is web's, the repository is platform's`, async () => {
+      const mcp = await agent.mcp();
+      const api = await alice.api();
+      // The case the old rule could not express: work one team does in
+      // another team's code. It was refused because the board and the owner
+      // of the repository did not agree.
+      const text = await mcp.call('create_item', {
+        item_type: 'task',
+        title: named('portal: patch the refund client in the payments service'),
+        board: webBoard,
+        repository: PLATFORM_REPO,
+      });
+      const [guest] = shortCodes(text);
+      ledger.add({ kind: 'task', label: guest, delete: async () => { await api.delete(`/api/tasks/${guest}`); } });
+      const item = await mcp.call('get_item', { short_code: guest });
+      const board = field(item, '- board') ?? '';
+      expect(board, 'it is on the board the agent named').toContain(webBoard);
+      expect(board).not.toContain(platformBoard);
+      expect(item, 'and it links to the repository the agent named').toContain(`repository: ${PLATFORM_REPO}`);
+      // The repository queue follows the link, so platform's agents see it.
+      expect(await repoContents(mcp, PLATFORM_REPO)).toContain(guest);
+      return { short_code: guest, board: webBoard, repository: PLATFORM_REPO };
     });
 
     await step(agent, 'starts work in one repository and leaves the other two exactly as it found them', async () => {
@@ -337,6 +386,7 @@ journey(
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('portal: surface the corrected total in the invoice list'),
+        board: webBoard,
         repository: WEB_REPO,
         content: `The invoice list shows the same refund total as the detail page, so it \
           inherits whatever ${PLATFORM_REPO} decides about rounding.`,
@@ -391,6 +441,7 @@ journey(
       const text = await mcp.call('create_item', {
         item_type: 'task',
         title: named('portal: unrelated housekeeping'),
+        board: webBoard,
         repository: WEB_REPO,
       });
       const [spare] = shortCodes(text);

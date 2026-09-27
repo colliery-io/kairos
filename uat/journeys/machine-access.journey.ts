@@ -71,7 +71,7 @@ journey(
       expect(me).toContain('ci-deploy');
       const cli = await ci.cli();
       const created = await cli.json([
-        'tasks', 'create', '--repo', 'payments-api', '--title', named('task: nightly deploy failed'),
+        'tasks', 'create', '--board', 'platform-delivery', '--repo', 'payments-api', '--title', named('task: nightly deploy failed'),
       ]);
       code = created.short_code;
       const api = await alice.api();

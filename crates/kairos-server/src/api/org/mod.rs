@@ -259,7 +259,6 @@ pub fn map_config_error(e: BoardError) -> ApiError {
         | BoardError::Transition(_)
         | BoardError::SameBoard(_)
         | BoardError::NotDeliveryBoard(_)
-        | BoardError::RepositoryOwnerMismatch { .. }
         | BoardError::NoEntryColumn(_)) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }

@@ -56,7 +56,7 @@ journey(
         ledger.add({ kind: 'task', label: made.short_code, delete: async () => { await api.delete(`/api/tasks/${made.short_code}`); } });
       }
       const open = await cli.json([
-        'tasks', 'create', '--repo', team.fixture.repoSlug!, '--title', named('task: v2 export, still going'),
+        'tasks', 'create', '--board', team.fixture.boardId!, '--repo', team.fixture.repoSlug!, '--title', named('task: v2 export, still going'),
       ]);
       stillOpen = open.short_code;
       ledger.add({ kind: 'task', label: stillOpen, delete: async () => { await api.delete(`/api/tasks/${stillOpen}`); } });

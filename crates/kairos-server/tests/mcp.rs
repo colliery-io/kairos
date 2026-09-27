@@ -1027,8 +1027,12 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("NOT_FOUND"), "{text}");
 
-    // create_item with `repository` and no `board` routes to the owner's
-    // board and binds; the filters then find it and only it.
+    // create_item with `repository` and no `board`: the board is the single
+    // delivery board of the tenant, the same default a task with no
+    // repository gets (COLLIERY-T-0217). The repository is the link and has
+    // no say. It is the same board as before only because platform's board
+    // is the one delivery board here; with two, see the move section below.
+    // The filters then find the task and only it.
     let text = session
         .call_ok(
             "create_item",
@@ -1071,23 +1075,23 @@ async fn mcp_endpoint_against_live_stack() {
             "a task with no repository takes the team of its board"
         );
     }
-    // board + repository must agree (KAIROS-T-0112 covers the disagreement):
-    // the initiative board is not platform's delivery board.
+    // A board and a repository: the board is the one that was named. Until
+    // COLLIERY-T-0217 the two had to agree, and a board that was not the
+    // delivery board of the repository's owner was a VALIDATION error. The
+    // case where they differ needs a second delivery board: see the move
+    // section below.
     let text = session
-        .call_err(
+        .call_ok(
             "create_item",
             json!({
                 "item_type": "task",
-                "title": "Disagreeing board",
+                "title": "Board and repository",
                 "repository": "payments-api",
-                "board": initiative_board.to_string(),
+                "board": "platform-delivery",
             }),
         )
         .await;
-    assert!(
-        text.contains("VALIDATION") && text.contains("delivery board"),
-        "{text}"
-    );
+    assert!(text.contains("board platform-delivery"), "{text}");
     let text = session
         .call_ok(
             "board_items",
@@ -1264,6 +1268,71 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_item", json!({"short_code": movable}))
         .await;
     assert!(text.contains("board: web-delivery"), "{text}");
+    // COLLIERY-T-0217 (COLLIERY-A-0023): a task on web's board links to
+    // platform's repository. The board and the owner of the repository
+    // differ, which was a VALIDATION error before.
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Web's work in platform's code",
+                "board": "web-delivery",
+                "repository": "payments-api",
+            }),
+        )
+        .await;
+    let linked = extract_code(&text, "ACME-T-");
+    assert!(text.contains("board web-delivery"), "{text}");
+    let text = session
+        .call_ok("get_item", json!({"short_code": linked}))
+        .await;
+    assert!(text.contains("board: web-delivery"), "{text}");
+    assert!(text.contains("payments-api"), "{text}");
+    // A task with a repository moves like any other, and keeps the
+    // repository. Before, the move was refused unless the target was the
+    // board of the repository's owner: to platform's board was allowed, and
+    // back to web's was not.
+    let text = session
+        .call_ok(
+            "move_item",
+            json!({"short_code": linked, "to_board": "platform-delivery"}),
+        )
+        .await;
+    assert!(text.contains("web-delivery -> platform-delivery"), "{text}");
+    let text = session
+        .call_ok(
+            "move_item",
+            json!({"short_code": linked, "to_board": "web-delivery"}),
+        )
+        .await;
+    assert!(
+        text.contains(&format!(
+            "Moved {linked}: platform-delivery -> web-delivery /"
+        )),
+        "the move does not look at the repository: {text}"
+    );
+    let text = session
+        .call_ok("get_item", json!({"short_code": linked}))
+        .await;
+    assert!(text.contains("board: web-delivery"), "{text}");
+    assert!(text.contains("payments-api"), "it keeps the link: {text}");
+    // With two delivery boards there is no default, and a repository does
+    // not supply one: the caller must name the board.
+    let text = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "No board, two to choose from",
+                "repository": "payments-api",
+            }),
+        )
+        .await;
+    assert!(
+        text.contains("VALIDATION") && text.contains("pass `board`"),
+        "{text}"
+    );
     // Only tasks: an initiative is told to use transition_item instead.
     let text = session
         .call_ok(

@@ -88,10 +88,10 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
              {connections} live webhook connection(s); unbind them first"
         )),
         RepositoryError::Database(e) => ApiError::internal(e),
-        routing @ (RepositoryError::BoardMismatch { .. }
-        | RepositoryError::TeamMismatch { .. }
-        | RepositoryError::TeamNotBoardTeam { .. }
-        | RepositoryError::NothingToRouteBy) => ApiError::validation(routing.to_string()),
+        routing
+        @ (RepositoryError::TeamNotBoardTeam { .. } | RepositoryError::NothingToRouteBy) => {
+            ApiError::validation(routing.to_string())
+        }
     }
 }
 

@@ -699,9 +699,9 @@ struct MoveTaskBody<'a> {
 /// DELIVERY board (KAIROS-I-0012 D2; mirror of
 /// `KairosClient::move_task`). It lands in the target's entry column and
 /// follows the target's team. Refusals the panel shows inline: 422
-/// `SAME_BOARD` / `NOT_DELIVERY_BOARD` / `REPOSITORY_OWNER_MISMATCH` (the
-/// T-0104 rule) / `NO_ENTRY_COLUMN`, 403 without `manage_tasks` on BOTH
-/// boards, 404 for an unknown board.
+/// `SAME_BOARD` / `NOT_DELIVERY_BOARD` / `NO_ENTRY_COLUMN`, 403 without
+/// `manage_tasks` on BOTH boards, 404 for an unknown board. The server no
+/// longer refuses a move because of the task's repository (COLLIERY-T-0217).
 pub async fn move_task(auth: Auth, code: &str, board: &str) -> Result<ItemDetail, ApiError> {
     crate::api::post_json(
         auth,

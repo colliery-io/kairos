@@ -70,9 +70,12 @@ pub(crate) fn resolve_routing(
 
 /// Authorize a task CREATE (KAIROS-T-0105, A-0019 §4). `manage_tasks` on
 /// the target board as always; failing that, the computed `file_backlog`
-/// applies ONLY when all of: a repository routed the task, and the target
+/// applies ONLY when all of: the task links to a repository, and the target
 /// column is the board's ENTRY column (the default when no column is
 /// named — [`boards::entry_column`], so explicit and defaulted agree).
+/// The repository no longer chooses the board (COLLIERY-T-0217), so a filer
+/// names the board or the team as well. The condition itself is unchanged
+/// here; COLLIERY-T-0218 is the task that changes it.
 /// An explicitly requested non-entry column by a non-member is a 403,
 /// never silently re-routed. Shared by HTTP and MCP so the two entry
 /// points cannot diverge (the KAIROS-T-0096 lesson).
@@ -217,6 +220,11 @@ pub(crate) async fn get_task(
 
 /// Create a task (requires `manage_tasks` on the target board).
 /// `task_type` defaults to `task`.
+///
+/// Name the board with `board_id`, or name a team with `team_id` to use
+/// the delivery board of that team (COLLIERY-T-0217, COLLIERY-A-0023).
+/// `repository` is an optional link. It can be any live repository, and it
+/// does not choose the board.
 #[utoipa::path(
     post,
     path = "/api/tasks",
@@ -225,7 +233,7 @@ pub(crate) async fn get_task(
     responses(
         (status = 201, description = "Created", body = dto::Task),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
-        (status = 422, description = "Unknown board/column or bad enum value", body = dto::ErrorEnvelope),
+        (status = 422, description = "No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository, or bad enum value", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_task(
@@ -418,10 +426,10 @@ pub(crate) async fn set_work_class(
     Ok(Json(updated))
 }
 
-/// Bind a task to a repository, re-home it to another repository of the
-/// same team, or clear it (KAIROS-T-0104, A-0019). The repository must be
-/// owned by the team whose delivery board the task sits on — the same
-/// rule create enforces. Requires `manage_tasks` on the task's board.
+/// Set the repository a task links to, or clear it (KAIROS-T-0104).
+/// The link can be any live repository. The board and the team of the task
+/// do not change (COLLIERY-T-0217, COLLIERY-A-0023). Requires
+/// `manage_tasks` on the task's board.
 #[utoipa::path(
     put,
     path = "/api/tasks/{short_code}/repository",
@@ -429,10 +437,10 @@ pub(crate) async fn set_work_class(
     params(("short_code" = String, Path, description = "Task short code")),
     request_body = kairos_client::types_repositories::SetTaskRepositoryRequest,
     responses(
-        (status = 200, description = "Repository binding updated", body = dto::Task),
+        (status = 200, description = "Repository link updated", body = dto::Task),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
-        (status = 422, description = "Unknown repository, or one owned by another team", body = dto::ErrorEnvelope),
+        (status = 422, description = "Unknown repository", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn set_repository(
@@ -452,9 +460,17 @@ pub(crate) async fn set_repository(
             let repository_id = match body.repository.as_deref() {
                 None => None,
                 Some(reference) => {
-                    // Same rule as create: the repo must route to THIS board.
-                    let route = resolve_routing(conn, Some(task.board_id), None, Some(reference))?;
-                    route.repository_id
+                    // COLLIERY-T-0217 (COLLIERY-A-0023): the repository is a
+                    // link, so the only question is whether it is live. Until
+                    // then this went through `resolve_routing` with the
+                    // task's board, which refused a repository owned by any
+                    // team but the board's. The owner is not read now, and
+                    // the board and the team of the task are not written.
+                    Some(
+                        repositories::resolve(conn, reference)
+                            .map_err(map_repository_error)?
+                            .id,
+                    )
                 }
             };
             let updated = items::set_task_repository(conn, task.id, repository_id, user)
@@ -468,8 +484,8 @@ pub(crate) async fn set_repository(
 /// Move a task to another DELIVERY board (KAIROS-I-0012): it lands in the
 /// target's entry column and follows the target's team. Requires
 /// `manage_tasks` on the current board AND on the target (org admins
-/// bypass, as everywhere). A task bound to a repository may only move to
-/// that repository's owning team's board (KAIROS-T-0104).
+/// bypass, as everywhere). The move does not look at the repository of the
+/// task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023).
 #[utoipa::path(
     post,
     path = "/api/tasks/{short_code}/move",
@@ -480,7 +496,7 @@ pub(crate) async fn set_repository(
         (status = 200, description = "Moved (new board, entry column)", body = dto::Task),
         (status = 403, description = "Missing manage_tasks on either board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code or board", body = dto::ErrorEnvelope),
-        (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | REPOSITORY_OWNER_MISMATCH | NO_ENTRY_COLUMN", body = dto::ErrorEnvelope),
+        (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn move_task(

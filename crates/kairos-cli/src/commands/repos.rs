@@ -1,7 +1,9 @@
 //! `kairos repos` — the repository directory (KAIROS-T-0107, decision
 //! KAIROS-A-0019): the unit a ticket is issued against and executed in.
-//! Every repository has exactly one owning team; `bind` routes a task to
-//! it (and to the owning team's delivery board).
+//! Every repository has exactly one owning team. `bind` sets the repository
+//! a task links to and changes nothing else: the task stays on its board,
+//! with its team (COLLIERY-T-0217, COLLIERY-A-0023). Until then `bind`
+//! accepted only a repository of the team whose board the task was on.
 
 use kairos_client::types_repositories::{
     CreateRepositoryRequest, Repository, UpdateRepositoryRequest,
@@ -86,8 +88,8 @@ pub enum ReposCommand {
         #[command(flatten)]
         common: Common,
     },
-    /// Bind a task to a repository (must be owned by the team whose board
-    /// the task sits on)
+    /// Bind a task to a repository. It can be any repository, of any team.
+    /// The board and the team of the task do not change
     Bind {
         /// Task short code
         short_code: String,

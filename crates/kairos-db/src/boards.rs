@@ -56,15 +56,6 @@ pub enum BoardError {
     /// `move_task`: tasks move between DELIVERY boards only.
     #[error("board {0} is not a delivery board")]
     NotDeliveryBoard(Uuid),
-    /// `move_task`: a task bound to a repository sits on that repository's
-    /// owning team's delivery board (KAIROS-T-0104); `owner_board_id` is
-    /// where it may go (`None` when the owner has no single delivery board).
-    #[error("task is bound to repository {repository}, which routes to another board")]
-    RepositoryOwnerMismatch {
-        repository: String,
-        owner_board_id: Option<Uuid>,
-        detail: Option<String>,
-    },
     /// `move_task`: the target board has no columns to land in.
     #[error("board {0} has no entry column")]
     NoEntryColumn(Uuid),
@@ -398,10 +389,16 @@ pub struct TaskMove {
 /// Move a live task to another live **delivery** board: it lands in the
 /// target's entry column, follows the target's team, gets a `board_move`
 /// activity row, and an `item_moved` event goes to both boards (one
-/// commit). A task bound to a repository may only move to that
-/// repository's owning team's delivery board (the KAIROS-T-0104 rule) —
-/// unbind it first otherwise. Authorization (`manage_tasks` on BOTH
-/// boards) is the caller's, as for every write here.
+/// commit). Authorization (`manage_tasks` on BOTH boards) is the caller's,
+/// as for every write here.
+///
+/// The move does not look at the repository of the task, and the task keeps
+/// it (COLLIERY-T-0217, COLLIERY-A-0023): the repository is a link, and any
+/// task may link to any live repository. Until COLLIERY-T-0217 a task with
+/// a repository could move only to the delivery board of the repository's
+/// owning team (the KAIROS-T-0104 rule, with an error variant and a 422
+/// code of its own, both removed). To go to any other board, the link had
+/// to be cleared first.
 pub fn move_task(
     conn: &mut PgConnection,
     task_id: Uuid,
@@ -412,17 +409,16 @@ pub fn move_task(
         use crate::schema::boards::dsl as boards_dsl;
         use crate::schema::tasks::dsl;
 
-        let current: Option<(Uuid, Uuid, Option<Uuid>)> = dsl::tasks
+        let current: Option<(Uuid, Uuid)> = dsl::tasks
             .filter(dsl::id.eq(task_id))
             .filter(dsl::deleted_at.is_null())
-            .select((dsl::board_id, dsl::column_id, dsl::repository_id))
+            .select((dsl::board_id, dsl::column_id))
             .first(conn)
             .optional()?;
-        let (from_board_id, from_column_id, repository_id) =
-            current.ok_or(BoardError::ItemNotFound {
-                entity_type: "task",
-                id: task_id,
-            })?;
+        let (from_board_id, from_column_id) = current.ok_or(BoardError::ItemNotFound {
+            entity_type: "task",
+            id: task_id,
+        })?;
         if from_board_id == to_board_id {
             return Err(BoardError::SameBoard(to_board_id));
         }
@@ -435,28 +431,6 @@ pub fn move_task(
         let target = target.ok_or(BoardError::BoardNotFound(to_board_id))?;
         if target.board_level != BoardLevel::Delivery {
             return Err(BoardError::NotDeliveryBoard(to_board_id));
-        }
-        if let Some(repository_id) = repository_id {
-            use crate::schema::repositories::dsl as repos;
-            let (slug, owner): (String, Uuid) = repos::repositories
-                .filter(repos::id.eq(repository_id))
-                .select((repos::slug, repos::team_id))
-                .first(conn)?;
-            let owner_board =
-                crate::repositories::delivery_board_for_team(conn, owner).map_err(|e| {
-                    BoardError::RepositoryOwnerMismatch {
-                        repository: slug.clone(),
-                        owner_board_id: None,
-                        detail: Some(e.to_string()),
-                    }
-                })?;
-            if owner_board != to_board_id {
-                return Err(BoardError::RepositoryOwnerMismatch {
-                    repository: slug,
-                    owner_board_id: Some(owner_board),
-                    detail: None,
-                });
-            }
         }
         let to_column_id =
             entry_column(conn, to_board_id)?.ok_or(BoardError::NoEntryColumn(to_board_id))?;

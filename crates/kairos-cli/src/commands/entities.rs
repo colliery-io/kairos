@@ -167,8 +167,7 @@ pub struct MoveArgs {
     pub short_code: String,
     /// Target delivery board (slug or UUID). The task lands in that
     /// board's entry column and follows its team; you need `manage_tasks`
-    /// on both boards. A task bound to a repository may only move to that
-    /// repository's owning team's board — unbind it first otherwise.
+    /// on both boards. The task keeps its repository.
     #[arg(long = "to-board", value_name = "BOARD")]
     pub to_board: String,
     #[command(flatten)]
@@ -678,9 +677,9 @@ impl InitiativeCreateArgs {
 #[derive(Args, Debug)]
 pub struct TaskCreateArgs {
     /// Delivery board to create the task on (slug or UUID). Optional when
-    /// --repo is given: the task is routed to the repository's owning
-    /// team's delivery board (KAIROS-A-0019)
-    #[arg(long, value_name = "BOARD", required_unless_present = "repo")]
+    /// --team is given: the task goes to the delivery board of that team.
+    /// The board decides the team of the task (COLLIERY-A-0023)
+    #[arg(long, value_name = "BOARD", required_unless_present = "team")]
     pub board: Option<String>,
     /// Column to place it in (UUID; defaults to the board's first column)
     #[arg(long, value_name = "COLUMN_ID")]
@@ -698,11 +697,12 @@ pub struct TaskCreateArgs {
     /// support for support-type tasks, else planned)
     #[arg(long = "work-class", value_name = "WORK_CLASS")]
     pub work_class: Option<String>,
-    /// Owning team (UUID; defaults to the repository's owning team)
+    /// Team (UUID). Without --board, the task goes to the delivery board
+    /// of this team. With --board, it must be the team of that board
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
-    /// Repository to issue the task against (slug or UUID); routes the
-    /// task to the owning team's delivery board
+    /// Repository the task links to (slug or UUID). It can be any
+    /// repository, of any team. It does not choose the board
     #[arg(long, value_name = "REPOSITORY")]
     pub repo: Option<String>,
     #[command(flatten)]

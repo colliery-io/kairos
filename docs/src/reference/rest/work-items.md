@@ -229,13 +229,18 @@ is that a listing nobody asked hides put-away work.
 Create a task (requires `manage_tasks` on the target board).
 `task_type` defaults to `task`.
 
+Name the board with `board_id`, or name a team with `team_id` to use
+the delivery board of that team (COLLIERY-T-0217, COLLIERY-A-0023).
+`repository` is an optional link. It can be any live repository, and it
+does not choose the board.
+
 Request body (required): `application/json`, [`CreateTaskRequest`](schemas.md#createtaskrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Task`](schemas.md#task) | Created |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board/column or bad enum value |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository, or bad enum value |
 
 ### `GET /api/tasks/{short_code}`
 
@@ -288,8 +293,8 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 Move a task to another DELIVERY board (KAIROS-I-0012): it lands in the
 target's entry column and follows the target's team. Requires
 `manage_tasks` on the current board AND on the target (org admins
-bypass, as everywhere). A task bound to a repository may only move to
-that repository's owning team's board (KAIROS-T-0104).
+bypass, as everywhere). The move does not look at the repository of the
+task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -302,14 +307,14 @@ Request body (required): `application/json`, [`MoveTaskRequest`](schemas.md#move
 | `200` | [`Task`](schemas.md#task) | Moved (new board, entry column) |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on either board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code or board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | REPOSITORY_OWNER_MISMATCH | NO_ENTRY_COLUMN |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN |
 
 ### `PUT /api/tasks/{short_code}/repository`
 
-Bind a task to a repository, re-home it to another repository of the
-same team, or clear it (KAIROS-T-0104, A-0019). The repository must be
-owned by the team whose delivery board the task sits on — the same
-rule create enforces. Requires `manage_tasks` on the task's board.
+Set the repository a task links to, or clear it (KAIROS-T-0104).
+The link can be any live repository. The board and the team of the task
+do not change (COLLIERY-T-0217, COLLIERY-A-0023). Requires
+`manage_tasks` on the task's board.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -319,10 +324,10 @@ Request body (required): `application/json`, [`SetTaskRepositoryRequest`](schema
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`Task`](schemas.md#task) | Repository binding updated |
+| `200` | [`Task`](schemas.md#task) | Repository link updated |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository, or one owned by another team |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 
 ### `POST /api/tasks/{short_code}/transition`
 

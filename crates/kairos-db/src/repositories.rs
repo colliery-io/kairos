@@ -1,15 +1,15 @@
 //! Repository services (KAIROS-T-0103, design in KAIROS-I-0010, decision
 //! KAIROS-A-0019): the CRUD behind `/api/repositories` and the one routing
-//! helper every task-create path needs — a repository's owning team's
-//! delivery board.
+//! decision every task-create path needs, [`route_task`]. A board or a team
+//! chooses where a task goes; a repository is only the task's link to where
+//! the code is (COLLIERY-T-0217, COLLIERY-A-0023).
 //!
 //! Every function operates in the CURRENT `search_path` tenant schema,
 //! the same convention as [`crate::items`] and [`crate::forge`].
 //!
 //! # Why deletion is refused while referenced
 //!
-//! A repository is a routing target: tasks bind to it and a webhook
-//! connection hangs off it. Soft-deleting it under them would leave
+//! Tasks link to a repository and a webhook connection hangs off it. Soft-deleting it under them would leave
 //! tasks pointing at nothing (`tasks.repository_id` has no `ON DELETE`)
 //! and a live connection with a dead owner. The caller unbinds first;
 //! the typed [`RepositoryError::InUse`] says what is still attached.
@@ -59,28 +59,14 @@ pub enum RepositoryError {
         tasks: i64,
         connections: i64,
     },
-    /// `route_task`: the caller named a board that is not the repository's
-    /// owning team's delivery board (A-0019 §2).
+    /// `route_task`: the caller named neither a board nor a team
+    /// (COLLIERY-T-0217, COLLIERY-A-0023). A repository beside them does not
+    /// help: it is a link, and it does not choose a board. Until
+    /// COLLIERY-T-0217 a repository alone was enough, and this error meant
+    /// "no board and no repository".
     #[error(
-        "repository {slug} belongs to team {team}, whose delivery board is {delivery_board}, not {board}"
-    )]
-    BoardMismatch {
-        slug: String,
-        team: Uuid,
-        delivery_board: Uuid,
-        board: Uuid,
-    },
-    /// `route_task`: the caller named a team that is not the owner.
-    #[error("repository {slug} belongs to team {owner}, not {team}")]
-    TeamMismatch {
-        slug: String,
-        owner: Uuid,
-        team: Uuid,
-    },
-    /// `route_task`: neither a board nor a repository was given.
-    #[error(
-        "board_id is required unless repository_id is given (a repository routes the task to \
-         its owning team's delivery board)"
+        "name a board or a team (board_id or team_id); a repository is a link and does not \
+         choose a board"
     )]
     NothingToRouteBy,
     /// The caller named a team that the board does not belong to
@@ -98,7 +84,13 @@ pub enum RepositoryError {
     Database(#[from] DieselError),
 }
 
-/// Where a task write lands (A-0019 §2): the board, the team, the repo.
+/// Where a task write lands: the board, the team of that board, and the
+/// repository the task links to.
+///
+/// The three are not equals (COLLIERY-T-0217, COLLIERY-A-0023). The board is
+/// what the caller chose, by naming it or by naming its team. The team is
+/// read from the board (COLLIERY-T-0216). The repository is an optional link
+/// that says where the code is; it has no part in the other two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TaskRoute {
     pub board_id: Uuid,
@@ -106,82 +98,85 @@ pub struct TaskRoute {
     pub repository_id: Option<Uuid>,
 }
 
-/// THE routing decision for a task write (A-0019 §2; KAIROS-T-0112 moved
-/// it here from the HTTP layer so HTTP, MCP and the board view share one
-/// implementation in the crate that owns the data):
+/// THE routing decision for a task write (KAIROS-T-0112 moved it here from
+/// the HTTP layer so HTTP, MCP and the board view share one implementation
+/// in the crate that owns the data). The rule is COLLIERY-A-0023, which
+/// amends KAIROS-A-0019 §2, and COLLIERY-T-0217 put it here:
 ///
-/// 1. repository only → the repo's owning team and that team's delivery
-///    board;
-/// 2. repository + board → the board must BE that delivery board, and an
-///    explicit team must be the owner ([`RepositoryError::BoardMismatch`] /
-///    [`RepositoryError::TeamMismatch`]);
-/// 3. no repository → the caller's board, and THAT BOARD'S team
-///    ([`RepositoryError::NothingToRouteBy`] when there is no board either;
-///    [`RepositoryError::TeamNotBoardTeam`] when the caller names a team
-///    the board does not belong to - COLLIERY-T-0216).
+/// 1. board → that board, and THAT BOARD'S team. A team named beside it
+///    must be the board's own ([`RepositoryError::TeamNotBoardTeam`],
+///    COLLIERY-T-0216);
+/// 2. no board, a team → the team's ONE live delivery board
+///    ([`delivery_board_for_team`], [`RepositoryError::NoDeliveryBoard`]);
+/// 3. neither → [`RepositoryError::NothingToRouteBy`], with or without a
+///    repository.
+///
+/// The repository takes no part in 1 to 3. When one is given it must be
+/// live ([`RepositoryError::NotFound`] / [`RepositoryError::SlugNotFound`]),
+/// and its id is carried into the route as the task's link. Its owning team
+/// is NOT looked at: a task on any team's board may link to any live
+/// repository.
+///
+/// # What this replaced
+///
+/// Until COLLIERY-T-0217 the repository chose the board (A-0019 §2): a
+/// repository alone sent the task to its owner's delivery board, and a board
+/// or a team named beside it had to agree with the owner (two mismatch
+/// errors, both removed). That made one field do two jobs. Work that
+/// one team does in another team's code could not be filed where the work is
+/// done, and a change of owner left every bound task on a board the rule no
+/// longer allowed.
 pub fn route_task(
     conn: &mut PgConnection,
     board_id: Option<Uuid>,
     team_id: Option<Uuid>,
     repository: Option<&str>,
 ) -> Result<TaskRoute, RepositoryError> {
-    let Some(reference) = repository else {
-        let Some(board_id) = board_id else {
-            return Err(RepositoryError::NothingToRouteBy);
-        };
-        // COLLIERY-T-0216: the board decides the team. A caller may still
-        // NAME a team, and naming the board's own is harmless; naming any
-        // other is refused rather than quietly ignored, because the caller
-        // believes the task will be that team's work and it will not be.
-        let board_team: Option<Uuid> = {
-            use crate::schema::boards;
-            boards::table
-                .filter(boards::id.eq(board_id))
-                .select(boards::team_id)
-                .first::<Option<Uuid>>(conn)
-                .optional()?
-                .flatten()
-        };
-        if let Some(team_id) = team_id
-            && Some(team_id) != board_team
-        {
-            return Err(RepositoryError::TeamNotBoardTeam {
-                board: board_id,
-                board_team,
-                team: team_id,
-            });
+    let (board_id, board_team) = match (board_id, team_id) {
+        (Some(board_id), team_id) => {
+            // COLLIERY-T-0216: the board decides the team. A caller may
+            // still NAME a team, and naming the board's own is harmless;
+            // naming any other is refused rather than quietly ignored,
+            // because the caller believes the task will be that team's work
+            // and it will not be.
+            let board_team: Option<Uuid> = {
+                use crate::schema::boards;
+                boards::table
+                    .filter(boards::id.eq(board_id))
+                    .select(boards::team_id)
+                    .first::<Option<Uuid>>(conn)
+                    .optional()?
+                    .flatten()
+            };
+            if let Some(team_id) = team_id
+                && Some(team_id) != board_team
+            {
+                return Err(RepositoryError::TeamNotBoardTeam {
+                    board: board_id,
+                    board_team,
+                    team: team_id,
+                });
+            }
+            (board_id, board_team)
         }
-        return Ok(TaskRoute {
-            board_id,
-            team_id: board_team,
-            repository_id: None,
-        });
+        // COLLIERY-T-0217: a team without a board names that team's delivery
+        // board. Zero boards or several is refused, not guessed at.
+        (None, Some(team_id)) => (delivery_board_for_team(conn, team_id)?, Some(team_id)),
+        // Refused BEFORE the repository is resolved, so a caller that sent
+        // only a repository is told what is missing, not that its repository
+        // is unknown.
+        (None, None) => return Err(RepositoryError::NothingToRouteBy),
     };
-    let repo = resolve(conn, reference)?;
-    let delivery_board = delivery_board_for_team(conn, repo.team_id)?;
-    if let Some(board_id) = board_id
-        && board_id != delivery_board
-    {
-        return Err(RepositoryError::BoardMismatch {
-            slug: repo.slug,
-            team: repo.team_id,
-            delivery_board,
-            board: board_id,
-        });
-    }
-    if let Some(team_id) = team_id
-        && team_id != repo.team_id
-    {
-        return Err(RepositoryError::TeamMismatch {
-            slug: repo.slug,
-            owner: repo.team_id,
-            team: team_id,
-        });
-    }
+    // The link. Resolving proves the repository is live and turns a slug
+    // into an id; the owner on the row is deliberately not read.
+    let repository_id = match repository {
+        Some(reference) => Some(resolve(conn, reference)?.id),
+        None => None,
+    };
     Ok(TaskRoute {
-        board_id: delivery_board,
-        team_id: Some(repo.team_id),
-        repository_id: Some(repo.id),
+        board_id,
+        team_id: board_team,
+        repository_id,
     })
 }
 

@@ -421,28 +421,6 @@ pub fn map_board_error(e: BoardError) -> ApiError {
             "NOT_DELIVERY_BOARD",
             format!("board {id} is not a delivery board; tasks move between delivery boards only"),
         ),
-        BoardError::RepositoryOwnerMismatch {
-            repository,
-            owner_board_id,
-            detail,
-        } => {
-            let message = match (owner_board_id, detail) {
-                (Some(board), _) => format!(
-                    "the task is bound to repository {repository:?}, whose owning team's delivery \
-                     board is {board}; move it there, or unbind it first \
-                     (PUT /api/tasks/{{code}}/repository with repository: null)"
-                ),
-                (None, detail) => format!(
-                    "the task is bound to repository {repository:?} but its owner has no single \
-                     delivery board to move to ({}); unbind it first",
-                    detail.unwrap_or_default()
-                ),
-            };
-            ApiError::unprocessable("REPOSITORY_OWNER_MISMATCH", message).with_details(json!({
-                "repository": repository,
-                "owner_board_id": owner_board_id,
-            }))
-        }
         BoardError::NoEntryColumn(id) => ApiError::unprocessable(
             "NO_ENTRY_COLUMN",
             format!("board {id} has no columns to land in"),

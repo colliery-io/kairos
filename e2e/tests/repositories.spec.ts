@@ -8,15 +8,17 @@
 //   2. the delivery board carries repo chips, the Repository lens narrows
 //      the cards and lives in the URL, "Group by repository" re-lanes
 //   3. cross-team: carol files a task against platform's repo over the
-//      API with no board → it lands in platform's Backlog; carol cannot
+//      API, on platform's board → it lands in platform's Backlog (she names
+//      the board: a repository does not choose one, COLLIERY-T-0217); a
+//      repository with no board is refused; carol cannot
 //      transition it; bob (a platform member, NOT an admin) can — the team
 //      gate, not the admin bypass; carol links her own web task to it with
 //      a `blocks` edge (collaborative relationship); the card shows the chip
 //   4. the item page's repository picker re-homes a task within the team,
 //      and its Board select moves a task to the OTHER delivery board
-//      (KAIROS-I-0012): the repo-bound task is refused inline, an unbound
-//      one lands in the target's entry column, and both boards react to
-//      the `item_moved` events live
+//      (KAIROS-I-0012): the repo-bound task moves and keeps its
+//      repository (COLLIERY-T-0217), an unbound one lands in the target's
+//      entry column, and both boards react to the `item_moved` events live
 //   5. a PR opened in the repo naming the cross-team task links back to it
 //      (forge webhook against a freshly connected repo)
 //   6. the admin Repositories page registers a repo and connects its
@@ -144,8 +146,16 @@ test('repositories: team panel → board lens → cross-team filing → picker �
   // 3. Cross-team filing ------------------------------------------------------
   let filedCode = '';
   await test.step('carol (web) files a task against platform\'s repo → platform Backlog', async () => {
+    // A repository alone does not choose a board (COLLIERY-T-0217).
+    await expect(
+      createTask(GUI, carol, {
+        title: 'Cross-team: no board named',
+        repository: 'payments-api',
+      }),
+    ).rejects.toThrow(/422/);
     const filed = await createTask(GUI, carol, {
       title: 'Cross-team: export endpoint for the portal',
+      boardId: 'platform-delivery',
       repository: 'payments-api',
     });
     filedCode = filed.short_code;
@@ -166,6 +176,7 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     // platform-board power needed. A `supports` edge is not, so it is refused.
     const webSide = await createTask(GUI, carol, {
       title: 'Portal: consume the export endpoint',
+      boardId: 'web-delivery',
       repository: 'portal-web',
     });
     expect(webSide.repository.slug).toBe('portal-web');
@@ -235,9 +246,10 @@ test('repositories: team panel → board lens → cross-team filing → picker �
   await test.step('the item page moves a task to another delivery board; both boards react live', async () => {
     const platform = await loadPlatformDelivery(GUI, alice);
 
-    // The T-0104 repository rule is the refusal people will actually hit:
-    // the cross-team task is bound to payments-api (platform's repo), so
-    // the web board is refused — inline, under the picker.
+    // COLLIERY-T-0217: the cross-team task is bound to payments-api
+    // (platform's repo) and still moves to the web board. It keeps the
+    // repository. Until then the T-0104 rule refused this move inline with
+    // REPOSITORY_OWNER_MISMATCH.
     await page.goto(`/items/${filedCode}`);
     const mover = page.locator('[data-testid="move-board"]');
     await expect(mover).toBeVisible();
@@ -249,8 +261,12 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await expect(picker.locator('option', { hasText: 'Platform Delivery' })).toHaveCount(0);
     await picker.selectOption('web-delivery');
     await mover.getByRole('button', { name: 'Move board' }).click();
-    await expect(mover).toContainText('REPOSITORY_OWNER_MISMATCH', { timeout: 10_000 });
-    await expect(mover).toContainText('payments-api');
+    await expect(page.locator('.kairos-item__notice')).toContainText('Moved to Web Delivery.', {
+      timeout: 10_000,
+    });
+    await expect(page.locator('.cl-pill', { hasText: 'repo: payments-api' })).toBeVisible();
+    // Back to platform's board over the API, for the steps that follow.
+    await moveTask(GUI, alice, filedCode, 'platform-delivery');
 
     // An UNBOUND task moves: the Board panel re-renders on the target
     // board, in its entry column, without a reload.

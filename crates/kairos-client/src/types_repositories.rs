@@ -21,9 +21,10 @@ pub struct RepositoryRef {
     pub team_id: String,
 }
 
-/// Body of `PUT /api/tasks/{short_code}/repository` — bind the task to a
-/// repository (slug or UUID), or clear it with `null`. The repository
-/// must be owned by the team whose delivery board the task sits on.
+/// Body of `PUT /api/tasks/{short_code}/repository` — set the repository
+/// the task links to (slug or UUID), or clear it with `null`. It can be any
+/// live repository, of any team. The board and the team of the task do not
+/// change (COLLIERY-T-0217, COLLIERY-A-0023).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct SetTaskRepositoryRequest {
     #[serde(default)]

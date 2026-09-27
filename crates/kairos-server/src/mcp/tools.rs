@@ -13,7 +13,9 @@
 //!   ([`tool_error`]). Since COLLIERY-T-0228 the check is one of three,
 //!   and each is the function that the REST handler calls: an EDIT asks
 //!   [`require_item_edit`], an EDGE asks [`require_edge_write`], and a MOVE
-//!   or a create asks [`require_capability`].
+//!   or a create asks [`require_capability`]. The REMOVE of an edge asks
+//!   [`crate::api::remove_edge`] (COLLIERY-T-0235): the same rule, but for
+//!   the `supports` edge of a document.
 //! - **REQ-1.2**: no tenant parameter exists — the tenant is the one the
 //!   middleware resolved from the connection host.
 //! - **REQ-1.3**: short codes identify items in every input and output;
@@ -1411,7 +1413,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type. One exception: to write `supports` to a document that has no parent, you must be able to edit the document."
     )]
     pub async fn link_items(
         &self,
@@ -1445,7 +1447,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items."
+        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items. To remove a `supports` edge of a document, you must be able to edit the document. A document always has a parent: the remove of its last `supports` edge is refused (LAST_PARENT). Link the document to a different item first, or archive the document."
     )]
     pub async fn unlink_items(
         &self,
@@ -1460,16 +1462,17 @@ impl KairosMcp {
                 parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
             let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
             let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
-            require_edge_write(
+            // COLLIERY-T-0235: the rule of the remove and the delete, in
+            // one transaction, by the ONE function that REST
+            // `DELETE /api/relationships/{id}` calls.
+            crate::api::remove_edge(
                 conn,
                 &tenant_ctx.slug,
                 user,
-                relationship.as_str(),
+                relationship,
                 (source_id, source_type),
                 (target_id, target_type),
             )?;
-            graph::unlink_items(conn, source_id, target_id, relationship, user)
-                .map_err(map_link_error)?;
             Ok(format!(
                 "Unlinked {} -[{relationship}]-> {}.",
                 params.source, params.target

@@ -195,6 +195,41 @@ more dangerous to write than `blocks`.
 The rule decides who may write an edge. Which edges can exist at all — the
 type rules, the cycle check — is a property of the graph and is unchanged.
 
+### The one edge that carries authority
+
+There is one edge the rule is too generous for, and it is worth seeing why,
+because it is the only place where writing an edge changes who may edit
+something.
+
+A document borrows its authority from what it supports. Its board is the board
+of its earliest `supports` parent. So that one edge is not only a statement
+about two items: it decides which team answers for the document. "Either end"
+is the right rule for a statement and the wrong rule for a transfer.
+
+Two things followed from the plain link rule. A document that supported
+nothing had no team to answer for it, and the first person to attach it to
+their own work took it: they could edit the source, the edge was the
+document's first, and their board became its board. And a person who could
+edit a document's earliest parent, but not the document, could remove that
+edge and leave a later parent — perhaps their own — as the earliest.
+
+So the rule narrows in exactly the places where the edge moves authority.
+Attaching a document that has no parent needs the right to edit the document.
+Removing a parent of a document needs the right to edit the document. And no
+one, an organisation admin included, may remove a document's last parent: the
+server does not create the state the first problem starts from. Adding a
+parent to a document that already has one moves nothing, because the earliest
+edge still wins, so it stays on the plain rule.
+
+The way to move a document is therefore to attach it to the new item first and
+detach it from the old one second. Someone who may edit the document may do
+both, and in doing so gives its authority to another board, which is theirs to
+give.
+
+This is an interim shape. It keeps "authority from the parent's board" and
+closes the two ways to take it. A list of editors per document would remove
+the need for the edge to carry authority at all.
+
 ## Things that have no board of their own
 
 Not everything sits on a board, and each case is resolved by asking what board
@@ -250,7 +285,9 @@ document nobody has attached to anything both behave like tenant-wide
 configuration. The chain answers the board question only. For an edit, the
 item's creator passes before the chain is consulted at all, so an off-board ADR
 is editable by the admin who wrote it and by any other admin — and a document
-that has lost its parent is still editable by its author.
+with no parent is still editable by its author. The server no longer lets a
+document lose its last parent, so such a document is old data; see [the one
+edge that carries authority](#the-one-edge-that-carries-authority).
 
 ## Archived work is not less accessible
 
@@ -286,6 +323,8 @@ mean.
 - The edit rule and the link rule (COLLIERY-T-0228): creation is the primary
   mechanism of ownership, a link follows the same rule as an edit, and movement
   stays with the team of the board.
+- A document always has a parent, and its `supports` edge is written by whoever
+  may edit the document (COLLIERY-T-0235).
 
 <!-- KAIROS-I-0016 / KAIROS-T-0171 (E6): the capability vocabulary and the
      computed grant sets are cited to KAIROS-A-0006 rather than restated here,

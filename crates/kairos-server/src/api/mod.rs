@@ -52,6 +52,7 @@ use diesel::sql_types::{Text, Uuid as SqlUuid};
 use kairos_client::types as dto;
 use kairos_core::board::TransitionError;
 use kairos_core::short_code::ItemType;
+use kairos_db::models::enums::RelationshipType;
 use kairos_db::{AbacError, BoardError, GraphError, ItemError, abac};
 use serde_json::json;
 use uuid::Uuid;
@@ -377,6 +378,32 @@ pub type EdgeEnd = (Uuid, ItemType);
 /// principal needs one. `details.required_capability` and
 /// `details.board_id` are those of the source. `details.any_of` has the
 /// two ends.
+///
+/// # The one exception: `supports` to a document with no parent
+///
+/// COLLIERY-T-0235. For a `supports` edge to a DOCUMENT that has NO
+/// parent, the principal must be able to edit the DOCUMENT. The right to
+/// edit the source is not sufficient. With no parent the document has no
+/// board, so that is its creator, or an admin of the organization.
+///
+/// THE ATTACK that it stops. A document has no board: it takes its
+/// authority from the board of its earliest `supports` parent. A principal
+/// who can edit some task writes `supports` from the task to a document
+/// with no parent. That edge is the first, so the board of the task now
+/// answers for the document, and the principal can edit and archive it.
+///
+/// A document with no parent is old data: the server does not make one
+/// ([`require_edge_remove`]), and the data was not migrated. A document
+/// that HAS a parent takes the rule above with no change, because a later
+/// edge does not change which board answers for it. An ADR does not take
+/// its authority from `supports`, so an ADR takes the rule above too.
+///
+/// This function is the rule for the CREATE of an edge. The remove is
+/// [`require_edge_remove`], which is this rule for each edge but the
+/// `supports` edge of a document.
+///
+/// The refusal of the exception has the same `details` keys. `any_of` has
+/// one entry, the target, and `board_id` is null.
 pub fn require_edge_write(
     conn: &mut PgConnection,
     slug: &str,
@@ -387,7 +414,40 @@ pub fn require_edge_write(
 ) -> Result<(), ApiError> {
     let source = missing_edit(conn, slug, user_id, source_id, source_type)?;
     let target = missing_edit(conn, slug, user_id, target_id, target_type)?;
-    if kairos_core::abac::may_write_edge(source.is_none(), target.is_none()) {
+    if is_document_parent_edge(relationship, target_type) {
+        // COLLIERY-T-0235: the first parent of a document decides who can
+        // edit the document. See the doc comment for the attack.
+        let has_parent = !abac::document_parents(conn, target_id)
+            .map_err(map_abac_error)?
+            .is_empty();
+        if kairos_core::abac::may_link_document_parent(
+            has_parent,
+            source.is_none(),
+            target.is_none(),
+        ) {
+            return Ok(());
+        }
+        if !has_parent {
+            let document = short_code_of(conn, target_id)?;
+            let capability = meta::manage_capability(target_type);
+            return Err(ApiError::forbidden(format!(
+                "{document} has no parent. Only its creator or an organization admin \
+                 can link it to an item."
+            ))
+            .with_details(json!({
+                "relationship": relationship,
+                "required_capability": capability,
+                "board_id": null,
+                "any_of": [
+                    {
+                        "end": "target",
+                        "required_capability": capability,
+                        "board_id": null,
+                    },
+                ],
+            })));
+        }
+    } else if kairos_core::abac::may_write_edge(source.is_none(), target.is_none()) {
         return Ok(());
     }
     // From here the answer is a refusal, whatever follows: the text below
@@ -422,6 +482,158 @@ pub fn require_edge_write(
             },
         ],
     })))
+}
+
+/// Is this the edge that gives a document a parent: `supports`, to a
+/// document (COLLIERY-T-0235)? `supports` to an ADR is not: an ADR has a
+/// board of its own, or no board, and takes no authority from the edge.
+fn is_document_parent_edge(relationship: &str, target_type: ItemType) -> bool {
+    relationship == RelationshipType::Supports.as_str() && target_type == ItemType::Document
+}
+
+/// The short code of an item, archived or not, for the text of a refusal.
+/// An id that names nothing gives the id.
+fn short_code_of(conn: &mut PgConnection, id: Uuid) -> Result<String, ApiError> {
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Text)]
+        short_code: String,
+    }
+    let row: Option<Row> = sql_query("SELECT short_code FROM entity_directory WHERE id = $1")
+        .bind::<SqlUuid, _>(id)
+        .get_result(conn)
+        .optional()
+        .map_err(ApiError::internal)?;
+    Ok(row.map_or_else(|| id.to_string(), |row| row.short_code))
+}
+
+/// THE RULE FOR THE REMOVE OF AN EDGE (COLLIERY-T-0235): may this
+/// principal remove this edge, and can the edge be removed?
+///
+/// For each edge but one, the rule is the link rule
+/// ([`require_edge_write`]): the principal may edit the item at either
+/// end. The one is the `supports` edge that points at a DOCUMENT, which
+/// has two rules of its own. They are asked in this order.
+///
+/// 1. WHO: the principal must be able to edit the DOCUMENT (its creator,
+///    `manage_documents` on its authorization board, or an admin of the
+///    organization). The right to edit the parent is not sufficient. The
+///    refusal is 403 `FORBIDDEN`. THIS NARROWS THE LINK RULE.
+///
+///    THE ATTACK that it stops. A document has the parents A, the
+///    earliest, and B. A principal can edit A and B, and cannot edit the
+///    document: for example, A is a request that the principal sent to the
+///    team that wrote the document. The link rule lets the principal
+///    remove the edge from A. B is now the earliest parent, the board of B
+///    answers for the document, and the principal can edit and archive it.
+///
+/// 2. WHICH: the LAST `supports` edge of a document cannot be removed, by
+///    any principal, an admin of the organization too. The refusal is 422
+///    `LAST_PARENT`: a rule of the data, not a permission.
+///
+///    WHY. A document has no board. It takes its authority from what it
+///    supports, so a document that supports nothing has no team to answer
+///    for it, and the next `supports` edge would give it to the board of
+///    whoever wrote that edge. The owner decided (2026-09-27) that the
+///    server does not make a document an orphan. To move a document, the
+///    caller links it to the new item first, and then removes the old
+///    edge.
+///
+/// WHO comes first, so a principal who may not edit the document learns
+/// nothing about its parents from the refusal.
+///
+/// "Last" counts the parents that [`abac::document_parents`] gives, which
+/// is what [`abac::resolve_authorization_board`] reads: an edge to an
+/// ARCHIVED parent counts, because an archived parent gives its board as
+/// it did while live. An edge that is not there is not the last edge: the
+/// graph service answers `NOT_FOUND` for it, as before.
+///
+/// The function takes a lock on the row of the document
+/// ([`abac::lock_document`]), so call it in the transaction of the remove.
+/// [`remove_edge`] does that, and is the one caller.
+pub fn require_edge_remove(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: &str,
+    source: EdgeEnd,
+    target: EdgeEnd,
+) -> Result<(), ApiError> {
+    let (source_id, _) = source;
+    let (document_id, target_type) = target;
+    if !is_document_parent_edge(relationship, target_type) {
+        return require_edge_write(conn, slug, user_id, relationship, source, target);
+    }
+
+    // 1. WHO.
+    let missing = missing_edit(conn, slug, user_id, document_id, target_type)?;
+    if !kairos_core::abac::may_unlink_document_parent(missing.is_none()) {
+        let capability = meta::manage_capability(target_type);
+        let board_id = missing.and_then(|missing| missing.board_id);
+        let need = match board_id {
+            Some(_) => format!("You need {capability:?} on the board of its parent."),
+            None => "The document has no board.".to_string(),
+        };
+        return Err(ApiError::forbidden(format!(
+            "To remove a supports edge of a document, you must be able to edit the document. \
+             {need} The creator of the document and an organization admin can also remove it."
+        ))
+        .with_details(json!({
+            "relationship": relationship,
+            "required_capability": capability,
+            "board_id": board_id,
+            "any_of": [
+                {
+                    "end": "target",
+                    "required_capability": capability,
+                    "board_id": board_id,
+                },
+            ],
+        })));
+    }
+
+    // 2. WHICH.
+    abac::lock_document(conn, document_id).map_err(map_abac_error)?;
+    let parents = abac::document_parents(conn, document_id).map_err(map_abac_error)?;
+    let is_parent = parents.iter().any(|parent| parent.parent_id == source_id);
+    if is_parent && !kairos_core::abac::document_keeps_a_parent(parents.len()) {
+        let document = short_code_of(conn, document_id)?;
+        let parent = short_code_of(conn, source_id)?;
+        return Err(ApiError::unprocessable(
+            "LAST_PARENT",
+            format!(
+                "{document} supports only {parent}. A document always has a parent. \
+                 Link the document to a different item first, or archive the document."
+            ),
+        )
+        .with_details(json!({
+            "relationship": relationship,
+            "document": document,
+            "parent": parent,
+        })));
+    }
+    Ok(())
+}
+
+/// Remove one edge: the rule ([`require_edge_remove`]) and the delete, in
+/// ONE transaction (COLLIERY-T-0235).
+///
+/// One function for REST `DELETE /api/relationships/{id}` and for MCP
+/// `unlink_items`, so the two surfaces cannot give different answers. The
+/// transaction holds the lock of the rule until the edge is gone.
+pub fn remove_edge(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: RelationshipType,
+    source: EdgeEnd,
+    target: EdgeEnd,
+) -> Result<(), ApiError> {
+    atomically(conn, |conn| {
+        require_edge_remove(conn, slug, user_id, relationship.as_str(), source, target)?;
+        kairos_db::graph::unlink_items(conn, source.0, target.0, relationship, user_id)
+            .map_err(meta::relationships::map_link_error)
+    })
 }
 
 // ---------------------------------------------------------------------------

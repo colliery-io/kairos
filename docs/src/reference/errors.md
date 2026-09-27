@@ -55,7 +55,7 @@ what kind of gate refused:
 | `required_capability`, `board_id` (null = the item or the write has no board, and the caller needs the admin role) | a board capability check, or the [edit rule](capabilities.md#the-edit-rule). For the edit rule, the caller also did not create the item |
 | `required_capability`, `board_id`, `held: "file_backlog"` | an MCP move (`transition_item`, `move_item`) refused to the person who sent a request, while the request is in the entry column of its board. The message says that the item is a request, that the team of the board moves it, and that the caller can edit, link and archive it |
 | `required_role: "admin"` | tenant-wide configuration: templates and metadata definitions |
-| `relationship`, `required_capability`, `board_id`, `any_of` | an edge of any relationship type where the caller can edit neither end (the [link rule](capabilities.md#who-can-write-relationships)). `required_capability` and `board_id` are those of the source. `any_of` has one entry for each end: `end`, `required_capability`, `board_id` |
+| `relationship`, `required_capability`, `board_id`, `any_of` | an edge of any relationship type where the caller can edit neither end (the [link rule](capabilities.md#who-can-write-relationships)). `required_capability` and `board_id` are those of the source. `any_of` has one entry for each end: `end`, `required_capability`, `board_id`. For [the `supports` edge of a document](capabilities.md#the-supports-edge-of-a-document), the caller cannot edit the document: `any_of` has one entry, the target, and `required_capability` is `manage_documents` |
 | `required: "deployment_admin"` | the cross-tenant provisioning routes, which are not scoped to any organization |
 
 **`CONFLICT` is not only optimistic concurrency.** `details.current` is present
@@ -107,6 +107,7 @@ A client applying the general rule would branch wrongly here.
 | `CYCLE_DETECTED` | 422 | The edge would create a cycle | — |
 | `RELATIONSHIP_RULE` | 422 | The edge is not legal between those two entity types | `relationship` |
 | `ALREADY_LINKED` | 422 | That edge already exists | — |
+| `LAST_PARENT` | 422 | The edge is the last `supports` edge of a document. [A document always has a parent](capabilities.md#a-document-always-has-a-parent). Link the document to a different item first, or archive the document | `relationship`, `document` and `parent` (the two short codes) |
 
 ### Tenant configuration
 
@@ -157,6 +158,8 @@ The refusals a reader most often arrives here from:
   [Move work between boards](../how-to/move-work-between-boards.md)
 - `FORBIDDEN` or `VALIDATION` on a task that you create for a different team →
   [Send a request to a different team](../how-to/move-work-between-boards.md#when-a-request-is-refused)
+- `LAST_PARENT` →
+  [A document always has a parent](capabilities.md#a-document-always-has-a-parent)
 - `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
   [Connect a git forge](../how-to/connect-a-git-forge.md)
 

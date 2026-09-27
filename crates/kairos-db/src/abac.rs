@@ -393,7 +393,7 @@ pub fn resolve_authorization_board(
     conn: &mut PgConnection,
     item_id: Uuid,
 ) -> Result<Option<Uuid>, AbacError> {
-    use crate::schema::{documents, item_relationships};
+    use crate::schema::documents;
 
     if let Some(board_id) = board_of_workflow_item(conn, item_id)? {
         return Ok(Some(board_id));
@@ -410,18 +410,79 @@ pub fn resolve_authorization_board(
         return Ok(None);
     }
 
-    let parents: Vec<Uuid> = item_relationships::table
-        .filter(item_relationships::target_id.eq(item_id))
+    // COLLIERY-T-0235: the parents come from the ONE function that the
+    // "last parent" rule counts with, so the two cannot disagree on which
+    // edge is a parent.
+    Ok(document_parents(conn, item_id)?
+        .first()
+        .map(|parent| parent.board_id))
+}
+
+/// One parent of a document (COLLIERY-T-0235): the source of a `supports`
+/// edge that points at the document, and the board that the parent gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentParent {
+    /// The workflow item that the document supports.
+    pub parent_id: Uuid,
+    /// The board of that item.
+    pub board_id: Uuid,
+}
+
+/// The parents of a document, the EARLIEST first (COLLIERY-T-0235). The
+/// first one gives the document its authorization board
+/// ([`resolve_authorization_board`]).
+///
+/// A parent is the source of a `supports` edge that points at the
+/// document, when that source has a board. An ARCHIVED parent is a parent:
+/// it gives its board as it did while live ([`board_of_workflow_item`]).
+/// So the rule "a document always has a parent" counts an edge to an
+/// archived item, and the archive of the only parent of a document does
+/// not make the document an orphan.
+///
+/// A document with no parent has no authorization board: only its creator
+/// and an organization admin can edit it.
+pub fn document_parents(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Vec<DocumentParent>, AbacError> {
+    use crate::schema::item_relationships;
+
+    let sources: Vec<Uuid> = item_relationships::table
+        .filter(item_relationships::target_id.eq(document_id))
         .filter(item_relationships::relationship.eq(RelationshipType::Supports))
         .order(item_relationships::created_at.asc())
         .select(item_relationships::source_id)
         .load(conn)?;
-    for parent_id in parents {
+    let mut parents = Vec::with_capacity(sources.len());
+    for parent_id in sources {
         if let Some(board_id) = board_of_workflow_item(conn, parent_id)? {
-            return Ok(Some(board_id));
+            parents.push(DocumentParent {
+                parent_id,
+                board_id,
+            });
         }
     }
-    Ok(None)
+    Ok(parents)
+}
+
+/// Lock the row of a document until the transaction ends
+/// (COLLIERY-T-0235). `false` = no such document.
+///
+/// WHY. The remove of a `supports` edge counts the parents of the document
+/// and then deletes one edge. Two removes at the same time, of the two
+/// edges of one document, would each count two parents, and the two
+/// deletes would leave a document with no parent. With the lock the second
+/// remove waits for the first, and counts one.
+pub fn lock_document(conn: &mut PgConnection, document_id: Uuid) -> Result<bool, AbacError> {
+    use crate::schema::documents;
+
+    let locked: Option<Uuid> = documents::table
+        .filter(documents::id.eq(document_id))
+        .select(documents::id)
+        .for_update()
+        .first(conn)
+        .optional()?;
+    Ok(locked.is_some())
 }
 
 /// Who created a workflow item or document, if it exists (KAIROS-T-0111).

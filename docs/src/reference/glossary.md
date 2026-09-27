@@ -167,11 +167,16 @@ teams. Streams carry no boards and no work of their own.
 
 ## document
 
-One of the five work-item types, letter `D`. A document supports exactly one
-strategy, initiative or task, through a `supports` edge that is required at
-creation. Documents have no board placement and therefore no column and no
+One of the five work-item types, letter `D`. A document supports a strategy,
+an initiative or a task, through a `supports` edge that is required at
+creation. That item is the parent of the document. Documents have no board
+placement and therefore no column and no
 transitions; instead they carry an editorial lifecycle. A document may be
 stamped from a template.
+
+A document always has a parent. It can have more than one. The board of the
+earliest parent is the authorization board of the document. The server refuses
+to remove the last `supports` edge of a document (`LAST_PARENT`).
 
 ## done column
 
@@ -259,6 +264,9 @@ for each relationship type. The confirm of an edge proposal writes an edge, so
 the rule applies to the confirm also. See
 [Capabilities](capabilities.md#who-can-write-relationships).
 
+The `supports` edge of a document is the one exception: the principal must be
+able to edit the document.
+
 ## metadata definition
 
 A tenant-scoped custom field: a slug, a type of `string`, `enum` or `date`, and
@@ -286,14 +294,15 @@ A directed edge between two items. Five types exist:
 | Type | Meaning |
 |---|---|
 | `parent` | Hierarchy. A delete [cascades](#cascade) along these edges, and they are what a traversal follows to build a parent chain. |
-| `supports` | A document supporting the item it is attached to. |
+| `supports` | A document or an ADR supporting the item it is attached to. The source is the item, and the target is the document. For a document, the edge has [rules of its own](capabilities.md#the-supports-edge-of-a-document). |
 | `informs` | One item informs another without owning it. |
 | `supersedes` | One item replaces another. |
 | `blocks` | The source blocks the target. |
 
 Which types are legal between which item types is enforced, as is cycle
 prevention. The [link rule](#link-rule) decides who can write an edge, and it
-is the same for the five types.
+is the same for the five types. The `supports` edge of a document is the one
+exception.
 
 **Complete work does not block, and nothing blocks complete work.** A `blocks`
 edge counts only while the items at both ends can move. The edge stops counting

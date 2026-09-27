@@ -217,6 +217,64 @@ pub fn may_write_edge(may_edit_source: bool, may_edit_target: bool) -> bool {
     may_edit_source || may_edit_target
 }
 
+/// THE LINK RULE FOR THE PARENT OF A DOCUMENT (COLLIERY-T-0235): may this
+/// principal CREATE a `supports` edge that points at a document?
+///
+/// A document has no board. It takes its authority from the board of its
+/// EARLIEST `supports` parent. So the first `supports` edge of a document
+/// decides who can edit the document, and the link rule
+/// ([`may_write_edge`]) is too wide for that one edge.
+///
+/// THE ATTACK. A document has no parent. A principal who can edit some
+/// task writes `supports` from the task to the document, which the link
+/// rule permits for the source. The document now takes its authority from
+/// the board of the task, and the principal can edit and archive a
+/// document that it had no right to edit.
+///
+/// THE RULE. For a document with NO parent, the principal must be able to
+/// edit the DOCUMENT: with no board, that is its creator or an admin of
+/// the organization. For a document that HAS a parent, a new edge does not
+/// change the authority (the earliest edge still gives it), and the link
+/// rule applies as it is.
+pub fn may_link_document_parent(
+    document_has_parent: bool,
+    may_edit_source: bool,
+    may_edit_document: bool,
+) -> bool {
+    if document_has_parent {
+        may_write_edge(may_edit_source, may_edit_document)
+    } else {
+        may_edit_document
+    }
+}
+
+/// May this principal REMOVE a `supports` edge that points at a document
+/// (COLLIERY-T-0235)? Only a principal that may edit the DOCUMENT. The
+/// right to edit the parent is not sufficient.
+///
+/// THE ATTACK. A document has the parents A, the earliest, and B. A
+/// principal can edit A and B, and cannot edit the document. The link rule
+/// lets the principal remove the edge from A, because it can edit the
+/// source. B is now the earliest parent, and the document takes its
+/// authority from the board of B.
+///
+/// A principal that may edit the document can move it between parents. It
+/// gives the authority away, which is the right of an editor.
+pub fn may_unlink_document_parent(may_edit_document: bool) -> bool {
+    may_edit_document
+}
+
+/// A DOCUMENT ALWAYS HAS A PARENT (COLLIERY-T-0235): can one of `parents`
+/// edges be removed? Only when one parent or more stays. The rule is a
+/// rule of the data and not a permission: it applies to each principal,
+/// an admin of the organization too.
+///
+/// WHY. A document that supports nothing has no board, so no team answers
+/// for it. The owner decided that the server does not make that state.
+pub fn document_keeps_a_parent(parents: usize) -> bool {
+    parents > 1
+}
+
 // ---------------------------------------------------------------------------
 // Tenant-wide configuration policy (A-0006 "items not on boards")
 // ---------------------------------------------------------------------------
@@ -304,6 +362,43 @@ pub fn is_authorized(grants: &[String], required: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- the parent of a document (COLLIERY-T-0235) ----------------------------
+
+    #[test]
+    fn a_document_with_no_parent_needs_the_right_to_edit_the_document() {
+        // The attack: the principal can edit the source only.
+        assert!(!may_link_document_parent(false, true, false));
+        assert!(!may_link_document_parent(false, false, false));
+        assert!(may_link_document_parent(false, false, true));
+        assert!(may_link_document_parent(false, true, true));
+    }
+
+    #[test]
+    fn a_document_with_a_parent_takes_the_link_rule() {
+        for source in [false, true] {
+            for document in [false, true] {
+                assert_eq!(
+                    may_link_document_parent(true, source, document),
+                    may_write_edge(source, document)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_remove_of_a_parent_needs_the_right_to_edit_the_document() {
+        assert!(may_unlink_document_parent(true));
+        assert!(!may_unlink_document_parent(false));
+    }
+
+    #[test]
+    fn the_last_parent_stays() {
+        assert!(!document_keeps_a_parent(0));
+        assert!(!document_keeps_a_parent(1));
+        assert!(document_keeps_a_parent(2));
+        assert!(document_keeps_a_parent(3));
+    }
 
     // -- exact matches ---------------------------------------------------------
 

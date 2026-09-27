@@ -23,7 +23,9 @@
 //! - Relationship writes take the LINK rule
 //!   ([`crate::api::require_edge_write`], COLLIERY-T-0228): the caller may
 //!   edit the item at either end. No relationship type needs the admin
-//!   role.
+//!   role. The `supports` edge of a document is narrower, and a document
+//!   keeps its last one ([`crate::api::require_edge_remove`],
+//!   COLLIERY-T-0235).
 //! - Item-metadata writes and restore take the EDIT rule
 //!   ([`crate::api::require_item_edit`], COLLIERY-T-0228): the caller
 //!   created the item, or holds its `manage_<type>` capability on its

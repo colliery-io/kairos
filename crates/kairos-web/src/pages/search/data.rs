@@ -325,6 +325,10 @@ pub async fn create_relationship(
 }
 
 /// `DELETE /api/relationships/{id}` (the link rule, as for the create).
+/// The server refuses to remove the last `supports` edge of a document
+/// with 422 `LAST_PARENT` (COLLIERY-T-0235). The refusal arrives as
+/// `ApiError::Http`, and the panel shows the message of the server. The
+/// client makes no check of its own.
 pub async fn delete_relationship(
     auth: Auth,
     relationship_id: &str,

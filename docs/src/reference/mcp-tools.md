@@ -466,6 +466,10 @@ The caller can edit an item that the caller created. So a request that the
 caller sent to a different team can block an item of the caller. The caller
 can also edit an item with `manage_<type>` on its authorization board.
 
+One exception is a `supports` edge to a document with no parent. The caller
+must be able to edit the document. See
+[The `supports` edge of a document](capabilities.md#the-supports-edge-of-a-document).
+
 A `blocks` edge counts only while the items at both ends can move. Complete
 work does not block, and nothing blocks complete work. The edge stops counting
 when the item at either end is in a done column. The edge stays, and `get_item`
@@ -475,7 +479,9 @@ a done column.
 Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
 `source` or `target` that does not name a live item, and for a self-link where
 `source` and `target` are the same item; `FORBIDDEN` when the caller can edit
-neither end, and the message names the capability for each end;
+neither end, and the message names the capability for each end; `FORBIDDEN`
+for `supports` to a document with no parent, when the caller cannot edit the
+document;
 `RELATIONSHIP_RULE` when that relationship is not allowed between
 those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
 
@@ -490,8 +496,18 @@ Removes a relationship edge. The arguments and the link rule are those of
 | `target` | string | yes | — | Target item's short code. |
 | `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. |
 
+To remove a `supports` edge of a document, the caller must be able to edit
+the document. The right to edit the source is not sufficient.
+
+A document always has a parent. The tool refuses to remove the last `supports`
+edge of a document. Link the document to a different item first, or archive
+the document. See
+[A document always has a parent](capabilities.md#a-document-always-has-a-parent).
+
 Refuses: as `link_items`, except that a `relationship` with no such edge
-between those items is `NOT_FOUND`.
+between those items is `NOT_FOUND`. The tool gives `FORBIDDEN` for a
+`supports` edge of a document that the caller cannot edit. The tool gives
+`LAST_PARENT` for the last `supports` edge of a document.
 
 ## Finding related work
 

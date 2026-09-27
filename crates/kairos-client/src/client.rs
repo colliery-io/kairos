@@ -1186,7 +1186,9 @@ impl KairosClient {
     }
 
     /// `DELETE /api/relationships/{id}`. The link rule applies, as for
-    /// the create.
+    /// the create. For the `supports` edge of a document the caller must
+    /// be able to edit the document, and the last one stays: 422
+    /// `LAST_PARENT`, which arrives as [`Error::Other`] (COLLIERY-T-0235).
     pub async fn delete_relationship(
         &self,
         relationship_id: &str,

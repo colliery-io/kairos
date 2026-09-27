@@ -139,6 +139,9 @@ fallback for an off-board ADR, a document with no resolvable parent, and
 tenant-wide configuration. For an edit, the creator of the item also passes:
 see [The edit rule](#the-edit-rule).
 
+An archived parent is a parent. It gives the document the board that it gave
+while it was live.
+
 **An archived item resolves the same board, and therefore the same
 capabilities, as it did while live.** Archiving is a visibility default and
 not a permission boundary, so putting work away neither widens nor narrows who
@@ -160,6 +163,18 @@ The rule applies to each item type: strategy, initiative, task, document, ADR.
 Creation is the primary mechanism of ownership. The server reads who created
 the item, and does not read where the item is. If a team moves the item to a
 different board, its creator can continue to edit it.
+
+### A document with no parent
+
+A document has no board. Its authorization board is the board of its earliest
+`supports` parent. See [the board of each item](#how-a-board-is-resolved).
+
+A document with no parent has no authorization board. Condition 2 cannot be
+true for it. Only its creator and an organization admin can edit it.
+
+The server does not make a document with no parent: see
+[A document always has a parent](#a-document-always-has-a-parent). A tenant
+can have one from a release up to and including 0.4.0.
 
 ### What an edit is
 
@@ -247,6 +262,45 @@ change. A caller who can edit the two ends of an impossible edge gets
 
 A refusal names two capabilities, one for each end. The caller needs one of
 them.
+
+### The `supports` edge of a document
+
+The first `supports` edge of a document decides which board answers for the
+document. So the link rule is narrower for this edge. It is not narrower for a
+`supports` edge to an ADR, or for a different relationship type.
+
+| Write | Who can do it |
+|---|---|
+| Create `supports` to a document that has a parent | The link rule: a principal who can edit the source **or** the document |
+| Create `supports` to a document with no parent | A principal who can edit the document: its creator, **or** an organization admin |
+| Remove a `supports` edge of a document | A principal who can edit the document: its creator, **or** a holder of `manage_documents` on its authorization board, **or** an organization admin |
+
+A principal who can edit only the source gets `FORBIDDEN` for the second and
+the third write. The refusal names `manage_documents`.
+
+A new parent does not change the authorization board of a document that has a
+parent. The earliest edge continues to give the board.
+
+A principal who cannot edit the document can add a parent to it, and cannot
+remove that parent.
+
+### A document always has a parent
+
+The server refuses to remove the last `supports` edge of a document. The
+refusal is `LAST_PARENT`, with status 422. The rule applies to each principal,
+and an organization admin is not an exception.
+
+To move a document to a different item, do these steps:
+
+1. Link the document to the new item.
+2. Remove the old edge.
+
+If the document has no more use, archive it.
+
+An edge to an archived parent counts as a parent. The archive of the only
+parent of a document does not change who can edit the document.
+
+### The confirm of an edge proposal
 
 The confirm of an edge proposal writes an edge, so the link rule applies to
 `POST /api/proposals/{id}/confirm`. The caller must be a person. The caller

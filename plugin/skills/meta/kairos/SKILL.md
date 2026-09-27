@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 The kairos plugin's user-invoked surface. Reach for:
 
-- `/kairos:bootstrap` — first, in any repo not yet wired to a Kairos deployment (and after remote/team/board changes): configure the MCP endpoint, confirm auth, detect this repository from the git remote, discover boards, write `.claude/kairos.local.md`.
+- `/kairos:bootstrap` — first, in any repo not yet wired to a Kairos deployment (and after remote/team/board changes): configure the MCP endpoint, confirm auth (OAuth, or a service account with an API key on a deployment with no issuer), detect this repository from the git remote, discover boards, write `.claude/kairos.local.md`.
 - `/kairos:grill-me` — before building: a relentless interview that stress-tests a plan or design until shared understanding is reached.
 - `/kairos:grill-with-docs` — before building, when the design should leave a paper trail: the same relentless interview as grill-me, additionally capturing glossary terms (CONTEXT.md) and Kairos ADRs as decisions crystallise.
 - `/kairos:to-initiative` — when a discussed plan is ready to become work: synthesize the conversation into a Kairos initiative with an attached PRD (no interview — grill first if it needs one).

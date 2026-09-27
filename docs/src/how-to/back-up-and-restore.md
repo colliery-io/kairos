@@ -55,6 +55,36 @@ snapshots, WAL archiving with point-in-time recovery — applies unchanged.
 Kairos's own guidance is only the two things above: the whole database, and the
 secrets alongside it.
 
+### The compose deployment has a schedule
+
+The compose deployment has a service with the name `postgres-backup`. It makes
+the dump of step 1, and it does the check of step 2.
+
+The service makes a dump when it starts. Then it makes a dump at each interval.
+It keeps the newest dumps and removes the others.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `KAIROS_BACKUP_DIR` | `./backups` | The directory on the host that gets the dumps. |
+| `KAIROS_BACKUP_INTERVAL` | `21600` | The seconds between two dumps. The default is 6 hours. |
+| `KAIROS_BACKUP_KEEP` | `4` | The number of dumps that the service keeps. |
+
+Set `KAIROS_BACKUP_DIR` to a directory on a different disk from the Docker
+volumes. A disk failure then does not remove the database and its backups
+together.
+
+To see the result of the last dump, read the log of the service:
+
+```sh
+docker compose -f deploy/docker-compose.yaml --env-file deploy/.env logs --tail 5 postgres-backup
+```
+
+The line `backup ok` gives the file and its size. A dump that fails leaves no
+file, and it removes no old dump.
+
+The service does not copy the secrets of the deployment. Keep a copy of
+`deploy/.env` in a different location.
+
 ## Restore
 
 Four steps, in this order.

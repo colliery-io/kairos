@@ -936,6 +936,21 @@ mod tests {
         "TS_STATE_DIR",
         "TS_USERSPACE",
         "TS_SERVE_CONFIG",
+        // The scheduled backup (COLLIERY-T-0229). What .env.example documents;
+        // compose maps the first two to the BACKUP_ names below and mounts
+        // the third as a host directory.
+        "KAIROS_BACKUP_INTERVAL",
+        "KAIROS_BACKUP_KEEP",
+        "KAIROS_BACKUP_DIR",
+        // The backup service's own shell loop reads these two...
+        "BACKUP_INTERVAL",
+        "BACKUP_KEEP",
+        // ...and libpq reads these four, in `pg_dump`. None reaches the
+        // kairos container.
+        "PGHOST",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
     ];
 
     #[test]

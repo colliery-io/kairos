@@ -47,3 +47,7 @@ docs/book/
 # It names a deployment, so it is per-checkout wiring like kairos.local.md above;
 # plugin/.mcp.json is the deployment-agnostic template.
 /.mcp.json
+
+# Database dumps written by the compose deployment's postgres-backup service
+# (COLLIERY-T-0229). They hold every tenant's data.
+/deploy/backups/

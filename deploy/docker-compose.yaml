@@ -205,6 +205,83 @@ services:
     mem_limit: 32m
     restart: unless-stopped
 
+  # Scheduled database backup (COLLIERY-T-0229), after skadi's SKADI-T-0481.
+  #
+  # Postgres is the sole state of a deployment (KAIROS-A-0013) and nothing
+  # backed it up on a schedule: the book describes `pg_dump`, and leaves running
+  # it to the operator. On 2026-09-27 a second PostgreSQL was started on a live
+  # deployment's data directory (COLLIERY-T-0226) and there was no backup to
+  # fall back on. The data survived. It should not have depended on that.
+  #
+  # The same image as the server, so `pg_dump` is the server's version exactly.
+  # A newer client can read an older server, an older client cannot read a newer
+  # one, and pinning the two together removes the question.
+  #
+  # Writes to a HOST directory, not a named volume: a backup that lives in the
+  # same Docker volume set as the thing it protects is not a backup. Whatever
+  # took the volume would take it too.
+  #
+  # Not behind a profile. A deployment that points DATABASE_URL at a managed
+  # instance should take that provider's backups instead and can scale this
+  # service to zero; the default has to be the safe one.
+  postgres-backup:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: kairos
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      PGDATABASE: kairos
+      # Seconds between dumps, and how many verified dumps to keep.
+      BACKUP_INTERVAL: ${KAIROS_BACKUP_INTERVAL:-21600}
+      BACKUP_KEEP: ${KAIROS_BACKUP_KEEP:-4}
+    volumes:
+      - ${KAIROS_BACKUP_DIR:-./backups}:/backups
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        while :; do
+          stamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          out="/backups/kairos-$$stamp.dump"
+          # Dump to a .partial name and rename on success. A dump interrupted
+          # by a restart would otherwise sit in the directory looking like a
+          # valid backup, and the retention sweep below would delete a good
+          # older one to make room for it.
+          if pg_dump -Fc -Z 9 -f "$$out.partial" 2>/tmp/pgdump.err; then
+            # `pg_restore -l` parses the archive's table of contents, so a
+            # truncated or corrupt file fails here rather than on the day it
+            # is needed.
+            if pg_restore -l "$$out.partial" >/dev/null 2>&1; then
+              mv "$$out.partial" "$$out"
+              echo "backup ok: $$out ($$(wc -c < "$$out") bytes)"
+              # Retention: keep the newest N verified dumps. INSIDE the
+              # success branch, so a failed run never prunes: a week of
+              # failures must not eat the last good backup. The directory
+              # holds N+1 for the moment between the rename and the prune,
+              # and N at rest.
+              ls -1t /backups/kairos-*.dump 2>/dev/null \
+                | tail -n +$$((BACKUP_KEEP + 1)) \
+                | while read -r old; do
+                    echo "pruning $$old"
+                    rm -f "$$old"
+                  done
+            else
+              echo "backup FAILED verification, discarding: $$out.partial" >&2
+              rm -f "$$out.partial"
+            fi
+          else
+            echo "pg_dump failed:" >&2
+            cat /tmp/pgdump.err >&2
+            rm -f "$$out.partial"
+          fi
+          sleep "$$BACKUP_INTERVAL"
+        done
+
   postgres:
     # pgvector/pgvector:pg16 is stock postgres:16 with pgvector added.
     # KAIROS-A-0021 rule 2 requires the extension (KAIROS-T-0187); a plain

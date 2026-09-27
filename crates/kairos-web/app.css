@@ -362,6 +362,12 @@ body {
   max-width: 480px;
 }
 
+/* The notice after a request (COLLIERY-T-0232): in the flow of the page,
+   above the lanes, so that it does not cover the error banner. */
+.kairos-board__sent {
+  margin-bottom: var(--space-sm);
+}
+
 .kairos-board-notice__dismiss {
   margin-left: var(--space-sm);
   background: none;

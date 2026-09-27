@@ -80,13 +80,25 @@ Every member of the organization can send a request. The capability is
    | CLI | `kairos tasks create --board <slug\|uuid> --title <title>`, or `--team <uuid>` in place of `--board` |
    | API | `POST /api/tasks` with `{"board_id": "<slug\|uuid>", "title": "…"}`, or `team_id` in place of `board_id` |
    | MCP | `create_item {item_type: "task", board, title}` |
+   | GUI | **New request** on the delivery board of the team |
 
    ```sh
    kairos tasks create --board platform-delivery \
      --title "Bulk invoice export endpoint"
    ```
 
-   The GUI has no control for a request to a board that you do not manage.
+   In the GUI:
+
+   1. Open the delivery board of the team.
+   2. Click **New request**. A board that you manage shows **New task**.
+   3. Type a title.
+   4. Type the content. Say what you need.
+   5. Select the task type.
+   6. Click **Send request**.
+
+   The dialog names the team, the entry column and the lane. It has no
+   control for the lane or the column. A notice on the board gives the short
+   code of the request.
 
 3. If you know where the code is, add the repository. The repository is
    optional, and it does not choose the board.
@@ -95,6 +107,9 @@ Every member of the organization can send a request. The capability is
    kairos tasks create --board platform-delivery --repo payments-api \
      --title "Bulk invoice export endpoint"
    ```
+
+   In the GUI, select the repository in the dialog before you send the
+   request. The repositories of the team of the board are first in the list.
 
 4. If the request blocks your work, link it to your task with a `blocks` edge.
    You created the request, so you can write an edge from it or to it.
@@ -115,6 +130,8 @@ Do not create a task to ask for the review of a pull request. The git provider
 manages the pull request.
 
 ### When a request is refused
+
+The GUI shows the message of the server in the dialog. The dialog stays open.
 
 | Refusal | Cause | What to do |
 |---|---|---|

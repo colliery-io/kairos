@@ -318,6 +318,286 @@ pub(crate) fn movable_delivery_boards(
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// Requests (COLLIERY-T-0232)
+// ---------------------------------------------------------------------------
+
+/// The computed capability that lets a member of the tenant send a request
+/// (mirror of `kairos_core::abac::FILE_BACKLOG`).
+const FILE_BACKLOG: &str = "file_backlog";
+
+/// The board level on which a request is possible (mirror of
+/// `BoardLevel::Delivery`, the level that `check_file_backlog` asks for).
+const LEVEL_DELIVERY: &str = "delivery";
+
+/// How the signed-in user creates an item on ONE board (COLLIERY-T-0232).
+///
+/// The server has two answers for a task create
+/// (`TaskCreateAccess::{Manager, Request}`), and the two give different
+/// results: a manager selects the lane, and a request always goes to the
+/// support lane. The dialog must know which answer it will get before it
+/// shows a control, so the mode is decided here and not in the dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CreateMode {
+    /// The user manages the board: "New task" and its full dialog.
+    Manager,
+    /// The user sends a request to the team of the board: "New request".
+    Request,
+}
+
+/// Does the signed-in user MANAGE this board (COLLIERY-T-0232)? It is the
+/// `create` power of [`board_powers`] and nothing more: an organization
+/// admin, a member of the team of the board for `manage_tasks`, or an
+/// explicit grant that covers the `manage_<type>` capability of the level.
+///
+/// It has a name of its own because the board now asks two questions where
+/// it asked one. Until COLLIERY-T-0232 "can create" and "manages" were the
+/// same thing in the GUI, and a member who did not manage a delivery board
+/// had no button at all. The rule for a manager did not change.
+///
+/// `me` is `None` until `whoami` resolves. Nobody manages a board before
+/// the GUI knows who they are. Pure, host-tested. The server remains the
+/// authority.
+pub(crate) fn manages_board(me: Option<&crate::api::Whoami>, board: &data::Board) -> bool {
+    me.is_some_and(|me| {
+        board_powers(
+            me,
+            &board.slug,
+            board.team_id.as_deref(),
+            EntityKind::for_board_level(&board.board_level),
+        )
+        .create
+    })
+}
+
+/// May the signed-in user send a REQUEST to the team of this board
+/// (COLLIERY-T-0232)? The client mirror of the `Request` answer of
+/// `require_task_create_capability` on the server. All of these are true:
+///
+/// - `whoami` resolved, so the user is a member of the tenant (the server
+///   answers `whoami` for a member only);
+/// - `whoami` lists `file_backlog` under `implicit`. The GUI READS the
+///   capability. It does not assume that each member has it, so a server
+///   that stops giving it also stops the button;
+/// - the board is a delivery board. `check_file_backlog` gives the
+///   capability on a delivery board and nowhere else, and `whoami` cannot
+///   say so, because its list is not per board. This half is mirrored;
+/// - the board has an entry column, because a request goes there and
+///   nowhere else;
+/// - the user does NOT manage the board ([`manages_board`]). The server
+///   asks `manage_tasks` first and a manager never gets the `Request`
+///   answer, so a manager never sees "New request".
+///
+/// The two other conditions of the server are about the body, not about
+/// the person: no column other than the entry column, and no work class
+/// `planned`. [`create_body`] keeps them.
+///
+/// Pure, host-tested. The server remains the authority.
+pub(crate) fn may_request(
+    me: Option<&crate::api::Whoami>,
+    board: &data::Board,
+    has_entry_column: bool,
+) -> bool {
+    let Some(me) = me else {
+        return false;
+    };
+    me.implicit.iter().any(|held| held == FILE_BACKLOG)
+        && board.board_level == LEVEL_DELIVERY
+        && has_entry_column
+        && !manages_board(Some(me), board)
+}
+
+/// Which create button the board shows, if any (COLLIERY-T-0232):
+/// "New task" (and "New strategy", and so on) for [`CreateMode::Manager`],
+/// "New request" for [`CreateMode::Request`], nothing for `None`.
+///
+/// A board with no entry column shows nothing, as before: a new item has
+/// no column to start in. The two modes cannot be true together, because
+/// [`may_request`] is false for a manager. Pure, host-tested.
+pub(crate) fn create_mode(
+    me: Option<&crate::api::Whoami>,
+    board: &data::Board,
+    has_entry_column: bool,
+) -> Option<CreateMode> {
+    if !has_entry_column {
+        return None;
+    }
+    if manages_board(me, board) {
+        Some(CreateMode::Manager)
+    } else if may_request(me, board, has_entry_column) {
+        Some(CreateMode::Request)
+    } else {
+        None
+    }
+}
+
+/// The values of the create dialog, as the person left them. It is a plain
+/// copy of the signals of the form, so that [`create_body`] can be a pure
+/// function (COLLIERY-T-0232).
+#[derive(Clone, Debug, Default, PartialEq)]
+struct CreateForm {
+    title: String,
+    content: String,
+    hypothesis: String,
+    /// `none` | `xs` | `s` | `m` | `l` | `xl`.
+    complexity: String,
+    /// `task` | `bug` | `tech_debt` | `support`.
+    task_type: String,
+    /// `auto` | `planned` | `support`. The request dialog has no control
+    /// for it, and [`create_body`] does not read it for a request.
+    work_class: String,
+    /// A slug, or [`NO_REPOSITORY`].
+    repository: String,
+    decision_maker: String,
+    decision_date: String,
+}
+
+/// What the create dialog SENDS: the column, then the item
+/// (COLLIERY-T-0232). Extracted from the submit handler so that the rule
+/// for a request has a test that needs no browser.
+///
+/// The column is always `entry_column_id`. The form has no column, so no
+/// state of the form can name a different one (KAIROS-T-0062: a create is
+/// intake). For a request this is also the rule of the server: a column
+/// that is not the entry column is refused with 403.
+///
+/// [`CreateMode::Manager`] sends what the dialog sent before this change:
+/// the lane of the form, and no `work_class` when the lane is `auto`.
+///
+/// [`CreateMode::Request`] ALWAYS sends `work_class: support`, and does
+/// not read the lane of the form. It sends the value, and does not leave
+/// the field out, for two reasons. The server stores `support` for a
+/// request in the two cases today, but a body that says `support` does not
+/// depend on the default of the server: if that default changes, the
+/// request still says which lane it is for. And `support` is the one value
+/// that is correct for the two answers of the server. If the GUI decides
+/// "request" from a stale `whoami` and the person manages the board by
+/// now, the task still goes to the support lane that the caption named,
+/// and not to the planned lane of a team that did not plan it.
+///
+/// A request is a task, so the fields of the other types are left out.
+///
+/// `team_id` is the team of the board. The board decides the team of a
+/// task (COLLIERY-T-0216), and the server accepts the name of that same
+/// team, so the two modes send what the dialog always sent.
+fn create_body(
+    mode: CreateMode,
+    form: &CreateForm,
+    entry_column_id: &str,
+    team_id: Option<&str>,
+) -> (String, data::NewItem) {
+    let filled = |value: &str| (!value.trim().is_empty()).then(|| value.to_string());
+    let shared = data::NewItem {
+        title: form.title.clone(),
+        content: form.content.clone(),
+        task_type: Some(form.task_type.clone()),
+        team_id: team_id.map(str::to_string),
+        repository: Some(form.repository.clone()).filter(|slug| slug != NO_REPOSITORY),
+        ..data::NewItem::default()
+    };
+    let item = match mode {
+        CreateMode::Manager => data::NewItem {
+            hypothesis: filled(&form.hypothesis),
+            complexity: Some(form.complexity.clone()).filter(|c| c != "none"),
+            // KAIROS-T-0077: "auto" leaves the field out, and the server
+            // selects the lane from the task type.
+            work_class: Some(form.work_class.clone()).filter(|c| c != "auto"),
+            decision_maker: filled(&form.decision_maker),
+            decision_date: filled(&form.decision_date),
+            ..shared
+        },
+        CreateMode::Request => data::NewItem {
+            work_class: Some(LANE_SUPPORT.to_string()),
+            ..shared
+        },
+    };
+    (entry_column_id.to_string(), item)
+}
+
+/// The name of the lane, as the board shows it in the head of the lane.
+fn lane_label(lane: &str) -> &'static str {
+    match lane {
+        LANE_SUPPORT => "Support",
+        _ => "Planned",
+    }
+}
+
+/// The title of the request dialog (COLLIERY-T-0232). It names the team
+/// that gets the request, because the person is on the board of a team
+/// that is not theirs. `team` is `None` when the list of teams did not
+/// load; the title then does not show a wrong name or an empty one.
+fn request_title(team: Option<&str>) -> String {
+    format!("Request to {}", team.unwrap_or("the team of this board"))
+}
+
+/// The caption of the request dialog (COLLIERY-T-0232): where the request
+/// goes, and who moves it. The person cannot select a column or a lane, so
+/// the dialog says which ones the server uses.
+fn request_caption(team: Option<&str>, entry_column: &str) -> String {
+    let lane = lane_label(LANE_SUPPORT);
+    match team {
+        Some(team) => format!(
+            "The request goes to {entry_column}, the entry column of the board of {team}, \
+             in the {lane} lane. {team} moves it from there."
+        ),
+        None => format!(
+            "The request goes to {entry_column}, the entry column of this board, \
+             in the {lane} lane. The team of the board moves it from there."
+        ),
+    }
+}
+
+/// A request that the person sent from this board (COLLIERY-T-0232). The
+/// board shows it as a notice: [`request_notice`] gives the text, and the
+/// short code is a link to the item.
+#[derive(Clone, Debug, PartialEq)]
+struct SentRequest {
+    short_code: String,
+    /// The repository that the request links to, if any. The repository
+    /// lens of the board hides a task that is not in the selection.
+    repository: Option<String>,
+}
+
+/// The text of the notice after a request, in two parts: before the short
+/// code and after it (COLLIERY-T-0232). The short code goes between them
+/// as a link.
+///
+/// The text names the column and the lane. The board shows the Support
+/// lane and the Planned lane together, so the new card is on the page. But
+/// the person can have the repository lens on, or the lanes grouped by
+/// repository, and then the card is not where a reader of "Support lane"
+/// looks. `hidden_by_lens` adds the sentence that says why the card is not
+/// visible. The lens itself does not change: the person set it.
+fn request_notice(
+    team: Option<&str>,
+    entry_column: &str,
+    hidden_by_lens: bool,
+) -> (String, String) {
+    let before = format!(
+        "Request sent to {}: ",
+        team.unwrap_or("the team of this board")
+    );
+    let mut after = format!(
+        ". It is in {entry_column}, in the {} lane.",
+        lane_label(LANE_SUPPORT)
+    );
+    if hidden_by_lens {
+        after.push_str(" The repository filter hides it on this page.");
+    }
+    (before, after)
+}
+
+/// Does the repository lens hide a request that was sent a moment ago
+/// (COLLIERY-T-0232)? The same rule as [`lens_admits`] for a task: with a
+/// selection, the board shows only the tasks of the selected repositories.
+fn lens_hides_request(request: &SentRequest, selected: &[String]) -> bool {
+    !selected.is_empty()
+        && !request
+            .repository
+            .as_ref()
+            .is_some_and(|slug| selected.contains(slug))
+}
+
 /// Apply one [`DropEffect`] and report through the standard board
 /// callbacks — the drop handler's mutation path (the keyboard-accessible
 /// path lives on the item detail page, KAIROS-T-0075). A diagonal drop is
@@ -841,6 +1121,25 @@ pub fn BoardPage() -> impl IntoView {
     })
     .into();
 
+    // Which create button the board shows (COLLIERY-T-0232): "New task"
+    // for a person who manages the board, "New request" for a member of
+    // the tenant who does not. Memoized for the same reason as `powers`.
+    let mode: Signal<Option<CreateMode>> = Memo::new(move |_| {
+        let identity = whoami
+            .and_then(|resource| resource.get())
+            .and_then(|result| result.ok());
+        model.with(|m| {
+            m.as_ref().and_then(|view| {
+                create_mode(
+                    identity.as_ref(),
+                    &view.items.board,
+                    !view.detail.columns.is_empty(),
+                )
+            })
+        })
+    })
+    .into();
+
     view! {
         {move || match board.get() {
             // A load error renders above the (stale) board rather than
@@ -854,7 +1153,7 @@ pub fn BoardPage() -> impl IntoView {
             _ => None,
         }}
         {move || board_key.get().map(|_| view! {
-            <BoardBody model powers on_changed on_error/>
+            <BoardBody model powers mode on_changed on_error/>
         })}
         {move || action_error.get().map(|error| view! {
             <div class="kairos-board-notice">
@@ -888,9 +1187,13 @@ fn BoardBody(
     /// What the user may do here (KAIROS-T-0072) — gates every mutating
     /// affordance; the server stays the authority.
     powers: Signal<BoardPowers>,
+    /// Which create button the board shows, if any (COLLIERY-T-0232,
+    /// [`create_mode`]).
+    mode: Signal<Option<CreateMode>>,
     on_changed: Callback<()>,
     on_error: Callback<ApiError>,
 ) -> impl IntoView {
+    let auth = use_auth();
     // Identity fields are stable for this instance's lifetime (a board-id
     // change recreates the whole component).
     let board = model.with_untracked(|m| {
@@ -1043,19 +1346,59 @@ fn BoardBody(
             .unwrap_or_default(),
     );
 
+    // COLLIERY-T-0232: the name of the team that gets a request. The board
+    // carries the id of its team and not the name, and `whoami` lists only
+    // the teams of the person, who is not in this one. The list of teams
+    // loads only for a person who can send a request.
+    let teams = LocalResource::new(move || {
+        let _ = auth.token();
+        let wanted = mode.get() == Some(CreateMode::Request);
+        async move {
+            if wanted {
+                crate::pages::teams::api::list_teams(auth).await
+            } else {
+                Ok(Vec::new())
+            }
+        }
+    });
+    let team_name = Memo::new(move |_| {
+        let list = teams
+            .get()
+            .and_then(|result| result.ok())
+            .unwrap_or_default();
+        team_id.with_value(|id| {
+            id.as_ref().and_then(|id| {
+                list.iter()
+                    .find(|team| team.id == *id)
+                    .map(|team| team.name.clone())
+            })
+        })
+    });
+    // The request that the person sent a moment ago. It lives HERE, with
+    // the open-state of the dialogs, so that a refetch does not drop it.
+    let sent: RwSignal<Option<SentRequest>> = RwSignal::new(None);
+    let on_requested = Callback::new(move |request: SentRequest| sent.set(Some(request)));
+
     view! {
         {move || {
             let (title, sub) = header_text.get();
             let header_right: Children = Box::new(move || view! {
                 <Group gap="xs">
-                    {move || (create_kind.is_some()
-                        && entry_column.with(Option::is_some)
-                        && powers.get().create)
-                        .then(|| view! {
+                    {move || match mode.get() {
+                        Some(CreateMode::Manager) => Some(view! {
                             <Button size="xs" on_click=Callback::new(move |_| create_open.set(true))>
                                 {create_label.get_value()}
                             </Button>
-                        })}
+                        }.into_any()),
+                        // COLLIERY-T-0232: the same place, the same
+                        // component, the same dialog in its request mode.
+                        Some(CreateMode::Request) => Some(view! {
+                            <Button size="xs" on_click=Callback::new(move |_| create_open.set(true))>
+                                "New request"
+                            </Button>
+                        }.into_any()),
+                        None => None,
+                    }}
                     {move || (documents_offered.get() && powers.get().documents).then(|| view! {
                         <Button variant="default" size="xs" on_click=Callback::new(move |_| doc_open.set(true))>
                             "New document"
@@ -1065,6 +1408,37 @@ fn BoardBody(
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
         }}
+        {move || sent.get().map(|request| {
+            // COLLIERY-T-0232: the notice names the team, the column and
+            // the lane, and the short code is a link to the item. The card
+            // is in the Support lane, which is on the page with the
+            // Planned lane, unless the repository lens hides it.
+            let hidden = group_by_repo.get()
+                || selected_repos.with(|selected| lens_hides_request(&request, selected));
+            let entry_name = entry_column.get().map(|(_, name)| name).unwrap_or_default();
+            let (before, after) =
+                request_notice(team_name.get().as_deref(), &entry_name, hidden);
+            let href = format!("/items/{}", request.short_code);
+            view! {
+                <div class="kairos-board__sent" role="status" data-testid="request-sent">
+                    <Banner color=token::OK icon="✓">
+                        <Group justify="between">
+                            <Text size="sm">
+                                {before}
+                                <a class="cl-mono kairos-card__code" href=href>
+                                    {request.short_code}
+                                </a>
+                                {after}
+                            </Text>
+                            <Button variant="default" size="xs"
+                                on_click=Callback::new(move |_| sent.set(None))>
+                                "Dismiss"
+                            </Button>
+                        </Group>
+                    </Banner>
+                </div>
+            }
+        })}
         {move || (is_delivery && lens_shown.get()).then(|| view! {
             <div class="kairos-board__lens" data-testid="repo-lens">
                 <Group gap="xs" wrap=true>
@@ -1160,14 +1534,17 @@ fn BoardBody(
                     .into_any()
             }
         }
-        {move || create_kind.zip(entry_column.get()).map(|(kind, entry)| view! {
+        {move || create_kind.zip(entry_column.get()).zip(mode.get()).map(|((kind, entry), mode)| view! {
             <CreateItemModal
                 open=create_open
                 kind
+                mode
                 board_id=board_id.get_value()
                 team_id=team_id.get_value()
+                team_name=team_name.get()
                 entry
                 on_changed
+                on_requested
             />
         })}
         {move || documents_offered.get().then(|| view! {
@@ -1653,16 +2030,33 @@ fn ItemCard(
 /// with its type-appropriate fields (A-0002 one item family per board
 /// level). New items ALWAYS land in the board's entry column — creation
 /// is intake; movement happens by transition.
+///
+/// One dialog, two modes (COLLIERY-T-0232). [`CreateMode::Manager`] is the
+/// dialog as it was. [`CreateMode::Request`] is for a member who does not
+/// manage the board: the title names the team, a caption says where the
+/// request goes, and the Lane control is not there, because a request
+/// always goes to the support lane. A second dialog would repeat the
+/// title, the content, the task type, the repository picker and the
+/// display of a refusal, and the two copies would then go different ways.
+/// What each mode sends is [`create_body`].
 #[component]
 fn CreateItemModal(
     open: RwSignal<bool>,
     kind: EntityKind,
+    /// Who creates: a manager of the board, or a person who sends a
+    /// request to its team (COLLIERY-T-0232).
+    mode: CreateMode,
     board_id: String,
     /// Delivery boards carry their team; new tasks inherit it.
     team_id: Option<String>,
+    /// The name of that team, for the text of a request. `None` when the
+    /// list of teams did not load.
+    team_name: Option<String>,
     /// `(column_id, column_name)` — the board's entry column.
     entry: (String, String),
     on_changed: Callback<()>,
+    /// A request was sent: the board shows its notice (COLLIERY-T-0232).
+    on_requested: Callback<SentRequest>,
 ) -> impl IntoView {
     let auth = use_auth();
     let title = RwSignal::new(String::new());
@@ -1730,51 +2124,70 @@ fn CreateItemModal(
     });
 
     let (entry_id, entry_name) = entry;
+    let is_request = mode == CreateMode::Request;
 
     // `Callback` is `Copy`: the modal's children (a `Fn` closure) can use
     // it without moving anything out of their environment.
-    let submit: Callback<()> = Callback::new({
-        let opt = |s: String| (!s.trim().is_empty()).then_some(s);
-        move |()| {
-            let column_id = entry_id.clone();
-            let item = data::NewItem {
-                title: title.get_untracked(),
-                content: content.get_untracked(),
-                hypothesis: opt(hypothesis.get_untracked()),
-                complexity: Some(complexity.get_untracked()).filter(|c| c != "none"),
-                task_type: Some(task_type.get_untracked()),
-                work_class: Some(work_class.get_untracked()).filter(|c| c != "auto"),
-                team_id: team_id.clone(),
-                repository: Some(repository.get_untracked()).filter(|r| r != NO_REPOSITORY),
-                decision_maker: opt(decision_maker.get_untracked()),
-                decision_date: opt(decision_date.get_untracked()),
-            };
-            let board_id = board_id.clone();
-            busy.set(true);
-            error.set(None);
-            leptos::task::spawn_local(async move {
-                match data::create_item(auth, kind, &board_id, &column_id, &item).await {
-                    Ok(()) => {
-                        open.set(false);
-                        on_changed.run(());
+    let submit: Callback<()> = Callback::new(move |()| {
+        let form = CreateForm {
+            title: title.get_untracked(),
+            content: content.get_untracked(),
+            hypothesis: hypothesis.get_untracked(),
+            complexity: complexity.get_untracked(),
+            task_type: task_type.get_untracked(),
+            work_class: work_class.get_untracked(),
+            repository: repository.get_untracked(),
+            decision_maker: decision_maker.get_untracked(),
+            decision_date: decision_date.get_untracked(),
+        };
+        // COLLIERY-T-0232: the mode decides the body, not the form.
+        let (column_id, item) = create_body(mode, &form, &entry_id, team_id.as_deref());
+        let board_id = board_id.clone();
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            match data::create_item(auth, kind, &board_id, &column_id, &item).await {
+                Ok(short_code) => {
+                    open.set(false);
+                    if is_request {
+                        on_requested.run(SentRequest {
+                            short_code,
+                            repository: item.repository,
+                        });
                     }
-                    Err(e) => error.set(Some(e)),
+                    on_changed.run(());
                 }
-                busy.set(false);
-            });
-        }
+                // A refusal of the server (403, 422) and a network
+                // failure show in the dialog, which stays open.
+                Err(e) => error.set(Some(e)),
+            }
+            busy.set(false);
+        });
     });
 
-    let entry_note = StoredValue::new(format!(
-        "New {}s start in {entry_name} — the board's intake column.",
-        kind.label()
-    ));
+    let entry_note = StoredValue::new(match mode {
+        CreateMode::Manager => format!(
+            "New {}s start in {entry_name} — the board's intake column.",
+            kind.label()
+        ),
+        CreateMode::Request => request_caption(team_name.as_deref(), &entry_name),
+    });
+    let modal_title = match mode {
+        CreateMode::Manager => format!("New {}", kind.label()),
+        CreateMode::Request => request_title(team_name.as_deref()),
+    };
+    let (refused_title, submit_label, busy_label) = match mode {
+        CreateMode::Manager => ("Could not create", "Create", "Creating…"),
+        CreateMode::Request => ("Could not send the request", "Send request", "Sending…"),
+    };
     view! {
-        <Modal open=open title=format!("New {}", kind.label())>
+        <Modal open=open title=modal_title>
             <Stack gap="sm">
-                <Text dimmed=true size="xs">
-                    {move || entry_note.get_value()}
-                </Text>
+                <span data-testid="create-caption">
+                    <Text dimmed=true size="xs">
+                        {move || entry_note.get_value()}
+                    </Text>
+                </span>
                 <TextInput label="Title" value=title placeholder="What is it?"/>
                 <Textarea label="Content (markdown)" value=content rows=5
                     placeholder="Why does it exist? What does done look like?"/>
@@ -1793,8 +2206,11 @@ fn CreateItemModal(
                                      "support".into()]/>
                     // KAIROS-T-0077: the Planned/Support lane; "auto"
                     // follows the type (support → Support lane).
-                    <Select label="Lane" value=work_class
-                        options=vec!["auto".into(), "planned".into(), "support".into()]/>
+                    // COLLIERY-T-0232: a request has no lane to select.
+                    {(!is_request).then(|| view! {
+                        <Select label="Lane" value=work_class
+                            options=vec!["auto".into(), "planned".into(), "support".into()]/>
+                    })}
                     // COLLIERY-T-0221: only when the tenant has a repository.
                     // A plain <select>, as on the item page: the value is
                     // the slug and the label says more, which the aurora
@@ -1822,7 +2238,7 @@ fn CreateItemModal(
                     </Stack>
                 })}
                 {move || error.get().map(|e| view! {
-                    <Alert title="Could not create" color=token::BAD>
+                    <Alert title=refused_title color=token::BAD>
                         <Text size="sm">{describe(&e)}</Text>
                     </Alert>
                 })}
@@ -1835,7 +2251,7 @@ fn CreateItemModal(
                         let disabled = busy.get() || title.get().trim().is_empty();
                         view! {
                             <Button size="xs" disabled=disabled on_click=submit>
-                                {if busy.get_untracked() { "Creating…" } else { "Create" }}
+                                {if busy.get_untracked() { busy_label } else { submit_label }}
                             </Button>
                         }
                     }}
@@ -2302,6 +2718,344 @@ mod tests {
             )
             .is_empty(),
             "no target for a board move"
+        );
+    }
+
+    // ---- COLLIERY-T-0232: the gate for "New task" and "New request" ------
+
+    /// A `whoami` as the server sends it to a member of the tenant: the
+    /// computed `file_backlog` is in `implicit`.
+    fn member(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoami {
+        let mut who = me(role, team_ids, grants);
+        who.implicit = vec!["file_backlog".to_string()];
+        who
+    }
+
+    fn platform_board() -> data::Board {
+        board("platform-delivery", "delivery", Some("t-platform"))
+    }
+
+    /// The four persons who manage the delivery board of platform. Each
+    /// gets "New task", and none gets "New request".
+    #[test]
+    fn a_person_who_manages_the_board_gets_new_task_and_no_request() {
+        let board = platform_board();
+        let managers = [
+            (
+                "a person with every grant on the board",
+                member("member", &[], &[("platform-delivery", &["*"])]),
+            ),
+            (
+                "a member of the team of the board",
+                member("member", &["t-platform"], &[]),
+            ),
+            (
+                "a person with an explicit manage_tasks grant",
+                member("member", &[], &[("platform-delivery", &["manage_tasks"])]),
+            ),
+            ("an organization admin", member("admin", &[], &[])),
+        ];
+        for (who, me) in &managers {
+            assert!(manages_board(Some(me), &board), "{who} manages");
+            assert!(!may_request(Some(me), &board, true), "{who}: no request");
+            assert_eq!(
+                create_mode(Some(me), &board, true),
+                Some(CreateMode::Manager),
+                "{who}"
+            );
+        }
+    }
+
+    /// A member of the tenant with nothing on the board of platform: a
+    /// request, and no "New task". A member of a DIFFERENT team and a
+    /// person with a grant on a DIFFERENT board are in the same position.
+    #[test]
+    fn a_member_who_does_not_manage_a_delivery_board_may_request() {
+        let board = platform_board();
+        let outsiders = [
+            ("no team, no grant", member("member", &[], &[])),
+            ("a member of team web", member("member", &["t-web"], &[])),
+            (
+                "a grant on the board of web",
+                member("member", &[], &[("web-delivery", &["manage_tasks"])]),
+            ),
+            (
+                "a grant on this board that does not cover manage_tasks",
+                member(
+                    "member",
+                    &[],
+                    &[("platform-delivery", &["transition_items"])],
+                ),
+            ),
+        ];
+        for (who, me) in &outsiders {
+            assert!(!manages_board(Some(me), &board), "{who} does not manage");
+            assert!(may_request(Some(me), &board, true), "{who} may request");
+            assert_eq!(
+                create_mode(Some(me), &board, true),
+                Some(CreateMode::Request),
+                "{who}"
+            );
+        }
+    }
+
+    /// A board of the organization takes no request: `file_backlog` is a
+    /// capability on a delivery board only. The same person sees no button
+    /// on the initiative, strategy and ADR boards.
+    #[test]
+    fn a_board_that_is_not_a_delivery_board_offers_neither() {
+        let carol = member("member", &["t-web"], &[]);
+        for level in ["initiative", "strategy", "adr", "unknown-level"] {
+            let board = board(level, level, None);
+            assert!(!manages_board(Some(&carol), &board), "{level}");
+            assert!(!may_request(Some(&carol), &board, true), "{level}");
+            assert_eq!(create_mode(Some(&carol), &board, true), None, "{level}");
+        }
+        // A person who manages such a board keeps the button of a manager.
+        let granted = member("member", &[], &[("adr", &["manage_adrs"])]);
+        let adrs = board("adr", "adr", None);
+        assert_eq!(
+            create_mode(Some(&granted), &adrs, true),
+            Some(CreateMode::Manager)
+        );
+        assert!(!may_request(Some(&granted), &adrs, true));
+    }
+
+    /// A delivery board with no entry column offers neither button: a new
+    /// task has no column to start in. This is also true for a manager, as
+    /// it was before COLLIERY-T-0232.
+    #[test]
+    fn a_delivery_board_with_no_entry_column_offers_neither() {
+        let board = platform_board();
+        let carol = member("member", &["t-web"], &[]);
+        assert!(!may_request(Some(&carol), &board, false));
+        assert_eq!(create_mode(Some(&carol), &board, false), None);
+        let bob = member("member", &["t-platform"], &[]);
+        assert!(manages_board(Some(&bob), &board), "bob manages the board");
+        assert_eq!(create_mode(Some(&bob), &board, false), None);
+    }
+
+    /// Until `whoami` resolves the GUI does not know the person, and it
+    /// offers nothing.
+    #[test]
+    fn a_person_whose_whoami_did_not_resolve_gets_neither() {
+        let board = platform_board();
+        assert!(!manages_board(None, &board));
+        assert!(!may_request(None, &board, true));
+        assert_eq!(create_mode(None, &board, true), None);
+    }
+
+    /// The GUI reads `file_backlog` from `whoami`. A server that does not
+    /// give the capability stops the request button, and the button of a
+    /// manager does not depend on it.
+    #[test]
+    fn the_request_needs_file_backlog_from_whoami() {
+        let board = platform_board();
+        let without = me("member", &["t-web"], &[]);
+        assert!(without.implicit.is_empty());
+        assert!(!may_request(Some(&without), &board, true));
+        assert_eq!(create_mode(Some(&without), &board, true), None);
+        let mut other = without.clone();
+        other.implicit = vec!["some_other_capability".to_string()];
+        assert!(!may_request(Some(&other), &board, true));
+        let bob = me("member", &["t-platform"], &[]);
+        assert_eq!(
+            create_mode(Some(&bob), &board, true),
+            Some(CreateMode::Manager)
+        );
+    }
+
+    // ---- COLLIERY-T-0232: what the dialog sends ---------------------------
+
+    fn form(task_type: &str, work_class: &str, repository: &str) -> CreateForm {
+        CreateForm {
+            title: "Export endpoint".to_string(),
+            content: "The portal needs it.".to_string(),
+            hypothesis: "If we ship it".to_string(),
+            complexity: "m".to_string(),
+            task_type: task_type.to_string(),
+            work_class: work_class.to_string(),
+            repository: repository.to_string(),
+            decision_maker: "alice".to_string(),
+            decision_date: "2026-09-27".to_string(),
+        }
+    }
+
+    /// A request never asks for the planned lane and never names a column
+    /// other than the entry column, for each state that the form can have
+    /// (and for some that it cannot).
+    #[test]
+    fn a_request_is_always_support_in_the_entry_column() {
+        for task_type in ["task", "bug", "tech_debt", "support"] {
+            for lane in ["auto", "planned", "support", "", "PLANNED", "c-todo"] {
+                for repository in [NO_REPOSITORY, "payments-api"] {
+                    let (column, item) = create_body(
+                        CreateMode::Request,
+                        &form(task_type, lane, repository),
+                        "c-backlog",
+                        Some("t-platform"),
+                    );
+                    let case = format!("{task_type}/{lane}/{repository}");
+                    assert_eq!(column, "c-backlog", "{case}");
+                    assert_eq!(item.work_class.as_deref(), Some("support"), "{case}");
+                    assert_eq!(item.task_type.as_deref(), Some(task_type), "{case}");
+                }
+            }
+        }
+    }
+
+    /// The whole body of a request, with a repository and with none.
+    #[test]
+    fn a_request_sends_the_task_the_team_and_the_link() {
+        let (column, item) = create_body(
+            CreateMode::Request,
+            &form("bug", "planned", "payments-api"),
+            "c-backlog",
+            Some("t-platform"),
+        );
+        assert_eq!(column, "c-backlog");
+        assert_eq!(
+            item,
+            data::NewItem {
+                title: "Export endpoint".to_string(),
+                content: "The portal needs it.".to_string(),
+                hypothesis: None,
+                complexity: None,
+                task_type: Some("bug".to_string()),
+                work_class: Some("support".to_string()),
+                team_id: Some("t-platform".to_string()),
+                repository: Some("payments-api".to_string()),
+                decision_maker: None,
+                decision_date: None,
+            }
+        );
+        let (_, unlinked) = create_body(
+            CreateMode::Request,
+            &form("task", "auto", NO_REPOSITORY),
+            "c-backlog",
+            Some("t-platform"),
+        );
+        assert_eq!(unlinked.repository, None, "a repository is optional");
+    }
+
+    /// A manager sends what the dialog sent before COLLIERY-T-0232: the
+    /// lane of the form, no `work_class` for `auto`, and the entry column.
+    #[test]
+    fn a_manager_sends_the_lane_of_the_form() {
+        let send = |lane: &str| {
+            create_body(
+                CreateMode::Manager,
+                &form("task", lane, NO_REPOSITORY),
+                "c-backlog",
+                Some("t-platform"),
+            )
+        };
+        let (column, auto) = send("auto");
+        assert_eq!(column, "c-backlog");
+        assert_eq!(auto.work_class, None);
+        assert_eq!(send("planned").1.work_class.as_deref(), Some("planned"));
+        assert_eq!(send("support").1.work_class.as_deref(), Some("support"));
+        assert_eq!(
+            auto,
+            data::NewItem {
+                title: "Export endpoint".to_string(),
+                content: "The portal needs it.".to_string(),
+                hypothesis: Some("If we ship it".to_string()),
+                complexity: Some("m".to_string()),
+                task_type: Some("task".to_string()),
+                work_class: None,
+                team_id: Some("t-platform".to_string()),
+                repository: None,
+                decision_maker: Some("alice".to_string()),
+                decision_date: Some("2026-09-27".to_string()),
+            }
+        );
+        // Empty optional fields are left out, and `none` is no complexity.
+        let blank = CreateForm {
+            title: "T".to_string(),
+            complexity: "none".to_string(),
+            task_type: "task".to_string(),
+            work_class: "auto".to_string(),
+            repository: NO_REPOSITORY.to_string(),
+            hypothesis: "  ".to_string(),
+            ..CreateForm::default()
+        };
+        let (_, item) = create_body(CreateMode::Manager, &blank, "c-backlog", None);
+        assert_eq!(item.hypothesis, None);
+        assert_eq!(item.complexity, None);
+        assert_eq!(item.decision_maker, None);
+        assert_eq!(item.decision_date, None);
+        assert_eq!(item.team_id, None);
+    }
+
+    // ---- COLLIERY-T-0232: the text of a request ---------------------------
+
+    #[test]
+    fn the_request_dialog_names_the_team_the_column_and_the_lane() {
+        assert_eq!(request_title(Some("Platform")), "Request to Platform");
+        assert_eq!(request_title(None), "Request to the team of this board");
+        assert_eq!(
+            request_caption(Some("Platform"), "Backlog"),
+            "The request goes to Backlog, the entry column of the board of Platform, \
+             in the Support lane. Platform moves it from there."
+        );
+        assert_eq!(
+            request_caption(None, "Inbox"),
+            "The request goes to Inbox, the entry column of this board, \
+             in the Support lane. The team of the board moves it from there."
+        );
+    }
+
+    #[test]
+    fn the_notice_names_the_team_the_column_and_the_lane() {
+        assert_eq!(
+            request_notice(Some("Platform"), "Backlog", false),
+            (
+                "Request sent to Platform: ".to_string(),
+                ". It is in Backlog, in the Support lane.".to_string()
+            )
+        );
+        assert_eq!(
+            request_notice(None, "Backlog", true),
+            (
+                "Request sent to the team of this board: ".to_string(),
+                ". It is in Backlog, in the Support lane. \
+                 The repository filter hides it on this page."
+                    .to_string()
+            )
+        );
+        assert_eq!(lane_label(LANE_SUPPORT), "Support");
+        assert_eq!(lane_label(LANE_PLANNED), "Planned");
+    }
+
+    /// The lens hides a request as it hides each task: with a selection,
+    /// only the tasks of the selected repositories show.
+    #[test]
+    fn the_lens_hides_a_request_that_is_not_in_the_selection() {
+        let request = |repository: Option<&str>| SentRequest {
+            short_code: "DEMO-T-0042".to_string(),
+            repository: repository.map(str::to_string),
+        };
+        let none: Vec<String> = Vec::new();
+        assert!(!lens_hides_request(&request(None), &none));
+        assert!(!lens_hides_request(&request(Some("payments-api")), &none));
+        let selected = slugs(&["payments-api"]);
+        assert!(!lens_hides_request(
+            &request(Some("payments-api")),
+            &selected
+        ));
+        assert!(lens_hides_request(&request(Some("portal-web")), &selected));
+        assert!(lens_hides_request(&request(None), &selected));
+        // The rule is the rule of the lens for a task card.
+        let mut as_card = card(EntityKind::Task, Some("portal-web"));
+        assert_eq!(
+            lens_hides_request(&request(Some("portal-web")), &selected),
+            !lens_admits(&as_card, &selected)
+        );
+        as_card.repository = None;
+        assert_eq!(
+            lens_hides_request(&request(None), &selected),
+            !lens_admits(&as_card, &selected)
         );
     }
 

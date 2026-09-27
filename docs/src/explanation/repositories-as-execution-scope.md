@@ -324,11 +324,6 @@ while live tasks or a webhook connection still reference it, and the tasks of
 every team count. Archived tasks do not hold a repository down, for the reason
 [archiving](archiving.md) explains: a wind-down guard asks about live work.
 
-One gap is known. The web interface offers "new task" only on a board the
-person manages, so it has no control for sending a request to a different
-team yet. Requests work over the REST API, the CLI and MCP. The gap is
-recorded as COLLIERY-T-0232.
-
 Two questions are left open from the first decision. Tenants with genuinely
 co-owned codebases, where one answerable team turns out to be inadequate,
 would be the reason to revisit many-to-many ownership. And monorepo tenants

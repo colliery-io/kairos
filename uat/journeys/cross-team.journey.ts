@@ -167,6 +167,42 @@ journey(
       return { shown: 'repository, delete, editor', hidden: 'move, lane, board' };
     });
 
+    await step(carol, 'sends a second request from platform\'s board in the GUI; it lands in the entry column, in the Support lane', async () => {
+      // COLLIERY-T-0232. Until then the board of a team that was not hers
+      // had no create button for her, and a request needed MCP or the API.
+      // She does not manage the board, so the button is "New request" and
+      // the dialog has no lane to select.
+      const page = await carol.gui();
+      await openBoard(page, theirBoard);
+      const button = page.getByRole('button', { name: 'New request', exact: true });
+      await expect(button).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('button', { name: 'New task', exact: true })).toHaveCount(0);
+      await button.click();
+      const modal = page.locator('.cl-modal');
+      await expect(modal.locator('.cl-modal__title')).toHaveText(/^Request to /);
+      await expect(modal.locator('[data-testid="create-caption"]')).toContainText('in the Support lane');
+      const lane = modal.locator('.cl-field', { has: page.locator('.cl-field__label', { hasText: 'Lane' }) });
+      await expect(lane, 'a request has no lane to select').toHaveCount(0);
+      const title = named('platform: the export needs a currency column');
+      await modal
+        .locator('.cl-field', { has: page.locator('.cl-field__label', { hasText: 'Title' }) })
+        .locator('input')
+        .fill(title);
+      await modal.getByRole('button', { name: 'Send request', exact: true }).click();
+      await expect(modal).toBeHidden({ timeout: 10_000 });
+      const notice = page.locator('[data-testid="request-sent"]');
+      await expect(notice).toContainText('in the Support lane');
+      const second = (await notice.locator('a').innerText()).trim();
+      expect(second).toBeTruthy();
+      const api = await alice.api();
+      ledger.add({ kind: 'task', label: second, delete: async () => { await api.delete(`/api/tasks/${second}`); } });
+      await expect(laneCard(page, 'support', 'Backlog', second)).toBeVisible({ timeout: 10_000 });
+      await expect(cardIn(page, 'Backlog', second), 'it is not in the planned lane').toHaveCount(0);
+      const stored = await api.task(second);
+      expect(stored.work_class).toBe('support');
+      return { short_code: second, sent_from: 'GUI', lane: 'support', column: 'Backlog' };
+    });
+
     await step(bob, 'sees the request in the Support lane of platform\'s Backlog, takes it into the plan, and triages it to Todo', async () => {
       const page = await bob.gui();
       await openBoard(page, theirBoard);

@@ -199,6 +199,17 @@ pub struct Whoami {
     /// drives per-board admin gating (KAIROS-T-0052) for non-admins.
     #[serde(default)]
     pub capabilities: Vec<WhoamiBoardCapabilities>,
+    /// The COMPUTED capabilities that the server gives to each member of
+    /// the tenant with no grant (KAIROS-T-0105). Today the list holds
+    /// `file_backlog`: the person can send a request to the delivery board
+    /// of any team (COLLIERY-T-0218).
+    ///
+    /// The board page reads it to offer "New request" (COLLIERY-T-0232).
+    /// The GUI reads the list and does not assume it, so that a server that
+    /// stops giving `file_backlog` also stops the button. A body with no
+    /// `implicit` decodes to an empty list, which offers no request.
+    #[serde(default)]
+    pub implicit: Vec<String>,
 }
 
 /// mirror of: `kairos_server::app::WhoamiBoardCapabilities` (partial).
@@ -259,7 +270,8 @@ mod tests {
                 "board_id": "c3f4a5b6-1234-4c66-9e46-94e0d9e0f70f",
                 "board_slug": "platform-delivery",
                 "grants": ["configure_boards", "administer_members"]
-            }]
+            }],
+            "implicit": ["file_backlog"]
         });
         let whoami: Whoami = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(whoami.user.display_name, "alice");
@@ -268,5 +280,19 @@ mod tests {
         assert_eq!(whoami.teams[0].id, "b1e2…");
         assert_eq!(whoami.capabilities[0].board_slug, "platform-delivery");
         assert_eq!(whoami.capabilities[0].grants.len(), 2);
+        // COLLIERY-T-0232: the computed capabilities are on the mirror.
+        assert_eq!(whoami.implicit, ["file_backlog"]);
+    }
+
+    /// COLLIERY-T-0232: a body with no `implicit` gives an empty list. The
+    /// board page then offers no request, which is the safe direction.
+    #[test]
+    fn whoami_mirror_decodes_a_body_with_no_implicit_list() {
+        let body = serde_json::json!({
+            "user": {"id": "u-1", "email": "u@x.test", "display_name": "u"},
+            "organization": {"slug": "demo", "role": "member"}
+        });
+        let whoami: Whoami = serde_json::from_value(body).expect("mirror decodes");
+        assert!(whoami.implicit.is_empty());
     }
 }

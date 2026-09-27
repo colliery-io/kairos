@@ -302,7 +302,7 @@ pub async fn set_work_class(
 
 /// The create-from-column form data; [`create_item`] maps it onto the
 /// right S-0005 request per entity kind.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct NewItem {
     pub title: String,
     pub content: String,
@@ -379,16 +379,29 @@ struct CreateAdrRequest<'a> {
     decision_date: Option<&'a str>,
 }
 
+/// mirror of: `kairos_client::types::{Strategy, Initiative, Task, Adr}`
+/// (partial): the one field of a created item that the board reads. Each
+/// of the four types carries `short_code`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct Created {
+    short_code: String,
+}
+
 /// `POST /api/{family}` — create a board item in the given column.
+///
+/// Returns the short code of the new item (COLLIERY-T-0232). The board
+/// names a request in a notice after the create, and the short code is the
+/// one name that the person and the team of the board can both use. The
+/// remainder of the body is discarded: server state is re-fetched.
 pub async fn create_item(
     auth: Auth,
     kind: EntityKind,
     board_id: &str,
     column_id: &str,
     item: &NewItem,
-) -> Result<(), ApiError> {
+) -> Result<String, ApiError> {
     let path = format!("/api/{}", kind.api_family());
-    let _: serde_json::Value = match kind {
+    let created: Created = match kind {
         EntityKind::Strategy => {
             post_json(
                 auth,
@@ -450,7 +463,7 @@ pub async fn create_item(
             .await?
         }
     };
-    Ok(())
+    Ok(created.short_code)
 }
 
 /// mirror of: `kairos_client::types::CreateDocumentRequest`.
@@ -672,6 +685,21 @@ mod tests {
             serde_json::json!({"title": "PRD: x", "template_id": "t-1",
                                "parent_short_code": "DEMO-I-0002"})
         );
+    }
+
+    /// COLLIERY-T-0232: the response of a create decodes to the short code,
+    /// from a whole task body.
+    #[test]
+    fn created_mirror_decodes_a_task_body() {
+        let created: Created = serde_json::from_value(serde_json::json!({
+            "id": "i3", "short_code": "DEMO-T-0042", "title": "T", "content": "",
+            "board_id": "b", "column_id": "c", "task_type": "task",
+            "work_class": "support", "team_id": "t", "version": 1,
+            "created_by": "u", "updated_by": "u",
+            "created_at": "x", "updated_at": "x"
+        }))
+        .expect("mirror decodes");
+        assert_eq!(created.short_code, "DEMO-T-0042");
     }
 
     /// Board level → create-flow entity kind (A-0002 one-family-per-level).

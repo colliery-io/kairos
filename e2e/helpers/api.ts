@@ -446,3 +446,80 @@ export async function tryCreateRelationship(
   });
   return res.status;
 }
+
+/**
+ * `GET /api/tasks/{code}`, the raw task DTO (COLLIERY-T-0232). The request
+ * spec reads `column_id` and `work_class` from it, to prove what the server
+ * stored and not only what the board shows.
+ */
+export async function readTask(server: string, token: string, code: string): Promise<any> {
+  return json(server, token, `/api/tasks/${code}`);
+}
+
+/** Raw status of `POST /api/tasks/{code}/work-class`, for a refusal. */
+export async function trySetWorkClass(
+  server: string,
+  token: string,
+  shortCode: string,
+  workClass: 'planned' | 'support',
+): Promise<number> {
+  const res = await fetch(`${server}/api/tasks/${shortCode}/work-class`, {
+    method: 'POST',
+    headers: { ...bearer(token), 'content-type': 'application/json' },
+    body: JSON.stringify({ work_class: workClass }),
+  });
+  return res.status;
+}
+
+/** A board of the tenant, with its columns in position order. */
+export interface BoardColumns {
+  id: string;
+  slug: string;
+  level: string;
+  /** The column with the lowest position: where a new item starts. */
+  entryColumnId: string;
+  entryColumnName: string;
+  columnId: Map<string, string>; // column name -> id
+}
+
+/**
+ * The first live board that `pick` accepts, with its entry column
+ * (COLLIERY-T-0232). The entry column is the column with the lowest
+ * position, which is the rule of the server (`boards::entry_column`).
+ */
+export async function loadBoard(
+  server: string,
+  token: string,
+  pick: (board: any) => boolean,
+): Promise<BoardColumns> {
+  const boards = (await json(server, token, '/api/boards?limit=100')).items as any[];
+  const board = boards.find(pick);
+  if (!board) throw new Error('no board matches');
+  const detail = await json(server, token, `/api/boards/${board.id}`);
+  const columns = [...detail.columns].sort((a: any, b: any) => a.position - b.position);
+  if (columns.length === 0) throw new Error(`board ${board.slug} has no column`);
+  return {
+    id: board.id,
+    slug: board.slug,
+    level: board.board_level,
+    entryColumnId: columns[0].id,
+    entryColumnName: columns[0].name,
+    columnId: new Map(columns.map((c: any) => [c.name, c.id])),
+  };
+}
+
+/**
+ * Raw status of `DELETE /api/tasks/{code}`: archive a task. The creator of
+ * a task can archive it (COLLIERY-T-0228).
+ */
+export async function tryArchiveTask(
+  server: string,
+  token: string,
+  shortCode: string,
+): Promise<number> {
+  const res = await fetch(`${server}/api/tasks/${shortCode}`, {
+    method: 'DELETE',
+    headers: bearer(token),
+  });
+  return res.status;
+}

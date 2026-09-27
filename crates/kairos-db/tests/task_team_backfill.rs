@@ -3,6 +3,10 @@
 //! repository leaves the team alone, and the backfill migration brings
 //! rows written under the old rules into line.
 //!
+//! The delivery board with no team in this test is written directly to the
+//! table. Since COLLIERY-T-0230 the service refuses to create one, but old
+//! data can hold one, and a task on it has no team.
+//!
 //! Against real Postgres from the compose stack (A-0012 tier 2), in its own
 //! scratch database like the other kairos-db integration tests.
 
@@ -140,16 +144,20 @@ fn the_board_of_a_task_decides_its_team() {
     };
     let (platform, platform_board) = seed_team(&mut conn, "Platform", "platform", alice);
     let (web, web_board) = seed_team(&mut conn, "Web", "web", alice);
-    let teamless_board = create_board(
-        &mut conn,
-        BoardLevel::Delivery,
-        "Nobody's",
-        "nobodys-delivery",
-        None,
-        Some(alice),
-    )
-    .expect("a delivery board with no team")
-    .id;
+    // A delivery board with no team. The service refuses to create one
+    // (COLLIERY-T-0230), but the row can exist: the rule has no migration
+    // and no database constraint, so a board made before the rule keeps its
+    // empty `team_id`. The readers below must continue to accept that row.
+    // The board is made with a team, and the team is then cleared directly
+    // in the table, which is the state that old data has.
+    let (_, teamless_board) = seed_team(&mut conn, "Nobody's", "nobodys", alice);
+    {
+        use kairos_db::schema::boards::dsl;
+        diesel::update(dsl::boards.filter(dsl::id.eq(teamless_board)))
+            .set(dsl::team_id.eq(None::<Uuid>))
+            .execute(&mut conn)
+            .expect("clearing the team as old data has it");
+    }
 
     // --- create: the team is read from the board -----------------------------
     let on_platform = make_task(&mut conn, platform_board, "On platform's board", alice);

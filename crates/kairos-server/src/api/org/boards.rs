@@ -299,6 +299,16 @@ pub(crate) async fn get_board(
 /// Create a board seeded with the system default columns/transitions for
 /// its level (KAIROS-A-0002). Org-admin-only: a new board has no capability
 /// context yet (A-0006 tenant-config fallback).
+///
+/// A delivery board needs a team (COLLIERY-T-0230). A request for a
+/// delivery board with no `team_id` is a 422. The board of a task decides
+/// its team, and a request to a board with no team goes to nobody. The
+/// check is in `kairos_db::boards::create_board`, which every entry point
+/// shares.
+///
+/// A board of the organization (strategy, initiative, adr) has no
+/// `team_id`. Its team is the list of its members
+/// (`GET /api/boards/{id}/members`).
 #[utoipa::path(
     post,
     path = "/api/boards",
@@ -308,7 +318,7 @@ pub(crate) async fn get_board(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad level/team reference", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad level/team reference, or a delivery board with no team", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_board(
@@ -363,6 +373,12 @@ pub(crate) async fn create_board(
 
 /// Update board settings (name/slug). Requires `configure_boards` on the
 /// board.
+///
+/// The body has no `team_id`, and that is deliberate (COLLIERY-T-0230). A
+/// live delivery board cannot lose its team, and no route moves a board to
+/// a different team. The tasks of a board have the team of the board
+/// (COLLIERY-T-0216). A route that changes the team must thus change the
+/// tasks too, in the same transaction.
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}",

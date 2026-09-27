@@ -286,12 +286,14 @@ async fn search_endpoint_against_live_stack() {
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
     let adr_board = board_id_by_slug(&mut conn, "adrs");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(seeder),
     )
     .expect("creating delivery board")
@@ -493,7 +495,10 @@ async fn search_endpoint_against_live_stack() {
     assert_eq!(task.task_type, "bug");
     assert_eq!(task.board_id, delivery_board.to_string());
     assert_eq!(task.column_id, t1.column_id.to_string());
-    assert_eq!(task.team_id, None);
+    // COLLIERY-T-0230: a delivery board always has a team, and the task
+    // has the team of its board (COLLIERY-T-0216). Until then this board
+    // had no team and the value here was `None`.
+    assert_eq!(task.team_id, Some(delivery_team.to_string()));
     assert_eq!(task.version, 1);
     assert_eq!(task.created_by, seeder.to_string());
     assert!(!task.created_at.is_empty() && !task.updated_at.is_empty());

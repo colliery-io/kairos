@@ -35,7 +35,7 @@ use common::{
     with_database,
 };
 use kairos_client::types::{CreateTaskRequest, Pagination, UpdateContentRequest};
-use kairos_client::types_org::{CreateBoardRequest, UpdateOrgMemberRequest};
+use kairos_client::types_org::{CreateTeamRequest, UpdateOrgMemberRequest};
 use kairos_client::types_search::SearchRequest;
 use kairos_client::{Error, KairosClient, TokenProvider};
 use kairos_db::models::{NewOrganizationMember, OrgRole};
@@ -162,18 +162,24 @@ async fn typed_error_mapping_roundtrip() {
             .expect("granting membership");
     }
 
-    // Fixture: svc (org admin, implicit capabilities) creates a delivery
-    // board through the API; its detail carries columns + the transition
-    // graph, which drives the InvalidTransition case below.
-    let board = svc
-        .create_board(&CreateBoardRequest {
+    // Fixture: svc (org admin, implicit capabilities) creates a team
+    // through the API, and the delivery board comes with it. A delivery
+    // board always has a team (COLLIERY-T-0230), so this is how a delivery
+    // board is made. Its detail carries columns + the transition graph,
+    // which drives the InvalidTransition case below. Nobody is a member of
+    // the team: bob has no capability from it.
+    let team = svc
+        .create_team(&CreateTeamRequest {
             name: "Delivery".into(),
             slug: "delivery".into(),
-            board_level: "delivery".into(),
-            team_id: None,
+            team_type: None,
         })
         .await
-        .expect("creating the delivery board");
+        .expect("creating the team and its delivery board");
+    let board = svc
+        .get_board(&team.delivery_board_id.expect("delivery board"))
+        .await
+        .expect("reading the delivery board");
     let board_id = board.board.id.clone();
     let first_column = board.columns[0].id.clone();
     let reachable: Vec<&str> = board

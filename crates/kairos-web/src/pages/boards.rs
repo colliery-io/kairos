@@ -336,13 +336,31 @@ const LEVEL_BANDS: &[(&str, &str)] = &[
     ("adr", "Decisions"),
 ];
 
-/// One board-list group: `(Some((heading, /teams/:slug href)), boards)`
-/// per team for the delivery band; a single unnamed group for every other
-/// level.
+/// One board-list group: `(Some((heading, href)), boards)`. The heading
+/// says whose boards these are. The href is `/teams/:slug` for a delivery
+/// team, and empty for a heading that is text only.
 type BoardGroup = (Option<(String, String)>, Vec<data::Board>);
 
-/// One rendered board-list band: level heading + its tiles, with the
-/// delivery band grouped by owning team.
+/// The heading of the boards of the organization (strategy, initiative,
+/// adr). Every board has a team (COLLIERY-T-0230). A board of the
+/// organization has no delivery team: its team is the list of the members
+/// of the board. The heading says that these boards belong to the
+/// organization, so that a reader does not look for a delivery team.
+const ORGANIZATION_GROUP: &str = "Organization";
+
+/// The heading of a delivery board that has no team. The server does not
+/// create one (COLLIERY-T-0230), but a board made before the rule can be in
+/// the data, and existing boards are not migrated. The board must stay
+/// reachable, and the heading says what an administrator must do.
+const NEEDS_TEAM_GROUP: &str = "Needs a team";
+
+/// The heading of a delivery board that has a team which is not in the
+/// list of teams: the read of the teams failed, or the list is stale. The
+/// board HAS a team, so "Needs a team" would be false.
+const UNKNOWN_TEAM_GROUP: &str = "Team not found";
+
+/// One rendered board-list band: level heading + its tiles, grouped by
+/// the team of the board.
 struct BandModel {
     level: String,
     label: String,
@@ -350,9 +368,12 @@ struct BandModel {
 }
 
 /// Bucket boards into level bands (strategy → initiative → delivery →
-/// adr, unknown levels last) and the delivery band by owning team.
-/// Teamless delivery boards keep a group of their own — nothing becomes
-/// unreachable. Pure, host-tested.
+/// adr, unknown levels last). The delivery band is grouped by delivery
+/// team. The bands of the organization have one group,
+/// [`ORGANIZATION_GROUP`]. There is no group "No team": every board has a
+/// team (COLLIERY-T-0230). A delivery board from old data that has no
+/// team, or a team that is not in `teams`, keeps a group of its own —
+/// nothing becomes unreachable. Pure, host-tested.
 fn band_models(
     boards: Vec<data::Board>,
     teams: &[crate::pages::teams::api::Team],
@@ -369,8 +390,8 @@ fn band_models(
             continue;
         }
         let groups = if *level == "delivery" {
-            // One group per team (team order = teams list order), then
-            // teamless boards under their own heading.
+            // One group per team (team order = teams list order), then the
+            // two fallback groups for old or unreadable data.
             let mut groups: Vec<BoardGroup> = Vec::new();
             for team in teams {
                 let of_team: Vec<data::Board> = of_level
@@ -385,21 +406,38 @@ fn band_models(
                     ));
                 }
             }
-            let known_team = |id: &Option<String>| {
-                id.as_deref()
-                    .is_some_and(|id| teams.iter().any(|t| t.id == id))
-            };
-            let orphans: Vec<data::Board> = of_level
+            let unknown_team: Vec<data::Board> = of_level
                 .iter()
-                .filter(|b| !known_team(&b.team_id))
+                .filter(|b| {
+                    b.team_id
+                        .as_deref()
+                        .is_some_and(|id| !teams.iter().any(|t| t.id == id))
+                })
                 .cloned()
                 .collect();
-            if !orphans.is_empty() {
-                groups.push((Some(("No team".to_string(), String::new())), orphans));
+            if !unknown_team.is_empty() {
+                groups.push((
+                    Some((UNKNOWN_TEAM_GROUP.to_string(), String::new())),
+                    unknown_team,
+                ));
+            }
+            let needs_team: Vec<data::Board> = of_level
+                .iter()
+                .filter(|b| b.team_id.is_none())
+                .cloned()
+                .collect();
+            if !needs_team.is_empty() {
+                groups.push((
+                    Some((NEEDS_TEAM_GROUP.to_string(), String::new())),
+                    needs_team,
+                ));
             }
             groups
         } else {
-            vec![(None, of_level)]
+            vec![(
+                Some((ORGANIZATION_GROUP.to_string(), String::new())),
+                of_level,
+            )]
         };
         bands.push(BandModel {
             level: level.to_string(),
@@ -425,7 +463,8 @@ fn band_models(
 
 /// `/boards` — boards in flight-level bands (strategy above initiatives
 /// above delivery, KAIROS-T-0069/T-0063), the delivery band grouped by
-/// owning team with headings linking into `/teams/:slug`.
+/// owning team with headings linking into `/teams/:slug`, and the boards
+/// of the organization under "Organization" (COLLIERY-T-0230).
 #[component]
 pub fn BoardsPage() -> impl IntoView {
     let auth = use_auth();
@@ -434,7 +473,8 @@ pub fn BoardsPage() -> impl IntoView {
         data::list_boards(auth)
     });
     // Team names for the delivery grouping. Optional enhancement data: a
-    // failed teams read degrades to "No team" grouping, never a dead page.
+    // failed teams read degrades to the "Team not found" group, never a
+    // dead page.
     let teams = LocalResource::new(move || {
         let _ = auth.token();
         crate::pages::teams::api::list_teams(auth)
@@ -1935,8 +1975,17 @@ mod tests {
         }
     }
 
+    /// The headings of one band, in order.
+    fn headings(band: &BandModel) -> Vec<Option<&str>> {
+        band.groups
+            .iter()
+            .map(|(h, _)| h.as_ref().map(|(name, _)| name.as_str()))
+            .collect()
+    }
+
     /// Bands come out in flight-level order, the delivery band grouped by
-    /// team with teamless boards kept reachable in their own group.
+    /// team. Every delivery board has a team (COLLIERY-T-0230), so the
+    /// delivery band has the teams and nothing more.
     #[test]
     fn band_models_orders_levels_and_groups_delivery_by_team() {
         let boards = vec![
@@ -1945,7 +1994,6 @@ mod tests {
             board("main-strategy", "strategy", None),
             board("platform-delivery", "delivery", Some("t1")),
             board("initiatives", "initiative", None),
-            board("orphan-delivery", "delivery", None),
         ];
         let teams = vec![team("t1", "platform"), team("t2", "web")];
         let bands = band_models(boards, &teams);
@@ -1954,21 +2002,81 @@ mod tests {
         assert_eq!(levels, vec!["strategy", "initiative", "delivery", "adr"]);
 
         let delivery = &bands[2];
-        let headings: Vec<Option<&str>> = delivery
-            .groups
-            .iter()
-            .map(|(h, _)| h.as_ref().map(|(name, _)| name.as_str()))
-            .collect();
-        assert_eq!(
-            headings,
-            vec![Some("platform"), Some("web"), Some("No team")]
-        );
+        assert_eq!(headings(delivery), vec![Some("platform"), Some("web")]);
         let platform_group = &delivery.groups[0];
         assert_eq!(
             platform_group.0.as_ref().map(|(_, href)| href.as_str()),
             Some("/teams/platform")
         );
         assert_eq!(platform_group.1[0].slug, "platform-delivery");
+    }
+
+    /// COLLIERY-T-0230: the board list has no group "No team", for any
+    /// board that the data can hold.
+    #[test]
+    fn band_models_has_no_group_no_team() {
+        let boards = vec![
+            board("main-strategy", "strategy", None),
+            board("initiatives", "initiative", None),
+            board("adr-board", "adr", None),
+            board("platform-delivery", "delivery", Some("t1")),
+            board("stale-delivery", "delivery", Some("gone")),
+            board("orphan-delivery", "delivery", None),
+            board("strange", "portfolio", None),
+        ];
+        let bands = band_models(boards, &[team("t1", "platform")]);
+        for band in &bands {
+            for heading in headings(band) {
+                assert_ne!(heading, Some("No team"), "band {}", band.level);
+            }
+        }
+    }
+
+    /// COLLIERY-T-0230: a board of the organization has no delivery team.
+    /// Its group says that it belongs to the organization. The heading is
+    /// text only: there is no team page to go to.
+    #[test]
+    fn band_models_puts_the_boards_of_the_organization_under_organization() {
+        let boards = vec![
+            board("main-strategy", "strategy", None),
+            board("initiatives", "initiative", None),
+            board("adr-board", "adr", None),
+            board("platform-delivery", "delivery", Some("t1")),
+        ];
+        let bands = band_models(boards, &[team("t1", "platform")]);
+        for band in bands.iter().filter(|b| b.level != "delivery") {
+            assert_eq!(headings(band), vec![Some("Organization")], "{}", band.level);
+            assert_eq!(
+                band.groups[0].0.as_ref().map(|(_, href)| href.as_str()),
+                Some(""),
+                "{}",
+                band.level
+            );
+            assert_eq!(band.groups[0].1.len(), 1);
+        }
+        let delivery = bands.iter().find(|b| b.level == "delivery").expect("band");
+        assert_eq!(headings(delivery), vec![Some("platform")]);
+    }
+
+    /// COLLIERY-T-0230: a delivery board with no team is not created any
+    /// more, but old data can hold one. It renders, after the teams, under
+    /// a heading that says what it needs.
+    #[test]
+    fn band_models_keeps_an_old_delivery_board_with_no_team_reachable() {
+        let boards = vec![
+            board("orphan-delivery", "delivery", None),
+            board("platform-delivery", "delivery", Some("t1")),
+        ];
+        let bands = band_models(boards, &[team("t1", "platform")]);
+        assert_eq!(bands.len(), 1);
+        assert_eq!(
+            headings(&bands[0]),
+            vec![Some("platform"), Some("Needs a team")]
+        );
+        let (heading, orphans) = &bands[0].groups[1];
+        assert_eq!(heading.as_ref().map(|(_, href)| href.as_str()), Some(""));
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].slug, "orphan-delivery");
     }
 
     fn me(role: &str, team_ids: &[&str], grants: &[(&str, &[&str])]) -> crate::api::Whoami {
@@ -2090,7 +2198,7 @@ mod tests {
         let boards = vec![
             board("platform-delivery", "delivery", Some("t1")),
             board("web-delivery", "delivery", Some("t2")),
-            board("orphan-delivery", "delivery", None),
+            board("data-delivery", "delivery", Some("t3")),
             board("initiatives", "initiative", None),
         ];
 
@@ -2112,7 +2220,7 @@ mod tests {
             .into_iter()
             .map(|(slug, _)| slug)
             .collect();
-        assert_eq!(slugs, vec!["web-delivery", "orphan-delivery"]);
+        assert_eq!(slugs, vec!["web-delivery", "data-delivery"]);
     }
 
     /// KAIROS-T-0077: the lane is a pure projection of work_class;
@@ -2291,8 +2399,10 @@ mod tests {
         assert_eq!(repo_lanes(&[], &[]), vec![None]);
     }
 
-    /// A board whose team id names an unknown team lands in "No team"
-    /// (a stale/failed teams read must never hide boards).
+    /// A board whose team id names an unknown team lands in "Team not
+    /// found" (a stale/failed teams read must never hide boards). The
+    /// board has a team, so it is not under "Needs a team"
+    /// (COLLIERY-T-0230).
     #[test]
     fn band_models_keeps_unknown_team_boards_reachable() {
         let boards = vec![board("d", "delivery", Some("gone"))];
@@ -2301,7 +2411,7 @@ mod tests {
         assert_eq!(bands[0].groups.len(), 1);
         assert_eq!(
             bands[0].groups[0].0.as_ref().map(|(name, _)| name.as_str()),
-            Some("No team")
+            Some("Team not found")
         );
         assert_eq!(bands[0].groups[0].1.len(), 1);
     }

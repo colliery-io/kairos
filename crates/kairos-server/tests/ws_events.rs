@@ -268,12 +268,14 @@ async fn ws_events_against_live_stack() {
 
     // --- tenant boards -------------------------------------------------------
     let mut acme = tenant_connection(&scratch_url, "org_acme");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut acme, "Delivery Team", "delivery-team");
     create_board(
         &mut acme,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("acme delivery board");
@@ -281,12 +283,14 @@ async fn ws_events_against_live_stack() {
     let acme_strategy_board = board_of_level(&mut acme, BoardLevel::Strategy);
 
     let mut widgets = tenant_connection(&scratch_url, "org_widgets");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut widgets, "Delivery Team", "delivery-team");
     create_board(
         &mut widgets,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("widgets delivery board");
@@ -391,12 +395,15 @@ async fn ws_events_against_live_stack() {
     // =========================================================================
     // item_moved: BOTH boards hear about it (KAIROS-I-0012)
     // =========================================================================
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let second_delivery_team =
+        common::seed_team(&mut acme, "Second Delivery Team", "second-delivery-team");
     create_board(
         &mut acme,
         BoardLevel::Delivery,
         "Second Delivery",
         "second-delivery",
-        None,
+        Some(second_delivery_team),
         None,
     )
     .expect("a second delivery board to move to");

@@ -56,6 +56,16 @@ grouping into three kinds of board.
   capabilities are granted per board.
 - **The ADR board** — holds ADRs.
 
+Every board has a team. The rule has two forms.
+
+- A delivery board has a delivery [team](#team). The board holds the team in
+  `team_id`. Kairos refuses to create a delivery board with no team. A live
+  delivery board cannot lose its team.
+- A board of the organization has the level `strategy`, `initiative` or `adr`.
+  It has no delivery team and no `team_id`. Its team is the list of the members
+  of the board. A person joins that team when an administrator adds the person
+  to the board.
+
 Documents sit on no board at all. They inherit their parent item's board for
 authorization purposes.
 
@@ -107,6 +117,11 @@ Nothing in the product hard-deletes a work item. The one genuinely destructive
 operation is dropping a tenant.
 
 ## delivery board
+
+A board of the level `delivery`. Tasks are on delivery boards only. A delivery
+board always has a team, and a task has the team of its board. Kairos refuses
+to create a delivery board with no team, and a live delivery board cannot lose
+its team. A team has exactly one delivery board.
 
 See [board](#board).
 
@@ -321,6 +336,11 @@ Topologies:
 
 `stream_aligned` is the default. The type is descriptive: it does not change
 permissions or the board of a task.
+
+Every board has a team, but only a delivery board has a team of this kind. The
+team of a board of the organization is the list of the members of that board.
+That list is not a record in the team directory, and it has no team page.
+See [board](#board).
 
 See [Teams and boards](../explanation/teams-and-boards.md).
 

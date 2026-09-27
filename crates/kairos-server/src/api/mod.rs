@@ -471,7 +471,10 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         e @ (BoardError::TransitionNotFound { .. }
         | BoardError::MissingDefaults(_)
         | BoardError::InvalidDefaults { .. }
-        | BoardError::Rule(_)) => ApiError::internal(e),
+        | BoardError::Rule(_)
+        // Only `create_board` returns this (COLLIERY-T-0230), and no
+        // transition or move endpoint creates a board.
+        | BoardError::DeliveryBoardNeedsTeam) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }
 }

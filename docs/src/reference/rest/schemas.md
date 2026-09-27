@@ -132,7 +132,7 @@ A board (`/api/boards` list element).
 | `id` | `string` | yes | Board id (UUID). |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID); set for delivery boards (KAIROS-A-0002). |
+| `team_id` | `string`, nullable | no | Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A board of the organization has none: its team is the list of its members. |
 | `updated_at` | `string` | yes | RFC 3339. |
 
 ## BoardColumn
@@ -264,7 +264,7 @@ Body of `POST /api/boards`: creates a board seeded with the system default colum
 | `board_level` | `string` | yes | `strategy|initiative|delivery|adr`. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID) for delivery boards. |
+| `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Leave it out for a board of the organization. |
 
 ## CreateColumnRequest
 

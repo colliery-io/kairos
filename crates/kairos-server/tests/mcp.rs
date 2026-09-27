@@ -456,12 +456,25 @@ async fn mcp_endpoint_against_live_stack() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
+    // COLLIERY-T-0230: a delivery board always has a team, so the team is
+    // made first. Alice joins it in the repositories section below: until
+    // then she has her explicit grants and nothing from the team.
+    let platform: kairos_db::models::teams::Team =
+        diesel::insert_into(kairos_db::schema::teams::table)
+            .values(kairos_db::models::teams::NewTeam {
+                name: "Platform".into(),
+                slug: "platform".into(),
+                team_type: kairos_db::models::enums::TeamType::Platform,
+            })
+            .returning(kairos_db::models::teams::Team::as_returning())
+            .get_result(&mut conn)
+            .expect("team");
     let delivery = kairos_db::boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
-        None,
+        Some(platform.id),
         None,
     )
     .expect("creating the delivery board");
@@ -1024,26 +1037,13 @@ async fn mcp_endpoint_against_live_stack() {
     assert_eq!(activity_count(&mut conn, alice, "relationship_remove"), 1);
 
     // --- repositories (KAIROS-T-0107, A-0019) --------------------------------
-    // Give the delivery board an owning team, register a repo under it, and
-    // exercise the directory tools plus the `repository` filters. Cross-team
-    // filing over MCP is covered by tests/file_backlog.rs.
+    // Put alice on the team of the delivery board, register a repo under
+    // it, and exercise the directory tools plus the `repository` filters.
+    // The board has had its team since it was made (COLLIERY-T-0230).
+    // Cross-team filing over MCP is covered by tests/file_backlog.rs.
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
-    let platform: kairos_db::models::teams::Team =
-        diesel::insert_into(kairos_db::schema::teams::table)
-            .values(kairos_db::models::teams::NewTeam {
-                name: "Platform".into(),
-                slug: "platform".into(),
-                team_type: kairos_db::models::enums::TeamType::Platform,
-            })
-            .returning(kairos_db::models::teams::Team::as_returning())
-            .get_result(&mut conn)
-            .expect("team");
-    diesel::update(boards::table.filter(boards::id.eq(delivery.id)))
-        .set(boards::team_id.eq(Some(platform.id)))
-        .execute(&mut conn)
-        .expect("owning the delivery board");
     diesel::insert_into(kairos_db::schema::team_members::table)
         .values(kairos_db::models::teams::NewTeamMember {
             team_id: platform.id,
@@ -1452,12 +1452,14 @@ async fn mcp_endpoint_against_live_stack() {
 
     // --- KAIROS-T-0128: move_item (the I-0012 board move) -------------------
     // A second delivery board to move to, with alice able to manage both.
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let web_team = common::seed_team(&mut conn, "Web", "web");
     let web_board = kairos_db::boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Web Delivery",
         "web-delivery",
-        None,
+        Some(web_team),
         None,
     )
     .expect("creating the web delivery board");

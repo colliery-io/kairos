@@ -608,6 +608,10 @@ pub struct CreateTask<'a> {
 /// (COLLIERY-T-0216). THE source of a task's team: create reads it here and
 /// [`crate::boards::move_task`] reads the target board's the same way, so
 /// the two cannot disagree about whose work a task is.
+///
+/// `None` is for old data only. Since COLLIERY-T-0230 a delivery board is
+/// not created with no team, but no migration gives a team to a board that
+/// was created before, so that row can exist and must be read.
 pub fn board_team(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uuid>, ItemError> {
     use crate::schema::boards;
     Ok(boards::table

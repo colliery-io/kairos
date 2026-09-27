@@ -244,12 +244,14 @@ async fn entity_endpoints_against_live_stack() {
         .execute(&mut conn)
         .expect("pinning seeding connection to the tenant schema");
     // Delivery boards are per-team, created post-provisioning (A-0002).
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut conn, "Delivery Team", "delivery-team");
     kairos_db::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("creating the delivery board");

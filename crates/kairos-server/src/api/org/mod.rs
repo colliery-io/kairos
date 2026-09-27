@@ -248,6 +248,12 @@ pub fn map_config_error(e: BoardError) -> ApiError {
             ApiError::not_found(format!("no transition {from} -> {to} on board {board_id}"))
         }
         BoardError::Rule(rule) => map_column_rule_error(rule),
+        // COLLIERY-T-0230: the caller left out the team of a delivery
+        // board. That is a mistake in the request, so it is a 422 that says
+        // which field to send.
+        e @ BoardError::DeliveryBoardNeedsTeam => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "team_id" }))
+        }
         e @ (BoardError::MissingDefaults(_) | BoardError::InvalidDefaults { .. }) => {
             // Provisioning seeds all four default configs; absence is an
             // operator/data problem, not a client mistake.

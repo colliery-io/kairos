@@ -147,12 +147,14 @@ async fn forge_webhook_ingestion_against_live_stack() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = kairos_db::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(svc_id),
     )
     .expect("delivery board")
@@ -371,8 +373,9 @@ async fn forge_webhook_ingestion_against_live_stack() {
     // =======================================================================
     // Team rollup (KAIROS-T-0101): all three qualifying paths
     // =======================================================================
-    // The task carries no team_id and the repo is owned by `infra`, so
-    // nothing qualifies for `platform` yet.
+    // The task has the team of its board, which is not `platform`
+    // (COLLIERY-T-0230: a delivery board always has a team), and the repo
+    // is owned by `infra`. Nothing qualifies for `platform` yet.
     let team = svc
         .create_team(&kairos_client::types_org::CreateTeamRequest {
             name: "Platform".into(),
@@ -387,7 +390,7 @@ async fn forge_webhook_ingestion_against_live_stack() {
             .await
             .expect("rollup")
             .is_empty(),
-        "an unattributed task and another team's repo qualify no links"
+        "a task of another team and another team's repo qualify no links"
     );
 
     // Path 3: re-home the REPO to the team (ownership, A-0019).

@@ -66,6 +66,13 @@ pub enum BoardError {
         from: Uuid,
         to: Uuid,
     },
+    /// `create_board`: a delivery board was sent with no team
+    /// (COLLIERY-T-0230). The board of a task decides its team
+    /// (COLLIERY-T-0216), and any member can send a request to any delivery
+    /// board (COLLIERY-T-0218). On a board with no team, a task has no team
+    /// and a request goes to nobody.
+    #[error("A delivery board needs a team. Send the team as team_id.")]
+    DeliveryBoardNeedsTeam,
     /// No `system_board_defaults` row is seeded for this level.
     #[error("no system_board_defaults row for level {0}")]
     MissingDefaults(BoardLevel),
@@ -182,15 +189,6 @@ fn column_name(columns: &[rules::Column], id: Uuid) -> Result<String, BoardError
 // Board creation (defaults seeding, KAIROS-A-0002)
 // ---------------------------------------------------------------------------
 
-/// Create a board in the current tenant schema, seeding its columns and
-/// transitions from the tenant's `public.system_board_defaults` row for
-/// `level` — the ONE implementation of default-board seeding: tenant
-/// provisioning ([`crate::tenant::provision_tenant`]) calls this for the
-/// strategy/initiative/adr boards, and team/delivery-board creation reuses
-/// it later with [`BoardLevel::Delivery`] and a `team_id`.
-///
-/// `actor`: `Some(user)` logs `action='create'` to `activity_log`; `None`
-/// is for system provisioning (no user exists yet).
 /// Which seeded columns start with the done flag (KAIROS-T-0080): the
 /// terminal column of each workflow level, and both resting states for
 /// ADRs (a superseded decision is as finished as a decided one). Applies
@@ -202,6 +200,35 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
     }
 }
 
+/// Create a board in the current tenant schema, seeding its columns and
+/// transitions from the tenant's `public.system_board_defaults` row for
+/// `level` — the ONE implementation of default-board seeding: tenant
+/// provisioning ([`crate::tenant::provision_tenant`]) calls this for the
+/// strategy/initiative/adr boards, and team/delivery-board creation reuses
+/// it later with [`BoardLevel::Delivery`] and a `team_id`.
+///
+/// `actor`: `Some(user)` logs `action='create'` to `activity_log`; `None`
+/// is for system provisioning (no user exists yet).
+///
+/// # Every board has a team (COLLIERY-T-0230)
+///
+/// The rule has two forms, and this function enforces the first:
+///
+/// - A DELIVERY board has a delivery team: a row in `teams`, and `team_id`
+///   on the board. A delivery board with no team is refused with
+///   [`BoardError::DeliveryBoardNeedsTeam`], before any row is written.
+/// - A board of the ORGANIZATION (strategy, initiative, adr) has no row in
+///   `teams` and no `team_id`. Its team is the list of the members of the
+///   board. Nothing is checked for these levels, so tenant provisioning
+///   creates them as before.
+///
+/// The check is here, and not in a route, because every entry point meets
+/// here: `POST /api/boards`, `POST /api/teams`, SCIM group creation, the
+/// demo seed and tenant provisioning. A new entry point cannot forget it.
+///
+/// The check is on create only. No migration and no database constraint
+/// goes with it: a delivery board with no team can exist in old data, and
+/// readers must continue to accept that row.
 pub fn create_board(
     conn: &mut PgConnection,
     level: BoardLevel,
@@ -210,6 +237,9 @@ pub fn create_board(
     team_id: Option<Uuid>,
     actor: Option<Uuid>,
 ) -> Result<Board, BoardError> {
+    if level == BoardLevel::Delivery && team_id.is_none() {
+        return Err(BoardError::DeliveryBoardNeedsTeam);
+    }
     conn.transaction::<_, BoardError, _>(|conn| {
         use crate::schema::system_board_defaults;
         use crate::schema::{board_columns, board_transitions, boards};

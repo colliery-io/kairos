@@ -40,13 +40,48 @@ standards. It does not bring tasks to the team's board. A task on any team's
 board may link to any repository, which is argued in [repositories as
 execution scope](repositories-as-execution-scope.md).
 
-The upper two levels work differently. Strategy and initiative boards are
-organisation-level and not owned by a team at all. The asymmetry is
+The upper levels work differently. Strategy, initiative and ADR boards are
+boards of the organisation, and no delivery team owns them. The asymmetry is
 intentional: at the delivery level the owner genuinely is a team, and the
 schema can say so; at the coordination and strategy levels the owner is a role
 — a coordinator, leadership — and roles in Kairos are expressed as capability
 grants rather than as entities. Putting a `team_id` on a strategy board would
 invent an organisational structure that most tenants do not have.
+
+## Every board has a team
+
+A board cannot have no team. The rule has two forms, one for each kind of
+board.
+
+A delivery board has a delivery team. The team is a record in the team
+directory, and the board holds it in `team_id`. Kairos refuses to create a
+delivery board with no team, and the refusal names the missing team. A live
+delivery board cannot lose its team: no operation clears the team of a board
+or moves a board to a different team. When a team is deleted, its delivery
+board is put away with it.
+
+A board of the organisation has no record in the team directory and no
+`team_id`. Its team is the list of the members of the board. Admission is
+about being added to the board: a person joins the team of a strategy board
+when an administrator adds the person to that board, and leaves it when the
+administrator removes the person. The list is on the configuration page of the
+board, and `GET /api/boards/{id}/members` returns it to every member of the
+tenant.
+
+The reason for the first form is what a delivery board decides. A task takes
+the team of its board, so a task on a board with no team has no team. It is in
+no team's work, no team's rollup and no search by team. Any member of the
+tenant can also send a request to any delivery board. A request to a board
+with no team is a request to nobody.
+
+The reason for the second form is the asymmetry above. The people who decide
+strategy are a group, and a reader must be able to see who they are. But they
+are a group because they were admitted to the board, not because the
+organisation chart has a team of that name.
+
+The rule applies when a board is created. Kairos does not change boards that
+exist. A delivery board that was created with no team before the rule stays as
+it is, and the board list shows it under **Needs a team**.
 
 Teams also own their own pages and their charter, which informs the delivery
 board without living on it, in the same way the company vision informs the
@@ -134,6 +169,8 @@ shaped the way they are.
 - [Teams, team types and board ownership in the data
   model](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0001.md)
   (KAIROS-A-0001).
+- A board always has a team, in two forms (COLLIERY-T-0230, a decision of the
+  product owner on 2026-09-27).
 - [One owning team per
   repository](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
   (KAIROS-A-0019), amended by COLLIERY-A-0023: the team decides the board, and

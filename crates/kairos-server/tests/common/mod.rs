@@ -226,6 +226,27 @@ pub fn base_config(scratch_url: &str) -> AppConfig {
     }
 }
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more, inserted in the CURRENT `search_path` tenant
+/// schema. Returns the id to give to `kairos_db::create_board`.
+///
+/// A delivery board always has a team, so a fixture that makes a delivery
+/// board directly must make its team first. The team has no members and no
+/// delivery board of its own: it implies no capability for any user, and
+/// the fixture stays as it was in all other respects.
+pub fn seed_team(conn: &mut PgConnection, name: &str, slug: &str) -> uuid::Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 /// One in-process request against the production router: any method/URI,
 /// optional bearer token, extra headers, optional JSON body. Returns the
 /// status and the parsed JSON body (`Null` for empty bodies).

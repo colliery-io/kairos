@@ -26,7 +26,9 @@ pub struct Board {
     pub slug: String,
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
-    /// Owning team (UUID); set for delivery boards (KAIROS-A-0002).
+    /// Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A
+    /// board of the organization has none: its team is the list of its
+    /// members.
     pub team_id: Option<String>,
     /// RFC 3339.
     pub created_at: String,
@@ -100,7 +102,8 @@ pub struct CreateBoardRequest {
     pub slug: String,
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
-    /// Owning team (UUID) for delivery boards.
+    /// Owning team (UUID). Required for a delivery board
+    /// (COLLIERY-T-0230). Leave it out for a board of the organization.
     #[serde(default)]
     pub team_id: Option<String>,
 }

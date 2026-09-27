@@ -237,12 +237,18 @@ async fn completed_work_does_not_block_and_is_not_blocked() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let platform_delivery_team = common::seed_team(
+        &mut conn,
+        "Platform Delivery Team",
+        "platform-delivery-team",
+    );
     let delivery = boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
-        None,
+        Some(platform_delivery_team),
         None,
     )
     .expect("creating the delivery board")

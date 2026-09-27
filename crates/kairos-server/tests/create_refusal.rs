@@ -375,12 +375,18 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let platform_delivery_team = common::seed_team(
+        &mut conn,
+        "Platform Delivery Team",
+        "platform-delivery-team",
+    );
     kairos_db::boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
-        None,
+        Some(platform_delivery_team),
         None,
     )
     .expect("creating the delivery board");

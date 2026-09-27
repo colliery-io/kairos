@@ -23,6 +23,60 @@ use crate::auth::use_auth;
 
 const LEVELS: [&str; 4] = ["strategy", "initiative", "delivery", "adr"];
 
+/// The level of a delivery board. Every other level is a board of the
+/// organization.
+const DELIVERY: &str = "delivery";
+
+/// What the create form says when a delivery board has no team
+/// (COLLIERY-T-0230). The server refuses the same request with a 422. The
+/// form says it first, in the words of the form, and sends nothing.
+const SELECT_TEAM: &str = "Select the owning team. A delivery board needs a team.";
+
+/// Why the create form cannot send this board, or `None` when it can
+/// (COLLIERY-T-0230). A delivery board needs a team. A board of the
+/// organization has no delivery team, so nothing is necessary for it.
+/// Pure, host-tested.
+fn create_refusal(level: &str, team_id: Option<&str>) -> Option<&'static str> {
+    (level == DELIVERY && team_id.is_none()).then_some(SELECT_TEAM)
+}
+
+/// The team to send with a new board. Only a delivery board has a delivery
+/// team (COLLIERY-T-0230). The team control stays set after the level
+/// changes, so the level decides, not the control. Pure, host-tested.
+fn team_for_level(level: &str, team_id: Option<String>) -> Option<String> {
+    team_id.filter(|_| level == DELIVERY)
+}
+
+/// The title and the caption of the members panel of a board
+/// (COLLIERY-T-0230). Every board has a team. The team of a delivery board
+/// is its delivery team, which has a page of its own, so the panel keeps
+/// its words. The team of a board of the organization is the list of the
+/// members of the board: the panel IS the team, and says so. Pure,
+/// host-tested.
+fn members_panel_words(level: &str) -> (&'static str, &'static str) {
+    if level == DELIVERY {
+        (
+            "Members and capabilities",
+            "write access is whitelist-only (A-0006); reads are open tenant-wide",
+        )
+    } else {
+        (
+            "Team of this board",
+            "the members of this board are its team; add a person to the board to admit them",
+        )
+    }
+}
+
+/// What the members panel says when the board has no member
+/// (COLLIERY-T-0230). Pure, host-tested.
+fn no_members_message(level: &str) -> &'static str {
+    if level == DELIVERY {
+        "No capability grants on this board yet — add a member below."
+    } else {
+        "This board has no team members yet — add a member below."
+    }
+}
+
 /// `/admin/boards` — every live board, plus create/delete.
 #[component]
 pub fn AdminBoardsPage() -> impl IntoView {
@@ -72,6 +126,15 @@ pub fn AdminBoardsPage() -> impl IntoView {
             slug.get_untracked(),
             level.get_untracked(),
         );
+        let team_id = team_for_level(&l, team_id);
+        // COLLIERY-T-0230: a delivery board needs a team. The server
+        // refuses the request too; the form does not send it.
+        if let Some(message) = create_refusal(&l, team_id.as_deref()) {
+            outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
+                message.to_string(),
+            ))));
+            return;
+        }
         run_mutation(
             busy,
             outcome,
@@ -161,7 +224,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     _ => vec![String::new()],
                                 };
                                 view! {
-                                    <Select label="Owning team (delivery boards)" options value=team_slug/>
+                                    <Select label="Owning team (required)" options value=team_slug/>
                                 }
                             }}
                         </Show>
@@ -203,6 +266,7 @@ pub fn AdminBoardPage() -> impl IntoView {
             }.into_any(),
             Some(Ok(detail)) => {
                 let id = detail.board.id.clone();
+                let level = detail.board.board_level.clone();
                 view! {
                     <PageHeader title=detail.board.name.clone() sub="board configuration"/>
                     <Stack gap="md">
@@ -216,7 +280,8 @@ pub fn AdminBoardPage() -> impl IntoView {
                             transitions=detail.transitions.clone() busy outcome reload/>
                         <TransitionsPanel board_id=id.clone() columns=detail.columns.clone()
                             transitions=detail.transitions.clone() busy outcome reload/>
-                        <MembersPanel board_id=id busy outcome reload/>
+                        <MembersPanel board_id=id board_level=level
+                            busy outcome reload/>
                     </Stack>
                 }.into_any()
             }
@@ -503,9 +568,14 @@ fn TransitionsPanel(
 /// Board members and their A-0006 capability grants: list with pills, an
 /// inline grant editor per member (PATCH replaces the full set), removal,
 /// and an add-member flow (org-member picker + the same grant editor).
+///
+/// On a board of the organization the panel is the team of the board
+/// (COLLIERY-T-0230), and its title and caption say so: see
+/// [`members_panel_words`]. The mechanics are the same for every level.
 #[component]
 fn MembersPanel(
     board_id: String,
+    board_level: String,
     busy: RwSignal<bool>,
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
@@ -567,9 +637,11 @@ fn MembersPanel(
         );
     };
 
+    let (title, caption) = members_panel_words(&board_level);
+    let empty_message = no_members_message(&board_level);
+
     view! {
-        <Panel title="Members and capabilities"
-            caption="write access is whitelist-only (A-0006); reads are open tenant-wide">
+        <Panel title=title caption=caption>
             <Stack gap="md">
                 {move || match members.get() {
                     None => view! { <Loading/> }.into_any(),
@@ -577,7 +649,7 @@ fn MembersPanel(
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(list)) if list.is_empty() => view! {
-                        <Empty message="No capability grants on this board yet — add a member below."/>
+                        <Empty message=empty_message/>
                     }.into_any(),
                     Some(Ok(list)) => list.into_iter().map(|member| {
                         let editor = EditorState::from_capabilities(&member.capabilities);
@@ -685,5 +757,56 @@ fn MembersPanel(
                 </Group>
             </Stack>
         </Panel>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// COLLIERY-T-0230: the form does not send a delivery board with no
+    /// team, and the refusal names the missing team.
+    #[test]
+    fn a_delivery_board_with_no_team_is_not_sent() {
+        let refusal = create_refusal("delivery", None).expect("a refusal");
+        assert!(refusal.contains("team"), "{refusal}");
+        assert_eq!(create_refusal("delivery", Some("t1")), None);
+    }
+
+    /// A board of the organization has no delivery team, so the form asks
+    /// for none and sends none, whatever the team control holds.
+    #[test]
+    fn a_board_of_the_organization_is_sent_with_no_team() {
+        for level in ["strategy", "initiative", "adr"] {
+            assert_eq!(create_refusal(level, None), None, "{level}");
+            assert_eq!(team_for_level(level, Some("t1".into())), None, "{level}");
+        }
+        assert_eq!(
+            team_for_level("delivery", Some("t1".into())),
+            Some("t1".to_string())
+        );
+    }
+
+    /// COLLIERY-T-0230: on a board of the organization the members are the
+    /// team of the board, and the panel says so. A delivery board keeps the
+    /// words it had: its team is the delivery team.
+    #[test]
+    fn the_members_of_a_board_of_the_organization_are_its_team() {
+        for level in ["strategy", "initiative", "adr"] {
+            let (title, caption) = members_panel_words(level);
+            assert_eq!(title, "Team of this board", "{level}");
+            assert!(
+                caption.contains("members of this board are its team"),
+                "{level}: {caption}"
+            );
+            assert!(no_members_message(level).contains("team"), "{level}");
+        }
+        let (title, caption) = members_panel_words("delivery");
+        assert_eq!(title, "Members and capabilities");
+        assert!(caption.contains("whitelist-only"), "{caption}");
+        assert_eq!(
+            no_members_message("delivery"),
+            "No capability grants on this board yet — add a member below."
+        );
     }
 }

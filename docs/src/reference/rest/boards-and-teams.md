@@ -29,6 +29,16 @@ Create a board seeded with the system default columns/transitions for
 its level (KAIROS-A-0002). Org-admin-only: a new board has no capability
 context yet (A-0006 tenant-config fallback).
 
+A delivery board needs a team (COLLIERY-T-0230). A request for a
+delivery board with no `team_id` is a 422. The board of a task decides
+its team, and a request to a board with no team goes to nobody. The
+check is in `kairos_db::boards::create_board`, which every entry point
+shares.
+
+A board of the organization (strategy, initiative, adr) has no
+`team_id`. Its team is the list of its members
+(`GET /api/boards/{id}/members`).
+
 Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#createboardrequest)
 
 | Response | Body | Meaning |
@@ -36,7 +46,7 @@ Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#c
 | `201` | [`BoardDetail`](schemas.md#boarddetail) | Created, with the seeded configuration |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, or a delivery board with no team |
 
 ### `GET /api/boards/{id}`
 
@@ -74,6 +84,12 @@ board scope). Requires `configure_boards` on the board.
 
 Update board settings (name/slug). Requires `configure_boards` on the
 board.
+
+The body has no `team_id`, and that is deliberate (COLLIERY-T-0230). A
+live delivery board cannot lose its team, and no route moves a board to
+a different team. The tasks of a board have the team of the board
+(COLLIERY-T-0216). A route that changes the team must thus change the
+tasks too, in the same transaction.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

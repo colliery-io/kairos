@@ -7,6 +7,9 @@ them reachable, and give them the fields they fill in.
 
 - The board exists. A team is created with its delivery board, so there is
   normally nothing to create — see [Teams and boards](../explanation/teams-and-boards.md).
+- A delivery board needs a team. If you create a delivery board, select the
+  owning team. With the API, send `team_id` to `POST /api/boards`. A request
+  with no team returns 422 `VALIDATION`.
 - You hold `configure_boards` on that board, or you are an org admin. Steps 1
   to 3 return 403 without it.
 - **Step 4 needs org admin specifically.** Metadata definitions are
@@ -121,7 +124,8 @@ Two outcomes worth knowing before you try:
 `configure_boards` is a board-scoped capability, granted per board through
 [`POST /api/boards/{id}/members`](../reference/rest/boards-and-teams.md) or the
 GUI's board members panel — not through the CLI, and not through a role. Org
-admins bypass it. The full vocabulary is in
+admins bypass it. On a strategy, initiative or ADR board, the title of the
+panel is **Team of this board**. The members of that board are its team. The full vocabulary is in
 [Capabilities](../reference/capabilities.md); why it works this way is
 [Capabilities and access](../explanation/capabilities-and-access.md).
 

@@ -41,6 +41,22 @@ use kairos_db::models::{
 };
 use kairos_db::{boards, create_board, provision_tenant, run_public_migrations, schema};
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
@@ -201,12 +217,14 @@ fn relationship_graph_service() {
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
     let adr_board = board_id_by_slug(&mut conn, "adrs");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -778,22 +796,26 @@ fn children_progress_rollups() {
     let alice = insert_user(&mut conn, "dex|alice", "alice@acme.test", "Alice");
 
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_a_team = seed_board_team(&mut conn, "Delivery A Team", "delivery-a-team");
     let board_a = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery A",
         "delivery-a",
-        None,
+        Some(delivery_a_team),
         Some(alice),
     )
     .expect("creating delivery A")
     .id;
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_b_team = seed_board_team(&mut conn, "Delivery B Team", "delivery-b-team");
     let board_b = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery B",
         "delivery-b",
-        None,
+        Some(delivery_b_team),
         Some(alice),
     )
     .expect("creating delivery B")
@@ -975,12 +997,14 @@ fn focal_subgraph_contract() {
 
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -1251,12 +1275,14 @@ fn archived_children_are_listed_marked_but_never_counted() {
     let alice = insert_user(&mut conn, "dex|neighbours", "neighbours@acme.test", "Alice");
 
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -1441,12 +1467,14 @@ fn done_work_does_not_block_and_is_not_blocked() {
         .expect("pinning search_path");
     let alice = insert_user(&mut conn, "dex|done", "done@acme.test", "Alice");
 
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")

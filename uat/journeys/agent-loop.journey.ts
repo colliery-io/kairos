@@ -61,7 +61,8 @@ journey(
       await page.getByRole('button', { name: 'New task', exact: true }).click();
       const modal = page.locator('.cl-modal');
       await modal.locator('input.cl-input').first().fill(title);
-      // The New task modal offers the team's repositories.
+      // The New task modal offers every repository of the tenant, the
+      // team's own first (COLLIERY-T-0221).
       await modal.locator('[data-testid="create-repository"] select').selectOption(team.repoSlug);
       await modal.getByRole('button', { name: 'Create' }).click();
       const created = card(page, title);

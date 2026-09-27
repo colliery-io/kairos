@@ -237,7 +237,7 @@ pub fn AdminHomePage() -> impl IntoView {
                     {card("/admin/streams", "Delivery streams",
                         "Delivery streams and which teams feed them.")}
                     {card("/admin/repositories", "Repositories",
-                        "The codebases tickets are issued against — one owning team each — \
+                        "The codebases that tasks link to — one owning team each — \
                          and their forge webhooks.")}
                     {card("/admin/members", "Organization members",
                         "Who belongs to this organization, and who is an admin.")}

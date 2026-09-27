@@ -134,7 +134,7 @@ enum Command {
     /// Teams and their membership
     #[command(subcommand)]
     Teams(TeamsCommand),
-    /// Repositories: the codebases tickets are issued against (KAIROS-A-0019)
+    /// Repositories: the codebases that tasks link to (COLLIERY-A-0023)
     #[command(subcommand)]
     Repos(ReposCommand),
     /// Delivery streams and their teams

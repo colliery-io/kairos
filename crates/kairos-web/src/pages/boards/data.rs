@@ -86,8 +86,8 @@ pub struct Task {
     pub task_type: String,
     /// `planned` | `support` — the lane axis (KAIROS-T-0077).
     pub work_class: String,
-    /// The repository the task is issued against, embedded by the server
-    /// (KAIROS-T-0104, A-0019); `None` for unbound tasks.
+    /// The repository the task links to, embedded by the server
+    /// (KAIROS-T-0104, COLLIERY-A-0023); `None` for a task with no link.
     #[serde(default)]
     pub repository: Option<RepositoryRef>,
 }
@@ -314,9 +314,8 @@ pub struct NewItem {
     pub work_class: Option<String>,
     /// task: the owning team (delivery boards carry one).
     pub team_id: Option<String>,
-    /// task: the repository to issue it against (slug, KAIROS-T-0124 #6b).
-    /// The server routes by it; `board_id` stays set alongside so the
-    /// column/lane placement is unchanged.
+    /// task: the repository it links to (slug, KAIROS-T-0124 #6b). The
+    /// link does not choose the board (COLLIERY-A-0023): `board_id` does.
     pub repository: Option<String>,
     /// adr: optional decision maker.
     pub decision_maker: Option<String>,

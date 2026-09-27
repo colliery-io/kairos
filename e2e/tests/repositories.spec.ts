@@ -1,6 +1,8 @@
-// KAIROS-T-0110 — the KAIROS-I-0010 repository-scoped work smoke
-// (decision KAIROS-A-0019): boards and streams plan the work; a ticket is
-// issued against ONE repository and executed inside it.
+// KAIROS-T-0110 — the KAIROS-I-0010 repository-scoped work smoke.
+// Boards and streams plan the work. The team decides the board of a task;
+// the repository of a task is an optional link that says where the code
+// is, and a task on the board of any team may link to any live repository
+// of the tenant (decision COLLIERY-A-0023, COLLIERY-T-0221).
 //
 // Flow (login as alice, org admin; carol is a web-team member with no
 // platform membership — the cross-team filer):
@@ -14,8 +16,13 @@
 //      transition it; bob (a platform member, NOT an admin) can — the team
 //      gate, not the admin bypass; carol links her own web task to it with
 //      a `blocks` edge (collaborative relationship); the card shows the chip
-//   4. the item page's repository picker re-homes a task within the team,
-//      and its Board select moves a task to the OTHER delivery board
+//   3b. the New task dialog offers every repository of the tenant: those
+//      of the team of the board first, then the others with the name of
+//      their owning team; a task created with a repository of a different
+//      team is on the board (COLLIERY-T-0221)
+//   4. the item page's repository picker offers the same list and changes
+//      the link, also to a repository of a different team, with no
+//      warning; its Board select moves a task to the OTHER delivery board
 //      (KAIROS-I-0012): the repo-bound task moves and keeps its
 //      repository (COLLIERY-T-0217), an unbound one lands in the target's
 //      entry column, and both boards react to the `item_moved` events live
@@ -30,7 +37,7 @@
 // so a retry (or a stack that was not re-seeded) never trips the unique
 // slug / (forge, full name) indexes.
 
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
 import {
   createForgeConnection,
@@ -65,7 +72,7 @@ async function login(page: Page, email: string, password: string) {
   });
 }
 
-test('repositories: team panel → board lens → cross-team filing → picker → PR link-back → admin', async ({
+test('repositories: team panel → board lens → cross-team filing → any repository of the tenant → picker → PR link-back → admin', async ({
   page,
 }) => {
   // API tokens FIRST: Dex keeps one refresh token per user+client, so a
@@ -203,7 +210,34 @@ test('repositories: team panel → board lens → cross-team filing → picker �
   });
 
   // 3b. The New task modal's Repository select (KAIROS-T-0124 #6b) ----------
-  await test.step('the New task modal offers the team\'s repositories; the card carries the chip at once', async () => {
+  // COLLIERY-T-0221: the dialog offers every live repository of the tenant.
+  // The options are read as a whole, because the order is part of the rule.
+  // Steps 5 and 6 register more repositories, so a retry sees a longer list:
+  // the assertions are about order and labels, not about the length.
+  const OWNER = ' · owner: ';
+  async function expectTenantRepositories(picker: Locator) {
+    await expect(picker.locator('option').first()).toHaveText('(none)');
+    await expect(picker.locator('option[value="portal-web"]')).toHaveCount(1);
+    const labels = await picker.locator('option').allTextContents();
+    // The repositories of the platform team keep their label...
+    expect(labels).toContain('payments-api · acme/payments-api');
+    expect(labels).toContain('platform-infra · acme/platform-infra');
+    // ...and a repository of a different team shows its owning team.
+    expect(labels).toContain('portal-web · acme/portal-web · owner: Web');
+    // The team of the board is first: no repository of the board's team
+    // comes after a repository of a different team.
+    const offered = labels.slice(1);
+    const firstOther = offered.findIndex((label) => label.includes(OWNER));
+    expect(firstOther).toBeGreaterThan(0);
+    expect(offered.slice(firstOther).every((label) => label.includes(OWNER))).toBe(true);
+    // Each group is in slug order.
+    const slugs = (group: string[]) => group.map((label) => label.split(' · ')[0]);
+    for (const group of [offered.slice(0, firstOther), offered.slice(firstOther)]) {
+      expect(slugs(group)).toEqual([...slugs(group)].sort());
+    }
+  }
+
+  await test.step('the New task modal offers every repository of the tenant, the board\'s team first', async () => {
     const title = `Picked in the modal ${RUN}`;
     await page.getByRole('button', { name: 'New task', exact: true }).click();
     const modal = page.locator('.cl-modal');
@@ -211,11 +245,7 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await modal.locator('input.cl-input').first().fill(title);
     const picker = modal.locator('[data-testid="create-repository"] select');
     await expect(picker).toBeVisible();
-    // "(none)" first, then the platform team's repositories (and only theirs).
-    await expect(picker.locator('option').first()).toHaveText('(none)');
-    await expect(picker.locator('option', { hasText: 'payments-api' })).toHaveCount(1);
-    await expect(picker.locator('option', { hasText: 'platform-infra' })).toHaveCount(1);
-    await expect(picker.locator('option', { hasText: 'portal-web' })).toHaveCount(0);
+    await expectTenantRepositories(picker);
     await picker.selectOption('payments-api');
     await modal.getByRole('button', { name: 'Create' }).click();
     const created = page.locator('article.kairos-card', { hasText: title });
@@ -223,17 +253,66 @@ test('repositories: team panel → board lens → cross-team filing → picker �
     await expect(created.locator('.kairos-card__repo[data-repo="payments-api"]')).toBeVisible();
   });
 
-  // 4. The picker re-homes within the team ------------------------------------
-  await test.step('the item page picker re-homes the task to another platform repo', async () => {
+  // 3c. A repository of a different team (COLLIERY-T-0221) -------------------
+  let linkedAcross = '';
+  await test.step('a task created with a repository of a different team is on the board', async () => {
+    const title = `Links to the web repository ${RUN}`;
+    await page.getByRole('button', { name: 'New task', exact: true }).click();
+    const modal = page.locator('.cl-modal');
+    await modal.locator('input.cl-input').first().fill(title);
+    await modal.locator('[data-testid="create-repository"] select').selectOption('portal-web');
+    await modal.getByRole('button', { name: 'Create' }).click();
+    // The card is on the platform board, where it was created: the
+    // repository is a link and does not choose the board.
+    await expect(page).toHaveURL(/\/boards\/platform-delivery/);
+    const created = page.locator('article.kairos-card', { hasText: title });
+    await expect(created).toBeVisible({ timeout: 10_000 });
+    await expect(created.locator('.kairos-card__repo[data-repo="portal-web"]')).toBeVisible();
+    linkedAcross = (await created.locator('a.kairos-card__code').innerText()).trim();
+  });
+
+  await test.step('the item page shows a link to a repository of a different team with no warning', async () => {
+    await page.goto(`/items/${linkedAcross}`);
+    await expect(page.locator('.cl-pill', { hasText: 'repo: portal-web' })).toBeVisible();
+    const boardPanel = panel(page, 'Board');
+    await expect(boardPanel).toContainText('Platform Delivery');
+    const control = page.locator('[data-testid="repository-control"]');
+    await expect(control.locator('select')).toBeVisible();
+    // The picker shows the link: it is not put back on "(none)".
+    await expect(control.locator('select')).toHaveValue('portal-web');
+    // The control holds the field and the button, and no other text.
+    await expect(control.locator('.cl-alert')).toHaveCount(0);
+    await expect(control).not.toContainText(/another team|different team|belongs to/i);
+    // The link is unchanged, so there is nothing to set.
+    await expect(control.getByRole('button', { name: 'Set repository' })).toBeDisabled();
+  });
+
+  // 4. The picker changes the link ---------------------------------------------
+  await test.step('the item page picker changes the link, also to a repository of a different team', async () => {
     await page.goto(`/items/${filedCode}`);
     await expect(page.locator('.cl-pill', { hasText: 'repo: payments-api' })).toBeVisible();
     const control = page.locator('[data-testid="repository-control"]');
     await expect(control).toBeVisible();
+    await expect(control.locator('select')).toBeVisible();
+    await expectTenantRepositories(control.locator('select'));
     await control.locator('select').selectOption('platform-infra');
     await control.getByRole('button', { name: 'Set repository' }).click();
     await expect(page.locator('.cl-pill', { hasText: 'repo: platform-infra' })).toBeVisible({
       timeout: 10_000,
     });
+    // COLLIERY-T-0221: to a repository of the web team. The task stays on
+    // the platform board.
+    await control.locator('select').selectOption('portal-web');
+    await control.getByRole('button', { name: 'Set repository' }).click();
+    await expect(page.locator('.kairos-item__notice')).toContainText(
+      'Repository set to portal-web.',
+      { timeout: 10_000 },
+    );
+    await expect(page.locator('.cl-pill', { hasText: 'repo: portal-web' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(control.locator('.cl-alert')).toHaveCount(0);
+    await expect(panel(page, 'Board')).toContainText('Platform Delivery');
     // …and back, so the PR link-back below targets payments-api.
     await control.locator('select').selectOption('payments-api');
     await control.getByRole('button', { name: 'Set repository' }).click();

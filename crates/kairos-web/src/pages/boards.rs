@@ -1609,40 +1609,40 @@ fn CreateItemModal(
     let work_class = RwSignal::new("auto".to_string());
     let decision_maker = RwSignal::new(String::new());
     let decision_date = RwSignal::new(String::new());
-    // KAIROS-T-0124 #6b: the repository to issue the task against —
-    // "(none)" omits the field. The item page keeps its own picker for
-    // re-binding later.
+    // KAIROS-T-0124 #6b: the repository the task links to. "(none)" omits
+    // the field. The item page keeps its own picker to change it later.
     let repository = RwSignal::new(NO_REPOSITORY.to_string());
     let busy = RwSignal::new(false);
     let error = RwSignal::new(None::<ApiError>);
 
-    // The owning team's repositories, loaded whenever the modal opens on
-    // a task board with a team (delivery boards). The select renders only
-    // when the team owns at least one.
+    // Every live repository of the tenant, loaded when the modal opens on
+    // a task board (COLLIERY-T-0221). A task on the board of any team may
+    // link to any repository (COLLIERY-A-0023), so the list does not stop
+    // at the repositories of the team of the board. The control shows when
+    // the tenant has one repository or more.
     let repos_team = StoredValue::new(team_id.clone());
     let repos = LocalResource::new(move || {
         let _ = auth.token();
-        let team = (open.get() && matches!(kind, EntityKind::Task))
-            .then(|| repos_team.get_value())
-            .flatten();
+        let wanted = open.get() && matches!(kind, EntityKind::Task);
         async move {
-            match team {
-                Some(team) => repositories::api::list_repositories(auth, Some(&team))
-                    .await
-                    .map(|list| list.into_iter().map(|r| r.slug).collect::<Vec<String>>()),
-                None => Ok(Vec::new()),
+            if wanted {
+                repositories::api::list_repositories(auth, None).await
+            } else {
+                Ok(Vec::new())
             }
         }
     });
     let repo_options = Memo::new(move |_| {
-        let slugs = repos
+        let list = repos
             .get()
             .and_then(|result| result.ok())
             .unwrap_or_default();
-        (!slugs.is_empty()).then(|| {
-            std::iter::once(NO_REPOSITORY.to_string())
-                .chain(slugs)
-                .collect::<Vec<String>>()
+        let offered =
+            repos_team.with_value(|team| repositories::picker_options(&list, team.as_deref()));
+        (!offered.is_empty()).then(|| {
+            std::iter::once((NO_REPOSITORY.to_string(), NO_REPOSITORY.to_string()))
+                .chain(offered)
+                .collect::<Vec<(String, String)>>()
         })
     });
 
@@ -1729,10 +1729,22 @@ fn CreateItemModal(
                     // follows the type (support → Support lane).
                     <Select label="Lane" value=work_class
                         options=vec!["auto".into(), "planned".into(), "support".into()]/>
-                    // KAIROS-T-0124 #6b: only when the team owns a repository.
+                    // COLLIERY-T-0221: only when the tenant has a repository.
+                    // A plain <select>, as on the item page: the value is
+                    // the slug and the label says more, which the aurora
+                    // `Select` (one string for both) cannot do.
                     {move || repo_options.get().map(|options| view! {
-                        <div data-testid="create-repository">
-                            <Select label="Repository" value=repository options/>
+                        <div class="cl-field" data-testid="create-repository">
+                            <label class="cl-field__label">"Repository"</label>
+                            <select
+                                class="cl-input cl-select"
+                                prop:value=move || repository.get()
+                                on:change=move |e| repository.set(event_target_value(&e))
+                            >
+                                {options.into_iter().map(|(slug, label)| view! {
+                                    <option value=slug>{label}</option>
+                                }).collect_view()}
+                            </select>
                         </div>
                     })}
                 })}

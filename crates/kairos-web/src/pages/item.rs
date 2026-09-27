@@ -697,7 +697,7 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
     if let Some(task_type) = &item.task_type {
         facts.push((task_type.clone(), token::TEAL));
     }
-    // KAIROS-T-0109: the repository the task is issued against (A-0019).
+    // KAIROS-T-0109: the repository the task links to (COLLIERY-A-0023).
     if let Some(repository) = &item.repository {
         facts.push((format!("repo: {}", repository.slug), token::ICE));
     }
@@ -877,20 +877,26 @@ use repositories::api::NO_REPOSITORY;
 /// The task's repository link (KAIROS-T-0109): pick a repository, or none.
 /// The server enforces `manage_tasks`; a refusal shows inline.
 ///
-/// A task may link to a repository of any team (COLLIERY-A-0023), so a link
-/// to a repository that the board's team does not own is shown like any
-/// other. Until COLLIERY-T-0219 the control called such a link a leftover of
-/// a re-home: it printed a warning and put the picker back on "(none)".
-/// The picker still OFFERS only the repositories of the board's team
-/// (COLLIERY-T-0221 changes that), plus the current link.
+/// A task may link to a repository of any team (COLLIERY-A-0023), so the
+/// picker offers every live repository of the tenant (COLLIERY-T-0221):
+/// those of the team of the board first, then the others with the name of
+/// their owning team. A link to a repository of a different team is shown
+/// like any other, with no warning (COLLIERY-T-0219).
+///
+/// The current link is always in that list. The server puts a repository
+/// on a task only while the repository is live, and refuses to delete a
+/// repository that a live task links to. COLLIERY-T-0219 added the current
+/// link as an extra option because the list stopped at one team; that
+/// option is removed, because it would now repeat an entry.
 #[component]
 fn RepositoryControl(
     code: String,
     /// The board's slug — for the client-side capability mirror.
     board_slug: String,
-    /// The board's owning team (UUID) — the picker offers its repositories.
+    /// The board's owning team (UUID): its repositories are first in the
+    /// picker.
     team_id: Option<String>,
-    /// The current binding (slug).
+    /// The current link (slug).
     current: Option<String>,
     on_moved: Callback<String>,
 ) -> impl IntoView {
@@ -911,10 +917,10 @@ fn RepositoryControl(
         Some(boards::data::EntityKind::Task),
         |powers| powers.create,
     );
+    let board_team = StoredValue::new(team_id);
     let repos = LocalResource::new(move || {
         let _ = auth.token();
-        let team = team_id.clone();
-        async move { repositories::api::list_repositories(auth, team.as_deref()).await }
+        async move { repositories::api::list_repositories(auth, None).await }
     });
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
@@ -943,33 +949,24 @@ fn RepositoryControl(
                 None => view! { <Text size="xs" dimmed=true>"Loading repositories…"</Text> }.into_any(),
                 Some(Err(_)) => view! { <Text size="xs" dimmed=true>"Repositories unavailable."</Text> }.into_any(),
                 Some(Ok(list)) if list.is_empty() => view! {
-                    <Text size="xs" dimmed=true>"No repositories registered for this team."</Text>
+                    <Text size="xs" dimmed=true>"No repositories in this organization."</Text>
                 }.into_any(),
                 Some(Ok(list)) => {
                     // Options are `(value, label)`: the slug stays the value
-                    // (what the server takes) and the label adds the forge
-                    // full name next to it.
+                    // (what the server takes). The label adds the forge full
+                    // name and, for a repository of a different team, the
+                    // owning team (COLLIERY-T-0221).
                     let options: Vec<(String, String)> = std::iter::once((
                         NO_REPOSITORY.to_string(),
                         NO_REPOSITORY.to_string(),
                     ))
-                    .chain(list.iter().map(|r| {
-                        let label = if r.repo_full_name.is_empty() {
-                            r.slug.clone()
-                        } else {
-                            format!("{} · {}", r.slug, r.repo_full_name)
-                        };
-                        (r.slug.clone(), label)
+                    .chain(board_team.with_value(|team| {
+                        repositories::picker_options(&list, team.as_deref())
                     }))
                     .collect();
                     let bound = current
                         .get_value()
                         .unwrap_or_else(|| NO_REPOSITORY.to_string());
-                    // The current link is always an option, so the picker
-                    // can show it. A repository of a different team is not
-                    // in `list`; without this the <select> has no option
-                    // for its value and shows "(none)" (COLLIERY-T-0219).
-                    let options = with_current_link(options, &bound);
                     view! {
                         <Stack gap="xs">
                             <Group gap="sm">
@@ -1007,18 +1004,6 @@ fn RepositoryControl(
         </div>
         })}
     }
-}
-
-/// The picker's options, with the task's current link added when the list
-/// does not have it (COLLIERY-T-0219). The list holds the repositories of
-/// the board's team; the current link can be a repository of any team
-/// (COLLIERY-A-0023). The added option carries the slug alone, because the
-/// task knows only the slug of its repository.
-fn with_current_link(mut options: Vec<(String, String)>, bound: &str) -> Vec<(String, String)> {
-    if !options.iter().any(|(slug, _)| slug == bound) {
-        options.push((bound.to_string(), bound.to_string()));
-    }
-    options
 }
 
 /// The board picker's "stay put" option — the default, so a board move is
@@ -1766,25 +1751,6 @@ fn RelationshipGroupView(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// COLLIERY-T-0219: a task linked to a repository of a different team
-    /// is shown like any other, so the picker must have an option for that
-    /// link. A link the list already has is not added again.
-    #[test]
-    fn the_picker_always_has_an_option_for_the_current_link() {
-        let offered = vec![
-            (NO_REPOSITORY.to_string(), NO_REPOSITORY.to_string()),
-            ("web-app".to_string(), "web-app · acme/web-app".to_string()),
-        ];
-        let other_team = with_current_link(offered.clone(), "payments-api");
-        assert_eq!(
-            other_team.last(),
-            Some(&("payments-api".to_string(), "payments-api".to_string()))
-        );
-        assert_eq!(other_team.len(), 3);
-        assert_eq!(with_current_link(offered.clone(), "web-app"), offered);
-        assert_eq!(with_current_link(offered.clone(), NO_REPOSITORY), offered);
-    }
 
     /// KAIROS-T-0124 #2: the tab anchors always carry the code — an empty
     /// route param (first frame after navigation) yields no anchors at

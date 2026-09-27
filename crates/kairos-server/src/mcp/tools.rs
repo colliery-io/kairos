@@ -447,8 +447,8 @@ impl KairosMcp {
             for (_, slug, name, team_type) in member_teams {
                 out.push_str(&format!("- {slug} — {name} ({team_type})\n"));
             }
-            // KAIROS-T-0107: the repositories my teams own — where my
-            // tickets are issued and executed (A-0019).
+            // KAIROS-T-0107: the repositories my teams own. A task on any
+            // board may link to any of them (COLLIERY-A-0023).
             {
                 use kairos_db::schema::repositories as repos;
                 let mine: Vec<(String, String, String)> = repos::table

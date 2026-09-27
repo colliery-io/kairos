@@ -7,10 +7,25 @@
 # pgvector added. KAIROS-A-0021 rule 2 makes the extension a requirement rather
 # than an option (KAIROS-T-0187), and stock postgres:16 ships only `pg_trgm` and
 # `plpgsql`, so the dev stack has to carry it or nothing local can migrate.
+# The project name is declared, and it is `kairos-dev` (COLLIERY-T-0226).
+#
+# Everything compose names for this stack - the network, the volume, the
+# container labels - starts with the project name. Left undeclared it was the
+# directory's, and the database volume carried a name written by hand that
+# happened to be what deploy/docker-compose.yaml (project `kairos`, volume
+# `postgres_data`) resolves to. On 2026-09-27, on a machine that runs both,
+# `angreal services up` started this PostgreSQL on the deployment's live data
+# directory.
+#
+# So nothing here is named by hand any more except the two containers, and
+# they carry the same prefix. A name derived from `kairos-dev` cannot land in
+# the namespace of a deployment called `kairos`.
+name: kairos-dev
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: kairos-postgres
+    container_name: kairos-dev-postgres
     environment:
       POSTGRES_USER: kairos
       POSTGRES_PASSWORD: kairos
@@ -27,7 +42,7 @@ services:
 
   dex:
     image: dexidp/dex:v2.43.1
-    container_name: kairos-dex
+    container_name: kairos-dev-dex
     command: ["dex", "serve", "/etc/dex/config.yaml"]
     ports:
       # 41558 everywhere (issuer, listener, host) — Dex's default 5556 (and
@@ -43,15 +58,6 @@ services:
       retries: 5
 
 volumes:
+  # No `name:`. Compose derives `kairos-dev_postgres_data` from the project
+  # above, which is the point: see the note on `name:` at the top.
   postgres_data:
-    # `kairos_dev_...`, NOT `kairos_postgres_data` (COLLIERY-T-0226). That
-    # shorter name is exactly what deploy/docker-compose.yaml resolves to: its
-    # project is `kairos` and its volume is `postgres_data`, and compose joins
-    # the two with an underscore. On a machine that runs both - a developer
-    # who also hosts a deployment - `angreal services up` then started a SECOND
-    # PostgreSQL on the deployment's live data directory. It ran crash
-    # recovery over files another server had open, and removed that server's
-    # postmaster.pid on the way out, which made the live server shut itself
-    # down. `angreal services clean` would have deleted the deployment's data.
-    # It happened on 2026-09-27; the data survived, by luck of timing.
-    name: kairos_dev_postgres_data

@@ -36,11 +36,11 @@ angreal services up
 You should see two containers reported healthy:
 
 ```
- Container kairos-postgres  Healthy
- Container kairos-dex       Healthy
+ Container kairos-dev-postgres  Healthy
+ Container kairos-dev-dex       Healthy
 ```
 
-`kairos-postgres` is the database. `kairos-dex` is
+`kairos-dev-postgres` is the database. `kairos-dev-dex` is
 [Dex](https://dexidp.io/), a small OIDC identity provider standing in for the
 one a real deployment would bring. It already knows about four users, and we
 will sign in as one of them.

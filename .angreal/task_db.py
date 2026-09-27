@@ -243,7 +243,7 @@ def migrate_tenants():
 def psql():
     """Open an interactive psql shell."""
     subprocess.run([
-        "docker", "exec", "-it", "kairos-postgres",
+        "docker", "exec", "-it", "kairos-dev-postgres",
         "psql", "-U", "kairos", "-d", "kairos"
     ])
     return 0

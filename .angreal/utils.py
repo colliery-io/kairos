@@ -60,7 +60,7 @@ def run_psql(sql: str, database: str = "kairos") -> int:
     try:
         subprocess.run(
             [
-                "docker", "exec", "kairos-postgres",
+                "docker", "exec", "kairos-dev-postgres",
                 "psql", "-U", "kairos", "-d", database, "-c", sql
             ],
             check=True
@@ -78,7 +78,7 @@ def run_psql_file(sql_file: Path, database: str = "kairos") -> int:
             sql = f.read()
         subprocess.run(
             [
-                "docker", "exec", "-i", "kairos-postgres",
+                "docker", "exec", "-i", "kairos-dev-postgres",
                 "psql", "-U", "kairos", "-d", database
             ],
             input=sql,

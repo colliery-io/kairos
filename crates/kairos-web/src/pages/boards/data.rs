@@ -121,7 +121,10 @@ pub struct BoardItemsResponse {
     #[serde(default)]
     pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
     /// Blocked-by/blocks counts keyed by short code (KAIROS-T-0091);
-    /// absent for items with no live blocks edges.
+    /// absent for items with no open blocks edges. The server counts an
+    /// edge only while neither end sits in a terminal column
+    /// (COLLIERY-T-0214), so a card in Completed has no entry and shows
+    /// no badge. The card renders what it is given.
     #[serde(default)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
 }

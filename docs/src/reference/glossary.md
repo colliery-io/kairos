@@ -89,7 +89,8 @@ A named position on a board. Columns are ordered, and a board's transition
 graph says which column-to-column moves are legal. A column can be removed,
 which soft-deletes it rather than dropping it: put-away cards still point at it,
 so its name remains readable as the answer to "which column was this in?" even
-though it no longer appears on the board.
+though it no longer appears on the board. A board can mark a column as a
+[done column](#done-column).
 
 ## complexity
 
@@ -122,6 +123,19 @@ strategy, initiative or task, through a `supports` edge that is required at
 creation. Documents have no board placement and therefore no column and no
 transitions; instead they carry an editorial lifecycle. A document may be
 stamped from a template.
+
+## done column
+
+A column that the board marks as done. It is a terminal column: work in it is
+complete. The mark is a flag on the column (`is_done`), and the board sets it.
+The name of the column does not decide it. The default boards set the flag on
+Completed. The default ADR board sets it on Decided and on Superseded.
+
+Two results follow from the flag:
+
+- The children-progress rollup counts a child in a done column as done.
+- A `blocks` edge does not count when the item at either end is in a done
+  column. See [relationship](#relationship).
 
 ## editorial lifecycle
 
@@ -209,6 +223,20 @@ Which types are legal between which item types is enforced, as is cycle
 prevention. `parent` and `blocks` may be written by anyone who manages either
 item's board or who created the source item; the other three are org-admin
 only.
+
+**Complete work does not block, and nothing blocks complete work.** A `blocks`
+edge counts only while the items at both ends can move. The edge stops counting
+when:
+
+- the item at either end is in a [done column](#done-column), or
+- the item at the other end is [put away](#put-away).
+
+The edge stays in the relationship list of each item, as history. The list
+marks the end in a done column (`done` in REST, `[done]` in MCP). It marks the
+end that is put away (`archived_at` in REST, `[archived]` in MCP). The counts on
+a board card ("blocked by", "blocks") include only the edges that count. Kairos
+stores nothing for this rule. When an item moves out of a done column, its
+edges count again.
 
 ## repository
 

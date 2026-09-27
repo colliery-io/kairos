@@ -394,6 +394,39 @@ async fn meta_endpoints_against_live_stack() {
     assert!(!progress.by_column[0].is_done);
     assert_eq!(progress.by_column[0].count, 1);
 
+    {
+        // The blocks edges roll up as board-card badge counts (KAIROS-T-0091):
+        // t1 blocks t2; the initiative has no blocks edges, so no entry. Read
+        // here, while both ends are open: the counts are of open edges only
+        // (COLLIERY-T-0214), and t1 is about to be completed.
+        let board = bob
+            .board_items(&delivery_board.to_string())
+            .await
+            .expect("delivery board items");
+        let t1_counts = board
+            .blocks_summary
+            .get(&t1_code)
+            .expect("t1 has a blocks entry");
+        assert_eq!(
+            (t1_counts.blocked_by, t1_counts.blocks),
+            (0, 1),
+            "{board:?}"
+        );
+        let t2_counts = board
+            .blocks_summary
+            .get(&t2_code)
+            .expect("t2 has a blocks entry");
+        assert_eq!(
+            (t2_counts.blocked_by, t2_counts.blocks),
+            (1, 0),
+            "{board:?}"
+        );
+        assert!(
+            !board.blocks_summary.contains_key(&initiative_code),
+            "no blocks edges, no entry (and the initiative is off this board)"
+        );
+    }
+
     // Walk t1 to Completed (Backlog -> Todo -> Active -> Completed per the
     // seeded transitions); the rollup follows.
     let board = bob
@@ -488,29 +521,21 @@ async fn meta_endpoints_against_live_stack() {
     );
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
 
-    // The same edges roll up as board-card badge counts (KAIROS-T-0091):
-    // t1 blocks t2; the initiative has no blocks edges, so no entry.
+    // The board-card badge counts (KAIROS-T-0091) were read above, while
+    // t1 was open. t1 now sits in Completed, and completed work does not
+    // block (COLLIERY-T-0214): the edge t1 -> t2 is still drawn in the
+    // graph above, and it adds to neither card's count.
     let board = bob
         .board_items(&delivery_board.to_string())
         .await
         .expect("delivery board items");
-    let t1_counts = board
-        .blocks_summary
-        .get(&t1_code)
-        .expect("t1 has a blocks entry");
-    assert_eq!(
-        (t1_counts.blocked_by, t1_counts.blocks),
-        (0, 1),
-        "{board:?}"
+    assert!(
+        !board.blocks_summary.contains_key(&t1_code),
+        "a card in a terminal column shows no `blocks` count: {board:?}"
     );
-    let t2_counts = board
-        .blocks_summary
-        .get(&t2_code)
-        .expect("t2 has a blocks entry");
-    assert_eq!(
-        (t2_counts.blocked_by, t2_counts.blocks),
-        (1, 0),
-        "{board:?}"
+    assert!(
+        !board.blocks_summary.contains_key(&t2_code),
+        "its only blocker is completed, so nothing blocks t2: {board:?}"
     );
     assert!(
         !board.blocks_summary.contains_key(&initiative_code),

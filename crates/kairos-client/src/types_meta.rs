@@ -39,6 +39,16 @@ pub struct RelatedItem {
     /// auditor mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// `true` when this neighbour sits in a terminal column (a column the
+    /// board marks `is_done`); absent otherwise (COLLIERY-T-0214). Done
+    /// work does not block and is not blocked, so a `blocks` edge to a
+    /// done neighbour is history, not an open blocker: the board's
+    /// `blocks_summary` does not count it. The edge still comes back
+    /// here, because the list is the record, and every renderer of a
+    /// `blocks` neighbour must show this marker. It follows the
+    /// neighbour's current column; nothing is stored.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
 }
 
 /// All of an item's neighbors under ONE relationship type in one direction.
@@ -455,6 +465,7 @@ mod tests {
                     entity_type: "task".into(),
                     title: "t".into(),
                     archived_at: None,
+                    done: false,
                 }],
             }],
             incoming: vec![],
@@ -475,5 +486,18 @@ mod tests {
                 .is_none(),
             "a live neighbour must not carry an archived marker: {value}"
         );
+        // The same for `done` (COLLIERY-T-0214): absent unless the
+        // neighbour sits in a terminal column, and `true` when it does.
+        assert!(
+            value["outgoing"][0]["items"][0].get("done").is_none(),
+            "an open neighbour must not carry a done marker: {value}"
+        );
+        let mut done = response.clone();
+        done.outgoing[0].items[0].done = true;
+        let value = serde_json::to_value(&done).expect("serializes");
+        assert_eq!(value["outgoing"][0]["items"][0]["done"], true);
+        let decoded: ItemRelationshipsResponse =
+            serde_json::from_value(value).expect("deserializes");
+        assert_eq!(decoded, done);
     }
 }

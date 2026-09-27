@@ -137,8 +137,11 @@ pub struct BoardItemsResponse {
     #[serde(default)]
     pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
     /// Blocked-by/blocks counts keyed by short code, for every item on
-    /// this board with at least one live `blocks` edge (KAIROS-T-0091) —
-    /// one grouped query; soft-deleted neighbors never count.
+    /// this board with at least one open `blocks` edge (KAIROS-T-0091) —
+    /// one grouped query; soft-deleted neighbors never count. An edge is
+    /// open only while neither end sits in a terminal column
+    /// (COLLIERY-T-0214): done work does not block and is not blocked, so
+    /// a card in a terminal column has no entry.
     #[serde(default)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
 }
@@ -147,9 +150,13 @@ pub struct BoardItemsResponse {
 /// (KAIROS-T-0091).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct BlocksCounts {
-    /// Live incoming `blocks` edges (things blocking this item).
+    /// Open incoming `blocks` edges (things blocking this item): the
+    /// blocker is live, and neither end is in a terminal column
+    /// (COLLIERY-T-0214).
     pub blocked_by: i64,
-    /// Live outgoing `blocks` edges (things this item blocks).
+    /// Open outgoing `blocks` edges (things this item blocks): the blocked
+    /// item is live, and neither end is in a terminal column
+    /// (COLLIERY-T-0214).
     pub blocks: i64,
 }
 

@@ -272,6 +272,10 @@ fn map_link_error(e: GraphError) -> ApiError {
 /// Archived neighbours are among them (KAIROS-T-0158) and carry
 /// `archived_at`; nothing here filters, because filtering here is what
 /// made "what did this initiative contain?" answer short.
+///
+/// Neighbours in a terminal column are among them too, and carry `done`
+/// (COLLIERY-T-0214): a completed blocker stays on the list as history,
+/// marked, while the board's `blocks_summary` stops counting it.
 fn group_neighbors(
     neighbors: Vec<Neighbor>,
     edge_ids: &HashMap<(RelationshipType, Uuid, bool), Uuid>,
@@ -290,6 +294,7 @@ fn group_neighbors(
             entity_type: neighbor.entity_type.entity_type().to_string(),
             title: neighbor.title,
             archived_at: neighbor.archived_at.map(timestamp),
+            done: neighbor.done,
         };
         match groups.last_mut() {
             Some(group) if group.relationship == relationship => group.items.push(item),
@@ -314,6 +319,11 @@ fn group_neighbors(
 /// the honest default is to report every edge and say which ends are put
 /// away. The item itself may be archived too (resolution is
 /// [`Liveness::IncludeArchived`] since KAIROS-T-0154).
+///
+/// **The mark `done: true` shows a neighbour in a terminal column**
+/// (COLLIERY-T-0214). Done work does not block, and nothing blocks done
+/// work. A `blocks` edge with a done end is history, not a blocker. The
+/// list keeps the edge: only the counts on the board change.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/relationships",

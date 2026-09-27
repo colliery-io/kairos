@@ -118,8 +118,8 @@ Dependency counts behind a board card's blocked-by/blocks badges (KAIROS-T-0091)
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `blocked_by` | `integer` | yes | Live incoming `blocks` edges (things blocking this item). |
-| `blocks` | `integer` | yes | Live outgoing `blocks` edges (things this item blocks). |
+| `blocked_by` | `integer` | yes | Open incoming `blocks` edges (things blocking this item): the blocker is live, and neither end is in a terminal column (COLLIERY-T-0214). |
+| `blocks` | `integer` | yes | Open outgoing `blocks` edges (things this item blocks): the blocked item is live, and neither end is in a terminal column (COLLIERY-T-0214). |
 
 ## Board
 
@@ -172,7 +172,7 @@ Response of `GET /api/boards/{id}/items`: all items on the board, grouped by col
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `blocks_summary` | `object` | no | Blocked-by/blocks counts keyed by short code, for every item on this board with at least one live `blocks` edge (KAIROS-T-0091) — one grouped query; soft-deleted neighbors never count. |
+| `blocks_summary` | `object` | no | Blocked-by/blocks counts keyed by short code, for every item on this board with at least one open `blocks` edge (KAIROS-T-0091) — one grouped query; soft-deleted neighbors never count. An edge is open only while neither end sits in a terminal column (COLLIERY-T-0214): done work does not block and is not blocked, so a card in a terminal column has no entry. |
 | `board` | [`Board`](schemas.md#board) | yes |  |
 | `children_progress` | `object` | no | `(done, total)` direct-children counts keyed by the PARENT item's short code, for every item on this board that has children (KAIROS-T-0080) — computed in one grouped query, never per item. |
 | `columns` | array of [`BoardColumnItems`](schemas.md#boardcolumnitems) | yes |  |
@@ -944,6 +944,7 @@ One hydrated neighbor of an item in the relationship graph.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this neighbour was archived, RFC 3339; absent while it is live. Relationship lists are archived-INCLUSIVE (KAIROS-T-0158): an item's edges describe what it contains and depends on, and dropping an archived endpoint silently shrinks that answer. The row therefore comes back with this marker, and every renderer must show it — ADR-20: anything serving an archived row says so, or an auditor mistakes it for live work. |
+| `done` | `boolean` | no | `true` when this neighbour sits in a terminal column (a column the board marks `is_done`); absent otherwise (COLLIERY-T-0214). Done work does not block and is not blocked, so a `blocks` edge to a done neighbour is history, not an open blocker: the board's `blocks_summary` does not count it. The edge still comes back here, because the list is the record, and every renderer of a `blocks` neighbour must show this marker. It follows the neighbour's current column; nothing is stored. |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `id` | `string` | yes | The neighbor's entity id (UUID). |
 | `relationship_id` | `string` | yes | The edge's id (UUID) — pass to `DELETE /api/relationships/{id}`. |

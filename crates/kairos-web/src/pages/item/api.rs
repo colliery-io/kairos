@@ -289,6 +289,12 @@ pub struct RelatedItem {
     /// field is not enough; the mirror has to want it.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// `true` when this neighbour sits in a terminal column; **absent
+    /// otherwise** (COLLIERY-T-0214). Done work does not block and is not
+    /// blocked, so the panel marks a done neighbour on a `blocks` edge:
+    /// without the mark a finished blocker reads as one still in the way.
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// mirror of: `kairos_client::types_meta::Template` (partial).
@@ -1166,6 +1172,28 @@ mod tests {
             children[1].archived_at.as_deref(),
             Some("2026-09-23T11:30:07.479107Z")
         );
+    }
+
+    /// COLLIERY-T-0214: the same trap, for `done`. The wire carries
+    /// `done: true` for a neighbour in a terminal column and nothing
+    /// otherwise; a mirror without the field compiles and renders a
+    /// finished blocker as one still in the way.
+    #[test]
+    fn related_item_mirror_carries_the_done_marker() {
+        let body = serde_json::json!({
+            "short_code": "DEMO-T-0003",
+            "outgoing": [],
+            "incoming": [{"relationship": "blocks", "items": [
+                {"relationship_id": "e1", "id": "x", "short_code": "DEMO-T-0001",
+                 "entity_type": "task", "title": "Still in the way"},
+                {"relationship_id": "e2", "id": "y", "short_code": "DEMO-T-0002",
+                 "entity_type": "task", "title": "Finished", "done": true}
+            ]}]
+        });
+        let rels: ItemRelationships = serde_json::from_value(body).expect("mirror decodes");
+        let blockers = &rels.incoming[0].items;
+        assert!(!blockers[0].done, "an open blocker is bare");
+        assert!(blockers[1].done, "a completed blocker is marked");
     }
 
     /// KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board

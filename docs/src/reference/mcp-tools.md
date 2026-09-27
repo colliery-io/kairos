@@ -132,6 +132,11 @@ The items on a board, grouped by column: short code, type and title.
 A removed column can be named as `column` only while `include_deleted` is
 true; otherwise it is not among the board's columns and is refused as unknown.
 
+A card with dependencies that count carries `[blocked by N]`, `[blocks N]`, or
+both. A `blocks` edge does not count when the item at either end is in a done
+column. It does not count when the item at the other end has the `[archived]`
+mark. A card in a done column carries neither tag.
+
 Refuses: `NOT_FOUND` for an unknown or archived board; `VALIDATION` for a
 `column` that is not on that board, and the refusal lists the board's columns,
 and for an unknown `repository`.
@@ -151,6 +156,13 @@ column reported for an archived card is the name of the column it was put away
 in, which may since have been removed from the board: a removed column is
 soft-deleted rather than dropped, and this lookup deliberately ignores that so
 "which column was this in?" stays answerable.
+
+The `blocked by` and `blocks` lines list each `blocks` edge of the item. The
+mark `[done]` shows an item in a done column. The mark `[archived]` shows an
+item that someone put away. An edge to an item with a mark does not block. When
+the item itself is in a done column, the two labels change to
+`blocked by (resolved: this item is done)` and
+`blocks (resolved: this item is done)`.
 
 Refuses: `NOT_FOUND` only when the short code names nothing at all.
 
@@ -438,6 +450,12 @@ Creates a relationship edge between two items.
 or who created the source item — so a request that the caller sent to another
 team can block the caller's own item. The other three types are org-admin
 only.
+
+A `blocks` edge counts only while the items at both ends can move. Complete
+work does not block, and nothing blocks complete work. The edge stops counting
+when the item at either end is in a done column. The edge stays, and `get_item`
+marks the done end `[done]`. `link_items` does not refuse an edge to an item in
+a done column.
 
 Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
 `source` or `target` that does not name a live item, and for a self-link where

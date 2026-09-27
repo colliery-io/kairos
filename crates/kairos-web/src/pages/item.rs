@@ -1711,6 +1711,7 @@ fn RelationshipGroupView(
     #[prop(into)] direction: String,
 ) -> impl IntoView {
     let label = relationship_label(&group.relationship, direction == "outgoing");
+    let is_blocks = group.relationship == "blocks";
     view! {
         <div class="kairos-relationships__group">
             <Group gap="sm">
@@ -1732,12 +1733,28 @@ fn RelationshipGroupView(
                         </span>
                     }
                 });
+                // COLLIERY-T-0214: done work does not block and is not
+                // blocked. The edge stays on the list as history, so the
+                // row says which end is finished; an unmarked completed
+                // blocker reads as one still in the way. Only on `blocks`
+                // edges: that is where the mark changes what the reader
+                // does next. "done" is the board admin's word for the
+                // column flag, in the same colour.
+                let done = (is_blocks && item.done).then(|| view! {
+                    <span
+                        class="kairos-done-badge"
+                        title="In a done column: this edge no longer blocks"
+                    >
+                        <Pill color=token::OK>"done"</Pill>
+                    </span>
+                });
                 view! {
                     <Group gap="sm" justify="between">
                         <Anchor href=format!("/items/{}", item.short_code)>
                             {format!("{} — {}", item.short_code, item.title)}
                         </Anchor>
                         <Group gap="sm">
+                            {done}
                             {put_away}
                             <Pill color=token::VIOLET>{item.entity_type.clone()}</Pill>
                         </Group>

@@ -171,6 +171,12 @@ progress rollup and the blocks summary are deliberately NOT widened by
 it: ADR-20 rule 5 says archived work is not live work, so the counts
 keep counting live rows however the listing is asked for.
 
+`blocks_summary` counts only the `blocks` edges that can still block
+(COLLIERY-T-0214). Done work does not block, and nothing blocks done
+work. An edge with either end in a terminal column (`is_done`) adds to
+neither card. The edge stays on the relationship list of each item,
+with a mark on the done end.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |

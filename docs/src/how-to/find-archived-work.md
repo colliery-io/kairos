@@ -71,7 +71,8 @@ Two things about the widened board listing, because they look like bugs:
   column has since been removed from the live board. It is an audit view, not a
   board view.
 - The children-progress rollup and the blocks summary are **not** widened. The
-  counts keep counting live rows however the listing is asked for.
+  counts keep counting live rows however the listing is asked for. The blocks
+  summary also leaves out every edge with an end in a done column.
 
 ## Put it back
 

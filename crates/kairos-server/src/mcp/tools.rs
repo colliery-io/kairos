@@ -693,7 +693,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not."
     )]
     pub async fn board_items(
         &self,
@@ -728,6 +728,15 @@ impl KairosMcp {
             let items = board_item_rows(conn, board.id, repository, liveness)?;
             let repo_ids: Vec<Uuid> = items.iter().filter_map(|i| i.repository_id).collect();
             let repo_slugs = repo_slug_map(conn, &repo_ids)?;
+            // The same rollup the board card shows, in the same one
+            // grouped query (COLLIERY-T-0214). Until this, the listing said
+            // nothing about blocking, so an agent that was told to pick
+            // work "with no unresolved blocks edge" had to read every card
+            // with `get_item`, and could not tell a resolved blocker from
+            // an open one when it did. The counts are of OPEN edges: done
+            // work does not block and is not blocked.
+            let item_ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
+            let blocks = graph::blocks_summary(conn, &item_ids).map_err(ApiError::internal)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -742,13 +751,17 @@ impl KairosMcp {
                     // tell put-away work from live work will pick one up
                     // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}{}\n",
+                        "- {} [{}] {}{}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
                         item.repository_id
                             .and_then(|id| repo_slugs.get(&id))
                             .map(|slug| format!(" [repo:{slug}]"))
+                            .unwrap_or_default(),
+                        blocks
+                            .get(&item.id)
+                            .map(|counts| blocks_marker(*counts))
                             .unwrap_or_default(),
                         if item.archived { " [archived]" } else { "" }
                     ));
@@ -760,7 +773,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs)."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open."
     )]
     pub async fn get_item(
         &self,
@@ -851,7 +864,8 @@ impl KairosMcp {
             }
 
             // Relationships (both directions, agent-oriented labels).
-            let relationships = relationship_lines(conn, item.id)?;
+            let item_done = column_is_done(conn, item.column_id)?;
+            let relationships = relationship_lines(conn, item.id, item_done)?;
             if !relationships.is_empty() {
                 out.push_str("\n## Relationships\n");
                 out.push_str(&relationships);
@@ -2046,6 +2060,25 @@ fn column_label(conn: &mut PgConnection, column_id: Uuid) -> Result<String, ApiE
         .map(Option::unwrap_or_default)
 }
 
+/// Whether an item's column is terminal: the `is_done` FLAG of the column
+/// row, never its name, because which columns are terminal is the board's
+/// decision (COLLIERY-T-0214). An item with no column (a document, an
+/// off-board ADR) or with no column row is not done. Removed columns are
+/// read too, for the reason [`column_label`] gives.
+fn column_is_done(conn: &mut PgConnection, column_id: Option<Uuid>) -> Result<bool, ApiError> {
+    use kairos_db::schema::board_columns;
+    let Some(column_id) = column_id else {
+        return Ok(false);
+    };
+    board_columns::table
+        .filter(board_columns::id.eq(column_id))
+        .select(board_columns::is_done)
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)
+        .map(Option::unwrap_or_default)
+}
+
 /// Resolve a column reference (UUID or case-insensitive name) against a
 /// board's columns; failure names the available columns (agent-corrective).
 fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiError> {
@@ -2069,6 +2102,8 @@ fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiE
 
 /// One compact row of a board listing.
 struct BoardItemRow {
+    /// The item's id: the key of the blocks rollup (COLLIERY-T-0214).
+    id: Uuid,
     column_id: Uuid,
     short_code: String,
     title: String,
@@ -2087,9 +2122,10 @@ struct BoardItemRow {
 /// than only the widened one: the live mode must still be able to prove
 /// it served nothing archived, and a marker that is only fetched when it
 /// might be set is a marker nobody checks (KAIROS-T-0159).
-type BoardStrategySelect = (Uuid, String, String, Option<DateTime<Utc>>);
-type BoardInitiativeSelect = (Uuid, String, String, bool, Option<DateTime<Utc>>);
+type BoardStrategySelect = (Uuid, Uuid, String, String, Option<DateTime<Utc>>);
+type BoardInitiativeSelect = (Uuid, Uuid, String, String, bool, Option<DateTime<Utc>>);
 type BoardTaskSelect = (
+    Uuid,
     Uuid,
     String,
     String,
@@ -2098,7 +2134,7 @@ type BoardTaskSelect = (
     Option<Uuid>,
     Option<DateTime<Utc>>,
 );
-type BoardAdrSelect = (Option<Uuid>, String, String, Option<DateTime<Utc>>);
+type BoardAdrSelect = (Uuid, Option<Uuid>, String, String, Option<DateTime<Utc>>);
 
 /// Every item placed on a board (strategies, initiatives, tasks, and
 /// on-board ADRs — documents have no placement), unified for listing.
@@ -2128,6 +2164,7 @@ fn board_item_rows(
     let strategies: Vec<BoardStrategySelect> = strategy_query
         .order(strategies::short_code.asc())
         .select((
+            strategies::id,
             strategies::column_id,
             strategies::short_code,
             strategies::title,
@@ -2136,16 +2173,17 @@ fn board_item_rows(
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(
-        strategies
-            .into_iter()
-            .map(|(column_id, short_code, title, deleted_at)| BoardItemRow {
+        strategies.into_iter().map(
+            |(id, column_id, short_code, title, deleted_at)| BoardItemRow {
+                id,
                 column_id,
                 short_code,
                 title,
                 repository_id: None,
                 kind: "strategy".to_string(),
                 archived: deleted_at.is_some(),
-            }),
+            },
+        ),
     );
 
     let mut initiative_query = initiatives::table
@@ -2157,6 +2195,7 @@ fn board_item_rows(
     let initiatives: Vec<BoardInitiativeSelect> = initiative_query
         .order(initiatives::short_code.asc())
         .select((
+            initiatives::id,
             initiatives::column_id,
             initiatives::short_code,
             initiatives::title,
@@ -2166,7 +2205,8 @@ fn board_item_rows(
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(initiatives.into_iter().map(
-        |(column_id, short_code, title, is_bucket, deleted_at)| BoardItemRow {
+        |(id, column_id, short_code, title, is_bucket, deleted_at)| BoardItemRow {
+            id,
             column_id,
             short_code,
             title,
@@ -2188,6 +2228,7 @@ fn board_item_rows(
     let tasks: Vec<BoardTaskSelect> = task_query
         .order(tasks::short_code.asc())
         .select((
+            tasks::id,
             tasks::column_id,
             tasks::short_code,
             tasks::title,
@@ -2199,8 +2240,9 @@ fn board_item_rows(
         .load(conn)
         .map_err(ApiError::internal)?;
     rows.extend(tasks.into_iter().map(
-        |(column_id, short_code, title, task_type, work_class, repository_id, deleted_at)| {
+        |(id, column_id, short_code, title, task_type, work_class, repository_id, deleted_at)| {
             BoardItemRow {
+                id,
                 column_id,
                 short_code,
                 title,
@@ -2223,6 +2265,7 @@ fn board_item_rows(
     let adrs: Vec<BoardAdrSelect> = adr_query
         .order(adrs::short_code.asc())
         .select((
+            adrs::id,
             adrs::column_id,
             adrs::short_code,
             adrs::title,
@@ -2232,8 +2275,9 @@ fn board_item_rows(
         .map_err(ApiError::internal)?;
     rows.extend(
         adrs.into_iter()
-            .filter_map(|(column_id, short_code, title, deleted_at)| {
+            .filter_map(|(id, column_id, short_code, title, deleted_at)| {
                 column_id.map(|column_id| BoardItemRow {
+                    id,
                     column_id,
                     short_code,
                     title,
@@ -2245,6 +2289,23 @@ fn board_item_rows(
     );
 
     Ok(rows)
+}
+
+/// The open-dependency tags of one `board_items` line: `" [blocked by
+/// N]"` and `" [blocks N]"`, each only when N is above zero
+/// (COLLIERY-T-0214). The words are the ones the board card shows, so the
+/// agent and the person read the same thing. A card with no open `blocks`
+/// edge gets no tag: that includes every card in a terminal column, and
+/// every card whose blockers are all done or archived.
+fn blocks_marker(counts: graph::BlocksCounts) -> String {
+    let mut out = String::new();
+    if counts.blocked_by > 0 {
+        out.push_str(&format!(" [blocked by {}]", counts.blocked_by));
+    }
+    if counts.blocks > 0 {
+        out.push_str(&format!(" [blocks {}]", counts.blocks));
+    }
+    out
 }
 
 /// Per-column LIVE item counts for one board — what `list_boards` prints
@@ -2387,22 +2448,56 @@ fn parent_chain(conn: &mut PgConnection, item_id: Uuid) -> Result<Vec<ChainRow>,
 /// "children: ACME-T-0007" and trying to move it would be refused by
 /// every write path with no idea why; the tag is what tells it that the
 /// row is history rather than work in flight.
-fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError> {
+///
+/// A `blocks` neighbour in a terminal column carries a `[done]` tag
+/// (COLLIERY-T-0214). Done work does not block and is not blocked, so that
+/// edge is resolved: the entry stays, as history, and the tag is what
+/// stops an agent from waiting on work that is finished. The tag is put on
+/// `blocks` edges only, because that is where it changes a decision; the
+/// word is the one the board uses for the column ("done").
+///
+/// `item_done` says that the item ITSELF sits in a terminal column. Then
+/// every one of its `blocks` edges is resolved, whatever the other end is
+/// doing, and the two labels say so. The `[done]` tag cannot carry that:
+/// it is a statement about the neighbour, and an open blocker of a
+/// completed item is not done.
+fn relationship_lines(
+    conn: &mut PgConnection,
+    item_id: Uuid,
+    item_done: bool,
+) -> Result<String, ApiError> {
     let relationships = graph::relationships_for(conn, item_id).map_err(ApiError::internal)?;
 
     let mut groups: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
     let mut push =
         |label: &'static str, entry: String| groups.entry(label).or_default().push(entry);
 
-    /// One neighbour line, tagged when the neighbour is archived.
+    /// One neighbour line, tagged when the neighbour is archived, and,
+    /// on a `blocks` edge, when the neighbour is done.
     fn line(neighbor: &kairos_db::graph::Neighbor) -> String {
-        let mark = if neighbor.archived_at.is_some() {
+        let done = if neighbor.relationship == RelationshipType::Blocks && neighbor.done {
+            " [done]"
+        } else {
+            ""
+        };
+        let archived = if neighbor.archived_at.is_some() {
             " [archived]"
         } else {
             ""
         };
-        format!("{} — {}{mark}", neighbor.short_code, neighbor.title)
+        format!(
+            "{} — {}{done}{archived}",
+            neighbor.short_code, neighbor.title
+        )
     }
+    let (blocks_label, blocked_by_label) = if item_done {
+        (
+            "blocks (resolved: this item is done)",
+            "blocked by (resolved: this item is done)",
+        )
+    } else {
+        ("blocks", "blocked by")
+    };
 
     for neighbor in &relationships.outgoing {
         let entry = line(neighbor);
@@ -2411,7 +2506,7 @@ fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, 
             RelationshipType::Supports => push("supporting docs", entry),
             RelationshipType::Informs => push("informs", entry),
             RelationshipType::Supersedes => push("supersedes", entry),
-            RelationshipType::Blocks => push("blocks", entry),
+            RelationshipType::Blocks => push(blocks_label, entry),
         }
     }
     for neighbor in &relationships.incoming {
@@ -2421,7 +2516,7 @@ fn relationship_lines(conn: &mut PgConnection, item_id: Uuid) -> Result<String, 
             RelationshipType::Supports => push("supports", entry),
             RelationshipType::Informs => push("informed by", entry),
             RelationshipType::Supersedes => push("superseded by", entry),
-            RelationshipType::Blocks => push("blocked by", entry),
+            RelationshipType::Blocks => push(blocked_by_label, entry),
         }
     }
 

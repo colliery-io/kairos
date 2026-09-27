@@ -124,6 +124,11 @@ the honest default is to report every edge and say which ends are put
 away. The item itself may be archived too (resolution is
 [`Liveness::IncludeArchived`] since KAIROS-T-0154).
 
+**The mark `done: true` shows a neighbour in a terminal column**
+(COLLIERY-T-0214). Done work does not block, and nothing blocks done
+work. A `blocks` edge with a done end is history, not a blocker. The
+list keeps the edge: only the counts on the board change.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Plural family name (strategies|initiatives|tasks|documents|adrs) |

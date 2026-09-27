@@ -191,7 +191,7 @@ Board placement per noun:
 | `strategies` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `initiatives` | `--board <BOARD_ID>` | UUID | required | Board to create the initiative on. |
 | `initiatives` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
-| `tasks` | `--board <BOARD_ID>` | UUID | required unless `--repo` is given | Delivery board. With `--repo` and no `--board`, the task is routed to the repository's owning team's delivery board. |
+| `tasks` | `--board <BOARD>` | slug or UUID | required unless `--team` is given | Delivery board to create the task on. The board decides the team of the task. With `--team` and no `--board`, the task goes to the delivery board of that team. |
 | `tasks` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `documents` | `--parent <SHORT_CODE>` | string | required | The workflow item the document supports. Documents take no board; they inherit that item's board for authorization. |
 | `adrs` | `--board <BOARD_ID>` | UUID | none | ADR board. Omitting it creates an off-board ADR, which is an org-admin operation. |
@@ -205,9 +205,16 @@ Options specific to one noun:
 | `initiatives` | `--complexity <COMPLEXITY>` | `xs` \| `s` \| `m` \| `l` \| `xl` | none | T-shirt sizing. |
 | `initiatives` | `--bucket-type <KIND>` | `tech_debt` \| `bug` \| `ad_hoc` | none | Marks the initiative as a bucket of this kind. |
 | `tasks` | `--type <TASK_TYPE>` | `task` \| `bug` \| `tech_debt` \| `support` | `task` | Task type. |
-| `tasks` | `--work-class <WORK_CLASS>` | `planned` \| `support` | `support` for support-type tasks, `planned` otherwise | Planned/Support lane. |
-| `tasks` | `--team <TEAM_ID>` | UUID | the repository's owning team | Owning team. |
-| `tasks` | `--repo <REPOSITORY>` | slug or UUID | none | Repository to issue the task against. Routes the task to the owning team's delivery board. |
+| `tasks` | `--work-class <WORK_CLASS>` | `planned` \| `support` | `support` for support-type tasks, `planned` otherwise; always `support` on a board that the caller does not manage | Planned/Support lane. On a board that the caller does not manage, `planned` is refused with 403. |
+| `tasks` | `--team <TEAM_ID>` | UUID | none | Team. Without `--board`, the task goes to the delivery board of this team. With `--board`, it must be the team of that board. |
+| `tasks` | `--repo <REPOSITORY>` | slug or UUID | none | Repository the task links to. It can be any repository, of any team. It does not choose the board. |
+
+`tasks create` needs `--board` or `--team`. `--repo` does not replace them.
+
+A caller without `manage_tasks` on the board creates a request. The request
+goes to the entry column. For that caller, a `--column` that names a different
+column gets a 403. See
+[Send a request to a different team](../how-to/move-work-between-boards.md#send-a-request-to-a-different-team).
 | `documents` | `--template <TEMPLATE_ID>` | UUID | none | Template to stamp content and metadata defaults from. |
 | `adrs` | `--decision-maker <DECISION_MAKER>` | string | none | Decision maker. |
 | `adrs` | `--decision-date <DATE>` | `YYYY-MM-DD` | none | Decision date. |
@@ -257,9 +264,8 @@ kairos tasks move <SHORT_CODE> --to-board <BOARD> [OPTIONS]
 | `--to-board <BOARD>` | slug or UUID | required | Target delivery board. |
 
 The task lands in the target board's entry column and follows that board's
-team. Constraints: `manage_tasks` is required on both boards, and a task bound
-to a repository may move only to that repository's owning team's board —
-clearing the binding with `kairos repos unbind` is a prerequisite otherwise.
+team. The command needs `manage_tasks` on both boards. The task keeps its
+repository.
 See [Move work between boards](../how-to/move-work-between-boards.md).
 
 ### `<noun> delete`
@@ -310,7 +316,7 @@ Filters:
 | `--board <BOARD_ID>` | UUID | none | Restrict to items on this board. |
 | `--column <COLUMN_ID>` | UUID | none | Restrict to items in this column. |
 | `--team <TEAM_ID>` | UUID | none | Restrict to tasks assigned to this team. |
-| `--repo <REPOSITORY>` | slug or UUID | none | Restrict to tasks issued against this repository. |
+| `--repo <REPOSITORY>` | slug or UUID | none | Restrict to tasks that link to this repository. |
 | `--task-type <TASK_TYPE>` | `task` \| `bug` \| `tech_debt` \| `support` | all | Task type filter. Repeatable. |
 | `--work-class <WORK_CLASS>` | `planned` \| `support` | all | Lane filter. Repeatable. |
 | `--is-bucket <BOOL>` | `true` \| `false` | both | Restrict to bucket or non-bucket initiatives. |
@@ -598,8 +604,14 @@ kairos repos get <REPOSITORY> [OPTIONS]
 |---|---|---|---|
 | `<REPOSITORY>` | slug or UUID | required | The repository. |
 
-Shows the owning team, the delivery board, the how-to-work-here description,
-and in-flight pull requests.
+Prints one table row with the columns `SLUG`, `FORGE`, `NAME`, `TEAM`,
+`OWNER_BOARD`, `OPEN` and `WEBHOOK`. `kairos repos list` prints the same
+columns. `OWNER_BOARD` is the delivery board of the owning team. `OPEN` is the
+count of open tasks that link to the repository, on all boards.
+
+After the row, the command prints the URL, the default branch and the webhook
+connection. Then it prints the how-to-work-here description and the in-flight
+branches and pull requests.
 
 ### `kairos repos create`
 
@@ -659,7 +671,10 @@ kairos repos bind <SHORT_CODE> <REPOSITORY> [OPTIONS]
 | Argument | Type | Default | Description |
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The task. |
-| `<REPOSITORY>` | slug or UUID | required | The repository. Must be owned by the team whose board the task sits on. |
+| `<REPOSITORY>` | slug or UUID | required | The repository. It can be any repository, of any team. |
+
+The command sets the repository that the task links to. The board and the team
+of the task do not change.
 
 ### `kairos repos unbind`
 
@@ -671,7 +686,9 @@ kairos repos unbind <SHORT_CODE> [OPTIONS]
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The task whose repository binding is cleared. |
 
-Repositories are the codebases tickets are issued against. See
+The board and the team of the task do not change.
+
+Repositories are the codebases that tasks link to. See
 [Repositories as execution scope](../explanation/repositories-as-execution-scope.md).
 
 ## Machine access

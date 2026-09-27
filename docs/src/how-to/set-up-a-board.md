@@ -34,8 +34,8 @@ silently resolved. `PATCH` on a column renames it or moves it, reordering the
 others around the new position.
 
 **The lowest-position column is the entry column.** Newly created work lands
-there, tasks moved in from another board land there, and cross-team filings are
-confined to it. Reordering columns therefore reorders that too — if you put
+there, tasks moved in from another board land there, and a request from a
+different team goes there. Reordering columns therefore reorders that too — if you put
 `Review` at position 0, new work starts in Review.
 
 ## 2. Make the new column reachable

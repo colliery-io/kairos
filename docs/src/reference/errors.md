@@ -53,7 +53,7 @@ what kind of gate refused:
 | Shape | Emitted by |
 |---|---|
 | `required_capability`, `board_id` (null = the org-admin-only fallback applied) | a board capability check |
-| `required_capability`, `board_id`, `held: "file_backlog"` | an MCP write refused to a cross-team filer, whose message states the Backlog-only rule |
+| `required_capability`, `board_id`, `held: "file_backlog"` | an MCP write refused to the person who sent a request, while the request is in the entry column of its board. The message says that the item is a request and that the team of the board moves it |
 | `required_role: "admin"`, and `relationship` when an edge was at fault | tenant-wide configuration: templates, metadata definitions, and non-collaborative relationship types |
 | `relationship` | a `parent`/`blocks` edge where the caller manages neither board and did not create the source |
 | `required: "deployment_admin"` | the cross-tenant provisioning routes, which are not scoped to any organization |
@@ -71,7 +71,7 @@ nothing on the others. The other 409s and what they carry instead:
 
 **The distinction to internalise**, because it decides how a client branches:
 **a reference that does not resolve is `VALIDATION`; the call's own subject not
-existing is `NOT_FOUND`.** Creating a task against a repository slug that does
+existing is `NOT_FOUND`.** Creating a task that names a repository slug that does
 not exist is `VALIDATION` — the repository was a reference in the body.
 Fetching `/api/tasks/ACME-T-9999` is `NOT_FOUND` — the task was the subject.
 
@@ -98,7 +98,6 @@ A client applying the general rule would branch wrongly here.
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
-| `REPOSITORY_OWNER_MISMATCH` | 422 | The task's repository is owned by a team other than the target board's | `repository` and `owner_board_id` — null when the owner has no single delivery board, in which case the binding must be cleared rather than followed |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to | `missing` — a list naming each thing that is gone |
 
 ### Relationships
@@ -154,8 +153,10 @@ The refusals a reader most often arrives here from:
   [Wind down a team](../how-to/wind-down-a-team.md)
 - `COLUMN_NOT_EMPTY`, `INVALID_TRANSITION`, `DUPLICATE_COLUMN_NAME` →
   [Set up a board](../how-to/set-up-a-board.md)
-- `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `REPOSITORY_OWNER_MISMATCH` →
+- `SAME_BOARD`, `NOT_DELIVERY_BOARD` →
   [Move work between boards](../how-to/move-work-between-boards.md)
+- `FORBIDDEN` or `VALIDATION` on a task that you create for a different team →
+  [Send a request to a different team](../how-to/move-work-between-boards.md#when-a-request-is-refused)
 - `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
   [Connect a git forge](../how-to/connect-a-git-forge.md)
 

@@ -72,7 +72,7 @@ A named permission held on one board — the unit of write access. Capability
 names are of the form `manage_tasks` or `configure_boards`, and a grant may use
 a trailing glob to cover a family of them. Some capabilities are not granted at
 all: team membership implies a set of them on that team's own delivery board,
-and `file_backlog` is computed from the request rather than stored.
+and [`file_backlog`](#file_backlog) is computed and not stored.
 
 Distinct from [role](#role). A role is organization-wide; a capability is per
 board.
@@ -129,9 +129,24 @@ See sense 2 of [archived](#archived).
 
 ## entry column
 
-A board's first column by position, among its live columns. It is where a task
-lands when it is moved to another delivery board, and where a cross-team filer
-may file.
+A board's first column by position, among its live columns. A new item goes
+there by default. A task that moves to a different delivery board goes there. A
+[request](#request) goes there.
+
+## file_backlog
+
+The computed capability that permits a [request](#request). Every member of
+the organization holds it on every live delivery board. The server consults it
+only when the caller creates a task and does not hold `manage_tasks` on the
+board. It applies when all of these conditions are true:
+
+- The board is a delivery board.
+- The column is the entry column of the board. No column in the call means the
+  entry column.
+- The caller did not send the work class `planned`.
+
+The repository is not part of the condition. The capability does not permit a
+move, an edit or a delete. See [Capabilities](capabilities.md).
 
 ## flight level
 
@@ -202,14 +217,25 @@ A codebase registered in Kairos, with a forge (`github`, `gitlab`, `other`), an
 URL, a default branch, a slug, and a free-text description of how to work in
 it.
 
-A repository has exactly one owning team, which makes it an **execution
-scope**: a task issued against a repository is routed to that team's delivery
-board, and it may afterwards be moved only to that team's board unless the
-binding is cleared first. Any tenant member may file a task against another
-team's repository; it lands in that board's entry column for the owning team to
-triage.
+A repository has exactly one owning team. The owning team has three duties:
+the review of code, the release, and the standards of the repository.
+
+A task can link to one repository, which makes the repository an **execution
+scope**: the link says where the code is. The link is optional. It does not
+choose the board or the team of the task, and a task on the board of any team
+can link to any live repository. A null, empty or blank repository clears the
+link.
 
 See [Repositories as execution scope](../explanation/repositories-as-execution-scope.md).
+
+## request
+
+A task that a person creates on the delivery board of a team, when the person
+does not hold `manage_tasks` on that board. A request goes to the
+[entry column](#entry-column). Its [work class](#work-class) is `support`. A
+repository is optional. The person who sent the request cannot move it, edit
+it or delete it. A member of the team that receives it can change the work
+class to `planned`. The capability is [`file_backlog`](#file_backlog).
 
 ## role
 
@@ -243,8 +269,9 @@ hypothesis.
 ## task
 
 One of the five work-item types, letter `T`. Flight Level 1. The only type that
-sits on a team delivery board. Carries a task type and a work class, and may be
-bound to a repository.
+sits on a team delivery board. A task has the team of its board. It carries a
+task type and a work class, and it can link to one
+[repository](#repository).
 
 ## task type
 
@@ -265,7 +292,7 @@ Topologies:
 | Complicated subsystem | `complicated_subsystem` |
 
 `stream_aligned` is the default. The type is descriptive: it does not change
-permissions or routing.
+permissions or the board of a task.
 
 See [Teams and boards](../explanation/teams-and-boards.md).
 
@@ -296,7 +323,8 @@ document's editorial lifecycle is not a content edit and does not bump it.
 ## work class
 
 Which lane a task is counted in: `planned` or `support`. Defaults to `support`
-for a task whose task type is `support`, and to `planned` otherwise. Distinct
+for a task whose task type is `support`, and to `planned` otherwise. A
+[request](#request) is always `support`. Distinct
 from [task type](#task-type): a `bug` may be planned work, and a task of type
 `task` may be support work.
 

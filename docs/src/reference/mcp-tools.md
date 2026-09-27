@@ -1,8 +1,13 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-one tools, frozen by name and shape; a drift gate in the test suite
-asserts that `tools/list` returns these twenty-one and no others.
+twenty-one tools. A drift gate in the test suite
+asserts that `tools/list` returns these twenty-one and no others. The same
+gate asserts that this page has one section for each tool.
+
+The promise is for one release: this page agrees with `tools/list`. The count
+is not a promise for later releases. A later release can add a tool or an
+argument.
 
 This page describes Kairos 0.4.0. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
@@ -29,14 +34,13 @@ Codes an agent can receive, and what each means.
 |---|---|
 | `NOT_FOUND` | A short code, board or repository named as the subject of the call does not exist; an `unlink_items` edge does not exist; or a `search` `traverse.from` does not resolve. On a write tool it also means the item exists but is archived: writes resolve live items only, and the message reads `no live item with short code …`. |
 | `VALIDATION` | An argument is malformed, an enum value is outside its vocabulary, an argument does not apply to the item type, or something named as a *filter or reference* — a team, a repository filter, a parent, a metadata definition, a column — does not exist. A reference that does not resolve is `VALIDATION`; the call's own subject not existing is `NOT_FOUND`. **One exception:** `search`'s `traverse.from` is a reference and still answers `NOT_FOUND`, because a traversal's root is the subject of that traversal. |
-| `FORBIDDEN` | The principal lacks the required board capability. The message names the capability. For a cross-team filer holding only the computed `file_backlog` capability, the message states the Backlog-only rule instead of the bare capability name. |
+| `FORBIDDEN` | The principal lacks the required board capability. The message names the capability. One case has a longer message: the caller created the item as a request, the item is in the entry column of its board, and the caller holds only the computed `file_backlog` capability there. That message says that the item is a request, that the team of the board moves it, and which capability the write needs. A `create_item` that sends `work_class: planned` to a board that the caller does not manage is also `FORBIDDEN`. |
 | `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. |
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. |
 | `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
-| `REPOSITORY_OWNER_MISMATCH` | The task is bound to a repository owned by a different team than the target board's. |
 | `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
@@ -72,9 +76,16 @@ Refuses: `VALIDATION` for a `level` outside that vocabulary.
 
 ### `list_repositories`
 
-The repository directory. Per repository: slug, forge, full name, the single
-owning team, the delivery board tasks filed against it land on, the open task
-count, and whether webhooks are connected.
+The repository directory. Each line of the output has these parts:
+
+- the slug, the forge and the full name
+- `owner`: the single owning team
+- `owner's board`: the delivery board of that team
+- `open tasks`: the open task count
+- `webhooks connected`, when a webhook connection exists
+
+The open task count includes the linked tasks on all boards. The owner of a
+repository does not choose the board of a task.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -85,9 +96,19 @@ path.
 
 ### `get_repository`
 
-One repository in full: owning team, delivery board, default branch, the team's
-description of how to work in it, and its in-flight branches and pull requests
-with the work items they belong to.
+One repository in full. The output has these parts:
+
+- the slug, the forge, the full name, the URL and the default branch
+- `owner team`: the single owning team
+- `owner's delivery board`: the delivery board of that team
+- `open tasks (all boards)`: the open task count
+- `webhooks`: `connected` or `not connected`
+- the team's description of how to work in the repository
+- the in-flight branches and pull requests, each with its work item
+
+The delivery board is the board of the owner. A task that links to the
+repository can be on the board of any team. The output has no list of the
+tasks that link to the repository.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -105,7 +126,7 @@ The items on a board, grouped by column: short code, type and title.
 |---|---|---|---|---|
 | `board` | string | yes | — | Slug or UUID. |
 | `column` | string | no | all columns | Column name or UUID. |
-| `repository` | string | no | all | Narrow the tasks to those issued against this repository. Slug or UUID. |
+| `repository` | string | no | all | Narrow the tasks to those that link to this repository. Slug or UUID. |
 | `include_deleted` | boolean | no | `false` | Add archived cards back, each marked `[archived]`, in the column they were put away in. Columns that have since been removed appear only when this is true, and only carrying archived cards. |
 
 A removed column can be named as `column` only while `include_deleted` is
@@ -173,7 +194,7 @@ are compact and grouped by type.
 | `board_id` | UUID string | no | — | Items on this board. |
 | `column_id` | UUID string | no | — | Items in this column. |
 | `team_id` | UUID string | no | — | Tasks of this team. |
-| `repository` | string | no | — | Tasks issued against this repository. Slug or UUID. |
+| `repository` | string | no | — | Tasks that link to this repository, on all boards. Slug or UUID. |
 | `task_type` | array of string | no | all | `task`, `bug`, `tech_debt`, `support`. Must not be an empty array. |
 | `work_class` | array of string | no | all | `planned`, `support`. Must not be an empty array. |
 | `is_bucket` | boolean | no | both | Bucket or non-bucket initiatives. |
@@ -220,13 +241,13 @@ Creates a work item and returns its new short code.
 |---|---|---|---|---|
 | `item_type` | string | yes | — | `strategy`, `initiative`, `task`, `document`, `adr`. |
 | `title` | string | yes | — | The item's title. |
-| `board` | string | no | see below | Target board, slug or UUID. Ignored for documents. |
+| `board` | string | no | see below | Target board, slug or UUID. Ignored for documents. For a task, the board decides the team of the task. |
 | `parent` | string | no | — | Parent item's short code. Creates the `parent` edge, or the `supports` edge for documents, where it is required. |
 | `content` | string | no | empty, or the template's | Initial markdown content. |
 | `template` | string | no | — | Documents only. Template id, slug or name. |
 | `task_type` | string | no | `task` | Tasks only. `task`, `bug`, `tech_debt`, `support`. |
-| `repository` | string | no | — | Tasks only. Slug or UUID. Routes the task to the repository's owning team's delivery board, which makes `board` optional and, when `board` is also given, requires the two to agree. |
-| `work_class` | string | no | `support` for support-type tasks, otherwise `planned` | Tasks only. `planned`, `support`. |
+| `repository` | string | no | — | Tasks only. Slug or UUID. An optional link that says where the code is. Any live repository, of any team. It does not choose the board. |
+| `work_class` | string | no | see below | Tasks only. `planned`, `support`. |
 | `hypothesis` | string | no | — | Strategies only. |
 | `complexity` | string | no | — | Initiatives only. `xs`, `s`, `m`, `l`, `xl`. |
 | `bucket_type` | string | no | — | Initiatives only. `tech_debt`, `bug`, `ad_hoc`. Makes the initiative a bucket rather than a dated one; `is_bucket` is derived from it. |
@@ -234,12 +255,21 @@ Creates a work item and returns its new short code.
 | `decision_date` | string | no | — | ADRs only. `YYYY-MM-DD`. |
 
 `board` may be omitted when the tenant has exactly one live board of the
-matching level. Documents take no board: they inherit their parent's board for
-authorization.
+matching level. For a task, that level is `delivery`. A `repository` does not
+replace `board`. The tool has no `team` argument. Documents take no board: they
+inherit their parent's board for authorization.
 
-Any member may create a task against another team's repository. It lands in
-that board's Backlog behind the owning team's triage, through the computed
-`file_backlog` capability.
+The default of `work_class` depends on the caller:
+
+- The caller holds `manage_tasks` on the board: `support` for a task of type
+  `support`, and `planned` for each other type.
+- Each other caller: the task is a request, and its work class is `support`
+  for each task type.
+
+Any member can send a request to any team. The caller names the delivery board
+of that team in `board`. The request goes to the entry column of that board,
+through the computed `file_backlog` capability. The `repository` is optional
+for a request.
 
 **`create_item` has no column argument, and that is deliberate.** A new item
 always lands in its board's first column, and `transition_item` is the only way
@@ -264,7 +294,9 @@ several do, listing their slugs; and for an unknown `repository`.
 `NOT_FOUND` for an unknown `board`. `FORBIDDEN` when the caller
 lacks `manage_<type>` on the resolved board, or lacks the capability to write
 the requested `parent` edge — the edge is gated before the item is written, so
-a refusal leaves no orphan.
+a refusal leaves no orphan. A task is different: a caller without
+`manage_tasks` sends a request. That caller gets `FORBIDDEN` for a board that
+is not a delivery board, and for `work_class: planned`.
 
 ### `update_item`
 
@@ -372,8 +404,9 @@ Refuses: `NOT_FOUND` for an unknown short code, an archived task, or an unknown
 or archived `to_board`; `VALIDATION` when the item is not a task;
 `ITEM_NOT_ON_BOARD` when the task has no placement; `FORBIDDEN` without
 `manage_tasks` on either side; `SAME_BOARD`; `NOT_DELIVERY_BOARD`;
-`NO_ENTRY_COLUMN`; `REPOSITORY_OWNER_MISMATCH` when the task is bound to a
-repository owned by another team — the binding must be cleared first.
+`NO_ENTRY_COLUMN`.
+
+The task keeps its repository. The move does not look at the repository.
 
 Column-to-column moves on an item's own board are `transition_item`, not this
 tool.
@@ -391,8 +424,8 @@ Creates a relationship edge between two items.
 | `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. |
 
 `parent` and `blocks` may be written by anyone who manages either item's board,
-or who created the source item — so a task filed against another team's
-repository can block the filer's own item. The other three types are org-admin
+or who created the source item — so a request that the caller sent to another
+team can block the caller's own item. The other three types are org-admin
 only.
 
 Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
@@ -529,7 +562,9 @@ repository has since been removed, naming what is missing.
 - [Archiving](../explanation/archiving.md) — why archiving is not a permission
   boundary
 - [Capabilities and access](../explanation/capabilities-and-access.md) — the
-  capability vocabulary and the cross-team filing rule
+  capability vocabulary and the rule for a request to a different team
+- [Repositories as execution scope](../explanation/repositories-as-execution-scope.md)
+  — why the team decides the board and the repository is a link
 - [Glossary](glossary.md)
 - [REST API](rest-api.md)
 

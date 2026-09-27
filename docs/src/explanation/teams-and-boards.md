@@ -3,7 +3,7 @@
 A team in Kairos is not a group of users with a permission set attached. It is
 an owner: of a delivery board, of some number of repositories, and — through
 both of those — of a slice of the work in flight. That ownership is what makes
-the routing questions answerable, and it is also why disbanding a team is a
+"whose work is this?" answerable, and it is also why disbanding a team is a
 deliberate, obstructive operation rather than a delete button.
 
 ## Team types describe; they do not do anything
@@ -13,7 +13,7 @@ Manuel Pais's vocabulary of stream-aligned, platform, enabling and
 complicated-subsystem teams. Kairos adopts the words deliberately, and then
 does nothing mechanical with them: the type appears in the directory, on the
 team page, in what an agent is told about a team. Nothing in authorisation,
-routing or board behaviour branches on it.
+task placement or board behaviour branches on it.
 
 That is a choice rather than an omission. The four types are a way of talking
 about why a team exists and how other teams should expect to interact with it —
@@ -29,10 +29,16 @@ agents read.
 
 A delivery board is created with its team and belongs to it. That single fact
 carries a surprising amount of weight elsewhere: it is how team membership
-implies the day-to-day capabilities on that board, and it is the last hop in
-repository routing — a repository has one owning team, and the team has one
-delivery board, so a ticket filed against a repository has exactly one place to
-land.
+implies the day-to-day capabilities on that board, and it is how a task gets
+its team. A task takes the team of the board it is on, so naming a team when
+creating a task is the same as naming that team's delivery board, and there is
+exactly one.
+
+A team also owns repositories, and that ownership is of a different kind. It
+makes the team answerable for the codebase: its review, its release and its
+standards. It does not bring tasks to the team's board. A task on any team's
+board may link to any repository, which is argued in [repositories as
+execution scope](repositories-as-execution-scope.md).
 
 The upper two levels work differently. Strategy and initiative boards are
 organisation-level and not owned by a team at all. The asymmetry is
@@ -51,7 +57,8 @@ strategy board.
 Kairos refuses to delete a team while anything still points at it, and the
 refusal names what. First repositories: a team that still owns codebases cannot
 be disbanded, because retiring the team would leave those repositories with no
-owner and therefore no route for tickets. Then live cards: a team whose
+owner, and so with nobody answerable for their review, release and standards.
+Then live cards: a team whose
 delivery board still holds live work cannot be disbanded either, and the
 refusal lists the work by short code.
 
@@ -102,17 +109,17 @@ board is an assertion that they will do it.
 
 That leaves a gap, and the gap is filled from the other direction: a genuine
 cross-team *request* needs no capability on the target board at all. The two
-mechanisms are deliberately different — a move places work, a filing proposes
-it — and [repositories as execution scope](repositories-as-execution-scope.md)
-is where the second one is explained, because it exists for the sake of
-repositories rather than of teams.
+mechanisms are deliberately different. A move places work. A request proposes
+it: it arrives in the entry column of the receiving team's board as support
+work, and that team decides what happens next. Teams request work of each
+other; no team pushes work to a different team. [Repositories as execution
+scope](repositories-as-execution-scope.md#requests-between-teams-are-support-work)
+is where the request is argued and its bounds described.
 
-One constraint on moves follows from repository ownership rather than from
-teams: a task bound to a repository can only sit on that repository's owning
-team's board. Otherwise a ticket would claim to be executed in a codebase whose
-team had never agreed to it. Unbinding the task or re-homing the repository are
-both ways out, and both are decisions about ownership rather than about
-placement — which is the point.
+A move does not look at the repository of the task. The task keeps its link
+and takes the team of the board it arrives on, because the link says where the
+code is and nothing about whose work it is. For the same reason a change of a
+repository's owner changes nothing about the tasks that link to it.
 
 The endpoints, their refusal codes and the exact capability names are in the
 [board and team reference](../reference/rest/boards-and-teams.md) and the
@@ -127,9 +134,10 @@ shaped the way they are.
 - [Teams, team types and board ownership in the data
   model](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0001.md)
   (KAIROS-A-0001).
-- [One owning team per repository, and the routing that depends on
-  it](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
-  (KAIROS-A-0019).
+- [One owning team per
+  repository](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
+  (KAIROS-A-0019), amended by COLLIERY-A-0023: the team decides the board, and
+  a repository is a link.
 
 <!-- KAIROS-I-0016 / KAIROS-T-0171: how-to guides do not exist yet, so the
      operations here are described without pointing at a page; KAIROS-T-0175

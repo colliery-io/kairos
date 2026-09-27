@@ -107,13 +107,16 @@ seeding defaults leaves the onboarding chore in place. Computing the
 implication means leaving the team *is* the revocation, and explicit grants
 keep their own audit story untouched.
 
-**Every member may file into any delivery board's Backlog.** This one is a
-deliberate widening of the whitelist rather than a convenience: it is the only
-place where the model grants a write nobody asked for, and it is narrowly
-bounded so that the owning team's triage remains the control point.
-[Repositories as execution scope](repositories-as-execution-scope.md) is where
-that widening is argued and its bounds described, because it exists for the
-sake of cross-repository coordination.
+**Every member may send a request to any team.** A member who does not manage
+a delivery board may still create a task on it, and that task is a request: it
+goes to the board's entry column, as support work, and the receiving team
+decides what happens to it. This one is a deliberate widening of the whitelist
+rather than a convenience: it is the only place where the model grants a write
+nobody asked for, and it is narrowly bounded so that the receiving team's
+triage remains the control point. [Repositories as execution
+scope](repositories-as-execution-scope.md#requests-between-teams-are-support-work)
+is where that widening is argued and its bounds described, because it exists
+for the sake of coordination between teams.
 
 ## Things that have no board of their own
 
@@ -191,7 +194,8 @@ mean.
   (KAIROS-A-0006).
 - [Backlog filing as a computed, tenant-wide
   capability](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
-  (KAIROS-A-0019).
+  (KAIROS-A-0019), amended by COLLIERY-A-0023: what a member files is a request,
+  and it is support work.
 - [Archiving is not a permission
   boundary](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md)
   (KAIROS-A-0020).

@@ -1,12 +1,20 @@
-# Repositories as execution scope: where tickets are issued and executed
+# Repositories as execution scope: where the code is, and who decides the board
 
-Boards and delivery streams are where work is planned. A repository is where a
-ticket is issued against and executed in. Kairos treats those as two different
-kinds of thing on purpose, and the second one is a first-class, team-owned
-entity rather than a label on a task.
+Boards and delivery streams are where work is planned. A repository is where
+the work is done. Kairos treats those as two different kinds of thing on
+purpose, and the second one is a first-class, team-owned entity rather than a
+label on a task.
 
-That is a reversal of an earlier principle, which makes it worth explaining
-rather than merely stating.
+The two meet on a task, and the rule for how they meet is short. The team
+decides the board: whoever creates a task names a board, or names a team and
+gets that team's delivery board. The board decides the team of the task. The
+repository is an optional link that says where the code is, and setting it or
+clearing it changes nothing else.
+
+It was not always that way. The first version of this design let the
+repository choose the board, and readers of the code will meet both decision
+records, so this page explains the design as it stands and also how it got
+there.
 
 ## The agent's frame is the checkout
 
@@ -15,47 +23,108 @@ work there, while knowing enough about other teams' codebases to open pull
 requests against them and coordinate across boundaries. The unit an agent
 actually executes in is a git repository. It is checked out in one; the tests
 it runs, the conventions it follows and the gates it has to pass are that
-repository's; its pull requests land there.
+repository's; its pull requests go there.
 
 A team, though, routinely owns several repositories, and one delivery board
 plans across all of them. So the planning unit and the execution unit are
 genuinely different, and a ticket model that can only name the first one cannot
-tell an agent what is its work and what is a neighbour's.
+tell an agent which of its team's work belongs to the checkout it is standing
+in.
 
-Before this decision, that was exactly the situation. A task carried a board
-and a team and nothing else, so a team with three codebases had one board and
-no way to say which ticket belonged to which. The only repository-shaped record
-in the system existed so that webhooks could mirror pull requests onto items —
-a repository record missing a name, which nothing else read. The plugin bound
-an agent's session to a *board*, so an agent working in one repository saw
-another repository's tickets as its own queue, and the server never learned
-which checkout the agent was in. There was no directory either: an agent could
-not ask who owns a codebase or where to file against it, so the only way to
-coordinate across teams was to already know the other team's board name.
+Before repositories were entities, that was exactly the situation. A task
+carried a board and a team and nothing else, so a team with three codebases had
+one board and no way to say which ticket belonged to which. The only
+repository-shaped record in the system existed so that webhooks could mirror
+pull requests onto items: a repository record missing a name, which nothing
+else read. The plugin tied an agent's session to a *board*, so an agent working
+in one repository saw another repository's tickets as its own queue, and the
+server never learned which checkout the agent was in. There was no directory
+either: an agent could not ask who owns a codebase or how that team wants work
+done in it.
+
+## One field did two jobs
+
+The decision that introduced repositories (KAIROS-A-0019) gave the new field
+two jobs. It said where the code is. It also chose the board: given a
+repository you knew its owning team, given the team you knew its delivery
+board, and a task that named a repository went there. A task with a repository
+could sit only on the board of the repository's owner, and a move to any other
+board was refused.
+
+The attraction was that every question of placement had one answer that nobody
+had to choose. The cost showed up as soon as teams worked in each other's
+code, which is the ordinary case and not the exception. A web team that fixes
+a bug in the platform team's service is doing web's work, planned by web,
+counted against web's capacity. Under the first rule that task could not sit
+on web's board, because its repository belonged to platform. The team had two
+bad options: leave the repository off, and lose the agent's queue, or put the
+task on a board whose team had not planned it. A change of owner was worse.
+Re-homing a repository silently changed which board every linked task was
+allowed to be on, and nobody found out until a move was refused.
+
+The amendment (COLLIERY-A-0023, approved on 2026-09-27) separates the jobs. It
+amends the earlier decision and does not replace it: repositories are still
+entities, each still has exactly one owning team, and a task still links to at
+most one. What changed is that the repository no longer has any say in where a
+task goes.
+
+## The team decides the board
+
+A task is somebody's work before it is work in some codebase, so the question
+a create has to answer is *whose*. The caller answers it by naming a board, or
+by naming a team, which stands for that team's one delivery board. A
+repository on its own is not an answer, and a create that names only a
+repository is refused with a message that says what is missing.
+
+Refusing is a choice. The server could have kept the old reading as a
+fallback, so that a repository alone still meant "the owner's board". That
+would have kept two rules alive under one field, and the caller who relied on
+the fallback would be the one who had not noticed that the rule changed. A
+refusal that names the fix is cheaper than a task that quietly turns up on the
+wrong team's board.
+
+The team of a task is read from its board and cannot be sent separately. A
+caller may still name a team beside a board, and naming the board's own team
+is harmless; naming any other is refused rather than ignored, because the
+caller evidently believes the task will be that team's work and it will not
+be. The reason for deriving the team is that several things trust it: a team's
+work documents, its rollups, the team filter in search. While callers could
+send it, three writers disagreed about what it meant.
+
+The link, for its part, is free. A task on any team's board may link to any
+live repository, and a move between boards does not look at the link at all.
+Work that has no codebase is ordinary: a task with no repository belongs to
+its team and is complete as it stands. Support work is the main example.
+
+The exact arguments, status codes and messages are in the
+[work items reference](../reference/rest/work-items.md), the
+[CLI reference](../reference/cli.md) and the
+[MCP tools reference](../reference/mcp-tools.md).
 
 ## One owning team, at most one repository per task
 
-Two cardinality choices carry most of the design, and both were made to keep
-every routing question closed-form.
+Two cardinality choices survive from the first design unchanged.
 
-**A repository has exactly one owning team.** Given a repository you know the
-team; given the team you know its delivery board; given the board you know its
-entry column. Nothing in that chain is a choice, which is what makes it
-automatable. Genuinely shared codebases are modelled by granting the co-owning
-team access on the owner's board through ordinary capability grants, not by
-giving the repository two owners.
+**A repository has exactly one owning team.** Ownership used to be the middle
+link of the routing chain, and that reason is gone. The better reason was
+always the other one: somebody has to be answerable for a codebase, and "who
+do I talk to about this repository?" should have one answer that the directory
+can give.
 
-Many-to-many ownership was the obvious alternative and models shared codebases
-directly. It was rejected because routing needs a primary owner anyway: every
-"which board does this ticket go to?" question becomes a decision someone has
-to make, and the administrative surface grows to match. Attaching repositories
-to boards rather than to teams was also considered, and loses the ability to
-answer "who do I talk to about this codebase?" — ownership becomes something
-inferred through a board, which is backwards.
+Many-to-many ownership was the obvious alternative, and both decisions
+considered it and kept one owner. The first rejected it because routing needed
+a primary owner. The amendment took that reason away and kept the rule, and
+the argument that remains is about responsibility: the duties described below
+need one team that is answerable for them, and a repository with two owners is
+one where each can assume the other reviewed the change. Several teams
+*working* in a repository is the normal case and needs no second owner.
+Attaching repositories to boards rather than to teams was also considered in
+the first decision, and loses the ability to answer who owns a codebase except
+by inference through a board, which is backwards.
 
-**A task binds to at most one repository.** Work that touches several codebases
-is decomposed into one task per repository, joined by the parent and blocking
-edges that already exist. There is no join table.
+**A task links to at most one repository.** Work that touches several
+codebases is decomposed into one task per repository, joined by the parent and
+blocking edges that already exist. There is no join table.
 
 This one reads as a limitation and is closer to a discovery: an agent has to do
 that decomposition anyway, because it will open a separate pull request in each
@@ -63,127 +132,219 @@ repository. Allowing many repositories per task would make an agent's queue a
 join, make "done" ambiguous per repository, and blur the link between a pull
 request and the item it belongs to.
 
-Only tasks bind at all. Strategies, initiatives, documents and ADRs stay
+Only tasks link at all. Strategies, initiatives, documents and ADRs stay
 repository-less, because that is where cross-repository intent lives. An
 initiative that spans four codebases is not missing a field; being above the
 execution scope is what it is for.
 
-The binding is what routes a ticket: filing a task against a repository puts it
-on the owning team's delivery board. The rule that a repository-bound task may
-only sit on its owner's board is enforced in the service layer rather than as a
-database constraint, which is a small decision with a useful consequence —
-re-homing a repository between teams is one update, and its tasks are
-re-checked on their next write instead of needing a migration.
+## What ownership means
 
-## What it does to the agent loop
+If owning a repository does not bring its tasks to your board, it is fair to
+ask what it does bring. The answer is three duties, and they are the ones that
+belong to the codebase rather than to any one piece of work in it:
 
-Once a repository is a real entity, an agent's scope can be the repository
-instead of the board. Bootstrapping a checkout detects which repository it is
-from the git remote and records it, so the session context becomes "this
-repository's open work", with the team board available as the wider lens rather
-than as the default. The repository record also carries a short "how to work
-here" description — the thing an agent reads before starting — and its
-in-flight pull requests, which is why looking a repository up is a useful
-operation and not just a lookup.
+- **The review of code.** Changes to the repository are reviewed by the team
+  that owns it.
+- **The release.** The owning team decides when and how what is merged goes
+  out.
+- **The standards of the repository.** How work is done there: its
+  conventions, its gates, and the "how to work here" description that an agent
+  reads before it starts.
 
-The mechanics of that — the endpoints, the fields, the agent-facing tools — are
-in the [execution scope reference](../reference/rest/execution-scope.md). What
-matters here is the direction of the change: the server now learns which
-codebase an agent is in, and can therefore answer questions per codebase.
+The duties apply to every change, including a pull request submitted by a
+different delivery team. That is the point of separating them from placement.
+The web team plans and tracks its own task on its own board; the platform team
+still reviews the pull request, because the pull request is in platform's
+repository.
 
-## Cross-team filing, and why it is default-on
+The review itself is not a ticket. The git provider already manages a pull
+request: it assigns reviewers, records approval and blocks the merge. A team
+does not create a task on the owner's board to ask for a review, because that
+would copy a queue that exists and is better kept where the code is.
 
-Any authenticated member of an organisation may file a task into any team's
-Backlog against one of that team's repositories. No grant, no setup, no prior
-arrangement.
+Ownership also does not give the owning team a list of the tasks that link to
+its repository, and it sends no notification when a task links. Such a list
+was considered and rejected. The case against it is that it would be a second
+inbox beside the board, and it would invite the owner to manage work that a
+different team planned. What the owner does see is what it is answerable for:
+the repository shows its open branches and pull requests, whichever team's
+task they belong to, and a count of open linked tasks across all boards.
 
-This is a deliberate widening of the whitelist stance described in
+The repository record still names the delivery board of the owning team. It
+is useful as the answer to "where do I send a request to the people who own
+this?", and it should be read as the owner's board and not as the place tasks
+go.
+
+## Requests between teams are support work
+
+Teams request work of each other. No team pushes work to a different team.
+
+Any member of an organisation may create a task on any team's delivery board,
+with no grant, no setup and no prior arrangement. This is a deliberate
+widening of the whitelist stance described in
 [capabilities and access](capabilities-and-access.md), and the argument for it
 is that the product does not work without it. The value proposition is an agent
-in one repository opening the right ticket — and later the right pull request —
-against another team's repository, without a human first arranging permissions
-between two teams. If every pair of collaborating teams needs administrative
-setup before an agent can coordinate, the day-one cross-team story is gone.
+in one repository asking the right team for what it needs without a human
+first arranging permissions between two teams. If every pair of collaborating
+teams needs administrative setup before an agent can coordinate, the day-one
+cross-team story is gone.
 
-The widening is bounded to the minimum that achieves it: a task, into the
-Backlog column, and nothing else. The filer cannot move it out of Backlog, edit
-it, delete it, or change its fields. The owning team's triage is the control
-point, which is a control they already had. Two narrower options were rejected
-— requiring an explicit grant per collaborating pair, which restores the setup
-cost, and allowing no cross-team creation at all, which reduces agents to
-leaving breadcrumbs for a human to transcribe.
+What a person who does not manage the board creates is a *request*, and the
+widening is bounded to exactly that. The request goes to the board's entry
+column. It is counted as support work, whatever kind of task it is. The sender
+cannot ask for the planned lane and cannot name a later column; both are
+refused, not quietly corrected. Afterwards the sender cannot move the request,
+edit it or delete it. The one thing the sender may still do is draw a parent
+or blocking edge from it, so that the sender's own board shows what it is
+waiting on.
 
-The risk is accepted rather than solved: a noisy tenant can fill another team's
-Backlog, triage is the remedy, and rate limiting is not in scope. If that
-becomes a real problem in practice, making the filing capability explicit or
-per-team opt-out is the thing to revisit.
+The lane is the part that needed an argument. A team's planned lane is its
+plan: the work it chose, in the order it chose. Work that arrives from outside
+was by definition not in the plan when it arrived, and a board that files it
+under "planned" misreports how much of the team's capacity was its own to
+spend. Counting requests as support makes the incoming work of a team visible
+as a quantity. Nothing is lost by it, because the receiving team can take a
+request into its plan: a member of that team changes the work class, and from
+then on it is planned work that the team planned.
 
-Filing also composes with what already existed rather than adding plumbing. A
-filed task records who filed it, the filing skill adds a blocking edge back to
-the originating item so the requesting team's board shows the dependency, and a
-pull request opened later in that repository naming the ticket's short code
-links itself to the ticket through the existing forge webhook. That reuse is a
-theme of the whole decision: the webhook record was already a repository
-missing a name, pull-request links already attached to items by short code,
-blocking edges already expressed cross-team dependency, and the team-implied
-capability already showed how to add a computed one. Nothing here is a new
-mechanism, only a promoted one.
+So the incoming work of a team is its support lane, and that is the whole
+intake mechanism. There is no separate inbox and no notification, for the same
+reason the owner of a repository gets no list: a second place to look is a
+second place to forget.
+
+A repository is optional on a request and is not part of the condition. Under
+the first design it was required, because the repository was how the server
+knew whose board the task was for. That left no way to ask a team for
+something that has no codebase yet, and once the repository stopped choosing
+the board the condition had stopped meaning anything.
+
+The computed capability behind this keeps its first name, `file_backlog`,
+although "backlog" is now only the usual name of an entry column. Because the
+name is kept, what `whoami` reports and what clients match on did not change.
+Its exact bounds are in the
+[capabilities reference](../reference/capabilities.md).
+
+Two narrower options were rejected: requiring an explicit grant per
+collaborating pair, which restores the setup cost, and removing cross-team
+creation altogether, which reduces agents to leaving notes for a human to
+transcribe. One more option was rejected: a default intake team per
+repository, so that a request could name a repository and let the server find
+the team. That is close to the first design under another name, and it has the
+same weak point, a request with no repository.
+
+The risk is accepted rather than solved. A noisy member can fill another
+team's entry column, triage is the remedy, and rate limiting is not in scope.
+If that becomes a real problem in practice, making the capability explicit or
+letting a team opt out is the thing to revisit.
+
+## An agent works the board of its own team
+
+Once a repository is a real entity, an agent can know which one it is in.
+Bootstrapping a checkout detects the repository from the git remote and
+records it. The same step records a board, and the board comes from the team
+of the agent, not from the owner of the repository. An agent on the web team,
+checked out in platform's repository, works web's board.
+
+Its queue is that board, filtered by the repository of the checkout: the work
+its own team planned, in the codebase it is standing in. The board without the
+filter is the wider lens. The repository record carries the short "how to work
+here" description and the in-flight pull requests, which is why looking a
+repository up is worth doing before starting.
+
+The work of other teams in the same repository is not in the queue. That is a
+decision and not an oversight. A queue across all boards was considered: every
+open task that links to this repository, whoever planned it. It was rejected.
+A queue is a list of things to do, and an agent has no standing to do another
+team's work. Without a grant it could not write to those tasks in any case,
+since its capabilities come from its own team. What an agent does need from the
+neighbours is awareness, so that it does not collide with them, and that is a
+search: the repository filter finds every task that links to the repository,
+on any board, and the commits show the rest.
+
+The mechanics are in the
+[execution scope reference](../reference/rest/execution-scope.md) and the
+[MCP tools reference](../reference/mcp-tools.md). What matters here is the
+direction: the server learns which codebase an agent is in and can answer
+questions per codebase, and it learns whose agent it is from the team, as it
+does for a person.
+
+## What was considered and rejected
+
+The amendment records five alternatives that it rejected. Each is argued where
+it arises above. They are gathered here because a reader arriving with one of
+them in mind will want to find it. The second column is a summary of the
+reason the record gives.
+
+| Alternative | The case against it |
+|---|---|
+| Several teams own one repository | Ownership is the responsibility for review, release and standards, and one team must have it. A second team that works in the repository needs no ownership once the repository does not choose the board. |
+| A list of linked tasks for the owning team | A team works only what it planned or what it accepted. The incoming work of a team is its support lane. |
+| A queue across all boards for an agent | The task of a different team is the work of that team, in whatever repository the code is. Search gives the awareness. |
+| No cross-team creation | Teams must be able to request work of each other inside Kairos. |
+| A default intake team per repository | It was needed only with several owners, or while the repository chose the board. The person who sends a request always names a team. |
 
 ## The vision said the opposite
 
 Kairos's vision originally read "delivery streams over repositories —
-repositories are metadata on tasks, not organisational boundaries", and this
-decision reverses it. Taking a position on your own stated principles deserves
-an explanation rather than a quiet edit, so:
+repositories are metadata on tasks, not organisational boundaries", and the
+first decision reversed it. Taking a position on your own stated principles
+deserves an explanation rather than a quiet edit, so:
 
 That principle was a reaction to the predecessor system, where work was scoped
 to a single repository and the repository therefore *was* the organisational
-boundary. Escaping that limit was right, and the limit is still gone — delivery
+boundary. Escaping that limit was right, and the limit is still gone: delivery
 streams still span repositories, teams still own several, and boards still plan
 across all of them. What the vision did was conflate a planning unit with an
 execution unit, on the strength of having just escaped a system where they were
-the same thing. The vision now reads "streams and boards plan the work;
-repositories are where tickets are issued and executed", and the decision
-record is the account of why it changed.
+the same thing.
 
-Worth noting that the earlier principle was never implemented either: even the
-task-level repository metadata it described was not built. So the reversal
-replaced an intention rather than a working design.
+One way to read the amendment is that it recovers part of the vision's first
+instinct. A repository on a task is close to metadata again: a link, with no
+power over where the task sits. What did not come back is the idea that a
+repository is *only* metadata. It is an entity with an owner, a description
+and duties attached, and that part of the first decision stands.
 
 ## Costs, and what remains open
 
 A repository is one more axis on board views, search, the team page and the
-agent-facing tools — worth it for teams with several codebases, and noise for
-teams with one. Tasks with no repository stay valid, for non-code work and for
-tenants not using repositories at all, so the axis is optional rather than
-mandatory.
+agent-facing tools, which is worth it for teams with several codebases and
+noise for teams with one. Tasks with no repository stay valid, so the axis is
+optional rather than mandatory.
+
+The closed-form answer is gone, and that is a real cost. A caller now has to
+know whose work a task is before creating it. For a person that is rarely a
+burden. For an agent it means the checkout has to be wired to a team, and an
+agent that belongs to several teams has to be told which one works there.
 
 Retiring a repository is guarded the way other removals are: it is refused
-while tasks or a webhook connection still reference it. Archived tasks do not
-hold a repository down, for the reason [archiving](archiving.md) explains — a
-wind-down guard asks about live work.
+while live tasks or a webhook connection still reference it, and the tasks of
+every team count. Archived tasks do not hold a repository down, for the reason
+[archiving](archiving.md) explains: a wind-down guard asks about live work.
 
-Two questions are explicitly left open. Tenants with genuinely co-owned
-codebases, where "grant the second team on the owner's board" turns out to be
-inadequate, would be the reason to revisit many-to-many ownership. And monorepo
-tenants wanting sub-repository scope — a ticket issued against a path prefix
-rather than a whole repository — would be the reason to revisit whether a
-repository needs a path dimension at all.
+One gap is known. The web interface offers "new task" only on a board the
+person manages, so it has no control for sending a request to a different
+team yet. Requests work over the REST API, the CLI and MCP. The gap is
+recorded as COLLIERY-T-0232.
+
+Two questions are left open from the first decision. Tenants with genuinely
+co-owned codebases, where one answerable team turns out to be inadequate,
+would be the reason to revisit many-to-many ownership. And monorepo tenants
+wanting sub-repository scope, where a task links to a path prefix and not to a
+whole repository, would be the reason to revisit whether a repository needs a
+path dimension at all.
 
 ## Where this comes from
 
 - [Repositories as first-class execution scope: the cardinality choices, the
-  cross-team filing rule, the vision amendment and the
-  alternatives](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
+  first cross-team filing rule and the vision
+  amendment](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
   (KAIROS-A-0019).
-- [The whitelist stance that Backlog filing
-  widens](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
+- COLLIERY-A-0023, approved on 2026-09-27, which amends the record above: the
+  team decides the board, and a repository is a link. It is kept in the Kairos
+  deployment where this project tracks its own work, so there is no file to
+  link to.
+- [The whitelist stance that requests
+  widen](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
   (KAIROS-A-0006).
-- [The amended principle, in its current
-  form](https://github.com/colliery-io/kairos/blob/main/.metis/vision.md)
+- [The vision](https://github.com/colliery-io/kairos/blob/main/.metis/vision.md)
   (KAIROS-V-0001).
-
-<!-- KAIROS-I-0016 / KAIROS-T-0171 (E6): the filing capability's exact bounds
-     belong in reference. reference/mcp-tools.md names the computed capability
-     and the Backlog-behind-triage rule but is not in the spine yet; recorded
-     for KAIROS-T-0175. -->

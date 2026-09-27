@@ -37,7 +37,7 @@ Re-home it to the surviving team:
 kairos repos update payments-api --team platform
 ```
 
-The repository's tasks are untouched and re-checked on their next write. Or
+The change of owner does not change the tasks that link to the repository. Or
 retire the repository entirely, which is itself refused with 409 while any task
 or webhook connection still references it:
 
@@ -45,10 +45,10 @@ or webhook connection still references it:
 kairos repos delete payments-api --confirm
 ```
 
-**Re-homing retargets everything bound to that repository.** A task on the old
-board bound to it can now only move to the new owner's board, and an agent
-scoped to it keeps finding its queue while failing every write. Both are
-covered in [Move work between boards](move-work-between-boards.md#a-task-bound-to-a-repository-follows-its-repository).
+**A new owner changes the owner only.** Each task that links to the repository
+stays on its board, with its team, and can move to any delivery board. The
+tasks on the board of the old team still hold the second guard, so clear them
+in step 3.
 
 ## 3. Clear the board
 
@@ -72,8 +72,9 @@ a puzzle. Two ways to clear each one, and the choice matters:
   ```
 
   See [Move work between boards](move-work-between-boards.md), which is also
-  where the `manage_tasks`-on-both-boards requirement and the
-  repository-binding guard live.
+  where the `manage_tasks`-on-both-boards requirement lives. The task keeps
+  its repository. If an agent worked the old board, see
+  [Agents that work the old board](move-work-between-boards.md#agents-that-work-the-old-board).
 
 - **The work is finished** → archive it:
 

@@ -130,8 +130,8 @@ repository chip, a task type, and badges such as "blocked by
 
 Two things that are easy to miss. The board is split into **lanes** — Support
 above, Planned below — so unplanned work arriving mid-week does not shuffle the
-plan. And each card carries the repository it belongs to, which is how Kairos
-knew where to put the task you are about to create.
+plan. And each card carries the repository it links to, which says where the
+code for that task is.
 
 That shape is the point of Kairos, and the [flight
 levels](../explanation/flight-levels.md) page explains why there are three
@@ -184,6 +184,7 @@ access](../explanation/capabilities-and-access.md).
 
 ```sh
 ./target/debug/kairos tasks create \
+  --board platform-delivery \
   --repo payments-api \
   --title "Try Kairos out" \
   --content "My first piece of work."
@@ -195,13 +196,12 @@ Created task DEMO-T-0013 (version 1): Try Kairos out
 
 Your short code may differ — mine was `DEMO-T-0013`. Use yours below.
 
-Notice what we did not have to say: which board. We named a **repository**, and
-Kairos routed the task to the board of the team that owns it. That is
-[repositories as execution scope](../explanation/repositories-as-execution-scope.md),
-and it is why an agent working in a repository does not need to know your
-org chart.
+Notice that we said two things. The **board** says whose work this is: the
+task is on the Platform team's board, so it is the Platform team's task. The
+**repository** says where the code is, and it is only a link. That is
+[repositories as execution scope](../explanation/repositories-as-execution-scope.md).
 
-Now look at the board it landed on. `boards show` takes the board's id, so
+Now look at the board the task is on. `boards show` takes the board's id, so
 list the boards first:
 
 ```sh

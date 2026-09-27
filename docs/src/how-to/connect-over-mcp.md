@@ -112,7 +112,7 @@ the same failures with the same causes.
 the text content. Treat those as data, not as transport failures — the text
 carries the same stable codes the REST API uses (`FORBIDDEN` naming the missing
 capability, `INVALID_TRANSITION` enumerating the allowed columns,
-`REPOSITORY_OWNER_MISMATCH`, `RESTORE_BLOCKED`, and the rest). An agent that
+`RESTORE_BLOCKED`, and the rest). An agent that
 retries a `FORBIDDEN` forever is the failure mode to design against; the
 refusals are listed in [MCP tools → Refusal
 codes](../reference/mcp-tools.md#refusal-codes) and
@@ -120,14 +120,15 @@ codes](../reference/mcp-tools.md#refusal-codes) and
 
 Expect a live agent to meet `FORBIDDEN` on work it can see: a capability lost
 to a reorg leaves the queue query working and every write refused
-([Move work between boards](move-work-between-boards.md#agents-scoped-to-the-repository)).
+([Move work between boards](move-work-between-boards.md#agents-that-work-the-old-board)).
 
 ## Open each session with `whoami`
 
 Call `whoami` and `my_boards` at the start of every session, and do not cache
 the result across runs — capabilities change underneath a long-lived agent. Then
 scope the work with `list_repositories` and
-`board_items {board, repository}`, which is the queue for one checkout
+`board_items {board, repository}`. With the board of the agent's team, that is
+the queue for one checkout
 ([Repositories as execution
 scope](../explanation/repositories-as-execution-scope.md#the-agents-frame-is-the-checkout)).
 

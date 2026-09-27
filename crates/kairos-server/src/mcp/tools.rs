@@ -1,6 +1,8 @@
-//! The S-0006 tool surface (KAIROS-T-0026): 18 tools — the 14 frozen by
+//! The S-0006 tool surface (KAIROS-T-0026): 21 tools — the 14 frozen by
 //! S-0006, plus the two repository tools (KAIROS-T-0107), `move_item`
-//! (KAIROS-I-0012) and `restore_item` (KAIROS-A-0020) — each a
+//! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
+//! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192) and `set_repository`
+//! (COLLIERY-T-0220) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
 //! HTTP (A-0011). Contracts:
@@ -321,6 +323,18 @@ pub struct MoveItemParams {
     pub to_board: String,
 }
 
+/// Parameters for `set_repository` (COLLIERY-T-0220).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+pub struct SetRepositoryParams {
+    /// The short code of the task (e.g. "ACME-T-0012").
+    pub short_code: String,
+    /// The repository to link the task to, by slug (e.g. "payments-api") or
+    /// UUID. It can be any live repository, of any team. To clear the link,
+    /// omit this argument, or send null or an empty string.
+    pub repository: Option<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 pub struct LinkItemsParams {
@@ -372,7 +386,7 @@ pub struct DeleteItemParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (18; the count is asserted in tests/mcp.rs)
+// The tools (21; the count is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -1237,6 +1251,71 @@ impl KairosMcp {
                 "Moved {}: {} -> {} / {}.",
                 item.short_code, from_board.slug, target.slug, column
             ))
+        })
+        .await
+    }
+
+    // COLLIERY-T-0220 (COLLIERY-A-0023): the repository of a task is a link,
+    // and REST, the CLI and the GUI could set it while MCP could not. An
+    // agent that found that a task belongs to the codebase it stands in had
+    // to leave MCP for `kairos repos bind`.
+    //
+    // It is a tool of its own and not an argument of `update_item`. That
+    // tool replaces content under a version check. A link is not content: it
+    // writes no new version, and it must not fail on a stale one.
+    #[tool(
+        description = "Set or clear the repository of a TASK. The repository is a link: it says where the code is. It does not change the board or the team of the task. `repository` is a slug or UUID of any live repository, of any team. To clear the link, omit `repository`, or send null or an empty string. The tool applies to tasks only. Needs `manage_tasks` on the board of the task."
+    )]
+    pub async fn set_repository(
+        &self,
+        Parameters(params): Parameters<SetRepositoryParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            if item.item_type != ItemType::Task {
+                return Err(ApiError::validation(format!(
+                    "{} {} is not a task. set_repository applies to tasks only.",
+                    item.item_type, item.short_code
+                )));
+            }
+            // The same gate as PUT /api/tasks/{short_code}/repository, and
+            // at the same point: before the repository is resolved. A caller
+            // who cannot write the task does not learn from the answer which
+            // repositories exist.
+            require_capability_explained(
+                conn,
+                &slug,
+                item.board_id,
+                user,
+                crate::api::tasks::MANAGE,
+                &item,
+            )?;
+            // An agent that builds its arguments from a template sends ""
+            // for "none" as often as it sends null. Both clear the link, as
+            // an absent argument does. REST has a typed body and keeps its
+            // own rule; from here on the two share one function.
+            let repository = params
+                .repository
+                .as_deref()
+                .map(str::trim)
+                .filter(|reference| !reference.is_empty());
+            let updated =
+                crate::api::tasks::link_task_to_repository(conn, item.id, repository, user)?;
+            Ok(match updated.repository_id {
+                Some(_) => format!(
+                    "Set the repository of {}: {}.",
+                    updated.short_code,
+                    repo_label(conn, updated.repository_id)?
+                ),
+                None => format!(
+                    "Cleared the repository of {}: the task has no repository.",
+                    updated.short_code
+                ),
+            })
         })
         .await
     }

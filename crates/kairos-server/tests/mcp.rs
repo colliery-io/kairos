@@ -18,9 +18,14 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the 18-tool inventory: 14 from S-0006, the two
-//!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012) and
-//!   `restore_item` (KAIROS-A-0020);
+//! - tools/list is EXACTLY the 21-tool inventory: 14 from S-0006, the two
+//!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012),
+//!   `restore_item` (KAIROS-A-0020), `related_work` (KAIROS-T-0191),
+//!   `propose_edge` (KAIROS-T-0192) and `set_repository` (COLLIERY-T-0220);
+//!   the reference page and the how-to give the same count, and the
+//!   reference page has one section for each tool;
+//! - `set_repository` (COLLIERY-T-0220): set, clear, the board and the team
+//!   do not change, the refusals, and agreement with the REST route;
 //! - golden path: whoami → my_boards → create_item(initiative) →
 //!   create_item(task, parent) → get_item → edit_item → transition_item
 //!   (invalid first: INVALID_TRANSITION enumerating allowed targets,
@@ -64,6 +69,11 @@ const SCRATCH_DB: &str = "kairos_mcp_t0026_test";
 
 /// The tenant slug.
 const TENANT: &str = "acme";
+
+/// How many tools `tools/list` returns, and the word the reference pages
+/// use for that number (COLLIERY-T-0220).
+const TOOL_COUNT: usize = 21;
+const TOOL_COUNT_WORD: &str = "twenty-one";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -538,9 +548,76 @@ async fn mcp_endpoint_against_live_stack() {
         // confirms it. There is deliberately no confirm/reject tool here —
         // deciding is not an agent's to do.
         "propose_edge",
+        // COLLIERY-T-0220 (COLLIERY-A-0023): set or clear the repository of
+        // a task. A tool of its own, not an argument of `update_item`.
+        "set_repository",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");
+    // The count as a number. The list above is the real gate; this line is
+    // what the reference pages quote, so it fails with them.
+    assert_eq!(names.len(), TOOL_COUNT, "{names:?}");
+    assert!(names.iter().any(|name| name == "set_repository"));
+
+    // --- COLLIERY-T-0220: the reference pages agree with tools/list ---------
+    // The reference page is hand-written. Until this task it gave a count
+    // that was two tools behind, and no test read it.
+    {
+        let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src");
+        let read = |rel: &str| {
+            std::fs::read_to_string(docs.join(rel)).unwrap_or_else(|e| panic!("{rel}: {e}"))
+        };
+        let reference = read("reference/mcp-tools.md");
+        let mut sections: Vec<String> = reference
+            .lines()
+            .filter_map(|line| line.strip_prefix("### `")?.strip_suffix('`'))
+            .map(str::to_string)
+            .collect();
+        sections.sort();
+        assert_eq!(
+            sections, names,
+            "reference/mcp-tools.md has one section for each tool of tools/list"
+        );
+        assert!(
+            reference.contains(&format!("exactly\n{TOOL_COUNT_WORD} tools"))
+                && reference.contains(&format!("returns these {TOOL_COUNT_WORD} and no others")),
+            "reference/mcp-tools.md gives the count {TOOL_COUNT_WORD}"
+        );
+        for stale in ["eighteen", "nineteen", "twenty tools"] {
+            assert!(
+                !reference.contains(stale),
+                "reference/mcp-tools.md: {stale:?}"
+            );
+        }
+        let section = reference
+            .split("### `set_repository`")
+            .nth(1)
+            .expect("the set_repository section")
+            .split("\n### ")
+            .next()
+            .expect("the section body");
+        for needed in [
+            "| `short_code` | string | yes |",
+            "| `repository` | string | no |",
+            "Requires `manage_tasks`",
+            "Refuses:",
+            "`FORBIDDEN`",
+            "`VALIDATION`",
+            "`NOT_FOUND`",
+        ] {
+            assert!(
+                section.contains(needed),
+                "set_repository section lacks {needed:?}: {section}"
+            );
+        }
+        let how_to = read("how-to/connect-over-mcp.md");
+        assert_eq!(
+            how_to.matches(TOOL_COUNT_WORD).count(),
+            3,
+            "how-to/connect-over-mcp.md gives the count in three places"
+        );
+        assert!(!how_to.contains("eighteen"), "how-to/connect-over-mcp.md");
+    }
 
     // --- whoami: identity, org, capability grants ----------------------------
     let text = session.call_ok("whoami", json!({})).await;
@@ -1535,6 +1612,391 @@ async fn mcp_endpoint_against_live_stack() {
         !text.contains("file_backlog") && !text.contains("entry column"),
         "{text}"
     );
+
+    // --- COLLIERY-T-0220: set_repository (COLLIERY-A-0023) -------------------
+    // The repository of a task is a link. REST, the CLI and the GUI could
+    // set it; MCP could not. A second team owns the repository here, so a
+    // link that changed the board or the team of the task would show.
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let billing: kairos_db::models::teams::Team =
+        diesel::insert_into(kairos_db::schema::teams::table)
+            .values(kairos_db::models::teams::NewTeam {
+                name: "Billing".into(),
+                slug: "billing".into(),
+                team_type: kairos_db::models::enums::TeamType::StreamAligned,
+            })
+            .returning(kairos_db::models::teams::Team::as_returning())
+            .get_result(&mut conn)
+            .expect("team");
+    let ledger = kairos_db::repositories::create(
+        &mut conn,
+        kairos_db::models::repositories::NewRepository {
+            slug: "ledger".into(),
+            forge: kairos_db::models::enums::Forge::Github,
+            repo_full_name: "acme/ledger".into(),
+            repo_url: "https://github.com/acme/ledger".into(),
+            default_branch: "main".into(),
+            team_id: billing.id,
+            description: String::new(),
+            created_by: alice,
+            updated_by: alice,
+        },
+    )
+    .expect("repo");
+    /// What `set_repository` can and cannot change, read from the row.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Placement {
+        board: Uuid,
+        team: Option<Uuid>,
+        column: Uuid,
+        version: i32,
+        repository: Option<Uuid>,
+    }
+    fn placement(conn: &mut PgConnection, short_code: &str) -> Placement {
+        use kairos_db::schema::tasks;
+        let (board, team, column, version, repository) = tasks::table
+            .filter(tasks::short_code.eq(short_code))
+            .select((
+                tasks::board_id,
+                tasks::team_id,
+                tasks::column_id,
+                tasks::version,
+                tasks::repository_id,
+            ))
+            .first(conn)
+            .unwrap_or_else(|e| panic!("task {short_code}: {e}"));
+        Placement {
+            board,
+            team,
+            column,
+            version,
+            repository,
+        }
+    }
+    /// One REST call as alice; returns the status and the JSON body.
+    async fn rest(
+        router: &Router,
+        token: &str,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let (status, _, body) = raw_request(router, method, uri, Some(token), None, body).await;
+        let json = serde_json::from_str(&body).unwrap_or_else(|e| panic!("{uri}: {e}: {body}"));
+        (status, json)
+    }
+
+    let text = session
+        .call_ok(
+            "create_item",
+            json!({"item_type": "task", "title": "Found its codebase", "board": "platform-delivery"}),
+        )
+        .await;
+    let found = extract_code(&text, "ACME-T-");
+    let before = placement(&mut conn, &found);
+    assert_eq!(before.board, delivery.id);
+    assert_eq!(before.team, Some(platform.id));
+    assert_eq!(before.repository, None);
+    let text = session
+        .call_ok("get_item", json!({"short_code": found}))
+        .await;
+    assert!(text.contains("· repository: (none)"), "{text}");
+
+    // Set, by slug. The repository belongs to billing; the task is on the
+    // board of platform.
+    let text = session
+        .call_ok(
+            "set_repository",
+            json!({"short_code": found, "repository": "ledger"}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        format!("Set the repository of {found}: ledger (owner: billing).")
+    );
+    // ...seen through get_item, through the row, and through REST.
+    let text = session
+        .call_ok("get_item", json!({"short_code": found}))
+        .await;
+    assert!(
+        text.contains("· repository: ledger (owner: billing)"),
+        "{text}"
+    );
+    assert!(text.contains("- board: platform-delivery"), "{text}");
+    let after = placement(&mut conn, &found);
+    assert_eq!(after.repository, Some(ledger.id));
+    assert_eq!(
+        after,
+        Placement {
+            repository: Some(ledger.id),
+            ..before.clone()
+        },
+        "the link changes the repository and nothing else: not the board, \
+         not the team, not the column, not the version"
+    );
+    let (status, task) = rest(
+        &router,
+        &alice_token,
+        Method::GET,
+        &format!("/api/tasks/{found}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    assert_eq!(task["repository"]["slug"], "ledger", "{task}");
+    assert_eq!(task["repository_id"], ledger.id.to_string(), "{task}");
+    assert_eq!(task["board_id"], delivery.id.to_string(), "{task}");
+    assert_eq!(task["team_id"], platform.id.to_string(), "{task}");
+
+    // The value the task already has: a success, and no second audit row.
+    let audit_rows = activity_count(&mut conn, alice, "repository");
+    let text = session
+        .call_ok(
+            "set_repository",
+            json!({"short_code": found, "repository": "ledger"}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        format!("Set the repository of {found}: ledger (owner: billing).")
+    );
+    assert_eq!(placement(&mut conn, &found), after);
+    assert_eq!(activity_count(&mut conn, alice, "repository"), audit_rows);
+
+    // By UUID, to a different repository. One audit row for the change.
+    let text = session
+        .call_ok(
+            "set_repository",
+            json!({"short_code": found, "repository": payments.id.to_string()}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        format!("Set the repository of {found}: payments-api (owner: platform).")
+    );
+    assert_eq!(
+        activity_count(&mut conn, alice, "repository"),
+        audit_rows + 1,
+        "NFR-1.3: the tool writes the audit row that the REST route writes"
+    );
+
+    // Clear: an absent argument, null, and an empty string. Each starts from
+    // a task that has a link.
+    for (what, arguments) in [
+        ("absent", json!({"short_code": found})),
+        ("null", json!({"short_code": found, "repository": null})),
+        (
+            "empty string",
+            json!({"short_code": found, "repository": ""}),
+        ),
+        (
+            "blank string",
+            json!({"short_code": found, "repository": "  "}),
+        ),
+    ] {
+        session
+            .call_ok(
+                "set_repository",
+                json!({"short_code": found, "repository": "ledger"}),
+            )
+            .await;
+        assert_eq!(
+            placement(&mut conn, &found).repository,
+            Some(ledger.id),
+            "{what}: the task has a link to clear"
+        );
+        let text = session.call_ok("set_repository", arguments).await;
+        assert_eq!(
+            text,
+            format!("Cleared the repository of {found}: the task has no repository."),
+            "{what}"
+        );
+        assert_eq!(
+            placement(&mut conn, &found),
+            before,
+            "{what}: no repository, and the board and the team as they were"
+        );
+        let text = session
+            .call_ok("get_item", json!({"short_code": found}))
+            .await;
+        assert!(text.contains("· repository: (none)"), "{what}: {text}");
+        let (_, task) = rest(
+            &router,
+            &alice_token,
+            Method::GET,
+            &format!("/api/tasks/{found}"),
+            None,
+        )
+        .await;
+        assert!(task["repository"].is_null(), "{what}: {task}");
+        assert!(task["repository_id"].is_null(), "{what}: {task}");
+    }
+    // To clear a task that has no repository is a success too.
+    let text = session
+        .call_ok("set_repository", json!({"short_code": found}))
+        .await;
+    assert!(text.contains("has no repository"), "{text}");
+
+    // REST and MCP agree in the other direction: REST sets, get_item shows.
+    let (status, task) = rest(
+        &router,
+        &alice_token,
+        Method::PUT,
+        &format!("/api/tasks/{found}/repository"),
+        Some(json!({"repository": "ledger"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    let text = session
+        .call_ok("get_item", json!({"short_code": found}))
+        .await;
+    assert!(
+        text.contains("· repository: ledger (owner: billing)"),
+        "{text}"
+    );
+    let (status, task) = rest(
+        &router,
+        &alice_token,
+        Method::PUT,
+        &format!("/api/tasks/{found}/repository"),
+        Some(json!({"repository": null})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{task}");
+    let text = session
+        .call_ok("get_item", json!({"short_code": found}))
+        .await;
+    assert!(text.contains("· repository: (none)"), "{text}");
+    // The two give the same refusal for a repository that does not exist.
+    let (status, refused) = rest(
+        &router,
+        &alice_token,
+        Method::PUT,
+        &format!("/api/tasks/{found}/repository"),
+        Some(json!({"repository": "nope"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    let text = session
+        .call_err(
+            "set_repository",
+            json!({"short_code": found, "repository": "nope"}),
+        )
+        .await;
+    assert_eq!(text, "VALIDATION: repository \"nope\" does not exist");
+    assert_eq!(refused["error"]["code"], "VALIDATION", "{refused}");
+    assert_eq!(
+        refused["error"]["message"], "repository \"nope\" does not exist",
+        "{refused}"
+    );
+    // An unknown UUID is the same kind of refusal.
+    let text = session
+        .call_err(
+            "set_repository",
+            json!({"short_code": found, "repository": Uuid::new_v4().to_string()}),
+        )
+        .await;
+    assert!(
+        text.starts_with("VALIDATION: repository ") && text.ends_with("does not exist"),
+        "{text}"
+    );
+    assert_eq!(
+        placement(&mut conn, &found),
+        before,
+        "a refused call changes nothing"
+    );
+
+    // A short code that names an item that is not a task.
+    let text = session
+        .call_err(
+            "set_repository",
+            json!({"short_code": other, "repository": "ledger"}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        format!(
+            "VALIDATION: initiative {other} is not a task. \
+             set_repository applies to tasks only."
+        )
+    );
+    // A short code that names nothing, and one that names archived work:
+    // NOT_FOUND, as from every write tool.
+    let text = session
+        .call_err(
+            "set_repository",
+            json!({"short_code": "ACME-T-9999", "repository": "ledger"}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "NOT_FOUND: no live item with short code \"ACME-T-9999\""
+    );
+    let text = session
+        .call_err(
+            "set_repository",
+            json!({"short_code": task_code, "repository": "ledger"}),
+        )
+        .await;
+    assert!(text.starts_with("NOT_FOUND: no live item"), "{text}");
+
+    // bob has no `manage_tasks` on the board. He did not file this task, so
+    // the refusal names the capability and no more.
+    let text = bob_session
+        .call_err(
+            "set_repository",
+            json!({"short_code": found, "repository": "ledger"}),
+        )
+        .await;
+    assert!(
+        text.starts_with("FORBIDDEN: ") && text.contains("manage_tasks"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("file_backlog") && !text.contains("entry column"),
+        "{text}"
+    );
+    // The gate comes before the repository is resolved, as in the REST
+    // route: he is refused, not told that the repository does not exist.
+    let text = bob_session
+        .call_err(
+            "set_repository",
+            json!({"short_code": found, "repository": "nope"}),
+        )
+        .await;
+    assert!(text.starts_with("FORBIDDEN: "), "{text}");
+    // He cannot clear a link either.
+    let text = bob_session
+        .call_err("set_repository", json!({"short_code": found}))
+        .await;
+    assert!(text.starts_with("FORBIDDEN: "), "{text}");
+    assert_eq!(placement(&mut conn, &found), before);
+    // The request that he filed, still in the entry column: the same code,
+    // with the request rule that the other write tools give him.
+    let text = bob_session
+        .call_err(
+            "set_repository",
+            json!({"short_code": no_repository, "repository": "ledger"}),
+        )
+        .await;
+    assert!(
+        text.starts_with("FORBIDDEN: ")
+            && text.contains("is a request in the entry column")
+            && text.contains("manage_tasks"),
+        "{text}"
+    );
+    assert_eq!(placement(&mut conn, &no_repository).repository, None);
+    let (status, refused) = rest(
+        &router,
+        &bob_token,
+        Method::PUT,
+        &format!("/api/tasks/{found}/repository"),
+        Some(json!({"repository": "ledger"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "REST agrees: {refused}");
 
     // --- teardown ------------------------------------------------------------
     drop(conn);

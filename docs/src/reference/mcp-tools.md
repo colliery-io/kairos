@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-eighteen tools, frozen by name and shape; a drift gate in the test suite
-asserts that `tools/list` returns these eighteen and no others.
+twenty-one tools, frozen by name and shape; a drift gate in the test suite
+asserts that `tools/list` returns these twenty-one and no others.
 
 This page describes Kairos 0.4.0. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
@@ -317,6 +317,25 @@ Refuses: `VALIDATION` for an unknown definition slug, and for a value that
 fails its definition's rules — enum membership, or a `YYYY-MM-DD` date.
 `NOT_FOUND` for an unknown short code or an archived item. `FORBIDDEN` without
 `manage_<type>` on the item's authorization board.
+
+### `set_repository`
+
+Sets or clears the repository of a task. The repository is a link: it says
+where the code is. The board and the team of the task do not change.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The short code of the task. |
+| `repository` | string | no | clears the link | Slug or UUID. Any live repository, of any team. To clear the link, omit the argument, or send null or an empty string. |
+
+Requires `manage_tasks` on the board of the task.
+
+The tool applies to tasks only. It writes no new version of the task. A call
+that sets the repository that the task already has is a success.
+
+Refuses: `NOT_FOUND` for an unknown short code or an archived task.
+`VALIDATION` when the item is not a task, and for an unknown `repository`.
+`FORBIDDEN` without `manage_tasks`.
 
 ## Moving work
 

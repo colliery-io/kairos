@@ -25,8 +25,10 @@ use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
-/// The A-0006 manage capability for this family.
-const MANAGE: &str = "manage_tasks";
+/// The A-0006 manage capability for this family. MCP `set_repository`
+/// reads it from here, so the tool and the route name one capability
+/// (COLLIERY-T-0220).
+pub(crate) const MANAGE: &str = "manage_tasks";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -508,6 +510,37 @@ pub(crate) async fn set_work_class(
     Ok(Json(updated))
 }
 
+/// Set or clear the link from a task to a repository: the ONE write path of
+/// `PUT /api/tasks/{short_code}/repository` and of MCP `set_repository`
+/// (COLLIERY-T-0220, COLLIERY-A-0023).
+///
+/// The two entry points load the task and check the capability in their own
+/// way, because each has its own refusal text. All that follows the gate is
+/// here, so the two cannot give different results (the KAIROS-T-0096 lesson):
+/// which repository a reference names, what "unknown" means, and the write.
+///
+/// `repository` is a slug or a UUID. `None` clears the link. The caller
+/// decides what counts as "no repository" in its own input; MCP also reads
+/// an empty string as `None`, and REST does not.
+///
+/// COLLIERY-T-0217 (COLLIERY-A-0023): the repository is a link, so the only
+/// question is whether it is live. Until then this went through
+/// `resolve_routing` with the board of the task, which refused a repository
+/// owned by any team but the team of that board. The owner is not read now,
+/// and the board and the team of the task are not written.
+pub(crate) fn link_task_to_repository(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    repository: Option<&str>,
+    user: Uuid,
+) -> Result<Task, ApiError> {
+    let repository_id = repository
+        .map(|reference| repositories::resolve(conn, reference).map(|found| found.id))
+        .transpose()
+        .map_err(map_repository_error)?;
+    items::set_task_repository(conn, task_id, repository_id, user).map_err(map_item_error)
+}
+
 /// Set the repository a task links to, or clear it (KAIROS-T-0104).
 /// The link can be any live repository. The board and the team of the task
 /// do not change (COLLIERY-T-0217, COLLIERY-A-0023). Requires
@@ -539,24 +572,7 @@ pub(crate) async fn set_repository(
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
-            let repository_id = match body.repository.as_deref() {
-                None => None,
-                Some(reference) => {
-                    // COLLIERY-T-0217 (COLLIERY-A-0023): the repository is a
-                    // link, so the only question is whether it is live. Until
-                    // then this went through `resolve_routing` with the
-                    // task's board, which refused a repository owned by any
-                    // team but the board's. The owner is not read now, and
-                    // the board and the team of the task are not written.
-                    Some(
-                        repositories::resolve(conn, reference)
-                            .map_err(map_repository_error)?
-                            .id,
-                    )
-                }
-            };
-            let updated = items::set_task_repository(conn, task.id, repository_id, user)
-                .map_err(map_item_error)?;
+            let updated = link_task_to_repository(conn, task.id, body.repository.as_deref(), user)?;
             attach_repository(conn, updated.into_dto()).map_err(ApiError::internal)
         })
         .await?;

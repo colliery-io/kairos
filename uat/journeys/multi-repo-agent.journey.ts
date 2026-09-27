@@ -285,6 +285,48 @@ journey(
       return { short_code: guest, board: webBoard, repository: PLATFORM_REPO };
     });
 
+    await step(agent, `finds that a task with no repository belongs to ${PLATFORM_REPO}, and links it without leaving MCP`, async () => {
+      const mcp = await agent.mcp();
+      const api = await alice.api();
+      // COLLIERY-T-0220 (COLLIERY-A-0023): somebody filed the work before
+      // anyone knew where the code was. Until `set_repository` the agent had
+      // to leave MCP for `kairos repos bind` to record what it found.
+      const text = await mcp.call('create_item', {
+        item_type: 'task',
+        title: named('portal: refund total is stale after a retry'),
+        board: webBoard,
+      });
+      const [orphan] = shortCodes(text);
+      ledger.add({ kind: 'task', label: orphan, delete: async () => { await api.delete(`/api/tasks/${orphan}`); } });
+      const before = await api.task(orphan);
+      expect(before.repository ?? null, 'it starts with no repository').toBeNull();
+
+      const said = await mcp.call('set_repository', { short_code: orphan, repository: PLATFORM_REPO });
+      expect(said).toContain(orphan);
+      expect(said).toContain(PLATFORM_REPO);
+      const item = await mcp.call('get_item', { short_code: orphan });
+      expect(item).toContain(`repository: ${PLATFORM_REPO}`);
+      // The link changes nothing else: web's board, web's team.
+      expect(field(item, '- board') ?? '', 'the task stays on the board of web').toContain(webBoard);
+      const linked = await api.task(orphan);
+      expect(linked.repository?.slug, 'REST shows the same link').toBe(PLATFORM_REPO);
+      expect(linked.board_id).toBe(before.board_id);
+      expect(linked.team_id).toBe(before.team_id);
+      expect(await repoContents(mcp, PLATFORM_REPO)).toContain(orphan);
+
+      // It was wrong about one more task, and takes the link off again.
+      const cleared = await mcp.call('set_repository', { short_code: orphan });
+      expect(cleared).toContain('has no repository');
+      expect((await api.task(orphan)).repository ?? null).toBeNull();
+      expect(await repoContents(mcp, PLATFORM_REPO)).not.toContain(orphan);
+      // And puts it back: the task does belong to that codebase.
+      await mcp.call('set_repository', { short_code: orphan, repository: PLATFORM_REPO });
+      const after = await api.task(orphan);
+      expect(after.repository?.slug).toBe(PLATFORM_REPO);
+      expect(after.board_id).toBe(before.board_id);
+      return { short_code: orphan, board: webBoard, repository: PLATFORM_REPO, tool_said: said.split('\n')[0] };
+    });
+
     await step(agent, 'starts work in one repository and leaves the other two exactly as it found them', async () => {
       const mcp = await agent.mcp();
       const before: Record<string, string[]> = {};

@@ -3,8 +3,13 @@
 //! registration by the owning team, the admin-only delete with the
 //! in-use refusal, and the detail's in-flight links.
 //!
+//! COLLIERY-T-0219: the detail has no `stale_tasks`, and `open_tasks` counts
+//! the linked tasks on all boards. A task on a board of a team that does not
+//! own the repository is normal work (COLLIERY-A-0023), not a fault.
+//!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
-//! scratch database `kairos_repositories_t0106_test`.
+//! scratch databases `kairos_repositories_t0106_test` and
+//! `kairos_repositories_t0219_test`.
 //!
 //! Cast: `svc` org admin; `bob` member of `platform`; `alice` member of
 //! `web` (so: not platform — cannot register platform's repos).
@@ -358,9 +363,9 @@ async fn repository_api_against_live_stack() {
         "re-home needs manage on both teams: {err}"
     );
     // A task bound to it before the re-home stays on platform's board, with
-    // platform as its team (COLLIERY-T-0217). The detail still counts it as
-    // "stale": `stale_tasks` is unchanged and still measures the old
-    // repo -> team -> board rule. COLLIERY-T-0219 removes that report.
+    // platform as its team (COLLIERY-T-0217), and the repository reports it
+    // as open work before and after. Until COLLIERY-T-0219 the detail also
+    // called it "stale" after the re-home; that report is removed.
     let pre = bob
         .create_task(&CreateTaskRequest {
             board_id: None,
@@ -380,8 +385,9 @@ async fn repository_api_against_live_stack() {
             .get_repository("acme-platform-infra")
             .await
             .expect("detail")
-            .stale_tasks,
-        0
+            .repository
+            .open_tasks,
+        1
     );
     let rehomed = svc
         .update_repository(
@@ -396,12 +402,39 @@ async fn repository_api_against_live_stack() {
         .expect("admin re-homes and renames");
     assert_eq!(rehomed.slug, "infra");
     assert_eq!(rehomed.team.slug, "web");
-    let detail = alice.get_repository("infra").await.expect("detail");
-    assert_eq!(detail.stale_tasks, 1, "the pre-bound task is now stale");
-    // The re-home did not move the task or change its team.
+    // The re-home did not move the task, change its team or drop its link.
     let after = bob.get_task(&pre.short_code).await.expect("get");
     assert_eq!(after.board_id, pre.board_id);
     assert_eq!(after.team_id.as_deref(), Some(platform.id.as_str()));
+    assert_eq!(
+        after.repository.as_ref().map(|r| r.slug.as_str()),
+        Some("infra"),
+        "still linked, under the new slug"
+    );
+    // The repository shows web's delivery board now, and still counts the
+    // task, which is on platform's board.
+    let detail = alice.get_repository("infra").await.expect("detail");
+    assert_eq!(
+        detail.repository.delivery_board_id.as_deref(),
+        web.delivery_board_id.as_deref()
+    );
+    assert_ne!(
+        detail.repository.delivery_board_id.as_deref(),
+        Some(after.board_id.as_str())
+    );
+    assert_eq!(
+        detail.repository.open_tasks, 1,
+        "the task on the old owner's board is open work of the repository"
+    );
+    // The detail has no field for stale tasks (COLLIERY-T-0219). Read the
+    // JSON itself: the typed client ignores fields it does not know.
+    let (status, body) = alice
+        .raw_request(reqwest::Method::GET, "/api/repositories/infra", None)
+        .await
+        .expect("raw detail");
+    assert_eq!(status, 200);
+    assert_eq!(body["open_tasks"], 1, "{body}");
+    assert!(body.get("stale_tasks").is_none(), "{body}");
     // Setting the repository of that task is allowed, though the repository
     // now belongs to web and the task is on platform's board. Until
     // COLLIERY-T-0217 this re-checked the owner against the board and was a
@@ -416,26 +449,27 @@ async fn repository_api_against_live_stack() {
         rebound.repository.as_ref().map(|r| r.slug.as_str()),
         Some("infra")
     );
-    // The count is as it was: the link is valid, but the unchanged
-    // `stale_tasks` still compares the task with the owner (COLLIERY-T-0219).
+    // The count is as it was.
     assert_eq!(
         alice
             .get_repository("infra")
             .await
             .expect("detail")
-            .stale_tasks,
+            .repository
+            .open_tasks,
         1
     );
-    // Unbinding it clears the staleness.
+    // Clearing the link takes the task out of the count.
     bob.set_task_repository(&pre.short_code, None)
         .await
-        .expect("unbind the stale task");
+        .expect("clear the link");
     assert_eq!(
         alice
             .get_repository("infra")
             .await
             .expect("detail")
-            .stale_tasks,
+            .repository
+            .open_tasks,
         0
     );
     // A team that still owns repositories cannot be deleted (409, naming them).
@@ -566,4 +600,156 @@ async fn repository_api_against_live_stack() {
     drop(pool);
     drop(conn);
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);
+}
+
+const OPEN_COUNT_DB: &str = "kairos_repositories_t0219_test";
+
+/// COLLIERY-T-0219: the open-task count of a repository includes a linked
+/// task on the board of a team that does not own it. No re-home is part of
+/// this: the task is filed on web's board and links to platform's
+/// repository, which COLLIERY-A-0023 allows. The directory and the detail
+/// give the same count.
+#[tokio::test]
+async fn open_tasks_count_a_linked_task_on_the_board_of_a_different_team() {
+    let mut admin_conn = recreate_scratch_db(OPEN_COUNT_DB);
+    let scratch_url = with_database(&common::admin_database_url(), OPEN_COUNT_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
+    let org_id: Uuid = organizations::table
+        .filter(organizations::slug.eq("acme"))
+        .select(organizations::id)
+        .first(&mut conn)
+        .expect("acme org row");
+
+    let http = reqwest::Client::new();
+    let svc_token = user_token(&http, "svc").await;
+    let alice_token = user_token(&http, "alice").await;
+    let pool = TenantPool::new(&scratch_url, 4).await.expect("pool");
+    let auth = Arc::new(
+        Authenticator::discover(ISSUER, AUDIENCE)
+            .await
+            .expect("OIDC discovery against live Dex"),
+    );
+    let config = base_config(&scratch_url);
+    let router = app::router(app::state_with(config, pool.clone(), auth.clone()));
+    let server = spawn_server(router).await;
+    let svc = server.client(&svc_token, "acme");
+    let alice = server.client(&alice_token, "acme");
+
+    for client in [&svc, &alice] {
+        let _ = client.whoami().await;
+    }
+    let alice_id = user_id(&mut conn, "alice@kairos.test");
+    for (user_id, role) in [
+        (user_id(&mut conn, "svc@kairos.test"), OrgRole::Admin),
+        (alice_id, OrgRole::Member),
+    ] {
+        diesel::insert_into(organization_members::table)
+            .values(NewOrganizationMember {
+                organization_id: org_id,
+                user_id,
+                role,
+            })
+            .execute(&mut conn)
+            .expect("granting membership");
+    }
+    let platform = svc
+        .create_team(&CreateTeamRequest {
+            name: "Platform".into(),
+            slug: "platform".into(),
+            team_type: None,
+        })
+        .await
+        .expect("platform");
+    let web = svc
+        .create_team(&CreateTeamRequest {
+            name: "Web".into(),
+            slug: "web".into(),
+            team_type: None,
+        })
+        .await
+        .expect("web");
+    svc.add_team_member(
+        &web.id,
+        &AddTeamMemberRequest {
+            user_id: alice_id.to_string(),
+        },
+    )
+    .await
+    .expect("alice → web");
+
+    // Platform owns the repository.
+    let payments = svc
+        .create_repository(&request(
+            Some("payments-api"),
+            "acme/payments-api",
+            "platform",
+        ))
+        .await
+        .expect("platform's repository");
+    assert_eq!(payments.team.id, platform.id);
+    assert_eq!(payments.open_tasks, 0);
+
+    // Web plans its own work in that code, on its own board.
+    let task = alice
+        .create_task(&CreateTaskRequest {
+            board_id: None,
+            column_id: None,
+            title: "Web's work in platform's code".into(),
+            content: String::new(),
+            task_type: None,
+            work_class: None,
+            team_id: Some(web.id.clone()),
+            repository: Some("payments-api".into()),
+        })
+        .await
+        .expect("a task on web's board that links to platform's repository");
+    assert_eq!(task.team_id.as_deref(), Some(web.id.as_str()));
+    assert_eq!(
+        Some(task.board_id.as_str()),
+        web.delivery_board_id.as_deref()
+    );
+    assert_ne!(
+        Some(task.board_id.as_str()),
+        payments.delivery_board_id.as_deref(),
+        "the task is not on the owner's board"
+    );
+
+    let detail = svc.get_repository("payments-api").await.expect("detail");
+    assert_eq!(detail.repository.team.id, platform.id);
+    assert_eq!(
+        detail.repository.open_tasks, 1,
+        "a linked task on a different team's board is open work of the repository"
+    );
+    let listed = svc.list_repositories(None).await.expect("directory");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].open_tasks, 1);
+    // The owner's view of its repositories gives the same count.
+    let owned = svc
+        .list_repositories(Some("platform"))
+        .await
+        .expect("platform's repositories");
+    assert_eq!(owned[0].open_tasks, 1);
+
+    // A second task, on the owner's board: both count.
+    svc.create_task(&CreateTaskRequest {
+        board_id: None,
+        column_id: None,
+        title: "Platform's own work".into(),
+        content: String::new(),
+        task_type: None,
+        work_class: None,
+        team_id: Some(platform.id.clone()),
+        repository: Some("payments-api".into()),
+    })
+    .await
+    .expect("a task on the owner's board");
+    let detail = svc.get_repository("payments-api").await.expect("detail");
+    assert_eq!(detail.repository.open_tasks, 2, "all boards");
+
+    drop(server);
+    drop(pool);
+    drop(conn);
+    drop_scratch_db(&mut admin_conn, OPEN_COUNT_DB);
 }

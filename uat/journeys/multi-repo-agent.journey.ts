@@ -123,8 +123,8 @@ journey(
         owners[repo] = field(text, '- owner team') ?? '';
         habits[repo] = text.split('## How to work here')[1]?.split('##')[0]?.trim().split('\n')[0] ?? '';
         expect(habits[repo], `${repo} says how to work in it`).toBeTruthy();
-        if (repo === PLATFORM_REPO) platformBoard = field(text, '- delivery board')?.split(' ')[0] ?? '';
-        if (repo === WEB_REPO) webBoard = field(text, '- delivery board')?.split(' ')[0] ?? '';
+        if (repo === PLATFORM_REPO) platformBoard = field(text, "- owner's delivery board")?.split(' ')[0] ?? '';
+        if (repo === WEB_REPO) webBoard = field(text, "- owner's delivery board")?.split(' ')[0] ?? '';
       }
       // The claim worth asserting: the instructions are per-repository. An
       // agent that reads one and assumes the rest runs the wrong test command

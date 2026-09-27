@@ -1,7 +1,9 @@
 //! `/admin/repositories` — the repository directory (KAIROS-T-0109,
 //! decision KAIROS-A-0019): register, edit and re-home repositories, and
 //! wire their forge webhooks. Every repository has exactly one owning
-//! team; tasks filed against it land on that team's delivery board.
+//! team. The owner does not choose where tasks go: a task on any team's
+//! board may link to any repository, and the open count of a row covers all
+//! boards (COLLIERY-T-0219, COLLIERY-A-0023).
 //!
 //! The webhook secret is DERIVED server-side and shown exactly once at
 //! connect time (KAIROS-T-0097) — this page renders it in a notice the
@@ -109,7 +111,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Repositories" sub="the codebases tickets are issued against, and their webhooks"/>
+        <PageHeader title="Repositories" sub="the codebases that tasks link to, and their webhooks"/>
         <Stack gap="md">
             <MutationNotice outcome/>
             {move || secret.get().map(|s| view! {
@@ -133,7 +135,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                     </Stack>
                 </Panel>
             })}
-            <Panel title="All repositories" caption="one owning team each; tasks route to that team's delivery board">
+            <Panel title="All repositories" caption="one owning team each; open counts cover all boards">
                 {move || match repos.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
@@ -342,7 +344,7 @@ fn RepositoryRow(
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
-                        "Re-homing to another team does not move its tasks; they are re-checked on their next write."
+                        "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>
                 </Stack>
             </Show>

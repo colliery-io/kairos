@@ -874,9 +874,15 @@ fn board_power(
 
 use repositories::api::NO_REPOSITORY;
 
-/// The task's repository binding (KAIROS-T-0109, A-0019): pick one of the
-/// owning team's repositories (or none). The server enforces the repo →
-/// team → board rule and `manage_tasks`; a refusal shows inline.
+/// The task's repository link (KAIROS-T-0109): pick a repository, or none.
+/// The server enforces `manage_tasks`; a refusal shows inline.
+///
+/// A task may link to a repository of any team (COLLIERY-A-0023), so a link
+/// to a repository that the board's team does not own is shown like any
+/// other. Until COLLIERY-T-0219 the control called such a link a leftover of
+/// a re-home: it printed a warning and put the picker back on "(none)".
+/// The picker still OFFERS only the repositories of the board's team
+/// (COLLIERY-T-0221 changes that), plus the current link.
 #[component]
 fn RepositoryControl(
     code: String,
@@ -909,21 +915,6 @@ fn RepositoryControl(
         let _ = auth.token();
         let team = team_id.clone();
         async move { repositories::api::list_repositories(auth, team.as_deref()).await }
-    });
-    // The binding may name a repository that has since been re-homed to
-    // another team: it is not among this team's options, so the control
-    // says so instead of silently disabling the button, and the picker
-    // starts at "(none)" so the first submit is a deliberate re-bind or
-    // clear. (Signal write in an Effect, never inside a tracked render.)
-    let elsewhere = Memo::new(move |_| {
-        let bound = current.get_value()?;
-        let list = repos.get()?.ok()?;
-        (!list.iter().any(|r| r.slug == bound)).then_some(bound)
-    });
-    Effect::new(move |_| {
-        if elsewhere.get().is_some() {
-            value.set(NO_REPOSITORY.to_string());
-        }
     });
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
@@ -974,13 +965,13 @@ fn RepositoryControl(
                     let bound = current
                         .get_value()
                         .unwrap_or_else(|| NO_REPOSITORY.to_string());
+                    // The current link is always an option, so the picker
+                    // can show it. A repository of a different team is not
+                    // in `list`; without this the <select> has no option
+                    // for its value and shows "(none)" (COLLIERY-T-0219).
+                    let options = with_current_link(options, &bound);
                     view! {
                         <Stack gap="xs">
-                            {move || elsewhere.get().map(|slug| view! {
-                                <Text size="xs" dimmed=true>
-                                    {format!("Bound to {slug}, which now belongs to another team — pick one of this team's repositories, or clear it.")}
-                                </Text>
-                            })}
                             <Group gap="sm">
                                 <div class="cl-field">
                                     <label class="cl-field__label">"Repository"</label>
@@ -995,10 +986,7 @@ fn RepositoryControl(
                                     </select>
                                 </div>
                                 {move || {
-                                    // A stale (re-homed) binding is never
-                                    // "unchanged": clearing it is a real write.
-                                    let unchanged =
-                                        elsewhere.with(Option::is_none) && value.get() == bound;
+                                    let unchanged = value.get() == bound;
                                     let disabled = busy.get() || unchanged;
                                     view! {
                                         <Button size="xs" disabled=disabled on_click=submit>
@@ -1019,6 +1007,18 @@ fn RepositoryControl(
         </div>
         })}
     }
+}
+
+/// The picker's options, with the task's current link added when the list
+/// does not have it (COLLIERY-T-0219). The list holds the repositories of
+/// the board's team; the current link can be a repository of any team
+/// (COLLIERY-A-0023). The added option carries the slug alone, because the
+/// task knows only the slug of its repository.
+fn with_current_link(mut options: Vec<(String, String)>, bound: &str) -> Vec<(String, String)> {
+    if !options.iter().any(|(slug, _)| slug == bound) {
+        options.push((bound.to_string(), bound.to_string()));
+    }
+    options
 }
 
 /// The board picker's "stay put" option — the default, so a board move is
@@ -1766,6 +1766,25 @@ fn RelationshipGroupView(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COLLIERY-T-0219: a task linked to a repository of a different team
+    /// is shown like any other, so the picker must have an option for that
+    /// link. A link the list already has is not added again.
+    #[test]
+    fn the_picker_always_has_an_option_for_the_current_link() {
+        let offered = vec![
+            (NO_REPOSITORY.to_string(), NO_REPOSITORY.to_string()),
+            ("web-app".to_string(), "web-app · acme/web-app".to_string()),
+        ];
+        let other_team = with_current_link(offered.clone(), "payments-api");
+        assert_eq!(
+            other_team.last(),
+            Some(&("payments-api".to_string(), "payments-api".to_string()))
+        );
+        assert_eq!(other_team.len(), 3);
+        assert_eq!(with_current_link(offered.clone(), "web-app"), offered);
+        assert_eq!(with_current_link(offered.clone(), NO_REPOSITORY), offered);
+    }
 
     /// KAIROS-T-0124 #2: the tab anchors always carry the code — an empty
     /// route param (first frame after navigation) yields no anchors at

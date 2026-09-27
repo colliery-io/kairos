@@ -74,7 +74,8 @@ live webhook connection still reference it.
 ### `PATCH /api/repositories/{slug}`
 
 Edit a repository (same gate as create, evaluated against the CURRENT
-owner). Re-homing to another team does not touch its tasks.
+owner). Re-homing to another team does not touch the tasks that link to
+the repository.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

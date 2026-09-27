@@ -480,7 +480,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Directory of repositories in this organization (KAIROS-A-0019): for each, its slug, forge and full name, the ONE owning team, the delivery board tasks filed against it land on, open task count, and whether webhooks are connected. Call before filing work against a codebase you are not checked out in, or to find who owns a repo. Optional `team` (slug or UUID) narrows to one team's repositories."
+        description = "Directory of repositories in this organization (KAIROS-A-0019): for each, its slug, forge and full name, the ONE owning team, the delivery board of that team, the open task count, and whether webhooks are connected. The open task count includes linked tasks on all boards. The owner does not choose the board of a task. Call to find a repository to link a task to, or to find who owns a repo. Optional `team` (slug or UUID) narrows to one team's repositories."
     )]
     pub async fn list_repositories(
         &self,
@@ -506,7 +506,7 @@ impl KairosMcp {
             }
             for repo in rendered {
                 out.push_str(&format!(
-                    "- {} — {} {} · owner: {} · board: {} · open tasks: {}{}\n",
+                    "- {} — {} {} · owner: {} · owner's board: {} · open tasks: {}{}\n",
                     repo.slug,
                     repo.forge,
                     repo.repo_full_name,
@@ -528,7 +528,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository in full: owner team, delivery board, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID."
+        description = "One repository in full: owner team, the delivery board of that team, the open task count on all boards, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID."
     )]
     pub async fn get_repository(
         &self,
@@ -540,12 +540,12 @@ impl KairosMcp {
             let repo = repositories::resolve(conn, &params.repository)
                 .map_err(crate::api::org::repositories::map_error)?;
             let repo_id = repo.id;
-            let stale = repositories::stale_tasks(conn, &repo)
-                .map_err(crate::api::org::repositories::map_error)?;
             let rendered = crate::api::org::repositories::render(conn, vec![repo])?.remove(0);
             // Slugs everywhere (KAIROS-T-0123): the delivery board is what
             // the skills pass to `board_items`, so print it the way they
-            // will use it.
+            // will use it. It is the board of the OWNER, and the line says
+            // so: a task that links here can be on any team's board
+            // (COLLIERY-T-0219, COLLIERY-A-0023).
             let delivery_board = match rendered.delivery_board_id.as_deref() {
                 Some(id) => board_by_ref(conn, id)
                     .map(|b| format!("{} ({})", b.slug, b.name))
@@ -556,7 +556,7 @@ impl KairosMcp {
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
                     .map_err(ApiError::internal)?;
             let mut out = format!(
-                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- delivery board: {}\n- open tasks: {}\n- webhooks: {}\n",
+                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n",
                 rendered.slug,
                 rendered.forge,
                 rendered.repo_full_name,
@@ -568,11 +568,11 @@ impl KairosMcp {
                 rendered.open_tasks,
                 if rendered.has_webhook { "connected" } else { "not connected" },
             );
-            if stale > 0 {
-                out.push_str(&format!(
-                    "- STALE: {stale} task(s) bound here sit on another team's board (a re-home left them); rebind or move them\n"
-                ));
-            }
+            // No line about "stale" tasks (COLLIERY-T-0219). It counted the
+            // linked tasks on a board of a team that does not own the
+            // repository, and told the reader to rebind or move them.
+            // COLLIERY-A-0023 makes those tasks normal work, and `open tasks`
+            // above already counts them.
             out.push_str("\n## How to work here\n");
             if rendered.description.trim().is_empty() {
                 out.push_str("(no description yet)\n");

@@ -1,9 +1,16 @@
 //! `kairos repos` — the repository directory (KAIROS-T-0107, decision
-//! KAIROS-A-0019): the unit a ticket is issued against and executed in.
+//! KAIROS-A-0019): where the code is.
 //! Every repository has exactly one owning team. `bind` sets the repository
 //! a task links to and changes nothing else: the task stays on its board,
 //! with its team (COLLIERY-T-0217, COLLIERY-A-0023). Until then `bind`
 //! accepted only a repository of the team whose board the task was on.
+//!
+//! `get` does not print a line about stale tasks (COLLIERY-T-0219). That
+//! line counted the linked tasks on a board of a team that does not own the
+//! repository. COLLIERY-A-0023 makes those tasks normal work, and the `OPEN`
+//! column counts them with all the others. For the same reason the board
+//! column is `OWNER_BOARD`: it is the delivery board of the owner, not where
+//! tasks go.
 
 use kairos_client::types_repositories::{
     CreateRepositoryRequest, Repository, UpdateRepositoryRequest,
@@ -25,7 +32,7 @@ pub enum ReposCommand {
         #[command(flatten)]
         common: Common,
     },
-    /// Show one repository: owner, board, how-to-work-here, in-flight PRs
+    /// Show one repository: owner, the owner's board, how-to-work-here, in-flight PRs
     Get {
         /// Repository slug (or UUID)
         repository: String,
@@ -113,7 +120,7 @@ fn repo_table(repos: &[Repository]) -> Table {
         "FORGE",
         "NAME",
         "TEAM",
-        "DELIVERY_BOARD",
+        "OWNER_BOARD",
         "OPEN",
         "WEBHOOK",
     ]);
@@ -165,12 +172,6 @@ impl ReposCommand {
                     "webhook:        {}",
                     detail.connection_id.as_deref().unwrap_or("not connected")
                 );
-                if detail.stale_tasks > 0 {
-                    println!(
-                        "stale tasks:    {} (bound here but on another team's board — re-home left them; each is re-checked on its next write)",
-                        detail.stale_tasks
-                    );
-                }
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");
@@ -222,7 +223,7 @@ impl ReposCommand {
                     return print_json(&repo);
                 }
                 println!(
-                    "Registered {} ({} {}) under team {}; tasks route to board {}",
+                    "Registered {} ({} {}) under team {}; the delivery board of that team is {}",
                     repo.slug,
                     repo.forge,
                     repo.repo_full_name,

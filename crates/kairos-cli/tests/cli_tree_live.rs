@@ -617,6 +617,59 @@ async fn cli_command_tree_golden_path_live() {
     assert!(stdout.contains("cargo test before every PR"), "{stdout}");
     assert!(stdout.contains("How to work here"), "{stdout}");
 
+    // COLLIERY-T-0219: a task on the board of a different team links to the
+    // repository. That is normal work (COLLIERY-A-0023). `repos get` counts
+    // it as open and prints no line about stale tasks; before, it printed
+    // `stale tasks: N (...)` for such a task.
+    let other_team = alice
+        .create_team(&CreateTeamRequest {
+            name: "Web".into(),
+            slug: "web".into(),
+            team_type: None,
+        })
+        .await
+        .expect("a second team");
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "tasks",
+            "create",
+            "--team",
+            &other_team.id,
+            "--repo",
+            "payments-api",
+            "--title",
+            "Web's work in platform's code",
+            "--json",
+        ],
+    )
+    .await;
+    assert_eq!(code, 0, "tasks create on the other team failed: {stderr}");
+    let elsewhere: serde_json::Value = serde_json::from_str(&stdout).expect("task DTO JSON");
+    assert_eq!(elsewhere["team_id"].as_str(), Some(other_team.id.as_str()));
+    assert_ne!(
+        elsewhere["board_id"].as_str(),
+        Some(delivery_board_id.as_str())
+    );
+    let (code, stdout, stderr) =
+        run_cli(config_dir.path(), &["repos", "get", "payments-api"]).await;
+    assert_eq!(code, 0, "repos get failed: {stderr}");
+    assert!(stdout.contains("OWNER_BOARD"), "{stdout}");
+    assert!(!stdout.to_lowercase().contains("stale"), "{stdout}");
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["repos", "get", "payments-api", "--json"],
+    )
+    .await;
+    assert_eq!(code, 0, "repos get --json failed: {stderr}");
+    let detail: serde_json::Value = serde_json::from_str(&stdout).expect("detail JSON");
+    assert_eq!(detail["team"]["slug"], "platform");
+    assert_eq!(
+        detail["open_tasks"], 2,
+        "the bound task and the task on web's board: {detail}"
+    );
+    assert!(detail.get("stale_tasks").is_none(), "{detail}");
+
     // --repo without --board and without --team does not choose a board
     // (COLLIERY-T-0217, COLLIERY-A-0023). The CLI refuses before it sends
     // anything, and names the argument that is missing. Until then this

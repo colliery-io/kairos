@@ -1128,7 +1128,7 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_repository", json!({"repository": "payments-api"}))
         .await;
     assert!(
-        text.contains("- delivery board: platform-delivery (Platform Delivery)"),
+        text.contains("- owner's delivery board: platform-delivery (Platform Delivery)"),
         "{text}"
     );
     // #3: a PR linked to the task shows up on get_item under ## Development.
@@ -1409,6 +1409,19 @@ async fn mcp_endpoint_against_live_stack() {
         .call_ok("get_item", json!({"short_code": movable}))
         .await;
     assert!(text.contains("board: web-delivery"), "{text}");
+    // COLLIERY-T-0219: the open tasks of the repository, before web links
+    // a task to it.
+    let open_tasks = |text: &str| -> i64 {
+        text.lines()
+            .find_map(|line| line.strip_prefix("- open tasks (all boards): "))
+            .unwrap_or_else(|| panic!("no open-task line: {text}"))
+            .parse()
+            .expect("a count")
+    };
+    let text = session
+        .call_ok("get_repository", json!({"repository": "payments-api"}))
+        .await;
+    let open_before = open_tasks(&text);
     // COLLIERY-T-0217 (COLLIERY-A-0023): a task on web's board links to
     // platform's repository. The board and the owner of the repository
     // differ, which was a VALIDATION error before.
@@ -1458,6 +1471,22 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("board: web-delivery"), "{text}");
     assert!(text.contains("payments-api"), "it keeps the link: {text}");
+    // COLLIERY-T-0219: platform's repository has a linked task on web's
+    // board. That is normal work (COLLIERY-A-0023): the repository counts it
+    // as open and says nothing about stale tasks. Before, it printed a
+    // `STALE` line that told the reader to rebind or move the task.
+    let text = session
+        .call_ok("get_repository", json!({"repository": "payments-api"}))
+        .await;
+    assert!(text.contains("- owner team: platform"), "{text}");
+    assert_eq!(open_tasks(&text), open_before + 1, "{text}");
+    assert!(!text.to_lowercase().contains("stale"), "{text}");
+    let text = session.call_ok("list_repositories", json!({})).await;
+    assert!(!text.to_lowercase().contains("stale"), "{text}");
+    assert!(
+        text.contains(&format!("open tasks: {}", open_before + 1)),
+        "{text}"
+    );
     // With two delivery boards there is no default, and a repository does
     // not supply one: the caller must name the board.
     let text = session

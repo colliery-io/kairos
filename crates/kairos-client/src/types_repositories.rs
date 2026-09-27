@@ -1,6 +1,6 @@
 //! Repository DTOs (KAIROS-T-0104 / KAIROS-T-0106, decision KAIROS-A-0019):
-//! the unit a ticket is issued against and executed in. Every repository
-//! has exactly one owning team; a task binds to at most one repository.
+//! where the code is. Every repository has exactly one owning team; a task
+//! links to at most one repository, of any team (COLLIERY-A-0023).
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -49,11 +49,13 @@ pub struct Repository {
     pub description: String,
     /// The one owning team.
     pub team: RepositoryTeam,
-    /// The owning team's delivery board (UUID) — where tasks filed
-    /// against this repository land. `None` only in a misconfigured
-    /// tenant (team without a delivery board).
+    /// The delivery board of the owning team (UUID). It is a fact about
+    /// the owner, not where tasks go: the board or the team of a task
+    /// decides that (COLLIERY-T-0219, COLLIERY-A-0023). `None` only in a
+    /// misconfigured tenant (team without a delivery board).
     pub delivery_board_id: Option<String>,
-    /// Live tasks bound to this repository that are not in a done column.
+    /// Live tasks that link to this repository and are not in a done
+    /// column, on all boards of all teams (COLLIERY-T-0219).
     pub open_tasks: i64,
     /// Whether a live webhook connection exists for it.
     pub has_webhook: bool,
@@ -74,17 +76,17 @@ pub struct RepositoryTeam {
 
 /// `GET /api/repositories/{slug}`: the repository plus its webhook
 /// connection (id only — secrets are never re-read) and in-flight links.
+///
+/// Until COLLIERY-T-0219 this also carried `stale_tasks`: linked tasks on a
+/// board of a team that does not own the repository. COLLIERY-A-0023 makes
+/// that normal work, so the field is removed. This is a wire change: a
+/// client that reads the field finds it absent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct RepositoryDetail {
     #[serde(flatten)]
     pub repository: Repository,
     /// The live forge connection's id, if any.
     pub connection_id: Option<String>,
-    /// Live tasks bound to this repository whose team or board no longer
-    /// match its owner (KAIROS-T-0112) — what a re-home leaves behind until
-    /// each task's next write; 0 when consistent.
-    #[serde(default)]
-    pub stale_tasks: i64,
     /// In-flight (`open`, `draft`) branches and pull requests on this
     /// repository, newest first, each with the work item it belongs to.
     pub in_flight: Vec<crate::types_forge::TeamLink>,
@@ -114,8 +116,9 @@ pub struct CreateRepositoryRequest {
 }
 
 /// Body of `PATCH /api/repositories/{slug}` — every field optional;
-/// `team` re-homes the repository (existing tasks are untouched; the
-/// repo → team → board rule is re-checked on their next write).
+/// `team` re-homes the repository. The tasks that link to it do not
+/// change: each stays on its board and keeps its link (COLLIERY-T-0219,
+/// COLLIERY-A-0023).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct UpdateRepositoryRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -278,9 +278,11 @@ pub fn create(
 }
 
 /// Edit a repository's mutable fields (slug, URL, default branch, owning
-/// team, description). Changing the team does NOT touch tasks already
-/// bound to the repository; the repo -> team -> board rule is checked on
-/// the next task write (KAIROS-T-0104).
+/// team, description). Changing the team does NOT touch the tasks that
+/// link to the repository, now or on their next write: each task stays on
+/// its board and keeps its link (COLLIERY-T-0219, COLLIERY-A-0023). Until
+/// COLLIERY-T-0217 the owner chose the board, and the next write of such a
+/// task checked it against the new owner.
 pub fn update(
     conn: &mut PgConnection,
     id: Uuid,
@@ -349,34 +351,13 @@ pub fn soft_delete(conn: &mut PgConnection, id: Uuid, actor: Uuid) -> Result<(),
     })
 }
 
-/// Live tasks bound to the repository whose `team_id` or `board_id` no
-/// longer match the owner (KAIROS-T-0112): what a re-home leaves behind
-/// until each task's next write re-checks the rule (A-0019 §2). Surfaced
-/// on the repository detail so it is visible, not silent.
-pub fn stale_tasks(conn: &mut PgConnection, repo: &Repository) -> Result<i64, RepositoryError> {
-    use crate::schema::tasks;
-    let delivery_board = match delivery_board_for_team(conn, repo.team_id) {
-        Ok(board) => Some(board),
-        Err(RepositoryError::NoDeliveryBoard { .. }) => None,
-        Err(e) => return Err(e),
-    };
-    let mut query = tasks::table
-        .filter(tasks::repository_id.eq(repo.id))
-        .filter(tasks::deleted_at.is_null())
-        .into_boxed();
-    query = match delivery_board {
-        Some(board) => query.filter(
-            tasks::team_id
-                .is_distinct_from(Some(repo.team_id))
-                .or(tasks::board_id.ne(board)),
-        ),
-        // No delivery board at all: every bound task is stranded.
-        None => query,
-    };
-    Ok(query.count().get_result(conn)?)
-}
-
 /// How many live tasks and live connections reference the repository.
+///
+/// Until COLLIERY-T-0219 a second count stood beside this one: the "stale"
+/// tasks, linked here but on a board of a team that does not own the
+/// repository. COLLIERY-A-0023 makes that the normal case, because a task on
+/// any team's board may link to any repository. The count reported normal
+/// work as a fault, so it is removed.
 pub fn references(conn: &mut PgConnection, id: Uuid) -> Result<(i64, i64), RepositoryError> {
     use crate::schema::{forge_connections, tasks};
     let task_count: i64 = tasks::table
@@ -468,6 +449,11 @@ fn log_activity(
 /// Per-repository counts the directory renders (KAIROS-T-0106), ONE query
 /// for a whole list: live tasks not in a done column, and whether a live
 /// webhook connection exists.
+///
+/// `open_tasks` counts every open task that links to the repository, on ALL
+/// boards. It does not look at the team or the board of the task, so work
+/// that a different team does in this code is counted (COLLIERY-T-0219,
+/// COLLIERY-A-0023).
 #[derive(Debug, Clone, QueryableByName)]
 pub struct RepositoryCounts {
     #[diesel(sql_type = diesel::sql_types::Uuid)]

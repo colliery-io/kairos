@@ -1030,12 +1030,12 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 |---|---|---|---|
 | `created_at` | `string` | yes | RFC 3339. |
 | `default_branch` | `string` | yes |  |
-| `delivery_board_id` | `string`, nullable | no | The owning team's delivery board (UUID) — where tasks filed against this repository land. `None` only in a misconfigured tenant (team without a delivery board). |
+| `delivery_board_id` | `string`, nullable | no | The delivery board of the owning team (UUID). It is a fact about the owner, not where tasks go: the board or the team of a task decides that (COLLIERY-T-0219, COLLIERY-A-0023). `None` only in a misconfigured tenant (team without a delivery board). |
 | `description` | `string` | yes | Short "how to work here" blurb agents read before starting. |
 | `forge` | `string` | yes | `github|gitlab|other`. |
 | `has_webhook` | `boolean` | yes | Whether a live webhook connection exists for it. |
 | `id` | `string` | yes | Repository id (UUID). |
-| `open_tasks` | `integer` | yes | Live tasks bound to this repository that are not in a done column. |
+| `open_tasks` | `integer` | yes | Live tasks that link to this repository and are not in a done column, on all boards of all teams (COLLIERY-T-0219). |
 | `repo_full_name` | `string` | yes | `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
 | `repo_url` | `string` | yes | Browser URL of the repository. |
 | `slug` | `string` | yes | Tenant-unique slug (`^[a-z0-9][a-z0-9-]{1,62}$`). |
@@ -1044,7 +1044,7 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 
 ## RepositoryDetail
 
-`GET /api/repositories/{slug}`: the repository plus its webhook connection (id only — secrets are never re-read) and in-flight links.
+`GET /api/repositories/{slug}`: the repository plus its webhook connection (id only — secrets are never re-read) and in-flight links. Until COLLIERY-T-0219 this also carried `stale_tasks`: linked tasks on a board of a team that does not own the repository. COLLIERY-A-0023 makes that normal work, so the field is removed. This is a wire change: a client that reads the field finds it absent.
 
 ## RepositoryRef
 
@@ -1571,7 +1571,7 @@ Body of `PATCH /api/members/{user_id}` — role change. Demoting the last admin 
 
 ## UpdateRepositoryRequest
 
-Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes the repository (existing tasks are untouched; the repo → team → board rule is re-checked on their next write).
+Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes the repository. The tasks that link to it do not change: each stays on its board and keeps its link (COLLIERY-T-0219, COLLIERY-A-0023).
 
 | Field | Type | Required | Description |
 |---|---|---|---|

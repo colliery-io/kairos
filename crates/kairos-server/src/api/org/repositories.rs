@@ -1,8 +1,13 @@
 //! `/api/repositories` (KAIROS-T-0106, design in KAIROS-I-0010 §D4,
-//! decision KAIROS-A-0019): the repository directory — the unit a ticket
-//! is issued against and executed in. Every repository has exactly one
-//! owning team; tasks filed against it route to that team's delivery
-//! board (KAIROS-T-0104).
+//! decision KAIROS-A-0019): the repository directory — where the code is.
+//! Every repository has exactly one owning team. A task on any team's board
+//! may link to any repository; the owner does not choose the board
+//! (COLLIERY-A-0023).
+//!
+//! The detail does not report "stale tasks" (COLLIERY-T-0219). That count
+//! was the linked tasks on a board of a team that does not own the
+//! repository, which COLLIERY-A-0023 makes normal work. `open_tasks` counts
+//! the open tasks that link to the repository on all boards.
 //!
 //! Gating (A-0006, with one deliberate widening recorded in I-0010):
 //! - reads are open tenant-wide, like teams and boards — an agent in one
@@ -297,7 +302,6 @@ pub(crate) async fn get_repository(
         .run(&tenant.slug, move |conn| {
             let repo = repositories::resolve(conn, &slug).map_err(map_error)?;
             let repo_id = repo.id;
-            let stale_tasks = repositories::stale_tasks(conn, &repo).map_err(map_error)?;
             let connection_id = kairos_db::forge::find_connection_for_repository(conn, repo_id)
                 .map_err(super::forge::map_error)?
                 .map(|c| c.id.to_string());
@@ -322,7 +326,6 @@ pub(crate) async fn get_repository(
             Ok(dto::RepositoryDetail {
                 repository: render_one(conn, repo)?,
                 connection_id,
-                stale_tasks,
                 in_flight,
             })
         })
@@ -386,7 +389,8 @@ pub(crate) async fn create_repository(
 }
 
 /// Edit a repository (same gate as create, evaluated against the CURRENT
-/// owner). Re-homing to another team does not touch its tasks.
+/// owner). Re-homing to another team does not touch the tasks that link to
+/// the repository.
 #[utoipa::path(
     patch,
     path = "/api/repositories/{slug}",

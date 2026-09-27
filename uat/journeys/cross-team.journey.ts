@@ -46,7 +46,7 @@ journey(
       const repo = await mcp.call('get_repository', { repository: THEIR_REPO });
       const owner = repo.match(/- owner team: ([a-z0-9-]+)/)?.[1];
       // The delivery board is printed as a slug — what board_items takes.
-      theirBoard = repo.match(/- delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
+      theirBoard = repo.match(/- owner's delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
       expect(owner).toBeTruthy();
       expect(theirBoard).toBeTruthy();
       const howToWorkHere = repo.split('## How to work here')[1]?.split('##')[0]?.trim().split('\n')[0];
@@ -95,7 +95,7 @@ journey(
     await step(carol, `creates her own task on ${MY_REPO} and links the platform task as blocking it`, async () => {
       const mcp = await carol.mcp();
       const myRepo = await mcp.call('get_repository', { repository: MY_REPO });
-      const myBoard = myRepo.match(/- delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
+      const myBoard = myRepo.match(/- owner's delivery board: ([a-z0-9][a-z0-9-]*) \(/)?.[1] ?? '';
       expect(myBoard).toBeTruthy();
       const text = await mcp.call('create_item', {
         item_type: 'task',

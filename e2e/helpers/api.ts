@@ -427,8 +427,8 @@ export function githubPullRequest(opts: {
 
 /**
  * Raw status of `POST /api/relationships` — the cross-team coordination
- * edge (KAIROS-A-0019 §D6: `parent`/`blocks` are collaborative; the author
- * of the source may link it without managing the target's board).
+ * edge. The link rule (COLLIERY-T-0228): a caller who may edit the item at
+ * one end may write the edge, for each relationship type.
  */
 export async function tryCreateRelationship(
   server: string,

@@ -15,7 +15,8 @@
 //      repository with no board is refused; carol cannot
 //      transition it; bob (a platform member, NOT an admin) can — the team
 //      gate, not the admin bypass; carol links her own web task to it with
-//      a `blocks` edge (collaborative relationship); the card shows the chip
+//      a `blocks` edge (the link rule: she can edit one end); bob, who can
+//      edit neither of two web tasks, is refused; the card shows the chip
 //   3b. the New task dialog offers every repository of the tenant: those
 //      of the team of the board first, then the others with the name of
 //      their owning team; a task created with a repository of a different
@@ -171,16 +172,24 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     expect(board.columnName.get(filed.column_id)).toBe('Backlog');
     expect(filed.repository.slug).toBe('payments-api');
 
-    // Carol cannot move it (file_backlog stops at the entry column); bob —
-    // a platform member with no admin bypass — can: the team gate proper.
+    // Carol cannot move it (she created it, and creation grants no
+    // movement, COLLIERY-T-0228); bob — a platform member with no admin
+    // bypass — can: the team gate proper.
     const todo = [...board.columnName.entries()].find(([, name]) => name === 'Todo')![0];
     expect(await tryTransitionTask(GUI, carol, filedCode, todo)).toBe(403);
     expect(await tryTransitionTask(GUI, bob, filedCode, todo)).toBe(200);
 
     // Coordination across the seam: carol files the web-side half against
-    // her own repo and links the platform task as blocking it. `blocks` is
-    // collaborative (A-0019 §D6) — authoring the source is enough, no
-    // platform-board power needed. A `supports` edge is not, so it is refused.
+    // her own repo and links the platform task as blocking it. She can edit
+    // the two tasks (she created them), so the link rule lets her write the
+    // edge, with no platform-board power (COLLIERY-T-0228).
+    //
+    // A `supports` edge between two tasks is refused by the TYPE rule
+    // (`supports` runs to a document or an ADR), with 422. Until
+    // COLLIERY-T-0228 it was a 403: `supports` needed the admin role, and
+    // the type rule was never reached. bob can edit neither of two tasks
+    // that carol created on the board of web, and for him each edge is a
+    // 403.
     const webSide = await createTask(GUI, carol, {
       title: 'Portal: consume the export endpoint',
       boardId: 'web-delivery',
@@ -200,7 +209,22 @@ test('repositories: team panel → board lens → cross-team filing → any repo
         target: webSide.short_code,
         relationship: 'supports',
       }),
-    ).toBe(403);
+    ).toBe(422);
+    const webSecond = await createTask(GUI, carol, {
+      title: 'Portal: show the export in the finance page',
+      boardId: 'web-delivery',
+      repository: 'portal-web',
+    });
+    for (const relationship of ['blocks', 'supports', 'informs', 'supersedes', 'parent']) {
+      expect(
+        await tryCreateRelationship(GUI, bob, {
+          source: webSide.short_code,
+          target: webSecond.short_code,
+          relationship,
+        }),
+        `${relationship}: bob can edit neither end`,
+      ).toBe(403);
+    }
 
     // It renders on the board with its repo chip.
     await page.goto('/boards/platform-delivery');

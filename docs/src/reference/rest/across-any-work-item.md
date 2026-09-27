@@ -11,7 +11,12 @@ Operations addressed by `{entity_type}` and a short code, so they work uniformly
 
 ### `POST /api/relationships`
 
-Create a relationship edge (org admin only, A-0006). The T-0013 graph
+Create a relationship edge.
+
+The link rule applies (COLLIERY-T-0228). The caller can edit the source
+or the target. The rule is the same for each relationship type.
+
+The T-0013 graph
 service enforces the A-0001 type-rule matrix, cycle prevention for
 `parent`/`blocks`, and duplicate detection — each rejection is a 422
 with its typed reason (module docs).
@@ -21,12 +26,16 @@ Request body (required): `application/json`, [`CreateRelationshipRequest`](schem
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Relationship`](schemas.md#relationship) | Edge created (relationship_add activity row written) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Caller is not an org admin |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller may edit neither the source nor the target |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Rule violation, cycle, duplicate edge, or unknown endpoint |
 
 ### `DELETE /api/relationships/{id}`
 
-Remove a relationship edge by id (org admin only, A-0006). Goes
+Remove a relationship edge by id.
+
+The link rule applies (COLLIERY-T-0228), as for the create.
+
+Goes
 through the T-0013 unlink service so the `relationship_remove`
 activity row is written.
 
@@ -37,7 +46,7 @@ activity row is written.
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeletedResponse`](schemas.md#deletedresponse) | Edge removed |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Caller is not an org admin |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller may edit neither the source nor the target |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such edge |
 
 ### `GET /api/{entity_type}/{short_code}/children-progress`
@@ -157,8 +166,12 @@ An item's metadata values with their definitions (open tenant-wide).
 
 ### `PATCH /api/{entity_type}/{short_code}/metadata`
 
-Set/update/clear metadata values on an item (requires the item's
-`manage_<type>` capability on its authorization board). Every entry is
+Set/update/clear metadata values on an item.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+item, holds `manage_<type>` on its authorization board, or is an organization admin.
+
+Every entry is
 validated BEFORE anything is written (A-0003: unknown slug and invalid
 values are 422 `VALIDATION`); the writes then apply atomically.
 
@@ -172,7 +185,7 @@ Request body (required): `application/json`, [`UpdateMetadataRequest`](schemas.m
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`ItemMetadataResponse`](schemas.md#itemmetadataresponse) | The item's metadata after the update |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability on the item's board |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown definition slug or invalid value for its type |
 
@@ -227,7 +240,7 @@ Put an archived item back on its board.
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`RestoreResponse`](schemas.md#restoreresponse) | Restored |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code, or the item is not archived |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Its board, column, team or repository is gone; details.missing names them |
 

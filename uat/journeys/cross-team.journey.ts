@@ -10,13 +10,17 @@
 // The request goes to the entry column of platform's board, in the Support
 // lane. She cannot select the planned lane. The repository is optional; she
 // names it here because she knows it.
-// Everything else is exactly what
-// the recipe says she cannot do — and the product refuses. bob triages on
-// the platform board in the GUI; carol watches her own board live.
+//
+// She created the request, so she can edit it, link it and archive it (the
+// edit rule and the link rule, COLLIERY-T-0228). She cannot MOVE it: not
+// to another column, not to the planned lane, not to another board. That
+// is what the recipe says she cannot do — and the product refuses. bob
+// triages on the platform board in the GUI; carol watches her own board
+// live.
 //
 // A `blocks` badge counts LIVE edges, not the blocker's column, so the
 // dependency clears when carol removes the edge once platform is done —
-// the edge is hers to remove because she authored its source.
+// the edge is hers to remove because she can edit the item at one end.
 import { expect } from '@playwright/test';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
@@ -119,7 +123,48 @@ journey(
       expect(refusal).toContain('That team moves it');
       expect(refusal).toContain('file_backlog');
       expect(refusal).toContain('transition_items');
+      // COLLIERY-T-0228: it also says what she CAN do, and it is true (the
+      // next step). Until then it said "To move, edit or delete it".
+      expect(refusal).toContain('you can edit it, link it and archive it');
+      expect(refusal).not.toContain('To move, edit or delete it');
       return { refused: refusal.split('\n')[0].slice(0, 200) };
+    });
+
+    await step(carol, 'corrects the text of her request: she created it, so she can edit it', async () => {
+      // The edit rule (COLLIERY-T-0228). She holds nothing on platform's
+      // board. Until then this call was refused, and a wrong word in a
+      // request stayed wrong until platform had time for it.
+      const mcp = await carol.mcp();
+      const edited = await mcp.call('edit_item', {
+        short_code: filed,
+        search: '(CSV)',
+        replace: '(CSV, UTF-8)',
+      });
+      expect(edited).toContain(`Edited ${filed}`);
+      const item = await mcp.call('get_item', { short_code: filed });
+      expect(item).toContain('(CSV, UTF-8)');
+      // An edit moves nothing: the entry column, the Support lane.
+      expect(item).toContain('column: Backlog');
+      expect(item).toContain('(task) · lane: support');
+      return { edited: filed, still_in: 'Backlog, support lane' };
+    });
+
+    await step(carol, 'opens her request in the GUI: the edit controls are there, the move controls are not', async () => {
+      // The page mirrors the server (COLLIERY-T-0228). She created the
+      // request, so she gets the controls that edit it. She holds nothing
+      // on platform's board, so she gets no control that moves it.
+      const page = await carol.gui();
+      await openItem(page, filed);
+      const repository = page.locator('[data-testid="repository-control"]');
+      await expect(repository, 'the repository is an edit').toBeVisible({ timeout: 10_000 });
+      await expect(repository.getByRole('button', { name: 'Set repository' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Delete' })).toBeEnabled();
+      // The repository control needs whoami, so whoami has resolved: the
+      // move controls are absent because she may not move, not because the
+      // page is still loading.
+      await expect(page.locator('.kairos-item__move'), 'no column move, no lane change').toHaveCount(0);
+      await expect(page.locator('[data-testid="move-board"]'), 'no board move').toHaveCount(0);
+      return { shown: 'repository, delete, editor', hidden: 'move, lane, board' };
     });
 
     await step(bob, 'sees the request in the Support lane of platform\'s Backlog, takes it into the plan, and triages it to Todo', async () => {

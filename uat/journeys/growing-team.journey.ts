@@ -193,6 +193,10 @@ journey(
       // so the refusal is the plain one: it names the capability that
       // membership used to imply, and it does not name the Backlog. Until
       // COLLIERY-T-0218 it said that the card "sits in the Backlog".
+      //
+      // COLLIERY-T-0228: the power to MOVE was the membership, and it is
+      // gone. He created the card, so he can still edit its text. Creation
+      // grants no movement, which is what this step proves.
       expect(refused).toContain('FORBIDDEN');
       expect(refused).toContain('transition_items');
       expect(refused).not.toContain('Backlog');

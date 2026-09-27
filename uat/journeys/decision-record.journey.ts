@@ -118,8 +118,9 @@ journey(
     });
 
     await step(alice, 'hangs the decision off the initiative it was made for', async () => {
-      // `informs` is org-admin only (an ADR speaking to a piece of work
-      // is an editorial claim), which is why alice does this and not bob.
+      // alice can edit the initiative, so the link rule lets her write the
+      // edge (COLLIERY-T-0228). Until then `informs` needed the admin
+      // role, and that was why alice did this and not bob.
       const mcp = await alice.mcp();
       const linked = await mcp.call('link_items', {
         source: decision,

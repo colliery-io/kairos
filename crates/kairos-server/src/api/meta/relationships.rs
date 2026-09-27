@@ -1,8 +1,9 @@
 //! `/api/relationships` + `GET /api/{entity_type}/{short_code}/relationships`
 //! (KAIROS-S-0005, graph semantics per KAIROS-A-0001 / T-0013).
 //!
-//! Reads are open tenant-wide; POST/DELETE are org-admin only (A-0006:
-//! relationships are tenant-wide configuration). The T-0013 typed link
+//! Reads are open tenant-wide; POST/DELETE take the link rule
+//! (COLLIERY-T-0228): the caller may edit the item at either end, for each
+//! relationship type. The T-0013 typed link
 //! errors map to 422 with a machine-readable reason:
 //! `RELATIONSHIP_RULE` (type-rule matrix violation), `CYCLE_DETECTED`
 //! (acyclic relationship would close a cycle), `ALREADY_LINKED`
@@ -23,10 +24,10 @@ use uuid::Uuid;
 
 use diesel::prelude::*;
 
-use super::{require_edge_capability, resolve_family_item};
+use super::resolve_family_item;
 use crate::api::convert::IntoDto;
 use crate::api::convert_meta::timestamp;
-use crate::api::{Liveness, parse_enum, parse_uuid, resolve_short_code};
+use crate::api::{Liveness, parse_enum, parse_uuid, require_edge_write, resolve_short_code};
 use crate::app::AppState;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
@@ -383,7 +384,12 @@ pub(crate) async fn get_relationships(
     Ok(Json(response))
 }
 
-/// Create a relationship edge (org admin only, A-0006). The T-0013 graph
+/// Create a relationship edge.
+///
+/// The link rule applies (COLLIERY-T-0228). The caller can edit the source
+/// or the target. The rule is the same for each relationship type.
+///
+/// The T-0013 graph
 /// service enforces the A-0001 type-rule matrix, cycle prevention for
 /// `parent`/`blocks`, and duplicate detection — each rejection is a 422
 /// with its typed reason (module docs).
@@ -394,7 +400,7 @@ pub(crate) async fn get_relationships(
     request_body = dto::CreateRelationshipRequest,
     responses(
         (status = 201, description = "Edge created (relationship_add activity row written)", body = dto::Relationship),
-        (status = 403, description = "Caller is not an org admin", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "The caller may edit neither the source nor the target", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Rule violation, cycle, duplicate edge, or unknown endpoint", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -427,11 +433,10 @@ pub(crate) async fn create_relationship(
                                 body.target_short_code
                             ))
                         })?;
-                // KAIROS-T-0111: collaborative edges (parent, blocks) by members
-                // who manage either end or authored the source; the rest admin.
-                require_edge_capability(
+                // COLLIERY-T-0228: the link rule, for each relationship type.
+                require_edge_write(
                     conn,
-                    &tenant_ctx,
+                    &tenant_ctx.slug,
                     user,
                     relationship.as_str(),
                     (source_id, source_type),
@@ -445,7 +450,11 @@ pub(crate) async fn create_relationship(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Remove a relationship edge by id (org admin only, A-0006). Goes
+/// Remove a relationship edge by id.
+///
+/// The link rule applies (COLLIERY-T-0228), as for the create.
+///
+/// Goes
 /// through the T-0013 unlink service so the `relationship_remove`
 /// activity row is written.
 #[utoipa::path(
@@ -455,7 +464,7 @@ pub(crate) async fn create_relationship(
     params(("id" = String, Path, description = "Relationship edge id (UUID)")),
     responses(
         (status = 200, description = "Edge removed", body = dto::DeletedResponse),
-        (status = 403, description = "Caller is not an org admin", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "The caller may edit neither the source nor the target", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "No such edge", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -479,14 +488,15 @@ pub(crate) async fn delete_relationship(
                 .optional()
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            // KAIROS-T-0111: removing an edge is gated exactly like writing it.
+            // KAIROS-T-0111: removing an edge is gated exactly like writing
+            // it. COLLIERY-T-0228: by the link rule.
             let source_type = crate::api::resolve_item_type(conn, edge.source_id)?
                 .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
             let target_type = crate::api::resolve_item_type(conn, edge.target_id)?
                 .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            require_edge_capability(
+            require_edge_write(
                 conn,
-                &tenant_ctx,
+                &tenant_ctx.slug,
                 user,
                 edge.relationship.as_str(),
                 (edge.source_id, source_type),

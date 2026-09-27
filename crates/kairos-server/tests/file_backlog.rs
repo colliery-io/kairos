@@ -2,8 +2,14 @@
 //! (KAIROS-T-0105, amended by COLLIERY-T-0218 for COLLIERY-A-0023
 //! decisions 7 and 8): any tenant member may send a REQUEST to any team, a
 //! task in the entry column of its delivery board, in the support lane —
-//! and NOTHING else opens up. The negative suite is the contract; it walks
-//! the whole write surface rather than sampling.
+//! and NOTHING else opens up on the BOARD. The negative suite is the
+//! contract; it walks the whole write surface rather than sampling.
+//!
+//! COLLIERY-T-0228: the person who sent a request created it, so she can
+//! edit it, link it and archive it (the edit rule and the link rule;
+//! `tests/edit_rule.rs` is their contract). She cannot MOVE it: transition,
+//! work class and board are as they were. The assertions here that said
+//! she cannot edit are inverted, and no other.
 //!
 //! The rule, for a caller who does not manage the target board:
 //!
@@ -579,28 +585,12 @@ async fn file_backlog_against_live_stack() {
             .await,
     );
     assert!(matches!(err, Error::Validation { .. }), "{err}");
-    // Not on what she filed: transition, edit, delete, work-class,
-    // repository, metadata.
+    // She cannot MOVE what she filed: transition, work class, board. A
+    // team controls its own plan, and creation grants nothing here
+    // (COLLIERY-T-0228).
     forbidden(
         alice.transition_task(&filed.short_code, &todo).await,
         "transitioning what she filed",
-    );
-    forbidden(
-        alice
-            .update_task(
-                &filed.short_code,
-                &UpdateContentRequest {
-                    title: None,
-                    content: "edited".into(),
-                    version: filed.version,
-                },
-            )
-            .await,
-        "editing what she filed",
-    );
-    forbidden(
-        alice.delete_task(&filed.short_code).await,
-        "deleting what she filed",
     );
     forbidden(
         alice
@@ -609,27 +599,103 @@ async fn file_backlog_against_live_stack() {
         "re-laning what she filed",
     );
     forbidden(
-        alice.set_task_repository(&filed.short_code, None).await,
-        "unbinding what she filed",
+        alice
+            .set_task_work_class(&filed.short_code, "planned")
+            .await,
+        "planning what she filed",
     );
     forbidden(
         alice
+            .move_task(&filed.short_code, web.delivery_board_id.as_deref().unwrap())
+            .await,
+        "moving what she filed to her own board",
+    );
+    // She CAN edit it: she created it (the edit rule, COLLIERY-T-0228).
+    // Until then these four were refused, with `manage_tasks` as the reason.
+    let edited = alice
+        .update_task(
+            &filed.short_code,
+            &UpdateContentRequest {
+                title: None,
+                content: "edited".into(),
+                version: filed.version,
+            },
+        )
+        .await
+        .expect("the creator edits what she filed");
+    assert_eq!(edited.content, "edited");
+    alice
+        .set_task_repository(&filed.short_code, None)
+        .await
+        .expect("the creator clears the repository of what she filed");
+    alice
+        .set_task_repository(&filed.short_code, Some("payments-api"))
+        .await
+        .expect("the creator sets the repository of what she filed");
+    alice
+        .update_metadata(
+            kairos_client::EntityKind::Task,
+            &filed.short_code,
+            &kairos_client::types_meta::UpdateMetadataRequest {
+                values: [("priority".to_string(), Some("high".to_string()))]
+                    .into_iter()
+                    .collect(),
+            },
+        )
+        .await
+        .expect("the creator sets metadata on what she filed");
+    alice
+        .delete_task(&filed.short_code)
+        .await
+        .expect("the creator archives what she filed");
+    alice
+        .restore_task(&filed.short_code)
+        .await
+        .expect("the creator restores what she filed");
+    // A person who did not create it, and holds nothing on the board, can
+    // do none of that. carol is one.
+    forbidden(
+        carol
+            .update_task(
+                &filed.short_code,
+                &UpdateContentRequest {
+                    title: None,
+                    content: "by carol".into(),
+                    version: edited.version,
+                },
+            )
+            .await,
+        "editing what a different person filed",
+    );
+    forbidden(
+        carol.delete_task(&filed.short_code).await,
+        "deleting what a different person filed",
+    );
+    forbidden(
+        carol.set_task_repository(&filed.short_code, None).await,
+        "unbinding what a different person filed",
+    );
+    forbidden(
+        carol
             .update_metadata(
                 kairos_client::EntityKind::Task,
                 &filed.short_code,
                 &kairos_client::types_meta::UpdateMetadataRequest {
-                    values: [("priority".to_string(), Some("high".to_string()))]
+                    values: [("priority".to_string(), Some("low".to_string()))]
                         .into_iter()
                         .collect(),
                 },
             )
             .await,
-        "setting metadata on what she filed",
+        "setting metadata on what a different person filed",
     );
-    // Nothing she was refused changed the request.
+    // No edit and no refusal moved the request.
     let unchanged = svc.get_task(&filed.short_code).await.expect("the request");
     assert_eq!(unchanged.column_id, backlog, "still in the entry column");
     assert_eq!(unchanged.work_class, "support");
+    assert_eq!(unchanged.board_id, platform_board, "still on the board");
+    assert_eq!(unchanged.content, "edited", "the edit of its creator only");
+    assert!(unchanged.archived_at.is_none());
     // The receiving team CAN. bob moves the request to the planned lane with
     // the work-class endpoint: the team plans its own work (COLLIERY-A-0023).
     let planned = bob
@@ -687,7 +753,8 @@ async fn file_backlog_against_live_stack() {
     );
 
     // =======================================================================
-    // The collaborative edges (KAIROS-T-0111): a filer links what she filed
+    // The link rule (COLLIERY-T-0228, which replaced KAIROS-T-0111): a
+    // person links what she can edit, and she can edit what she created
     // =======================================================================
     // Two initiatives on the initiative board: one alice authored (she is
     // its creator; the board is admin-managed so she holds no grant there),
@@ -755,17 +822,24 @@ async fn file_backlog_against_live_stack() {
         .create_relationship(&edge(&alice_own.short_code, &filed.short_code, "blocks"))
         .await
         .expect("manage on the source's board suffices");
-    // parent under the foreign initiative: no manage anywhere, not the author -> 403.
-    forbidden(
-        alice
-            .create_relationship(&edge(
-                &foreign_initiative.short_code,
-                &filed.short_code,
-                "parent",
-            ))
-            .await,
-        "parenting under another team's initiative",
-    );
+    // parent under the foreign initiative. She cannot edit the initiative.
+    // She can edit the TARGET, her request, and one end is sufficient
+    // (COLLIERY-T-0228). Until then this was a 403: the rule looked at the
+    // creator of the source only. tests/edit_rule.rs has the negative case
+    // that replaces it: a person who can edit NEITHER end.
+    let under_foreign = alice
+        .create_relationship(&edge(
+            &foreign_initiative.short_code,
+            &filed.short_code,
+            "parent",
+        ))
+        .await
+        .expect("she can edit the target: her request");
+    // She removes it again, so the request has no parent for what follows.
+    alice
+        .delete_relationship(&under_foreign.id)
+        .await
+        .expect("the same rule for the removal");
     // Two foreign items: 403.
     forbidden(
         alice
@@ -777,8 +851,11 @@ async fn file_backlog_against_live_stack() {
             .await,
         "linking two items she neither manages nor authored",
     );
-    // Non-collaborative types stay org-admin even on her own items.
-    forbidden(
+    // No relationship type needs the admin role (COLLIERY-T-0228). She can
+    // edit the two tasks, so the refusal of `supersedes` is the TYPE rule
+    // (adr -> adr only), and it is a 422. Until then it was a 403 that
+    // said "admin only", and the type rule was never reached.
+    let err = rejection(
         alice
             .create_relationship(&edge(
                 &alice_own.short_code,
@@ -786,10 +863,29 @@ async fn file_backlog_against_live_stack() {
                 "supersedes",
             ))
             .await,
-        "supersedes is admin-only",
     );
-    // The same rule over MCP create_item's `parent`: foreign initiative refused
-    // BEFORE the task exists; a parent she authored is fine.
+    assert!(
+        !matches!(err, Error::Forbidden { .. }) && err.to_string().contains("RELATIONSHIP_RULE"),
+        "supersedes between two tasks is refused by the type rule: {err}"
+    );
+    // For a person who can edit neither end, each type is a 403: carol
+    // created `by_carol` only.
+    for relationship in ["parent", "blocks", "supports", "informs", "supersedes"] {
+        forbidden(
+            carol
+                .create_relationship(&edge(
+                    &foreign_initiative.short_code,
+                    &filed.short_code,
+                    relationship,
+                ))
+                .await,
+            "an edge between two items that she cannot edit",
+        );
+    }
+    // The same rule over MCP create_item's `parent`. She creates the task,
+    // so she can link it to a parent that she cannot edit
+    // (COLLIERY-T-0228). Until then the foreign initiative was refused. A
+    // parent that the TYPE rules refuse still leaves no task.
     let tasks_before = svc
         .list_tasks(kairos_client::types::Pagination {
             limit: Some(200),
@@ -811,7 +907,24 @@ async fn file_backlog_against_live_stack() {
             }),
         )
         .await;
-    assert!(is_error, "foreign parent refused: {text}");
+    assert!(!is_error, "she creates the target of the edge: {text}");
+    assert!(text.contains("parent edge created"), "{text}");
+    let tasks_before = tasks_before + 1;
+    let (is_error, text) = mcp
+        .call(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Parented under a task",
+                "board": platform_board,
+                "parent": alice_own.short_code,
+            }),
+        )
+        .await;
+    assert!(
+        is_error && text.contains("VALIDATION"),
+        "a task cannot be the parent of a task: {text}"
+    );
     let tasks_after = svc
         .list_tasks(kairos_client::types::Pagination {
             limit: Some(200),
@@ -824,8 +937,8 @@ async fn file_backlog_against_live_stack() {
         tasks_before, tasks_after,
         "a refused parent leaves no orphan task"
     );
-    // An initiative alice AUTHORED (svc grants her manage_initiatives on the
-    // initiative board so she can create one; the edge rule then admits her
+    // An initiative alice CREATED (svc grants her manage_initiatives on the
+    // initiative board so she can create one; the link rule then admits her
     // as its creator even without manage on the filed task's board).
     svc.add_board_member(
         &initiative_board_id,
@@ -859,7 +972,7 @@ async fn file_backlog_against_live_stack() {
             }),
         )
         .await;
-    assert!(!is_error, "own-authored parent allowed: {text}");
+    assert!(!is_error, "a parent that she created: {text}");
     assert!(text.contains("parent edge created"), "{text}");
     let (is_error, text) = mcp
         .call(
@@ -1059,21 +1172,49 @@ async fn file_backlog_against_live_stack() {
             && text.contains("file_backlog"),
         "{text}"
     );
+    // The explanation says what is true since COLLIERY-T-0228: she can
+    // edit, link and archive the request, and she cannot move it.
+    assert!(
+        text.contains("so you can edit it, link it and archive it")
+            && text.contains("To move it, you need \"transition_items\"")
+            && !text.contains("To move, edit or delete it"),
+        "{text}"
+    );
     // `filed` is hers too, but bob moved it out of the entry column above:
-    // the plain refusal, which does not name the entry column.
+    // the plain refusal, which does not name the entry column. Until
+    // COLLIERY-T-0228 the refused write here was `update_item`. That is an
+    // edit, and she created the task, so it is allowed now; a move is what
+    // she is still refused.
     let (is_error, text) = mcp
         .call(
-            "update_item",
-            json!({"short_code": filed.short_code, "content": "x", "version": 1}),
+            "transition_item",
+            json!({"short_code": filed.short_code, "to_column": "Active"}),
         )
         .await;
     assert!(
-        is_error && text.contains("FORBIDDEN") && text.contains("manage_tasks"),
+        is_error && text.contains("FORBIDDEN") && text.contains("transition_items"),
         "{text}"
     );
     assert!(
         !text.contains("entry column") && !text.contains("file_backlog"),
         "a card that left the entry column is not described as in it: {text}"
+    );
+    let filed_now = svc.get_task(&filed.short_code).await.expect("the request");
+    let (is_error, text) = mcp
+        .call(
+            "update_item",
+            json!({"short_code": filed.short_code, "content": "edited over MCP",
+                   "version": filed_now.version}),
+        )
+        .await;
+    assert!(!is_error, "the creator edits over MCP: {text}");
+    assert_eq!(
+        svc.get_task(&filed.short_code)
+            .await
+            .expect("the request")
+            .column_id,
+        todo,
+        "an edit does not move the card"
     );
     let (is_error, text) = mcp
         .call(

@@ -18,7 +18,8 @@ use uuid::Uuid;
 use super::convert::{IntoDto, attach_repositories, attach_repository};
 use super::{
     Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref,
-    parse_enum, parse_opt_uuid, parse_uuid, require_capability, short_code_not_found,
+    parse_enum, parse_opt_uuid, parse_uuid, require_capability, require_item_edit,
+    short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -376,8 +377,10 @@ pub(crate) async fn create_task(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update task content (KAIROS-A-0004 optimistic concurrency; requires
-/// `manage_tasks` on the task's board).
+/// Update task content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// task, holds `manage_tasks` on its board, or is an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/tasks/{short_code}",
@@ -386,7 +389,7 @@ pub(crate) async fn create_task(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Task),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -404,7 +407,7 @@ pub(crate) async fn update_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, task.id, ItemType::Task)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -433,8 +436,10 @@ pub(crate) async fn update_task(
     Ok(Json(updated))
 }
 
-/// Soft-delete a task (KAIROS-A-0001; requires `manage_tasks` on the
-/// task's board).
+/// Soft-delete a task (KAIROS-A-0001).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// task, holds `manage_tasks` on its board, or is an organization admin.
 #[utoipa::path(
     delete,
     path = "/api/tasks/{short_code}",
@@ -442,7 +447,7 @@ pub(crate) async fn update_task(
     params(("short_code" = String, Path, description = "Task short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -458,7 +463,7 @@ pub(crate) async fn delete_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, task.id, ItemType::Task)?;
             let outcome = items::soft_delete_item(conn, ItemType::Task, task.id, user)
                 .map_err(map_item_error)?;
             Ok(dto::DeleteResponse {
@@ -474,6 +479,7 @@ pub(crate) async fn delete_task(
 /// Move a task between the Planned/Support lanes (KAIROS-T-0077;
 /// requires `transition_items` on the task's board — lane moves are
 /// board moves in UX terms, though the rules engine is never consulted).
+/// The creator of the task gets no right here (COLLIERY-T-0228).
 #[utoipa::path(
     post,
     path = "/api/tasks/{short_code}/work-class",
@@ -501,6 +507,9 @@ pub(crate) async fn set_work_class(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
             let updated = items::set_task_work_class(conn, task.id, work_class, user)
                 .map_err(map_item_error)?;
@@ -514,8 +523,8 @@ pub(crate) async fn set_work_class(
 /// `PUT /api/tasks/{short_code}/repository` and of MCP `set_repository`
 /// (COLLIERY-T-0220, COLLIERY-A-0023).
 ///
-/// The two entry points load the task and check the capability in their own
-/// way, because each has its own refusal text. All that follows the gate is
+/// The two entry points load the task in their own way, and each calls the
+/// edit rule (`require_item_edit`, COLLIERY-T-0228). All that follows the gate is
 /// here, so the two cannot give different results (the KAIROS-T-0096 lesson):
 /// which repository a reference names, what "unknown" means, and the write.
 ///
@@ -548,8 +557,10 @@ pub(crate) fn link_task_to_repository(
 
 /// Set the repository a task links to, or clear it (KAIROS-T-0104).
 /// The link can be any live repository. The board and the team of the task
-/// do not change (COLLIERY-T-0217, COLLIERY-A-0023). Requires
-/// `manage_tasks` on the task's board.
+/// do not change (COLLIERY-T-0217, COLLIERY-A-0023).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// task, holds `manage_tasks` on its board, or is an organization admin.
 #[utoipa::path(
     put,
     path = "/api/tasks/{short_code}/repository",
@@ -558,7 +569,7 @@ pub(crate) fn link_task_to_repository(
     request_body = kairos_client::types_repositories::SetTaskRepositoryRequest,
     responses(
         (status = 200, description = "Repository link updated. `null` or an empty string clears it", body = dto::Task),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 422, description = "Unknown repository", body = dto::ErrorEnvelope),
     ),
@@ -576,7 +587,7 @@ pub(crate) async fn set_repository(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, task.id, ItemType::Task)?;
             let updated = link_task_to_repository(conn, task.id, body.repository.as_deref(), user)?;
             attach_repository(conn, updated.into_dto()).map_err(ApiError::internal)
         })
@@ -588,7 +599,8 @@ pub(crate) async fn set_repository(
 /// target's entry column and follows the target's team. Requires
 /// `manage_tasks` on the current board AND on the target (org admins
 /// bypass, as everywhere). The move does not look at the repository of the
-/// task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023).
+/// task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023). The
+/// creator of the task gets no right here (COLLIERY-T-0228).
 #[utoipa::path(
     post,
     path = "/api/tasks/{short_code}/move",
@@ -616,8 +628,12 @@ pub(crate) async fn move_task(
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
             let target = board_id_by_ref(conn, &body.board)?;
-            // Two-sided, like edges and re-homing: the work leaves one team's
-            // board and lands on another's.
+            // Two-sided: the work leaves one team's board and lands on
+            // another's, so the caller needs the capability on the two.
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of a task needs the capability on the two boards
+            // as all others do, because a team controls its own plan
+            // (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             require_capability(conn, &slug, Some(target), user, MANAGE)?;
             boards::move_task(conn, task.id, target, user).map_err(map_board_error)?;
@@ -628,9 +644,9 @@ pub(crate) async fn move_task(
     Ok(Json(moved))
 }
 
-/// A live board by slug or UUID; 404 otherwise.
 /// Move a task to another column (requires `transition_items` on the
-/// task's board).
+/// task's board). The creator of the task gets no right here
+/// (COLLIERY-T-0228).
 #[utoipa::path(
     post,
     path = "/api/tasks/{short_code}/transition",
@@ -658,6 +674,9 @@ pub(crate) async fn transition_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
             boards::transition_task(conn, task.id, to_column_id, user).map_err(map_board_error)?;
             Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())

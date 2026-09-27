@@ -25,6 +25,10 @@ else is refused at grant time.
 | `configure_boards` | Add, rename, reorder and remove columns and transitions |
 | `administer_members` | Add and remove board members, and grant and revoke their capabilities |
 
+A `manage_<type>` capability gates the create of an item on the board. For an
+edit or a delete, the capability is one of three ways in: see
+[The edit rule](#the-edit-rule).
+
 ### Templates and metadata definitions are not delegable
 
 Writes to document templates and metadata definitions are **org-admin only**,
@@ -105,7 +109,7 @@ cannot carry them; grant and revoke refuse them. `whoami` reports them under
 
 | Capability | How it is satisfied |
 |---|---|
-| `file_backlog` | Every member of the tenant holds it on every live **delivery** board. It permits a request to any team: a **task** in the entry column of its delivery board, in the support lane. The server consults it only when the caller does not hold `manage_tasks` on the board. The work class of a request is `support`. The server refuses a request that sends the work class `planned`. The server refuses a request that names a column that is not the entry column. The repository is optional. It is not part of the condition. The capability does not permit a move, an edit, or a delete of the request. |
+| `file_backlog` | Every member of the tenant holds it on every live **delivery** board. It permits a request to any team: a **task** in the entry column of its delivery board, in the support lane. The server consults it only when the caller does not hold `manage_tasks` on the board. The work class of a request is `support`. The server refuses a request that sends the work class `planned`. The server refuses a request that names a column that is not the entry column. The repository is optional. It is not part of the condition. The capability permits the create only. The person who sends a request created it, so the [edit rule](#the-edit-rule) lets that person edit it and archive it. No rule lets that person move it. |
 
 Two further implications are computed the same way — by the authorisation
 check rather than by a stored row:
@@ -132,7 +136,8 @@ Authorisation needs a board, and not every item carries one directly.
 
 **When no board resolves, the org-admin-only policy applies.** That is the
 fallback for an off-board ADR, a document with no resolvable parent, and
-tenant-wide configuration.
+tenant-wide configuration. For an edit, the creator of the item also passes:
+see [The edit rule](#the-edit-rule).
 
 **An archived item resolves the same board, and therefore the same
 capabilities, as it did while live.** Archiving is a visibility default and
@@ -140,14 +145,82 @@ not a permission boundary, so putting work away neither widens nor narrows who
 may act on it — the write paths refuse archived items on their own, separately
 from authorisation. See [Archiving](../explanation/archiving.md).
 
-## Relationship edges
+## The edit rule
 
-Writing a relationship is org-admin by default, with one exception.
+A principal is a person or a service account. A principal can edit an item
+when one of these conditions is true:
 
-| Relationship | Who may write it |
+1. The principal created the item.
+2. The principal holds the `manage_<type>` capability on the authorization
+   board of the item.
+3. The principal is an organization admin.
+
+The rule applies to each item type: strategy, initiative, task, document, ADR.
+
+Creation is the primary mechanism of ownership. The server reads who created
+the item, and does not read where the item is. If a team moves the item to a
+different board, its creator can continue to edit it.
+
+### What an edit is
+
+| Write | REST | MCP tool |
+|---|---|---|
+| Title and content | `PATCH /api/{type}/{short_code}` | `update_item`, `edit_item` |
+| Metadata | `PATCH /api/{type}/{short_code}/metadata` | `set_metadata` |
+| Repository of a task | `PUT /api/tasks/{short_code}/repository` | `set_repository` |
+| Lifecycle of a document | `PATCH /api/documents/{short_code}/lifecycle` | — |
+| Archive | `DELETE /api/{type}/{short_code}` | `delete_item` |
+| Restore | `POST /api/{type}/{short_code}/restore` | `restore_item` |
+
+An archive cascades through `parent` edges. The server asks the edit rule for
+the named item only, and not for each descendant.
+
+### What creation does not grant
+
+Creation grants no movement. These writes keep the capability check, and the
+creator of the item gets no right there:
+
+| Write | REST | MCP tool | Capability |
+|---|---|---|---|
+| Move between columns | `POST /api/{type}/{short_code}/transition` | `transition_item` | `transition_items` on the board |
+| Change the lane | `POST /api/tasks/{short_code}/work-class` | — | `transition_items` on the board |
+| Move to a different board | `POST /api/tasks/{short_code}/move` | `move_item` | `manage_tasks` on the two boards |
+
+A team controls its own plan. A person who sends a request to a different
+team can edit the request, link it and archive it. That person cannot move it
+out of the entry column. That person cannot put it in the planned lane, and
+cannot move it to a different board.
+
+Creation grants nothing on a board, a team, a member, a capability, a
+repository or the tenant configuration.
+
+Creation does not change who can create. The create of an item needs
+`manage_<type>` on the target board, or `file_backlog` for a request. The
+create of a document needs `manage_documents` on the authorization board of
+its parent.
+
+## Who can write relationships
+
+This is the link rule. A principal can create or remove an edge when the
+principal can edit the item at one end. The source is sufficient, and the
+target is sufficient. [The edit rule](#the-edit-rule) decides each end.
+
+| Relationship | Who can write it |
 |---|---|
-| `parent`, `blocks` | An org admin, **or** a member who manages the source's board, **or** a member who manages the target's board, **or** the user who created the source item |
-| `supports`, `informs`, `supersedes` | Org admin only |
+| `parent`, `blocks`, `supports`, `informs`, `supersedes` | A principal who can edit the source **or** the target: its creator, **or** a holder of `manage_<type>` on its authorization board, **or** an organization admin |
+
+No relationship type needs the admin role. Releases up to and including 0.4.0
+kept `supports`, `informs` and `supersedes` for organization admins. In those
+releases the rule for `parent` and `blocks` did not look at the creator of the
+target.
+
+The link rule decides who can write an edge. It does not decide which edges
+can exist. The type rules, the cycle check and the duplicate check do not
+change. A caller who can edit the two ends of an impossible edge gets
+`RELATIONSHIP_RULE`, not `FORBIDDEN`.
+
+A refusal names two capabilities, one for each end. The caller needs one of
+them.
 
 ## Related guides
 

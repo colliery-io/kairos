@@ -252,6 +252,178 @@ pub fn require_capability(
     }
 }
 
+/// What a principal lacks to edit one item: the `manage_<type>` capability
+/// of its type, on its authorization board. `board_id: None` = the item has
+/// no authorization board, and what is missing is the admin role.
+struct MissingEdit {
+    capability: &'static str,
+    board_id: Option<Uuid>,
+}
+
+/// The edit rule for one item, as a value: `None` = the principal may edit
+/// it. The shared core of [`require_item_edit`] and [`require_edge_write`],
+/// so the two read the same facts and decide with the same function
+/// ([`kairos_core::abac::may_edit_item`]).
+fn missing_edit(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    item_type: ItemType,
+) -> Result<Option<MissingEdit>, ApiError> {
+    let capability = meta::manage_capability(item_type);
+    let (facts, board_id) =
+        abac::edit_facts(conn, slug, user_id, item_id, capability).map_err(map_abac_error)?;
+    Ok(if kairos_core::abac::may_edit_item(facts) {
+        None
+    } else {
+        Some(MissingEdit {
+            capability,
+            board_id,
+        })
+    })
+}
+
+/// THE EDIT RULE (COLLIERY-T-0228): may this principal edit this item?
+///
+/// A principal, a person or a service account, may edit an item when ONE
+/// of these is true:
+///
+/// 1. the principal created the item (`created_by`),
+/// 2. the principal holds `manage_<type>` on the authorization board of
+///    the item ([`abac::resolve_authorization_board`]: the board of the
+///    item, or for a document the board of its `supports` parent),
+/// 3. the principal is an admin of the organization.
+///
+/// WHY. Creation is the primary mechanism of ownership: the person who
+/// wrote an item can correct it. A capability on a board is how a team
+/// shares that ownership. Until COLLIERY-T-0228 only rules 2 and 3
+/// existed, so a person who sent a request to a different team could not
+/// correct a wrong word in it.
+///
+/// The rule applies to each item type: strategy, initiative, task,
+/// document, ADR. It reads who created the item and not where the item is,
+/// so the right stays with the creator when the item moves to a different
+/// board.
+///
+/// AN EDIT IS: the title and the content, the metadata, the repository of
+/// a task, the editorial lifecycle of a document, archive, and restore.
+/// Each REST handler and each MCP tool for those writes calls this
+/// function, and no other check.
+///
+/// CREATION DOES NOT GRANT MOVEMENT. `transition`, `work-class` and `move`
+/// do not call this function. They call [`require_capability`], and the
+/// creator of an item gets nothing there. A team controls its own plan
+/// (COLLIERY-T-0218, COLLIERY-A-0023): the person who sends a request
+/// cannot move it out of the entry column, cannot put it in the planned
+/// lane, and cannot move it to a different board. Creation grants nothing
+/// on a board, a team, a member, a capability, a repository or the
+/// configuration of the tenant. Who may CREATE an item does not change
+/// either.
+///
+/// The refusal is the 403 of [`require_capability`]: it names the
+/// `manage_<type>` capability that the principal does not hold, and the
+/// board.
+pub fn require_item_edit(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    item_type: ItemType,
+) -> Result<(), ApiError> {
+    match missing_edit(conn, slug, user_id, item_id, item_type)? {
+        None => Ok(()),
+        Some(missing) => Err(ApiError::capability_required(
+            missing.capability,
+            missing.board_id,
+        )),
+    }
+}
+
+/// One end of an edge: the id and the type of the item.
+pub type EdgeEnd = (Uuid, ItemType);
+
+/// THE LINK RULE (COLLIERY-T-0228): may this principal write this edge?
+///
+/// A principal may create or remove an edge when the principal may EDIT
+/// the item at EITHER end, by the edit rule ([`require_item_edit`]): the
+/// creator of the source or of the target, or `manage_<type>` on the
+/// authorization board of the source or of the target, or an admin of the
+/// organization.
+///
+/// The rule is the same for each relationship type: `parent`, `blocks`,
+/// `supports`, `informs`, `supersedes`. No relationship type needs the
+/// admin role. Until COLLIERY-T-0228 `supports`, `informs` and
+/// `supersedes` did, and `parent` and `blocks` looked at the creator of
+/// the source only (KAIROS-T-0111). Each edge that the old rule allowed,
+/// this rule allows.
+///
+/// WHY either end. An edge is a statement about two items, and the two are
+/// frequently on the boards of two teams. If the rule needed the two ends,
+/// no person could link work across teams, which is what edges are for.
+///
+/// The rule decides WHO. It does not decide WHICH edges can exist: the
+/// type rules (`kairos_core::graph::check_link`), the cycle check and the
+/// duplicate check are in the graph service, and they do not change. A
+/// caller who may edit the two ends of an impossible edge gets
+/// `RELATIONSHIP_RULE`, not `FORBIDDEN`.
+///
+/// One function for REST `POST /api/relationships` and
+/// `DELETE /api/relationships/{id}`, for MCP `link_items` and
+/// `unlink_items`, and for the edge that MCP `create_item` writes for
+/// `parent`. They cannot give different answers.
+///
+/// The refusal names the two capabilities, one for each end, of which the
+/// principal needs one. `details.required_capability` and
+/// `details.board_id` are those of the source. `details.any_of` has the
+/// two ends.
+pub fn require_edge_write(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: &str,
+    (source_id, source_type): EdgeEnd,
+    (target_id, target_type): EdgeEnd,
+) -> Result<(), ApiError> {
+    let source = missing_edit(conn, slug, user_id, source_id, source_type)?;
+    let target = missing_edit(conn, slug, user_id, target_id, target_type)?;
+    if kairos_core::abac::may_write_edge(source.is_none(), target.is_none()) {
+        return Ok(());
+    }
+    // From here the answer is a refusal, whatever follows: the text below
+    // only says what is missing.
+    let source_capability = meta::manage_capability(source_type);
+    let target_capability = meta::manage_capability(target_type);
+    let source_board = source.and_then(|missing| missing.board_id);
+    let target_board = target.and_then(|missing| missing.board_id);
+    let need = |capability: &str, board: Option<Uuid>, end: &str| match board {
+        Some(_) => format!("{capability:?} on the board of the {end}"),
+        None => format!("the organization admin role for the {end}"),
+    };
+    Err(ApiError::forbidden(format!(
+        "A {relationship} edge needs {}, or {}.",
+        need(source_capability, source_board, "source"),
+        need(target_capability, target_board, "target"),
+    ))
+    .with_details(json!({
+        "relationship": relationship,
+        "required_capability": source_capability,
+        "board_id": source_board,
+        "any_of": [
+            {
+                "end": "source",
+                "required_capability": source_capability,
+                "board_id": source_board,
+            },
+            {
+                "end": "target",
+                "required_capability": target_capability,
+                "board_id": target_board,
+            },
+        ],
+    })))
+}
+
 // ---------------------------------------------------------------------------
 // Short-code resolution
 // ---------------------------------------------------------------------------

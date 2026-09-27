@@ -193,10 +193,13 @@ What a person who does not manage the board creates is a *request*, and the
 widening is bounded to exactly that. The request goes to the board's entry
 column. It is counted as support work, whatever kind of task it is. The sender
 cannot ask for the planned lane and cannot name a later column; both are
-refused, not quietly corrected. Afterwards the sender cannot move the request,
-edit it or delete it. The one thing the sender may still do is draw a parent
-or blocking edge from it, so that the sender's own board shows what it is
-waiting on.
+refused, not quietly corrected. Afterwards the sender cannot move the request:
+not to another column, not to the planned lane, not to another board. What the
+sender keeps is what any author keeps. They may edit the request, withdraw it
+by archiving it, and link it, so that the sender's own board shows what it is
+waiting on. [Capabilities and
+access](capabilities-and-access.md#the-person-who-made-it-may-edit-it) argues
+where that line sits and why.
 
 The lane is the part that needed an argument. A team's planned lane is its
 plan: the work it chose, in the order it chose. Work that arrives from outside

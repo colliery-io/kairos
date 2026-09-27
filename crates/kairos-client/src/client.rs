@@ -476,7 +476,8 @@ impl KairosClient {
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the
     /// team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
-    /// Requires `manage_tasks` on the board of the task.
+    /// The edit rule applies (COLLIERY-T-0228): the caller created the
+    /// task, or holds `manage_tasks` on its board, or is an org admin.
     pub async fn set_task_repository(
         &self,
         short_code: &str,
@@ -1115,7 +1116,8 @@ impl KairosClient {
         self.get(&path).await
     }
 
-    /// `POST /api/relationships` (org admin, KAIROS-A-0006).
+    /// `POST /api/relationships`. The link rule applies
+    /// (COLLIERY-T-0228): the caller may edit the item at either end.
     pub async fn create_relationship(
         &self,
         request: &CreateRelationshipRequest,
@@ -1123,7 +1125,8 @@ impl KairosClient {
         self.post_created("/api/relationships", request).await
     }
 
-    /// `DELETE /api/relationships/{id}` (org admin).
+    /// `DELETE /api/relationships/{id}`. The link rule applies, as for
+    /// the create.
     pub async fn delete_relationship(
         &self,
         relationship_id: &str,

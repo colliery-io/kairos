@@ -15,6 +15,11 @@
 //! workflow parents, but defense-in-depth), the org-admin-only fallback
 //! applies.
 //!
+//! That is the CREATE gate, and COLLIERY-T-0228 did not change it. Each
+//! later write to the document (content, lifecycle, archive) takes the
+//! edit rule ([`super::require_item_edit`]): its creator, or
+//! `manage_documents` on the authorization board, or an org admin.
+//!
 //! COLLIERY-T-0227: create + link run in ONE transaction
 //! ([`super::atomically`]). They were two, on the reasoning that the parent
 //! pre-checks made a link failure after the create unreachable. The checks
@@ -38,7 +43,8 @@ use serde_json::json;
 use super::convert::IntoDto;
 use super::{
     Liveness, atomically, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
-    parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
+    parse_opt_uuid, require_capability, require_item_edit, resolve_short_code,
+    short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -64,8 +70,12 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Set a document's editorial lifecycle (KAIROS-T-0078): a free-transition
-/// label — draft | review | published | archived — gated like every other
-/// document write (`manage_documents` on the authorization board). Not a
+/// label — draft | review | published | archived.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
+/// The lifecycle is a label and not a column, so this write is an edit and
+/// not a move. Not a
 /// content edit: no version bump, no history row; activity-logged and
 /// announced via the existing `item_updated` thin event.
 #[utoipa::path(
@@ -76,7 +86,7 @@ pub fn router() -> Router<AppState> {
     request_body = dto::SetLifecycleRequest,
     responses(
         (status = 200, description = "Lifecycle updated", body = dto::Document),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 422, description = "Bad lifecycle value", body = dto::ErrorEnvelope),
     ),
@@ -99,8 +109,7 @@ pub(crate) async fn set_lifecycle(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, document.id, ItemType::Document)?;
             let updated = items::set_document_lifecycle(conn, document.id, lifecycle, user)
                 .map_err(map_item_error)?;
             Ok(updated.into_dto())
@@ -128,16 +137,6 @@ fn load(
         .optional()
         .map_err(ApiError::internal)?
         .ok_or_else(|| short_code_not_found("document", short_code))
-}
-
-/// The board that authorizes writes to this document: its parent workflow
-/// item's board via the `supports` edge (A-0006 inheritance); `None` = no
-/// board context → org-admin-only fallback.
-fn authorization_board(
-    conn: &mut PgConnection,
-    document_id: uuid::Uuid,
-) -> Result<Option<uuid::Uuid>, ApiError> {
-    abac::resolve_authorization_board(conn, document_id).map_err(map_abac_error)
 }
 
 /// List documents (open tenant-wide, S-0005 list envelope).
@@ -226,7 +225,8 @@ pub(crate) async fn get_document(
 
 /// Create a document attached to a workflow item (`parent_short_code`
 /// REQUIRED — see the module docs). Requires `manage_documents` on the
-/// parent's board. With `template_id`, the template's content and metadata
+/// parent's board. COLLIERY-T-0228 did not change this gate. A document
+/// has no board, so this gate decides which item a document can support. With `template_id`, the template's content and metadata
 /// defaults are stamped (KAIROS-A-0003).
 #[utoipa::path(
     post,
@@ -305,8 +305,10 @@ pub(crate) async fn create_document(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update document content (KAIROS-A-0004 optimistic concurrency; requires
-/// `manage_documents` on the parent's board — A-0006 inheritance).
+/// Update document content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/documents/{short_code}",
@@ -315,7 +317,7 @@ pub(crate) async fn create_document(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Document),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -333,8 +335,7 @@ pub(crate) async fn update_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, document.id, ItemType::Document)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -360,8 +361,10 @@ pub(crate) async fn update_document(
     Ok(Json(updated))
 }
 
-/// Soft-delete a document (requires `manage_documents` on the parent's
-/// board — A-0006 inheritance).
+/// Soft-delete a document.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
 #[utoipa::path(
     delete,
     path = "/api/documents/{short_code}",
@@ -369,7 +372,7 @@ pub(crate) async fn update_document(
     params(("short_code" = String, Path, description = "Document short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -385,8 +388,7 @@ pub(crate) async fn delete_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, document.id, ItemType::Document)?;
             let outcome = items::soft_delete_item(conn, ItemType::Document, document.id, user)
                 .map_err(map_item_error)?;
             Ok(dto::DeleteResponse {

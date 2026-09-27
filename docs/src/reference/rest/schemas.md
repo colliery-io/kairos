@@ -332,7 +332,7 @@ Body of `POST /api/metadata-definitions` (org admin).
 
 ## CreateRelationshipRequest
 
-Body of `POST /api/relationships` (org admin only, KAIROS-A-0006).
+Body of `POST /api/relationships`. The caller may edit the item at either end (the link rule, COLLIERY-T-0228).
 
 | Field | Type | Required | Description |
 |---|---|---|---|

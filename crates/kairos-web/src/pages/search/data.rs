@@ -314,7 +314,8 @@ pub async fn relationships(auth: Auth, short_code: &str) -> Result<ItemRelations
     api::get_json(auth, &format!("/api/{family}/{short_code}/relationships")).await
 }
 
-/// `POST /api/relationships` (org admin; the typed 422s — `RELATIONSHIP_RULE`,
+/// `POST /api/relationships` (the link rule, COLLIERY-T-0228: the caller may
+/// edit one end; the typed 422s — `RELATIONSHIP_RULE`,
 /// `CYCLE_DETECTED`, `ALREADY_LINKED` — arrive as `ApiError::Http{code}`).
 pub async fn create_relationship(
     auth: Auth,
@@ -323,7 +324,7 @@ pub async fn create_relationship(
     api::post_json(auth, "/api/relationships", request).await
 }
 
-/// `DELETE /api/relationships/{id}` (org admin).
+/// `DELETE /api/relationships/{id}` (the link rule, as for the create).
 pub async fn delete_relationship(
     auth: Auth,
     relationship_id: &str,

@@ -7,8 +7,9 @@
 //!
 //! # Why this is not a new privilege
 //!
-//! Restoring is the inverse of archiving, so it asks for the same
-//! capability the delete asked for — `manage_<family>` on the item's board.
+//! Restoring is the inverse of archiving, so it asks what the delete
+//! asked: the edit rule (COLLIERY-T-0228). The caller created the item, or
+//! holds `manage_<family>` on the item's board, or is an org admin.
 //! Inventing a `restore_items` capability would mean every existing
 //! deployment had someone who could put work away and nobody who could put
 //! it back.
@@ -28,7 +29,7 @@ use kairos_client::types as dto;
 use kairos_db::items;
 use serde_json::json;
 
-use super::{manage_capability, resolve_family_item};
+use super::resolve_family_item;
 use crate::api::{Liveness, map_item_error};
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -53,7 +54,7 @@ pub fn router() -> Router<AppState> {
     ),
     responses(
         (status = 200, description = "Restored", body = dto::RestoreResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code, or the item is not archived", body = dto::ErrorEnvelope),
         (status = 422, description = "Its board, column, team or repository is gone; details.missing names them", body = dto::ErrorEnvelope),
     ),
@@ -71,9 +72,7 @@ pub(crate) async fn restore_item(
         .run(&tenant.slug, move |conn| {
             let (item_id, item_type) =
                 resolve_family_item(conn, &family, &short_code, Liveness::IncludeArchived)?;
-            let board = kairos_db::abac::resolve_authorization_board(conn, item_id)
-                .map_err(crate::api::map_abac_error)?;
-            crate::api::require_capability(conn, &slug, board, user, manage_capability(item_type))?;
+            crate::api::require_item_edit(conn, &slug, user, item_id, item_type)?;
 
             match items::restore_item(conn, item_type, item_id, user).map_err(map_item_error)? {
                 Ok(outcome) => Ok(dto::RestoreResponse {

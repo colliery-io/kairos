@@ -26,7 +26,8 @@
 //! Cast:
 //! - `svc`   — org admin: passes each capability gate, so that a refusal
 //!   here is a refusal of the RELATIONSHIP and not of the caller,
-//! - `alice` — org member: the capability path of an ADR with a parent.
+//! - `alice` — org member: the capability path of an ADR with a parent
+//!   (`manage_adrs` on the ADR board alone, COLLIERY-T-0228).
 
 mod common;
 
@@ -645,18 +646,15 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     assert_eq!(supports_edges_to_adr(&mut conn, "Plimsoll decision"), 1);
     let _ = drain_events(&mut listener).await;
 
-    // A member. `manage_adrs` on the ADR board lets her create the ADR. The
-    // parent asks for what a document asks for: `manage_documents` on the
-    // board of the parent. Without it the create is refused, and leaves
-    // nothing.
-    sql_query("SET search_path TO org_acme, public")
-        .execute(&mut conn)
-        .expect("pinning search_path");
-    abac::grant_capability(&mut conn, adr_board, alice_id, "manage_adrs", svc_id)
-        .expect("grant manage_adrs");
-    sql_query("SET search_path TO public")
-        .execute(&mut conn)
-        .expect("resetting search_path");
+    // A member. COLLIERY-T-0228: the gate of an ADR with a parent is
+    // `manage_adrs` on the ADR board, and no more. She creates the ADR, so
+    // the link rule lets her link it to a parent that she cannot edit.
+    // Until then the parent asked for `manage_documents` on its board, as a
+    // stand-in for a link rule that did not exist.
+    //
+    // The refusal that leaves nothing is kept, one step earlier: with no
+    // `manage_adrs` she cannot create the ADR, and the parent changes
+    // nothing about that.
     let mut alice_mcp = McpSession::open(&server.base_url, &alice_token).await;
     let before = footprint(&mut conn);
     let (is_error, text) = alice_mcp
@@ -667,10 +665,10 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         .await;
     assert!(
         is_error,
-        "a member with no capability on the parent: {text}"
+        "a member with no capability on the ADR board: {text}"
     );
     assert!(text.starts_with("FORBIDDEN"), "{text}");
-    assert!(text.contains("manage_documents"), "{text}");
+    assert!(text.contains("manage_adrs"), "{text}");
     assert_nothing_written(
         &mut conn,
         &mut listener,
@@ -678,21 +676,27 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         &svc,
         "Grommet decision",
         before,
-        "ADR from a member with no capability on the parent",
+        "ADR from a member with no capability on the ADR board",
     )
     .await;
 
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
-    abac::grant_capability(
-        &mut conn,
-        initiative_board,
-        alice_id,
-        "manage_documents",
-        svc_id,
-    )
-    .expect("grant manage_documents");
+    abac::grant_capability(&mut conn, adr_board, alice_id, "manage_adrs", svc_id)
+        .expect("grant manage_adrs");
+    // She holds nothing on the board of the parent, and did not create it.
+    assert!(
+        !abac::authorize(
+            &mut conn,
+            "acme",
+            initiative_board,
+            alice_id,
+            "manage_documents"
+        )
+        .expect("authorize"),
+        "the fixture gives her no capability on the board of the parent"
+    );
     sql_query("SET search_path TO public")
         .execute(&mut conn)
         .expect("resetting search_path");
@@ -702,7 +706,14 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
             json!({"item_type": "adr", "title": "Grommet decision", "parent": initiative}),
         )
         .await;
-    assert!(!is_error, "a member with both capabilities: {text}");
+    assert!(
+        !is_error,
+        "a member with `manage_adrs` and nothing on the parent: {text}"
+    );
+    assert!(
+        text.contains(&format!("parent: {initiative} (supports edge created)")),
+        "{text}"
+    );
     assert_eq!(rows_titled(&mut conn, "Grommet decision"), 1);
     assert_eq!(supports_edges_to_adr(&mut conn, "Grommet decision"), 1);
 

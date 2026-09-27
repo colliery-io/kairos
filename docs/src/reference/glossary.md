@@ -106,6 +106,19 @@ though it no longer appears on the board. A board can mark a column as a
 
 T-shirt sizing on an initiative: `xs`, `s`, `m`, `l`, `xl`.
 
+## creator
+
+The principal who created an item: a person or a service account. Each item
+records its creator, and the creator does not change.
+
+Creation is the primary mechanism of ownership. The creator can
+[edit](#edit-rule) the item with no capability on its board. The creator keeps
+that right when the item moves to a different board.
+
+Creation grants no movement. The creator needs the capability of the board to
+move the item between columns, to change its lane, or to move it to a
+different board.
+
 ## delete
 
 Always a soft delete, and the same act as archiving in sense 1 above: the item
@@ -156,6 +169,19 @@ Two results follow from the flag:
 
 See sense 2 of [archived](#archived).
 
+## edit rule
+
+The rule that decides who can edit an item. A principal can edit an item when
+one of these conditions is true:
+
+- The principal is the [creator](#creator) of the item.
+- The principal holds `manage_<type>` on the authorization board of the item.
+- The principal is an organization admin.
+
+An edit is a change of the title, the content, the metadata, the repository of
+a task, or the editorial lifecycle of a document. An archive and a restore are
+edits also. A move is not an edit. See [Capabilities](capabilities.md#the-edit-rule).
+
 ## entry column
 
 A board's first column by position, among its live columns. A new item goes
@@ -174,8 +200,9 @@ board. It applies when all of these conditions are true:
   entry column.
 - The caller did not send the work class `planned`.
 
-The repository is not part of the condition. The capability does not permit a
-move, an edit or a delete. See [Capabilities](capabilities.md).
+The repository is not part of the condition. The capability permits the create
+only. The [edit rule](#edit-rule) lets the [creator](#creator) of the request
+edit it and archive it. See [Capabilities](capabilities.md).
 
 ## flight level
 
@@ -201,6 +228,14 @@ complexity and may be a bucket.
 Any of the five content-bearing types — strategy, initiative, task, document,
 ADR. All five carry a short code, a version, markdown content and a version
 history. Also called a *work item*.
+
+## link rule
+
+The rule that decides who can write a [relationship](#relationship). A
+principal can create or remove an edge when the principal can edit the item at
+one end. The [edit rule](#edit-rule) decides each end. The rule is the same
+for each relationship type. See
+[Capabilities](capabilities.md#who-can-write-relationships).
 
 ## metadata definition
 
@@ -235,9 +270,8 @@ A directed edge between two items. Five types exist:
 | `blocks` | The source blocks the target. |
 
 Which types are legal between which item types is enforced, as is cycle
-prevention. `parent` and `blocks` may be written by anyone who manages either
-item's board or who created the source item; the other three are org-admin
-only.
+prevention. The [link rule](#link-rule) decides who can write an edge, and it
+is the same for the five types.
 
 **Complete work does not block, and nothing blocks complete work.** A `blocks`
 edge counts only while the items at both ends can move. The edge stops counting
@@ -276,8 +310,9 @@ See [Repositories as execution scope](../explanation/repositories-as-execution-s
 A task that a person creates on the delivery board of a team, when the person
 does not hold `manage_tasks` on that board. A request goes to the
 [entry column](#entry-column). Its [work class](#work-class) is `support`. A
-repository is optional. The person who sent the request cannot move it, edit
-it or delete it. A member of the team that receives it can change the work
+repository is optional. The person who sent the request is its
+[creator](#creator). That person can edit it, link it and archive it, and
+cannot move it. A member of the team that receives it can change the work
 class to `planned`. The capability is [`file_backlog`](#file_backlog).
 
 ## role

@@ -423,12 +423,15 @@ pub fn resolve_authorization_board(
     Ok(None)
 }
 
-/// Who created a workflow item or document, if it exists (KAIROS-T-0111):
-/// the "I created the source" arm of the collaborative edge rule. Items span
-/// the five entity tables in one UUID space.
+/// Who created a workflow item or document, if it exists (KAIROS-T-0111).
+/// Since COLLIERY-T-0228 it is the first fact of the edit rule
+/// ([`edit_facts`]); until then it was one arm of the rule for `parent` and
+/// `blocks` edges, and looked at the source only. Items span the five
+/// entity tables in one UUID space.
 ///
 /// Archived items answer too (KAIROS-A-0020): who made a thing is a fact
-/// about the row, not about whether it is still on a board.
+/// about the row, not about whether it is still on a board. The edit rule
+/// needs that: the creator of an item can restore it.
 pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<Uuid>, AbacError> {
     use crate::schema::{adrs, documents, initiatives, strategies, tasks};
     macro_rules! try_table {
@@ -449,4 +452,46 @@ pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<
     try_table!(documents);
     try_table!(adrs);
     Ok(None)
+}
+
+/// The facts of the edit rule for one principal and one item
+/// (COLLIERY-T-0228), and the authorization board that was asked. The
+/// decision is [`kairos_core::abac::may_edit_item`]; this function only
+/// loads what it needs.
+///
+/// `manage_capability` is the `manage_<type>` capability of the item type.
+/// The board is [`resolve_authorization_board`]: the board of the item, or
+/// for a document the board of its `supports` parent. With no board,
+/// `holds_manage` is `false`: only the creator and an admin can edit such
+/// an item.
+///
+/// The creator is read from the row and not from the board, so the answer
+/// does not change when the item moves to a different board. An unknown
+/// item has no creator, no board, and so no fact but the admin role.
+///
+/// The three facts are loaded each time, with no early return. The cost is
+/// a small number of indexed reads, and a caller that refuses can then say
+/// which capability is missing, on which board.
+pub fn edit_facts(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    manage_capability: &str,
+) -> Result<(kairos_core::abac::EditFacts, Option<Uuid>), AbacError> {
+    let created_item = item_created_by(conn, item_id)? == Some(user_id);
+    let is_org_admin = is_org_admin(conn, org_slug, user_id)?;
+    let board = resolve_authorization_board(conn, item_id)?;
+    let holds_manage = match board {
+        Some(board_id) => check_capability(conn, board_id, user_id, manage_capability)?,
+        None => false,
+    };
+    Ok((
+        kairos_core::abac::EditFacts {
+            created_item,
+            holds_manage,
+            is_org_admin,
+        },
+        board,
+    ))
 }

@@ -225,6 +225,32 @@ pub(crate) fn board_powers(
     }
 }
 
+/// May the signed-in user EDIT one item (COLLIERY-T-0228)? The client
+/// mirror of the edit rule of the server: the user created the item, or
+/// holds `required`, its `manage_<type>` capability, where it counts for
+/// that item ([`holds_capability`], which has the admin bypass).
+///
+/// It gates the controls that are edits: the repository of a task, and
+/// Restore. It must NOT gate a control that moves the item. The column,
+/// the lane and the board of an item belong to the team of the board, and
+/// the creator of an item gets no right there. Those controls ask
+/// [`board_powers`], which does not know who created what.
+///
+/// `created_by` is the user id on the item. An empty id matches nobody, so
+/// an item that carries no creator gives no right to a user with no id.
+///
+/// Pure, host-tested. The server remains the authority.
+pub(crate) fn may_edit_item(
+    me: &crate::api::Whoami,
+    created_by: &str,
+    board_slug: Option<&str>,
+    board_team_id: Option<&str>,
+    required: &str,
+) -> bool {
+    let created_item = !created_by.is_empty() && me.user.id == created_by;
+    created_item || holds_capability(me, board_slug, board_team_id, required)
+}
+
 /// Does the signed-in user hold `required` where it counts for ONE item
 /// (KAIROS-T-0164's Restore affordance)?
 ///
@@ -2187,6 +2213,96 @@ mod tests {
 
         let nobody = me("member", &[], &[]);
         assert!(!holds_capability(&nobody, None, None, "manage_documents"));
+    }
+
+    /// COLLIERY-T-0228: the creator of an item may edit it with no
+    /// capability, and a user who did not create it needs the capability.
+    #[test]
+    fn may_edit_item_mirrors_the_edit_rule() {
+        let nobody = me("member", &[], &[]);
+        let mine = nobody.user.id.clone();
+        assert!(!mine.is_empty(), "the fixture gives the user an id");
+        // The creator: no team, no grant, no role.
+        assert!(may_edit_item(
+            &nobody,
+            &mine,
+            Some("platform-delivery"),
+            Some("t1"),
+            "manage_tasks"
+        ));
+        // An item with no board (a document, an off-board ADR).
+        assert!(may_edit_item(
+            &nobody,
+            &mine,
+            None,
+            None,
+            "manage_documents"
+        ));
+        // A different creator, and no capability: no edit.
+        assert!(!may_edit_item(
+            &nobody,
+            "someone-else",
+            Some("platform-delivery"),
+            Some("t1"),
+            "manage_tasks"
+        ));
+        // An item that carries no creator gives no right.
+        assert!(!may_edit_item(
+            &nobody,
+            "",
+            Some("platform-delivery"),
+            Some("t1"),
+            "manage_tasks"
+        ));
+        // The capability and the admin role are as they were.
+        let bob = me("member", &["t1"], &[]);
+        assert!(may_edit_item(
+            &bob,
+            "someone-else",
+            Some("platform-delivery"),
+            Some("t1"),
+            "manage_tasks"
+        ));
+        assert!(!may_edit_item(
+            &bob,
+            "someone-else",
+            Some("web-delivery"),
+            Some("t2"),
+            "manage_tasks"
+        ));
+        let admin = me("admin", &[], &[]);
+        assert!(may_edit_item(
+            &admin,
+            "someone-else",
+            Some("any"),
+            None,
+            "manage_strategies"
+        ));
+    }
+
+    /// COLLIERY-T-0228: creation grants no movement. The powers that gate
+    /// the move controls do not take a creator, so they cannot give one a
+    /// right: a user with no team and no grant moves nothing.
+    #[test]
+    fn the_creator_gets_no_power_to_move() {
+        let nobody = me("member", &[], &[]);
+        let powers = board_powers(
+            &nobody,
+            "platform-delivery",
+            Some("t1"),
+            Some(EntityKind::Task),
+        );
+        assert!(!powers.transition, "no column move, no lane change");
+        assert!(!powers.create, "the source half of a board move");
+        assert!(
+            movable_delivery_boards(
+                &nobody,
+                &[board("platform-delivery", "delivery", Some("t1"))],
+                "web-delivery"
+            )
+            .is_empty(),
+            "no target for a board move"
+        );
     }
 
     /// KAIROS-I-0012: the move picker offers the OTHER delivery boards

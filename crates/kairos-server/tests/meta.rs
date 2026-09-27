@@ -11,11 +11,13 @@
 //! is never touched (shared-services discipline).
 //!
 //! Cast (per KAIROS-A-0006):
-//! - `svc`   — org ADMIN: the only role allowed to write relationships,
-//!   metadata definitions, and templates,
+//! - `svc`   — org ADMIN: the only role allowed to write metadata
+//!   definitions and templates. Relationships take the link rule
+//!   (COLLIERY-T-0228): a member who can edit one end writes the edge,
 //! - `alice` — org member with `manage_initiatives`/`manage_documents` on
 //!   the initiative board and `manage_tasks` on the delivery board,
-//! - `bob`   — org member with NO grants (the 403 matrix; reads only).
+//! - `bob`   — org member with NO grants, who created nothing (the 403
+//!   matrix; reads only).
 
 mod common;
 
@@ -233,11 +235,51 @@ async fn meta_endpoints_against_live_stack() {
     let doc_code = document.short_code.clone();
 
     // ==========================================================================
-    // Relationships: org-admin writes, typed 422s, grouped both-direction GET
+    // Relationships: the link rule, typed 422s, grouped both-direction GET
     // ==========================================================================
-    // Non-admin cannot write a NON-collaborative edge (A-0006: relationships
-    // are tenant-wide config; KAIROS-T-0111 carves out parent/blocks for
-    // members who manage either end or authored the source).
+    // COLLIERY-T-0228: no relationship type needs the admin role. Until
+    // then this place asserted that `informs` by a member is a 403 with
+    // `required_role: admin`. It is replaced by the two halves of the link
+    // rule.
+    //
+    // The negative half: bob can edit neither end (he created nothing and
+    // holds no grant), so the edge is a 403 that names the capability.
+    let informs_request = CreateRelationshipRequest {
+        source_short_code: doc_code.clone(),
+        target_short_code: initiative_code.clone(),
+        relationship: "informs".into(),
+    };
+    let err = rejection(bob.create_relationship(&informs_request).await);
+    match &err {
+        Error::Forbidden {
+            code,
+            details,
+            capability,
+            message,
+        } => {
+            assert_eq!(code, "FORBIDDEN");
+            assert_eq!(capability.as_deref(), Some("manage_documents"));
+            assert_eq!(details["relationship"], "informs");
+            assert_eq!(
+                details["any_of"][1]["required_capability"],
+                "manage_initiatives"
+            );
+            assert!(details.get("required_role").is_none(), "{details}");
+            assert!(
+                message.contains("manage_documents") && message.contains("manage_initiatives"),
+                "{message}"
+            );
+        }
+        other => panic!("expected Forbidden, got {other}"),
+    }
+    // The positive half: alice can edit the two ends, and she is a member.
+    let informs = alice
+        .create_relationship(&informs_request)
+        .await
+        .expect("a member who can edit the document links it with informs");
+    assert_eq!(informs.relationship, "informs");
+    // The type rules are as they were: `informs` runs from a document or an
+    // ADR. The refusal is about the edge, so it is a 422 and not a 403.
     let err = rejection(
         alice
             .create_relationship(&CreateRelationshipRequest {
@@ -248,15 +290,14 @@ async fn meta_endpoints_against_live_stack() {
             .await,
     );
     match &err {
-        Error::Forbidden { code, details, .. } => {
-            assert_eq!(code, "FORBIDDEN");
-            assert_eq!(details["required_role"], "admin");
+        Error::Other { status, code, .. } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "RELATIONSHIP_RULE");
         }
-        other => panic!("expected Forbidden, got {other}"),
+        other => panic!("expected RELATIONSHIP_RULE, got {other}"),
     }
 
-    // A member who manages both boards links initiative -> task (parent) —
-    // the collaborative edge (KAIROS-T-0111).
+    // A member who manages both boards links initiative -> task (parent).
     let parent_request = CreateRelationshipRequest {
         source_short_code: initiative_code.clone(),
         target_short_code: t1_code.clone(),
@@ -558,9 +599,8 @@ async fn meta_endpoints_against_live_stack() {
         .expect("raw unknown-family probe");
     assert_eq!(status, 404, "{body}");
 
-    // DELETE: a member with no manage on either end and no authorship (bob)
-    // is 403 even for a collaborative edge (KAIROS-T-0111); admin removes;
-    // edge disappears; repeat 404.
+    // DELETE: a member who can edit neither end (bob) is 403, by the link
+    // rule (COLLIERY-T-0228); admin removes; edge disappears; repeat 404.
     let err = rejection(bob.delete_relationship(&blocks_edge_id).await);
     assert!(matches!(err, Error::Forbidden { .. }), "{err}");
     let body = svc
@@ -1249,8 +1289,9 @@ async fn meta_endpoints_against_live_stack() {
     assert_eq!(body.items[3].action, "create");
     assert_eq!(body.items[3].entity_type.as_deref(), Some("task"));
 
-    // action filter: the parent + blocks links (svc) and the two document
-    // supports edges (alice) are relationship_add rows.
+    // action filter: the blocks link (svc), and the parent link, the
+    // informs link (COLLIERY-T-0228: a member writes it now) and the two
+    // document supports edges (alice) are relationship_add rows.
     let body = bob
         .activity(&ActivityQuery {
             action: Some("relationship_add".into()),
@@ -1258,7 +1299,7 @@ async fn meta_endpoints_against_live_stack() {
         })
         .await
         .expect("action filter");
-    assert_eq!(body.total, 4, "{body:?}");
+    assert_eq!(body.total, 5, "{body:?}");
     assert!(
         body.items
             .iter()
@@ -1288,8 +1329,8 @@ async fn meta_endpoints_against_live_stack() {
         .await
         .expect("combined filters, alice");
     assert_eq!(
-        body.total, 3,
-        "alice: two document supports edges + the parent edge: {body:?}"
+        body.total, 4,
+        "alice: two document supports edges + the parent edge + the informs edge: {body:?}"
     );
     let body = bob
         .activity(&ActivityQuery {

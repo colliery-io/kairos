@@ -142,6 +142,13 @@ pub struct ItemDetail {
     /// Entity UUID — the `activity_log` filter key, so the banner can name
     /// WHO put the item away (KAIROS-T-0164).
     pub id: String,
+    /// The user id of the creator of the item. The creator may edit the
+    /// item with no capability on its board (COLLIERY-T-0228), so the page
+    /// needs it to show the edit controls to the right person. Each of the
+    /// five DTOs carries it; the default is for a body that does not, and
+    /// an empty id matches nobody.
+    #[serde(default)]
+    pub created_by: String,
     pub updated_at: String,
     // -- per-type extras --------------------------------------------------
     #[serde(default)]

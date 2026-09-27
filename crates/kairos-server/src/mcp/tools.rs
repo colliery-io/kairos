@@ -8,9 +8,12 @@
 //! HTTP (A-0011). Contracts:
 //!
 //! - **REQ-1.1**: every tool runs as the authenticated user under full
-//!   ABAC ([`require_capability`] / [`require_org_admin`], identical to
-//!   the REST handlers); errors surface as tool errors carrying the same
-//!   stable codes as the S-0005 envelope ([`tool_error`]).
+//!   ABAC, identical to the REST handlers; errors surface as tool errors
+//!   carrying the same stable codes as the S-0005 envelope
+//!   ([`tool_error`]). Since COLLIERY-T-0228 the check is one of three,
+//!   and each is the function that the REST handler calls: an EDIT asks
+//!   [`require_item_edit`], an EDGE asks [`require_edge_write`], and a MOVE
+//!   or a create asks [`require_capability`].
 //! - **REQ-1.2**: no tenant parameter exists — the tenant is the one the
 //!   middleware resolved from the connection host.
 //! - **REQ-1.3**: short codes identify items in every input and output;
@@ -52,10 +55,10 @@ use kairos_db::models::templates::Template;
 use kairos_db::search::{SearchError, SearchResults};
 use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
-use crate::api::meta::{manage_capability, require_edge_capability, validated_metadata_ops};
+use crate::api::meta::{manage_capability, validated_metadata_ops};
 use crate::api::{
     Liveness, atomically, map_abac_error, map_board_error, map_graph_error, map_item_error,
-    parse_enum, require_capability, resolve_short_code,
+    parse_enum, require_capability, require_edge_write, require_item_edit, resolve_short_code,
 };
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
@@ -1101,7 +1104,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document (where it is REQUIRED) or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document (where it is REQUIRED) or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1123,7 +1126,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Replace an item's full content (and optionally title) under optimistic concurrency: pass the `version` you read. A stale version returns CONFLICT with the current version + content so you can reconcile. For small targeted edits prefer edit_item."
+        description = "Replace an item's full content (and optionally title) under optimistic concurrency: pass the `version` you read. A stale version returns CONFLICT with the current version + content so you can reconcile. For small targeted edits prefer edit_item. You can edit an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn update_item(
         &self,
@@ -1135,7 +1138,7 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            authorize_item_write(conn, &slug, user, &item)?;
+            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
             let update = items::ContentUpdate {
                 new_title: params.title.as_deref(),
                 new_content: &params.content,
@@ -1153,7 +1156,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false."
+        description = "Targeted server-side edit of an item's content: exact search/replace applied to the CURRENT version (retries once on a concurrent-edit race). Fails if `search` is not found, or is ambiguous when replace_all is false. You can edit an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn edit_item(
         &self,
@@ -1171,7 +1174,7 @@ impl KairosMcp {
             // the read-modify-write below re-reads on the second attempt.
             for attempt in 0..2 {
                 let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-                authorize_item_write(conn, &slug, user, &item)?;
+                require_item_edit(conn, &slug, user, item.id, item.item_type)?;
                 let occurrences = item.content.matches(&params.search).count();
                 if occurrences == 0 {
                     return Err(ApiError::validation(format!(
@@ -1214,7 +1217,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The task keeps its repository; the move does not look at it. To move an item between COLUMNS of its own board, use `transition_item`."
+        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. To move an item between COLUMNS of its own board, use `transition_item`."
     )]
     pub async fn move_item(
         &self,
@@ -1240,8 +1243,13 @@ impl KairosMcp {
                 )
             })?;
             let target = board_by_ref(conn, &params.to_board)?;
-            // Two-sided, like link_items and re-homing: the work leaves one
-            // team's board and lands on another's.
+            // Two-sided: the work leaves one team's board and lands on
+            // another's, so the caller needs the capability on the two.
+            //
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of a task needs the capability on the two boards
+            // as all others do, because a team controls its own plan
+            // (COLLIERY-T-0218).
             require_capability_explained(
                 conn,
                 &slug,
@@ -1283,7 +1291,7 @@ impl KairosMcp {
     // tool replaces content under a version check. A link is not content: it
     // writes no new version, and it must not fail on a stale one.
     #[tool(
-        description = "Set or clear the repository of a TASK. The repository is a link: it says where the code is. It does not change the board or the team of the task. `repository` is a slug or UUID of any live repository, of any team. To clear the link, omit `repository`, or send null or an empty string. The tool applies to tasks only. Needs `manage_tasks` on the board of the task."
+        description = "Set or clear the repository of a TASK. The repository is a link: it says where the code is. It does not change the board or the team of the task. `repository` is a slug or UUID of any live repository, of any team. To clear the link, omit `repository`, or send null or an empty string. The tool applies to tasks only. You can set it on a task that you created, or with `manage_tasks` on its board."
     )]
     pub async fn set_repository(
         &self,
@@ -1304,15 +1312,10 @@ impl KairosMcp {
             // The same gate as PUT /api/tasks/{short_code}/repository, and
             // at the same point: before the repository is resolved. A caller
             // who cannot write the task does not learn from the answer which
-            // repositories exist.
-            require_capability_explained(
-                conn,
-                &slug,
-                item.board_id,
-                user,
-                crate::api::tasks::MANAGE,
-                &item,
-            )?;
+            // repositories exist. The gate is the edit rule
+            // (COLLIERY-T-0228): the repository is a fact about the task,
+            // and it moves nothing.
+            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
             // An agent that builds its arguments from a template sends ""
             // for "none" as often as it sends null. Both clear the link, as
             // an absent argument does. The shared function decides that, for
@@ -1339,7 +1342,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it."
     )]
     pub async fn transition_item(
         &self,
@@ -1363,6 +1366,9 @@ impl KairosMcp {
                     ));
                 }
             };
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability_explained(
                 conn,
                 &slug,
@@ -1405,7 +1411,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. `parent` and `blocks` may be written by anyone who manages either item's board or created the source item (so a request that you sent to another team can block your own item); the other types are org-admin only."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type."
     )]
     pub async fn link_items(
         &self,
@@ -1420,9 +1426,9 @@ impl KairosMcp {
                 parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
             let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
             let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
-            require_edge_capability(
+            require_edge_write(
                 conn,
-                &tenant_ctx,
+                &tenant_ctx.slug,
                 user,
                 relationship.as_str(),
                 (source_id, source_type),
@@ -1439,7 +1445,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Remove a relationship edge between two items (by short code and relationship type). Gated exactly like link_items."
+        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items."
     )]
     pub async fn unlink_items(
         &self,
@@ -1454,9 +1460,9 @@ impl KairosMcp {
                 parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
             let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
             let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
-            require_edge_capability(
+            require_edge_write(
                 conn,
-                &tenant_ctx,
+                &tenant_ctx.slug,
                 user,
                 relationship.as_str(),
                 (source_id, source_type),
@@ -1473,7 +1479,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Set, update, or clear (null) metadata values on an item, keyed by metadata-definition slug. Values validate against the definition (enum membership, YYYY-MM-DD dates). Returns the item's resulting metadata set."
+        description = "Set, update, or clear (null) metadata values on an item, keyed by metadata-definition slug. Values validate against the definition (enum membership, YYYY-MM-DD dates). Returns the item's resulting metadata set. You can set metadata on an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn set_metadata(
         &self,
@@ -1488,7 +1494,7 @@ impl KairosMcp {
             use kairos_db::schema::item_metadata;
 
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            authorize_item_write(conn, &slug, user, &item)?;
+            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
 
             // Phase 1 — resolve + validate every entry (no writes yet); a bad
             // entry rejects the whole call (A-0003). The SAME function the REST
@@ -1556,7 +1562,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted."
+        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted. You can delete an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn delete_item(
         &self,
@@ -1574,7 +1580,7 @@ impl KairosMcp {
                 ));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
-            authorize_item_write(conn, &slug, user, &item)?;
+            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
             let outcome = items::soft_delete_item(conn, item.item_type, item.id, user)
                 .map_err(map_item_error)?;
             let mut out = format!("Deleted {} (soft delete).\n", outcome.root_short_code);
@@ -1593,7 +1599,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade delete was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists."
+        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade delete was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists. You can restore an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn restore_item(
         &self,
@@ -1611,7 +1617,7 @@ impl KairosMcp {
                     item.short_code
                 )));
             }
-            authorize_item_write(conn, &slug, user, &item)?;
+            require_item_edit(conn, &slug, user, item.id, item.item_type)?;
             match items::restore_item(conn, item.item_type, item.id, user).map_err(map_item_error)?
             {
                 Ok(outcome) => {
@@ -1868,27 +1874,8 @@ fn load_item(
     Ok(view)
 }
 
-/// The A-0006 write gate for an item: `manage_<type>` on the item's
-/// authorization board (own board; documents inherit the parent's via
-/// `supports`; no board context → org-admin-only fallback).
-fn authorize_item_write(
-    conn: &mut PgConnection,
-    slug: &str,
-    user: Uuid,
-    item: &ItemView,
-) -> Result<(), ApiError> {
-    let board = abac::resolve_authorization_board(conn, item.id).map_err(map_abac_error)?;
-    require_capability_explained(
-        conn,
-        slug,
-        board,
-        user,
-        manage_capability(item.item_type),
-        item,
-    )
-}
-
-/// `require_capability`, but when the refused caller FILED this item as a
+/// `require_capability` for a MOVE (`transition_item`, `move_item`), with
+/// one explanation added. When the refused caller CREATED this item as a
 /// request and it is still in the entry column, the refusal explains the
 /// request rule instead of the bare capability name (KAIROS-T-0123, UAT
 /// finding #5). The HTTP API keeps its generic envelope; this is
@@ -1911,6 +1898,14 @@ fn authorize_item_write(
 /// false statement about the board, given to an agent that acts on what it
 /// reads. In every other case the plain refusal, which names the missing
 /// capability, is what the caller gets.
+///
+/// COLLIERY-T-0228: the text said "To move, edit or delete it, you need
+/// ...". The creator of an item can now edit it, link it and archive it
+/// (the edit rule, [`require_item_edit`]), so no edit comes here, and the
+/// creator is refused a move only. The text says that. This function is
+/// NOT the edit rule and must not become it: creation grants no movement.
+/// `details.held` stays `file_backlog`: that capability is how the request
+/// was created.
 fn require_capability_explained(
     conn: &mut PgConnection,
     slug: &str,
@@ -1950,8 +1945,8 @@ fn require_capability_explained(
     let short_code = &item.short_code;
     Err(ApiError::forbidden(format!(
         "{short_code} is a request in the entry column of the board of {whose}. \
-         That team moves it. You filed it, so you can link it (file_backlog). \
-         To move, edit or delete it, you need {capability:?} on that board."
+         That team moves it. You created it (file_backlog), so you can edit it, link it and archive it. \
+         To move it, you need {capability:?} on that board."
     ))
     .with_details(json!({
         "required_capability": capability,
@@ -2907,18 +2902,22 @@ fn create_item_impl(
         (board, None, None)
     };
 
-    // KAIROS-T-0111: the edge that `parent` asks for is gated BEFORE the
-    // item is written (a refusal must leave no orphan).
-    //
-    // COLLIERY-T-0227: the gate checked the capability and not the
-    // relationship. The type rules ran after the write, inside `link_items`,
-    // so `adr` with a parent was refused with the ADR already in the tenant.
-    // The two types are known before the item exists, so the same rule
-    // (`check_link`) now runs here, first: an edge that cannot exist is a
-    // `VALIDATION`, whoever asks for it.
+    // COLLIERY-T-0227: the type rules (`check_link`) run here, BEFORE the
+    // first write. The two types are known before the item exists, so an
+    // edge that cannot exist is a `VALIDATION`, whoever asks for it, and
+    // nothing is written.
     //
     // An ADR takes the `supports` edge, as a document does. No ADR can have
-    // a `parent` edge, so until now each ADR with a parent was refused.
+    // a `parent` edge.
+    //
+    // COLLIERY-T-0228: WHO may write the edge is the link rule, and it is
+    // asked below, after the create, when the two ends exist. Until then
+    // this place held two stand-ins for it: `manage_documents` on the board
+    // of the parent for an ADR, and a copy of the rule for `parent` that
+    // took a board in place of the item that was not there yet. The caller
+    // is the creator of the new item, so the link rule lets the caller
+    // link it. What is left as the gate of the create is the create gate
+    // above: `manage_<type>` on the board, or a request.
     let parent = params
         .parent
         .as_deref()
@@ -2940,36 +2939,7 @@ fn create_item_impl(
                 item_type,
             )
             .map_err(|e| ApiError::validation(e.to_string()))?;
-            match relationship {
-                // The gate of a document with a parent, and for the same
-                // reason: `supports` is not a collaborative relationship, so
-                // `link_items` keeps it for org admins. The caller holds
-                // `manage_adrs` on the ADR board (checked above) and
-                // `manage_documents` on the board of the parent, which is
-                // what it costs to attach a document there.
-                RelationshipType::Supports => {
-                    let parent_board = abac::resolve_authorization_board(conn, parent_id)
-                        .map_err(map_abac_error)?;
-                    require_capability(
-                        conn,
-                        slug,
-                        parent_board,
-                        user,
-                        manage_capability(ItemType::Document),
-                    )?;
-                }
-                // By the same rule as link_items — the target is the board
-                // the new item will sit on.
-                _ => crate::api::meta::require_edge_capability_on(
-                    conn,
-                    tenant,
-                    user,
-                    relationship.as_str(),
-                    (parent_id, parent_type),
-                    (Some(board.id), item_type),
-                )?,
-            }
-            Ok::<_, ApiError>((parent_code, parent_id, relationship))
+            Ok::<_, ApiError>((parent_code, parent_id, parent_type, relationship))
         })
         .transpose()?;
 
@@ -3072,7 +3042,18 @@ fn create_item_impl(
         "Created {item_type} {created_code} — {created_title} (version 1) on board {}.",
         board.slug
     );
-    if let Some((parent_code, parent_id, relationship)) = parent {
+    if let Some((parent_code, parent_id, parent_type, relationship)) = parent {
+        // The link rule (COLLIERY-T-0228), by the ONE function that
+        // `link_items` calls. The item and the edge are in one transaction
+        // (COLLIERY-T-0227), so a refusal here leaves no item.
+        require_edge_write(
+            conn,
+            slug,
+            user,
+            relationship.as_str(),
+            (parent_id, parent_type),
+            (created_id, item_type),
+        )?;
         graph::link_items(conn, parent_id, created_id, relationship, user)
             .map_err(map_graph_error)?;
         out.push_str(&format!(

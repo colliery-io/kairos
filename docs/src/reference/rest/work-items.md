@@ -56,7 +56,12 @@ Get one strategy by short code (open tenant-wide).
 ### `DELETE /api/strategies/{short_code}`
 
 Soft-delete a strategy, cascading to its `parent` descendants
-(KAIROS-A-0001; requires `manage_strategies` on the strategy's board).
+(KAIROS-A-0001).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+strategy, holds `manage_strategies` on its board, or is an organization admin.
+The server applies the rule to the strategy only. The cascade does not
+apply it to each descendant.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -65,13 +70,15 @@ Soft-delete a strategy, cascading to its `parent` descendants
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
 ### `PATCH /api/strategies/{short_code}`
 
-Update strategy content (KAIROS-A-0004 optimistic concurrency; requires
-`manage_strategies` on the strategy's board).
+Update strategy content (KAIROS-A-0004 optimistic concurrency).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+strategy, holds `manage_strategies` on its board, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -82,7 +89,7 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Strategy`](schemas.md#strategy) | Updated (new version) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
@@ -90,6 +97,7 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 
 Move a strategy to another column (requires `transition_items` on the
 strategy's board; the move must exist in the board's transition graph).
+The creator of the strategy gets no right here (COLLIERY-T-0228).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -154,8 +162,12 @@ Get one initiative by short code (open tenant-wide).
 ### `DELETE /api/initiatives/{short_code}`
 
 Soft-delete an initiative, cascading to its `parent` descendants
-(KAIROS-A-0001; requires `manage_initiatives` on the initiative's
-board).
+(KAIROS-A-0001).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+initiative, holds `manage_initiatives` on its board, or is an organization admin.
+The server applies the rule to the initiative only. The cascade does
+not apply it to each descendant.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -164,13 +176,15 @@ board).
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
 ### `PATCH /api/initiatives/{short_code}`
 
-Update initiative content (KAIROS-A-0004 optimistic concurrency;
-requires `manage_initiatives` on the initiative's board).
+Update initiative content (KAIROS-A-0004 optimistic concurrency).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+initiative, holds `manage_initiatives` on its board, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -181,14 +195,15 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Initiative`](schemas.md#initiative) | Updated (new version) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
 ### `POST /api/initiatives/{short_code}/transition`
 
 Move an initiative to another column (requires `transition_items` on
-the initiative's board).
+the initiative's board). The creator of the initiative gets no right
+here (COLLIERY-T-0228).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -262,8 +277,10 @@ Get one task by short code (open tenant-wide).
 
 ### `DELETE /api/tasks/{short_code}`
 
-Soft-delete a task (KAIROS-A-0001; requires `manage_tasks` on the
-task's board).
+Soft-delete a task (KAIROS-A-0001).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+task, holds `manage_tasks` on its board, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -272,13 +289,15 @@ task's board).
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
 ### `PATCH /api/tasks/{short_code}`
 
-Update task content (KAIROS-A-0004 optimistic concurrency; requires
-`manage_tasks` on the task's board).
+Update task content (KAIROS-A-0004 optimistic concurrency).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+task, holds `manage_tasks` on its board, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -289,7 +308,7 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Task`](schemas.md#task) | Updated (new version) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
@@ -299,7 +318,8 @@ Move a task to another DELIVERY board (KAIROS-I-0012): it lands in the
 target's entry column and follows the target's team. Requires
 `manage_tasks` on the current board AND on the target (org admins
 bypass, as everywhere). The move does not look at the repository of the
-task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023).
+task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023). The
+creator of the task gets no right here (COLLIERY-T-0228).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -318,8 +338,10 @@ Request body (required): `application/json`, [`MoveTaskRequest`](schemas.md#move
 
 Set the repository a task links to, or clear it (KAIROS-T-0104).
 The link can be any live repository. The board and the team of the task
-do not change (COLLIERY-T-0217, COLLIERY-A-0023). Requires
-`manage_tasks` on the task's board.
+do not change (COLLIERY-T-0217, COLLIERY-A-0023).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+task, holds `manage_tasks` on its board, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -330,15 +352,15 @@ Request body (required): `application/json`, [`SetTaskRepositoryRequest`](schema
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Task`](schemas.md#task) | Repository link updated. `null` or an empty string clears it |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 
 ### `POST /api/tasks/{short_code}/transition`
 
-A live board by slug or UUID; 404 otherwise.
 Move a task to another column (requires `transition_items` on the
-task's board).
+task's board). The creator of the task gets no right here
+(COLLIERY-T-0228).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -358,6 +380,7 @@ Request body (required): `application/json`, [`TransitionRequest`](schemas.md#tr
 Move a task between the Planned/Support lanes (KAIROS-T-0077;
 requires `transition_items` on the task's board — lane moves are
 board moves in UX terms, though the rules engine is never consulted).
+The creator of the task gets no right here (COLLIERY-T-0228).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -400,7 +423,8 @@ editorially archived and perfectly live.
 
 Create a document attached to a workflow item (`parent_short_code`
 REQUIRED — see the module docs). Requires `manage_documents` on the
-parent's board. With `template_id`, the template's content and metadata
+parent's board. COLLIERY-T-0228 did not change this gate. A document
+has no board, so this gate decides which item a document can support. With `template_id`, the template's content and metadata
 defaults are stamped (KAIROS-A-0003).
 
 Request body (required): `application/json`, [`CreateDocumentRequest`](schemas.md#createdocumentrequest)
@@ -426,8 +450,10 @@ Get one document by short code (open tenant-wide).
 
 ### `DELETE /api/documents/{short_code}`
 
-Soft-delete a document (requires `manage_documents` on the parent's
-board — A-0006 inheritance).
+Soft-delete a document.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+document, holds `manage_documents` on the board of its parent, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -436,13 +462,15 @@ board — A-0006 inheritance).
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
 ### `PATCH /api/documents/{short_code}`
 
-Update document content (KAIROS-A-0004 optimistic concurrency; requires
-`manage_documents` on the parent's board — A-0006 inheritance).
+Update document content (KAIROS-A-0004 optimistic concurrency).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+document, holds `manage_documents` on the board of its parent, or is an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -453,15 +481,19 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Document`](schemas.md#document) | Updated (new version) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
 ### `PATCH /api/documents/{short_code}/lifecycle`
 
 Set a document's editorial lifecycle (KAIROS-T-0078): a free-transition
-label — draft | review | published | archived — gated like every other
-document write (`manage_documents` on the authorization board). Not a
+label — draft | review | published | archived.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+document, holds `manage_documents` on the board of its parent, or is an organization admin.
+The lifecycle is a label and not a column, so this write is an edit and
+not a move. Not a
 content edit: no version bump, no history row; activity-logged and
 announced via the existing `item_updated` thin event.
 
@@ -474,7 +506,7 @@ Request body (required): `application/json`, [`SetLifecycleRequest`](schemas.md#
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Document`](schemas.md#document) | Lifecycle updated |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad lifecycle value |
 
@@ -527,8 +559,11 @@ Get one ADR by short code (open tenant-wide).
 
 ### `DELETE /api/adrs/{short_code}`
 
-Soft-delete an ADR (requires `manage_adrs` on the ADR's board, or org
-admin for off-board ADRs).
+Soft-delete an ADR.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+ADR, holds `manage_adrs` on its board, or is an organization admin.
+An off-board ADR has no board: its creator or an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -537,13 +572,16 @@ admin for off-board ADRs).
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
 ### `PATCH /api/adrs/{short_code}`
 
-Update ADR content (KAIROS-A-0004 optimistic concurrency; requires
-`manage_adrs` on the ADR's board, or org admin for off-board ADRs).
+Update ADR content (KAIROS-A-0004 optimistic concurrency).
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+ADR, holds `manage_adrs` on its board, or is an organization admin.
+An off-board ADR has no board: its creator or an organization admin.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -554,14 +592,15 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`Adr`](schemas.md#adr) | Updated (new version) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
 ### `POST /api/adrs/{short_code}/transition`
 
 Move an ADR to another column of its board (requires `transition_items`
-on the ADR's board). An off-board ADR cannot be transitioned: 422
+on the ADR's board). The creator of the ADR gets no right here
+(COLLIERY-T-0228). An off-board ADR cannot be transitioned: 422
 `ITEM_NOT_ON_BOARD`.
 
 | Parameter | In | Required | Type | Description |

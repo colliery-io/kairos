@@ -108,7 +108,8 @@ pub struct ChildColumnProgress {
     pub count: i64,
 }
 
-/// Body of `POST /api/relationships` (org admin only, KAIROS-A-0006).
+/// Body of `POST /api/relationships`. The caller may edit the item at
+/// either end (the link rule, COLLIERY-T-0228).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct CreateRelationshipRequest {
     /// Short code of the edge's source item (KAIROS-A-0001 orientation).

@@ -17,7 +17,7 @@ use serde_json::json;
 use super::convert::IntoDto;
 use super::{
     Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, parse_enum,
-    parse_opt_uuid, parse_uuid, require_capability, short_code_not_found,
+    parse_opt_uuid, parse_uuid, require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -204,8 +204,10 @@ pub(crate) async fn create_initiative(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update initiative content (KAIROS-A-0004 optimistic concurrency;
-/// requires `manage_initiatives` on the initiative's board).
+/// Update initiative content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// initiative, holds `manage_initiatives` on its board, or is an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/initiatives/{short_code}",
@@ -214,7 +216,7 @@ pub(crate) async fn create_initiative(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Initiative),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -232,7 +234,7 @@ pub(crate) async fn update_initiative(
         .blocking
         .run(&tenant.slug, move |conn| {
             let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(initiative.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, initiative.id, ItemType::Initiative)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -260,8 +262,12 @@ pub(crate) async fn update_initiative(
 }
 
 /// Soft-delete an initiative, cascading to its `parent` descendants
-/// (KAIROS-A-0001; requires `manage_initiatives` on the initiative's
-/// board).
+/// (KAIROS-A-0001).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// initiative, holds `manage_initiatives` on its board, or is an organization admin.
+/// The server applies the rule to the initiative only. The cascade does
+/// not apply it to each descendant.
 #[utoipa::path(
     delete,
     path = "/api/initiatives/{short_code}",
@@ -269,7 +275,7 @@ pub(crate) async fn update_initiative(
     params(("short_code" = String, Path, description = "Initiative short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -285,7 +291,7 @@ pub(crate) async fn delete_initiative(
         .blocking
         .run(&tenant.slug, move |conn| {
             let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(initiative.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, initiative.id, ItemType::Initiative)?;
             let outcome = items::soft_delete_item(conn, ItemType::Initiative, initiative.id, user)
                 .map_err(map_item_error)?;
             Ok(dto::DeleteResponse {
@@ -299,7 +305,8 @@ pub(crate) async fn delete_initiative(
 }
 
 /// Move an initiative to another column (requires `transition_items` on
-/// the initiative's board).
+/// the initiative's board). The creator of the initiative gets no right
+/// here (COLLIERY-T-0228).
 #[utoipa::path(
     post,
     path = "/api/initiatives/{short_code}/transition",
@@ -327,6 +334,9 @@ pub(crate) async fn transition_initiative(
         .blocking
         .run(&tenant.slug, move |conn| {
             let initiative = load(conn, &short_code, Liveness::LiveOnly)?;
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(
                 conn,
                 &slug,

@@ -34,7 +34,7 @@ Codes an agent can receive, and what each means.
 |---|---|
 | `NOT_FOUND` | A short code, board or repository named as the subject of the call does not exist; an `unlink_items` edge does not exist; or a `search` `traverse.from` does not resolve. On a write tool it also means the item exists but is archived: writes resolve live items only, and the message reads `no live item with short code …`. |
 | `VALIDATION` | An argument is malformed, an enum value is outside its vocabulary, an argument does not apply to the item type, or something named as a *filter or reference* — a team, a repository filter, a parent, a metadata definition, a column — does not exist. A reference that does not resolve is `VALIDATION`; the call's own subject not existing is `NOT_FOUND`. **One exception:** `search`'s `traverse.from` is a reference and still answers `NOT_FOUND`, because a traversal's root is the subject of that traversal. |
-| `FORBIDDEN` | The principal lacks the required board capability. The message names the capability. One case has a longer message: the caller created the item as a request, the item is in the entry column of its board, and the caller holds only the computed `file_backlog` capability there. That message says that the item is a request, that the team of the board moves it, and which capability the write needs. A `create_item` that sends `work_class: planned` to a board that the caller does not manage is also `FORBIDDEN`. |
+| `FORBIDDEN` | The rule for the write refuses the principal. For an edit, the [edit rule](capabilities.md#the-edit-rule): the principal did not create the item and lacks `manage_<type>` on its board. For an edge, the [link rule](capabilities.md#who-can-write-relationships): the principal can edit neither end. For a move or a create: the principal lacks the board capability. The message names the capability. One case has a longer message: a move (`transition_item`, `move_item`) of a request that the caller created, while the request is in the entry column. That message says that the item is a request, that the team of the board moves it, that the caller can edit, link and archive it, and which capability the move needs. A `create_item` that sends `work_class: planned` to a board that the caller does not manage is also `FORBIDDEN`. |
 | `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. |
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
@@ -273,9 +273,15 @@ inherit their parent's board for authorization.
 
 An ADR can have a `parent`. The `parent` names a strategy, an initiative or a
 task. The tool creates the `supports` edge from that item to the ADR. The
-caller needs `manage_adrs` on the ADR board. The caller also needs
-`manage_documents` on the board of the parent. A document with that parent
-needs the same capability.
+caller needs `manage_adrs` on the ADR board, and no capability on the board of
+the parent. The caller creates the ADR, so the link rule lets the caller link
+it.
+
+A document is different. A document has no board, so the caller needs
+`manage_documents` on the board of the parent.
+
+The same applies to each `parent`: the caller who creates an item can link it
+to that parent.
 
 The default of `work_class` depends on the caller:
 
@@ -311,8 +317,7 @@ and for a template *name* that matches more than one template, which asks for
 the id or slug instead; when no live board of the required level exists; when
 several do, listing their slugs; and for an unknown `repository`.
 `NOT_FOUND` for an unknown `board`. `FORBIDDEN` when the caller
-lacks `manage_<type>` on the resolved board, or lacks the capability to write
-the requested `parent` edge. A task is different: a caller without
+lacks `manage_<type>` on the resolved board. A task is different: a caller without
 `manage_tasks` sends a request. That caller gets `FORBIDDEN` for a board that
 is not a delivery board, and for `work_class: planned`.
 
@@ -333,8 +338,12 @@ concurrency.
 | `version` | integer | yes | — | The version this edit is based on, as read from `get_item`. |
 | `title` | string | no | unchanged | New title. |
 
+The [edit rule](capabilities.md#the-edit-rule) applies. The caller created the
+item, or holds `manage_<type>` on its authorization board, or is an
+organization admin.
+
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
-`FORBIDDEN` without `manage_<type>` on the item's authorization board;
+`FORBIDDEN` when the edit rule refuses the caller;
 `CONFLICT` for a stale `version`, carrying the current version and content.
 
 ### `edit_item`
@@ -352,7 +361,7 @@ Retries once on a concurrent-edit race.
 Refuses: `VALIDATION` for an empty `search`, for a `search` not found in the
 current content, and for a `search` matching more than once while
 `replace_all` is false — the refusal states the occurrence count. Otherwise as
-`update_item`.
+`update_item`, and the same edit rule applies.
 
 ### `set_metadata`
 
@@ -370,8 +379,8 @@ and changes nothing.
 
 Refuses: `VALIDATION` for an unknown definition slug, and for a value that
 fails its definition's rules — enum membership, or a `YYYY-MM-DD` date.
-`NOT_FOUND` for an unknown short code or an archived item. `FORBIDDEN` without
-`manage_<type>` on the item's authorization board.
+`NOT_FOUND` for an unknown short code or an archived item. `FORBIDDEN` when
+the [edit rule](capabilities.md#the-edit-rule) refuses the caller.
 
 ### `set_repository`
 
@@ -383,14 +392,15 @@ where the code is. The board and the team of the task do not change.
 | `short_code` | string | yes | — | The short code of the task. |
 | `repository` | string | no | clears the link | Slug or UUID. Any live repository, of any team. To clear the link, omit the argument, or send null or an empty string. |
 
-Requires `manage_tasks` on the board of the task.
+The edit rule applies. The caller created the task, or holds `manage_tasks`
+on the board of the task, or is an organization admin.
 
 The tool applies to tasks only. It writes no new version of the task. A call
 that sets the repository that the task already has is a success.
 
 Refuses: `NOT_FOUND` for an unknown short code or an archived task.
 `VALIDATION` when the item is not a task, and for an unknown `repository`.
-`FORBIDDEN` without `manage_tasks`.
+`FORBIDDEN` when the edit rule refuses the caller.
 
 ## Moving work
 
@@ -403,7 +413,8 @@ Moves an item to another column on its own board.
 | `short_code` | string | yes | — | The item's short code. |
 | `to_column` | string | yes | — | Target column, name or UUID, on the item's own board. |
 
-Requires `transition_items` on the item's board.
+Requires `transition_items` on the item's board. A transition is a move and
+not an edit. The creator of the item gets no right to move it.
 
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
 `ITEM_NOT_ON_BOARD` for an item with no placement — documents always;
@@ -421,7 +432,8 @@ and follows that board's team.
 | `short_code` | string | yes | — | The task's short code. |
 | `to_board` | string | yes | — | Target delivery board, slug or UUID. |
 
-Requires `manage_tasks` on both the task's current board and the target.
+Requires `manage_tasks` on both the task's current board and the target. A
+move is not an edit. The creator of the task gets no right to move it.
 
 Refuses: `NOT_FOUND` for an unknown short code, an archived task, or an unknown
 or archived `to_board`; `VALIDATION` when the item is not a task;
@@ -446,10 +458,13 @@ Creates a relationship edge between two items.
 | `target` | string | yes | — | Target item's short code. |
 | `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. |
 
-`parent` and `blocks` may be written by anyone who manages either item's board,
-or who created the source item — so a request that the caller sent to another
-team can block the caller's own item. The other three types are org-admin
-only.
+The [link rule](capabilities.md#who-can-write-relationships) applies. The
+caller can edit the source or the target. One end is sufficient. The rule is
+the same for each relationship type, and no type needs the admin role.
+
+The caller can edit an item that the caller created. So a request that the
+caller sent to a different team can block an item of the caller. The caller
+can also edit an item with `manage_<type>` on its authorization board.
 
 A `blocks` edge counts only while the items at both ends can move. Complete
 work does not block, and nothing blocks complete work. The edge stops counting
@@ -459,13 +474,14 @@ a done column.
 
 Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
 `source` or `target` that does not name a live item, and for a self-link where
-`source` and `target` are the same item; `FORBIDDEN` when the edge rule's gate
-is not met; `RELATIONSHIP_RULE` when that relationship is not allowed between
+`source` and `target` are the same item; `FORBIDDEN` when the caller can edit
+neither end, and the message names the capability for each end;
+`RELATIONSHIP_RULE` when that relationship is not allowed between
 those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
 
 ### `unlink_items`
 
-Removes a relationship edge. Arguments and gating are identical to
+Removes a relationship edge. The arguments and the link rule are those of
 `link_items`.
 
 | Argument | Type | Required | Default | Description |
@@ -562,11 +578,13 @@ Deleted items remain retrievable by short code and searchable with
 `include_deleted`; they are hidden from default listings. "Deleted" and
 "archived" name the same act — see the [Glossary](glossary.md).
 
+The edit rule applies to the named item. The cascade does not ask the rule
+again for each descendant.
+
 Refuses: `VALIDATION` when `confirm` is `false` — checked before the short code
 is looked up, so such a call never reports an unknown item; `NOT_FOUND` for an
-unknown short code or an already-archived item; `FORBIDDEN` without
-`manage_<type>` on
-the item's authorization board. An *absent* `confirm` is a schema violation
+unknown short code or an already-archived item; `FORBIDDEN` when the
+[edit rule](capabilities.md#the-edit-rule) refuses the caller. An *absent* `confirm` is a schema violation
 rather than a refusal — it is a required field, so the call is rejected before
 the tool body runs and carries no Kairos error code.
 
@@ -581,9 +599,11 @@ Puts an archived item back on its board.
 Restores only the named item. A cascade delete was an act on a subtree, so
 archived descendants stay archived; the response names them.
 
+The edit rule applies: a caller who can archive an item can restore it.
+
 Refuses: `NOT_FOUND` for an unknown short code; `VALIDATION` when the item is
-not archived; `FORBIDDEN` without `manage_<type>` on the item's authorization
-board; `RESTORE_BLOCKED` when the item's board, column, owning team or
+not archived; `FORBIDDEN` when the edit rule refuses the caller;
+`RESTORE_BLOCKED` when the item's board, column, owning team or
 repository has since been removed, naming what is missing.
 
 ## Related reading

@@ -32,7 +32,7 @@ in *this* envelope. See [SCIM](scim.md#errors).
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `UNAUTHORIZED` | 401 | No token, or a token that does not verify | — |
-| `FORBIDDEN` | 403 | Authenticated, but not allowed | one of four shapes — see below |
+| `FORBIDDEN` | 403 | Authenticated, but not allowed | one of five shapes — see below |
 | `MEMBERSHIP_REQUIRED` | 403 | Authenticated against the issuer, but not a member of this tenant | `organization` — the slug that was resolved |
 | `NOT_FOUND` | 404 | The thing the call is about does not exist | — |
 | `TENANT_NOT_FOUND` | 404 | The request host resolves to no provisioned tenant | — |
@@ -47,15 +47,15 @@ conversion produce — a blank `q`, an inverted date range, a bad `limit` or
 timestamp, an out-of-vocabulary enum value, an unknown field. The code is the
 same; the status is not. Branch on the code.
 
-**`FORBIDDEN`'s `details` has four shapes**, and which one arrives depends on
+**`FORBIDDEN`'s `details` has five shapes**, and which one arrives depends on
 what kind of gate refused:
 
 | Shape | Emitted by |
 |---|---|
-| `required_capability`, `board_id` (null = the org-admin-only fallback applied) | a board capability check |
-| `required_capability`, `board_id`, `held: "file_backlog"` | an MCP write refused to the person who sent a request, while the request is in the entry column of its board. The message says that the item is a request and that the team of the board moves it |
-| `required_role: "admin"`, and `relationship` when an edge was at fault | tenant-wide configuration: templates, metadata definitions, and non-collaborative relationship types |
-| `relationship` | a `parent`/`blocks` edge where the caller manages neither board and did not create the source |
+| `required_capability`, `board_id` (null = the item or the write has no board, and the caller needs the admin role) | a board capability check, or the [edit rule](capabilities.md#the-edit-rule). For the edit rule, the caller also did not create the item |
+| `required_capability`, `board_id`, `held: "file_backlog"` | an MCP move (`transition_item`, `move_item`) refused to the person who sent a request, while the request is in the entry column of its board. The message says that the item is a request, that the team of the board moves it, and that the caller can edit, link and archive it |
+| `required_role: "admin"` | tenant-wide configuration: templates and metadata definitions |
+| `relationship`, `required_capability`, `board_id`, `any_of` | an edge of any relationship type where the caller can edit neither end (the [link rule](capabilities.md#who-can-write-relationships)). `required_capability` and `board_id` are those of the source. `any_of` has one entry for each end: `end`, `required_capability`, `board_id` |
 | `required: "deployment_admin"` | the cross-tenant provisioning routes, which are not scoped to any organization |
 
 **`CONFLICT` is not only optimistic concurrency.** `details.current` is present

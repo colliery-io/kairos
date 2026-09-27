@@ -137,20 +137,69 @@ pub const FILE_BACKLOG: &str = "file_backlog";
 /// under `implicit`.
 pub const COMPUTED_CAPABILITIES: &[&str] = &[FILE_BACKLOG];
 
-/// Relationship types a NON-admin may write between items they can
-/// otherwise manage (KAIROS-T-0111 amending A-0006's "relationships are
-/// tenant-wide configuration"): `parent` and `blocks` are the day-to-day
-/// decomposition and dependency edges — an agent that just sent a request
-/// to another team (`file_backlog`, COLLIERY-A-0023) must be able to hang it
-/// under its initiative and mark what it blocks. `supersedes`, `supports`
-/// and `informs` stay org-admin. The server's rule for a collaborative
-/// edge: manage on the SOURCE's board, or on the TARGET's board, or the
-/// caller CREATED the source item.
-pub const COLLABORATIVE_RELATIONSHIPS: &[&str] = &["parent", "blocks"];
+// ---------------------------------------------------------------------------
+// The edit rule and the link rule (COLLIERY-T-0228)
+// ---------------------------------------------------------------------------
 
-/// May a non-admin write `relationship` (see [`COLLABORATIVE_RELATIONSHIPS`])?
-pub fn is_collaborative_relationship(relationship: &str) -> bool {
-    COLLABORATIVE_RELATIONSHIPS.contains(&relationship)
+/// What the server knows about one principal and one item when it decides
+/// an edit (COLLIERY-T-0228). The server loads the three facts; the
+/// decision is [`may_edit_item`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditFacts {
+    /// The principal created the item (`created_by`).
+    pub created_item: bool,
+    /// The principal holds `manage_<type>` on the authorization board of
+    /// the item. `false` when the item has no authorization board.
+    pub holds_manage: bool,
+    /// The principal is an admin of the organization.
+    pub is_org_admin: bool,
+}
+
+/// THE EDIT RULE (COLLIERY-T-0228). A principal, a person or a service
+/// account, may edit an item when ONE of these is true:
+///
+/// 1. the principal created the item,
+/// 2. the principal holds `manage_<type>` on the authorization board of the
+///    item,
+/// 3. the principal is an admin of the organization.
+///
+/// Creation is the primary mechanism of ownership. A capability on a board
+/// is how a team shares that ownership. The rule applies to each item type:
+/// strategy, initiative, task, document, ADR. It reads who created the
+/// item and not where the item is, so the right stays with the creator when
+/// the item moves to a different board.
+///
+/// An edit is: the title and the content, the metadata, the repository of a
+/// task, the editorial lifecycle of a document, archive, and restore.
+///
+/// Creation does NOT grant movement. To move an item between columns, to
+/// change its lane, or to move it to a different board, the principal needs
+/// the capability on the board (`transition_items`, or `manage_tasks` on
+/// the two boards of a move). A team controls its own plan
+/// (COLLIERY-T-0218, COLLIERY-A-0023): a person who sends a request to a
+/// team can correct its text, link it and archive it, and cannot put it in
+/// the plan of that team. Creation grants nothing on a board, a team, a
+/// member, a capability, a repository or the configuration of the tenant.
+pub fn may_edit_item(facts: EditFacts) -> bool {
+    facts.created_item || facts.holds_manage || facts.is_org_admin
+}
+
+/// THE LINK RULE (COLLIERY-T-0228). A principal may write an edge, which
+/// is to create it or to remove it, when the principal may edit the item
+/// at EITHER end ([`may_edit_item`]). The rule is the same for each
+/// relationship type: `parent`, `blocks`, `supports`, `informs`,
+/// `supersedes`.
+///
+/// Until COLLIERY-T-0228 `supports`, `informs` and `supersedes` needed the
+/// admin role, and `parent` and `blocks` looked at the creator of the
+/// source only. One rule for each type is easier to learn, and a person
+/// who can edit an item could not say what the item relates to.
+///
+/// The rule decides WHO. It does not decide WHICH edges can exist: the
+/// type rules (`graph::check_link`), the cycle check and the duplicate
+/// check do not change.
+pub fn may_write_edge(may_edit_source: bool, may_edit_target: bool) -> bool {
+    may_edit_source || may_edit_target
 }
 
 // ---------------------------------------------------------------------------
@@ -160,22 +209,24 @@ pub fn is_collaborative_relationship(relationship: &str) -> bool {
 /// Tenant-wide configuration resources that live on no board. Per A-0006
 /// these are org-admin-only: no board-scoped capability can ever authorize
 /// writes to them.
+///
+/// Relationships were in this list until COLLIERY-T-0228. An edge is not
+/// configuration of the tenant: it is a statement about two items, so the
+/// person who may edit one of those items may write it. The server decides
+/// that (`require_edge_write`), for each relationship type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TenantConfigResource {
     /// `templates` rows.
     Templates,
     /// `metadata_definitions` (and their enum options).
     MetadataDefinitions,
-    /// `item_relationships` edges.
-    Relationships,
 }
 
 impl TenantConfigResource {
     /// Whether writes to this resource require `organization_members.role =
     /// 'admin'`. Constant `true` for every variant — encoded as a function so
     /// the policy has one citable home (A-0006: "Templates, metadata
-    /// definitions, relationships … only org admins can create, modify, or
-    /// delete them").
+    /// definitions … only org admins can create, modify, or delete them").
     pub const fn org_admin_only(self) -> bool {
         true
     }
@@ -429,7 +480,6 @@ mod tests {
         for resource in [
             TenantConfigResource::Templates,
             TenantConfigResource::MetadataDefinitions,
-            TenantConfigResource::Relationships,
         ] {
             assert!(resource.org_admin_only());
         }
@@ -452,6 +502,59 @@ mod tests {
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));
         assert!(!team_implies(GLOB_MANAGE));
+    }
+
+    /// COLLIERY-T-0228: each of the three facts is sufficient, and with
+    /// none of them there is no edit. All eight combinations.
+    #[test]
+    fn the_edit_rule_needs_one_fact_of_three() {
+        for created_item in [false, true] {
+            for holds_manage in [false, true] {
+                for is_org_admin in [false, true] {
+                    let facts = EditFacts {
+                        created_item,
+                        holds_manage,
+                        is_org_admin,
+                    };
+                    assert_eq!(
+                        may_edit_item(facts),
+                        created_item || holds_manage || is_org_admin,
+                        "{facts:?}"
+                    );
+                }
+            }
+        }
+        assert!(!may_edit_item(EditFacts {
+            created_item: false,
+            holds_manage: false,
+            is_org_admin: false,
+        }));
+        // Creation alone: no capability, no role.
+        assert!(may_edit_item(EditFacts {
+            created_item: true,
+            holds_manage: false,
+            is_org_admin: false,
+        }));
+    }
+
+    /// COLLIERY-T-0228: one end is sufficient; neither end is a refusal.
+    #[test]
+    fn the_link_rule_needs_one_end() {
+        assert!(may_write_edge(true, true));
+        assert!(may_write_edge(true, false));
+        assert!(may_write_edge(false, true));
+        assert!(!may_write_edge(false, false));
+    }
+
+    /// COLLIERY-T-0228: creation is not a capability. It is not in the
+    /// vocabulary that can be granted, nor in the computed one, so no grant
+    /// and no `whoami` can carry it to a board.
+    #[test]
+    fn creation_is_not_a_capability() {
+        for name in ["creator", "created_by", "owner", "edit_items"] {
+            assert!(!CAPABILITIES.contains(&name));
+            assert!(!COMPUTED_CAPABILITIES.contains(&name));
+        }
     }
 
     #[test]

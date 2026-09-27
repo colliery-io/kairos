@@ -118,13 +118,18 @@ pub fn team_implies(required: &str) -> bool {
     TEAM_IMPLIED_CAPABILITIES.contains(&required)
 }
 
-/// Cross-team Backlog filing (KAIROS-T-0105, A-0019 §4 amending A-0006):
-/// any member of the tenant may create a TASK against another team's
-/// repository, landing in that team's delivery-board Backlog (position 0)
-/// behind their triage gate. COMPUTED, never stored: it is not in the
+/// A request to any team (KAIROS-T-0105, amended by COLLIERY-T-0218 for
+/// COLLIERY-A-0023 decisions 7 and 8): any member of the tenant may send a
+/// request to any team: a TASK in the entry column of its delivery board,
+/// in the support lane. Teams request work of each other; no team pushes
+/// work to a different team. The repository is optional and is not part of
+/// the condition. Until COLLIERY-T-0218 it was: the task had to link to a
+/// repository, and the lane was whatever the caller sent. The name is kept,
+/// though the entry column need not be called Backlog. COMPUTED, never
+/// stored: it is not in the
 /// grantable vocabulary ([`CAPABILITIES`]), so `board_member_capabilities`
 /// can never carry it, and it is satisfied purely by tenant membership on
-/// a delivery board. Nothing past Backlog is opened by it.
+/// a delivery board. Nothing past the entry column is opened by it.
 pub const FILE_BACKLOG: &str = "file_backlog";
 
 /// Every capability that is COMPUTED rather than granted — never in the
@@ -135,8 +140,8 @@ pub const COMPUTED_CAPABILITIES: &[&str] = &[FILE_BACKLOG];
 /// Relationship types a NON-admin may write between items they can
 /// otherwise manage (KAIROS-T-0111 amending A-0006's "relationships are
 /// tenant-wide configuration"): `parent` and `blocks` are the day-to-day
-/// decomposition and dependency edges — an agent that just filed a task
-/// against another team's repository (A-0019 §4) must be able to hang it
+/// decomposition and dependency edges — an agent that just sent a request
+/// to another team (`file_backlog`, COLLIERY-A-0023) must be able to hang it
 /// under its initiative and mark what it blocks. `supersedes`, `supports`
 /// and `informs` stay org-admin. The server's rule for a collaborative
 /// edge: manage on the SOURCE's board, or on the TARGET's board, or the

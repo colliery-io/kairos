@@ -910,8 +910,9 @@ fn count_items_in_column(conn: &mut PgConnection, column_id: Uuid) -> Result<u64
 }
 
 /// The board's ENTRY column — lowest position, the one creation defaults
-/// to (KAIROS-T-0062) and the one `file_backlog` filing is confined to
-/// (KAIROS-T-0105). Defined once so both agree even if positions are not
+/// to (KAIROS-T-0062) and the one a `file_backlog` request is confined to
+/// (KAIROS-T-0105, COLLIERY-T-0218): a caller who does not manage the board
+/// can create a task in this column only, with a repository or with none. Defined once so both agree even if positions are not
 /// 0-based after a renumbering (KAIROS-T-0112).
 pub fn entry_column(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uuid>, DieselError> {
     use crate::schema::board_columns;

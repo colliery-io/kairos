@@ -242,13 +242,13 @@ pub struct CreateItemParams {
     pub task_type: Option<String>,
     /// Tasks only: the repository the task links to (slug or UUID). It
     /// says where the code is. It can be any live repository, of any team.
-    /// It does not choose the board: `board` does (COLLIERY-A-0023). Any
-    /// member may create a task with a repository on the board of another
-    /// team: it lands in the entry column of that board (the computed
-    /// `file_backlog` capability).
+    /// It does not choose the board: `board` does (COLLIERY-A-0023). It is
+    /// optional, also for a request to a different team.
     pub repository: Option<String>,
-    /// Tasks only: Planned/Support lane planned | support (KAIROS-T-0077;
-    /// defaults to support for support-type tasks, else planned).
+    /// Tasks only: the lane, planned | support (KAIROS-T-0077). On a board
+    /// that you manage, the default is support for a support-type task,
+    /// else planned. On every other board the task is a request: the work
+    /// class is support, and planned is refused (COLLIERY-A-0023).
     pub work_class: Option<String>,
     /// Strategies only: the strategy's hypothesis.
     pub hypothesis: Option<String>,
@@ -470,8 +470,8 @@ impl KairosMcp {
             // KAIROS-T-0105: computed capabilities every member holds.
             out.push_str(&format!(
                 "- implicit (every member, every delivery board): {}\n  \
-                 file_backlog = create a task against another team's repository; \
-                 it lands in their Backlog for triage.\n",
+                 file_backlog = send a request to any team: a task in the entry column \
+                 of its delivery board, in the support lane.\n",
                 kairos_core::abac::COMPUTED_CAPABILITIES.join(", ")
             ));
             Ok(out)
@@ -1073,7 +1073,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member may create a task with a `repository` on the board of another team — it lands in the entry column of that board for their triage. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1215,7 +1215,7 @@ impl KairosMcp {
                 Some(from_board_id),
                 user,
                 "manage_tasks",
-                &item.short_code,
+                &item,
             )?;
             require_capability_explained(
                 conn,
@@ -1223,7 +1223,7 @@ impl KairosMcp {
                 Some(target.id),
                 user,
                 "manage_tasks",
-                &item.short_code,
+                &item,
             )?;
             let from_board = board_by_ref(conn, &from_board_id.to_string())?;
             let moved =
@@ -1272,7 +1272,7 @@ impl KairosMcp {
                 Some(board_id),
                 user,
                 "transition_items",
-                &item.short_code,
+                &item,
             )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
@@ -1308,7 +1308,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. `parent` and `blocks` may be written by anyone who manages either item's board or created the source item (so a task you filed against another team's repository can block your own item); the other types are org-admin only."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. `parent` and `blocks` may be written by anyone who manages either item's board or created the source item (so a request that you sent to another team can block your own item); the other types are org-admin only."
     )]
     pub async fn link_items(
         &self,
@@ -1577,6 +1577,9 @@ struct ItemView {
     /// Set when this work has been put away (KAIROS-A-0020). Rendered as a
     /// banner so an agent knows not to try to act on it.
     archived_at: Option<DateTime<Utc>>,
+    /// Who created the item. A refusal uses it to know whether the caller
+    /// is the person who filed a request (COLLIERY-T-0218).
+    created_by: Uuid,
 }
 
 /// Resolve a short code and load its [`ItemView`]; 404 `NOT_FOUND`
@@ -1633,6 +1636,7 @@ fn load_item(
                 decision_date: None,
                 updated_at: row.updated_at,
                 archived_at: row.deleted_at,
+                created_by: row.created_by,
             }
         }
         ItemType::Initiative => {
@@ -1664,6 +1668,7 @@ fn load_item(
                 decision_date: None,
                 updated_at: row.updated_at,
                 archived_at: row.deleted_at,
+                created_by: row.created_by,
             }
         }
         ItemType::Task => {
@@ -1695,6 +1700,7 @@ fn load_item(
                 decision_date: None,
                 updated_at: row.updated_at,
                 archived_at: row.deleted_at,
+                created_by: row.created_by,
             }
         }
         ItemType::Document => {
@@ -1726,6 +1732,7 @@ fn load_item(
                 decision_date: None,
                 updated_at: row.updated_at,
                 archived_at: row.deleted_at,
+                created_by: row.created_by,
             }
         }
         ItemType::Adr => {
@@ -1757,6 +1764,7 @@ fn load_item(
                 decision_date: row.decision_date,
                 updated_at: row.updated_at,
                 archived_at: row.deleted_at,
+                created_by: row.created_by,
             }
         }
     };
@@ -1779,22 +1787,40 @@ fn authorize_item_write(
         board,
         user,
         manage_capability(item.item_type),
-        &item.short_code,
+        item,
     )
 }
 
-/// `require_capability`, but when the caller is a cross-team filer — no
-/// grant on this board, yet `file_backlog` would let them file into it —
-/// the refusal explains the Backlog-only rule the plugin recipe teaches
-/// instead of the bare capability name (KAIROS-T-0123, UAT finding #5).
-/// The HTTP API keeps its generic envelope; this is agent-facing text.
+/// `require_capability`, but when the refused caller FILED this item as a
+/// request and it is still in the entry column, the refusal explains the
+/// request rule instead of the bare capability name (KAIROS-T-0123, UAT
+/// finding #5). The HTTP API keeps its generic envelope; this is
+/// agent-facing text.
+///
+/// COLLIERY-T-0218 (COLLIERY-A-0023): the explanation is given ONLY when
+/// all of these are true:
+///
+/// - `board_id` is the board the item is on (a move asks about the target
+///   board as well, and the item is not there),
+/// - the item is in the entry column of that board,
+/// - the caller created the item,
+/// - the caller holds `file_backlog` there, so the board is a delivery
+///   board.
+///
+/// Until then the only test was `check_file_backlog`, which takes no column
+/// and no author. Every member holds it on every delivery board, so EVERY
+/// refused write by a member was told that the item "sits in the Backlog",
+/// whatever column the card was in and whoever had created it. That was a
+/// false statement about the board, given to an agent that acts on what it
+/// reads. In every other case the plain refusal, which names the missing
+/// capability, is what the caller gets.
 fn require_capability_explained(
     conn: &mut PgConnection,
     slug: &str,
     board_id: Option<Uuid>,
     user: Uuid,
     capability: &str,
-    short_code: &str,
+    item: &ItemView,
 ) -> Result<(), ApiError> {
     let err = match require_capability(conn, slug, board_id, user, capability) {
         Ok(()) => return Ok(()),
@@ -1803,9 +1829,12 @@ fn require_capability_explained(
     let Some(board_id) = board_id else {
         return Err(err);
     };
-    if err.code != "FORBIDDEN"
-        || !abac::check_file_backlog(conn, slug, board_id, user).unwrap_or(false)
-    {
+    if err.code != "FORBIDDEN" || item.board_id != Some(board_id) || item.created_by != user {
+        return Err(err);
+    }
+    let in_entry_column = item.column_id.is_some()
+        && boards::entry_column(conn, board_id).map_err(ApiError::internal)? == item.column_id;
+    if !in_entry_column || !abac::check_file_backlog(conn, slug, board_id, user).unwrap_or(false) {
         return Err(err);
     }
     let owner = {
@@ -1819,12 +1848,13 @@ fn require_capability_explained(
             .map_err(ApiError::internal)?
     };
     let whose = owner
-        .map(|team| format!("{team}'s"))
-        .unwrap_or_else(|| "the owning team's".to_string());
+        .map(|team| format!("team {team}"))
+        .unwrap_or_else(|| "the team that owns the board".to_string());
+    let short_code = &item.short_code;
     Err(ApiError::forbidden(format!(
-        "{short_code} sits in {whose} Backlog for their triage; a cross-team filer may create \
-         and link it (file_backlog), not move, edit or delete it — that needs {capability:?} \
-         on their board"
+        "{short_code} is a request in the entry column of the board of {whose}. \
+         That team moves it. You filed it, so you can link it (file_backlog). \
+         To move, edit or delete it, you need {capability:?} on that board."
     ))
     .with_details(json!({
         "required_capability": capability,
@@ -2618,8 +2648,9 @@ fn create_item_impl(
     // Board items: resolve the board (explicit slug/UUID or the single
     // board of the matching level), then manage_<type> on it. Tasks go
     // through the SAME routing + capability helpers as POST /api/tasks
-    // (KAIROS-T-0104/T-0105), and a non-member may still file into the
-    // entry column of a board when the task links to a repository.
+    // (KAIROS-T-0104/T-0105), and a caller who does not manage the board
+    // may still send a request: entry column, support lane, repository or
+    // none (COLLIERY-T-0218).
     //
     // COLLIERY-T-0217 (COLLIERY-A-0023): the board is the named one, or the
     // single delivery board of the tenant. The repository is carried along
@@ -2627,7 +2658,7 @@ fn create_item_impl(
     // chose its owner's delivery board, and a `board` beside it had to be
     // that one. MCP has no `team` argument, so the team arm of `route_task`
     // is never reached from here.
-    let (board, route) = if item_type == ItemType::Task {
+    let (board, route, task_access) = if item_type == ItemType::Task {
         let explicit = params
             .board
             .as_deref()
@@ -2647,8 +2678,34 @@ fn create_item_impl(
             None,
             params.repository.as_deref(),
         )?;
-        crate::api::tasks::require_task_create_capability(conn, slug, user, &route, None)?;
-        (board, Some(route))
+        // COLLIERY-T-0218: the work class the caller asked for is parsed
+        // here, before the capability check, because the check needs it: a
+        // caller who does not manage the board is refused `planned`. Until
+        // then it was parsed below, beside the create, where a refusal was
+        // already too late to give.
+        let task_type = params
+            .task_type
+            .as_deref()
+            .map(|v| parse_enum(v, "task_type", TaskType::ALL))
+            .transpose()?
+            .unwrap_or(TaskType::Task);
+        let requested_work_class = params
+            .work_class
+            .as_deref()
+            .map(|v| parse_enum(v, "work_class", WorkClass::ALL))
+            .transpose()?;
+        let access = crate::api::tasks::require_task_create_capability(
+            conn,
+            slug,
+            user,
+            &route,
+            None,
+            requested_work_class,
+        )?;
+        // The SAME function as POST /api/tasks chooses the stored work
+        // class, so the two cannot disagree about what a request is.
+        let work_class = access.work_class(requested_work_class, task_type);
+        (board, Some(route), Some((task_type, work_class)))
     } else {
         let board = match params.board.as_deref() {
             Some(reference) => board_by_ref(conn, reference)?,
@@ -2661,7 +2718,7 @@ fn create_item_impl(
             user,
             manage_capability(item_type),
         )?;
-        (board, None)
+        (board, None, None)
     };
 
     // KAIROS-T-0111: the `parent` edge is gated BEFORE the item is written
@@ -2734,24 +2791,8 @@ fn create_item_impl(
             (created.short_code, created.title, created.id)
         }
         ItemType::Task => {
-            let task_type = params
-                .task_type
-                .as_deref()
-                .map(|v| parse_enum(v, "task_type", TaskType::ALL))
-                .transpose()?
-                .unwrap_or(TaskType::Task);
-            // KAIROS-T-0077: same default rule as the REST create — a
-            // support-type ticket is born in the Support lane.
-            let work_class = params
-                .work_class
-                .as_deref()
-                .map(|v| parse_enum(v, "work_class", WorkClass::ALL))
-                .transpose()?
-                .unwrap_or(if task_type == TaskType::Support {
-                    WorkClass::Support
-                } else {
-                    WorkClass::Planned
-                });
+            // Decided above, with the capability check (COLLIERY-T-0218).
+            let (task_type, work_class) = task_access.expect("tasks always resolve a work class");
             let route = route.expect("tasks always resolve a route");
             let created = items::create_task(
                 conn,

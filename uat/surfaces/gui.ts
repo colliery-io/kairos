@@ -48,6 +48,47 @@ export function cardIn(page: Page, columnName: string, code: string): Locator {
   return column(page, columnName).locator('article.kairos-card', { hasText: code });
 }
 
+// Lane-scoped selectors. `column()` resolves inside the PLANNED lane, which
+// is right for a journey about planned work and useless for one about a
+// request or an incident: that one needs to say which lane it means on every
+// assertion, because "the card is in Active" is exactly the claim that hides
+// a lane bug. They were local to the incident journey until COLLIERY-T-0218
+// put every request in the Support lane, and the cross-team journey needed
+// them too.
+export type Lane = 'planned' | 'support';
+
+export function laneColumn(page: Page, lane: Lane, name: string): Locator {
+  return page.locator(`section.kairos-board__lane--${lane}`).locator('section.kairos-board__column', {
+    has: page.locator('.kairos-board__column-head', { hasText: name }),
+  });
+}
+
+export function laneCard(page: Page, lane: Lane, columnName: string, code: string): Locator {
+  return laneColumn(page, lane, columnName).locator('article.kairos-card', { hasText: code });
+}
+
+/** Drag a card to a column IN A NAMED LANE (see `gui.dragCard` for why the
+ * mouse is driven by hand rather than through `dragTo`). */
+export async function dragInLane(page: Page, code: string, lane: Lane, toColumn: string): Promise<void> {
+  const source = card(page, code).first();
+  const target = laneColumn(page, lane, toColumn);
+  await target.scrollIntoViewIfNeeded();
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  const box = await target.boundingBox();
+  const viewport = page.viewportSize();
+  if (!from || !box || !viewport) throw new Error(`no geometry for ${code} → ${lane}/${toColumn}`);
+  const at = {
+    x: (Math.max(box.x, 0) + Math.min(box.x + box.width, viewport.width)) / 2,
+    y: (Math.max(box.y, 0) + Math.min(box.y + box.height, viewport.height)) / 2,
+  };
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y, { steps: 2 });
+  await page.mouse.up();
+  await expect(laneCard(page, lane, toColumn, code)).toBeVisible({ timeout: 15_000 });
+}
+
 /**
  * Drag a card to a column and wait until it is there — once, no retry.
  *

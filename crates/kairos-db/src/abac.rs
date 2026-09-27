@@ -167,10 +167,12 @@ pub fn is_org_member(
 
 /// The COMPUTED `file_backlog` capability (KAIROS-T-0105, A-0019 §4): any
 /// tenant member holds it on every live DELIVERY board — and only there.
-/// Whether the write is actually a Backlog-only task create is the
-/// caller's decision (the server chooses to ask for `file_backlog` only in
-/// that exact case); this answers "is this principal allowed to file on
-/// this board at all".
+/// Whether the write is actually a REQUEST (a task create into the entry
+/// column, in the support lane) is the caller's decision: the server
+/// chooses to ask for `file_backlog` only in that exact case. This answers
+/// "is this principal allowed to send a request to this board at all".
+/// No repository is looked at (COLLIERY-T-0218, COLLIERY-A-0023): until
+/// then the server asked only when the task linked to a repository.
 pub fn check_file_backlog(
     conn: &mut PgConnection,
     org_slug: &str,

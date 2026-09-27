@@ -1176,9 +1176,15 @@ async fn mcp_endpoint_against_live_stack() {
         text.contains("- pull_request 77 [merged] Export endpoint for"),
         "{text}"
     );
-    // #5: bob is an org member with no grant on platform's board. He may file
-    // into its Backlog (file_backlog) and is told THAT rule when he tries to
-    // move what he filed — not the bare capability name.
+    // #5: bob is an org member with no grant on platform's board. He may
+    // send a request to it (file_backlog) and is told THAT rule when he tries
+    // to move what he filed — not the bare capability name.
+    //
+    // COLLIERY-T-0218 (COLLIERY-A-0023): the request needs no repository, its
+    // work class is `support`, and `planned` is refused. The explanation is
+    // given only for a request the caller filed that is still in the entry
+    // column. Until then every refused write by a member was told that the
+    // item "sits in the Backlog", whatever column it was in.
     // A first authenticated call JIT-provisions bob's users row (403 until
     // he is a member); only then can membership be granted.
     let bob_token = user_token(&http, "bob").await;
@@ -1214,6 +1220,76 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     let filed = extract_code(&text, "ACME-T-");
     let text = bob_session
+        .call_ok("get_item", json!({"short_code": filed}))
+        .await;
+    assert!(
+        text.contains("column: Backlog"),
+        "the request is in the entry column: {text}"
+    );
+    assert!(
+        text.contains("(task) · lane: support"),
+        "the request is in the support lane, though its type is task: {text}"
+    );
+    // No repository: the request is created all the same. The board is
+    // named, because the tenant has one delivery board here and the default
+    // would do, but a request names the team it is for.
+    let text = bob_session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Request with no repository",
+                "board": "platform-delivery",
+            }),
+        )
+        .await;
+    let no_repository = extract_code(&text, "ACME-T-");
+    let text = bob_session
+        .call_ok("get_item", json!({"short_code": no_repository}))
+        .await;
+    assert!(
+        text.contains("column: Backlog") && text.contains("(task) · lane: support"),
+        "a request with no repository: entry column, support lane: {text}"
+    );
+    // `planned` is refused, and nothing is created.
+    let text = bob_session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Pushed into the planned lane",
+                "board": "platform-delivery",
+                "work_class": "planned",
+            }),
+        )
+        .await;
+    assert!(text.contains("FORBIDDEN"), "{text}");
+    assert!(
+        text.contains("support lane") && text.contains("manage_tasks"),
+        "the refusal says which lane a request uses: {text}"
+    );
+    {
+        use kairos_db::schema::tasks;
+        let made: i64 = tasks::table
+            .filter(tasks::title.eq("Pushed into the planned lane"))
+            .count()
+            .get_result(&mut conn)
+            .expect("counting tasks");
+        assert_eq!(made, 0, "a refused request leaves no task");
+    }
+    // An explicit `support` is the same as none.
+    bob_session
+        .call_ok(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Request that names its lane",
+                "board": "platform-delivery",
+                "work_class": "support",
+            }),
+        )
+        .await;
+    let text = bob_session
         .call_err(
             "transition_item",
             json!({"short_code": filed, "to_column": "Todo"}),
@@ -1221,8 +1297,10 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("FORBIDDEN"), "{text}");
     assert!(
-        text.contains("platform's Backlog") && text.contains("file_backlog"),
-        "cross-team filer gets the Backlog-only explanation: {text}"
+        text.contains("is a request in the entry column of the board of team platform")
+            && text.contains("file_backlog")
+            && text.contains("transition_items"),
+        "the person who filed a request gets the request rule: {text}"
     );
     let text = bob_session
         .call_err(
@@ -1230,7 +1308,70 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
         )
         .await;
-    assert!(text.contains("file_backlog"), "{text}");
+    assert!(
+        text.contains("request in the entry column") && text.contains("file_backlog"),
+        "{text}"
+    );
+    // A card in the entry column that bob did NOT file: the plain refusal.
+    let text = bob_session
+        .call_err(
+            "update_item",
+            json!({"short_code": unbound_code, "content": "not his", "version": 1}),
+        )
+        .await;
+    assert!(
+        text.contains("FORBIDDEN") && text.contains("manage_tasks"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("file_backlog") && !text.contains("entry column"),
+        "he did not file it, so the request rule is not his to be told: {text}"
+    );
+    // The team moves his request to Active. It is not in the entry column
+    // now, so a refused write names the missing capability and no more.
+    // Before COLLIERY-T-0218 this refusal said that the card "sits in
+    // platform's Backlog".
+    session
+        .call_ok(
+            "transition_item",
+            json!({"short_code": filed, "to_column": "Todo"}),
+        )
+        .await;
+    session
+        .call_ok(
+            "transition_item",
+            json!({"short_code": filed, "to_column": "Active"}),
+        )
+        .await;
+    for (tool, arguments, capability) in [
+        (
+            "transition_item",
+            json!({"short_code": filed, "to_column": "Completed"}),
+            "transition_items",
+        ),
+        (
+            "update_item",
+            json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
+            "manage_tasks",
+        ),
+        (
+            "delete_item",
+            json!({"short_code": filed, "confirm": true}),
+            "manage_tasks",
+        ),
+    ] {
+        let text = bob_session.call_err(tool, arguments).await;
+        assert!(
+            text.contains("FORBIDDEN") && text.contains(capability),
+            "{tool}: {text}"
+        );
+        assert!(
+            !text.contains("Backlog")
+                && !text.contains("entry column")
+                && !text.contains("file_backlog"),
+            "{tool} on a card in Active does not name the Backlog: {text}"
+        );
+    }
 
     // --- KAIROS-T-0128: move_item (the I-0012 board move) -------------------
     // A second delivery board to move to, with alice able to manage both.
@@ -1349,8 +1490,10 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.contains("is not a task"), "{text}");
     assert!(text.contains("transition_item"), "{text}");
-    // Two-sided: bob may manage neither board, and the refusal explains the
-    // Backlog rule he DOES hold (KAIROS-T-0123).
+    // Two-sided: bob may manage neither board. He did not file this task, so
+    // the refusal names the missing capability and no more
+    // (COLLIERY-T-0218). Until then it explained the Backlog rule to him,
+    // about a task that was never a request of his.
     let text = bob_session
         .call_err(
             "move_item",
@@ -1358,7 +1501,11 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(text.contains("FORBIDDEN"), "{text}");
-    assert!(text.contains("file_backlog"), "{text}");
+    assert!(text.contains("manage_tasks"), "{text}");
+    assert!(
+        !text.contains("file_backlog") && !text.contains("entry column"),
+        "{text}"
+    );
 
     // --- teardown ------------------------------------------------------------
     drop(conn);

@@ -4,6 +4,12 @@
 // list_repositories → get_repository → create_item on platform's board
 // with platform's repo → link_items blocks. She names the board: a
 // repository is a link and does not choose one (COLLIERY-T-0217).
+//
+// What she sends is a REQUEST (COLLIERY-T-0218, COLLIERY-A-0023): teams
+// request work of each other, and no team pushes work to a different team.
+// The request goes to the entry column of platform's board, in the Support
+// lane. She cannot select the planned lane. The repository is optional; she
+// names it here because she knows it.
 // Everything else is exactly what
 // the recipe says she cannot do — and the product refuses. bob triages on
 // the platform board in the GUI; carol watches her own board live.
@@ -14,7 +20,7 @@
 import { expect } from '@playwright/test';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
-import { card, cardIn, dragCard, openBoard, openItem, panel } from '../surfaces/gui';
+import { card, cardIn, dragCard, laneCard, openBoard, openItem, panel } from '../surfaces/gui';
 import { shortCodes } from '../surfaces/mcp';
 
 const THEIR_REPO = process.env.UAT_THEIR_REPO ?? 'payments-api';
@@ -47,7 +53,23 @@ journey(
       return { repository: THEIR_REPO, owner, their_board: theirBoard, how_to_work_here: howToWorkHere?.slice(0, 80) };
     });
 
-    await step(carol, `files a task against ${THEIR_REPO} on platform's board; it lands in platform's Backlog`, async () => {
+    await step(carol, 'is refused when she asks for the planned lane of platform\'s board', async () => {
+      const mcp = await carol.mcp();
+      const refusal = await mcp.refused('create_item', {
+        item_type: 'task',
+        work_class: 'planned',
+        title: named('platform: bulk invoice export endpoint'),
+        board: theirBoard,
+        repository: THEIR_REPO,
+      });
+      // The planned lane is platform's own plan. A request does not go there.
+      expect(refusal).toContain('FORBIDDEN');
+      expect(refusal).toContain('support lane');
+      expect(refusal).toContain('manage_tasks');
+      return { refused: refusal.split('\n')[0].slice(0, 160) };
+    });
+
+    await step(carol, `sends a request to platform, linked to ${THEIR_REPO}; it lands in the entry column, in the Support lane`, async () => {
       const mcp = await carol.mcp();
       const text = await mcp.call('create_item', {
         item_type: 'task',
@@ -63,8 +85,11 @@ journey(
       const item = await mcp.call('get_item', { short_code: filed });
       const boardLine = item.match(/- board: ([^\n]+)/)?.[1];
       expect(boardLine).toContain(theirBoard);
-      expect(boardLine).toContain('Backlog');
-      return { short_code: filed, landed_on: boardLine };
+      expect(boardLine).toContain('column: Backlog');
+      // She sent no work class, and the type is `task`. Until
+      // COLLIERY-T-0218 that was the planned lane.
+      expect(item).toContain('(task) · lane: support');
+      return { short_code: filed, lane: 'support', landed_on: boardLine };
     });
 
     await step(carol, `creates her own task on ${MY_REPO} and links the platform task as blocking it`, async () => {
@@ -85,24 +110,35 @@ journey(
       return { my_task: mine, edge: `${filed} blocks ${mine}`, tool_said: linked.split('\n')[0] };
     });
 
-    await step(carol, 'is refused when she tries to move the platform task out of their Backlog', async () => {
+    await step(carol, 'is refused when she tries to move her request out of the entry column', async () => {
       const mcp = await carol.mcp();
       const refusal = await mcp.refused('transition_item', { short_code: filed, to_column: 'Todo' });
-      // The refusal teaches the rule the recipe describes, not just a capability name.
-      expect(refusal).toContain('Backlog for their triage');
+      // The refusal teaches the rule, not just a capability name: she filed
+      // the request, it is in the entry column, and the team moves it.
+      expect(refusal).toContain('is a request in the entry column');
+      expect(refusal).toContain('That team moves it');
       expect(refusal).toContain('file_backlog');
-      return { refused: refusal.split('\n')[0].slice(0, 160) };
+      expect(refusal).toContain('transition_items');
+      return { refused: refusal.split('\n')[0].slice(0, 200) };
     });
 
-    await step(bob, 'sees the filed card in platform Backlog with its repo chip and triages it to Todo', async () => {
+    await step(bob, 'sees the request in the Support lane of platform\'s Backlog, takes it into the plan, and triages it to Todo', async () => {
       const page = await bob.gui();
       await openBoard(page, theirBoard);
-      const card = cardIn(page, 'Backlog', filed);
-      await expect(card).toBeVisible();
-      await expect(card.locator(`.kairos-card__repo[data-repo="${THEIR_REPO}"]`)).toBeVisible();
-      await expect(card.locator('.cl-pill', { hasText: 'blocks 1' })).toBeVisible();
+      const requested = laneCard(page, 'support', 'Backlog', filed);
+      await expect(requested).toBeVisible();
+      await expect(cardIn(page, 'Backlog', filed), 'it is not in the planned lane').toHaveCount(0);
+      await expect(requested.locator(`.kairos-card__repo[data-repo="${THEIR_REPO}"]`)).toBeVisible();
+      await expect(requested.locator('.cl-pill', { hasText: 'blocks 1' })).toBeVisible();
+      // The team plans its own work: bob, a member of the receiving team,
+      // changes the work class. carol could not.
+      const api = await bob.api();
+      const planned = await api.post(`/api/tasks/${filed}/work-class`, { work_class: 'planned' });
+      expect(planned.work_class).toBe('planned');
+      await page.reload();
+      await expect(cardIn(page, 'Backlog', filed)).toBeVisible({ timeout: 15_000 });
       await dragCard(page, filed, 'Todo');
-      return { task: filed, chip: THEIR_REPO, column: 'Todo' };
+      return { task: filed, chip: THEIR_REPO, lane: 'support → planned', column: 'Todo' };
     });
 
     await step(carol, 'sees her own task marked blocked by the platform task', async () => {

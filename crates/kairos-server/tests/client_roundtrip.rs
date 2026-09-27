@@ -190,6 +190,11 @@ async fn typed_error_mapping_roundtrip() {
         .expect("default delivery board is not a complete graph");
 
     // --- 403 Forbidden WITH the capability payload -----------------------------
+    // COLLIERY-T-0218 (COLLIERY-A-0023): bob does not manage this board, so
+    // what he sends is a request, and a request for the planned lane is
+    // refused. Until then the create with no work class was the refused one;
+    // it succeeds now, as a request in the support lane, so it is no longer
+    // a 403 to map.
     let err = rejection(
         bob.create_task(&CreateTaskRequest {
             board_id: Some(board_id.clone()),
@@ -198,7 +203,7 @@ async fn typed_error_mapping_roundtrip() {
             title: "denied".into(),
             content: String::new(),
             task_type: None,
-            work_class: None,
+            work_class: Some("planned".into()),
             team_id: None,
         })
         .await,

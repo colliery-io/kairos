@@ -1,12 +1,23 @@
 //! Integration test for the COMPUTED `file_backlog` capability
-//! (KAIROS-T-0105, A-0019 §4 amending A-0006): any tenant member may create
-//! a task against another team's repository, landing in that team's
-//! delivery-board Backlog — and NOTHING else opens up. The negative suite
-//! is the contract; it walks the whole write surface rather than sampling.
+//! (KAIROS-T-0105, amended by COLLIERY-T-0218 for COLLIERY-A-0023
+//! decisions 7 and 8): any tenant member may send a REQUEST to any team, a
+//! task in the entry column of its delivery board, in the support lane —
+//! and NOTHING else opens up. The negative suite is the contract; it walks
+//! the whole write surface rather than sampling.
+//!
+//! The rule, for a caller who does not manage the target board:
+//!
+//! 1. The task goes to the entry column. A different column is refused.
+//! 2. The work class is `support`. `planned` is refused.
+//! 3. The repository is optional. It is not part of the condition.
+//!
+//! Until COLLIERY-T-0218 the condition was the repository: a filing had to
+//! link to one, and its lane was whatever the caller sent. This file held
+//! "filing without a repository" as a NEGATIVE case, over REST and over
+//! MCP. Both are positive cases now, and both are still here.
 //!
 //! COLLIERY-T-0217 (COLLIERY-A-0023): a repository no longer chooses the
-//! board, so every filing here names the board as well as the repository.
-//! The capability rule itself is unchanged (COLLIERY-T-0218 changes it).
+//! board, so every filing here names the board.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_file_backlog_t0105_test`.
@@ -14,7 +25,7 @@
 //! Cast:
 //! - `svc`   — org admin: sets the world up,
 //! - `bob`   — member of team `platform` (owns `payments-api`),
-//! - `alice` — member of team `web` only: the cross-team filer,
+//! - `alice` — member of team `web` only: she sends the requests,
 //! - `carol` — org member on NO team: also a filer (membership is enough),
 //! - a service account with a key: also a filer (A-0017 principals count),
 //! - `globex-alice` — alice in ANOTHER tenant: isolation unchanged.
@@ -301,8 +312,9 @@ async fn file_backlog_against_live_stack() {
         .id
         .clone();
 
-    // The filer names the board and the repository (COLLIERY-T-0217). Until
-    // then the repository alone was enough: it routed to its owner's board.
+    // The filer names the board (COLLIERY-T-0217). Until then the repository
+    // alone was enough: it routed to its owner's board. This request carries
+    // a repository as well; the one below it carries none.
     let filing = CreateTaskRequest {
         board_id: Some(platform_board.clone()),
         column_id: None,
@@ -321,14 +333,18 @@ async fn file_backlog_against_live_stack() {
     assert_eq!(me.implicit, vec!["file_backlog".to_string()]);
 
     // =======================================================================
-    // The positive case: alice (web) files into platform's Backlog
+    // The positive case: alice (web) sends a request to platform
     // =======================================================================
     let filed = alice
         .create_task(&filing)
         .await
-        .expect("a member of another team files against platform's repo");
+        .expect("a member of another team sends a request to platform");
     assert_eq!(filed.board_id, platform_board);
-    assert_eq!(filed.column_id, backlog, "lands in Backlog");
+    assert_eq!(filed.column_id, backlog, "lands in the entry column");
+    // COLLIERY-T-0218: she sent no work class and the type is `task`, which
+    // was `planned` until now. A request is `support` whatever its type.
+    assert_eq!(filed.task_type, "task");
+    assert_eq!(filed.work_class, "support", "a request is support work");
     assert_eq!(filed.team_id.as_deref(), Some(platform.id.as_str()));
     assert_eq!(filed.created_by, alice_id.to_string());
     assert_eq!(
@@ -385,6 +401,85 @@ async fn file_backlog_against_live_stack() {
         .expect("explicit Backlog column");
     assert_eq!(explicit_backlog.column_id, backlog);
 
+    // No repository: the create succeeds (COLLIERY-T-0218). Until then this
+    // was the 403 "filing without a repository": a plain board create was
+    // `manage_tasks` only.
+    let no_repository = alice
+        .create_task(&CreateTaskRequest {
+            repository: None,
+            title: "Request with no repository".into(),
+            ..filing.clone()
+        })
+        .await
+        .expect("a request needs no repository");
+    assert_eq!(no_repository.board_id, platform_board);
+    assert_eq!(no_repository.column_id, backlog);
+    assert_eq!(no_repository.work_class, "support");
+    assert!(no_repository.repository.is_none());
+    assert_eq!(
+        no_repository.team_id.as_deref(),
+        Some(platform.id.as_str()),
+        "the board decides the team of a request too"
+    );
+
+    // Naming `support` is the same as naming nothing.
+    let explicit_support = alice
+        .create_task(&CreateTaskRequest {
+            work_class: Some("support".into()),
+            ..filing.clone()
+        })
+        .await
+        .expect("explicit support");
+    assert_eq!(explicit_support.work_class, "support");
+
+    // The type does not choose the lane of a request: a bug is support work.
+    let bug = alice
+        .create_task(&CreateTaskRequest {
+            task_type: Some("bug".into()),
+            repository: None,
+            ..filing.clone()
+        })
+        .await
+        .expect("a bug as a request");
+    assert_eq!(bug.task_type, "bug");
+    assert_eq!(bug.work_class, "support");
+
+    // On the board she manages nothing changes: the KAIROS-T-0077 default,
+    // any work class, any column.
+    let web_board = web.delivery_board_id.clone().expect("web board");
+    let own_default = alice
+        .create_task(&CreateTaskRequest {
+            board_id: Some(web_board.clone()),
+            repository: None,
+            ..filing.clone()
+        })
+        .await
+        .expect("her own board, no work class");
+    assert_eq!(
+        own_default.work_class, "planned",
+        "a manager keeps the default"
+    );
+    let web_second_column = svc
+        .list_columns(&web_board)
+        .await
+        .expect("web columns")
+        .iter()
+        .find(|c| c.position == 1)
+        .expect("second column")
+        .id
+        .clone();
+    let own_planned = alice
+        .create_task(&CreateTaskRequest {
+            board_id: Some(web_board.clone()),
+            column_id: Some(web_second_column.clone()),
+            work_class: Some("planned".into()),
+            ..filing.clone()
+        })
+        .await
+        .expect("her own board, planned, second column");
+    assert_eq!(own_planned.work_class, "planned");
+    assert_eq!(own_planned.column_id, web_second_column);
+
     // =======================================================================
     // The negative suite: nothing else opens up
     // =======================================================================
@@ -396,19 +491,80 @@ async fn file_backlog_against_live_stack() {
                 ..filing.clone()
             })
             .await,
-        "filing into a non-Backlog column",
+        "a request into a column that is not the entry column",
     );
-    // Not without a repository (a plain board create is still manage_tasks).
+    // The same with no repository: the repository never was what let the
+    // column through.
     forbidden(
         alice
             .create_task(&CreateTaskRequest {
-                board_id: Some(platform_board.clone()),
+                column_id: Some(todo.clone()),
                 repository: None,
                 ..filing.clone()
             })
             .await,
-        "filing without a repository",
+        "a request with no repository into a column that is not the entry column",
     );
+    // Not into the planned lane — 403, never silently changed to support.
+    // The refusal has the shape of the column refusal: what she lacks is
+    // `manage_tasks` on platform's board.
+    for repository in [Some("payments-api".to_string()), None] {
+        let planned_before = svc
+            .list_tasks(kairos_client::types::Pagination {
+                limit: Some(200),
+                offset: None,
+            })
+            .await
+            .expect("count")
+            .total;
+        let err = rejection(
+            alice
+                .create_task(&CreateTaskRequest {
+                    work_class: Some("planned".into()),
+                    repository: repository.clone(),
+                    ..filing.clone()
+                })
+                .await,
+        );
+        match &err {
+            Error::Forbidden {
+                code,
+                message,
+                capability,
+                ..
+            } => {
+                assert_eq!(code, "FORBIDDEN");
+                assert_eq!(capability.as_deref(), Some("manage_tasks"));
+                assert!(
+                    message.contains("goes to the support lane") && message.contains("`planned`"),
+                    "the refusal says which lane a request uses: {message}"
+                );
+            }
+            other => panic!("a request for the planned lane is a 403: {other}"),
+        }
+        let planned_after = svc
+            .list_tasks(kairos_client::types::Pagination {
+                limit: Some(200),
+                offset: None,
+            })
+            .await
+            .expect("count")
+            .total;
+        assert_eq!(
+            planned_before, planned_after,
+            "a refused request leaves no task"
+        );
+    }
+    // A work class that does not exist is a 422, as for everyone.
+    let err = rejection(
+        alice
+            .create_task(&CreateTaskRequest {
+                work_class: Some("urgent".into()),
+                ..filing.clone()
+            })
+            .await,
+    );
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
     // Not with a repository alone: it does not choose a board
     // (COLLIERY-T-0217). A 422 from routing, before any capability question.
     // Until then this place held a different 422: web's board with
@@ -470,10 +626,41 @@ async fn file_backlog_against_live_stack() {
             .await,
         "setting metadata on what she filed",
     );
-    // The owning team CAN: bob transitions it out of Backlog.
-    bob.transition_task(&filed.short_code, &todo)
+    // Nothing she was refused changed the request.
+    let unchanged = svc.get_task(&filed.short_code).await.expect("the request");
+    assert_eq!(unchanged.column_id, backlog, "still in the entry column");
+    assert_eq!(unchanged.work_class, "support");
+    // The receiving team CAN. bob moves the request to the planned lane with
+    // the work-class endpoint: the team plans its own work (COLLIERY-A-0023).
+    let planned = bob
+        .set_task_work_class(&filed.short_code, "planned")
         .await
-        .expect("the owning team triages it");
+        .expect("the receiving team changes the work class");
+    assert_eq!(planned.work_class, "planned");
+    assert_eq!(
+        planned.column_id, backlog,
+        "a lane change is not a column change"
+    );
+    // And bob transitions it out of the entry column.
+    let triaged = bob
+        .transition_task(&filed.short_code, &todo)
+        .await
+        .expect("the receiving team triages it");
+    assert_eq!(triaged.column_id, todo);
+    // The initiative board is not a delivery board: no request goes there.
+    let err = rejection(
+        alice
+            .create_task(&CreateTaskRequest {
+                board_id: Some("initiatives".into()),
+                repository: None,
+                ..filing.clone()
+            })
+            .await,
+    );
+    assert!(
+        matches!(err, Error::Forbidden { .. } | Error::Validation { .. }),
+        "a request goes to a delivery board only: {err}"
+    );
     // Another tenant's member cannot reach into acme at all.
     // alice IS a globex member, so the tenant middleware admits her there and
     // every lookup runs in globex's schema. The filing names acme's board,
@@ -535,7 +722,7 @@ async fn file_backlog_against_live_stack() {
         .expect("svc creates an initiative");
     let alice_own = alice
         .create_task(&CreateTaskRequest {
-            board_id: Some(web.delivery_board_id.clone().expect("web board")),
+            board_id: Some(web_board.clone()),
             column_id: None,
             title: "Alice's own item".into(),
             content: String::new(),
@@ -718,8 +905,8 @@ async fn file_backlog_against_live_stack() {
     );
 
     // =======================================================================
-    // Same rule over MCP: create_item with `board` and `repository` from a
-    // non-member
+    // Same rule over MCP: create_item with `board` from a caller who does
+    // not manage that board
     // =======================================================================
     let mut mcp = McpSession::open(&server.base_url, &alice_token).await;
     let (is_error, text) = mcp
@@ -742,10 +929,14 @@ async fn file_backlog_against_live_stack() {
     let over_mcp = svc.get_task(&code).await.expect("the MCP-filed task");
     assert_eq!(
         over_mcp.column_id, backlog,
-        "MCP filing lands in Backlog too"
+        "an MCP request lands in the entry column too"
     );
     assert_eq!(over_mcp.created_by, alice_id.to_string());
     assert_eq!(over_mcp.board_id, platform_board);
+    assert_eq!(
+        over_mcp.work_class, "support",
+        "an MCP request is support work too"
+    );
     // With no `board`, acme has two delivery boards and so no default. The
     // repository does not supply one (COLLIERY-T-0217).
     let (is_error, text) = mcp
@@ -762,19 +953,127 @@ async fn file_backlog_against_live_stack() {
         is_error && text.contains("pass `board`"),
         "a repository alone does not choose the board: {text}"
     );
+    // No repository: the request is created (COLLIERY-T-0218). Until then
+    // this call was refused, under the title "Not allowed".
     let (is_error, text) = mcp
         .call(
             "create_item",
             json!({
                 "item_type": "task",
-                "title": "Not allowed",
+                "task_type": "bug",
+                "title": "MCP request with no repository",
                 "board": platform_board,
             }),
         )
         .await;
+    assert!(!is_error, "an MCP request needs no repository: {text}");
+    let code_start = text.find("ACME-T-").expect("short code in the reply");
+    let code: String = text[code_start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    let bare = svc.get_task(&code).await.expect("the MCP request");
+    assert_eq!(bare.column_id, backlog);
+    assert_eq!(bare.work_class, "support");
+    assert_eq!(bare.task_type, "bug");
+    assert!(bare.repository.is_none());
+    // `planned` is refused over MCP by the same function, with the same
+    // text, and no task is made.
+    let tasks_before = svc
+        .list_tasks(kairos_client::types::Pagination {
+            limit: Some(200),
+            offset: None,
+        })
+        .await
+        .expect("count")
+        .total;
+    for arguments in [
+        json!({
+            "item_type": "task",
+            "title": "Planned over MCP",
+            "board": platform_board,
+            "work_class": "planned",
+        }),
+        json!({
+            "item_type": "task",
+            "title": "Planned over MCP",
+            "board": platform_board,
+            "repository": "payments-api",
+            "work_class": "planned",
+        }),
+    ] {
+        let (is_error, text) = mcp.call("create_item", arguments).await;
+        assert!(
+            is_error
+                && text.contains("FORBIDDEN")
+                && text.contains("goes to the support lane")
+                && text.contains("manage_tasks"),
+            "an MCP request for the planned lane is refused: {text}"
+        );
+    }
+    let tasks_after = svc
+        .list_tasks(kairos_client::types::Pagination {
+            limit: Some(200),
+            offset: None,
+        })
+        .await
+        .expect("count")
+        .total;
+    assert_eq!(
+        tasks_before, tasks_after,
+        "a refused MCP request leaves no task"
+    );
+    // On her own board the MCP defaults are the old ones.
+    let (is_error, text) = mcp
+        .call(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Her own planned work over MCP",
+                "board": web_board,
+            }),
+        )
+        .await;
+    assert!(!is_error, "{text}");
+    let code_start = text.find("ACME-T-").expect("short code in the reply");
+    let code: String = text[code_start..]
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    assert_eq!(
+        svc.get_task(&code).await.expect("her task").work_class,
+        "planned"
+    );
+    // She cannot move a request out of the entry column over MCP, and the
+    // refusal tells her the request rule: she filed it, and it is there.
+    let (is_error, text) = mcp
+        .call(
+            "transition_item",
+            json!({"short_code": over_mcp.short_code, "to_column": "Todo"}),
+        )
+        .await;
     assert!(
-        is_error,
-        "MCP repo-less create on another team's board is refused: {text}"
+        is_error
+            && text.contains("FORBIDDEN")
+            && text.contains("is a request in the entry column of the board of team platform")
+            && text.contains("file_backlog"),
+        "{text}"
+    );
+    // `filed` is hers too, but bob moved it out of the entry column above:
+    // the plain refusal, which does not name the entry column.
+    let (is_error, text) = mcp
+        .call(
+            "update_item",
+            json!({"short_code": filed.short_code, "content": "x", "version": 1}),
+        )
+        .await;
+    assert!(
+        is_error && text.contains("FORBIDDEN") && text.contains("manage_tasks"),
+        "{text}"
+    );
+    assert!(
+        !text.contains("entry column") && !text.contains("file_backlog"),
+        "a card that left the entry column is not described as in it: {text}"
     );
     let (is_error, text) = mcp
         .call(

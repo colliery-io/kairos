@@ -487,6 +487,11 @@ async fn entity_endpoints_against_live_stack() {
     // Tasks: the full 403 → grant → 201 arc, 409, 422, 404, delete
     // =======================================================================
     // bob has NO grants: 403 naming the missing capability (A-0006).
+    // COLLIERY-T-0218 (COLLIERY-A-0023): the request names the planned lane,
+    // which is what needs `manage_tasks`. With no work class the same create
+    // is a request in the support lane and succeeds without a grant; until
+    // then it was the 403 of this arc. tests/file_backlog.rs is the contract
+    // for that rule.
     let create_task_request = CreateTaskRequest {
         board_id: Some(delivery_board.to_string()),
         repository: None,
@@ -494,7 +499,7 @@ async fn entity_endpoints_against_live_stack() {
         title: "Wire the endpoints".into(),
         content: "T-0018".into(),
         task_type: None,
-        work_class: None,
+        work_class: Some("planned".into()),
         team_id: None,
     };
     let err = rejection(bob.create_task(&create_task_request).await);

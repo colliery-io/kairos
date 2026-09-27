@@ -105,14 +105,20 @@ journey(
       return { short_code: work, column: 'Active' };
     });
 
-    await step(joiner, 'joins the work but not the team, and the board is shut to her', async () => {
+    await step(joiner, 'joins the work but not the team, and the plan of the board is shut to her', async () => {
       const mcp = await joiner.mcp();
+      // She came to do planned work. A member who does not manage the board
+      // can send a request to it, in the support lane, and no more
+      // (COLLIERY-T-0218, COLLIERY-A-0023). Until then a create with no
+      // repository was refused whatever its work class.
       const refused = await mcp.refused('create_item', {
         item_type: 'task',
+        work_class: 'planned',
         title: named('task: import validation report'),
         board: team.fixture.boardSlug,
       });
       expect(refused).toContain('manage_tasks');
+      expect(refused).toContain('support lane');
       // Reads stay open tenant-wide (A-0006) — she can see the work she is
       // about to help with, she just cannot touch it.
       const items = await mcp.call('board_items', { board: team.fixture.boardSlug });
@@ -182,11 +188,16 @@ journey(
     await step(bob, 'finds he can no longer move the card he raised — the powers were the membership', async () => {
       const mcp = await bob.mcp();
       const refused = await mcp.refused('transition_item', { short_code: work, to_column: 'Completed' });
-      // He keeps the tenant-wide `file_backlog` every member holds, so the
-      // refusal he gets is the cross-team filer's — it names the Backlog
-      // whatever column the card is really in. What matters is the
-      // capability it asks for, which is the one membership used to imply.
+      // He keeps the tenant-wide `file_backlog` every member holds. He
+      // raised this card, but it is in Active and not in the entry column,
+      // so the refusal is the plain one: it names the capability that
+      // membership used to imply, and it does not name the Backlog. Until
+      // COLLIERY-T-0218 it said that the card "sits in the Backlog".
+      expect(refused).toContain('FORBIDDEN');
       expect(refused).toContain('transition_items');
+      expect(refused).not.toContain('Backlog');
+      expect(refused).not.toContain('entry column');
+      expect(refused).not.toContain('file_backlog');
       return { required: 'transition_items', refused: refused.replace(/\s+/g, ' ').slice(0, 150), card_still_live: work };
     });
 

@@ -7,56 +7,18 @@
 // carol takes the customer call; bob is on call for the team that owns the
 // service; the team's agent lands the fix. What the journey is really
 // watching is whether the unplanned item stays distinguishable the whole
-// way through: born in the Support lane by a stranger filing against the
-// repository, triaged PAST the planned card without disturbing it, flagged
+// way through: born in the Support lane as a request from a stranger,
+// triaged PAST the planned card without disturbing it, flagged
 // as support in the agent's queue, and present in the team's in-flight
 // rollup — a support item that quietly drops out of the rollup is how an
 // incident ends up invisible to everyone but the person holding it.
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
 import { setupTeamRepoAgent, type TeamFixture } from '../fixtures/team';
 import { named } from '../run/context';
 import { journey, step } from '../run/narrate';
 import { createForgeConnection, deliverGithubWebhook, githubPullRequest, type ForgeConnection } from '../surfaces/forge';
-import { card, openBoard, openItem, openTeam, panel } from '../surfaces/gui';
+import { card, dragInLane, laneCard, openBoard, openItem, openTeam, panel } from '../surfaces/gui';
 import { shortCodes } from '../surfaces/mcp';
-
-// Lane-scoped selectors. `gui.ts`'s `column()` resolves inside the PLANNED
-// lane, which is right for every other journey and useless here: this one
-// needs to say which lane it means on every assertion, because "the card
-// is in Active" is exactly the claim that hides a lane bug.
-type Lane = 'planned' | 'support';
-
-function laneColumn(page: Page, lane: Lane, name: string): Locator {
-  return page.locator(`section.kairos-board__lane--${lane}`).locator('section.kairos-board__column', {
-    has: page.locator('.kairos-board__column-head', { hasText: name }),
-  });
-}
-
-function laneCard(page: Page, lane: Lane, columnName: string, code: string): Locator {
-  return laneColumn(page, lane, columnName).locator('article.kairos-card', { hasText: code });
-}
-
-/** Drag a card to a column IN A NAMED LANE (see `gui.dragCard` for why the
- * mouse is driven by hand rather than through `dragTo`). */
-async function dragInLane(page: Page, code: string, lane: Lane, toColumn: string): Promise<void> {
-  const source = card(page, code).first();
-  const target = laneColumn(page, lane, toColumn);
-  await target.scrollIntoViewIfNeeded();
-  await source.scrollIntoViewIfNeeded();
-  const from = await source.boundingBox();
-  const box = await target.boundingBox();
-  const viewport = page.viewportSize();
-  if (!from || !box || !viewport) throw new Error(`no geometry for ${code} → ${lane}/${toColumn}`);
-  const at = {
-    x: (Math.max(box.x, 0) + Math.min(box.x + box.width, viewport.width)) / 2,
-    y: (Math.max(box.y, 0) + Math.min(box.y + box.height, viewport.height)) / 2,
-  };
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at.x, at.y, { steps: 2 });
-  await page.mouse.up();
-  await expect(laneCard(page, lane, toColumn, code)).toBeVisible({ timeout: 15_000 });
-}
 
 journey(
   'incident',
@@ -104,44 +66,50 @@ journey(
       return { short_code: planned, lane: 'planned', column: 'Todo' };
     });
 
-    await step(carol, 'is refused when she drops a customer problem straight onto another team\'s board', async () => {
+    await step(carol, 'is refused when she puts a customer problem into another team\'s planned work', async () => {
       const mcp = await carol.mcp();
-      // A stranger may file into a team's Backlog, but only by naming the
-      // codebase it is about (A-0019 §4 `file_backlog`): work with no
-      // repository on it is a board write, and that is the team's to make.
+      // Teams request work of each other; no team pushes work to a different
+      // team (COLLIERY-A-0023). carol does not manage this board, so what she
+      // sends is a request, and a request cannot go to the planned lane.
+      // Until COLLIERY-T-0218 the refusal here was for a different reason:
+      // she had named no repository.
       const refusal = await mcp.refused('create_item', {
         item_type: 'task',
         task_type: 'support',
+        work_class: 'planned',
         title: named('support: checkout 500s for trial accounts'),
         board: team.boardSlug,
       });
+      expect(refusal).toContain('FORBIDDEN');
+      expect(refusal).toContain('support lane');
       expect(refusal).toContain('manage_tasks');
       return { refused: refusal.split('\n')[0].slice(0, 160) };
     });
 
-    await step(carol, 'files it against the service instead; it is born unplanned, in their Support lane', async () => {
+    await step(carol, 'sends it as a request instead, with no repository; it is born in their Support lane', async () => {
       const mcp = await carol.mcp();
       const text = await mcp.call('create_item', {
         item_type: 'task',
         task_type: 'support',
         title: named('support: checkout 500s for trial accounts'),
-        // The board says where the work goes; the repository is what lets a
-        // stranger file it (COLLIERY-T-0217: it no longer chooses the board).
+        // The board says which team the request is for. She names no
+        // repository: she took a customer call, and does not know where the
+        // code is. Until COLLIERY-T-0218 a repository was what let a
+        // stranger file, and this call was refused without one.
         board: team.boardSlug,
-        repository: team.repoSlug,
         content: 'Three customers on expiring trials cannot check out. Started ~16:40 UTC.',
       });
       [request] = shortCodes(text);
       const api = await alice.api();
       ledger.add({ kind: 'task', label: request, delete: async () => { await api.delete(`/api/tasks/${request}`); } });
       const item = await mcp.call('get_item', { short_code: request });
-      // A support-type ticket is born in the Support lane wherever it comes
-      // from — the default has to survive the cross-team filing path too.
+      // A request is born in the Support lane: she sent no work class.
       expect(item).toContain('lane: support');
+      expect(item).toContain('repository: (none)');
       const boardLine = item.match(/- board: ([^\n]+)/)?.[1];
       expect(boardLine).toContain(team.boardSlug);
-      expect(boardLine).toContain('Backlog');
-      return { short_code: request, lane: 'support', landed_on: boardLine };
+      expect(boardLine).toContain('column: Backlog');
+      return { short_code: request, lane: 'support', repository: 'none', landed_on: boardLine };
     });
 
     await step(bob, 'triages it past his planned work: Support/Backlog → Todo → Active, and the planned card does not move', async () => {
@@ -263,7 +231,8 @@ journey(
 
     await step(alice, 'counts what Friday cost: the unplanned work separates cleanly from the planned', async () => {
       const cli = await alice.cli();
-      const unplanned = await cli.json(['search', '--work-class', 'support', '--repo', team.repoSlug, '--limit', '100']);
+      // By board, not by repository: the request has no repository.
+      const unplanned = await cli.json(['search', '--work-class', 'support', '--board', team.boardId, '--limit', '100']);
       const unplannedCodes = (unplanned.results?.tasks ?? []).map((t: any) => t.short_code);
       expect(unplannedCodes).toContain(request);
       expect(unplannedCodes).toContain(bug);

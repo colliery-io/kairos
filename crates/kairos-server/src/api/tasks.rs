@@ -68,49 +68,121 @@ pub(crate) fn resolve_routing(
     repositories::route_task(conn, board_id, team_id, repository).map_err(map_repository_error)
 }
 
-/// Authorize a task CREATE (KAIROS-T-0105, A-0019 §4). `manage_tasks` on
-/// the target board as always; failing that, the computed `file_backlog`
-/// applies ONLY when all of: the task links to a repository, and the target
-/// column is the board's ENTRY column (the default when no column is
-/// named — [`boards::entry_column`], so explicit and defaulted agree).
-/// The repository no longer chooses the board (COLLIERY-T-0217), so a filer
-/// names the board or the team as well. The condition itself is unchanged
-/// here; COLLIERY-T-0218 is the task that changes it.
-/// An explicitly requested non-entry column by a non-member is a 403,
-/// never silently re-routed. Shared by HTTP and MCP so the two entry
-/// points cannot diverge (the KAIROS-T-0096 lesson).
+/// What [`require_task_create_capability`] decided about the caller of a
+/// task create (COLLIERY-T-0218, COLLIERY-A-0023 decisions 7 and 8).
+///
+/// The decision is a value, not only a pass, because the rule has two
+/// halves: who may create, and which lane the task is born in. HTTP and MCP
+/// both take the lane from [`TaskCreateAccess::work_class`], so neither
+/// holds a copy of the rule and the two cannot diverge (the KAIROS-T-0096
+/// lesson).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskCreateAccess {
+    /// The caller holds `manage_tasks` on the target board (or is an org
+    /// admin). Any column, any work class, and the defaults of
+    /// KAIROS-T-0077.
+    Manager,
+    /// The caller does not manage the target board. The task is a REQUEST
+    /// to the team of that board: entry column, support lane.
+    Request,
+}
+
+impl TaskCreateAccess {
+    /// The work class to store on the created task.
+    ///
+    /// A manager gets what was always true (KAIROS-T-0077): the work class
+    /// they sent, else `support` for a support-type task, else `planned`.
+    ///
+    /// A request is ALWAYS `support`, whatever its `task_type`
+    /// (COLLIERY-A-0023 decision 8). A team plans its own work; a different
+    /// team cannot put a card in its planned lane. The receiving team can
+    /// move the card to the planned lane afterwards with the work-class
+    /// endpoint. An explicit `planned` never reaches this function for a
+    /// request: [`require_task_create_capability`] refuses it, so the answer
+    /// here does not silently overrule what the caller asked for.
+    pub(crate) fn work_class(self, requested: Option<WorkClass>, task_type: TaskType) -> WorkClass {
+        match self {
+            Self::Request => WorkClass::Support,
+            Self::Manager => requested.unwrap_or(if task_type == TaskType::Support {
+                WorkClass::Support
+            } else {
+                WorkClass::Planned
+            }),
+        }
+    }
+}
+
+/// Authorize a task CREATE (KAIROS-T-0105, amended by COLLIERY-T-0218 for
+/// COLLIERY-A-0023 decisions 7 and 8). `manage_tasks` on the target board
+/// as always: that caller is a [`TaskCreateAccess::Manager`] and nothing
+/// below applies to them.
+///
+/// Every other caller sends a REQUEST. Teams request work of each other; no
+/// team pushes work to a different team. The computed `file_backlog`
+/// applies ONLY when all of:
+///
+/// - the target board is a delivery board (the check inside
+///   `abac::check_file_backlog`),
+/// - the target column is the board's ENTRY column (the default when no
+///   column is named — [`boards::entry_column`], so explicit and defaulted
+///   agree),
+/// - the caller did not ask for the work class `planned`.
+///
+/// The repository is NOT part of the condition. Until COLLIERY-T-0218 it
+/// was: a create with no repository was refused, because the rule was
+/// written when a repository chose the board (KAIROS-A-0019 §4). Since
+/// COLLIERY-T-0217 the repository is only a link, so it could no longer say
+/// anything about whose board the task is on, and a request for work that
+/// has no codebase yet had no way in.
+///
+/// An explicitly requested non-entry column by a non-manager is a 403,
+/// never silently re-routed. An explicitly requested `planned` is a 403 for
+/// the same reason and of the same shape: the request is well formed, and
+/// what the caller lacks is `manage_tasks` on that board. Shared by HTTP and
+/// MCP so the two entry points cannot diverge (the KAIROS-T-0096 lesson).
 pub(crate) fn require_task_create_capability(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     route: &TaskRoute,
     column_id: Option<Uuid>,
-) -> Result<(), ApiError> {
+    requested_work_class: Option<WorkClass>,
+) -> Result<TaskCreateAccess, ApiError> {
     use kairos_db::abac;
     let manages =
         abac::authorize(conn, slug, route.board_id, user, MANAGE).map_err(super::map_abac_error)?;
     if manages {
-        return Ok(());
+        return Ok(TaskCreateAccess::Manager);
     }
-    let targets_entry = route.repository_id.is_some()
-        && match column_id {
-            None => true,
-            Some(column) => {
-                boards::entry_column(conn, route.board_id).map_err(ApiError::internal)?
-                    == Some(column)
-            }
-        };
-    if targets_entry {
-        require_capability(
-            conn,
-            slug,
-            Some(route.board_id),
-            user,
-            kairos_core::abac::FILE_BACKLOG,
-        )
-    } else {
-        Err(ApiError::capability_required(MANAGE, Some(route.board_id)))
+    let targets_entry = match column_id {
+        None => true,
+        Some(column) => {
+            boards::entry_column(conn, route.board_id).map_err(ApiError::internal)? == Some(column)
+        }
+    };
+    if !targets_entry {
+        return Err(ApiError::capability_required(MANAGE, Some(route.board_id)));
     }
+    if requested_work_class == Some(WorkClass::Planned) {
+        return Err(ApiError::forbidden(format!(
+            "A request to a board that you do not manage goes to the support lane. \
+             Remove `work_class`, or send `support`. \
+             The work class `planned` requires capability {MANAGE:?} on board {}.",
+            route.board_id
+        ))
+        .with_details(json!({
+            "required_capability": MANAGE,
+            "board_id": route.board_id,
+        })));
+    }
+    require_capability(
+        conn,
+        slug,
+        Some(route.board_id),
+        user,
+        kairos_core::abac::FILE_BACKLOG,
+    )?;
+    Ok(TaskCreateAccess::Request)
 }
 
 /// Load the task with this short code, or 404. Archived work is served only
@@ -218,8 +290,13 @@ pub(crate) async fn get_task(
     Ok(Json(task))
 }
 
-/// Create a task (requires `manage_tasks` on the target board).
-/// `task_type` defaults to `task`.
+/// Create a task. `task_type` defaults to `task`.
+///
+/// A caller with `manage_tasks` on the target board can use any column and
+/// any work class. Every other member of the tenant sends a request
+/// (`file_backlog`, COLLIERY-T-0218, COLLIERY-A-0023): the target is a
+/// delivery board, the task goes to the entry column, and the work class
+/// is `support`.
 ///
 /// Name the board with `board_id`, or name a team with `team_id` to use
 /// the delivery board of that team (COLLIERY-T-0217, COLLIERY-A-0023).
@@ -232,7 +309,7 @@ pub(crate) async fn get_task(
     request_body = dto::CreateTaskRequest,
     responses(
         (status = 201, description = "Created", body = dto::Task),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Missing capability. For a caller without `manage_tasks` on the board: a column that is not the entry column, the work class `planned`, or a board that is not a delivery board", body = dto::ErrorEnvelope),
         (status = 422, description = "No board and no team, a team that is not the team of the board, a team without exactly one delivery board, unknown board/column/repository, or bad enum value", body = dto::ErrorEnvelope),
     ),
 )]
@@ -252,18 +329,15 @@ pub(crate) async fn create_task(
         .map(|v| parse_enum(v, "task_type", TaskType::ALL))
         .transpose()?
         .unwrap_or(TaskType::Task);
-    // KAIROS-T-0077: a support-type ticket is born in the Support lane
-    // unless the caller says otherwise; everything else defaults planned.
-    let work_class = body
+    // The caller's wish only. Which work class is STORED depends on who the
+    // caller is on the target board, so it is decided below, after the
+    // capability check (COLLIERY-T-0218). Until then the KAIROS-T-0077
+    // default was applied here, before anyone had asked who was calling.
+    let requested_work_class = body
         .work_class
         .as_deref()
         .map(|v| parse_enum(v, "work_class", WorkClass::ALL))
-        .transpose()?
-        .unwrap_or(if task_type == TaskType::Support {
-            WorkClass::Support
-        } else {
-            WorkClass::Planned
-        });
+        .transpose()?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
@@ -271,7 +345,15 @@ pub(crate) async fn create_task(
         .run(&tenant.slug, move |conn| {
             let board_id = opt_board_id_by_ref(conn, body.board_id.as_deref())?;
             let route = resolve_routing(conn, board_id, team_id, repository.as_deref())?;
-            require_task_create_capability(conn, &slug, user, &route, column_id)?;
+            let access = require_task_create_capability(
+                conn,
+                &slug,
+                user,
+                &route,
+                column_id,
+                requested_work_class,
+            )?;
+            let work_class = access.work_class(requested_work_class, task_type);
             let created = items::create_task(
                 conn,
                 items::CreateTask {
@@ -561,4 +643,53 @@ pub(crate) async fn transition_task(
         })
         .await?;
     Ok(Json(transitioned))
+}
+
+#[cfg(test)]
+mod task_create_access_tests {
+    //! COLLIERY-T-0218: the lane half of the create rule, with no database.
+    //! The capability half needs one and is covered by
+    //! `tests/file_backlog.rs`.
+    use super::*;
+
+    #[test]
+    fn a_manager_keeps_the_defaults_of_kairos_t_0077() {
+        let manager = TaskCreateAccess::Manager;
+        assert_eq!(manager.work_class(None, TaskType::Task), WorkClass::Planned);
+        assert_eq!(manager.work_class(None, TaskType::Bug), WorkClass::Planned);
+        assert_eq!(
+            manager.work_class(None, TaskType::Support),
+            WorkClass::Support
+        );
+    }
+
+    #[test]
+    fn a_manager_gets_the_work_class_they_sent() {
+        let manager = TaskCreateAccess::Manager;
+        assert_eq!(
+            manager.work_class(Some(WorkClass::Support), TaskType::Task),
+            WorkClass::Support
+        );
+        assert_eq!(
+            manager.work_class(Some(WorkClass::Planned), TaskType::Support),
+            WorkClass::Planned
+        );
+    }
+
+    #[test]
+    fn a_request_is_support_for_every_task_type() {
+        let request = TaskCreateAccess::Request;
+        for task_type in TaskType::ALL {
+            assert_eq!(
+                request.work_class(None, *task_type),
+                WorkClass::Support,
+                "{task_type:?}"
+            );
+            assert_eq!(
+                request.work_class(Some(WorkClass::Support), *task_type),
+                WorkClass::Support,
+                "{task_type:?}"
+            );
+        }
+    }
 }

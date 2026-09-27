@@ -360,8 +360,9 @@ pub struct WhoamiResponse {
     /// their access is the `organization.role == "admin"` bypass).
     pub capabilities: Vec<WhoamiBoardCapabilities>,
     /// COMPUTED capabilities every tenant member holds without a grant
-    /// (KAIROS-T-0105): currently `file_backlog` — create a task against
-    /// another team's repository into that team's Backlog.
+    /// (KAIROS-T-0105): currently `file_backlog` — send a request to any
+    /// team: a task in the entry column of its delivery board, in the
+    /// support lane (COLLIERY-T-0218, COLLIERY-A-0023).
     pub implicit: Vec<&'static str>,
     /// Repositories owned by the caller's teams (KAIROS-T-0107, A-0019).
     pub repositories: Vec<WhoamiRepository>,

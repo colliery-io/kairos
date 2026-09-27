@@ -430,7 +430,9 @@ pub struct WhoamiResponse {
     #[serde(default)]
     pub capabilities: Vec<WhoamiBoardCapabilities>,
     /// COMPUTED capabilities every tenant member holds without a grant
-    /// (KAIROS-T-0105): currently `file_backlog`.
+    /// (KAIROS-T-0105): currently `file_backlog` — send a request to any
+    /// team: a task in the entry column of its delivery board, in the
+    /// support lane (COLLIERY-T-0218, COLLIERY-A-0023).
     #[serde(default)]
     pub implicit: Vec<String>,
     /// Repositories owned by the caller's teams (KAIROS-T-0107, A-0019).

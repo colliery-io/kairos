@@ -105,7 +105,7 @@ cannot carry them; grant and revoke refuse them. `whoami` reports them under
 
 | Capability | How it is satisfied |
 |---|---|
-| `file_backlog` | Any member of the tenant, on any live **delivery** board. Permits creating a **task** that is issued against a repository that board's team owns and lands in that board's entry column. Nothing past the entry column is opened by it, and it is never consulted for a create that names no repository. |
+| `file_backlog` | Every member of the tenant holds it on every live **delivery** board. It permits a request to any team: a **task** in the entry column of its delivery board, in the support lane. The server consults it only when the caller does not hold `manage_tasks` on the board. The work class of a request is `support`. The server refuses a request that sends the work class `planned`. The server refuses a request that names a column that is not the entry column. The repository is optional. It is not part of the condition. The capability does not permit a move, an edit, or a delete of the request. |
 
 Two further implications are computed the same way — by the authorisation
 check rather than by a stored row:

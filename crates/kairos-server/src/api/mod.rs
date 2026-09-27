@@ -184,6 +184,47 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// Transactions
+// ---------------------------------------------------------------------------
+
+/// Why an [`atomically`] transaction stopped: the closure refused, or
+/// diesel could not begin or commit.
+enum Abort {
+    Refused(ApiError),
+    Database(diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for Abort {
+    fn from(e: diesel::result::Error) -> Self {
+        Abort::Database(e)
+    }
+}
+
+/// Run `f` in ONE database transaction: each write in it is committed, or
+/// none is (COLLIERY-T-0227).
+///
+/// The kairos-db services each run "in their own transaction". A handler
+/// that calls two of them made two commits, and an error from the second
+/// left the first in the tenant: a create that was refused for its edge
+/// left the item. Inside this function the transaction of a service is a
+/// savepoint, so an `Err` from `f` rolls back all of them.
+///
+/// Events are safe in here. `emit_event` is a `pg_notify`, and PostgreSQL
+/// delivers a notification when its transaction commits, so a create that
+/// is rolled back sends none. Short code sequences are not transactional: a
+/// number that a refused create took stays taken, which is correct.
+pub fn atomically<T>(
+    conn: &mut PgConnection,
+    f: impl FnOnce(&mut PgConnection) -> Result<T, ApiError>,
+) -> Result<T, ApiError> {
+    conn.transaction::<T, Abort, _>(|conn| f(conn).map_err(Abort::Refused))
+        .map_err(|abort| match abort {
+            Abort::Refused(e) => e,
+            Abort::Database(e) => ApiError::internal(e),
+        })
+}
+
+// ---------------------------------------------------------------------------
 // ABAC (KAIROS-A-0006)
 // ---------------------------------------------------------------------------
 

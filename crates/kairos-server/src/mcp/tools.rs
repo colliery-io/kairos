@@ -54,8 +54,8 @@ use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
 use crate::api::meta::{manage_capability, require_edge_capability, validated_metadata_ops};
 use crate::api::{
-    Liveness, map_abac_error, map_board_error, map_graph_error, map_item_error, parse_enum,
-    require_capability, resolve_short_code,
+    Liveness, atomically, map_abac_error, map_board_error, map_graph_error, map_item_error,
+    parse_enum, require_capability, resolve_short_code,
 };
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
@@ -233,8 +233,8 @@ pub struct CreateItemParams {
     /// one board of the matching level (strategy/initiative/adr boards,
     /// or the single delivery board for tasks). Ignored for documents.
     pub board: Option<String>,
-    /// Parent item's short code: creates the `parent` edge (or the
-    /// `supports` edge for documents, where a parent is REQUIRED).
+    /// Parent item's short code: creates the `parent` edge. For a document
+    /// (where a parent is REQUIRED) or an ADR, creates the `supports` edge.
     pub parent: Option<String>,
     /// Template (id or name) — documents only (KAIROS-A-0003).
     pub template: Option<String>,
@@ -1087,7 +1087,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge — REQUIRED for documents (supports edge). Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document (where it is REQUIRED) or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1097,8 +1097,13 @@ impl KairosMcp {
         let (auth, tenant) = Self::caller(&context)?;
         let user = auth.user_id;
         let tenant_ctx = tenant.clone();
+        // COLLIERY-T-0227: one transaction for the item and its edge. Each
+        // service opens a transaction of its own, which becomes a savepoint
+        // in this one, so an edge that fails takes the item with it.
         self.run_tool(&tenant, move |conn| {
-            create_item_impl(conn, &tenant_ctx, user, &params)
+            atomically(conn, |conn| {
+                create_item_impl(conn, &tenant_ctx, user, &params)
+            })
         })
         .await
     }
@@ -2600,6 +2605,14 @@ fn reject_field(
 /// The create_item body: resolve the target board (or parent, for
 /// documents), enforce `manage_<type>` (A-0006), create through the T-0012
 /// service, then write the `parent`/`supports` edge when `parent` is given.
+///
+/// COLLIERY-T-0227: the caller runs this in ONE transaction
+/// ([`atomically`]). The item and the edge are two writes, and an error from
+/// the second must remove the first. Each check that can refuse the request
+/// still runs before the first write, because a refusal is a better answer
+/// than a rollback; the transaction is for the failures that no check can
+/// know (the parent is archived between the check and the insert, the
+/// database refuses the edge).
 fn create_item_impl(
     conn: &mut PgConnection,
     tenant: &TenantContext,
@@ -2799,9 +2812,18 @@ fn create_item_impl(
         (board, None, None)
     };
 
-    // KAIROS-T-0111: the `parent` edge is gated BEFORE the item is written
-    // (a refusal must leave no orphan), by the same rule as link_items —
-    // the target is the board the new item will sit on.
+    // KAIROS-T-0111: the edge that `parent` asks for is gated BEFORE the
+    // item is written (a refusal must leave no orphan).
+    //
+    // COLLIERY-T-0227: the gate checked the capability and not the
+    // relationship. The type rules ran after the write, inside `link_items`,
+    // so `adr` with a parent was refused with the ADR already in the tenant.
+    // The two types are known before the item exists, so the same rule
+    // (`check_link`) now runs here, first: an edge that cannot exist is a
+    // `VALIDATION`, whoever asks for it.
+    //
+    // An ADR takes the `supports` edge, as a document does. No ADR can have
+    // a `parent` edge, so until now each ADR with a parent was refused.
     let parent = params
         .parent
         .as_deref()
@@ -2812,15 +2834,47 @@ fn create_item_impl(
                         "parent {parent_code:?} does not name a live item"
                     ))
                 })?;
-            crate::api::meta::require_edge_capability_on(
-                conn,
-                tenant,
-                user,
-                RelationshipType::Parent.as_str(),
-                (parent_id, parent_type),
-                (Some(board.id), item_type),
-            )?;
-            Ok::<_, ApiError>((parent_code, parent_id))
+            let relationship = if item_type == ItemType::Adr {
+                RelationshipType::Supports
+            } else {
+                RelationshipType::Parent
+            };
+            kairos_core::graph::check_link(
+                graph::core_relationship(relationship),
+                parent_type,
+                item_type,
+            )
+            .map_err(|e| ApiError::validation(e.to_string()))?;
+            match relationship {
+                // The gate of a document with a parent, and for the same
+                // reason: `supports` is not a collaborative relationship, so
+                // `link_items` keeps it for org admins. The caller holds
+                // `manage_adrs` on the ADR board (checked above) and
+                // `manage_documents` on the board of the parent, which is
+                // what it costs to attach a document there.
+                RelationshipType::Supports => {
+                    let parent_board = abac::resolve_authorization_board(conn, parent_id)
+                        .map_err(map_abac_error)?;
+                    require_capability(
+                        conn,
+                        slug,
+                        parent_board,
+                        user,
+                        manage_capability(ItemType::Document),
+                    )?;
+                }
+                // By the same rule as link_items — the target is the board
+                // the new item will sit on.
+                _ => crate::api::meta::require_edge_capability_on(
+                    conn,
+                    tenant,
+                    user,
+                    relationship.as_str(),
+                    (parent_id, parent_type),
+                    (Some(board.id), item_type),
+                )?,
+            }
+            Ok::<_, ApiError>((parent_code, parent_id, relationship))
         })
         .transpose()?;
 
@@ -2923,10 +2977,12 @@ fn create_item_impl(
         "Created {item_type} {created_code} — {created_title} (version 1) on board {}.",
         board.slug
     );
-    if let Some((parent_code, parent_id)) = parent {
-        graph::link_items(conn, parent_id, created_id, RelationshipType::Parent, user)
+    if let Some((parent_code, parent_id, relationship)) = parent {
+        graph::link_items(conn, parent_id, created_id, relationship, user)
             .map_err(map_graph_error)?;
-        out.push_str(&format!("\nparent: {parent_code} (parent edge created)."));
+        out.push_str(&format!(
+            "\nparent: {parent_code} ({relationship} edge created)."
+        ));
     }
     Ok(out)
 }

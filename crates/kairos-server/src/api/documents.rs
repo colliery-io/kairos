@@ -13,8 +13,14 @@
 //! unknown parent, or a non-workflow parent, is 422 `VALIDATION`. When the
 //! parent resolves to no board (off-board ADR ancestry cannot happen for
 //! workflow parents, but defense-in-depth), the org-admin-only fallback
-//! applies. Create + link are two service transactions; the parent
-//! pre-checks make a link failure after create unreachable in practice.
+//! applies.
+//!
+//! COLLIERY-T-0227: create + link run in ONE transaction
+//! ([`super::atomically`]). They were two, on the reasoning that the parent
+//! pre-checks made a link failure after the create unreachable. The checks
+//! cannot see a parent that is archived after them, nor a database error,
+//! and either one left a document with no parent: no board authorizes it,
+//! so only an org admin could remove it.
 
 use axum::extract::{Extension, Path, Query, State};
 use axum::http::StatusCode;
@@ -31,7 +37,7 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
+    Liveness, atomically, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
     parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
 };
 use crate::app::AppState;
@@ -271,24 +277,28 @@ pub(crate) async fn create_document(
             let board =
                 abac::resolve_authorization_board(conn, parent_id).map_err(map_abac_error)?;
             require_capability(conn, &slug, board, user, MANAGE)?;
-            let created = items::create_document(
-                conn,
-                items::CreateDocument {
-                    title: &body.title,
-                    content: body.content.as_deref(),
-                    template_id,
-                },
-                user,
-            )
-            .map_err(map_item_error)?;
-            graph::link_items(
-                conn,
-                parent_id,
-                created.id,
-                RelationshipType::Supports,
-                user,
-            )
-            .map_err(map_graph_error)?;
+            // COLLIERY-T-0227: the document and its edge, or neither.
+            let created = atomically(conn, |conn| {
+                let created = items::create_document(
+                    conn,
+                    items::CreateDocument {
+                        title: &body.title,
+                        content: body.content.as_deref(),
+                        template_id,
+                    },
+                    user,
+                )
+                .map_err(map_item_error)?;
+                graph::link_items(
+                    conn,
+                    parent_id,
+                    created.id,
+                    RelationshipType::Supports,
+                    user,
+                )
+                .map_err(map_graph_error)?;
+                Ok(created)
+            })?;
             Ok(created.into_dto())
         })
         .await?;

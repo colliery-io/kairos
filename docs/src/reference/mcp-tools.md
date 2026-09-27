@@ -242,7 +242,7 @@ Creates a work item and returns its new short code.
 | `item_type` | string | yes | — | `strategy`, `initiative`, `task`, `document`, `adr`. |
 | `title` | string | yes | — | The item's title. |
 | `board` | string | no | see below | Target board, slug or UUID. Ignored for documents. For a task, the board decides the team of the task. |
-| `parent` | string | no | — | Parent item's short code. Creates the `parent` edge, or the `supports` edge for documents, where it is required. |
+| `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document, where it is required, or an ADR, creates the `supports` edge. |
 | `content` | string | no | empty, or the template's | Initial markdown content. |
 | `template` | string | no | — | Documents only. Template id, slug or name. |
 | `task_type` | string | no | `task` | Tasks only. `task`, `bug`, `tech_debt`, `support`. |
@@ -258,6 +258,12 @@ Creates a work item and returns its new short code.
 matching level. For a task, that level is `delivery`. A `repository` does not
 replace `board`. The tool has no `team` argument. Documents take no board: they
 inherit their parent's board for authorization.
+
+An ADR can have a `parent`. The `parent` names a strategy, an initiative or a
+task. The tool creates the `supports` edge from that item to the ADR. The
+caller needs `manage_adrs` on the ADR board. The caller also needs
+`manage_documents` on the board of the parent. A document with that parent
+needs the same capability.
 
 The default of `work_class` depends on the caller:
 
@@ -287,16 +293,21 @@ Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
 `work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
 argument passed with the wrong `item_type`, naming the type it belongs to; for a
 document without `parent`, or whose parent is not a strategy, initiative or
-task; for a `parent` that does not name a live item; for an unknown template,
+task; for a `parent` relationship that the type rules do not allow, with the
+rule in the message; for a `parent` that does not name a live item; for an unknown template,
 and for a template *name* that matches more than one template, which asks for
 the id or slug instead; when no live board of the required level exists; when
 several do, listing their slugs; and for an unknown `repository`.
 `NOT_FOUND` for an unknown `board`. `FORBIDDEN` when the caller
 lacks `manage_<type>` on the resolved board, or lacks the capability to write
-the requested `parent` edge — the edge is gated before the item is written, so
-a refusal leaves no orphan. A task is different: a caller without
+the requested `parent` edge. A task is different: a caller without
 `manage_tasks` sends a request. That caller gets `FORBIDDEN` for a board that
 is not a delivery board, and for `work_class: planned`.
+
+A create that fails writes nothing. The tool does each check before the first
+write. The tool writes the item and its edge in one transaction. No item,
+history, activity or event stays behind. The tool does not use the short code
+number of that create again.
 
 ### `update_item`
 

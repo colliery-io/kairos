@@ -132,7 +132,11 @@ pub enum GraphError {
 
 /// The pure mirror of a stored [`RelationshipType`] (kairos-core carries no
 /// diesel types, KAIROS-A-0009).
-fn core_relationship(relationship: RelationshipType) -> rules::Relationship {
+///
+/// Public since COLLIERY-T-0227: a create checks the type rules of the edge
+/// before it writes the item, and must name the relationship as
+/// [`link_items`] does.
+pub fn core_relationship(relationship: RelationshipType) -> rules::Relationship {
     match relationship {
         RelationshipType::Parent => rules::Relationship::Parent,
         RelationshipType::Supports => rules::Relationship::Supports,

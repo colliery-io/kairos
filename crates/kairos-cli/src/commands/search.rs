@@ -36,7 +36,7 @@ pub struct SearchArgs {
     /// Restrict to tasks assigned to this team (UUID)
     #[arg(long, value_name = "TEAM_ID")]
     pub team: Option<String>,
-    /// Restrict to tasks issued against this repository (slug or UUID)
+    /// Restrict to tasks that link to this repository (slug or UUID)
     #[arg(long, value_name = "REPOSITORY")]
     pub repo: Option<String>,
     /// Task type filter, repeatable: task|bug|tech_debt|support

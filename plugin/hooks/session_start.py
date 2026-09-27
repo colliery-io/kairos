@@ -7,7 +7,9 @@ stream, boards — as `additionalContext`, plus an instruction to pull live
 state. With a `repository` (KAIROS-A-0019, T-0108) the hint is
 repo-scoped: read the repository (its "how to work here" description and
 in-flight PRs), then the team board narrowed to that repository — the
-session's queue. Without one it stays board-scoped as before.
+session's queue. Without one it stays board-scoped as before. The team
+decides the board and the repository is a link (COLLIERY-A-0023), so the
+hint also says to name a board at create and how to send a request.
 
 v1 design decision (KAIROS-T-0034): hooks have no OAuth token broker —
 tokens live with the MCP client (A-0014), and a shell hook cannot drive the
@@ -83,12 +85,17 @@ def live_state_hint(values):
             f"This checkout is repository `{repository}`. For live state, call the "
             f"kairos MCP tools now: `get_repository` for `{repository}` (read its "
             "\"How to work here\" description and in-flight PRs first), then "
-            f"`board_items` for the team board ({team_board}) with "
-            f"`repository={repository}` — that is your queue; the unfiltered "
-            "board is the wider team lens. Tasks you create for this codebase "
-            f"take `repository={repository}`. Work bound to ANOTHER repository "
-            "belongs in that checkout: file it there with `create_item` "
-            "(`repository` + `parent`/`blocks`), do not implement it here. The "
+            f"`board_items` for the board of your team ({team_board}) with "
+            f"`repository={repository}`. That is your queue. The board without "
+            "the filter shows all the work of your team. The work of other teams "
+            "in this repository is not in your queue. Find it with `search` and "
+            f"the filter `repository={repository}`. When you create a task, name "
+            "a board in `board` (the CLI and REST also accept a team). The board "
+            "decides the team. The repository is an optional link: "
+            f"`repository={repository}` says where the code is and does not "
+            "choose the board. Work for a different team is a request: name the "
+            "delivery board of that team in `board`. The request goes to the "
+            "entry column, in the support lane. The "
             "MCP client holds the authenticated session; this hook "
             "intentionally carries no credentials."
         )

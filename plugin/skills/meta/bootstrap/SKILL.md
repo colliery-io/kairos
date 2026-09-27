@@ -7,7 +7,7 @@ disable-model-invocation: true
 
 # Bootstrap
 
-Connect the current repo to a Kairos deployment so every other kairos skill (and the SessionStart hook) knows which **repository** this checkout is — the unit tickets are issued against and executed in (KAIROS-A-0019) — and which boards plan its work. Idempotent: re-running updates the existing configuration in place.
+Connect the current repo to a Kairos deployment so every other kairos skill (and the SessionStart hook) knows which **repository** this checkout is (KAIROS-A-0019) and which **board** is the queue: the delivery board of the team of the principal that connects (COLLIERY-A-0023). Idempotent: re-running updates the existing configuration in place.
 
 ## 1. Gather the deployment
 
@@ -57,7 +57,8 @@ Once connected:
 
 1. `whoami` — confirms auth; gives the user's name/email, org, teams, the repositories their teams own, and the boards where they hold capabilities.
 2. **Detect this repository** (below).
-3. `my_boards` — boards grouped by level; the user's delivery boards include column names and per-column item counts.
+3. `my_boards` — boards grouped by level; the user's delivery boards are marked `[mine]` and include column names and per-column item counts.
+4. **Find the team board** (below).
 
 ### Detect this repository
 
@@ -73,15 +74,23 @@ Run `git remote get-url origin`. Normalize the remote to `(forge, full_name)`:
 
 Strip a trailing `.git` and any leading `/`. Then match on `forge` + `full_name` against `list_repositories` (the MCP directory carries both fields; `whoami`'s repository list does not show the forge), or over HTTP with `GET /api/repositories?forge=<forge>&name=<full_name>` (one row or empty).
 
-- **Found** → its `slug` is the repository; its owning team's delivery board is the **team board**, and that team is the **delivery stream** default. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
+- **Found** → its `slug` is the repository. The repository is a link: it does not choose the team board. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
 - **Not found** → there is no MCP tool for registering a repository, so offer to run `kairos repos create --forge <forge> --name <full_name> --repo-url <url> --team <team>` (any member of the owning team may; the CLI must be logged in — `kairos login`) or, headless, `POST /api/repositories`. Use the user's single team as the owner; if they are on several, ask which; if they are on none, say an org admin or a team member must register it and leave `repository:` empty.
 - **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped.
+
+### Find the team board
+
+The team board is the delivery board of the team of the principal that connects. The owner of the repository does not decide it.
+
+- **One team in `whoami`** → that team is the **delivery stream**. Its delivery board is the **team board**: the `[mine]` delivery board in `my_boards` (the default slug is `<team>-delivery`).
+- **More than one team** → ask the user which team works in this checkout. Do the same when more than one delivery board is `[mine]`.
+- **No team** → leave `delivery_stream:` and `team_board:` empty. Say that an organization admin must add the principal to a team.
 
 From the results pick, confirming with the user whenever there is more than one candidate:
 
 - **repository** — the slug detected above
-- **delivery stream / team board** — the repository's owning team's delivery board; without a repository, the delivery-level board the user works from
-- **initiative board** — the default initiative-level board new initiatives land on
+- **delivery stream / team board** — the team found above and its delivery board
+- **initiative board** — the default initiative-level board for new initiatives
 
 If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; ask an org admin for team/board membership). Do not fail the bootstrap.
 
@@ -103,12 +112,12 @@ initiative_board: initiatives
 
 Connected as alice@acme.example (org: Acme Inc, team: platform).
 Repository payments-api (github acme/payments-api, owned by platform) matched
-from the origin remote; boards derived from it 2026-09-22. Re-run
+from the origin remote; boards from the team of alice 2026-09-22. Re-run
 /kairos:bootstrap after remote, team or board changes. <Note anything
 missing and what unblocks it.>
 ```
 
-Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); `team_board` and `initiative_board` are board **slugs** (what `board_items` resolves — never display names); the three board keys are derived from the repository's owning team when it is set and are still written so older skills keep working. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
+Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); `team_board` and `initiative_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
 
 Then ensure it is gitignored — it is org-specific wiring, not for the repo's history (tokens live with the MCP client, never in this file). If `.gitignore` does not already cover it, append:
 

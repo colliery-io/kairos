@@ -52,6 +52,11 @@ class ReadFrontmatter(unittest.TestCase):
 
 
 class LiveStateHint(unittest.TestCase):
+    def repo_hint(self):
+        return session_start.live_state_hint(
+            {"repository": "payments-api", "team_board": "platform-delivery"}
+        )
+
     def test_repo_scoped_when_repository_is_set(self):
         hint = session_start.live_state_hint(
             {"repository": "payments-api", "team_board": "platform-delivery"}
@@ -60,8 +65,44 @@ class LiveStateHint(unittest.TestCase):
         self.assertIn("`get_repository`", hint)
         self.assertIn("`repository=payments-api`", hint)
         self.assertIn("platform-delivery", hint)
-        self.assertIn("ANOTHER repository", hint)
         self.assertNotIn("re-run /kairos:bootstrap to detect", hint)
+
+    def test_the_queue_is_the_board_of_the_team(self):
+        hint = self.repo_hint()
+        self.assertIn("the board of your team (platform-delivery)", hint)
+        self.assertIn("That is your queue.", hint)
+
+    def test_the_work_of_other_teams_is_found_with_search(self):
+        hint = self.repo_hint()
+        self.assertIn(
+            "The work of other teams in this repository is not in your queue",
+            hint,
+        )
+        self.assertIn("`search`", hint)
+
+    def test_a_create_names_a_board_or_a_team(self):
+        hint = self.repo_hint()
+        self.assertIn("name a board in `board`", hint)
+        self.assertIn("also accept a team", hint)
+        self.assertIn("The board decides the team.", hint)
+
+    def test_the_repository_is_a_link_and_chooses_no_board(self):
+        hint = self.repo_hint()
+        self.assertIn("The repository is an optional link", hint)
+        self.assertIn("does not choose the board", hint)
+        # COLLIERY-A-0023: the old rule must not come back in any wording.
+        for old_rule in ("routes", "routed", "lands", "Backlog", "ANOTHER repository"):
+            self.assertNotIn(old_rule, hint)
+
+    def test_work_for_a_different_team_is_a_request(self):
+        hint = self.repo_hint()
+        self.assertIn("Work for a different team is a request", hint)
+        self.assertIn("the delivery board of that team", hint)
+        self.assertIn("entry column", hint)
+        self.assertIn("support lane", hint)
+
+    def test_the_hook_carries_no_credentials(self):
+        self.assertIn("carries no credentials", self.repo_hint())
 
     def test_board_scoped_when_repository_is_unset(self):
         hint = session_start.live_state_hint({"team_board": "platform-delivery"})

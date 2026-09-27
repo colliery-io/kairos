@@ -94,7 +94,7 @@ pub struct BoardItemsParams {
     pub board: String,
     /// Restrict to one column, by name (e.g. "In Progress") or UUID.
     pub column: Option<String>,
-    /// Restrict the TASKS to those issued against this repository (slug
+    /// Restrict the TASKS to those that link to this repository (slug
     /// or UUID). Your repo's queue on a multi-repo team board.
     pub repository: Option<String>,
     /// Include archived (put-away) cards, each marked `[archived]`.
@@ -178,7 +178,7 @@ pub struct SearchFilterParams {
     pub column_id: Option<String>,
     /// Restrict to tasks of this team (UUID).
     pub team_id: Option<String>,
-    /// Restrict to tasks issued against this repository (slug or UUID).
+    /// Restrict to tasks that link to this repository (slug or UUID).
     pub repository: Option<String>,
     /// Restrict to task types: task | bug | tech_debt | support.
     pub task_type: Option<Vec<String>>,

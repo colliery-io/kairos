@@ -9,11 +9,13 @@ Execute one Kairos task from Todo to Completed.
 
 ## Pick up
 
-This session is scoped to one **repository** — the `repository` in the SessionStart context (`.claude/kairos.local.md`, KAIROS-A-0019). Given a short code, `get_item` it. Given nothing, `board_items` on the team board with `repository=<this repo>` → Todo → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
+Your **queue** is the board of your team, filtered by the repository of this checkout. The SessionStart context gives both: `team_board` and `repository` (`.claude/kairos.local.md`, COLLIERY-A-0023). Given a short code, `get_item` it. Given nothing, `board_items` with `board=<team_board>` and `repository=<this repo>` → Todo → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
 
-**Stay in your repository.** `get_item` prints the task's `repository: <slug> (owner: <team>)`; if it differs from this checkout's, stop: say which repository it belongs to and that it must be implemented from that checkout (or by that team), and pick something else. Never implement another codebase's ticket from here. An item with no `repository` on a multi-repo team: bind it first — there is no MCP tool for binding, so ask the user to run `kairos repos bind <code> <slug>` (or do it if the CLI is authenticated in this session) — then proceed.
+**Stay in your repository.** `get_item` prints the link of the task: `repository: <slug> (owner: <team>)`. The owner can be a different team; that is normal. If the slug differs from this checkout, stop: say which repository holds the code, and pick a different task. A task with no repository that needs code in this checkout: link it with `set_repository` (`short_code`, `repository`), then continue.
 
-**A task on the wrong board is moved, not recreated.** When a ticket is on this board but is really another team's work, `move_item` it to their delivery board (`to_board`) — recreating it there throws away its history, its edges and its author. You need `manage_tasks` on both boards; if the tool refuses, name the board it belongs on and ask the lead. A repository-bound task already sits on its owner's board and can only move once the binding is removed.
+**The work of other teams in this repository is not in your queue.** Find it with `search` (`filter.repository`), or in the commits. Read it; the team of its board does it.
+
+**A task on the wrong board is moved, not recreated.** When a ticket is on this board but is really another team's work, `move_item` it to their delivery board (`to_board`) — recreating it there throws away its history, its edges and its author. You need `manage_tasks` on both boards; if the tool refuses, name the board it belongs on and ask the lead. The task keeps its repository: the move does not look at it.
 
 Anything procedural you write while implementing — a how-to or reference page, an error message, CLI help text — follows Simplified Technical English: [The Simplified Technical English reference](../../../references/simplified-technical-english.md) (KAIROS-S-0009). It does **not** apply to your commit message, your code comments, or the reasoning you record on the item; those exist to explain why, and STE cannot. `angreal docs ste` checks the mechanical rules where the project has that task.
 
@@ -35,7 +37,7 @@ The task transitions Active → Completed **only** when all of these hold, with 
 2. **Every acceptance criterion demonstrated, not asserted**: for each criterion, `edit_item` the command you ran and the observed output onto the item as evidence.
 3. **New behavior carries new tests.**
 
-Then review the diff (the `code-review` skill), commit to the current branch, and `transition_item` to **Completed**. When the work needs a change in ANOTHER repository (an API the other team must add, a client to update), do not stall: file it against that repository — the recipe is [CROSS-TEAM-FILING.md](CROSS-TEAM-FILING.md): `create_item` (`repository: <their slug>`, `parent: <this task's initiative>`) then `link_items blocks` from the new task to this one; it lands in their Backlog for triage.
+Then review the diff (the `code-review` skill), commit to the current branch, and `transition_item` to **Completed**. When the work needs a change from a DIFFERENT team (an API to add, a client to update), send a request to that team. The recipe is [CROSS-TEAM-FILING.md](CROSS-TEAM-FILING.md): `create_item` (`board: <the delivery board of that team>`, `parent: <this task's initiative>`), then `link_items blocks` from the request to this task.
 
 ## Blocked
 

@@ -31,7 +31,7 @@ Look for the item the change implements, in this order:
 
 Fetch the item with `get_item <short-code>` and extract its acceptance criteria — plus the objective and any requirements sections if the criteria are thin. This pasted content is the spec the Spec sub-agent reviews against.
 
-**Repository check (KAIROS-A-0019).** `get_item` prints the item's `repository: <slug> (owner: <team>)`; compare it with this checkout (the session's `repository`, or `git remote get-url origin` matched via `list_repositories` / `GET /api/repositories?forge=&name=`). A mismatch — the change implements a ticket bound to a different repository — is a finding in its own right in the final report: either the item is bound to the wrong repo (`kairos repos bind <code> <slug>` — CLI, there is no MCP binding tool), or the work landed in the wrong codebase. An unbound item on a multi-repo team gets a note recommending the bind.
+**Repository check (COLLIERY-A-0023).** `get_item` prints the item's `repository: <slug> (owner: <team>)`; compare the slug with this checkout (the session's `repository`, or `git remote get-url origin` matched via `list_repositories` / `GET /api/repositories?forge=&name=`). The owner can be a different team from the team of the item; that is not a finding. A mismatch of the slug is a finding in its own right in the final report: the change implements a task that links to a different repository. Either the link is wrong (`set_repository` corrects it), or the work is in the wrong codebase. An item with no repository gets a note that recommends the link.
 
 ### 3. Identify the standards sources
 

@@ -43,18 +43,18 @@ Iterate until the user approves the breakdown.
 
 ### 5. Publish the tasks to Kairos
 
-Every task is issued against **one repository** (KAIROS-A-0019): the repo an agent will implement it in. Default to the session's `repository` (SessionStart context). When the initiative spans repositories, decide per slice — ask the user which repo each slice lands in (a slice that "touches both" is two slices, one per repo, joined by a `blocks` edge). Use `list_repositories` to see the directory when another team's repo is involved; a task filed against another team's repository lands in THEIR Backlog for triage (any member may do this).
+Every task names a **board** (COLLIERY-A-0023): the team decides the board, and the board decides the team of the task. Default to the session's `team_board` (SessionStart context). With no `team_board`, find the board with `my_boards`. If more than one can hold the work, ask the user which. A slice for a different team is a **request**: name the delivery board of that team, and follow [CROSS-TEAM-FILING.md](../implement/CROSS-TEAM-FILING.md).
 
-A repository routes the task to its owning team's delivery board, so `board` is not needed; only when the session has no repository, find the board with `my_boards` (if more than one could hold the work, ask the user which) and pass `board` instead.
+The **repository** is an optional link to the repo where an agent implements the task. It does not choose the board. Default to the session's `repository`. When the initiative spans repositories, ask the user which repo holds each slice. A slice that "touches both" is two slices, one per repo, joined by a `blocks` edge. `list_repositories` shows the directory.
 
 Publish in dependency order — blockers first — so every blocking edge names a real short code. For each approved slice:
 
-- `create_item(item_type: task, repository: <slug>, parent: <initiative short code>, title: ..., content: ...)` using the **Task body template** (`board: <delivery board>` instead of `repository` only when nothing is wired). The `parent` edge links the task to its initiative — the body carries no parent section.
+- `create_item(item_type: task, board: <delivery board>, repository: <slug>, parent: <initiative short code>, title: ..., content: ...)` using the **Task body template** (omit `repository` when the task has no code). The `parent` edge links the task to its initiative — the body carries no parent section.
 - For each of its blockers: `link_items(source: <blocker short code>, target: <this task's short code>, relationship: blocks)`.
 
-Columns and blocking edges are native to Kairos — new tasks land in the board's entry column, and that's where they belong; leave them for the team to pull. The initiative itself stays untouched: decompose only adds children.
+Columns and blocking edges are native to Kairos — new tasks go to the entry column of the board, and that's where they belong; leave them for the team to pull. The initiative itself stays untouched: decompose only adds children.
 
-Finish by listing the created short codes in dependency order, each with its repository (and, for another team's repo, a note that it awaits that team's triage).
+Finish by listing the created short codes in dependency order, each with its board and its repository (and, for a request, a note that it is in the support lane of that team).
 
 ## Reference
 

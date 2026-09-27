@@ -19,8 +19,8 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
 
 - `meta/` — `kairos` (the `/kairos` router), `grilling` (model-invoked), `grill-me`,
   `handoff`, `writing-great-skills` (the normative authoring reference), `bootstrap`
-  (wires a repo to a deployment — detects the repository from the git remote — and writes
-  `.claude/kairos.local.md`)
+  (wires a repo to a deployment — detects the repository from the git remote, takes the
+  team board from the team of the principal — and writes `.claude/kairos.local.md`)
 - `workflow/` — `to-initiative`, `decompose`, `triage` (user-invoked), `implement`
   (model-invoked per KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
@@ -38,23 +38,26 @@ router maps the whole user-invoked surface; changing the skill set without re-sy
 It reads `.claude/kairos.local.md` (absent → silent no-op), probes `<deployment_url>/healthz`
 unauthenticated, and injects the wiring summary as `additionalContext` with an instruction to
 pull live state over the **authenticated MCP connection**: with a `repository` wired
-(KAIROS-A-0019) that is `get_repository` + `board_items` narrowed to the repository — the
-session's queue; without one, `my_boards`/`board_items` as before. Its pure parts are unit
+(KAIROS-A-0019) that is `get_repository` + `board_items` on the team board narrowed to the
+repository — the session's queue; without one, `my_boards`/`board_items` as before. The hint
+also says to name a board at create and how to send a request (COLLIERY-A-0023). Its pure parts are unit
 tested (`hooks/test_session_start.py`, part of `angreal test unit`).
 Hooks cannot drive the client's OAuth flow (KAIROS-A-0011) and tokens live with the MCP client
 (KAIROS-A-0014), so the hook deliberately never authenticates; offline degrades to a note.
 
-## Sessions are scoped to a repository
+## Sessions are scoped to a team board and a repository
 
 `/kairos:bootstrap` records the checkout's repository (`repository:` in
 `.claude/kairos.local.md`, matched from `git remote get-url origin` against the tenant's
-directory). Every repository has exactly one owning team, and a task is issued against at most
-one repository — that binding routes it to the owning team's delivery board. `implement` works
-only this repository's tickets, `decompose` binds every task it creates, `triage` grooms this
-repo's slice by default, and `code-review` flags a PR whose ticket is bound elsewhere. Work for
-another team's codebase is **filed** against their repository (it lands in their Backlog —
-recipe in `skills/workflow/implement/CROSS-TEAM-FILING.md`, which the `/kairos` router
-points at), never implemented from here.
+directory) and the delivery board of the team of the principal that connects (`team_board:`).
+The team decides the board of a task; the repository is an optional link that says where the
+code is (COLLIERY-A-0023). Every repository has exactly one owning team, and a task on any
+team's board may link to it. `implement` works the team board filtered by this repository and
+finds the work of other teams here with `search`, `decompose` names a board for every task it
+creates, `triage` grooms the tasks that link to this repository by default, and `code-review`
+flags a change whose task links to a different repository. Work for a different team is a
+**request** to the delivery board of that team: entry column, support lane (recipe in
+`skills/workflow/implement/CROSS-TEAM-FILING.md`, which the `/kairos` router points at).
 
 ## `.mcp.json` is a template
 

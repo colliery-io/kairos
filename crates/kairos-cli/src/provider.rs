@@ -4,6 +4,10 @@
 //! on (imminent) expiry, persisting rotated tokens back to disk. A failed
 //! refresh surfaces as `Error::Token` with a re-login instruction, which
 //! `main` maps to exit code 2 (KAIROS-A-0015).
+//!
+//! A local session (COLLIERY-T-0213) is not refreshed. It is used until it
+//! expires, and then the same `Error::Token` gives the command to log in
+//! again.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -47,6 +51,19 @@ impl CachedTokenProvider {
             credentials::load(&self.path).map_err(|err| Error::Token(err.to_string()))?;
         let entry = credentials::entry_for(&store, &self.deployment)
             .map_err(|err| Error::Token(err.to_string()))?;
+
+        // A local session (COLLIERY-T-0213) has no issuer and no refresh
+        // token, so it never reaches the refresh below. When it is over, the
+        // request is not sent: the server would refuse the bearer, and the
+        // 401 cannot name the command that the person needs.
+        if entry.is_local_session() {
+            if entry.is_expired(unix_now()) {
+                return Err(Error::Token(
+                    entry.session_expired_message(&self.deployment),
+                ));
+            }
+            return Ok(entry.access_token);
+        }
 
         if !entry.needs_refresh(unix_now()) {
             return Ok(entry.access_token);
@@ -114,5 +131,66 @@ impl CachedTokenProvider {
 impl TokenProvider for CachedTokenProvider {
     fn bearer_token(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>> {
         Box::pin(self.current_token())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::credentials::{CredentialStore, DeploymentCredentials};
+    use kairos_client::types_auth::Secret;
+
+    const DEPLOYMENT: &str = "http://one.kairos.test";
+    const BEARER: &str =
+        "kairos_ss_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn provider_with(name: &str, expires_at: u64) -> (CachedTokenProvider, PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("kairos-cli-provider-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("credentials.json");
+        let mut store = CredentialStore::default();
+        store.deployments.insert(
+            DEPLOYMENT.into(),
+            DeploymentCredentials::local_session(
+                &Secret::new(BEARER),
+                expires_at,
+                "ada@example.test".into(),
+                None,
+            ),
+        );
+        credentials::save(&path, &store).expect("save");
+        (CachedTokenProvider::new(path, DEPLOYMENT.to_string()), dir)
+    }
+
+    /// COLLIERY-T-0213: a local session that is not over gives its bearer.
+    #[tokio::test]
+    async fn a_live_local_session_gives_its_bearer() {
+        let (provider, dir) = provider_with("live", unix_now() + 3600);
+        assert_eq!(provider.current_token().await.expect("bearer"), BEARER);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// COLLIERY-T-0213: a local session that is over gives no bearer, so no
+    /// request goes out. The error names the login command, and it does not
+    /// speak of a refresh: the entry has an empty issuer, and a refresh
+    /// would try discovery against the empty string.
+    #[tokio::test]
+    async fn an_expired_local_session_gives_the_login_command() {
+        let (provider, dir) = provider_with("expired", 1);
+        let err = provider.current_token().await.expect_err("expired");
+        let message = match err {
+            Error::Token(message) => message,
+            other => panic!("expected a token error, got {other}"),
+        };
+        assert_eq!(
+            message,
+            "the session for http://one.kairos.test has expired.\n\
+             Run `kairos login --url http://one.kairos.test --email ada@example.test` \
+             to log in again."
+        );
+        assert!(!message.contains("refresh"), "{message}");
+        assert!(!message.contains(BEARER), "{message}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

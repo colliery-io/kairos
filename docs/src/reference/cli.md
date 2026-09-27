@@ -36,7 +36,7 @@ Command groups, each detailed below:
 |---|---|
 | 0 | Success. |
 | 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input, transport failure. Also the case of several cached deployments with no `--url`. |
-| 2 | Authentication error: no cached credentials, expired or rejected credentials, a failed token refresh, HTTP 401, a corrupted credential cache. |
+| 2 | Authentication error: no cached credentials, expired or rejected credentials, a failed token refresh, an expired local session, a rejected email and password, HTTP 401, a corrupted credential cache. |
 
 Structured API rejections are rendered with their actionable detail: a 409
 `CONFLICT` prints the server-current version and title, a 422
@@ -61,10 +61,13 @@ entry.
 
 ## Authentication
 
+A deployment lets people log in through an OIDC issuer, with local accounts, or
+with both. `kairos login` has one mode for each. Both modes write the same
+credential cache, so every other command works the same after either.
+
 ### `kairos login`
 
-Logs in via the OAuth Device Authorization Grant and caches the resulting
-tokens.
+Logs in to a deployment and caches the credential.
 
 ```
 kairos login --url <URL> [OPTIONS]
@@ -73,6 +76,7 @@ kairos login --url <URL> [OPTIONS]
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--url <URL>` | string | required | Deployment base URL, e.g. `https://kairos.example.com`. |
+| `--email <EMAIL>` | string | none | Email of a local account. Selects the password login. Conflicts with `--issuer`, `--client-id` and `--bearer`. |
 | `--issuer <ISSUER>` | string | discovered | OIDC issuer override. Skips RFC 9728 discovery against the deployment. |
 | `--tenant <TENANT>` | string | none | Tenant slug, cached and sent as `X-Tenant` on subsequent API calls. |
 | `--client-id <CLIENT_ID>` | string | `kairos-cli` | OAuth client id registered for the CLI at the issuer. |
@@ -80,9 +84,43 @@ kairos login --url <URL> [OPTIONS]
 
 `login` takes neither `--json` nor the cached-deployment form of `--url`.
 
+| Mode | Selected by | Exchange | Cached credential |
+|---|---|---|---|
+| Issuer | no `--email` | OAuth Device Authorization Grant at the issuer | Access token or ID token, with a refresh token when the issuer gives one. |
+| Local account | `--email <EMAIL>` | `POST /api/login` with the email and the password | Session bearer, with the expiry that the server gives. No refresh token. |
+
+The password of a local account has two sources:
+
+| Standard input | Source |
+|---|---|
+| a terminal | A prompt, `Password for <EMAIL>: `. The terminal does not show the characters. |
+| a pipe or a file | The first line of standard input. The line ending is removed. Spaces are kept. |
+
+```
+printf '%s' "$PASSWORD" | kairos login --url <URL> --email <EMAIL>
+```
+
+There is no `--password` option, and no environment variable holds the
+password. An argument is visible in the process list and stays in the shell
+history.
+
+Failures of `login`:
+
+| Condition | Exit code | Message |
+|---|---|---|
+| No `--email`, and the deployment has no issuer | 1 | `this deployment has no OIDC issuer. It uses local accounts.` The message gives the command with `--email`. |
+| `--email`, and the deployment has local accounts off | 1 | `local accounts are off on this deployment.` The message gives the command without `--email`. |
+| `--email` with `--issuer`, `--client-id` or `--bearer` | 2 | A usage error from the argument parser. |
+| `--password` | 2 | A usage error from the argument parser. |
+| Wrong password, or no account with that email | 2 | `the deployment did not accept the email and password.` The two conditions give the same message. |
+| Too many failed attempts (HTTP 429) | 1 | `too many failed login attempts.` The message gives the wait in seconds. |
+| No password given | 1 | `no password was given.` |
+
 ### `kairos logout`
 
-Removes one deployment's entry from the credential cache.
+Removes one deployment's entry from the credential cache. For a local session,
+`logout` also ends the session on the server with `POST /api/logout`. After
+that, the bearer does not work.
 
 ```
 kairos logout [OPTIONS]
@@ -93,6 +131,11 @@ kairos logout [OPTIONS]
 | `--url <URL>` | string | the only cached deployment | Deployment whose credentials are forgotten. |
 
 `logout` takes neither `--tenant` nor `--json`.
+
+| Entry | Server call | Result when the call fails |
+|---|---|---|
+| Issuer tokens | none | — |
+| Local session | `POST /api/logout` | Exit code 1. The entry is removed from the cache. The session stays valid until it expires. |
 
 ### `kairos whoami`
 
@@ -114,6 +157,12 @@ The `/api/whoami` response carries more than the default rendering prints. The
 board capabilities the principal holds, the capabilities every member holds
 implicitly, and the caller's teams' repositories are available under `--json`
 only.
+
+`whoami` works the same with issuer tokens and with a local session. The CLI
+does not refresh a local session. After a local session expires, each command
+that reaches the API sends no request and exits with code 2. The message is
+`the session for <URL> has expired.`, and it gives the `kairos login` command
+with the cached `--email` and `--tenant`.
 
 ## Work items
 
@@ -874,7 +923,7 @@ plaintext password never has to be written into a manifest.
 | Path | Mode | Contents |
 |---|---|---|
 | config directory | `0700` | Resolved from `KAIROS_CONFIG_DIR`, else `$XDG_CONFIG_HOME/kairos`, else `$HOME/.config/kairos`. |
-| `credentials.json` inside it | `0600` | The token cache, keyed by normalized deployment URL. |
+| `credentials.json` inside it | `0600` | The credential cache, keyed by normalized deployment URL. Holds issuer tokens and local sessions. |
 
 [Configuration](configuration.md#cli-configuration) is the canonical entry for
 the resolution order, the file's full shape, and the refresh behaviour.

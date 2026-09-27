@@ -20,6 +20,14 @@ thiserror = { workspace = true }
 # OpenAPI schemas from the shared DTOs), so generic helpers naming it need
 # the trait in scope.
 utoipa = { workspace = true }
+# `kairos login --email` (COLLIERY-T-0213). The server gives the expiry of a
+# session as RFC 3339; the credential cache keeps Unix seconds.
+chrono = { workspace = true }
+# The password prompt with the terminal echo off (COLLIERY-T-0213). The
+# workspace had no crate for this: `kairos-server hash-password` reads a plain
+# line from stdin and shows what is typed. Turning the echo off is termios on
+# Unix and the console API on Windows, which is not code to write by hand.
+rpassword = "7.5.4"
 
 [dev-dependencies]
 # tests/cli_live.rs boots the production router in-process against a

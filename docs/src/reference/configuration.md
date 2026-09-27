@@ -49,9 +49,9 @@ guessing turns "this server has no issuer" into access, and a caller told only
 "invalid token" would search their own token for a fault that is not there.
 
 `GET /api/config` reports `issuer: null` and `local_auth: true`, so the GUI offers a
-password form and no SSO button it cannot honour. `kairos login` says plainly that
-there is nothing to authenticate against; for CLI access on such a deployment, use a
-service-account API key.
+password form and no SSO button it cannot honour. `kairos login` without `--email`
+says that the deployment has no issuer and uses local accounts. For CLI access on such
+a deployment, use [`kairos login --email`](cli.md#kairos-login).
 
 ### Network and logging
 
@@ -375,9 +375,30 @@ renamed.
 | `deployments.*.client_id` | string | The OAuth client id used for the device grant and for refresh. |
 | `deployments.*.tenant` | string, optional | Sent as `X-Tenant`. Omitted when no tenant was cached at login. |
 | `deployments.*.api_bearer` | `access_token` \| `id_token` | Which token `access_token` holds. Absent in files written before the field existed, which resolve to `access_token`. |
+| `deployments.*.kind` | `oauth` \| `local_session` | How the entry was made. Omitted for `oauth`. `local_session` is an entry from `kairos login --email`. |
+| `deployments.*.email` | string, optional | The email of a local session. Omitted for `oauth`. |
+
+An entry for a local session holds the session bearer in `access_token`.
+`expires_at` holds the expiry that the server gave. The entry has no
+`refresh_token`. `issuer` and `client_id` are empty strings.
+
+```json
+{
+  "access_token": "kairos_ss_…",
+  "expires_at": 1793491200,
+  "issuer": "",
+  "client_id": "",
+  "tenant": "acme",
+  "api_bearer": "access_token",
+  "kind": "local_session",
+  "email": "you@example.com"
+}
+```
 
 A token is refreshed when its `expires_at` is within 30 seconds of now, so a
-token never expires mid-request. A file that does not parse as JSON is an
+token never expires mid-request. The CLI does not refresh a local session. The
+CLI uses it until its `expires_at`. After that, each command fails with exit 2
+and gives the `kairos login` command. A file that does not parse as JSON is an
 authentication error (exit 2) naming the file.
 
 ## Helm chart values

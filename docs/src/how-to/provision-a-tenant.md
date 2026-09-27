@@ -12,7 +12,9 @@ admin. ("Tenant" and "organization" are the same thing seen from two sides —
 - **The intended initial org admin has logged in at least once.** Users are
   provisioned just-in-time at first login, so a `sub` that has never
   authenticated does not exist yet and provisioning is refused.
-- You are logged in: `kairos login --url https://<host>`.
+- You are logged in: `kairos login --url https://<host>`. With a local account,
+  add `--email <your-email>`. A local account is a deployment admin as
+  `local:<email>`.
 
 ## 1. Confirm you hold the deployment-admin routes
 
@@ -84,7 +86,7 @@ see [Configuration → Tenant resolution](../reference/configuration.md#tenant-r
 Verify as the new org admin:
 
 ```sh
-kairos login --url https://<host> --tenant acme
+kairos login --url https://<host> --tenant acme   # local account: add --email <email>
 kairos whoami        # org: acme (admin)
 kairos boards list   # the default boards
 ```

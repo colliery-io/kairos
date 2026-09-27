@@ -329,7 +329,7 @@ Request body (required): `application/json`, [`SetTaskRepositoryRequest`](schema
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`Task`](schemas.md#task) | Repository link updated |
+| `200` | [`Task`](schemas.md#task) | Repository link updated. `null` or an empty string clears it |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |

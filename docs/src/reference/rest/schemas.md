@@ -1262,7 +1262,7 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 
 ## SetTaskRepositoryRequest
 
-Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task links to (slug or UUID), or clear it with `null`. It can be any live repository, of any team. The board and the team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
+Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task links to (slug or UUID), or clear it with `null` or an empty string (COLLIERY-T-0231). It can be any live repository, of any team. The board and the team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
 
 | Field | Type | Required | Description |
 |---|---|---|---|

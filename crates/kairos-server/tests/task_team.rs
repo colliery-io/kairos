@@ -179,6 +179,45 @@ async fn the_board_decides_the_team_against_live_stack() {
     assert_eq!(cleared.team_id.as_deref(), Some(platform.id.as_str()));
     assert_eq!(cleared.board_id, platform_board);
 
+    // COLLIERY-T-0231: an empty reference clears the link over REST, as it
+    // does over MCP since COLLIERY-T-0220. Until this task REST looked for a
+    // repository with an empty name and answered 422, so the two entry
+    // points gave different results for one input.
+    for empty in ["", "   "] {
+        let bound = svc
+            .set_task_repository(&created.short_code, Some("payments-api"))
+            .await
+            .expect("binding again");
+        assert!(bound.repository.is_some(), "bound before {empty:?}");
+        let cleared = svc
+            .set_task_repository(&created.short_code, Some(empty))
+            .await
+            .unwrap_or_else(|e| panic!("{empty:?} clears the link, got {e}"));
+        assert!(cleared.repository.is_none(), "{empty:?} cleared the link");
+        assert!(cleared.repository_id.is_none());
+        assert_eq!(cleared.team_id.as_deref(), Some(platform.id.as_str()));
+        assert_eq!(cleared.board_id, platform_board);
+    }
+    // A reference that names nothing is still refused, and the link that
+    // was there is left alone.
+    svc.set_task_repository(&created.short_code, Some("payments-api"))
+        .await
+        .expect("binding again");
+    let err = svc
+        .set_task_repository(&created.short_code, Some("nope"))
+        .await
+        .expect_err("an unknown repository");
+    assert!(matches!(err, Error::Validation { .. }), "{err}");
+    let still = svc.get_task(&created.short_code).await.expect("reading");
+    assert_eq!(
+        still.repository.as_ref().map(|r| r.slug.as_str()),
+        Some("payments-api"),
+        "a refused write changes nothing"
+    );
+    svc.set_task_repository(&created.short_code, None)
+        .await
+        .expect("clearing with null, as before");
+
     // --- move: the team follows the board ------------------------------------
     let moved = svc
         .move_task(&created.short_code, &web_board)

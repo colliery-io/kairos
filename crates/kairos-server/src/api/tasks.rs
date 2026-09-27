@@ -519,9 +519,12 @@ pub(crate) async fn set_work_class(
 /// here, so the two cannot give different results (the KAIROS-T-0096 lesson):
 /// which repository a reference names, what "unknown" means, and the write.
 ///
-/// `repository` is a slug or a UUID. `None` clears the link. The caller
-/// decides what counts as "no repository" in its own input; MCP also reads
-/// an empty string as `None`, and REST does not.
+/// `repository` is a slug or a UUID. `None` clears the link, and so does a
+/// reference that is empty or only whitespace (COLLIERY-T-0231). That rule
+/// is HERE, not in the callers. COLLIERY-T-0220 put it in the MCP tool
+/// alone, so MCP cleared the link for `""` while REST looked for a
+/// repository with an empty name and answered 422: two entry points, one
+/// input, two results, which is what this function exists to prevent.
 ///
 /// COLLIERY-T-0217 (COLLIERY-A-0023): the repository is a link, so the only
 /// question is whether it is live. Until then this went through
@@ -535,6 +538,8 @@ pub(crate) fn link_task_to_repository(
     user: Uuid,
 ) -> Result<Task, ApiError> {
     let repository_id = repository
+        .map(str::trim)
+        .filter(|reference| !reference.is_empty())
         .map(|reference| repositories::resolve(conn, reference).map(|found| found.id))
         .transpose()
         .map_err(map_repository_error)?;
@@ -552,7 +557,7 @@ pub(crate) fn link_task_to_repository(
     params(("short_code" = String, Path, description = "Task short code")),
     request_body = kairos_client::types_repositories::SetTaskRepositoryRequest,
     responses(
-        (status = 200, description = "Repository link updated", body = dto::Task),
+        (status = 200, description = "Repository link updated. `null` or an empty string clears it", body = dto::Task),
         (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 422, description = "Unknown repository", body = dto::ErrorEnvelope),

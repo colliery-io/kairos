@@ -1296,15 +1296,14 @@ impl KairosMcp {
             )?;
             // An agent that builds its arguments from a template sends ""
             // for "none" as often as it sends null. Both clear the link, as
-            // an absent argument does. REST has a typed body and keeps its
-            // own rule; from here on the two share one function.
-            let repository = params
-                .repository
-                .as_deref()
-                .map(str::trim)
-                .filter(|reference| !reference.is_empty());
-            let updated =
-                crate::api::tasks::link_task_to_repository(conn, item.id, repository, user)?;
+            // an absent argument does. The shared function decides that, for
+            // REST too (COLLIERY-T-0231).
+            let updated = crate::api::tasks::link_task_to_repository(
+                conn,
+                item.id,
+                params.repository.as_deref(),
+                user,
+            )?;
             Ok(match updated.repository_id {
                 Some(_) => format!(
                     "Set the repository of {}: {}.",

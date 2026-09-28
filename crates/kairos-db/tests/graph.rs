@@ -1115,6 +1115,10 @@ fn focal_subgraph_contract() {
             .all(|n| n.archived_at.is_none()),
         "only the archived node carries the marker: {nodes:?}"
     );
+    // COLLIERY-T-0233: no node here is in a terminal column, and the
+    // document has no column at all. A node with no column is not done,
+    // and it is not dropped.
+    assert!(nodes.iter().all(|n| !n.done), "{nodes:?}");
     assert_eq!(by_id(t2.id).expect("t2").depth, 2);
     assert_eq!(by_id(t1.id).expect("focus").depth, 0);
     assert_eq!(by_id(i1.id).expect("i1").depth, 1);

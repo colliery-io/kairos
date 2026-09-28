@@ -678,7 +678,8 @@ body {
   pointer-events: none;
 }
 
-.kairos-graph__edge {
+.kairos-graph__edge,
+.kairos-graph__legend-line {
   fill: none;
   stroke: var(--muted);
   stroke-width: 1.5;
@@ -691,6 +692,42 @@ body {
 
 .kairos-graph__arrowhead {
   fill: var(--muted);
+}
+
+/* A resolved `blocks` arrow (COLLIERY-T-0233): an end of the edge is in a
+   done column, so the edge is history and not a blocker (the rule of
+   COLLIERY-T-0214). The arrow stays on the canvas, fainter and dashed. The
+   dash carries the difference for a reader who cannot see the colour. The
+   hot style keeps the dash, so a hover does not make it an open blocker. */
+.kairos-graph__edge--resolved,
+.kairos-graph__legend-line--resolved {
+  stroke: var(--faint);
+  stroke-dasharray: 5 4;
+}
+
+.kairos-graph__edge--resolved.kairos-graph__edge--hot {
+  stroke: var(--fg-2);
+}
+
+.kairos-graph__arrowhead--resolved {
+  fill: var(--faint);
+}
+
+/* The "done" mark of a node in a done column (COLLIERY-T-0233), in the
+   colour of the done badge on the relationship list. */
+.kairos-graph__done {
+  fill: var(--ok);
+  font-size: 10px;
+  text-anchor: end;
+  pointer-events: none;
+}
+
+.kairos-graph__legend {
+  margin-bottom: var(--space-xs);
+}
+
+.kairos-graph__legend-sample {
+  flex: none;
 }
 
 .kairos-graph__more {

@@ -66,10 +66,13 @@
 //! - [`blocks_summary`] (the rollup) does not count an edge when either
 //!   end sits in a terminal column;
 //! - [`neighbors_of`] (the list) reports the neighbour **marked** via
-//!   [`Neighbor::done`].
+//!   [`Neighbor::done`];
+//! - [`item_subgraph`] (the picture) reports the node **marked** via
+//!   [`SubgraphNode::done`] (COLLIERY-T-0233), so the graph view can draw
+//!   a `blocks` arrow with a done end as history.
 //!
-//! Both read the column's flag through [`ITEM_COLUMNS_SQL`], never the
-//! column's name, and neither stores anything: the answer follows the
+//! All read the column's flag through [`ITEM_COLUMNS_SQL`], never the
+//! column's name, and none stores anything: the answer follows the
 //! item's current column.
 //!
 //! # Audit rows (KAIROS-A-0004 / S-0004)
@@ -776,6 +779,14 @@ pub struct SubgraphNode {
     /// [`item_subgraph`] — never omitted; a renderer that ignores this
     /// field is claiming archived work is live.
     pub archived_at: Option<DateTime<Utc>>,
+    /// Whether this node sits in a terminal column
+    /// (`board_columns.is_done`) right now (COLLIERY-T-0233, the rule of
+    /// COLLIERY-T-0214). A `blocks` edge with a done node at either end
+    /// is history, not a blocker, and a renderer must draw it so. `false`
+    /// for a node with no column (a document, an off-board ADR). Same
+    /// definition as [`Neighbor::done`]: read through
+    /// [`ITEM_COLUMNS_SQL`], never stored.
+    pub done: bool,
 }
 
 /// One typed directed edge between two visible subgraph nodes. `depth` is
@@ -813,6 +824,8 @@ struct NodeHydrationRow {
     degree: i64,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     deleted_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    done: bool,
 }
 
 #[derive(QueryableByName)]
@@ -849,6 +862,10 @@ struct EdgeRow {
 /// included — it exists so a client can render `+N` for what it is not
 /// showing, and a count that disagreed with the node set would make `+N`
 /// wrong.
+///
+/// **Done nodes are marked** (COLLIERY-T-0233) via [`SubgraphNode::done`],
+/// with the same two LEFT JOINs as [`neighbors_of`], so the picture and
+/// the list cannot disagree about which `blocks` edges are still open.
 pub fn item_subgraph(
     conn: &mut PgConnection,
     root: Uuid,
@@ -880,8 +897,9 @@ pub fn item_subgraph(
     //    for degree. `status_of` keeps an archived item's real column name,
     //    which is exactly the audit answer ADR-20 rule 1 asks for: the
     //    `column_id` FK is intact, so the row still knows where it stood
-    //    when it was put away.
-    let rows: Vec<NodeHydrationRow> = sql_query(
+    //    when it was put away. `done` is the terminal flag of that same
+    //    column (COLLIERY-T-0233), read the way `neighbors_of` reads it.
+    let rows: Vec<NodeHydrationRow> = sql_query(format!(
         "WITH status_of AS (
              SELECT s.id, bc.name AS status FROM strategies s
                  JOIN board_columns bc ON bc.id = s.column_id
@@ -898,6 +916,7 @@ pub fn item_subgraph(
              SELECT d.id, d.lifecycle FROM documents d
          )
          SELECT d.id, d.short_code, d.entity_type, d.title, s.status, d.deleted_at,
+                COALESCE(bc.is_done, false) AS done,
                 (SELECT COUNT(*) FROM item_relationships r
                     JOIN entity_directory other
                       ON other.id = CASE WHEN r.source_id = d.id
@@ -905,8 +924,10 @@ pub fn item_subgraph(
                     WHERE r.source_id = d.id OR r.target_id = d.id) AS degree
          FROM entity_directory d
          JOIN status_of s ON s.id = d.id
-         WHERE d.id = ANY($1)",
-    )
+         LEFT JOIN ({ITEM_COLUMNS_SQL}) p ON p.id = d.id
+         LEFT JOIN board_columns bc ON bc.id = p.column_id
+         WHERE d.id = ANY($1)"
+    ))
     .bind::<Array<SqlUuid>, _>(&ids)
     .load(conn)?;
     let mut nodes = rows
@@ -921,6 +942,7 @@ pub fn item_subgraph(
                 status: row.status,
                 degree: row.degree,
                 archived_at: row.deleted_at,
+                done: row.done,
             })
         })
         .collect::<Result<Vec<_>, GraphError>>()?;

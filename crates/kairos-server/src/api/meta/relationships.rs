@@ -186,6 +186,11 @@ pub(crate) struct GraphQuery {
 /// them also broke paths that merely passed THROUGH archived work: the
 /// walk hops over `item_relationships` directly, so the far side stayed
 /// in the node set with its connecting node deleted out of the middle.
+///
+/// **The mark `done: true` shows a node in a terminal column**
+/// (COLLIERY-T-0233, the rule of COLLIERY-T-0214). A `blocks` edge with a
+/// done node at one end is history, not a blocker. The graph keeps the
+/// edge, and the client draws it with a different style.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/graph",
@@ -232,6 +237,7 @@ pub(crate) async fn get_item_graph(
                         depth: node.depth,
                         degree: node.degree,
                         archived_at: node.archived_at.map(timestamp),
+                        done: node.done,
                     })
                     .collect(),
                 edges: edges

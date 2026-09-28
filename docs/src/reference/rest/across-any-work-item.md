@@ -100,6 +100,11 @@ them also broke paths that merely passed THROUGH archived work: the
 walk hops over `item_relationships` directly, so the far side stayed
 in the node set with its connecting node deleted out of the middle.
 
+**The mark `done: true` shows a node in a terminal column**
+(COLLIERY-T-0233, the rule of COLLIERY-T-0214). A `blocks` edge with a
+done node at one end is history, not a blocker. The graph keeps the
+edge, and the client draws it with a different style.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Entity family (plural URL segment) |

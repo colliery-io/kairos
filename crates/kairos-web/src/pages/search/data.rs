@@ -584,6 +584,11 @@ pub struct GraphNode {
     /// the one wrong answer.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// `true` while the node is in a terminal column (COLLIERY-T-0233).
+    /// A `blocks` arrow with a done node at one end is history, and the
+    /// canvas draws it with the resolved style.
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// mirror of: `kairos_client::types_graph::GraphEdge`.
@@ -637,7 +642,8 @@ mod graph_tests {
                 "id": "n2", "short_code": "DEMO-I-0001", "entity_type": "initiative",
                 "title": "Sign-up overhaul", "status": "Done",
                 "depth": 1, "degree": 4,
-                "archived_at": "2026-09-23T11:30:07.479107Z"
+                "archived_at": "2026-09-23T11:30:07.479107Z",
+                "done": true
             }],
             "edges": [{
                 "source_id": "n2", "target_id": "n1",
@@ -654,5 +660,9 @@ mod graph_tests {
             decoded.nodes[1].archived_at.as_deref(),
             Some("2026-09-23T11:30:07.479107Z")
         );
+        // COLLIERY-T-0233: a node in a terminal column carries `done`. A
+        // payload without the field decodes as not done.
+        assert!(!decoded.nodes[0].done);
+        assert!(decoded.nodes[1].done);
     }
 }

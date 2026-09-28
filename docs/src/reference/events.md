@@ -87,6 +87,26 @@ Optionally filter the stream to one board
 {"subscribe": {}}                              // clear the filter
 ```
 
+### Events from a different board
+
+The board filter also lets through some events about an item on a different
+board. The server sends such an event when these three conditions are true:
+
+- The `event` is `item_transitioned`, `item_moved`, `item_deleted` or
+  `item_restored`.
+- The item has a `blocks` edge to or from an item on the board of the filter.
+- The item on the board of the filter is not put away.
+
+These events change the "blocked by" and "blocks" counts on the cards of the
+board. An example is a blocker on a different board that moves to a done
+column. The `board_id` of the event is the board of the item that changed. It
+is not the board of the filter. A client fetches its board again, as for each
+other event.
+
+The filter is not an authorization. A connection with no filter gets each
+event of the tenant, and each member can read each item. Thus the filter
+shows no event that the member cannot get without it.
+
 ## Delivery semantics (best-effort, A-0005 §5)
 
 - Events are UI-freshness **hints**, not a durable stream: no replay, no

@@ -590,6 +590,7 @@ One hydrated node of the focal subgraph.
 | `archived_at` | `string`, nullable | no | When this node was archived, RFC 3339; absent while it is live. The subgraph is archived-INCLUSIVE (KAIROS-T-0158) — omitting a node used to break the paths THROUGH it, leaving the far side floating with no route back to the focus. Clients must draw a marked node distinctly; drawing it as live is the one wrong answer. |
 | `degree` | `integer` | yes | The node's TOTAL edge count — clients render `+N` where `N = degree - edges shown` for undisplayed neighbors. Archived neighbours count, because they are drawn. |
 | `depth` | `integer` | yes | Minimum hop distance from the focus (0 = the focus itself). |
+| `done` | `boolean` | no | `true` while this node is in a terminal column, a column with `is_done` (COLLIERY-T-0233). Done work does not block, and nothing blocks done work: a `blocks` edge with a done node at one end is history. Clients must draw that edge differently from an open blocker. `false` for a node with no column. |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `id` | `string` | yes | Entity id (UUID). |
 | `short_code` | `string` | yes |  |

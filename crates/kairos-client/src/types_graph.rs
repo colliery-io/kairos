@@ -33,6 +33,13 @@ pub struct GraphNode {
     /// answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// `true` while this node is in a terminal column, a column with
+    /// `is_done` (COLLIERY-T-0233). Done work does not block, and nothing
+    /// blocks done work: a `blocks` edge with a done node at one end is
+    /// history. Clients must draw that edge differently from an open
+    /// blocker. `false` for a node with no column.
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// One typed directed edge between two returned nodes.

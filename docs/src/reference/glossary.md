@@ -318,6 +318,9 @@ a board card ("blocked by", "blocks") include only the edges that count. Kairos
 stores nothing for this rule. When an item moves out of a done column, its
 edges count again.
 
+The graph view shows an edge that does not count as a dashed arrow. The legend
+of the graph view names the two styles.
+
 ## repository
 
 A codebase registered in Kairos, with a forge (`github`, `gitlab`, `other`), an

@@ -13,6 +13,10 @@
 //! the broadcast and forwards only the events of ITS tenant (bound at
 //! upgrade time from the resolved [`TenantContext`]), optionally filtered
 //! to one board by a client `{"subscribe": {"board_id": "..."}}` message.
+//! The board filter also passes an event about an item on a different
+//! board when that item has a `blocks` edge to or from a live item on the
+//! subscribed board (COLLIERY-T-0233): the event changes the counts on
+//! that board's cards. [`BroadcastEvent::concerns_board`] is the rule.
 //! If the LISTEN connection drops it is re-established with exponential
 //! backoff (logged, with a reconnect counter on the [`EventHub`]).
 //!
@@ -77,8 +81,28 @@ struct BroadcastEvent {
     tenant: String,
     /// The event's board, when it has one (client-side subscribe filter).
     board_id: Option<Uuid>,
+    /// The boards across the item's `blocks` edges (COLLIERY-T-0233,
+    /// `kairos_db::events` module docs). Fan-out routing, like `tenant`:
+    /// never sent to clients.
+    blocks_boards: Vec<Uuid>,
     /// The serialized S-0005 thin event forwarded to matching sockets.
     message: String,
+}
+
+impl BroadcastEvent {
+    /// Whether a socket filtered to `board` gets this event: the item is
+    /// on that board, or the item has a `blocks` edge to or from a live
+    /// item on that board (COLLIERY-T-0233). The second case keeps the
+    /// blocked-by count of a card current when its blocker on a different
+    /// board is completed.
+    ///
+    /// This does not widen what a principal can see. Reads are open
+    /// tenant-wide (A-0006), and a socket with no filter gets every event
+    /// of the tenant: the filter is a convenience, not an authorization.
+    /// The tenant check comes first and does not change.
+    fn concerns_board(&self, board: Uuid) -> bool {
+        self.board_id == Some(board) || self.blocks_boards.contains(&board)
+    }
 }
 
 /// The per-process fan-out hub: LISTEN → broadcast → sockets.
@@ -194,7 +218,7 @@ async fn handle_socket(
                         continue;
                     }
                     if let Some(board) = board_filter
-                        && event.board_id != Some(board)
+                        && !event.concerns_board(board)
                     {
                         continue;
                     }
@@ -235,8 +259,8 @@ async fn handle_socket(
 // ---------------------------------------------------------------------------
 
 /// Parse one NOTIFY payload (`kairos_db::events` shape): pull out the
-/// routing fields and strip `tenant` so the forwarded message is exactly
-/// the S-0005 client shape.
+/// routing fields and strip `tenant` and `blocks_boards` so the forwarded
+/// message is exactly the S-0005 client shape.
 fn parse_payload(payload: &str) -> Option<BroadcastEvent> {
     let mut value: serde_json::Value = serde_json::from_str(payload).ok()?;
     let object = value.as_object_mut()?;
@@ -248,9 +272,20 @@ fn parse_payload(payload: &str) -> Option<BroadcastEvent> {
         .get("board_id")
         .and_then(|v| v.as_str())
         .and_then(|s| Uuid::parse_str(s).ok());
+    // COLLIERY-T-0233: absent on most events. An entry that is not a
+    // UUID is dropped, the event is still delivered to its own board.
+    let blocks_boards = match object.remove("blocks_boards") {
+        Some(serde_json::Value::Array(boards)) => boards
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter_map(|s| Uuid::parse_str(s).ok())
+            .collect(),
+        _ => Vec::new(),
+    };
     Some(BroadcastEvent {
         tenant,
         board_id,
+        blocks_boards,
         message: value.to_string(),
     })
 }
@@ -355,6 +390,32 @@ mod tests {
         assert_eq!(forwarded["short_code"], "ACME-T-0001");
     }
 
+    /// COLLIERY-T-0233: `blocks_boards` routes the event to the boards
+    /// across the item's `blocks` edges, and never reaches a client.
+    #[test]
+    fn blocks_boards_route_and_are_stripped() {
+        let (own, across, other) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let event = parse_payload(&format!(
+            r#"{{"tenant":"acme","event":"item_transitioned","entity_type":"task",
+                "short_code":"ACME-T-0001","board_id":"{own}",
+                "blocks_boards":["{across}","not-a-uuid"],
+                "actor":"7f9c24e5-2b12-4d6a-8f4e-0e1d2c3b4a59",
+                "occurred_at":"2026-07-10T12:00:00Z"}}"#
+        ))
+        .expect("payload parses");
+        assert_eq!(event.blocks_boards, vec![across]);
+        assert!(event.concerns_board(own), "the board of the item");
+        assert!(event.concerns_board(across), "a board across a blocks edge");
+        assert!(!event.concerns_board(other), "an unrelated board");
+        let forwarded: serde_json::Value =
+            serde_json::from_str(&event.message).expect("forwarded message is JSON");
+        assert!(
+            forwarded.get("blocks_boards").is_none(),
+            "routing metadata is stripped"
+        );
+        assert_eq!(forwarded["board_id"], own.to_string());
+    }
+
     #[test]
     fn off_board_and_malformed_payloads() {
         let event = parse_payload(
@@ -365,6 +426,7 @@ mod tests {
         )
         .expect("off-board payload parses");
         assert_eq!(event.board_id, None);
+        assert!(event.blocks_boards.is_empty());
 
         assert!(parse_payload("not json").is_none());
         assert!(

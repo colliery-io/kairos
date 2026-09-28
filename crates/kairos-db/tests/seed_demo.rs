@@ -210,10 +210,22 @@ fn seed_demo_fixture_lifecycle() {
             3,
         ),
         (
-            "support-lane tasks (KAIROS-T-0077)",
+            "support-lane tasks (KAIROS-T-0077), and the request between \
+             teams is one of them (COLLIERY-T-0245)",
             "SELECT COUNT(*) AS count FROM org_demo.tasks \
              WHERE work_class = 'support'",
-            2,
+            3,
+        ),
+        (
+            "no request between teams in the planned lane (COLLIERY-T-0245, \
+             COLLIERY-A-0023): the creator is not a member of the team of \
+             the board",
+            "SELECT COUNT(*) AS count FROM org_demo.tasks t \
+             WHERE t.work_class = 'planned' \
+               AND NOT EXISTS (SELECT 1 FROM org_demo.team_members m \
+                               WHERE m.team_id = t.team_id \
+                                 AND m.user_id = t.created_by)",
+            0,
         ),
         (
             "the no-bug-lane fixture: an unplanned BUG in the Support lane",

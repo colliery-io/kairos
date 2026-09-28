@@ -122,8 +122,8 @@ Decisions).](../images/boards-overview.png)
 Notice they are grouped by level, and that only the delivery boards sit under a
 team name. Open **Platform Delivery** and you will see cards sitting in columns.
 
-![The Platform Delivery board. Two lanes — Support with two items of unplanned
-intake, and Planned with six of scheduled work — each split across five columns:
+![The Platform Delivery board. Two lanes — Support with three items of unplanned
+intake, and Planned with four of scheduled work — each split across five columns:
 Backlog, Todo, Blocked, Active and Completed. Cards show a short code, a
 repository chip, a task type, and badges such as "blocked by
 1".](../images/platform-delivery-board.png)

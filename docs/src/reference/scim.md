@@ -1,6 +1,6 @@
 # `/scim/v2` — inbound SCIM 2.0 provisioning
 
-Kairos 0.4.0. OpenAPI (`GET /api/openapi.json`) specifies the rest of the HTTP
+OpenAPI (`GET /api/openapi.json`) specifies the rest of the HTTP
 surface. But this endpoint speaks the RFC 7643/7644 wire protocol to identity
 providers rather than the `/api` envelope. Thus this page describes it.
 Implementation: `crates/kairos-server/src/scim/`.
@@ -70,10 +70,15 @@ At first login, Kairos matches that user on their email and **adopts** them. Kai
 then re-keys their `external_id` to the presented subject. They log in as the user
 that SCIM provisioned for them, with the membership that SCIM granted.
 
-**This requires a verified email.** The login-side fallback fires only when the
-token asserts `email_verified` as literally true. An issuer that omits the claim, or
-sends anything else, gets a second user row without the membership instead. That is
-the behaviour of earlier versions.
+**This requires a verified email.** The login-side fallback fires only when both
+of these conditions are true:
+
+- No user row has the presented `sub` as its `external_id`.
+- The token asserts `email_verified` as true: the boolean `true`, or the string
+  `"true"` in any letter case.
+
+An issuer that omits the claim, or sends any other value, gets a second user row
+instead. That row has no membership. That is the behaviour of earlier versions.
 
 The trust boundary is deliberate, and
 [KAIROS-A-0010](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0010.md)
@@ -166,9 +171,10 @@ way. Rename teams via `/api/teams`.
 | `/Me` | not implemented. RFC 7643 has no field for advertising that, so it is not advertised: it is simply unrouted |
 
 A deleted team group can be re-created under the same name. `teams.slug` is
-unique among **live** teams only, so a routine reorganisation — remove a group,
-add it back — works. The soft-deleted row stays, holding its audit history; the
-re-created team is a new one with a new id.
+unique among **live** teams only. Thus an issuer can remove a group and add it
+back. The soft-deleted row stays and keeps its audit history. The re-created
+team is a new team with a new `id`. It does not get the members of the deleted
+team.
 
 ### Errors
 

@@ -42,12 +42,24 @@ tenant — see [the SCIM reference](../reference/scim.md) for how Kairos parses 
 
 This is the step that goes wrong, and it goes wrong quietly. Kairos binds an
 inbound SCIM user to an existing user by `externalId`, then `userName`, then
-email. A login binds by the OIDC `sub`. **If SCIM creates a user whose stored
-key is not the `sub` their later login presents, they get a second user row
-without the org membership** — they can log in and appear to have no access.
+email. A login binds by the OIDC `sub`.
 
-So configure the issuer to send **the same value as `externalId` that it puts in
-the OIDC `sub` claim**.
+Configure the issuer to send **the same value as `externalId` that it puts in
+the OIDC `sub` claim**. Then the first login finds the user that SCIM created.
+
+If the two values are different, the result depends on the `email_verified`
+claim in the login token:
+
+- The claim is `true`. Kairos finds the SCIM-created user by email and the
+  person logs in as that user.
+- The claim is absent, or has a different value. **The person gets a second
+  user row without the org membership.** They can log in and appear to have no
+  access.
+
+Thus make sure that the issuer sends `email_verified` as `true` for each
+provisioned user. Do this also when the two values agree. The
+[SCIM reference](../reference/scim.md#identity-join-the-mapping-contract) gives
+the full rule.
 
 If your issuer is **Okta**: `userName` defaults to the login email. Map the SCIM
 app's `externalId` to whatever the OIDC app emits as `sub`. Alternatively set
@@ -62,8 +74,8 @@ If your issuer is something else: find what it sends as `sub`, and send the same
 thing as `externalId`.
 
 Users who have already logged in are safe either way. Their existing row keeps
-its `sub`, and SCIM never overwrites the login join key. It is
-SCIM-created-then-first-login that breaks.
+its `sub`, and SCIM never overwrites the login join key. Only a first login
+after a SCIM create can go wrong.
 
 ## Push users before groups
 
@@ -81,9 +93,11 @@ reports a failure per group.
   creates the team and its delivery board. The slug must match
   `^[a-z][a-z0-9_-]{1,62}$`
 
-Pick team slugs you will not want back. A team group's `DELETE` soft-deletes
-the team, and the slug stays taken. Thus Kairos permanently refuses a
-re-creation of the same group name, with `409 uniqueness`.
+You can delete a team group and then create it again with the same name. The
+`DELETE` soft-deletes the team, and the slug becomes free. The new group is a
+new team with a new `id`. It does not get the members or the board items of
+the deleted team. Kairos refuses the name with `409 uniqueness` only while a
+live team has that slug.
 
 ## Verify
 

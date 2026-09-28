@@ -103,9 +103,13 @@ A `team_id` that is not the team of the board is a 422
 different team, move the task (`POST /api/tasks/{code}/move`).
 
 The server accepts a `team_id` equal to the team of the board, and
-changes nothing. A client can thus send back the board that it read.
-That `team_id` is not a field to update: the body must have `name` or
-`slug`.
+changes nothing. A client can thus send back the `team_id` that it
+read. That `team_id` is not a field to update: the body must have `name`
+or `slug`.
+
+The body has the fields `name`, `slug` and `team_id` only. A different
+field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
+names the field (COLLIERY-T-0249).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -400,6 +404,10 @@ Get one team (open tenant-wide).
 
 Soft-delete a team and its delivery board together. The board must be
 empty (422 `BOARD_NOT_EMPTY` — the T-0010 empty rule). Org-admin-only.
+
+A team of old data can have 2 or more live delivery boards. The delete
+applies the rule to each board, and it removes each board with the team
+(COLLIERY-T-0250). The refusal names the board that is not empty.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

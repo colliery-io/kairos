@@ -38,6 +38,7 @@ pub struct TeamPage {
 
 /// Body of `POST /api/teams/{id}/pages`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTeamPageRequest {
     /// Parent FOLDER (UUID); omit for a root node.
     #[serde(default)]
@@ -60,6 +61,7 @@ pub struct CreateTeamPageRequest {
 /// OR a structural rename/move (`slug`/`parent_id`/`position`); mixing
 /// both in one call is a 422.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTeamPageRequest {
     /// New title (content edits only).
     #[serde(default)]
@@ -124,6 +126,7 @@ pub struct TeamWorkDocument {
 
 /// Body of `POST /api/teams/{id}/announcements`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTeamAnnouncementRequest {
     /// Markdown body.
     pub body: String,

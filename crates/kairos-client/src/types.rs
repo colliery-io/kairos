@@ -224,6 +224,7 @@ pub struct Adr {
 
 /// Body of `POST /api/strategies`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateStrategyRequest {
     /// Board to create the strategy on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
@@ -240,6 +241,7 @@ pub struct CreateStrategyRequest {
 
 /// Body of `POST /api/initiatives`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateInitiativeRequest {
     /// Board to create the initiative on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
@@ -261,6 +263,7 @@ pub struct CreateInitiativeRequest {
 
 /// Body of `POST /api/tasks`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTaskRequest {
     /// Board to create the task on — SLUG or UUID (KAIROS-T-0150).
     /// Optional when `team_id` is given: the task then goes to the delivery
@@ -306,6 +309,7 @@ pub struct CreateTaskRequest {
 /// set the document's editorial state. Free transitions; no version bump
 /// (the A-0004 contract covers title/content only).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetLifecycleRequest {
     /// `draft|review|published|archived`.
     pub lifecycle: String,
@@ -313,6 +317,7 @@ pub struct SetLifecycleRequest {
 
 /// transitions â the board rules engine is never consulted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetWorkClassRequest {
     /// `planned|support`.
     pub work_class: String,
@@ -323,6 +328,7 @@ pub struct SetWorkClassRequest {
 /// name a strategy, initiative, or task; the server creates the `supports`
 /// edge and authorizes `manage_documents` against the parent's board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDocumentRequest {
     pub title: String,
     /// Markdown content. Omitted + `template_id` set = the template's
@@ -342,6 +348,7 @@ pub struct CreateDocumentRequest {
 /// both set (on-board) or both omitted (off-board; creation is then
 /// org-admin-only, KAIROS-A-0006 fallback).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAdrRequest {
     /// ADR board — SLUG or UUID (KAIROS-T-0150); omit for an off-board ADR.
     #[serde(default)]
@@ -366,6 +373,7 @@ pub struct CreateAdrRequest {
 /// is based on; a stale value gets 409 `CONFLICT` with the current entity
 /// in `details.current`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateContentRequest {
     /// New title; omitted = keep the current title.
     #[serde(default)]
@@ -378,6 +386,7 @@ pub struct UpdateContentRequest {
 
 /// Body of `POST /api/{family}/{short_code}/transition`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TransitionRequest {
     /// Target column (UUID). Must be reachable from the item's current
     /// column per the board's transition graph, else 422
@@ -389,6 +398,7 @@ pub struct TransitionRequest {
 /// delivery board to move the task to, by slug or UUID. It lands in that
 /// board's entry column and follows its team.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MoveTaskRequest {
     pub board: String,
 }

@@ -46,6 +46,7 @@ use uuid::Uuid;
 
 use super::convert::IntoDto;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
 
@@ -168,17 +169,13 @@ pub(crate) struct RelatedQuery {
 pub(crate) async fn search(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<serde_json::Value>,
+    ApiJson(body): ApiJson<serde_json::Value>,
 ) -> Result<Json<dto_search::SearchResponse>, ApiError> {
-    // Deserialize by hand so shape errors (unknown fields, wrong JSON
-    // types) surface as the S-0005 envelope, not axum's default rejection.
-    let request: dto_search::SearchRequest = serde_json::from_value(body).map_err(|e| {
-        ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "VALIDATION",
-            format!("malformed search request: {e}"),
-        )
-    })?;
+    // Deserialize by hand: a fault of shape (an unknown field, a wrong
+    // JSON type) is a 400 on this route, and a 422 on each other route
+    // (COLLIERY-T-0249). The message names an unknown field.
+    let request: dto_search::SearchRequest = serde_json::from_value(body)
+        .map_err(|e| crate::body::shape_error(StatusCode::BAD_REQUEST, &e.to_string()))?;
     let mut core = to_core(&request)?;
     let repository = request.filter.as_ref().and_then(|f| f.repository.clone());
     // Validate before dispatching to the blocking pool: an invalid request

@@ -21,6 +21,7 @@ use uuid::Uuid;
 use super::auth::{generate_token, hash_token};
 use crate::api::{parse_uuid, require_capability};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -36,6 +37,7 @@ pub(crate) fn router() -> Router<AppState> {
 
 /// `POST /api/scim-tokens` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateScimTokenRequest {
     /// Operator label ("okta-prod", ...).
     pub name: String,
@@ -129,7 +131,7 @@ pub(crate) async fn create_token(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<CreateScimTokenRequest>,
+    ApiJson(body): ApiJson<CreateScimTokenRequest>,
 ) -> Result<(StatusCode, Json<ScimTokenCreatedResponse>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {

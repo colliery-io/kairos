@@ -29,6 +29,7 @@ use super::super::convert::repository_ref;
 use super::super::{parse_uuid, require_capability};
 use super::repositories::map_error as map_repo_error;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::forge::auth::derive_secret;
 use crate::middleware::auth::AuthContext;
@@ -193,7 +194,7 @@ pub(crate) async fn create_connection(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateForgeConnectionRequest>,
+    ApiJson(body): ApiJson<dto::CreateForgeConnectionRequest>,
 ) -> Result<(StatusCode, Json<dto::CreatedForgeConnection>), ApiError> {
     let key = signing_key(&state)?;
     // Both deployment prerequisites are checked BEFORE anything is written

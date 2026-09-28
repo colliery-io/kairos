@@ -39,6 +39,7 @@ use uuid::Uuid;
 
 use super::super::clamp_pagination;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::{self, AuthContext};
 
@@ -138,7 +139,7 @@ fn map_tenant_error(e: TenantError) -> ApiError {
 pub(crate) async fn create_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
-    Json(body): Json<dto::CreateTenantRequest>,
+    ApiJson(body): ApiJson<dto::CreateTenantRequest>,
 ) -> Result<(StatusCode, Json<dto::TenantCreatedResponse>), ApiError> {
     require_deployment_admin(&state, &auth)?;
     let admin_sub = body

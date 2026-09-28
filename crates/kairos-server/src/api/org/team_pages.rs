@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 use super::super::{parse_enum, parse_opt_uuid, parse_uuid};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -272,7 +273,7 @@ pub(crate) async fn create_page(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateTeamPageRequest>,
+    ApiJson(body): ApiJson<dto::CreateTeamPageRequest>,
 ) -> Result<(StatusCode, Json<dto::TeamPage>), ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let kind: TeamPageKind = parse_enum(&body.kind, "kind", TeamPageKind::ALL)?;
@@ -336,7 +337,7 @@ pub(crate) async fn update_page(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((id, page_id)): Path<(String, String)>,
-    Json(body): Json<dto::UpdateTeamPageRequest>,
+    ApiJson(body): ApiJson<dto::UpdateTeamPageRequest>,
 ) -> Result<Json<dto::TeamPage>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let page_id = parse_uuid(&page_id, "page_id")?;
@@ -499,7 +500,7 @@ pub(crate) async fn create_announcement(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateTeamAnnouncementRequest>,
+    ApiJson(body): ApiJson<dto::CreateTeamAnnouncementRequest>,
 ) -> Result<(StatusCode, Json<dto::TeamAnnouncement>), ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     if body.body.len() > team_pages::MAX_CONTENT_BYTES {

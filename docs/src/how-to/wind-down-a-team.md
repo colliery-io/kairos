@@ -57,9 +57,9 @@ kairos teams delete <team-id> --confirm
 ```
 
 ```text
-422 BOARD_NOT_EMPTY — team "Mobile"'s delivery board still holds 2 live card(s):
-[DEMO-T-0041, DEMO-T-0043]; move them to another board
-(POST /api/tasks/{code}/move) or delete them, then retry
+422 BOARD_NOT_EMPTY — The delivery board "Mobile Delivery" of the team "Mobile"
+has 2 live cards: [DEMO-T-0041, DEMO-T-0043]. Move each card to a different board
+(POST /api/tasks/{code}/move) or delete it. Then delete the team.
 ```
 
 The refusal names the cards — up to twenty of them — so this is a worklist, not

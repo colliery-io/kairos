@@ -19,6 +19,7 @@ use super::{
     parse_uuid, require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -162,7 +163,7 @@ pub(crate) async fn create_strategy(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateStrategyRequest>,
+    ApiJson(body): ApiJson<dto::CreateStrategyRequest>,
 ) -> Result<(StatusCode, Json<dto::Strategy>), ApiError> {
     // KAIROS-T-0150: `board_id` takes a slug or a UUID, so resolution needs a
     // connection and moves inside the closure.
@@ -214,7 +215,7 @@ pub(crate) async fn update_strategy(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Strategy>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -312,7 +313,7 @@ pub(crate) async fn transition_strategy(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::TransitionRequest>,
+    ApiJson(body): ApiJson<dto::TransitionRequest>,
 ) -> Result<Json<dto::Strategy>, ApiError> {
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;

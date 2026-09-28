@@ -37,7 +37,7 @@ in *this* envelope. See [SCIM](scim.md#errors).
 | `NOT_FOUND` | 404 | The thing the call is about does not exist | — |
 | `TENANT_NOT_FOUND` | 404 | The request host resolves to no provisioned tenant | — |
 | `CONFLICT` | 409 | A state conflict. Usually optimistic concurrency: the submitted `version` is stale. Also emitted where a create collides with an existing row, or a delete is blocked by what still points at the entity | `current` — the full current entity — on a version conflict **only**; see below |
-| `VALIDATION` | 422, or **400** on `POST /api/search` | A body or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`) |
+| `VALIDATION` | 422, or **400** on `POST /api/search`. 400 or 415 for [a body that the server cannot read](#a-body-that-a-route-does-not-accept) | A body or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`). `field` and `allowed` for a field that the route does not know |
 | `INTERNAL` | 500 | Server fault; the message is logged, not returned in detail | — |
 
 **`VALIDATION` is 422 everywhere except `POST /api/search`**, which answers
@@ -46,6 +46,54 @@ conversion produce — a blank `q`, an inverted date range, a bad `limit` or
 `offset`, a missing or over-cap `traverse.depth`, a malformed UUID or
 timestamp, an out-of-vocabulary enum value, an unknown field. The code is the
 same; the status is not. Branch on the code.
+
+### A body that a route does not accept
+
+Each write route of the API has a body with a known set of fields. The table of
+the body in [Schemas](rest/schemas.md) gives the set. In the OpenAPI spec the
+schema of the body has `additionalProperties: false`.
+
+**The server refuses a write with a field that the route does not know.** The
+server does not ignore the field. The refusal is `VALIDATION`, the message names
+the field, and the server writes nothing:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION",
+    "message": "The body has the field \"board_level\". This route does not accept that field. The fields of the body are: name, slug, team_id.",
+    "details": { "field": "board_level", "allowed": ["name", "slug", "team_id"] }
+  }
+}
+```
+
+`details.field` is the first unknown field that the server finds. `details.allowed`
+is the list of the fields of that body. For a field in an object of the body, the
+two are about that object.
+
+The body of an update has the fields of the update only. Do not send back the
+full object that a `GET` gave. Fields such as `id`, `created_at` and
+`board_level` are not fields of an update.
+
+A body that the route cannot read for a different reason has the same envelope
+and the same code. The status tells the reasons apart:
+
+| The body | Status | `details` |
+|---|---|---|
+| Has a field that the route does not know | 422 | `field`, `allowed` |
+| Has a different fault of shape: a required field is absent, or a value has the wrong JSON type | 422 | — |
+| Is not JSON | 400 | — |
+| Has no `Content-Type: application/json` header | 415 | — |
+
+On `POST /api/search` the first two are 400, as each refusal of that route is.
+
+The rule does not apply to `/scim/v2`. RFC 7644 tells a SCIM server to ignore an
+attribute that it does not know. It does not apply to `/webhooks` and to
+`POST /api/auth/token`: the git forge and the OAuth standard define those
+bodies.
+
+The MCP tools that write have the same rule. See
+[MCP tools](mcp-tools.md#refusal-codes).
 
 **`FORBIDDEN`'s `details` has five shapes**, and which one arrives depends on
 what kind of gate refused:
@@ -86,7 +134,7 @@ A client applying the general rule would branch wrongly here.
 | `INVALID_TRANSITION` | 422 | The move is not an edge in the board's transition graph | `from` and `to` (`id`, `name` each) and `allowed_targets` — the columns reachable from the current one, as `id`/`name` pairs |
 | `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition or be moved: an off-board ADR, and over MCP a document, which never has one | — |
 | `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count — and `column` (`id`, `name`) |
-| `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` |
+| `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` and `board` (`id`, `name`, `slug`): the board that is not empty. A team of old data can have 2 or more delivery boards, and the delete of the team examines each |
 | `DUPLICATE_COLUMN_NAME` | 422 | A live column of that board already has the name | — |
 | `DUPLICATE_COLUMN_POSITION` | 422 | A live column of that board already holds the position | — |
 | `DUPLICATE_TRANSITION` | 422 | That edge already exists | — |

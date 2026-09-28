@@ -38,6 +38,7 @@ use uuid::Uuid;
 
 use super::super::{parse_enum, require_capability};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -352,7 +353,7 @@ pub(crate) async fn create_repository(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateRepositoryRequest>,
+    ApiJson(body): ApiJson<dto::CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<dto::Repository>), ApiError> {
     let forge: Forge = parse_enum(&body.forge, "forge", Forge::ALL)?;
     let user = auth.user_id;
@@ -410,7 +411,7 @@ pub(crate) async fn update_repository(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(slug): Path<String>,
-    Json(body): Json<dto::UpdateRepositoryRequest>,
+    ApiJson(body): ApiJson<dto::UpdateRepositoryRequest>,
 ) -> Result<Json<dto::Repository>, ApiError> {
     let user = auth.user_id;
     let tenant_slug = tenant.slug.clone();

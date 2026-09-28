@@ -36,6 +36,7 @@ use super::{enum_option_values, require_org_admin};
 use crate::api::convert_meta::definition_dto;
 use crate::api::{clamp_pagination, parse_enum, parse_uuid};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
 
@@ -426,7 +427,7 @@ pub(crate) async fn list_definitions(
 pub(crate) async fn create_definition(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateMetadataDefinitionRequest>,
+    ApiJson(body): ApiJson<dto::CreateMetadataDefinitionRequest>,
 ) -> Result<(StatusCode, Json<dto::MetadataDefinition>), ApiError> {
     require_org_admin(&tenant)?;
     let field_type = parse_enum(&body.field_type, "field_type", FieldType::ALL)?;
@@ -505,7 +506,7 @@ pub(crate) async fn update_definition(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateMetadataDefinitionRequest>,
+    ApiJson(body): ApiJson<dto::UpdateMetadataDefinitionRequest>,
 ) -> Result<Json<dto::MetadataDefinition>, ApiError> {
     require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "definition id")?;

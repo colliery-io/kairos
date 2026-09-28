@@ -31,6 +31,7 @@ use uuid::Uuid;
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::is_unique_violation;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -195,7 +196,7 @@ pub(crate) async fn add_member(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::AddOrgMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddOrgMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::OrgMember>), ApiError> {
     let role = body
         .role
@@ -275,7 +276,7 @@ pub(crate) async fn update_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(user_id): Path<String>,
-    Json(body): Json<dto::UpdateOrgMemberRequest>,
+    ApiJson(body): ApiJson<dto::UpdateOrgMemberRequest>,
 ) -> Result<Json<dto::OrgMember>, ApiError> {
     let target = parse_uuid(&user_id, "user_id")?;
     let new_role = parse_enum::<OrgRole>(&body.role, "role", OrgRole::ALL)?;

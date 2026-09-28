@@ -22,6 +22,7 @@ use super::{
     short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -320,7 +321,7 @@ pub(crate) async fn create_task(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateTaskRequest>,
+    ApiJson(body): ApiJson<dto::CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<dto::Task>), ApiError> {
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
@@ -399,7 +400,7 @@ pub(crate) async fn update_task(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Task>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -494,7 +495,7 @@ pub(crate) async fn set_work_class(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::SetWorkClassRequest>,
+    ApiJson(body): ApiJson<dto::SetWorkClassRequest>,
 ) -> Result<Json<dto::Task>, ApiError> {
     let work_class = parse_enum(&body.work_class, "work_class", WorkClass::ALL)?;
     let user = auth.user_id;
@@ -575,7 +576,7 @@ pub(crate) async fn set_repository(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<kairos_client::types_repositories::SetTaskRepositoryRequest>,
+    ApiJson(body): ApiJson<kairos_client::types_repositories::SetTaskRepositoryRequest>,
 ) -> Result<Json<dto::Task>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -615,7 +616,7 @@ pub(crate) async fn move_task(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::MoveTaskRequest>,
+    ApiJson(body): ApiJson<dto::MoveTaskRequest>,
 ) -> Result<Json<dto::Task>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -661,7 +662,7 @@ pub(crate) async fn transition_task(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::TransitionRequest>,
+    ApiJson(body): ApiJson<dto::TransitionRequest>,
 ) -> Result<Json<dto::Task>, ApiError> {
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;

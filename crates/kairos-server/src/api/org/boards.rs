@@ -33,6 +33,7 @@ use super::{
     require_user_exists, run_in_transaction, validate_capabilities,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -331,7 +332,7 @@ pub(crate) async fn create_board(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateBoardRequest>,
+    ApiJson(body): ApiJson<dto::CreateBoardRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardDetail>), ApiError> {
     let level = parse_enum::<BoardLevel>(&body.board_level, "board_level", BoardLevel::ALL)?;
     let team_id = body
@@ -386,9 +387,13 @@ pub(crate) async fn create_board(
 /// different team, move the task (`POST /api/tasks/{code}/move`).
 ///
 /// The server accepts a `team_id` equal to the team of the board, and
-/// changes nothing. A client can thus send back the board that it read.
-/// That `team_id` is not a field to update: the body must have `name` or
-/// `slug`.
+/// changes nothing. A client can thus send back the `team_id` that it
+/// read. That `team_id` is not a field to update: the body must have `name`
+/// or `slug`.
+///
+/// The body has the fields `name`, `slug` and `team_id` only. A different
+/// field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
+/// names the field (COLLIERY-T-0249).
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}",
@@ -408,7 +413,7 @@ pub(crate) async fn update_board(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateBoardRequest>,
+    ApiJson(body): ApiJson<dto::UpdateBoardRequest>,
 ) -> Result<Json<dto::Board>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     // Outer `None`: the body has no `team_id`. Inner `None`: a null.
@@ -844,7 +849,7 @@ pub(crate) async fn add_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateColumnRequest>,
+    ApiJson(body): ApiJson<dto::CreateColumnRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardColumn>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
@@ -885,7 +890,7 @@ pub(crate) async fn update_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((id, col_id)): Path<(String, String)>,
-    Json(body): Json<dto::UpdateColumnRequest>,
+    ApiJson(body): ApiJson<dto::UpdateColumnRequest>,
 ) -> Result<Json<dto::BoardColumn>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let column_id = parse_uuid(&col_id, "col_id")?;
@@ -1030,7 +1035,7 @@ pub(crate) async fn add_transition(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateTransitionRequest>,
+    ApiJson(body): ApiJson<dto::CreateTransitionRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardTransition>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let from = parse_uuid(&body.from_column_id, "from_column_id")?;
@@ -1234,7 +1239,7 @@ pub(crate) async fn add_board_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddBoardMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddBoardMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardMember>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&body.user_id, "user_id")?;
@@ -1281,7 +1286,7 @@ pub(crate) async fn replace_capabilities(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((id, target)): Path<(String, String)>,
-    Json(body): Json<dto::ReplaceCapabilitiesRequest>,
+    ApiJson(body): ApiJson<dto::ReplaceCapabilitiesRequest>,
 ) -> Result<Json<dto::BoardMember>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&target, "user_id")?;

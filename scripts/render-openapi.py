@@ -324,6 +324,14 @@ def render(spec):
                         f"| `{field}` | {type_of(p, spec)} | {req} | {d} |"
                     )
                 page.append("")
+                # COLLIERY-T-0249: the body of a write route. The spec says
+                # `additionalProperties: false`, and the page says it too.
+                if node.get("additionalProperties") is False:
+                    page.append(
+                        "The server refuses a body with a field that is not "
+                        "in this table "
+                        "([Errors](../errors.md#a-body-that-a-route-does-not-accept)).\n"
+                    )
             elif node.get("enum"):
                 values = ", ".join(f"`{v}`" for v in node["enum"])
                 page.append(f"One of: {values}\n")

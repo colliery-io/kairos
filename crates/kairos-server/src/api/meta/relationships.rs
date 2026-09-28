@@ -31,6 +31,7 @@ use crate::api::convert::IntoDto;
 use crate::api::convert_meta::timestamp;
 use crate::api::{Liveness, parse_enum, parse_uuid, require_edge_write, resolve_short_code};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -419,7 +420,7 @@ pub(crate) async fn create_relationship(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateRelationshipRequest>,
+    ApiJson(body): ApiJson<dto::CreateRelationshipRequest>,
 ) -> Result<(StatusCode, Json<dto::Relationship>), ApiError> {
     let relationship = parse_enum(&body.relationship, "relationship", RelationshipType::ALL)?;
     let user = auth.user_id;

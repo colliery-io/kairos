@@ -1612,6 +1612,65 @@ async fn mcp_endpoint_against_live_stack() {
     .expect("creating the web delivery board");
     abac::grant_capability(&mut conn, web_board.id, alice, "manage_tasks", alice)
         .expect("granting manage_tasks on web");
+    // --- COLLIERY-T-0249: a write tool refuses an argument that it does
+    // --- not know, names it, and writes nothing. `column` is the argument
+    // --- that `create_item` has not (KAIROS-T-0178).
+    let tasks_before: i64 = {
+        use kairos_db::schema::tasks::dsl;
+        dsl::tasks.count().get_result(&mut conn).expect("counting")
+    };
+    let text = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Placed by hand",
+                "board": "platform-delivery",
+                "column": "In Progress",
+            }),
+        )
+        .await;
+    assert!(
+        text.starts_with("failed to deserialize parameters: unknown field `column`, expected one of `item_type`, `title`, `board`"),
+        "{text}"
+    );
+    let tasks_after: i64 = {
+        use kairos_db::schema::tasks::dsl;
+        dsl::tasks.count().get_result(&mut conn).expect("counting")
+    };
+    assert_eq!(tasks_after, tasks_before, "no task was written");
+    // The schema of the tool says it, so a client can know before the call.
+    let write_tools = [
+        "create_item",
+        "update_item",
+        "edit_item",
+        "transition_item",
+        "move_item",
+        "set_repository",
+        "link_items",
+        "unlink_items",
+        "set_metadata",
+        "delete_item",
+        "restore_item",
+        "propose_edge",
+    ];
+    for tool in listed["tools"].as_array().expect("tools array") {
+        let name = tool["name"].as_str().expect("tool name");
+        let closed = tool["inputSchema"]["additionalProperties"] == json!(false);
+        assert_eq!(
+            closed,
+            write_tools.contains(&name),
+            "{name}: additionalProperties is false for each write tool, and only for those"
+        );
+    }
+    // A tool that only reads ignores such an argument, as before.
+    session
+        .call_ok(
+            "board_items",
+            json!({"board": "platform-delivery", "no_such_argument": true}),
+        )
+        .await;
+
     let text = session
         .call_ok(
             "create_item",

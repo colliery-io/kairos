@@ -16,6 +16,7 @@
 pub mod api;
 pub mod app;
 pub mod blocking;
+pub mod body;
 pub mod config;
 pub mod embedding;
 pub mod error;

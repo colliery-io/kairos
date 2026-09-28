@@ -47,6 +47,7 @@ use super::{
     short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -96,7 +97,7 @@ pub(crate) async fn set_lifecycle(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::SetLifecycleRequest>,
+    ApiJson(body): ApiJson<dto::SetLifecycleRequest>,
 ) -> Result<Json<dto::Document>, ApiError> {
     let lifecycle = parse_enum(
         &body.lifecycle,
@@ -243,7 +244,7 @@ pub(crate) async fn create_document(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateDocumentRequest>,
+    ApiJson(body): ApiJson<dto::CreateDocumentRequest>,
 ) -> Result<(StatusCode, Json<dto::Document>), ApiError> {
     let parent_short_code = body.parent_short_code.clone().ok_or_else(|| {
         ApiError::validation(
@@ -327,7 +328,7 @@ pub(crate) async fn update_document(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Document>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();

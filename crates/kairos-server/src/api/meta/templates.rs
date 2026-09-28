@@ -27,6 +27,7 @@ use crate::api::convert::IntoDto;
 use crate::api::convert_meta::template_detail_dto;
 use crate::api::{clamp_pagination, parse_uuid};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
 
@@ -260,7 +261,7 @@ pub(crate) async fn get_template(
 pub(crate) async fn create_template(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateTemplateRequest>,
+    ApiJson(body): ApiJson<dto::CreateTemplateRequest>,
 ) -> Result<(StatusCode, Json<dto::TemplateDetail>), ApiError> {
     require_org_admin(&tenant)?;
     let created = state
@@ -309,7 +310,7 @@ pub(crate) async fn update_template(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateTemplateRequest>,
+    ApiJson(body): ApiJson<dto::UpdateTemplateRequest>,
 ) -> Result<Json<dto::TemplateDetail>, ApiError> {
     require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "template id")?;

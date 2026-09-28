@@ -485,10 +485,12 @@ async fn the_team_of_a_board_does_not_change_against_live_stack() {
     }
 
     // --- the team that the board has is accepted, and changes nothing. A
-    // --- client can send back the board that it read.
-    let mut board = stack.send(Method::GET, &uri, None).await.1;
-    board["name"] = json!("Platform Work");
-    let (status, answer) = stack.send(Method::PATCH, &uri, Some(board)).await;
+    // --- client can send back the `team_id` that it read. It cannot send
+    // --- back the full board: an update has the fields of the update only
+    // --- (COLLIERY-T-0249).
+    let board = stack.send(Method::GET, &uri, None).await.1;
+    let body = json!({ "name": "Platform Work", "team_id": board["team_id"] });
+    let (status, answer) = stack.send(Method::PATCH, &uri, Some(body)).await;
     assert_eq!(status, StatusCode::OK, "{answer}");
     assert_eq!(answer["name"], "Platform Work");
     assert_eq!(answer["team_id"], platform.id.as_str());

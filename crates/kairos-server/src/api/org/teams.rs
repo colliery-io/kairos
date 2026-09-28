@@ -30,6 +30,7 @@ use super::{
     run_in_transaction,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -351,7 +352,7 @@ pub(crate) async fn create_team(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateTeamRequest>,
+    ApiJson(body): ApiJson<dto::CreateTeamRequest>,
 ) -> Result<(StatusCode, Json<dto::Team>), ApiError> {
     let team_type = body
         .team_type
@@ -444,7 +445,7 @@ pub(crate) async fn update_team(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateTeamRequest>,
+    ApiJson(body): ApiJson<dto::UpdateTeamRequest>,
 ) -> Result<Json<dto::Team>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     if body.name.is_none() && body.slug.is_none() && body.team_type.is_none() {
@@ -500,6 +501,10 @@ pub(crate) async fn update_team(
 
 /// Soft-delete a team and its delivery board together. The board must be
 /// empty (422 `BOARD_NOT_EMPTY` — the T-0010 empty rule). Org-admin-only.
+///
+/// A team of old data can have 2 or more live delivery boards. The delete
+/// applies the rule to each board, and it removes each board with the team
+/// (COLLIERY-T-0250). The refusal names the board that is not empty.
 #[utoipa::path(
     delete,
     path = "/api/teams/{id}",
@@ -543,29 +548,42 @@ pub(crate) async fn delete_team(
                 ))
                 .with_details(serde_json::json!({ "repositories": slugs })));
             }
-            let board = delivery_board_of(conn, team_id)?;
-            if let Some(board_id) = board {
-                let item_count = count_live_board_items(conn, board_id)?;
-                if item_count > 0 {
-                    let items = super::live_board_item_codes(conn, board_id, 20)?;
-                    return Err(ApiError::unprocessable(
-                        "BOARD_NOT_EMPTY",
-                        format!(
-                            "team {:?}'s delivery board still holds {item_count} live card(s): [{}]; \
-                             move them to another board (POST /api/tasks/{{code}}/move) or \
-                             delete them, then retry",
-                            team.name,
-                            items.join(", ")
-                        ),
-                    )
-                    .with_details(serde_json::json!({
-                        "board_id": board_id,
-                        "item_count": item_count,
-                        "items": items,
-                    })));
-                }
-            }
+            // COLLIERY-T-0250: one transaction holds the check and the
+            // delete. The team has one delivery board by the rule
+            // (COLLIERY-T-0240), and old data can have more. Each live
+            // delivery board must be empty, and each goes with the team.
             run_in_transaction(conn, |conn| {
+                let team_boards = kairos_db::delivery_boards_for_team_delete(conn, team_id)
+                    .map_err(ApiError::internal)?;
+                for board in &team_boards {
+                    let item_count = count_live_board_items(conn, board.id)?;
+                    if item_count > 0 {
+                        let items = super::live_board_item_codes(conn, board.id, 20)?;
+                        return Err(ApiError::unprocessable(
+                            "BOARD_NOT_EMPTY",
+                            format!(
+                                "The delivery board {:?} of the team {:?} has {item_count} live \
+                                 card{}: [{}]. Move each card to a different board \
+                                 (POST /api/tasks/{{code}}/move) or delete it. Then delete the \
+                                 team.",
+                                board.name,
+                                team.name,
+                                if item_count == 1 { "" } else { "s" },
+                                items.join(", ")
+                            ),
+                        )
+                        .with_details(serde_json::json!({
+                            "board_id": board.id,
+                            "board": {
+                                "id": board.id,
+                                "name": board.name,
+                                "slug": board.slug,
+                            },
+                            "item_count": item_count,
+                            "items": items,
+                        })));
+                    }
+                }
                 diesel::update(dsl::teams.filter(dsl::id.eq(team_id)))
                     .set((
                         dsl::deleted_at.eq(diesel::dsl::now),
@@ -573,15 +591,14 @@ pub(crate) async fn delete_team(
                     ))
                     .execute(conn)
                     .map_err(ApiError::internal)?;
-                if let Some(board_id) = board {
-                    diesel::update(boards_dsl::boards.filter(boards_dsl::id.eq(board_id)))
-                        .set((
-                            boards_dsl::deleted_at.eq(diesel::dsl::now),
-                            boards_dsl::updated_at.eq(diesel::dsl::now),
-                        ))
-                        .execute(conn)
-                        .map_err(ApiError::internal)?;
-                }
+                let board_ids: Vec<Uuid> = team_boards.iter().map(|board| board.id).collect();
+                diesel::update(boards_dsl::boards.filter(boards_dsl::id.eq_any(board_ids)))
+                    .set((
+                        boards_dsl::deleted_at.eq(diesel::dsl::now),
+                        boards_dsl::updated_at.eq(diesel::dsl::now),
+                    ))
+                    .execute(conn)
+                    .map_err(ApiError::internal)?;
                 log_team_activity(
                     conn,
                     user,
@@ -682,7 +699,7 @@ pub(crate) async fn add_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddTeamMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::TeamMember>), ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&body.user_id, "user_id")?;

@@ -870,7 +870,7 @@ them useful and why they are dangerous. In Kubernetes, `kubectl exec deploy/kair
 kairos-server <subcommand>`; in Compose, `docker compose run --rm kairos <subcommand>`.
 
 Everything here needs `DATABASE_URL` and applies pending public migrations first, with
-one deliberate exception noted below.
+two deliberate exceptions noted below.
 
 | Subcommand | What it does |
 |---|---|
@@ -880,6 +880,7 @@ one deliberate exception noted below.
 | `drop-tenant --slug <slug> --confirm` | Destroy a tenant: schema CASCADE plus the organization row. Refuses without `--confirm`. **Unrecoverable.** |
 | `migrate-tenants` | Apply pending tenant migrations in every tenant schema. |
 | `list-tenants` | List provisioned tenants. |
+| `check-delivery-boards` | List each team with 2 or more live delivery boards. **Only reads.** See below. |
 | `set-password --email <email> [--password <pw>]` | Set a local account's password. See below. |
 | `hash-password [--password <pw>]` | Print a PHC hash of a password and nothing else. **Needs no database.** |
 | `seed-demo [--force]` | Seed the `demo` fixture tenant. |
@@ -908,6 +909,34 @@ authenticates with API keys, and a password under 12 characters.
 Setting a password **revokes every session that person holds**, and the command says how
 many. That is the point of running it after a suspected compromise.
 
+### `check-delivery-boards` — a report on old data
+
+```
+kairos-server check-delivery-boards
+```
+
+A team has one delivery board. An earlier version of the API permitted a second
+board. Old data can thus have a team with 2 or more live delivery boards. The
+command looks in each tenant, and it prints each such team and the boards of
+the team:
+
+```text
+acme: team platform (5b0c…) has 2 live delivery boards:
+acme:   platform-delivery (91e2…) created 2026-03-02T10:15:00+00:00
+acme:   platform-extra (c47a…) created 2026-06-11T08:30:00+00:00
+1 team(s) with 2 or more live delivery boards in 1 tenant(s)
+```
+
+A deleted team that has live boards is in the report, with the word `deleted`.
+
+The command only reads. It does not apply migrations, and its transaction is
+read-only. The exit code is 0 when the report is complete, with or without teams
+in it.
+
+To correct a team, move the cards to the board that stays, then delete the other
+board with `DELETE /api/boards/{id}`. The delete of the team is a second
+procedure. It removes the team and each delivery board of the team together.
+
 ### `hash-password` — before the deployment exists
 
 ```
@@ -915,7 +944,7 @@ kairos-server hash-password [--password <password>]
 ```
 
 Prints a PHC string on stdout and nothing else, so `kairos-server hash-password >
-secret` contains exactly the hash. It is the only subcommand that does **not** touch the
+secret` contains exactly the hash. It is the only subcommand that does **not** connect to the
 database, because its whole purpose is to produce a value for
 `KAIROS_BOOTSTRAP_PASSWORD_HASH` before there is a deployment to talk to — so the
 plaintext password never has to be written into a manifest.

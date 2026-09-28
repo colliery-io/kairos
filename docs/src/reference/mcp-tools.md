@@ -46,6 +46,19 @@ Codes an agent can receive, and what each means.
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. |
 
+**A write tool refuses an argument that it does not know.** The tools that
+write have the rule of the write routes of the REST API. The tool does not
+ignore the argument, and it writes nothing. The schema of each of these tools
+shows `additionalProperties: false`. This refusal has no code. Its text names
+the argument and gives the arguments of the tool:
+
+```text
+failed to deserialize parameters: unknown field `column`, expected one of `item_type`, `title`, `board`, …
+```
+
+An argument that is absent, or that has the wrong JSON type, has a refusal of the
+same form. The tools that only read ignore an argument that they do not know.
+
 `DEFINITION_IN_USE`, the refusal that protects a metadata definition carrying
 values, belongs to the REST surface — `DELETE /api/metadata-definitions/{id}`.
 No MCP tool deletes a definition, so no MCP tool returns it. See

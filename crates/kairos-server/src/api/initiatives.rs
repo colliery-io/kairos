@@ -20,6 +20,7 @@ use super::{
     parse_opt_uuid, parse_uuid, require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -164,7 +165,7 @@ pub(crate) async fn create_initiative(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateInitiativeRequest>,
+    ApiJson(body): ApiJson<dto::CreateInitiativeRequest>,
 ) -> Result<(StatusCode, Json<dto::Initiative>), ApiError> {
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
@@ -226,7 +227,7 @@ pub(crate) async fn update_initiative(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Initiative>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -330,7 +331,7 @@ pub(crate) async fn transition_initiative(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::TransitionRequest>,
+    ApiJson(body): ApiJson<dto::TransitionRequest>,
 ) -> Result<Json<dto::Initiative>, ApiError> {
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;

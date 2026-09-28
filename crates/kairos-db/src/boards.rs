@@ -261,6 +261,84 @@ fn live_delivery_boards(conn: &mut PgConnection, team_id: Uuid) -> Result<Vec<Bo
         .load(conn)
 }
 
+/// The live delivery boards of a team, for the delete of the team
+/// (COLLIERY-T-0250), oldest first. The delete of a team removes each of
+/// them, and old data can have more than one (COLLIERY-T-0240).
+///
+/// Call it in the transaction that deletes the team. It locks the row of
+/// the team, so a create of a board for the team cannot run between the
+/// read and the delete.
+pub fn delivery_boards_for_team_delete(
+    conn: &mut PgConnection,
+    team_id: Uuid,
+) -> Result<Vec<Board>, DieselError> {
+    lock_team(conn, team_id)?;
+    live_delivery_boards(conn, team_id)
+}
+
+/// A team with 2 or more live delivery boards (COLLIERY-T-0250): one row
+/// of [`teams_with_several_delivery_boards`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeveralDeliveryBoards {
+    pub team_id: Uuid,
+    pub team_name: String,
+    pub team_slug: String,
+    /// `true` for a deleted team. Its boards are live: a delete of the team
+    /// before COLLIERY-T-0250 left them.
+    pub team_deleted: bool,
+    /// The live delivery boards of the team, oldest first. 2 or more.
+    pub boards: Vec<Board>,
+}
+
+/// Each team with 2 or more live delivery boards, by the slug of the team
+/// (COLLIERY-T-0250). The rule is one board (COLLIERY-T-0240), and only
+/// old data has more. A deleted team is in the list too.
+///
+/// It only reads, and it takes no lock.
+pub fn teams_with_several_delivery_boards(
+    conn: &mut PgConnection,
+) -> Result<Vec<SeveralDeliveryBoards>, DieselError> {
+    use crate::schema::boards::dsl;
+    use crate::schema::teams::dsl as teams_dsl;
+    let boards: Vec<Board> = dsl::boards
+        .filter(dsl::team_id.is_not_null())
+        .filter(dsl::board_level.eq(BoardLevel::Delivery))
+        .filter(dsl::deleted_at.is_null())
+        .order((dsl::created_at.asc(), dsl::id.asc()))
+        .select(Board::as_select())
+        .load(conn)?;
+    let mut by_team: HashMap<Uuid, Vec<Board>> = HashMap::new();
+    for board in boards {
+        if let Some(team_id) = board.team_id {
+            by_team.entry(team_id).or_default().push(board);
+        }
+    }
+    by_team.retain(|_, boards| boards.len() > 1);
+    let teams: Vec<(Uuid, String, String, Option<chrono::DateTime<chrono::Utc>>)> =
+        teams_dsl::teams
+            .filter(teams_dsl::id.eq_any(by_team.keys().copied().collect::<Vec<_>>()))
+            .order((teams_dsl::slug.asc(), teams_dsl::id.asc()))
+            .select((
+                teams_dsl::id,
+                teams_dsl::name,
+                teams_dsl::slug,
+                teams_dsl::deleted_at,
+            ))
+            .load(conn)?;
+    Ok(teams
+        .into_iter()
+        .filter_map(|(team_id, team_name, team_slug, deleted_at)| {
+            Some(SeveralDeliveryBoards {
+                team_id,
+                team_name,
+                team_slug,
+                team_deleted: deleted_at.is_some(),
+                boards: by_team.remove(&team_id)?,
+            })
+        })
+        .collect())
+}
+
 /// Refuse the delete of the only delivery board of a team
 /// (COLLIERY-T-0241): [`BoardError::LastDeliveryBoard`]. A team always has
 /// a delivery board, because the board gives a task its team
@@ -273,8 +351,10 @@ fn live_delivery_boards(conn: &mut PgConnection, team_id: Uuid) -> Result<Vec<Bo
 /// - a delivery board with no team, or with a deleted team (old data),
 /// - one of the two delivery boards of a team (old data, COLLIERY-T-0240).
 ///
-/// The delete of a team does not call this. It removes the team and the
-/// board together, so no team is left with no board.
+/// The delete of a team does not call this. It removes the team and each
+/// delivery board of the team together
+/// ([`delivery_boards_for_team_delete`], COLLIERY-T-0250), so no team is
+/// left with no board.
 ///
 /// Call it in the transaction that deletes the board. It locks the row of
 /// the team, so two deletes cannot each see the board of the other.
@@ -307,7 +387,7 @@ pub fn check_board_delete(conn: &mut PgConnection, board: &Board) -> Result<(), 
 /// `sent` is the `team_id` of the update: `None` when the update has no
 /// `team_id`, `Some(None)` for a null. A `team_id` equal to the team of
 /// the board is accepted and changes nothing, so a client can send back
-/// the board that it read.
+/// the `team_id` that it read.
 pub fn check_board_team(board: &Board, sent: Option<Option<Uuid>>) -> Result<(), BoardError> {
     match sent {
         Some(team_id) if team_id != board.team_id => Err(BoardError::BoardTeamIsFixed {

@@ -23,6 +23,7 @@ use super::{item_metadata_response, resolve_family_item, validated_metadata_ops}
 use crate::api::Liveness;
 use crate::api::require_item_edit;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -93,7 +94,7 @@ pub(crate) async fn update_metadata(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((family, short_code)): Path<(String, String)>,
-    Json(body): Json<dto::UpdateMetadataRequest>,
+    ApiJson(body): ApiJson<dto::UpdateMetadataRequest>,
 ) -> Result<Json<dto::ItemMetadataResponse>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();

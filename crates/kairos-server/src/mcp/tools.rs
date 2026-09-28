@@ -70,6 +70,14 @@ use super::service::{KairosMcp, tool_error, tool_text};
 // ---------------------------------------------------------------------------
 // Tool inputs (frozen names/shapes per S-0006's inventory tables)
 // ---------------------------------------------------------------------------
+//
+// COLLIERY-T-0249: the input of each tool that WRITES has
+// `deny_unknown_fields`, the rule of the write routes of the API. A call
+// with an argument that the tool does not know is refused, and rmcp gives
+// the refusal as a tool error that names the argument: "failed to
+// deserialize parameters: unknown field `column`, expected one of ...".
+// The schema of the tool shows `additionalProperties: false`. The tools
+// that only read ignore such an argument, as before.
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -130,6 +138,7 @@ pub struct GetHistoryParams {
 /// Parameters for `propose_edge` (KAIROS-T-0192).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct ProposeEdgeParams {
     /// The edge's source, by short code. For `parent`, this is the parent.
     pub source: String,
@@ -229,6 +238,7 @@ pub struct SearchSortParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct CreateItemParams {
     /// What to create: strategy | initiative | task | document | adr.
     pub item_type: String,
@@ -281,6 +291,7 @@ pub struct CreateItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct UpdateItemParams {
     /// The item's short code.
     pub short_code: String,
@@ -295,6 +306,7 @@ pub struct UpdateItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct EditItemParams {
     /// The item's short code.
     pub short_code: String,
@@ -310,6 +322,7 @@ pub struct EditItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct TransitionItemParams {
     /// The item's short code.
     pub short_code: String,
@@ -320,6 +333,7 @@ pub struct TransitionItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct MoveItemParams {
     /// The task's short code (e.g. "ACME-T-0012").
     pub short_code: String,
@@ -331,6 +345,7 @@ pub struct MoveItemParams {
 /// Parameters for `set_repository` (COLLIERY-T-0220).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SetRepositoryParams {
     /// The short code of the task (e.g. "ACME-T-0012").
     pub short_code: String,
@@ -342,6 +357,7 @@ pub struct SetRepositoryParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct LinkItemsParams {
     /// Source item's short code (edge direction: source -> target).
     pub source: String,
@@ -353,6 +369,7 @@ pub struct LinkItemsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct UnlinkItemsParams {
     /// Source item's short code.
     pub source: String,
@@ -364,6 +381,7 @@ pub struct UnlinkItemsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SetMetadataParams {
     /// The item's short code.
     pub short_code: String,
@@ -375,6 +393,7 @@ pub struct SetMetadataParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct RestoreItemParams {
     /// The archived item's short code.
     pub short_code: String,
@@ -382,6 +401,7 @@ pub struct RestoreItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct DeleteItemParams {
     /// The item's short code.
     pub short_code: String,

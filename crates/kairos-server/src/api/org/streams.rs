@@ -23,6 +23,7 @@ use super::super::convert_org::team_to_dto;
 use super::super::{clamp_pagination, parse_uuid, require_capability};
 use super::is_unique_violation;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -171,7 +172,7 @@ pub(crate) async fn create_stream(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateStreamRequest>,
+    ApiJson(body): ApiJson<dto::CreateStreamRequest>,
 ) -> Result<(StatusCode, Json<dto::DeliveryStream>), ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -231,7 +232,7 @@ pub(crate) async fn update_stream(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateStreamRequest>,
+    ApiJson(body): ApiJson<dto::UpdateStreamRequest>,
 ) -> Result<Json<dto::DeliveryStream>, ApiError> {
     let stream_id = parse_uuid(&id, "id")?;
     if body.name.is_none() && body.slug.is_none() && body.description.is_none() {
@@ -407,7 +408,7 @@ pub(crate) async fn add_stream_team(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddStreamTeamRequest>,
+    ApiJson(body): ApiJson<dto::AddStreamTeamRequest>,
 ) -> Result<(StatusCode, Json<dto::OrgDeleteResponse>), ApiError> {
     let stream_id = parse_uuid(&id, "id")?;
     let team_id = parse_uuid(&body.team_id, "team_id")?;

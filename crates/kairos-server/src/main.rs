@@ -128,11 +128,41 @@ fn password_arg(args: &[String], what: &str) -> Result<String, String> {
     if let Some(password) = flag_value(args, "--password")? {
         return Ok(password);
     }
-    eprintln!("Enter the new {what} (it will not echo if your terminal supports it):");
-    let mut line = String::new();
-    std::io::stdin()
-        .read_line(&mut line)
-        .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+    let stdin = std::io::stdin();
+    let is_terminal = std::io::IsTerminal::is_terminal(&stdin);
+    read_password(
+        is_terminal,
+        &format!("New {what}: "),
+        |prompt| rpassword::prompt_password(prompt),
+        &mut stdin.lock(),
+    )
+}
+
+/// [`password_arg`] without the flag, with its two sources as parameters
+/// (COLLIERY-T-0236).
+///
+/// On a terminal `prompt_hidden` asks with the echo off, so the password is not
+/// on the screen and not in the scrollback. `piped` is stdin when it is a pipe or
+/// a file: one line. It is not read when `is_terminal` is true.
+fn read_password<P>(
+    is_terminal: bool,
+    prompt: &str,
+    prompt_hidden: P,
+    piped: &mut dyn std::io::BufRead,
+) -> Result<String, String>
+where
+    P: FnOnce(&str) -> std::io::Result<String>,
+{
+    let line = if is_terminal {
+        prompt_hidden(prompt)
+            .map_err(|e| format!("cannot read the password from the terminal: {e}"))?
+    } else {
+        let mut line = String::new();
+        piped
+            .read_line(&mut line)
+            .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+        line
+    };
     // Only the trailing newline. Interior and leading spaces are part of what was
     // typed, and silently trimming them here while the login path does not would
     // lock the person out of the password they just set.
@@ -590,7 +620,8 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{flag_value, has_flag};
+    use super::{flag_value, has_flag, read_password};
+    use std::io::Cursor;
 
     #[test]
     fn smoke() {
@@ -623,5 +654,61 @@ mod tests {
         let a = args(&["--slug", "acme", "--confirm"]);
         assert!(has_flag(&a, "--confirm"));
         assert!(!has_flag(&a, "--force"));
+    }
+
+    fn no_terminal(_: &str) -> std::io::Result<String> {
+        panic!("the terminal must not be asked when stdin is a pipe")
+    }
+
+    /// A reader that fails the test if it is read.
+    struct Untouched;
+    impl std::io::Read for Untouched {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("stdin must not be read when it is a terminal")
+        }
+    }
+
+    fn piped(input: &str) -> Result<String, String> {
+        read_password(
+            false,
+            "New password: ",
+            no_terminal,
+            &mut Cursor::new(input),
+        )
+    }
+
+    #[test]
+    fn a_piped_password_is_one_line_without_its_end() {
+        assert_eq!(piped("correct horse\n").unwrap(), "correct horse");
+        assert_eq!(piped("correct horse\r\n").unwrap(), "correct horse");
+        assert_eq!(piped("correct horse").unwrap(), "correct horse");
+        assert_eq!(piped("first\nsecond\n").unwrap(), "first");
+    }
+
+    #[test]
+    fn spaces_are_a_part_of_the_password() {
+        assert_eq!(piped("  padded  \n").unwrap(), "  padded  ");
+    }
+
+    #[test]
+    fn an_empty_password_is_refused() {
+        assert!(piped("").is_err());
+        assert!(piped("\n").is_err());
+        let hidden = |_: &str| Ok(String::new());
+        let mut stdin = std::io::BufReader::new(Untouched);
+        assert!(read_password(true, "New password: ", hidden, &mut stdin).is_err());
+    }
+
+    #[test]
+    fn a_terminal_is_asked_with_the_echo_off_and_stdin_is_not_read() {
+        let mut asked = String::new();
+        let hidden = |prompt: &str| {
+            asked = prompt.to_string();
+            Ok("typed by hand\n".to_string())
+        };
+        let mut stdin = std::io::BufReader::new(Untouched);
+        let password = read_password(true, "New password: ", hidden, &mut stdin).unwrap();
+        assert_eq!(password, "typed by hand");
+        assert_eq!(asked, "New password: ");
     }
 }

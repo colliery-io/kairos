@@ -2276,6 +2276,7 @@ dependencies = [
  "rand 0.9.4",
  "reqwest 0.12.28",
  "rmcp",
+ "rpassword",
  "rust-embed",
  "serde",
  "serde_json",

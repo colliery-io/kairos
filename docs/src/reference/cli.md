@@ -895,8 +895,10 @@ For the case the GUI cannot help with: the sole admin of a local-auth deployment
 forgotten their password, and there is no reset email. It therefore **cannot require a
 login**, which is why it lives here rather than in `kairos`.
 
-Omit `--password` and it reads from stdin. Prefer that: an argument is visible in `ps`,
-in your shell history, and in a container's command line.
+Omit `--password` and it asks for the password. Prefer that: an argument is visible in `ps`,
+in your shell history, and in a container's command line. On a terminal the command
+does not show the password that you type. When stdin is a pipe, the command reads one
+line from it.
 
 It **will not create an account**. Creating one would make this a way to mint an admin
 on any deployment whose database you can reach; the empty-deployment case is

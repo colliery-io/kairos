@@ -122,8 +122,8 @@ Decisions).](../images/boards-overview.png)
 Notice they are grouped by level, and that only the delivery boards sit under a
 team name. Open **Platform Delivery** and you will see cards sitting in columns.
 
-![The Platform Delivery board. Two lanes — Support with two items of unplanned
-intake, and Planned with six of scheduled work — each split across five columns:
+![The Platform Delivery board. Two lanes — Support with three items of unplanned
+intake, and Planned with four of scheduled work — each split across five columns:
 Backlog, Todo, Blocked, Active and Completed. Cards show a short code, a
 repository chip, a task type, and badges such as "blocked by
 1".](../images/platform-delivery-board.png)
@@ -312,7 +312,7 @@ built for: an organisation brings its own issuer. Local accounts are the small-t
 exception, and a first lesson is the wrong place to teach an exception.
 
 If you are here because you want to run Kairos for a handful of people and never
-touch an IdP, read
+touch an issuer, read
 [Choosing how people log in](../explanation/choosing-how-people-log-in.md) after
 this — it is the page that tells you whether that is the right call.
 

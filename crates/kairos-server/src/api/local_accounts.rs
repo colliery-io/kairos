@@ -46,6 +46,7 @@ use uuid::Uuid;
 
 use super::{parse_enum, parse_uuid, require_capability};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::local_auth::{hash_password, validate_password};
 use crate::middleware::auth::AuthContext;
@@ -69,6 +70,7 @@ pub fn router() -> Router<AppState> {
 
 /// `POST /api/local-accounts` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateLocalAccountRequest {
     /// The person's email. Lower-cased and trimmed; it is the login identifier.
     pub email: String,
@@ -99,6 +101,7 @@ pub struct LocalAccountView {
 
 /// `PUT /api/local-accounts/{user_id}/password` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetPasswordRequest {
     pub password: String,
 }
@@ -155,7 +158,7 @@ pub async fn create_local_account(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<CreateLocalAccountRequest>,
+    ApiJson(body): ApiJson<CreateLocalAccountRequest>,
 ) -> Result<(StatusCode, Json<LocalAccountView>), ApiError> {
     let role = body
         .role
@@ -166,7 +169,7 @@ pub async fn create_local_account(
     let email = body.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::validation(
-            "email must be an address; it is the login identifier",
+            "The email is not an address. A person uses the email to log in.",
         ));
     }
     let display_name = body
@@ -196,8 +199,8 @@ pub async fn create_local_account(
             // password would make it a person that nobody is.
             if user.is_service_account() {
                 return Err(ApiError::conflict(format!(
-                    "{email:?} is a service account; service accounts authenticate \
-                     with API keys, not passwords"
+                    "{email:?} is a service account. A service account uses an API key, \
+                     and it has no password."
                 )));
             }
 
@@ -247,7 +250,7 @@ pub async fn set_local_password(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(user_id): Path<String>,
-    Json(body): Json<SetPasswordRequest>,
+    ApiJson(body): ApiJson<SetPasswordRequest>,
 ) -> Result<StatusCode, ApiError> {
     let target = parse_uuid(&user_id, "user_id")?;
     let password_hash = hash_or_reject(&body.password)?;
@@ -394,5 +397,7 @@ fn require_member_of(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?;
-    row.ok_or_else(|| ApiError::not_found(format!("no user {user_id} in this organization")))
+    row.ok_or_else(|| {
+        ApiError::not_found(format!("The user {user_id} is not in this organization."))
+    })
 }

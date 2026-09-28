@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -29,11 +29,13 @@ use uuid::Uuid;
 use super::super::convert::{IntoDto, attach_repositories};
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    count_live_board_items, is_unique_violation, load_board, map_config_error, map_grant_error,
-    require_user_exists, validate_capabilities,
+    count_live_board_items, load_board, map_config_error, map_grant_error, require_user_exists,
+    run_in_transaction, validate_capabilities,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -179,7 +181,9 @@ fn load_column_of_board(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no column {column_id} on board {board_id}")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The board {board_id} has no column {column_id}."))
+        })
 }
 
 /// Insert one `activity_log` row (same shape as the kairos-db services).
@@ -222,7 +226,7 @@ fn log_activity(
 pub(crate) async fn list_boards(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::Board>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -255,6 +259,8 @@ pub(crate) async fn list_boards(
 
 /// Query of `GET /api/boards/{id}`.
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct BoardDetailQuery {
     /// Also return the columns that have been REMOVED from this board,
     /// each carrying `removed_at` (default `false` — a removed column is
@@ -283,7 +289,7 @@ pub(crate) async fn get_board(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Query(query): Query<BoardDetailQuery>,
+    ApiQuery(query): ApiQuery<BoardDetailQuery>,
 ) -> Result<Json<dto::BoardDetail>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let detail = state
@@ -299,6 +305,27 @@ pub(crate) async fn get_board(
 /// Create a board seeded with the system default columns/transitions for
 /// its level (KAIROS-A-0002). Org-admin-only: a new board has no capability
 /// context yet (A-0006 tenant-config fallback).
+///
+/// A delivery board needs a team (COLLIERY-T-0230). A request for a
+/// delivery board with no `team_id` is a 422. The board of a task decides
+/// its team, and a request to a board with no team goes to nobody. The
+/// check is in `kairos_db::boards::create_board`, which every entry point
+/// shares.
+///
+/// A board of the organization (strategy, initiative, adr) has no
+/// `team_id`. Its team is the list of its members
+/// (`GET /api/boards/{id}/members`). A request for such a board with a
+/// `team_id` is a 422 (COLLIERY-T-0242).
+///
+/// A team has one delivery board (COLLIERY-T-0240). A request for a
+/// delivery board for a team that has a live delivery board is a 422
+/// `TEAM_HAS_DELIVERY_BOARD`. The refusal names the board that the team
+/// has. A deleted board does not count.
+///
+/// A live board has its slug alone (COLLIERY-T-0255). A request with the
+/// slug of a live board is a 409 `CONFLICT`. The refusal names the slug
+/// and the board that has it (`details.slug`, `details.board`). A deleted
+/// board does not keep its slug.
 #[utoipa::path(
     post,
     path = "/api/boards",
@@ -307,15 +334,15 @@ pub(crate) async fn get_board(
     responses(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad level/team reference", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad level/team reference, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_board(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateBoardRequest>,
+    ApiJson(body): ApiJson<dto::CreateBoardRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardDetail>), ApiError> {
     let level = parse_enum::<BoardLevel>(&body.board_level, "board_level", BoardLevel::ALL)?;
     let team_id = body
@@ -340,21 +367,16 @@ pub(crate) async fn create_board(
                     .map_err(ApiError::internal)?;
                 if exists.is_none() {
                     return Err(ApiError::validation(format!(
-                        "team {team_id} does not exist"
+                        "The team {team_id} is not in the organization. Send the id of a \
+                         team of the organization as team_id."
                     )));
                 }
             }
+            // COLLIERY-T-0255: a slug that a live board has is a 409 that
+            // names the board (`BoardError::SlugTaken`).
             let board =
                 boards::create_board(conn, level, &body.name, &body.slug, team_id, Some(user))
-                    .map_err(|e| match e {
-                        boards::BoardError::Database(ref db) if is_unique_violation(db) => {
-                            ApiError::conflict(format!(
-                                "a board with slug {:?} already exists",
-                                body.slug
-                            ))
-                        }
-                        e => map_config_error(e),
-                    })?;
+                    .map_err(map_config_error)?;
             board_detail(conn, board, false)
         })
         .await?;
@@ -363,6 +385,24 @@ pub(crate) async fn create_board(
 
 /// Update board settings (name/slug). Requires `configure_boards` on the
 /// board.
+///
+/// The team of a board does not change (COLLIERY-T-0230, COLLIERY-T-0243).
+/// A `team_id` that is not the team of the board is a 422
+/// `BOARD_TEAM_IS_FIXED`, and the update writes nothing. To give work to a
+/// different team, move the task (`POST /api/tasks/{code}/move`).
+///
+/// The server accepts a `team_id` equal to the team of the board, and
+/// changes nothing. A client can thus send back the `team_id` that it
+/// read. That `team_id` is not a field to update: the body must have `name`
+/// or `slug`.
+///
+/// A `slug` that a different live board has is a 409 `CONFLICT`, and the
+/// update writes nothing (COLLIERY-T-0255). The refusal names the slug and
+/// the board that has it. A board can keep its slug in an update.
+///
+/// The body has the fields `name`, `slug` and `team_id` only. A different
+/// field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
+/// names the field (COLLIERY-T-0249).
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}",
@@ -373,7 +413,8 @@ pub(crate) async fn create_board(
         (status = 200, description = "Updated", body = dto::Board),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "No field to update, or BOARD_TEAM_IS_FIXED", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_board(
@@ -381,13 +422,26 @@ pub(crate) async fn update_board(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateBoardRequest>,
+    ApiJson(body): ApiJson<dto::UpdateBoardRequest>,
 ) -> Result<Json<dto::Board>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
-    if body.name.is_none() && body.slug.is_none() {
-        return Err(ApiError::validation(
-            "at least one of name, slug is required",
-        ));
+    // Outer `None`: the body has no `team_id`. Inner `None`: a null.
+    let sent_team = body
+        .team_id
+        .as_ref()
+        .map(|team| {
+            team.as_deref()
+                .map(|v| parse_uuid(v, "team_id"))
+                .transpose()
+        })
+        .transpose()?;
+    let nothing_to_update = || {
+        ApiError::validation(
+            "The request has no field to change. Send one or more of name, slug and team_id.",
+        )
+    };
+    if body.name.is_none() && body.slug.is_none() && sent_team.is_none() {
+        return Err(nothing_to_update());
     }
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -397,7 +451,19 @@ pub(crate) async fn update_board(
             use kairos_db::schema::boards::dsl;
             let board = load_board(conn, board_id)?;
             require_capability(conn, &slug, Some(board.id), user, CONFIGURE)?;
-            let updated: Board = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
+            // COLLIERY-T-0243: before the check for an empty body, so that
+            // a body with only a different team gets the refusal that
+            // tells the caller what to do.
+            boards::check_board_team(&board, sent_team).map_err(map_config_error)?;
+            if body.name.is_none() && body.slug.is_none() {
+                return Err(nothing_to_update());
+            }
+            // COLLIERY-T-0255: two live boards cannot have the same slug.
+            if let Some(new_slug) = body.slug.as_deref() {
+                boards::check_board_slug(conn, new_slug, Some(board_id))
+                    .map_err(map_config_error)?;
+            }
+            let updated = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
                 .set((
                     kairos_db::models::boards::BoardChangeset {
                         name: body.name.clone(),
@@ -407,14 +473,13 @@ pub(crate) async fn update_board(
                     dsl::updated_at.eq(diesel::dsl::now),
                 ))
                 .returning(Board::as_returning())
-                .get_result(conn)
-                .map_err(|e| {
-                    if is_unique_violation(&e) {
-                        ApiError::conflict("a board with that slug already exists")
-                    } else {
-                        ApiError::internal(e)
-                    }
-                })?;
+                .get_result::<Board>(conn);
+            // An update at the same time got the slug first: the index
+            // refused this one. The refusal has the same form.
+            let updated = updated.map_err(|e| {
+                let slug = body.slug.as_deref().unwrap_or(&board.slug);
+                map_config_error(boards::slug_violation(conn, slug, Some(board_id), e))
+            })?;
             log_activity(
                 conn,
                 user,
@@ -432,6 +497,12 @@ pub(crate) async fn update_board(
 /// Soft-delete a board. Only allowed when NO workflow item references it
 /// (422 `BOARD_NOT_EMPTY` otherwise — the T-0010 empty rule applied at
 /// board scope). Requires `configure_boards` on the board.
+///
+/// The only delivery board of a team is not deleted (COLLIERY-T-0241): 422
+/// `LAST_DELIVERY_BOARD`. A team always has a delivery board. To remove
+/// the board, delete the team (`DELETE /api/teams/{id}`), which removes
+/// the team and its board together. This check comes before the check for
+/// live items, because no retry can pass it.
 #[utoipa::path(
     delete,
     path = "/api/boards/{id}",
@@ -441,7 +512,7 @@ pub(crate) async fn update_board(
         (status = 200, description = "Soft-deleted", body = dto::OrgDeleteResponse),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "BOARD_NOT_EMPTY", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "BOARD_NOT_EMPTY, or LAST_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_board(
@@ -459,38 +530,44 @@ pub(crate) async fn delete_board(
             use kairos_db::schema::boards::dsl;
             let board = load_board(conn, board_id)?;
             require_capability(conn, &slug, Some(board.id), user, CONFIGURE)?;
-            let item_count = count_live_board_items(conn, board_id)?;
-            if item_count > 0 {
-                let items = super::live_board_item_codes(conn, board_id, 20)?;
-                return Err(ApiError::unprocessable(
-                    "BOARD_NOT_EMPTY",
-                    format!(
-                        "board {:?} still holds {item_count} live card(s): [{}]; move them to \
-                         another board or delete them, then retry",
-                        board.name,
-                        items.join(", ")
-                    ),
-                )
-                .with_details(json!({ "item_count": item_count, "items": items })));
-            }
-            diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
-                .set((
-                    dsl::deleted_at.eq(diesel::dsl::now),
-                    dsl::updated_at.eq(diesel::dsl::now),
-                ))
-                .execute(conn)
-                .map_err(ApiError::internal)?;
-            log_activity(
-                conn,
-                user,
-                ActivityAction::Delete,
-                board_id,
-                "board",
-                format!("board:{}", board.slug),
-            )?;
-            Ok(dto::OrgDeleteResponse {
-                id: board_id.to_string(),
-                deleted: true,
+            // One transaction: `check_board_delete` locks the team until
+            // the board is deleted (COLLIERY-T-0241).
+            run_in_transaction(conn, |conn| {
+                boards::check_board_delete(conn, &board).map_err(map_config_error)?;
+                let item_count = count_live_board_items(conn, board_id)?;
+                if item_count > 0 {
+                    let items = super::live_board_item_codes(conn, board_id, 20)?;
+                    return Err(ApiError::unprocessable(
+                        "BOARD_NOT_EMPTY",
+                        format!(
+                            "The board {:?} has {item_count} live card{}: [{}]. Move each card \
+                             to a different board or delete it. Then delete the board.",
+                            board.name,
+                            if item_count == 1 { "" } else { "s" },
+                            items.join(", ")
+                        ),
+                    )
+                    .with_details(json!({ "item_count": item_count, "items": items })));
+                }
+                diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
+                    .set((
+                        dsl::deleted_at.eq(diesel::dsl::now),
+                        dsl::updated_at.eq(diesel::dsl::now),
+                    ))
+                    .execute(conn)
+                    .map_err(ApiError::internal)?;
+                log_activity(
+                    conn,
+                    user,
+                    ActivityAction::Delete,
+                    board_id,
+                    "board",
+                    format!("board:{}", board.slug),
+                )?;
+                Ok(dto::OrgDeleteResponse {
+                    id: board_id.to_string(),
+                    deleted: true,
+                })
             })
         })
         .await?;
@@ -503,6 +580,8 @@ pub(crate) async fn delete_board(
 
 /// Query of `GET /api/boards/{id}/items` (KAIROS-T-0104).
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct BoardItemsQuery {
     /// Narrow the TASKS to those bound to this repository (slug or UUID).
     /// Other entity types are unaffected. Unknown repository → 422.
@@ -525,6 +604,12 @@ pub(crate) struct BoardItemsQuery {
 /// progress rollup and the blocks summary are deliberately NOT widened by
 /// it: ADR-20 rule 5 says archived work is not live work, so the counts
 /// keep counting live rows however the listing is asked for.
+///
+/// `blocks_summary` counts only the `blocks` edges that can still block
+/// (COLLIERY-T-0214). Done work does not block, and nothing blocks done
+/// work. An edge with either end in a terminal column (`is_done`) adds to
+/// neither card. The edge stays on the relationship list of each item,
+/// with a mark on the done end.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/items",
@@ -539,7 +624,7 @@ pub(crate) async fn board_items(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Query(query): Query<BoardItemsQuery>,
+    ApiQuery(query): ApiQuery<BoardItemsQuery>,
 ) -> Result<Json<dto::BoardItemsResponse>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let response = state
@@ -681,7 +766,10 @@ pub(crate) async fn board_items(
             let progress = kairos_db::graph::board_children_progress(conn, board_id)
                 .map_err(ApiError::internal)?;
             // KAIROS-T-0091: blocked-by/blocks counts, one grouped query;
-            // only items with at least one live blocks edge get an entry.
+            // only items with at least one open blocks edge get an entry.
+            // Open means both ends can still move (COLLIERY-T-0214): a
+            // card in a terminal column has no entry, and adds nothing to
+            // the entry of the card at the other end.
             let item_ids: Vec<Uuid> = item_codes.iter().map(|(id, _)| *id).collect();
             let blocks =
                 kairos_db::graph::blocks_summary(conn, &item_ids).map_err(ApiError::internal)?;
@@ -781,7 +869,7 @@ pub(crate) async fn add_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateColumnRequest>,
+    ApiJson(body): ApiJson<dto::CreateColumnRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardColumn>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let user = auth.user_id;
@@ -822,13 +910,14 @@ pub(crate) async fn update_column(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((id, col_id)): Path<(String, String)>,
-    Json(body): Json<dto::UpdateColumnRequest>,
+    ApiJson(body): ApiJson<dto::UpdateColumnRequest>,
 ) -> Result<Json<dto::BoardColumn>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let column_id = parse_uuid(&col_id, "col_id")?;
     if body.name.is_none() && body.position.is_none() && body.is_done.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, position, is_done is required",
+            "The request has no field to change. Send one or more of name, position and \
+             is_done.",
         ));
     }
     let user = auth.user_id;
@@ -850,7 +939,7 @@ pub(crate) async fn update_column(
             if let Some(position) = body.position {
                 if position < 0 {
                     return Err(ApiError::validation(format!(
-                        "position must be >= 0, got {position}"
+                        "The position {position} is not correct. A position is 0 or more."
                     )));
                 }
                 let mut order: Vec<Uuid> = load_columns(conn, board_id)?
@@ -967,7 +1056,7 @@ pub(crate) async fn add_transition(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::CreateTransitionRequest>,
+    ApiJson(body): ApiJson<dto::CreateTransitionRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardTransition>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let from = parse_uuid(&body.from_column_id, "from_column_id")?;
@@ -1033,7 +1122,9 @@ pub(crate) async fn remove_transition(
                 .optional()
                 .map_err(ApiError::internal)?;
             let edge = edge.ok_or_else(|| {
-                ApiError::not_found(format!("no transition {transition_id} on board {board_id}"))
+                ApiError::not_found(format!(
+                    "The board {board_id} has no transition {transition_id}."
+                ))
             })?;
             boards::remove_transition(conn, board_id, edge.from_column_id, edge.to_column_id, user)
                 .map_err(map_config_error)?;
@@ -1171,7 +1262,7 @@ pub(crate) async fn add_board_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddBoardMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddBoardMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::BoardMember>), ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&body.user_id, "user_id")?;
@@ -1218,7 +1309,7 @@ pub(crate) async fn replace_capabilities(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((id, target)): Path<(String, String)>,
-    Json(body): Json<dto::ReplaceCapabilitiesRequest>,
+    ApiJson(body): ApiJson<dto::ReplaceCapabilitiesRequest>,
 ) -> Result<Json<dto::BoardMember>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&target, "user_id")?;
@@ -1233,7 +1324,7 @@ pub(crate) async fn replace_capabilities(
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of board {board_id}"
+                    "The user {target} is not a member of the board {board_id}."
                 )));
             }
             let desired: BTreeSet<&str> = body.capabilities.iter().map(String::as_str).collect();
@@ -1287,7 +1378,7 @@ pub(crate) async fn remove_board_member(
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of board {board_id}"
+                    "The user {target} is not a member of the board {board_id}."
                 )));
             }
             for capability in &current {

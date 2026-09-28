@@ -34,7 +34,8 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
 use diesel::sql_query;
-use diesel::sql_types::{Bool, Text, Uuid as SqlUuid};
+use diesel::sql_types::{Array, Bool, Nullable, Text, Uuid as SqlUuid};
+use kairos_core::short_code::ItemType;
 use uuid::Uuid;
 
 use crate::models::boards::NewBoardMemberCapability;
@@ -392,7 +393,7 @@ pub fn resolve_authorization_board(
     conn: &mut PgConnection,
     item_id: Uuid,
 ) -> Result<Option<Uuid>, AbacError> {
-    use crate::schema::{documents, item_relationships};
+    use crate::schema::documents;
 
     if let Some(board_id) = board_of_workflow_item(conn, item_id)? {
         return Ok(Some(board_id));
@@ -409,26 +410,90 @@ pub fn resolve_authorization_board(
         return Ok(None);
     }
 
-    let parents: Vec<Uuid> = item_relationships::table
-        .filter(item_relationships::target_id.eq(item_id))
+    // COLLIERY-T-0235: the parents come from the ONE function that the
+    // "last parent" rule counts with, so the two cannot disagree on which
+    // edge is a parent.
+    Ok(document_parents(conn, item_id)?
+        .first()
+        .map(|parent| parent.board_id))
+}
+
+/// One parent of a document (COLLIERY-T-0235): the source of a `supports`
+/// edge that points at the document, and the board that the parent gives.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DocumentParent {
+    /// The workflow item that the document supports.
+    pub parent_id: Uuid,
+    /// The board of that item.
+    pub board_id: Uuid,
+}
+
+/// The parents of a document, the EARLIEST first (COLLIERY-T-0235). The
+/// first one gives the document its authorization board
+/// ([`resolve_authorization_board`]).
+///
+/// A parent is the source of a `supports` edge that points at the
+/// document, when that source has a board. An ARCHIVED parent is a parent:
+/// it gives its board as it did while live ([`board_of_workflow_item`]).
+/// So the rule "a document always has a parent" counts an edge to an
+/// archived item, and the archive of the only parent of a document does
+/// not make the document an orphan.
+///
+/// A document with no parent has no authorization board: only its creator
+/// and an organization admin can edit it.
+pub fn document_parents(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+) -> Result<Vec<DocumentParent>, AbacError> {
+    use crate::schema::item_relationships;
+
+    let sources: Vec<Uuid> = item_relationships::table
+        .filter(item_relationships::target_id.eq(document_id))
         .filter(item_relationships::relationship.eq(RelationshipType::Supports))
         .order(item_relationships::created_at.asc())
         .select(item_relationships::source_id)
         .load(conn)?;
-    for parent_id in parents {
+    let mut parents = Vec::with_capacity(sources.len());
+    for parent_id in sources {
         if let Some(board_id) = board_of_workflow_item(conn, parent_id)? {
-            return Ok(Some(board_id));
+            parents.push(DocumentParent {
+                parent_id,
+                board_id,
+            });
         }
     }
-    Ok(None)
+    Ok(parents)
 }
 
-/// Who created a workflow item or document, if it exists (KAIROS-T-0111):
-/// the "I created the source" arm of the collaborative edge rule. Items span
-/// the five entity tables in one UUID space.
+/// Lock the row of a document until the transaction ends
+/// (COLLIERY-T-0235). `false` = no such document.
+///
+/// WHY. The remove of a `supports` edge counts the parents of the document
+/// and then deletes one edge. Two removes at the same time, of the two
+/// edges of one document, would each count two parents, and the two
+/// deletes would leave a document with no parent. With the lock the second
+/// remove waits for the first, and counts one.
+pub fn lock_document(conn: &mut PgConnection, document_id: Uuid) -> Result<bool, AbacError> {
+    use crate::schema::documents;
+
+    let locked: Option<Uuid> = documents::table
+        .filter(documents::id.eq(document_id))
+        .select(documents::id)
+        .for_update()
+        .first(conn)
+        .optional()?;
+    Ok(locked.is_some())
+}
+
+/// Who created a workflow item or document, if it exists (KAIROS-T-0111).
+/// Since COLLIERY-T-0228 it is the first fact of the edit rule
+/// ([`edit_facts`]); until then it was one arm of the rule for `parent` and
+/// `blocks` edges, and looked at the source only. Items span the five
+/// entity tables in one UUID space.
 ///
 /// Archived items answer too (KAIROS-A-0020): who made a thing is a fact
-/// about the row, not about whether it is still on a board.
+/// about the row, not about whether it is still on a board. The edit rule
+/// needs that: the creator of an item can restore it.
 pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<Uuid>, AbacError> {
     use crate::schema::{adrs, documents, initiatives, strategies, tasks};
     macro_rules! try_table {
@@ -449,4 +514,186 @@ pub fn item_created_by(conn: &mut PgConnection, item_id: Uuid) -> Result<Option<
     try_table!(documents);
     try_table!(adrs);
     Ok(None)
+}
+
+/// The facts of the edit rule for one principal and one item
+/// (COLLIERY-T-0228), and the authorization board that was asked. The
+/// decision is [`kairos_core::abac::may_edit_item`]; this function only
+/// loads what it needs.
+///
+/// `manage_capability` is the `manage_<type>` capability of the item type.
+/// The board is [`resolve_authorization_board`]: the board of the item, or
+/// for a document the board of its `supports` parent. With no board,
+/// `holds_manage` is `false`: only the creator and an admin can edit such
+/// an item.
+///
+/// The creator is read from the row and not from the board, so the answer
+/// does not change when the item moves to a different board. An unknown
+/// item has no creator, no board, and so no fact but the admin role.
+///
+/// The three facts are loaded each time, with no early return. The cost is
+/// a small number of indexed reads, and a caller that refuses can then say
+/// which capability is missing, on which board.
+pub fn edit_facts(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    manage_capability: &str,
+) -> Result<(kairos_core::abac::EditFacts, Option<Uuid>), AbacError> {
+    let created_item = item_created_by(conn, item_id)? == Some(user_id);
+    let is_org_admin = is_org_admin(conn, org_slug, user_id)?;
+    let board = resolve_authorization_board(conn, item_id)?;
+    let holds_manage = match board {
+        Some(board_id) => check_capability(conn, board_id, user_id, manage_capability)?,
+        None => false,
+    };
+    Ok((
+        kairos_core::abac::EditFacts {
+            created_item,
+            holds_manage,
+            is_org_admin,
+        },
+        board,
+    ))
+}
+
+/// One item, and the facts of the edit rule for one principal
+/// (COLLIERY-T-0234): a row of [`edit_facts_of_items`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemEditFacts {
+    /// The type of the item.
+    pub item_type: ItemType,
+    /// The short code of the item.
+    pub short_code: String,
+    /// The item is not archived.
+    pub live: bool,
+    /// The three facts. The decision is [`kairos_core::abac::may_edit_item`].
+    pub facts: kairos_core::abac::EditFacts,
+    /// The `manage_<type>` capability that `facts.holds_manage` is about.
+    pub manage_capability: &'static str,
+    /// The authorization board that was asked, if the item has one.
+    pub board_id: Option<Uuid>,
+}
+
+#[derive(QueryableByName)]
+struct ItemFactRow {
+    #[diesel(sql_type = SqlUuid)]
+    id: Uuid,
+    #[diesel(sql_type = Text)]
+    entity_type: String,
+    #[diesel(sql_type = Text)]
+    short_code: String,
+    #[diesel(sql_type = SqlUuid)]
+    created_by: Uuid,
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    board_id: Option<Uuid>,
+    #[diesel(sql_type = Bool)]
+    live: bool,
+}
+
+/// [`edit_facts`] for MANY items and one principal (COLLIERY-T-0234): the
+/// same three facts for each item, loaded for the set and not for each
+/// item. The cascade of an archive calls it with each descendant of the
+/// root.
+///
+/// The cost does not grow with the number of items:
+///
+/// - one read of the five entity tables for the creator, the board, the
+///   type and the short code of each item,
+/// - one read for the admin role,
+/// - one [`check_capability`] for each different pair of board and
+///   capability. It is the function that [`edit_facts`] calls, so the two
+///   cannot give different answers on a grant, a glob or a team.
+///
+/// A document is the exception. Its authorization board is the board of
+/// its `supports` parent ([`resolve_authorization_board`]), which is a
+/// read for each document. No `parent` edge has a document at an end
+/// (`kairos_core::graph::check_link`), so the cascade sends none.
+///
+/// As [`edit_facts`] does, this function loads each fact with no early
+/// return, so the caller can say which capability is missing, on which
+/// board. An id that is in no table has no row in the answer: the caller
+/// must read that as "cannot edit".
+pub fn edit_facts_of_items(
+    conn: &mut PgConnection,
+    org_slug: &str,
+    user_id: Uuid,
+    item_ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, ItemEditFacts>, AbacError> {
+    use std::collections::HashMap;
+
+    let mut facts_of = HashMap::new();
+    if item_ids.is_empty() {
+        return Ok(facts_of);
+    }
+
+    let rows: Vec<ItemFactRow> = sql_query(
+        r"SELECT id, 'strategy' AS entity_type, short_code, created_by,
+                 board_id, deleted_at IS NULL AS live
+            FROM strategies WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'initiative', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM initiatives WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'task', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM tasks WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'adr', short_code, created_by,
+                 board_id, deleted_at IS NULL
+            FROM adrs WHERE id = ANY($1)
+          UNION ALL
+          SELECT id, 'document', short_code, created_by,
+                 NULL::uuid, deleted_at IS NULL
+            FROM documents WHERE id = ANY($1)",
+    )
+    .bind::<Array<SqlUuid>, _>(item_ids)
+    .load(conn)?;
+
+    let is_org_admin = is_org_admin(conn, org_slug, user_id)?;
+    let mut held: HashMap<(Uuid, &'static str), bool> = HashMap::new();
+
+    for row in rows {
+        let Some(item_type) = ItemType::ALL
+            .iter()
+            .copied()
+            .find(|t| t.entity_type() == row.entity_type)
+        else {
+            continue;
+        };
+        let manage_capability = kairos_core::abac::manage_capability(item_type);
+        let board_id = match item_type {
+            ItemType::Document => resolve_authorization_board(conn, row.id)?,
+            _ => row.board_id,
+        };
+        let holds_manage = match board_id {
+            Some(board_id) => match held.get(&(board_id, manage_capability)) {
+                Some(answer) => *answer,
+                None => {
+                    let answer = check_capability(conn, board_id, user_id, manage_capability)?;
+                    held.insert((board_id, manage_capability), answer);
+                    answer
+                }
+            },
+            None => false,
+        };
+        facts_of.insert(
+            row.id,
+            ItemEditFacts {
+                item_type,
+                short_code: row.short_code,
+                live: row.live,
+                facts: kairos_core::abac::EditFacts {
+                    created_item: row.created_by == user_id,
+                    holds_manage,
+                    is_org_admin,
+                },
+                manage_capability,
+                board_id,
+            },
+        );
+    }
+    Ok(facts_of)
 }

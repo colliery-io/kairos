@@ -23,6 +23,9 @@
 //!   CASCADE + org row); refuses without `--confirm`
 //! - `migrate-tenants` — run pending tenant migrations in every tenant schema
 //! - `list-tenants` — list provisioned tenants
+//! - `check-delivery-boards` — list each team with 2 or more live delivery
+//!   boards, for each tenant (COLLIERY-T-0250). It only reads: it applies
+//!   no migration, and its transaction is read-only
 //! - `set-password --email <email> [--password <pw>]` — set a local account's
 //!   password without a working login (KAIROS-T-0204): the break-glass path for
 //!   the sole admin of a local-auth deployment who has forgotten theirs. Lives
@@ -128,11 +131,41 @@ fn password_arg(args: &[String], what: &str) -> Result<String, String> {
     if let Some(password) = flag_value(args, "--password")? {
         return Ok(password);
     }
-    eprintln!("Enter the new {what} (it will not echo if your terminal supports it):");
-    let mut line = String::new();
-    std::io::stdin()
-        .read_line(&mut line)
-        .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+    let stdin = std::io::stdin();
+    let is_terminal = std::io::IsTerminal::is_terminal(&stdin);
+    read_password(
+        is_terminal,
+        &format!("New {what}: "),
+        |prompt| rpassword::prompt_password(prompt),
+        &mut stdin.lock(),
+    )
+}
+
+/// [`password_arg`] without the flag, with its two sources as parameters
+/// (COLLIERY-T-0236).
+///
+/// On a terminal `prompt_hidden` asks with the echo off, so the password is not
+/// on the screen and not in the scrollback. `piped` is stdin when it is a pipe or
+/// a file: one line. It is not read when `is_terminal` is true.
+fn read_password<P>(
+    is_terminal: bool,
+    prompt: &str,
+    prompt_hidden: P,
+    piped: &mut dyn std::io::BufRead,
+) -> Result<String, String>
+where
+    P: FnOnce(&str) -> std::io::Result<String>,
+{
+    let line = if is_terminal {
+        prompt_hidden(prompt)
+            .map_err(|e| format!("cannot read the password from the terminal: {e}"))?
+    } else {
+        let mut line = String::new();
+        piped
+            .read_line(&mut line)
+            .map_err(|e| format!("cannot read the password from stdin: {e}"))?;
+        line
+    };
     // Only the trailing newline. Interior and leading spaces are part of what was
     // typed, and silently trimming them here while the login path does not would
     // lock the person out of the password they just set.
@@ -263,6 +296,89 @@ fn list_tenants(conn: &mut PgConnection) -> Result<(), String> {
         };
         println!("{:<24} {:<32} {schema}", t.slug, t.name);
     }
+    Ok(())
+}
+
+/// `check-delivery-boards` (COLLIERY-T-0250): each team with 2 or more live
+/// delivery boards, for each tenant.
+///
+/// A team has one delivery board (COLLIERY-T-0240). Before that rule the API
+/// gave a team a second board, so old data can have such a team. The command
+/// finds them. It changes nothing: the operator decides which board stays.
+///
+/// It only reads. It applies no migration, thus it has its own connection, and
+/// the transaction is read-only: the database refuses a write.
+fn check_delivery_boards() -> Result<(), String> {
+    use diesel::RunQueryDsl;
+
+    /// The transaction of diesel needs `From<diesel::result::Error>`.
+    enum ReportError {
+        Message(String),
+        Db(diesel::result::Error),
+    }
+    impl From<diesel::result::Error> for ReportError {
+        fn from(e: diesel::result::Error) -> Self {
+            ReportError::Db(e)
+        }
+    }
+    let message = |text: String| ReportError::Message(text);
+
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| "DATABASE_URL is not set; check-delivery-boards reads the database")?;
+    let mut conn = kairos_db::establish_migration_connection(&database_url)
+        .map_err(|e| format!("cannot reach database at DATABASE_URL: {e}"))?;
+
+    let found = conn
+        .build_transaction()
+        .read_only()
+        .run(|conn| -> Result<_, ReportError> {
+            let tenants = kairos_db::list_tenants(conn)
+                .map_err(|e| message(format!("check-delivery-boards: {e}")))?;
+            let mut found = Vec::new();
+            for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
+                let schema = kairos_db::tenant::tenant_schema_name(&tenant.slug);
+                // LOCAL: the search path ends with the transaction.
+                diesel::sql_query(format!("SET LOCAL search_path TO \"{schema}\""))
+                    .execute(conn)
+                    .map_err(|e| {
+                        message(format!("check-delivery-boards: pinning {schema}: {e}"))
+                    })?;
+                let teams = kairos_db::teams_with_several_delivery_boards(conn)
+                    .map_err(|e| message(format!("check-delivery-boards: {}: {e}", tenant.slug)))?;
+                found.push((tenant.slug, teams));
+            }
+            Ok(found)
+        })
+        .map_err(|e| match e {
+            ReportError::Message(text) => text,
+            ReportError::Db(e) => format!("check-delivery-boards: {e}"),
+        })?;
+
+    let mut total = 0;
+    for (tenant, teams) in &found {
+        for team in teams {
+            total += 1;
+            println!(
+                "{tenant}: team {} ({}){} has {} live delivery boards:",
+                team.team_slug,
+                team.team_id,
+                if team.team_deleted { ", deleted," } else { "" },
+                team.boards.len()
+            );
+            for board in &team.boards {
+                println!(
+                    "{tenant}:   {} ({}) created {}",
+                    board.slug,
+                    board.id,
+                    board.created_at.to_rfc3339()
+                );
+            }
+        }
+    }
+    println!(
+        "{total} team(s) with 2 or more live delivery boards in {} tenant(s)",
+        found.len()
+    );
     Ok(())
 }
 
@@ -547,6 +663,12 @@ fn run() -> Result<bool, String> {
         return hash_password_cmd(&args[1..]).map(|_| true);
     }
 
+    // COLLIERY-T-0250: `check-delivery-boards` is answered before the
+    // migrations too. It is a report, and a report only reads.
+    if subcommand == Some("check-delivery-boards") {
+        return check_delivery_boards().map(|_| true);
+    }
+
     // Every other path (including plain server startup) first applies pending
     // public migrations on a dedicated sync connection (KAIROS-T-0007).
     let mut conn = connect_and_migrate_public()?;
@@ -568,8 +690,8 @@ fn run() -> Result<bool, String> {
         Some("embed-index") => embed_index(&mut conn, &args[1..]).map(|_| true),
         Some(other) => Err(format!(
             "unknown subcommand {other:?}; expected one of: serve, migrate, create-tenant, \
-             drop-tenant, migrate-tenants, list-tenants, set-password, hash-password, \
-             seed-demo, embed-backfill, embed-index"
+             drop-tenant, migrate-tenants, list-tenants, check-delivery-boards, \
+             set-password, hash-password, seed-demo, embed-backfill, embed-index"
         )),
     }
 }
@@ -590,7 +712,8 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{flag_value, has_flag};
+    use super::{flag_value, has_flag, read_password};
+    use std::io::Cursor;
 
     #[test]
     fn smoke() {
@@ -623,5 +746,61 @@ mod tests {
         let a = args(&["--slug", "acme", "--confirm"]);
         assert!(has_flag(&a, "--confirm"));
         assert!(!has_flag(&a, "--force"));
+    }
+
+    fn no_terminal(_: &str) -> std::io::Result<String> {
+        panic!("the terminal must not be asked when stdin is a pipe")
+    }
+
+    /// A reader that fails the test if it is read.
+    struct Untouched;
+    impl std::io::Read for Untouched {
+        fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("stdin must not be read when it is a terminal")
+        }
+    }
+
+    fn piped(input: &str) -> Result<String, String> {
+        read_password(
+            false,
+            "New password: ",
+            no_terminal,
+            &mut Cursor::new(input),
+        )
+    }
+
+    #[test]
+    fn a_piped_password_is_one_line_without_its_end() {
+        assert_eq!(piped("correct horse\n").unwrap(), "correct horse");
+        assert_eq!(piped("correct horse\r\n").unwrap(), "correct horse");
+        assert_eq!(piped("correct horse").unwrap(), "correct horse");
+        assert_eq!(piped("first\nsecond\n").unwrap(), "first");
+    }
+
+    #[test]
+    fn spaces_are_a_part_of_the_password() {
+        assert_eq!(piped("  padded  \n").unwrap(), "  padded  ");
+    }
+
+    #[test]
+    fn an_empty_password_is_refused() {
+        assert!(piped("").is_err());
+        assert!(piped("\n").is_err());
+        let hidden = |_: &str| Ok(String::new());
+        let mut stdin = std::io::BufReader::new(Untouched);
+        assert!(read_password(true, "New password: ", hidden, &mut stdin).is_err());
+    }
+
+    #[test]
+    fn a_terminal_is_asked_with_the_echo_off_and_stdin_is_not_read() {
+        let mut asked = String::new();
+        let hidden = |prompt: &str| {
+            asked = prompt.to_string();
+            Ok("typed by hand\n".to_string())
+        };
+        let mut stdin = std::io::BufReader::new(Untouched);
+        let password = read_password(true, "New password: ", hidden, &mut stdin).unwrap();
+        assert_eq!(password, "typed by hand");
+        assert_eq!(asked, "New password: ");
     }
 }

@@ -54,6 +54,27 @@
 //!   [`repository_link_rollup`] are default listings, which ADR-20 rule 3
 //!   keeps unchanged.
 //!
+//! # Done work and `blocks` (COLLIERY-T-0214)
+//!
+//! A `blocks` edge is a blocker only while the work at BOTH ends can still
+//! move. Work in a terminal column (`board_columns.is_done`) is finished:
+//! it cannot stand in the way of anything, and nothing can stand in its
+//! way. The edge stays, as history, exactly as the edge to an archived
+//! item stays. The two read surfaces split the same way they do for
+//! archived work:
+//!
+//! - [`blocks_summary`] (the rollup) does not count an edge when either
+//!   end sits in a terminal column;
+//! - [`neighbors_of`] (the list) reports the neighbour **marked** via
+//!   [`Neighbor::done`];
+//! - [`item_subgraph`] (the picture) reports the node **marked** via
+//!   [`SubgraphNode::done`] (COLLIERY-T-0233), so the graph view can draw
+//!   a `blocks` arrow with a done end as history.
+//!
+//! All read the column's flag through [`ITEM_COLUMNS_SQL`], never the
+//! column's name, and none stores anything: the answer follows the
+//! item's current column.
+//!
 //! # Audit rows (KAIROS-A-0004 / S-0004)
 //!
 //! Link writes `action = 'relationship_add'`, unlink `action =
@@ -132,7 +153,11 @@ pub enum GraphError {
 
 /// The pure mirror of a stored [`RelationshipType`] (kairos-core carries no
 /// diesel types, KAIROS-A-0009).
-fn core_relationship(relationship: RelationshipType) -> rules::Relationship {
+///
+/// Public since COLLIERY-T-0227: a create checks the type rules of the edge
+/// before it writes the item, and must name the relationship as
+/// [`link_items`] does.
+pub fn core_relationship(relationship: RelationshipType) -> rules::Relationship {
     match relationship {
         RelationshipType::Parent => rules::Relationship::Parent,
         RelationshipType::Supports => rules::Relationship::Supports,
@@ -401,6 +426,15 @@ pub struct Neighbor {
     /// renders a neighbour must render this too. ADR-20: anything serving
     /// an archived row says so, or an auditor mistakes it for live work.
     pub archived_at: Option<DateTime<Utc>>,
+    /// Whether this neighbour sits in a terminal column
+    /// (`board_columns.is_done`) right now (COLLIERY-T-0214). Finished
+    /// work does not block and is not blocked, so a `blocks` edge to a
+    /// done neighbour is history, not a blocker. It is reported, not
+    /// hidden, for the same reason as `archived_at`: every caller that
+    /// renders a `blocks` neighbour must render this too, or a reader
+    /// takes a resolved blocker for an open one. `false` for a neighbour
+    /// with no column (a document, an off-board ADR).
+    pub done: bool,
 }
 
 /// Both directions of an item's relationships, each grouped by
@@ -431,6 +465,8 @@ struct NeighborRow {
     title: String,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     deleted_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    done: bool,
 }
 
 impl NeighborRow {
@@ -442,9 +478,27 @@ impl NeighborRow {
             entity_type: parse_entity_type(&self.entity_type)?,
             title: self.title,
             archived_at: self.deleted_at,
+            done: self.done,
         })
     }
 }
+
+/// Every item that can hold a board position, as id → column_id: the
+/// join that tells [`blocks_summary`] and [`neighbors_of`] whether an item
+/// sits in a terminal column (COLLIERY-T-0214). Documents never appear (no
+/// board position); an off-board ADR appears with a NULL column.
+///
+/// Unlike [`CHILD_COLUMNS_SQL`] this carries NO liveness predicate, on
+/// purpose. It answers "which column?", not "is it live?": each caller
+/// decides liveness on its own `entity_directory` join, and an archived
+/// item keeps its `column_id`, so a done-and-archived neighbour is
+/// reported as both. Callers LEFT JOIN it, and `board_columns` after it,
+/// so an item with no row here or no column row is treated as not done
+/// rather than dropped.
+const ITEM_COLUMNS_SQL: &str = "SELECT id, column_id FROM strategies \
+     UNION ALL SELECT id, column_id FROM initiatives \
+     UNION ALL SELECT id, column_id FROM tasks \
+     UNION ALL SELECT id, column_id FROM adrs";
 
 /// One direction of [`relationships_for`]: edges where `item_id` sits in
 /// `own_column`, hydrating the OTHER end (`other_column`) through
@@ -460,6 +514,12 @@ impl NeighborRow {
 /// recover them. So the row comes back and `archived_at` says what it is.
 /// The default is inclusion rather than an opt-in flag precisely because
 /// the silent answer was the wrong one to serve by default.
+///
+/// **Done neighbours are marked too** (COLLIERY-T-0214). The two LEFT
+/// JOINs read the terminal flag of the neighbour's current column into
+/// [`Neighbor::done`], in this same query. The row is never dropped for
+/// it: a completed blocker is still part of the record, it has only
+/// stopped being in the way.
 fn neighbors_of(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -467,9 +527,12 @@ fn neighbors_of(
     other_column: &str,
 ) -> Result<Vec<Neighbor>, GraphError> {
     let rows: Vec<NeighborRow> = sql_query(format!(
-        "SELECT r.relationship, d.id, d.short_code, d.entity_type, d.title, d.deleted_at \
+        "SELECT r.relationship, d.id, d.short_code, d.entity_type, d.title, d.deleted_at, \
+                COALESCE(bc.is_done, false) AS done \
          FROM item_relationships r \
          JOIN entity_directory d ON d.id = r.{other_column} \
+         LEFT JOIN ({ITEM_COLUMNS_SQL}) p ON p.id = d.id \
+         LEFT JOIN board_columns bc ON bc.id = p.column_id \
          WHERE r.{own_column} = $1 \
          ORDER BY r.relationship ASC, r.created_at ASC, d.short_code ASC"
     ))
@@ -488,7 +551,9 @@ fn neighbors_of(
 /// its edges like any other, since `item_relationships` rows are
 /// hard-deleted and so survive the archive intact (KAIROS-T-0158).
 /// Neighbours carry [`Neighbor::archived_at`]; every caller that renders a
-/// neighbour must render that too.
+/// neighbour must render that too. They also carry [`Neighbor::done`]
+/// (COLLIERY-T-0214), which every caller that renders a `blocks` neighbour
+/// must render.
 pub fn relationships_for(
     conn: &mut PgConnection,
     item_id: Uuid,
@@ -714,6 +779,14 @@ pub struct SubgraphNode {
     /// [`item_subgraph`] — never omitted; a renderer that ignores this
     /// field is claiming archived work is live.
     pub archived_at: Option<DateTime<Utc>>,
+    /// Whether this node sits in a terminal column
+    /// (`board_columns.is_done`) right now (COLLIERY-T-0233, the rule of
+    /// COLLIERY-T-0214). A `blocks` edge with a done node at either end
+    /// is history, not a blocker, and a renderer must draw it so. `false`
+    /// for a node with no column (a document, an off-board ADR). Same
+    /// definition as [`Neighbor::done`]: read through
+    /// [`ITEM_COLUMNS_SQL`], never stored.
+    pub done: bool,
 }
 
 /// One typed directed edge between two visible subgraph nodes. `depth` is
@@ -751,6 +824,8 @@ struct NodeHydrationRow {
     degree: i64,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     deleted_at: Option<DateTime<Utc>>,
+    #[diesel(sql_type = diesel::sql_types::Bool)]
+    done: bool,
 }
 
 #[derive(QueryableByName)]
@@ -787,6 +862,10 @@ struct EdgeRow {
 /// included — it exists so a client can render `+N` for what it is not
 /// showing, and a count that disagreed with the node set would make `+N`
 /// wrong.
+///
+/// **Done nodes are marked** (COLLIERY-T-0233) via [`SubgraphNode::done`],
+/// with the same two LEFT JOINs as [`neighbors_of`], so the picture and
+/// the list cannot disagree about which `blocks` edges are still open.
 pub fn item_subgraph(
     conn: &mut PgConnection,
     root: Uuid,
@@ -818,8 +897,9 @@ pub fn item_subgraph(
     //    for degree. `status_of` keeps an archived item's real column name,
     //    which is exactly the audit answer ADR-20 rule 1 asks for: the
     //    `column_id` FK is intact, so the row still knows where it stood
-    //    when it was put away.
-    let rows: Vec<NodeHydrationRow> = sql_query(
+    //    when it was put away. `done` is the terminal flag of that same
+    //    column (COLLIERY-T-0233), read the way `neighbors_of` reads it.
+    let rows: Vec<NodeHydrationRow> = sql_query(format!(
         "WITH status_of AS (
              SELECT s.id, bc.name AS status FROM strategies s
                  JOIN board_columns bc ON bc.id = s.column_id
@@ -836,6 +916,7 @@ pub fn item_subgraph(
              SELECT d.id, d.lifecycle FROM documents d
          )
          SELECT d.id, d.short_code, d.entity_type, d.title, s.status, d.deleted_at,
+                COALESCE(bc.is_done, false) AS done,
                 (SELECT COUNT(*) FROM item_relationships r
                     JOIN entity_directory other
                       ON other.id = CASE WHEN r.source_id = d.id
@@ -843,8 +924,10 @@ pub fn item_subgraph(
                     WHERE r.source_id = d.id OR r.target_id = d.id) AS degree
          FROM entity_directory d
          JOIN status_of s ON s.id = d.id
-         WHERE d.id = ANY($1)",
-    )
+         LEFT JOIN ({ITEM_COLUMNS_SQL}) p ON p.id = d.id
+         LEFT JOIN board_columns bc ON bc.id = p.column_id
+         WHERE d.id = ANY($1)"
+    ))
     .bind::<Array<SqlUuid>, _>(&ids)
     .load(conn)?;
     let mut nodes = rows
@@ -859,6 +942,7 @@ pub fn item_subgraph(
                 status: row.status,
                 degree: row.degree,
                 archived_at: row.deleted_at,
+                done: row.done,
             })
         })
         .collect::<Result<Vec<_>, GraphError>>()?;
@@ -897,9 +981,11 @@ pub fn item_subgraph(
 /// The dependency counts one board card shows (KAIROS-T-0091).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BlocksCounts {
-    /// Live incoming `blocks` edges (things blocking this item).
+    /// Open incoming `blocks` edges (things blocking this item): the
+    /// blocker is live, and neither end is in a terminal column.
     pub blocked_by: i64,
-    /// Live outgoing `blocks` edges (things this item blocks).
+    /// Open outgoing `blocks` edges (things this item blocks): the blocked
+    /// item is live, and neither end is in a terminal column.
     pub blocks: i64,
 }
 
@@ -914,7 +1000,7 @@ struct BlocksRow {
 }
 
 /// Blocked-by/blocks counts for a set of items in ONE grouped query
-/// (never per item — the T-0080 rollup discipline). Items with no live
+/// (never per item — the T-0080 rollup discipline). Items with no open
 /// blocks edges simply have no entry.
 ///
 /// **Live-only, and deliberately so** (ADR-20 rule 5, confirmed by
@@ -925,11 +1011,37 @@ struct BlocksRow {
 /// anything. The archived dependency is still visible on the item's
 /// relationship list, where it reads as history rather than as a count of
 /// things standing in the way.
+///
+/// **Open-only, for the same reason** (COLLIERY-T-0214). The product
+/// decision of 2026-09-26: "when tickets are complete they by definition
+/// can't block or be blocking anymore." Work in a terminal column cannot
+/// move, so it is no more in the way than archived work is, and it has
+/// nothing left to wait for. An edge therefore counts only while NEITHER
+/// end sits in a terminal column:
+///
+/// - a done blocker adds nothing to the blocked item's `blocked_by`;
+/// - a done blocked item adds nothing to its blocker's `blocks`;
+/// - a done item has no counts of its own, and so no entry.
+///
+/// Before this, an import that carried 177 `blocks` edges between
+/// completed tasks filled a board with "blocked by 1" on cards in
+/// Completed — blockers that blocked nothing.
+///
+/// "Terminal" is the column's `is_done` FLAG, which is the board's
+/// decision; the column's name is never read. The flag is read for both
+/// ends inside this one grouped query, through [`ITEM_COLUMNS_SQL`]:
+/// nothing is stored, so the count returns when an item moves out of a
+/// terminal column or the board unmarks the column. The joins are LEFT
+/// joins, so an item with no column (an off-board ADR) or no column row
+/// is treated as not done, and never drops out of the count for that.
+///
+/// The edge itself stays, and [`relationships_for`] still lists it, with
+/// the done end marked ([`Neighbor::done`]).
 pub fn blocks_summary(
     conn: &mut PgConnection,
     ids: &[Uuid],
 ) -> Result<std::collections::HashMap<Uuid, BlocksCounts>, DieselError> {
-    let rows: Vec<BlocksRow> = sql_query(
+    let rows: Vec<BlocksRow> = sql_query(format!(
         "SELECT n.id,
                 COUNT(*) FILTER (WHERE r.target_id = n.id) AS blocked_by,
                 COUNT(*) FILTER (WHERE r.source_id = n.id) AS blocks
@@ -941,8 +1053,14 @@ pub fn blocks_summary(
            ON other.id = CASE WHEN r.source_id = n.id
                               THEN r.target_id ELSE r.source_id END
           AND other.deleted_at IS NULL
-         GROUP BY n.id",
-    )
+         LEFT JOIN ({ITEM_COLUMNS_SQL}) own_place ON own_place.id = n.id
+         LEFT JOIN board_columns own_column ON own_column.id = own_place.column_id
+         LEFT JOIN ({ITEM_COLUMNS_SQL}) other_place ON other_place.id = other.id
+         LEFT JOIN board_columns other_column ON other_column.id = other_place.column_id
+         WHERE NOT COALESCE(own_column.is_done, false)
+           AND NOT COALESCE(other_column.is_done, false)
+         GROUP BY n.id"
+    ))
     .bind::<Array<SqlUuid>, _>(ids)
     .load(conn)?;
     Ok(rows

@@ -52,7 +52,7 @@ fn AssociationsEditor(
     view! {
         <Stack gap="xs">
             <Text dimmed=true size="sm">
-                "Metadata fields stamped when a document is created from this template:"
+                "A new document from this template gets these metadata fields:"
             </Text>
             {move || rows.get().into_iter().enumerate().map(|(index, row)| {
                 let mut options = slugs.get_value();
@@ -135,7 +135,7 @@ pub fn AdminTemplatesPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("Template \"{n}\" created."),
+            format!("Kairos made the template \"{n}\"."),
             async move {
                 api::create_template(auth, &n, &s, &c, &metadata)
                     .await
@@ -145,7 +145,8 @@ pub fn AdminTemplatesPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Templates" sub="starter content + stamped metadata for new documents"/>
+        <PageHeader title="Templates" sub="The first content and the metadata fields of a \
+                                           new document."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Templates">
@@ -155,7 +156,7 @@ pub fn AdminTemplatesPage() -> impl IntoView {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(list)) if list.is_empty() => view! {
-                        <Empty message="No templates yet — create one below."/>
+                        <Empty message="The organization has no templates. Make one below."/>
                     }.into_any(),
                     Some(Ok(list)) => {
                         let slugs = definition_slugs();
@@ -260,7 +261,7 @@ fn TemplateRow(
             busy,
             outcome,
             reload,
-            format!("Template \"{n}\" updated."),
+            format!("Kairos changed the template \"{n}\"."),
             async move {
                 api::update_template(auth, &id, &n, &s, &c, &metadata)
                     .await
@@ -275,7 +276,7 @@ fn TemplateRow(
             busy,
             outcome,
             reload,
-            format!("Template \"{deleted_name}\" deleted."),
+            format!("Kairos deleted the template \"{deleted_name}\"."),
             async move { api::delete_template(auth, &id).await.map(|_| ()) },
         );
     };

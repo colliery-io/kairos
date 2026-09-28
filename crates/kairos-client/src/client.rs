@@ -31,6 +31,7 @@ use crate::types::{
     ListEnvelope, ListQuery, Pagination, RestoreResponse, SetLifecycleRequest, SetWorkClassRequest,
     Strategy, Task, TransitionRequest, UpdateContentRequest,
 };
+use crate::types_auth::{DeploymentConfig, LoginRequest, LoginResponse};
 use crate::types_meta::{
     ActivityEntry, ActivityQuery, ChildrenProgressResponse, CreateMetadataDefinitionRequest,
     CreateRelationshipRequest, CreateTemplateRequest, DeletedResponse, HistoryQuery,
@@ -64,13 +65,43 @@ pub trait TokenProvider: Send + Sync {
 }
 
 /// A fixed, never-refreshed token.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is written by hand (COLLIERY-T-0213): the field is a bearer, and
+/// `kairos logout` puts a session bearer in it. A derived `Debug` prints it.
+#[derive(Clone)]
 pub struct StaticToken(pub String);
+
+impl fmt::Debug for StaticToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("StaticToken")
+            .field(&crate::types_auth::REDACTED)
+            .finish()
+    }
+}
 
 impl TokenProvider for StaticToken {
     fn bearer_token(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>> {
         let token = self.0.clone();
         Box::pin(async move { Ok(token) })
+    }
+}
+
+/// The provider of a client that holds no credential (COLLIERY-T-0213).
+///
+/// A client that logs in has no bearer yet. Its public calls never ask for
+/// one. If a call that needs a bearer reaches this provider, the call fails
+/// here and sends nothing, which is better than a request with an empty
+/// `Authorization` header.
+#[derive(Debug, Clone, Copy)]
+struct NoCredential;
+
+impl TokenProvider for NoCredential {
+    fn bearer_token(&self) -> Pin<Box<dyn Future<Output = Result<String, Error>> + Send + '_>> {
+        Box::pin(async {
+            Err(Error::Token(
+                "this client holds no credential; log in first".to_string(),
+            ))
+        })
     }
 }
 
@@ -144,6 +175,13 @@ impl KairosClient {
         Self::new(base_url, Arc::new(StaticToken(token.into())))
     }
 
+    /// A client that holds no credential, for the calls that come before a
+    /// login: [`KairosClient::deployment_config`] and [`KairosClient::login`]
+    /// (COLLIERY-T-0213).
+    pub fn anonymous(base_url: impl Into<String>) -> Self {
+        Self::new(base_url, Arc::new(NoCredential))
+    }
+
     /// Send `X-Tenant: {slug}` on every request (dev/test tenant
     /// resolution, KAIROS-A-0005 §2).
     #[must_use]
@@ -189,7 +227,29 @@ impl KairosClient {
         expect: u16,
         builder: reqwest::RequestBuilder,
     ) -> Result<T, Error> {
-        let response = self.authorize(builder).await?.send().await?;
+        let builder = self.authorize(builder).await?;
+        Self::send_and_decode(context, expect, builder).await
+    }
+
+    /// Attach the optional X-Tenant header and NO bearer token: the public
+    /// routes that a client calls before it holds a credential
+    /// (COLLIERY-T-0213).
+    fn without_credential(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match &self.tenant {
+            Some(tenant) => builder.header("x-tenant", tenant),
+            None => builder,
+        }
+    }
+
+    /// Send a prepared request and decode the response. Shared by the
+    /// authorized path and the public path, so that the two map a rejection
+    /// in the same way.
+    async fn send_and_decode<T: DeserializeOwned>(
+        context: String,
+        expect: u16,
+        builder: reqwest::RequestBuilder,
+    ) -> Result<T, Error> {
+        let response = builder.send().await?;
         let status = response.status().as_u16();
         let body = response.text().await?;
         if status == expect {
@@ -249,6 +309,14 @@ impl KairosClient {
             self.http.post(self.url(path)).json(body),
         )
         .await
+    }
+
+    /// POST with no body, expecting 200 OK (restore, rotate). The server
+    /// refuses a body on a route that accepts none (COLLIERY-T-0256), and
+    /// `{}` and `null` are bodies.
+    async fn post_empty<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
+        self.execute(format!("POST {path}"), 200, self.http.post(self.url(path)))
+            .await
     }
 
     async fn patch<T: DeserializeOwned>(
@@ -371,10 +439,10 @@ macro_rules! entity_family {
                                 "work back (KAIROS-A-0020). 422 `RESTORE_BLOCKED` when its ",
                                 "board, column, team or repository is gone.")]
         pub async fn $restore(&self, short_code: &str) -> Result<RestoreResponse, Error> {
-            self.post_ok(
-                &format!(concat!("/api/", $family, "/{}/restore"), short_code),
-                &(),
-            )
+            self.post_empty(&format!(
+                concat!("/api/", $family, "/{}/restore"),
+                short_code
+            ))
             .await
         }
     };
@@ -476,7 +544,8 @@ impl KairosClient {
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the
     /// team of the task do not change (COLLIERY-T-0217, COLLIERY-A-0023).
-    /// Requires `manage_tasks` on the board of the task.
+    /// The edit rule applies (COLLIERY-T-0228): the caller created the
+    /// task, or holds `manage_tasks` on its board, or is an org admin.
     pub async fn set_task_repository(
         &self,
         short_code: &str,
@@ -1092,11 +1161,8 @@ impl KairosClient {
         &self,
         id: &str,
     ) -> Result<crate::types_forge::CreatedForgeConnection, Error> {
-        self.post_ok(
-            &format!("/api/forge-connections/{id}/rotate"),
-            &serde_json::json!({}),
-        )
-        .await
+        self.post_empty(&format!("/api/forge-connections/{id}/rotate"))
+            .await
     }
 
     /// `GET /api/{family}/{short_code}/graph?depth=N` — the focal
@@ -1115,7 +1181,8 @@ impl KairosClient {
         self.get(&path).await
     }
 
-    /// `POST /api/relationships` (org admin, KAIROS-A-0006).
+    /// `POST /api/relationships`. The link rule applies
+    /// (COLLIERY-T-0228): the caller may edit the item at either end.
     pub async fn create_relationship(
         &self,
         request: &CreateRelationshipRequest,
@@ -1123,7 +1190,10 @@ impl KairosClient {
         self.post_created("/api/relationships", request).await
     }
 
-    /// `DELETE /api/relationships/{id}` (org admin).
+    /// `DELETE /api/relationships/{id}`. The link rule applies, as for
+    /// the create. For the `supports` edge of a document the caller must
+    /// be able to edit the document, and the last one stays: 422
+    /// `LAST_PARENT`, which arrives as [`Error::Other`] (COLLIERY-T-0235).
     pub async fn delete_relationship(
         &self,
         relationship_id: &str,
@@ -1432,5 +1502,60 @@ impl KairosClient {
     /// `GET /api/whoami` — the resolved user/tenant/teams identity probe.
     pub async fn whoami(&self) -> Result<WhoamiResponse, Error> {
         self.get("/api/whoami").await
+    }
+
+    // -- local accounts (KAIROS-I-0018, COLLIERY-T-0213) ---------------------------------------
+
+    /// `GET /api/config` — how this deployment lets people log in. Public:
+    /// the request carries no bearer.
+    pub async fn deployment_config(&self) -> Result<DeploymentConfig, Error> {
+        let path = "/api/config";
+        let builder = self.without_credential(self.http.get(self.url(path)));
+        Self::send_and_decode(format!("GET {path}"), 200, builder).await
+    }
+
+    /// `POST /api/login` — exchange an email and a password for a session
+    /// bearer. Public: the request carries no bearer.
+    ///
+    /// The route exists only on a deployment with local accounts on. On any
+    /// other deployment the result is [`Error::NotFound`] or
+    /// [`Error::UnexpectedResponse`].
+    ///
+    /// No error from this method contains the response body. An unexpected
+    /// 2xx status could carry the token in its body, and an error is a thing
+    /// that callers print.
+    pub async fn login(&self, request: &LoginRequest) -> Result<LoginResponse, Error> {
+        let path = "/api/login";
+        let builder = self.without_credential(self.http.post(self.url(path)).json(request));
+        match Self::send_and_decode(format!("POST {path}"), 200, builder).await {
+            Err(Error::UnexpectedResponse { status, .. }) => Err(Error::UnexpectedResponse {
+                status,
+                body: "(body withheld: a login response can hold a credential)".to_string(),
+            }),
+            other => other,
+        }
+    }
+
+    /// `POST /api/logout` — end the session of this client's bearer. The
+    /// server answers 204 with no body, also for a session that is already
+    /// over.
+    pub async fn logout(&self) -> Result<(), Error> {
+        let path = "/api/logout";
+        let response = self
+            .authorize(self.http.post(self.url(path)))
+            .await?
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        if status == 204 {
+            return Ok(());
+        }
+        let body = response.text().await?;
+        match serde_json::from_str::<ErrorEnvelope>(&body) {
+            Ok(envelope) if !(200..300).contains(&status) => {
+                Err(Error::from_envelope(status, envelope))
+            }
+            _ => Err(Error::UnexpectedResponse { status, body }),
+        }
     }
 }

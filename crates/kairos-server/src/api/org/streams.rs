@@ -3,7 +3,7 @@
 //! org-admin-only (tenant-wide org structure, the A-0006 tenant-config
 //! fallback); reads are open tenant-wide.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -23,7 +23,9 @@ use super::super::convert_org::team_to_dto;
 use super::super::{clamp_pagination, parse_uuid, require_capability};
 use super::is_unique_violation;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -60,7 +62,9 @@ fn load_stream(conn: &mut PgConnection, stream_id: Uuid) -> Result<DeliveryStrea
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live delivery stream {stream_id}")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("No live delivery stream has the id {stream_id}."))
+        })
 }
 
 /// Insert one `activity_log` row for a stream mutation.
@@ -98,7 +102,7 @@ fn log_stream_activity(
 pub(crate) async fn list_streams(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::DeliveryStream>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -171,7 +175,7 @@ pub(crate) async fn create_stream(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateStreamRequest>,
+    ApiJson(body): ApiJson<dto::CreateStreamRequest>,
 ) -> Result<(StatusCode, Json<dto::DeliveryStream>), ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -191,7 +195,7 @@ pub(crate) async fn create_stream(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "a delivery stream with slug {:?} already exists",
+                            "A delivery stream has the slug {:?} already.",
                             body.slug
                         ))
                     } else {
@@ -231,12 +235,13 @@ pub(crate) async fn update_stream(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateStreamRequest>,
+    ApiJson(body): ApiJson<dto::UpdateStreamRequest>,
 ) -> Result<Json<dto::DeliveryStream>, ApiError> {
     let stream_id = parse_uuid(&id, "id")?;
     if body.name.is_none() && body.slug.is_none() && body.description.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, slug, description is required",
+            "The request has no field to change. Send one or more of name, slug and \
+             description.",
         ));
     }
     let user = auth.user_id;
@@ -262,7 +267,7 @@ pub(crate) async fn update_stream(
                     .get_result(conn)
                     .map_err(|e| {
                         if is_unique_violation(&e) {
-                            ApiError::conflict("a delivery stream with that slug already exists")
+                            ApiError::conflict("A delivery stream has that slug already.")
                         } else {
                             ApiError::internal(e)
                         }
@@ -407,7 +412,7 @@ pub(crate) async fn add_stream_team(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddStreamTeamRequest>,
+    ApiJson(body): ApiJson<dto::AddStreamTeamRequest>,
 ) -> Result<(StatusCode, Json<dto::OrgDeleteResponse>), ApiError> {
     let stream_id = parse_uuid(&id, "id")?;
     let team_id = parse_uuid(&body.team_id, "team_id")?;
@@ -429,7 +434,8 @@ pub(crate) async fn add_stream_team(
                 .map_err(ApiError::internal)?;
             if team_exists.is_none() {
                 return Err(ApiError::validation(format!(
-                    "team {team_id} does not exist"
+                    "The team {team_id} is not in the organization. Send the id of a team \
+                     of the organization as team_id."
                 )));
             }
             diesel::insert_into(dsl::team_delivery_streams)
@@ -441,7 +447,7 @@ pub(crate) async fn add_stream_team(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "team {team_id} is already in stream {stream_id}"
+                            "The team {team_id} is in the stream {stream_id} already."
                         ))
                     } else {
                         ApiError::internal(e)
@@ -503,7 +509,7 @@ pub(crate) async fn remove_stream_team(
             .map_err(ApiError::internal)?;
             if deleted == 0 {
                 return Err(ApiError::not_found(format!(
-                    "team {team_id} is not in stream {stream_id}"
+                    "The team {team_id} is not in the stream {stream_id}."
                 )));
             }
             log_stream_activity(

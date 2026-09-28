@@ -17,6 +17,24 @@
 //! client shape (`column_id` omitted when not applicable, `board_id`
 //! `null` for off-board items — documents and unplaced ADRs).
 //!
+//! # Boards across a `blocks` edge (COLLIERY-T-0233)
+//!
+//! A card shows the count of its open blockers
+//! ([`crate::graph::blocks_summary`]), and a blocker can be on a different
+//! board. When the blocker moves to a done column, the count on the card
+//! changes, but the event carries the board of the BLOCKER: a socket that
+//! filters to the board of the card did not get it, and the count stayed
+//! stale. So an event that can change a count also carries `blocks_boards`:
+//! the boards of the live items at the other end of the item's `blocks`
+//! edges, in the two directions ([`blocks_boards`]). Like `tenant`, this
+//! field is routing metadata: the server delivers the event to a socket
+//! filtered to one of these boards, and strips the field before the event
+//! reaches a client. The client shape does not change.
+//!
+//! Only the kinds in [`EventKind::changes_blocks_counts`] carry it. The
+//! other kinds cannot change a count, and a `relationship_changed` is
+//! emitted for each end of the edge with its own board.
+//!
 //! # Post-commit semantics (A-0005 §5)
 //!
 //! [`emit_event`] runs INSIDE the service transaction, and that is the
@@ -82,6 +100,23 @@ pub enum EventKind {
 }
 
 impl EventKind {
+    /// Whether this kind can change the `blocks` counts on the cards of
+    /// OTHER items (COLLIERY-T-0233): the item changed column (a done
+    /// column opens or closes the edge, COLLIERY-T-0214), or changed
+    /// liveness (archived work does not count). A content, metadata or
+    /// link change does not. An edge change does, but
+    /// `relationship_changed` is emitted once for each end, so each board
+    /// gets the event of its own item.
+    pub fn changes_blocks_counts(self) -> bool {
+        matches!(
+            self,
+            EventKind::ItemTransitioned
+                | EventKind::ItemMoved
+                | EventKind::ItemDeleted
+                | EventKind::ItemRestored
+        )
+    }
+
     /// The wire name (`event` field).
     pub fn as_str(self) -> &'static str {
         match self {
@@ -131,6 +166,32 @@ struct PlacementRow {
     column_id: Option<Uuid>,
 }
 
+#[derive(QueryableByName)]
+struct BoardRow {
+    #[diesel(sql_type = SqlUuid)]
+    board_id: Uuid,
+}
+
+/// The boards of the live items at the other end of the `blocks` edges of
+/// the item `short_code`, in the two directions (COLLIERY-T-0233, module
+/// docs). `own_board` is left out: the event already goes there. The item
+/// itself can be archived (an `item_deleted` event); the other end must be
+/// live, because an archived item has no card to refresh. Ordered, so the
+/// payload is deterministic.
+pub fn blocks_boards(
+    conn: &mut PgConnection,
+    short_code: &str,
+    own_board: Option<Uuid>,
+) -> Result<Vec<Uuid>, DieselError> {
+    let rows: Vec<BoardRow> = sql_query(
+        "SELECT DISTINCT other.board_id          FROM entity_directory me          JOIN item_relationships r            ON r.relationship = 'blocks'           AND (r.source_id = me.id OR r.target_id = me.id)          JOIN entity_directory other            ON other.id = CASE WHEN r.source_id = me.id                               THEN r.target_id ELSE r.source_id END           AND other.deleted_at IS NULL          WHERE me.short_code = $1            AND other.board_id IS NOT NULL            AND other.board_id IS DISTINCT FROM $2          ORDER BY other.board_id",
+    )
+    .bind::<Text, _>(short_code)
+    .bind::<Nullable<SqlUuid>, _>(own_board)
+    .load(conn)?;
+    Ok(rows.into_iter().map(|row| row.board_id).collect())
+}
+
 /// Emit `event` on [`EVENT_CHANNEL`], tagged with the current connection's
 /// tenant (see module docs). Call INSIDE the mutating transaction —
 /// PostgreSQL delivers the notification on commit and drops it on
@@ -154,6 +215,14 @@ pub fn emit_event(conn: &mut PgConnection, event: &ThinEvent) -> Result<(), Dies
     }
     payload.insert("actor".into(), json!(event.actor));
     payload.insert("occurred_at".into(), json!(Utc::now()));
+    // COLLIERY-T-0233: routing metadata, stripped by the server like
+    // `tenant`. Omitted when empty, which is the usual case.
+    if event.event.changes_blocks_counts() {
+        let boards = blocks_boards(conn, &event.short_code, event.board_id)?;
+        if !boards.is_empty() {
+            payload.insert("blocks_boards".into(), json!(boards));
+        }
+    }
 
     sql_query("SELECT pg_notify($1, $2)")
         .bind::<Text, _>(EVENT_CHANNEL)

@@ -224,6 +224,7 @@ pub struct Adr {
 
 /// Body of `POST /api/strategies`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateStrategyRequest {
     /// Board to create the strategy on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
@@ -240,6 +241,7 @@ pub struct CreateStrategyRequest {
 
 /// Body of `POST /api/initiatives`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateInitiativeRequest {
     /// Board to create the initiative on — SLUG or UUID (KAIROS-T-0150).
     pub board_id: String,
@@ -261,6 +263,7 @@ pub struct CreateInitiativeRequest {
 
 /// Body of `POST /api/tasks`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTaskRequest {
     /// Board to create the task on — SLUG or UUID (KAIROS-T-0150).
     /// Optional when `team_id` is given: the task then goes to the delivery
@@ -294,9 +297,10 @@ pub struct CreateTaskRequest {
     /// optional link that says where the code is. It can be any live
     /// repository, of any team, and it does not choose the board
     /// (COLLIERY-T-0217, COLLIERY-A-0023).
-    /// `repository` is THE reference field name on the wire (KAIROS-T-0115);
-    /// `repository_id` is accepted as an alias for one release.
-    #[serde(default, alias = "repository_id")]
+    /// `repository` is THE reference field name on the wire (KAIROS-T-0115).
+    /// The old name `repository_id` is refused, as each field that the
+    /// route does not know (COLLIERY-T-0259).
+    #[serde(default)]
     pub repository: Option<String>,
 }
 
@@ -306,6 +310,7 @@ pub struct CreateTaskRequest {
 /// set the document's editorial state. Free transitions; no version bump
 /// (the A-0004 contract covers title/content only).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetLifecycleRequest {
     /// `draft|review|published|archived`.
     pub lifecycle: String,
@@ -313,6 +318,7 @@ pub struct SetLifecycleRequest {
 
 /// transitions â the board rules engine is never consulted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetWorkClassRequest {
     /// `planned|support`.
     pub work_class: String,
@@ -323,6 +329,7 @@ pub struct SetWorkClassRequest {
 /// name a strategy, initiative, or task; the server creates the `supports`
 /// edge and authorizes `manage_documents` against the parent's board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDocumentRequest {
     pub title: String,
     /// Markdown content. Omitted + `template_id` set = the template's
@@ -342,6 +349,7 @@ pub struct CreateDocumentRequest {
 /// both set (on-board) or both omitted (off-board; creation is then
 /// org-admin-only, KAIROS-A-0006 fallback).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateAdrRequest {
     /// ADR board — SLUG or UUID (KAIROS-T-0150); omit for an off-board ADR.
     #[serde(default)]
@@ -366,6 +374,7 @@ pub struct CreateAdrRequest {
 /// is based on; a stale value gets 409 `CONFLICT` with the current entity
 /// in `details.current`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateContentRequest {
     /// New title; omitted = keep the current title.
     #[serde(default)]
@@ -378,6 +387,7 @@ pub struct UpdateContentRequest {
 
 /// Body of `POST /api/{family}/{short_code}/transition`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TransitionRequest {
     /// Target column (UUID). Must be reachable from the item's current
     /// column per the board's transition graph, else 422
@@ -389,6 +399,7 @@ pub struct TransitionRequest {
 /// delivery board to move the task to, by slug or UUID. It lands in that
 /// board's entry column and follows its team.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MoveTaskRequest {
     pub board: String,
 }
@@ -415,6 +426,7 @@ pub struct ListEnvelope<T: ToSchema> {
 /// parameters; all complex querying is `POST /api/search`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct Pagination {
     /// Page size (default 50, max 200).
     #[serde(default)]
@@ -437,6 +449,7 @@ pub struct Pagination {
 /// exactly what it meant before: live rows only.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct ListQuery {
     /// Page size (default 50, max 200).
     #[serde(default)]
@@ -483,6 +496,35 @@ pub struct DeleteResponse {
     pub cascade_count: i64,
     /// Short codes of the cascaded descendants, sorted.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that the archive did not reach, sorted by
+    /// short code (COLLIERY-T-0234). They stay live and keep their
+    /// `parent` edge. Absent when the archive reached each descendant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_reached: Vec<NotReached>,
+}
+
+/// One live descendant that an archive does not reach (COLLIERY-T-0234).
+///
+/// The archive stops at a descendant that the caller cannot edit, and
+/// takes nothing below it. An entry has one of two reasons.
+///
+/// `required_capability`, with `board_id`: the caller cannot edit this
+/// item.
+///
+/// `below`: this item is below the named item, where the archive stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NotReached {
+    /// The short code of the descendant.
+    pub short_code: String,
+    /// The `manage_<type>` capability that the caller does not hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_capability: Option<String>,
+    /// The authorization board of the descendant (UUID).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_id: Option<String>,
+    /// The short code of the item above this one where the archive stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub below: Option<String>,
 }
 
 /// Response of `POST /api/{entity_type}/{short_code}/restore`
@@ -518,6 +560,12 @@ pub struct CascadePreviewResponse {
     /// Short codes of the live descendants a delete would cascade to,
     /// sorted.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that an archive BY THIS CALLER would not
+    /// reach, sorted by short code (COLLIERY-T-0234). The preview answers
+    /// for the caller who asks: a different caller can get a different
+    /// answer. Absent when the archive would reach each descendant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_reached: Vec<NotReached>,
 }
 
 /// The S-0005 error envelope: `{"error": {"code", "message", "details"}}`.

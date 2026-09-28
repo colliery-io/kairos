@@ -44,6 +44,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::local_auth::{
     generate_session_token, hash_session_token, parse_session_token, verify_against_dummy,
@@ -63,6 +64,7 @@ pub fn router() -> Router<AppState> {
 
 /// `POST /api/login` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LoginRequest {
     /// The account's email address. Matched case-insensitively.
     pub email: String,
@@ -132,9 +134,8 @@ fn bad_session() -> ApiError {
 pub async fn login(State(state): State<AppState>, req: Request) -> Result<Response, ApiError> {
     let source = client_addr(&req, state.config.trusted_proxy);
 
-    let Json(body) = Json::<LoginRequest>::from_request(req, &())
-        .await
-        .map_err(|e| ApiError::validation(format!("malformed login body: {e}")))?;
+    // COLLIERY-T-0249: the same refusal as each write route.
+    let ApiJson(body) = ApiJson::<LoginRequest>::from_request(req, &()).await?;
     let email = body.email.trim().to_lowercase();
     let password = body.password;
 

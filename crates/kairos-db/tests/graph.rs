@@ -22,6 +22,9 @@
 //! - `relationships_for` returns both directions grouped by relationship
 //! - EXPLAIN shows both lookup directions are backed by the S-0004 indexes
 //!   (`idx_item_relationships_source` / `idx_item_relationships_target`)
+//! - done work does not block and is not blocked (COLLIERY-T-0214): the
+//!   `blocks_summary` counts follow the terminal flag of the column at both
+//!   ends, and `relationships_for` lists the edge with the done end marked
 
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -36,7 +39,23 @@ use kairos_db::items::{
 use kairos_db::models::{
     ActivityAction, BoardLevel, NewItemRelationship, NewUser, RelationshipType, TaskType, User,
 };
-use kairos_db::{create_board, provision_tenant, run_public_migrations, schema};
+use kairos_db::{boards, create_board, provision_tenant, run_public_migrations, schema};
+
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
 
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
@@ -198,12 +217,14 @@ fn relationship_graph_service() {
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
     let adr_board = board_id_by_slug(&mut conn, "adrs");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -582,6 +603,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Task,
                 title: "Task Two".into(),
                 archived_at: None,
+                done: false,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -590,6 +612,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Task,
                 title: "Task One".into(),
                 archived_at: None,
+                done: false,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -598,6 +621,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Task,
                 title: "Task Two".into(),
                 archived_at: None,
+                done: false,
             },
             Neighbor {
                 relationship: RelationshipType::Supports,
@@ -606,6 +630,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Document,
                 title: "Document One".into(),
                 archived_at: None,
+                done: false,
             },
         ],
         "outgoing edges of i1, grouped by relationship (alphabetical), then insertion order"
@@ -620,6 +645,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Document,
                 title: "Document One".into(),
                 archived_at: None,
+                done: false,
             },
             Neighbor {
                 relationship: RelationshipType::Parent,
@@ -628,6 +654,7 @@ fn relationship_graph_service() {
                 entity_type: ItemType::Strategy,
                 title: "Strategy One".into(),
                 archived_at: None,
+                done: false,
             },
         ],
         "incoming edges of i1"
@@ -769,22 +796,26 @@ fn children_progress_rollups() {
     let alice = insert_user(&mut conn, "dex|alice", "alice@acme.test", "Alice");
 
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_a_team = seed_board_team(&mut conn, "Delivery A Team", "delivery-a-team");
     let board_a = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery A",
         "delivery-a",
-        None,
+        Some(delivery_a_team),
         Some(alice),
     )
     .expect("creating delivery A")
     .id;
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_b_team = seed_board_team(&mut conn, "Delivery B Team", "delivery-b-team");
     let board_b = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery B",
         "delivery-b",
-        None,
+        Some(delivery_b_team),
         Some(alice),
     )
     .expect("creating delivery B")
@@ -966,12 +997,14 @@ fn focal_subgraph_contract() {
 
     let strategy_board = board_id_by_slug(&mut conn, "strategy");
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -1082,6 +1115,10 @@ fn focal_subgraph_contract() {
             .all(|n| n.archived_at.is_none()),
         "only the archived node carries the marker: {nodes:?}"
     );
+    // COLLIERY-T-0233: no node here is in a terminal column, and the
+    // document has no column at all. A node with no column is not done,
+    // and it is not dropped.
+    assert!(nodes.iter().all(|n| !n.done), "{nodes:?}");
     assert_eq!(by_id(t2.id).expect("t2").depth, 2);
     assert_eq!(by_id(t1.id).expect("focus").depth, 0);
     assert_eq!(by_id(i1.id).expect("i1").depth, 1);
@@ -1242,12 +1279,14 @@ fn archived_children_are_listed_marked_but_never_counted() {
     let alice = insert_user(&mut conn, "dex|neighbours", "neighbours@acme.test", "Alice");
 
     let initiative_board = board_id_by_slug(&mut conn, "initiatives");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")
@@ -1364,4 +1403,319 @@ fn archived_children_are_listed_marked_but_never_counted() {
     ))
     .execute(&mut admin_conn)
     .expect("dropping scratch database after test");
+}
+
+// ---------------------------------------------------------------------------
+// Done work and `blocks` (COLLIERY-T-0214)
+// ---------------------------------------------------------------------------
+
+/// The live column of `board` with this name.
+fn column_id_by_name(conn: &mut PgConnection, board: Uuid, name: &str) -> Uuid {
+    schema::board_columns::table
+        .filter(schema::board_columns::board_id.eq(board))
+        .filter(schema::board_columns::name.eq(name))
+        .filter(schema::board_columns::deleted_at.is_null())
+        .select(schema::board_columns::id)
+        .first(conn)
+        .unwrap_or_else(|e| panic!("column {name:?} not found: {e}"))
+}
+
+/// `(blocked_by, blocks)` of `id`, or `None` when the summary has no entry
+/// for it.
+fn counts_of(conn: &mut PgConnection, ids: &[Uuid], id: Uuid) -> Option<(i64, i64)> {
+    graph::blocks_summary(conn, ids)
+        .expect("blocks summary")
+        .get(&id)
+        .map(|counts| (counts.blocked_by, counts.blocks))
+}
+
+/// COLLIERY-T-0214: **completed work does not block, and is not blocked.**
+///
+/// A `blocks` edge is a blocker only while the work at both ends can still
+/// move. Before this rule a card in Completed showed "blocked by 1" for a
+/// blocker that was itself in Completed, and an import of 177 such edges
+/// filled a real board with blockers that blocked nothing.
+///
+/// Like the archived case above, this pins the two halves together:
+///
+/// - the ROLLUP counts an edge only while neither end sits in a terminal
+///   column;
+/// - the LIST keeps every edge, with the done end marked.
+///
+/// And it pins what "terminal" means: the column's `is_done` flag, read
+/// fresh on every call. Nothing is stored, so the count returns when the
+/// item leaves the column or the board unmarks it.
+#[test]
+fn done_work_does_not_block_and_is_not_blocked() {
+    const DONE_DB: &str = "kairos_done_blocks_test";
+    let admin_url = admin_database_url();
+    let mut admin_conn = PgConnection::establish(&admin_url).unwrap_or_else(|e| {
+        panic!(
+            "cannot connect to compose postgres at {admin_url}: {e} \
+             (is the stack up? `angreal services up`)"
+        )
+    });
+    sql_query(format!("DROP DATABASE IF EXISTS {DONE_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database");
+    sql_query(format!("CREATE DATABASE {DONE_DB}"))
+        .execute(&mut admin_conn)
+        .expect("creating scratch database");
+    let scratch_url = with_database(&admin_url, DONE_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, "acme", "Acme Inc").expect("provisioning acme");
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let alice = insert_user(&mut conn, "dex|done", "done@acme.test", "Alice");
+
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
+    let delivery = create_board(
+        &mut conn,
+        BoardLevel::Delivery,
+        "Delivery",
+        "delivery",
+        Some(delivery_team),
+        Some(alice),
+    )
+    .expect("creating delivery board")
+    .id;
+    let todo = column_id_by_name(&mut conn, delivery, "Todo");
+    let active = column_id_by_name(&mut conn, delivery, "Active");
+    let completed = column_id_by_name(&mut conn, delivery, "Completed");
+
+    let task = |conn: &mut PgConnection, title: &str, column: Uuid| {
+        items::create_task(
+            conn,
+            CreateTask {
+                board_id: delivery,
+                column_id: Some(column),
+                title,
+                content: "",
+                task_type: TaskType::Task,
+                work_class: kairos_db::models::WorkClass::Planned,
+                repository_id: None,
+            },
+            alice,
+        )
+        .expect("task")
+    };
+    let link = |conn: &mut PgConnection, from: Uuid, to: Uuid| {
+        graph::link_items(conn, from, to, RelationshipType::Blocks, alice).expect("linking");
+    };
+
+    // --- a live blocker in a non-terminal column: counts --------------------
+    let open_blocker = task(&mut conn, "Open blocker", active);
+    let waiting = task(&mut conn, "Waiting", todo);
+    link(&mut conn, open_blocker.id, waiting.id);
+    let pair = [open_blocker.id, waiting.id];
+    assert_eq!(
+        counts_of(&mut conn, &pair, waiting.id),
+        Some((1, 0)),
+        "an open blocker counts"
+    );
+    assert_eq!(
+        counts_of(&mut conn, &pair, open_blocker.id),
+        Some((0, 1)),
+        "and it counts on the blocker's side too"
+    );
+
+    // --- two blockers, one open and one completed: the count is 1 -----------
+    let done_blocker = task(&mut conn, "Done blocker", completed);
+    link(&mut conn, done_blocker.id, waiting.id);
+    let trio = [open_blocker.id, done_blocker.id, waiting.id];
+    assert_eq!(
+        counts_of(&mut conn, &trio, waiting.id),
+        Some((1, 0)),
+        "a blocker in a terminal column adds nothing to `blocked_by`"
+    );
+    assert_eq!(
+        counts_of(&mut conn, &trio, done_blocker.id),
+        None,
+        "and a done blocker is not standing in anyone's way: no entry"
+    );
+
+    // --- a blocker in a terminal column, alone: no count at all -------------
+    let only_done_blocker = task(&mut conn, "Blocked by done work only", todo);
+    link(&mut conn, done_blocker.id, only_done_blocker.id);
+    assert_eq!(
+        counts_of(
+            &mut conn,
+            &[done_blocker.id, only_done_blocker.id],
+            only_done_blocker.id
+        ),
+        None,
+        "its one blocker is completed, so nothing blocks it"
+    );
+
+    // --- both ends completed: the imported case -----------------------------
+    let done_blocked = task(&mut conn, "Done and once blocked", completed);
+    link(&mut conn, done_blocker.id, done_blocked.id);
+    let both_done = [done_blocker.id, done_blocked.id];
+    assert_eq!(counts_of(&mut conn, &both_done, done_blocked.id), None);
+    assert_eq!(counts_of(&mut conn, &both_done, done_blocker.id), None);
+
+    // --- a blocked item in a terminal column --------------------------------
+    // It shows nothing, and its OPEN blocker's `blocks` count drops: an
+    // item that blocks only completed work is not standing in anyone's way.
+    let open_blocker_of_done = task(&mut conn, "Open, blocks done work", active);
+    link(&mut conn, open_blocker_of_done.id, done_blocked.id);
+    let ends = [open_blocker_of_done.id, done_blocked.id];
+    assert_eq!(
+        counts_of(&mut conn, &ends, done_blocked.id),
+        None,
+        "a completed item is not blocked, whatever its blocker is doing"
+    );
+    assert_eq!(
+        counts_of(&mut conn, &ends, open_blocker_of_done.id),
+        None,
+        "and the edge adds nothing to its blocker's `blocks`"
+    );
+
+    // --- the edge stays, marked -------------------------------------------
+    let rels = graph::relationships_for(&mut conn, waiting.id).expect("relationships_for");
+    assert_eq!(
+        rels.incoming
+            .iter()
+            .map(|n| (n.short_code.as_str(), n.done))
+            .collect::<Vec<_>>(),
+        vec![
+            (open_blocker.short_code.as_str(), false),
+            (done_blocker.short_code.as_str(), true),
+        ],
+        "the list keeps BOTH blockers, the completed one marked: {rels:?}"
+    );
+    let from_blocker =
+        graph::relationships_for(&mut conn, open_blocker_of_done.id).expect("relationships_for");
+    assert_eq!(
+        from_blocker
+            .outgoing
+            .iter()
+            .map(|n| (n.short_code.as_str(), n.done))
+            .collect::<Vec<_>>(),
+        vec![(done_blocked.short_code.as_str(), true)],
+        "read from the blocker, the completed blocked item is marked too"
+    );
+
+    // --- an archived blocker: unchanged (KAIROS-T-0158) ---------------------
+    let archived_blocker = task(&mut conn, "Archived blocker", active);
+    let waits_on_archived = task(&mut conn, "Waits on archived work", todo);
+    link(&mut conn, archived_blocker.id, waits_on_archived.id);
+    let archived_pair = [archived_blocker.id, waits_on_archived.id];
+    assert_eq!(
+        counts_of(&mut conn, &archived_pair, waits_on_archived.id),
+        Some((1, 0))
+    );
+    diesel::update(schema::tasks::table.find(archived_blocker.id))
+        .set(schema::tasks::deleted_at.eq(diesel::dsl::now))
+        .execute(&mut conn)
+        .expect("archiving the blocker");
+    assert_eq!(
+        counts_of(&mut conn, &archived_pair, waits_on_archived.id),
+        None,
+        "an archived blocker never counts, exactly as before"
+    );
+    let rels = graph::relationships_for(&mut conn, waits_on_archived.id).expect("rels");
+    assert_eq!(
+        rels.incoming
+            .iter()
+            .map(|n| (n.archived_at.is_some(), n.done))
+            .collect::<Vec<_>>(),
+        vec![(true, false)],
+        "archived and done are separate marks: this one was archived in Active"
+    );
+
+    // --- the blocker moves OUT of the terminal column: the count returns ----
+    // The default delivery graph has no way out of Completed, so the board
+    // gains one. Whether work may be reopened is the board's decision; the
+    // count only follows the column.
+    boards::add_transition(&mut conn, delivery, completed, active, alice)
+        .expect("the board permits Completed -> Active");
+    boards::transition_task(&mut conn, done_blocker.id, active, alice)
+        .expect("reopening the blocker");
+    assert_eq!(
+        counts_of(&mut conn, &trio, waiting.id),
+        Some((2, 0)),
+        "the reopened blocker blocks again: nothing was stored"
+    );
+    assert_eq!(
+        counts_of(
+            &mut conn,
+            &[done_blocker.id, only_done_blocker.id],
+            only_done_blocker.id
+        ),
+        Some((1, 0))
+    );
+    // done_blocker -> waiting, only_done_blocker: open. -> done_blocked:
+    // still resolved, because THAT end is still in Completed.
+    assert_eq!(
+        counts_of(&mut conn, &[done_blocker.id], done_blocker.id),
+        Some((0, 2)),
+        "it blocks the two open items, not the completed one"
+    );
+
+    // --- the FLAG decides, never the name -----------------------------------
+    // Unmark the column and everything in "Completed" is open work again.
+    boards::set_column_done(&mut conn, completed, false, alice).expect("unmarking Completed");
+    assert_eq!(
+        counts_of(&mut conn, &ends, done_blocked.id),
+        Some((2, 0)),
+        "a column named Completed without the flag is not terminal"
+    );
+    assert_eq!(
+        counts_of(&mut conn, &ends, open_blocker_of_done.id),
+        Some((0, 1))
+    );
+    // And mark a column with an ordinary name: its cards are done.
+    boards::set_column_done(&mut conn, active, true, alice).expect("marking Active done");
+    assert_eq!(
+        counts_of(&mut conn, &pair, waiting.id),
+        None,
+        "both of its live blockers now sit in a done-flagged column"
+    );
+    boards::set_column_done(&mut conn, active, false, alice).expect("unmarking Active");
+
+    // --- an item with no column does not break the query --------------------
+    // `blocks` only runs between workflow items, so `link_items` refuses
+    // this edge; the row is written directly to prove the LEFT JOINs hold
+    // for an off-board ADR. No column means not terminal.
+    let off_board = items::create_adr(
+        &mut conn,
+        CreateAdr {
+            board_id: None,
+            column_id: None,
+            title: "Off-board decision",
+            content: "",
+            decision_maker: None,
+            decision_date: None,
+        },
+        alice,
+    )
+    .expect("off-board ADR");
+    diesel::insert_into(schema::item_relationships::table)
+        .values(NewItemRelationship {
+            source_id: off_board.id,
+            target_id: open_blocker.id,
+            relationship: RelationshipType::Blocks,
+        })
+        .execute(&mut conn)
+        .expect("writing the edge directly");
+    let with_adr = [off_board.id, open_blocker.id];
+    assert_eq!(
+        counts_of(&mut conn, &with_adr, off_board.id),
+        Some((0, 1)),
+        "an item with no column is treated as not terminal"
+    );
+    assert_eq!(
+        counts_of(&mut conn, &with_adr, open_blocker.id),
+        Some((1, 1))
+    );
+
+    drop(conn);
+    sql_query(format!("DROP DATABASE IF EXISTS {DONE_DB} WITH (FORCE)"))
+        .execute(&mut admin_conn)
+        .expect("dropping scratch database after test");
 }

@@ -169,7 +169,9 @@ pub fn router(state: AppState) -> Router {
     // An EMPTY router when it is off, rather than an Option, so the merge below is
     // unconditional and there is no second assembly path to keep in step.
     let local_auth = if state.config.local_auth {
+        // COLLIERY-T-0256: no auth, but the rule of the inputs applies.
         crate::login::router()
+            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
     } else {
         Router::new()
     };
@@ -179,6 +181,9 @@ pub fn router(state: AppState) -> Router {
     // is off — there are no local accounts to administer.
     let local_accounts = if state.config.local_auth {
         crate::api::local_accounts::router()
+            // COLLIERY-T-0256: added first, so it runs last, after the auth
+            // and the tenant. See crate::input.
+            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
             .route_layer(axum_middleware::from_fn_with_state(
                 state.clone(),
                 tenant::require_tenant,
@@ -207,7 +212,10 @@ pub fn router(state: AppState) -> Router {
         // the CI artifact is the unauthenticated copy (module docs).
         .merge(crate::api::openapi::router(state.config.dev_ui))
         // route_layer wraps bottom-up: the auth layer (added last) runs
-        // first, then tenant — the A-0010 ordering.
+        // first, then tenant — the A-0010 ordering. The layer of
+        // COLLIERY-T-0256 runs after the two: it refuses a query parameter
+        // or a body that the route does not accept (crate::input).
+        .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
             tenant::require_tenant,
@@ -223,6 +231,9 @@ pub fn router(state: AppState) -> Router {
     // developed endpoint tasks register at distinct anchors.
     let protected = protected.merge(
         crate::api::meta::router()
+            // COLLIERY-T-0256: added first, so it runs last, after the auth
+            // and the tenant. See crate::input.
+            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
             .route_layer(axum_middleware::from_fn_with_state(
                 state.clone(),
                 tenant::require_tenant,
@@ -238,6 +249,9 @@ pub fn router(state: AppState) -> Router {
     // is token-authed and mounted separately below).
     let protected = protected.merge(
         crate::scim::tokens_router()
+            // COLLIERY-T-0256: added first, so it runs last, after the auth
+            // and the tenant. See crate::input.
+            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
             .route_layer(axum_middleware::from_fn_with_state(
                 state.clone(),
                 tenant::require_tenant,
@@ -253,6 +267,9 @@ pub fn router(state: AppState) -> Router {
     // mints authenticate via the branch in require_auth (KAIROS-T-0058).
     let protected = protected.merge(
         crate::service_accounts::router()
+            // COLLIERY-T-0256: added first, so it runs last, after the auth
+            // and the tenant. See crate::input.
+            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
             .route_layer(axum_middleware::from_fn_with_state(
                 state.clone(),
                 tenant::require_tenant,
@@ -284,6 +301,10 @@ pub fn router(state: AppState) -> Router {
         // authenticity — so this mounts OUTSIDE the auth → tenant stack.
         // Non-/api by design (invisible to the openapi route scanner).
         .merge(crate::forge::webhook::router())
+        // COLLIERY-T-0256: the three probe routes below do not have the rule
+        // of the inputs. A probe of docker, tailscale or a load balancer is
+        // not a client of the API, and a refusal there makes a healthy server
+        // look dead.
         .route("/healthz", get(|| async { "ok" }))
         // KAIROS-T-0049 (A-0013): readiness + Prometheus scrape, both
         // unauthenticated by convention and mounted OUTSIDE the auth stack

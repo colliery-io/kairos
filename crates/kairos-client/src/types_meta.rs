@@ -39,6 +39,16 @@ pub struct RelatedItem {
     /// auditor mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// `true` when this neighbour sits in a terminal column (a column the
+    /// board marks `is_done`); absent otherwise (COLLIERY-T-0214). Done
+    /// work does not block and is not blocked, so a `blocks` edge to a
+    /// done neighbour is history, not an open blocker: the board's
+    /// `blocks_summary` does not count it. The edge still comes back
+    /// here, because the list is the record, and every renderer of a
+    /// `blocks` neighbour must show this marker. It follows the
+    /// neighbour's current column; nothing is stored.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub done: bool,
 }
 
 /// All of an item's neighbors under ONE relationship type in one direction.
@@ -80,7 +90,13 @@ pub struct ChildrenProgressResponse {
     pub done: i64,
     /// False when no board hosting the children has a done-flagged
     /// column — show composition only, never a done fraction.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `has_done_columns`, and it
+    /// reads as `false`.
     #[serde(default)]
+    #[schema(required = true)]
     pub has_done_columns: bool,
     /// Per-column composition, board-then-position order.
     pub by_column: Vec<ChildColumnProgress>,
@@ -98,8 +114,10 @@ pub struct ChildColumnProgress {
     pub count: i64,
 }
 
-/// Body of `POST /api/relationships` (org admin only, KAIROS-A-0006).
+/// Body of `POST /api/relationships`. The caller may edit the item at
+/// either end (the link rule, COLLIERY-T-0228).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRelationshipRequest {
     /// Short code of the edge's source item (KAIROS-A-0001 orientation).
     pub source_short_code: String,
@@ -157,6 +175,7 @@ pub struct ItemMetadataResponse {
 /// (KAIROS-A-0003: enum membership, date parse, string passthrough) and
 /// upserted; `null` clears the value. Unknown slugs are 422 `VALIDATION`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateMetadataRequest {
     /// Definition slug → new value (`null` removes the value).
     pub values: BTreeMap<String, Option<String>>,
@@ -182,7 +201,13 @@ pub struct MetadataDefinition {
     /// Entity types this definition applies to (KAIROS-T-0078):
     /// `strategy|initiative|task|document|adr`. EMPTY = applies to every
     /// type. Enforced on the write paths, not just rendering.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `entity_types`, and it reads as
+    /// an empty list.
     #[serde(default)]
+    #[schema(required = true)]
     pub entity_types: Vec<String>,
     /// RFC 3339.
     pub created_at: String,
@@ -192,6 +217,7 @@ pub struct MetadataDefinition {
 
 /// Body of `POST /api/metadata-definitions` (org admin).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateMetadataDefinitionRequest {
     pub name: String,
     pub slug: String,
@@ -210,6 +236,7 @@ pub struct CreateMetadataDefinitionRequest {
 /// fields are unchanged; `enum_options` replaces the full option list
 /// (enum definitions only).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateMetadataDefinitionRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -285,6 +312,7 @@ pub struct TemplateDetail {
 
 /// One template ↔ metadata-definition association in a template write.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateMetadataEntry {
     /// Slug of an existing metadata definition.
     pub definition_slug: String,
@@ -297,6 +325,7 @@ pub struct TemplateMetadataEntry {
 
 /// Body of `POST /api/templates` (org admin).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTemplateRequest {
     pub name: String,
     pub slug: String,
@@ -311,6 +340,7 @@ pub struct CreateTemplateRequest {
 /// Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are
 /// unchanged; `metadata` replaces the full association list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTemplateRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -365,6 +395,7 @@ pub struct HistorySnapshot {
 /// Query of `GET /api/{entity_type}/{short_code}/history`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct HistoryQuery {
     /// Return this version's full snapshot instead of the version list.
     #[serde(default)]
@@ -404,6 +435,7 @@ pub struct ActivityEntry {
 /// Query of `GET /api/activity` (S-0005: all filters combinable).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct ActivityQuery {
     /// Filter: activity for a specific entity (UUID).
     #[serde(default)]
@@ -455,6 +487,7 @@ mod tests {
                     entity_type: "task".into(),
                     title: "t".into(),
                     archived_at: None,
+                    done: false,
                 }],
             }],
             incoming: vec![],
@@ -475,5 +508,86 @@ mod tests {
                 .is_none(),
             "a live neighbour must not carry an archived marker: {value}"
         );
+        // The same for `done` (COLLIERY-T-0214): absent unless the
+        // neighbour sits in a terminal column, and `true` when it does.
+        assert!(
+            value["outgoing"][0]["items"][0].get("done").is_none(),
+            "an open neighbour must not carry a done marker: {value}"
+        );
+        let mut done = response.clone();
+        done.outgoing[0].items[0].done = true;
+        let value = serde_json::to_value(&done).expect("serializes");
+        assert_eq!(value["outgoing"][0]["items"][0]["done"], true);
+        let decoded: ItemRelationshipsResponse =
+            serde_json::from_value(value).expect("deserializes");
+        assert_eq!(decoded, done);
+    }
+
+    /// The names in the `required` list of a schema.
+    fn required_of(schema: impl serde::Serialize) -> Vec<String> {
+        let schema = serde_json::to_value(schema).expect("serializes");
+        schema["required"]
+            .as_array()
+            .expect("the schema has a `required` list")
+            .iter()
+            .filter_map(|name| name.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// COLLIERY-T-0254, the schema half: the server sends
+    /// `has_done_columns` in each response, so the schema lists it as
+    /// required.
+    #[test]
+    fn children_progress_schema_requires_has_done_columns() {
+        use utoipa::PartialSchema;
+        let required = required_of(ChildrenProgressResponse::schema());
+        assert!(
+            required.iter().any(|name| name == "has_done_columns"),
+            "`has_done_columns` must be required: {required:?}"
+        );
+    }
+
+    /// COLLIERY-T-0254, the read half: a response of an older server has
+    /// no `has_done_columns`, and it reads as `false`.
+    #[test]
+    fn children_progress_without_has_done_columns_deserializes() {
+        let progress: ChildrenProgressResponse = serde_json::from_value(serde_json::json!({
+            "short_code": "ACME-I-0001",
+            "total": 2,
+            "done": 1,
+            "by_column": []
+        }))
+        .expect("a rollup with no `has_done_columns` deserializes");
+        assert!(!progress.has_done_columns);
+    }
+
+    /// COLLIERY-T-0254, the schema half: the server sends `entity_types`
+    /// in each response, so the schema lists it as required.
+    #[test]
+    fn metadata_definition_schema_requires_entity_types() {
+        use utoipa::PartialSchema;
+        let required = required_of(MetadataDefinition::schema());
+        assert!(
+            required.iter().any(|name| name == "entity_types"),
+            "`entity_types` must be required: {required:?}"
+        );
+    }
+
+    /// COLLIERY-T-0254, the read half: a response of an older server has
+    /// no `entity_types`, and it reads as an empty list.
+    #[test]
+    fn metadata_definition_without_entity_types_deserializes() {
+        let definition: MetadataDefinition = serde_json::from_value(serde_json::json!({
+            "id": "d",
+            "name": "Priority",
+            "slug": "priority",
+            "field_type": "enum",
+            "is_system_default": true,
+            "enum_options": ["high", "low"],
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .expect("a definition with no `entity_types` deserializes");
+        assert!(definition.entity_types.is_empty());
     }
 }

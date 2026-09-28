@@ -16,9 +16,9 @@ to one owning team.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `team` | path | yes | `string`, nullable | Only this team's repositories (UUID or slug). |
-| `forge` | path | yes | `string`, nullable | With `name`: the ONE repository registered under this forge (`github|gitlab|other`) and full name — how a checkout matches its git remote (KAIROS-T-0116). Returns an empty list when unknown. |
-| `name` | path | yes | `string`, nullable | `owner/repo`, paired with `forge`. |
+| `team` | query | no | `string` | Only this team's repositories (UUID or slug). |
+| `forge` | query | no | `string` | With `name`: the ONE repository registered under this forge (`github|gitlab|other`) and full name — how a checkout matches its git remote (KAIROS-T-0116). Returns an empty list when unknown. |
+| `name` | query | no | `string` | `owner/repo`, paired with `forge`. |
 
 | Response | Body | Meaning |
 |---|---|---|

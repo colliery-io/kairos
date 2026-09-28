@@ -35,6 +35,8 @@ thiserror = { workspace = true }
 uuid = { workspace = true, features = ["serde"] }
 jsonwebtoken = { workspace = true }
 reqwest = { workspace = true }
+# COLLIERY-T-0236: `set-password` asks on the terminal with the echo off.
+rpassword = "7.5.4"
 # SCIM provisioning (KAIROS-T-0025, A-0016): token secrets are 32 random
 # bytes, stored as SHA-256 hex. Versions match what the lockfile already
 # carries transitively.

@@ -100,17 +100,17 @@ pub fn AdminPage() -> impl IntoView {
 fn NotAdminGate(role: String) -> impl IntoView {
     view! {
         <PageHeader title="Admin" sub="organization administration"/>
-        <Panel title="Admin access required" caption="not authorized">
+        <Panel title="Admin access required" caption="You do not have access.">
             <Stack gap="sm">
                 <Text>
-                    "Organization administration needs the "<b>"admin"</b>
-                    " role, or a board-scoped "<b>"configure_boards"</b>" / "
-                    <b>"administer_members"</b>" grant; you are signed in as a "
-                    <b>{role}</b>" with no such grants."
+                    "To administer the organization, you must have the role "<b>"admin"</b>
+                    ", or the grant "<b>"configure_boards"</b>" or "
+                    <b>"administer_members"</b>" on a board. Your role is "
+                    <b>{role}</b>", and you have no such grant."
                 </Text>
                 <Text dimmed=true size="sm">
-                    "Ask an organization admin to grant you a board capability
-                     if you need to configure a specific board here."
+                    "To configure a board here, ask an organization admin for a
+                     capability on that board."
                 </Text>
                 <Anchor href="/boards">"Back to boards"</Anchor>
             </Stack>
@@ -235,16 +235,16 @@ pub fn AdminHomePage() -> impl IntoView {
                         "Teams and their members; creating a team also creates its \
                          delivery board.")}
                     {card("/admin/streams", "Delivery streams",
-                        "Delivery streams and which teams feed them.")}
+                        "The delivery streams, and the teams of each stream.")}
                     {card("/admin/repositories", "Repositories",
                         "The codebases that tasks link to — one owning team each — \
                          and their forge webhooks.")}
                     {card("/admin/members", "Organization members",
-                        "Who belongs to this organization, and who is an admin.")}
+                        "The members of this organization, and its admins.")}
                     {card("/admin/templates", "Templates",
-                        "Document templates and the metadata fields they stamp.")}
+                        "The document templates, and the metadata fields that they give.")}
                     {card("/admin/metadata", "Metadata definitions",
-                        "Typed metadata fields (string, enum, date) items can carry.")}
+                        "The typed metadata fields (string, enum, date) that an item can have.")}
                 </>
             });
             view! {

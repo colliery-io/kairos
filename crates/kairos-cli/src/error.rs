@@ -192,7 +192,7 @@ mod tests {
     fn forbidden_deployment_admin_hint() {
         let err: CliError = ApiError::Forbidden {
             code: "FORBIDDEN".into(),
-            message: "this action requires deployment-admin privileges".into(),
+            message: "This action requires a deployment admin.".into(),
             capability: None,
             details: serde_json::json!({"required": "deployment_admin"}),
         }
@@ -209,7 +209,7 @@ mod tests {
     fn conflict_renders_current_version_guidance() {
         let err: CliError = ApiError::Conflict {
             code: "CONFLICT".into(),
-            message: "version mismatch: expected 1, current is 4".into(),
+            message: "The request has the version 1, and the current version is 4.".into(),
             current: serde_json::json!({"version": 4, "title": "Newer title"}),
             details: serde_json::json!({"current": {"version": 4}}),
         }

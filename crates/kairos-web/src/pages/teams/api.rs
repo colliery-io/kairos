@@ -65,10 +65,9 @@ pub struct BoardRef {
     pub slug: String,
 }
 
-/// `GET /api/teams`.
+/// `GET /api/teams`: each live team, page after page (COLLIERY-T-0257).
 pub async fn list_teams(auth: Auth) -> Result<Vec<Team>, ApiError> {
-    let envelope: ListEnvelope<Team> = get_json(auth, &format!("/api/teams?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/teams").await
 }
 
 /// `GET /api/teams/{id}/members`.

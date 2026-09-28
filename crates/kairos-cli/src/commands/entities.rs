@@ -594,7 +594,39 @@ pub fn emit_deleted(common: &Common, response: &DeleteResponse) -> Result<(), Cl
             response.cascaded_short_codes.join(", ")
         );
     }
+    // COLLIERY-T-0234: the archive stops at a descendant that the caller
+    // cannot edit. Each one that stays is named, with the reason.
+    for line in not_reached_lines(&response.not_reached) {
+        println!("{line}");
+    }
     Ok(())
+}
+
+/// The lines of `delete` for the descendants that the archive did not
+/// reach (COLLIERY-T-0234). No line when the archive reached each one, so
+/// that output is as it was.
+fn not_reached_lines(items: &[kairos_client::types::NotReached]) -> Vec<String> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![format!(
+        "  not archived ({}): they stay live and keep their parent",
+        items.len()
+    )];
+    for item in items {
+        let reason = match (&item.below, &item.required_capability, &item.board_id) {
+            (Some(stop), _, _) => format!("it is below {stop}"),
+            (None, Some(capability), Some(board)) => {
+                format!("you need {capability} on board {board}")
+            }
+            (None, Some(capability), None) => {
+                format!("it has no board for {capability}; ask an organization admin")
+            }
+            (None, None, _) => "you cannot edit it".to_string(),
+        };
+        lines.push(format!("    {}: {reason}", item.short_code));
+    }
+    lines
 }
 
 // ---------------------------------------------------------------------------
@@ -975,6 +1007,37 @@ entity_family_cli!(
 mod tests {
     use super::*;
     use crate::error::EXIT_FAILURE;
+
+    /// COLLIERY-T-0234: `delete` names each descendant that stays, with
+    /// the reason, and prints no line when none stays.
+    #[test]
+    fn delete_names_what_the_archive_did_not_reach() {
+        use kairos_client::types::NotReached;
+
+        assert!(not_reached_lines(&[]).is_empty());
+        let lines = not_reached_lines(&[
+            NotReached {
+                short_code: "ACME-I-0002".into(),
+                required_capability: Some("manage_initiatives".into()),
+                board_id: Some("b-1".into()),
+                below: None,
+            },
+            NotReached {
+                short_code: "ACME-T-0009".into(),
+                required_capability: None,
+                board_id: None,
+                below: Some("ACME-I-0002".into()),
+            },
+        ]);
+        assert_eq!(
+            lines,
+            vec![
+                "  not archived (2): they stay live and keep their parent".to_string(),
+                "    ACME-I-0002: you need manage_initiatives on board b-1".to_string(),
+                "    ACME-T-0009: it is below ACME-I-0002".to_string(),
+            ]
+        );
+    }
 
     /// The edit flow's request building: flags merge over the fetched
     /// current entity; `--version` overrides the fetched version; no flags

@@ -244,12 +244,14 @@ async fn entity_endpoints_against_live_stack() {
         .execute(&mut conn)
         .expect("pinning seeding connection to the tenant schema");
     // Delivery boards are per-team, created post-provisioning (A-0002).
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut conn, "Delivery Team", "delivery-team");
     kairos_db::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("creating the delivery board");
@@ -603,7 +605,7 @@ async fn entity_endpoints_against_live_stack() {
             // UUIDs, and should — it is telling the reader both forms are
             // accepted, which is the opposite of sending them to look one up.
             assert!(
-                message.contains("slug or UUID"),
+                message.contains("the slug or the id"),
                 "the refusal should say both forms are accepted: {message}"
             );
         }

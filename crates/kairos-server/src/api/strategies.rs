@@ -1,7 +1,7 @@
 //! `/api/strategies` (KAIROS-S-0005) — the reference implementation of the
 //! T-0018 handler pattern; see [`super`] for the shared conventions.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -16,10 +16,12 @@ use serde_json::json;
 use super::convert::IntoDto;
 use super::{
     Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, parse_opt_uuid,
-    parse_uuid, require_capability, short_code_not_found,
+    parse_uuid, require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -83,7 +85,7 @@ fn load(
 pub(crate) async fn list_strategies(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Strategy>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
@@ -162,7 +164,7 @@ pub(crate) async fn create_strategy(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateStrategyRequest>,
+    ApiJson(body): ApiJson<dto::CreateStrategyRequest>,
 ) -> Result<(StatusCode, Json<dto::Strategy>), ApiError> {
     // KAIROS-T-0150: `board_id` takes a slug or a UUID, so resolution needs a
     // connection and moves inside the closure.
@@ -192,8 +194,10 @@ pub(crate) async fn create_strategy(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update strategy content (KAIROS-A-0004 optimistic concurrency; requires
-/// `manage_strategies` on the strategy's board).
+/// Update strategy content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// strategy, holds `manage_strategies` on its board, or is an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/strategies/{short_code}",
@@ -202,7 +206,7 @@ pub(crate) async fn create_strategy(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Strategy),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -212,7 +216,7 @@ pub(crate) async fn update_strategy(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Strategy>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -220,7 +224,7 @@ pub(crate) async fn update_strategy(
         .blocking
         .run(&tenant.slug, move |conn| {
             let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(strategy.board_id), user, MANAGE)?;
+            require_item_edit(conn, &slug, user, strategy.id, ItemType::Strategy)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -235,7 +239,9 @@ pub(crate) async fn update_strategy(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }
@@ -247,7 +253,15 @@ pub(crate) async fn update_strategy(
 }
 
 /// Soft-delete a strategy, cascading to its `parent` descendants
-/// (KAIROS-A-0001; requires `manage_strategies` on the strategy's board).
+/// (KAIROS-A-0001).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// strategy, holds `manage_strategies` on its board, or is an organization admin.
+///
+/// The cascade applies the same rule to each descendant
+/// (COLLIERY-T-0234). It archives a descendant that the caller can edit.
+/// It stops at a descendant that the caller cannot edit, and archives
+/// nothing below it. `not_reached` names each descendant that stays.
 #[utoipa::path(
     delete,
     path = "/api/strategies/{short_code}",
@@ -255,7 +269,7 @@ pub(crate) async fn update_strategy(
     params(("short_code" = String, Path, description = "Strategy short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -271,14 +285,11 @@ pub(crate) async fn delete_strategy(
         .blocking
         .run(&tenant.slug, move |conn| {
             let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, Some(strategy.board_id), user, MANAGE)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Strategy, strategy.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the strategy, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome =
+                super::cascade::archive_item(conn, &slug, user, strategy.id, ItemType::Strategy)?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))
@@ -286,6 +297,7 @@ pub(crate) async fn delete_strategy(
 
 /// Move a strategy to another column (requires `transition_items` on the
 /// strategy's board; the move must exist in the board's transition graph).
+/// The creator of the strategy gets no right here (COLLIERY-T-0228).
 #[utoipa::path(
     post,
     path = "/api/strategies/{short_code}/transition",
@@ -304,7 +316,7 @@ pub(crate) async fn transition_strategy(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::TransitionRequest>,
+    ApiJson(body): ApiJson<dto::TransitionRequest>,
 ) -> Result<Json<dto::Strategy>, ApiError> {
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
@@ -313,6 +325,9 @@ pub(crate) async fn transition_strategy(
         .blocking
         .run(&tenant.slug, move |conn| {
             let strategy = load(conn, &short_code, Liveness::LiveOnly)?;
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(
                 conn,
                 &slug,

@@ -142,6 +142,13 @@ pub struct ItemDetail {
     /// Entity UUID — the `activity_log` filter key, so the banner can name
     /// WHO put the item away (KAIROS-T-0164).
     pub id: String,
+    /// The user id of the creator of the item. The creator may edit the
+    /// item with no capability on its board (COLLIERY-T-0228), so the page
+    /// needs it to show the edit controls to the right person. Each of the
+    /// five DTOs carries it; the default is for a body that does not, and
+    /// an empty id matches nobody.
+    #[serde(default)]
+    pub created_by: String,
     pub updated_at: String,
     // -- per-type extras --------------------------------------------------
     #[serde(default)]
@@ -289,6 +296,12 @@ pub struct RelatedItem {
     /// field is not enough; the mirror has to want it.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// `true` when this neighbour sits in a terminal column; **absent
+    /// otherwise** (COLLIERY-T-0214). Done work does not block and is not
+    /// blocked, so the panel marks a done neighbour on a `blocks` edge:
+    /// without the mark a finished blocker reads as one still in the way.
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// mirror of: `kairos_client::types_meta::Template` (partial).
@@ -322,6 +335,21 @@ pub struct TemplateField {
     pub required: bool,
 }
 
+/// mirror of: `kairos_client::types::NotReached` (COLLIERY-T-0234): one
+/// live descendant that an archive does not reach. It has one reason: the
+/// capability that the caller does not hold, or the item above it where
+/// the archive stopped.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct NotReached {
+    pub short_code: String,
+    #[serde(default)]
+    pub required_capability: Option<String>,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
+    pub below: Option<String>,
+}
+
 /// mirror of: `kairos_client::types::DeleteResponse` (the A-0001 soft
 /// delete + cascade report).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -330,6 +358,9 @@ pub struct DeleteOutcome {
     pub cascade_count: i64,
     #[serde(default)]
     pub cascaded_short_codes: Vec<String>,
+    /// Absent when the archive reached each descendant (COLLIERY-T-0234).
+    #[serde(default)]
+    pub not_reached: Vec<NotReached>,
 }
 
 /// mirror of: `kairos_client::types::CascadePreviewResponse` (KAIROS-T-0051
@@ -342,6 +373,10 @@ pub struct CascadePreview {
     pub cascade_count: i64,
     #[serde(default)]
     pub cascaded_short_codes: Vec<String>,
+    /// What an archive by the signed-in user would leave
+    /// (COLLIERY-T-0234). Absent when it would leave nothing.
+    #[serde(default)]
+    pub not_reached: Vec<NotReached>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1050,7 +1085,8 @@ mod tests {
         let full = serde_json::json!({
             "error": {
                 "code": "CONFLICT",
-                "message": "version mismatch: expected 2, current is 4",
+                "message": "The request has the version 2, and the current version is 4. \
+                            Get the item again, and make the edit on the current version.",
                 "details": { "current": {
                     "id": "x", "short_code": "DEMO-T-0002",
                     "title": "Their title", "content": "their content",
@@ -1068,7 +1104,7 @@ mod tests {
 
         let minimal = serde_json::json!({
             "error": {
-                "code": "CONFLICT", "message": "version mismatch",
+                "code": "CONFLICT", "message": "The request has the version 2.",
                 "details": { "current": {"version": 7, "title": "t", "content": "c"} }
             }
         });
@@ -1168,6 +1204,28 @@ mod tests {
         );
     }
 
+    /// COLLIERY-T-0214: the same trap, for `done`. The wire carries
+    /// `done: true` for a neighbour in a terminal column and nothing
+    /// otherwise; a mirror without the field compiles and renders a
+    /// finished blocker as one still in the way.
+    #[test]
+    fn related_item_mirror_carries_the_done_marker() {
+        let body = serde_json::json!({
+            "short_code": "DEMO-T-0003",
+            "outgoing": [],
+            "incoming": [{"relationship": "blocks", "items": [
+                {"relationship_id": "e1", "id": "x", "short_code": "DEMO-T-0001",
+                 "entity_type": "task", "title": "Still in the way"},
+                {"relationship_id": "e2", "id": "y", "short_code": "DEMO-T-0002",
+                 "entity_type": "task", "title": "Finished", "done": true}
+            ]}]
+        });
+        let rels: ItemRelationships = serde_json::from_value(body).expect("mirror decodes");
+        let blockers = &rels.incoming[0].items;
+        assert!(!blockers[0].done, "an open blocker is bare");
+        assert!(blockers[1].done, "a completed blocker is marked");
+    }
+
     /// KAIROS-T-0161/T-0164: with `include_removed_columns=true` the board
     /// carries removed columns too, marked — that is how an archived
     /// card's placement keeps its NAME instead of decaying to "unknown
@@ -1213,8 +1271,9 @@ mod tests {
         let blocked = serde_json::json!({
             "error": {
                 "code": "RESTORE_BLOCKED",
-                "message": "DEMO-S-0002 cannot be restored because its board column \
-                            (removed) is gone; move it somewhere that still exists",
+                "message": "The server cannot restore DEMO-S-0002. The item needs its board \
+                            column (removed). Move the item to a place that exists, or \
+                            first restore the thing that the item needs.",
                 "details": {"missing": ["its board column (removed)"]}
             }
         });
@@ -1275,7 +1334,7 @@ pub async fn fetch_edge_proposals(auth: Auth, code: String) -> Result<Vec<EdgePr
 
 /// `POST /api/proposals/{id}/confirm` — create the edge.
 pub async fn confirm_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
-    crate::api::post_json(auth, &format!("/api/proposals/{id}/confirm"), &()).await
+    crate::api::post_empty(auth, &format!("/api/proposals/{id}/confirm")).await
 }
 
 /// One possibly-related item (KAIROS-T-0195).
@@ -1321,5 +1380,5 @@ pub async fn fetch_related_work(auth: Auth, code: String) -> Result<RelatedWork,
 
 /// `POST /api/proposals/{id}/reject` — recorded, not erased.
 pub async fn reject_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
-    crate::api::post_json(auth, &format!("/api/proposals/{id}/reject"), &()).await
+    crate::api::post_empty(auth, &format!("/api/proposals/{id}/reject")).await
 }

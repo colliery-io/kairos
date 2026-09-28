@@ -204,8 +204,8 @@ async fn task_repository_binding_against_live_stack() {
         message.contains("does not choose a board"),
         "and says why the repository was not enough: {message}"
     );
-    // The pre-rename wire field (KAIROS-T-0115) is the same field, so it is
-    // refused alike.
+    // The pre-rename wire field (KAIROS-T-0115) is not a field of the route
+    // any more (COLLIERY-T-0259). The refusal names it.
     let (status, body) = svc
         .raw_request(
             reqwest::Method::POST,
@@ -215,6 +215,7 @@ async fn task_repository_binding_against_live_stack() {
         .await
         .expect("raw create");
     assert_eq!(status, 422, "repository_id alone: {body}");
+    assert_eq!(body["error"]["details"]["field"], "repository_id", "{body}");
     // Nothing at all is the same refusal.
     let err = rejection(svc.create_task(&base).await);
     let message = validation_message(&err);
@@ -298,8 +299,8 @@ async fn task_repository_binding_against_live_stack() {
         .await
         .expect("repo by UUID");
     assert_eq!(by_uuid.board_id, web_board);
-    // The pre-rename wire field is still accepted for one release
-    // (KAIROS-T-0115).
+    // The pre-rename wire field (KAIROS-T-0115) is refused, and the refusal
+    // gives the name that the route accepts (COLLIERY-T-0259).
     let (status, body) = svc
         .raw_request(
             reqwest::Method::POST,
@@ -312,8 +313,15 @@ async fn task_repository_binding_against_live_stack() {
         )
         .await
         .expect("raw create");
-    assert_eq!(status, 201, "repository_id alias on create: {body}");
-    assert_eq!(body["repository"]["slug"], "portal-web");
+    assert_eq!(status, 422, "repository_id on create: {body}");
+    assert_eq!(body["error"]["code"], "VALIDATION", "{body}");
+    assert_eq!(body["error"]["details"]["field"], "repository_id", "{body}");
+    assert!(
+        body["error"]["details"]["allowed"]
+            .as_array()
+            .is_some_and(|allowed| allowed.iter().any(|name| name == "repository")),
+        "the refusal gives `repository` as a field of the route: {body}"
+    );
     assert_eq!(by_uuid.team_id.as_deref(), Some(web.id.as_str()));
 
     // The repository of a DIFFERENT team. Until COLLIERY-T-0217 this was a
@@ -575,7 +583,7 @@ async fn task_repository_binding_against_live_stack() {
         .await
         .expect("search by repository uuid");
     assert_eq!(by_uuid.results.tasks.len(), 4);
-    // The old wire name is still accepted for one release.
+    // The old wire name is refused (COLLIERY-T-0259).
     let (status, body) = svc
         .raw_request(
             reqwest::Method::POST,
@@ -584,7 +592,14 @@ async fn task_repository_binding_against_live_stack() {
         )
         .await
         .expect("raw search");
-    assert_eq!(status, 200, "repository_id alias: {body}");
+    assert_eq!(status, 400, "repository_id in the filter: {body}");
+    assert_eq!(body["error"]["code"], "VALIDATION", "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("repository_id")),
+        "the refusal names the field: {body}"
+    );
     let (status, _) = svc
         .raw_request(
             reqwest::Method::POST,

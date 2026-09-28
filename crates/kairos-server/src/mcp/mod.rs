@@ -40,6 +40,7 @@
 //! state (working board, team, …) is held server-side; agents discover
 //! context via `whoami`/`my_boards` (A-0011 "Session context").
 
+mod arguments;
 mod service;
 mod tools;
 

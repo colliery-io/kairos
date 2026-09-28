@@ -56,8 +56,10 @@ agent does not find the task in its queue.
 - If the agent only needs to find the task, use `search` with the repository
   filter. The filter finds the tasks that link to a repository on all boards.
 
-An agent that has no capability on the target board can read the task. Each
-write gets `FORBIDDEN`.
+An agent that has no capability on the target board can read the task. If the
+agent created the task, it can edit the task, link it and archive it. It
+cannot move the task. If the agent did not create the task, each write gets
+`FORBIDDEN`.
 
 ## Send a request to a different team
 
@@ -78,13 +80,25 @@ Every member of the organization can send a request. The capability is
    | CLI | `kairos tasks create --board <slug\|uuid> --title <title>`, or `--team <uuid>` in place of `--board` |
    | API | `POST /api/tasks` with `{"board_id": "<slug\|uuid>", "title": "…"}`, or `team_id` in place of `board_id` |
    | MCP | `create_item {item_type: "task", board, title}` |
+   | GUI | **New request** on the delivery board of the team |
 
    ```sh
    kairos tasks create --board platform-delivery \
      --title "Bulk invoice export endpoint"
    ```
 
-   The GUI has no control for a request to a board that you do not manage.
+   In the GUI:
+
+   1. Open the delivery board of the team.
+   2. Click **New request**. A board that you manage shows **New task**.
+   3. Type a title.
+   4. Type the content. Say what you need.
+   5. Select the task type.
+   6. Click **Send request**.
+
+   The dialog names the team, the entry column and the lane. It has no
+   control for the lane or the column. A notice on the board gives the short
+   code of the request.
 
 3. If you know where the code is, add the repository. The repository is
    optional, and it does not choose the board.
@@ -94,9 +108,11 @@ Every member of the organization can send a request. The capability is
      --title "Bulk invoice export endpoint"
    ```
 
+   In the GUI, select the repository in the dialog before you send the
+   request. The repositories of the team of the board are first in the list.
+
 4. If the request blocks your work, link it to your task with a `blocks` edge.
-   You created the request, so you can write `parent` and `blocks` edges from
-   it.
+   You created the request, so you can write an edge from it or to it.
 
 The request arrives as support work:
 
@@ -104,8 +120,9 @@ The request arrives as support work:
 - Its work class is `support`, for each task type.
 - It has the team of the board.
 
-You cannot move the request, edit it or delete it. The team that receives it
-does the triage. A member of that team can change the work class to `planned`
+You created the request, so you can edit it and archive it. You cannot move
+it to a different column, lane or board. The team that receives it does the
+triage. A member of that team can change the work class to `planned`
 with
 [`POST /api/tasks/{short_code}/work-class`](../reference/rest/work-items.md).
 
@@ -113,6 +130,8 @@ Do not create a task to ask for the review of a pull request. The git provider
 manages the pull request.
 
 ### When a request is refused
+
+The GUI shows the message of the server in the dialog. The dialog stays open.
 
 | Refusal | Cause | What to do |
 |---|---|---|

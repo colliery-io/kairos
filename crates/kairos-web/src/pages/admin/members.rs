@@ -39,24 +39,26 @@ pub fn AdminMembersPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("{email} added as {role}."),
+            format!("Kairos added {email} as {role}."),
             async move { api::add_org_member(auth, &email, &role).await.map(|_| ()) },
         );
     };
 
     view! {
-        <PageHeader title="Organization members" sub="who belongs here, and who administers it"/>
+        <PageHeader title="Organization members" sub="The members of the organization, \
+                                                      and its admins."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Members"
-                caption="an organization must always retain at least one admin (LAST_ADMIN guard)">
+                caption="An organization must have one admin or more (LAST_ADMIN).">
                 {move || match members.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(list)) if list.is_empty() => view! {
-                        <Empty message="No members — which should be impossible while you can see this."/>
+                        <Empty message="The list of members is empty. This is a fault, \
+                                        because you are a member."/>
                     }.into_any(),
                     Some(Ok(list)) => list.into_iter().map(|member| {
                         let user_id = StoredValue::new(member.user_id);
@@ -71,7 +73,7 @@ pub fn AdminMembersPage() -> impl IntoView {
                             let toggled_email = toggled_email.clone();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{toggled_email} is now a {new_role}."),
+                                format!("The role of {toggled_email} is {new_role}."),
                                 async move {
                                     api::set_org_member_role(auth, &user_id, new_role)
                                         .await
@@ -84,7 +86,7 @@ pub fn AdminMembersPage() -> impl IntoView {
                             let removed_email = removed_email.clone();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{removed_email} removed from the organization."),
+                                format!("Kairos removed {removed_email} from the organization."),
                                 async move {
                                     api::remove_org_member(auth, &user_id).await.map(|_| ())
                                 },
@@ -118,7 +120,8 @@ pub fn AdminMembersPage() -> impl IntoView {
                 }}
             </Panel>
             <Panel title="Add member by email"
-                caption="users are provisioned at first login — an email that has never signed in cannot be added yet">
+                caption="Kairos makes a user at the first login. You cannot add an email \
+                         before its first login.">
                 <Group gap="sm" wrap=true top=true>
                     <TextInput label="Email" value=add_email placeholder="someone@example.com"/>
                     <Select label="Role"

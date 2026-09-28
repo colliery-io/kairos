@@ -73,7 +73,7 @@ journey(
       // Identities are JIT-provisioned at first login, so "add the person"
       // is always second: the product says so instead of inventing a row.
       const said = `${result.stderr}${result.stdout}`;
-      expect(said).toContain('log in once');
+      expect(said).toContain('log in one time');
       return { email, exit_code: result.code, told: said.replace(/\s+/g, ' ').trim().slice(0, 140) };
     });
 
@@ -139,7 +139,7 @@ journey(
           .locator('.cl-switch').first().click();
       }
       await members.getByRole('button', { name: 'Add member with grants' }).click();
-      await expect(page.getByText(`${joiner.credentials.email} added with`)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(`Kairos added ${joiner.credentials.email} with`)).toBeVisible({ timeout: 10_000 });
       const api = await alice.api();
       ledger.add({
         kind: 'board-grant',
@@ -193,6 +193,10 @@ journey(
       // so the refusal is the plain one: it names the capability that
       // membership used to imply, and it does not name the Backlog. Until
       // COLLIERY-T-0218 it said that the card "sits in the Backlog".
+      //
+      // COLLIERY-T-0228: the power to MOVE was the membership, and it is
+      // gone. He created the card, so he can still edit its text. Creation
+      // grants no movement, which is what this step proves.
       expect(refused).toContain('FORBIDDEN');
       expect(refused).toContain('transition_items');
       expect(refused).not.toContain('Backlog');

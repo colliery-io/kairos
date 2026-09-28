@@ -25,6 +25,10 @@ else is refused at grant time.
 | `configure_boards` | Add, rename, reorder and remove columns and transitions |
 | `administer_members` | Add and remove board members, and grant and revoke their capabilities |
 
+A `manage_<type>` capability gates the create of an item on the board. For an
+edit or a delete, the capability is one of three ways in: see
+[The edit rule](#the-edit-rule).
+
 ### Templates and metadata definitions are not delegable
 
 Writes to document templates and metadata definitions are **org-admin only**,
@@ -36,7 +40,7 @@ The reason is structural rather than an oversight. A grant is a
 `(board, user, capability)` triple, and neither templates nor metadata
 definitions belong to a board — they are tenant-wide, scoped at most by item
 type. So "configure metadata on this board" could only ever have meant "edit
-definitions that affect every board", which is the authority an org admin already
+definitions that affect every board", which is the authority an organization admin already
 has. Delegating it properly would mean scoping those resources to boards first.
 
 If you granted either capability, nothing changes for the grantee: the grant
@@ -105,7 +109,7 @@ cannot carry them; grant and revoke refuse them. `whoami` reports them under
 
 | Capability | How it is satisfied |
 |---|---|
-| `file_backlog` | Every member of the tenant holds it on every live **delivery** board. It permits a request to any team: a **task** in the entry column of its delivery board, in the support lane. The server consults it only when the caller does not hold `manage_tasks` on the board. The work class of a request is `support`. The server refuses a request that sends the work class `planned`. The server refuses a request that names a column that is not the entry column. The repository is optional. It is not part of the condition. The capability does not permit a move, an edit, or a delete of the request. |
+| `file_backlog` | Every member of the tenant holds it on every live **delivery** board. It permits a request to any team: a **task** in the entry column of its delivery board, in the support lane. The server consults it only when the caller does not hold `manage_tasks` on the board. The work class of a request is `support`. The server refuses a request that sends the work class `planned`. The server refuses a request that names a column that is not the entry column. The repository is optional. It is not part of the condition. The capability permits the create only. The person who sends a request created it, so the [edit rule](#the-edit-rule) lets that person edit it and archive it. No rule lets that person move it. |
 
 Two further implications are computed the same way — by the authorisation
 check rather than by a stored row:
@@ -132,7 +136,11 @@ Authorisation needs a board, and not every item carries one directly.
 
 **When no board resolves, the org-admin-only policy applies.** That is the
 fallback for an off-board ADR, a document with no resolvable parent, and
-tenant-wide configuration.
+tenant-wide configuration. For an edit, the creator of the item also passes:
+see [The edit rule](#the-edit-rule).
+
+An archived parent is a parent. It gives the document the board that it gave
+while it was live.
 
 **An archived item resolves the same board, and therefore the same
 capabilities, as it did while live.** Archiving is a visibility default and
@@ -140,14 +148,165 @@ not a permission boundary, so putting work away neither widens nor narrows who
 may act on it — the write paths refuse archived items on their own, separately
 from authorisation. See [Archiving](../explanation/archiving.md).
 
-## Relationship edges
+## The edit rule
 
-Writing a relationship is org-admin by default, with one exception.
+A principal is a person or a service account. A principal can edit an item
+when one of these conditions is true:
 
-| Relationship | Who may write it |
+1. The principal created the item.
+2. The principal holds the `manage_<type>` capability on the authorization
+   board of the item.
+3. The principal is an organization admin.
+
+The rule applies to each item type: strategy, initiative, task, document, ADR.
+
+Creation is the primary mechanism of ownership. The server reads who created
+the item, and does not read where the item is. If a team moves the item to a
+different board, its creator can continue to edit it.
+
+### A document with no parent
+
+A document has no board. Its authorization board is the board of its earliest
+`supports` parent. See [the board of each item](#how-a-board-is-resolved).
+
+A document with no parent has no authorization board. Condition 2 cannot be
+true for it. Only its creator and an organization admin can edit it.
+
+The server does not make a document with no parent: see
+[A document always has a parent](#a-document-always-has-a-parent). A tenant
+can have one from a release up to and including 0.4.0.
+
+### What an edit is
+
+| Write | REST | MCP tool |
+|---|---|---|
+| Title and content | `PATCH /api/{type}/{short_code}` | `update_item`, `edit_item` |
+| Metadata | `PATCH /api/{type}/{short_code}/metadata` | `set_metadata` |
+| Repository of a task | `PUT /api/tasks/{short_code}/repository` | `set_repository` |
+| Lifecycle of a document | `PATCH /api/documents/{short_code}/lifecycle` | — |
+| Archive | `DELETE /api/{type}/{short_code}` | `delete_item` |
+| Restore | `POST /api/{type}/{short_code}/restore` | `restore_item` |
+
+### An archive applies the rule to each descendant
+
+An archive cascades through `parent` edges. The server applies the edit rule
+to the named item, and then to each descendant. The rule is for the caller of
+the archive.
+
+| Item | The caller can edit it | The caller cannot edit it |
+|---|---|---|
+| The named item | The server archives it. | The server refuses the archive with `FORBIDDEN`. Nothing changes. |
+| A descendant | The server archives it, if the caller can edit each item between it and the named item. | The archive stops there. The descendant stays live, and each item below it stays live. |
+
+A descendant that stays keeps its `parent` edge. The archive removes no edge.
+
+The response has `not_reached`: one entry for each live descendant that stays.
+An entry has one of two reasons:
+
+| Field | Meaning |
 |---|---|
-| `parent`, `blocks` | An org admin, **or** a member who manages the source's board, **or** a member who manages the target's board, **or** the user who created the source item |
-| `supports`, `informs`, `supersedes` | Org admin only |
+| `required_capability`, `board_id` | The caller cannot edit this descendant. The caller did not create it, and does not hold this capability on this board. `board_id` is absent when the descendant has no authorization board. |
+| `below` | This descendant is below the item with this short code, where the archive stopped. |
+
+The response has no `not_reached` field when the archive reached each
+descendant. `GET /api/{type}/{short_code}/cascade-preview` gives the same two
+lists for the caller who asks, and changes nothing.
+
+An organization admin can edit each item, so an archive by an admin takes each
+descendant. A restore changes the named item only, so it applies the rule to
+the named item only.
+
+### What creation does not grant
+
+Creation grants no movement. These writes keep the capability check, and the
+creator of the item gets no right there:
+
+| Write | REST | MCP tool | Capability |
+|---|---|---|---|
+| Move between columns | `POST /api/{type}/{short_code}/transition` | `transition_item` | `transition_items` on the board |
+| Change the lane | `POST /api/tasks/{short_code}/work-class` | — | `transition_items` on the board |
+| Move to a different board | `POST /api/tasks/{short_code}/move` | `move_item` | `manage_tasks` on the two boards |
+
+A team controls its own plan. A person who sends a request to a different
+team can edit the request, link it and archive it. That person cannot move it
+out of the entry column. That person cannot put it in the planned lane, and
+cannot move it to a different board.
+
+Creation grants nothing on a board, a team, a member, a capability, a
+repository or the tenant configuration.
+
+Creation does not change who can create. The create of an item needs
+`manage_<type>` on the target board, or `file_backlog` for a request. The
+create of a document needs `manage_documents` on the authorization board of
+its parent.
+
+## Who can write relationships
+
+This is the link rule. A principal can create or remove an edge when the
+principal can edit the item at one end. The source is sufficient, and the
+target is sufficient. [The edit rule](#the-edit-rule) decides each end.
+
+| Relationship | Who can write it |
+|---|---|
+| `parent`, `blocks`, `supports`, `informs`, `supersedes` | A principal who can edit the source **or** the target: its creator, **or** a holder of `manage_<type>` on its authorization board, **or** an organization admin |
+
+No relationship type needs the admin role. Releases up to and including 0.4.0
+kept `supports`, `informs` and `supersedes` for organization admins. In those
+releases the rule for `parent` and `blocks` did not look at the creator of the
+target.
+
+The link rule decides who can write an edge. It does not decide which edges
+can exist. The type rules, the cycle check and the duplicate check do not
+change. A caller who can edit the two ends of an impossible edge gets
+`RELATIONSHIP_RULE`, not `FORBIDDEN`.
+
+A refusal names two capabilities, one for each end. The caller needs one of
+them.
+
+### The `supports` edge of a document
+
+The first `supports` edge of a document decides which board answers for the
+document. So the link rule is narrower for this edge. It is not narrower for a
+`supports` edge to an ADR, or for a different relationship type.
+
+| Write | Who can do it |
+|---|---|
+| Create `supports` to a document that has a parent | The link rule: a principal who can edit the source **or** the document |
+| Create `supports` to a document with no parent | A principal who can edit the document: its creator, **or** an organization admin |
+| Remove a `supports` edge of a document | A principal who can edit the document: its creator, **or** a holder of `manage_documents` on its authorization board, **or** an organization admin |
+
+A principal who can edit only the source gets `FORBIDDEN` for the second and
+the third write. The refusal names `manage_documents`.
+
+A new parent does not change the authorization board of a document that has a
+parent. The earliest edge continues to give the board.
+
+A principal who cannot edit the document can add a parent to it, and cannot
+remove that parent.
+
+### A document always has a parent
+
+The server refuses to remove the last `supports` edge of a document. The
+refusal is `LAST_PARENT`, with status 422. The rule applies to each principal,
+and an organization admin is not an exception.
+
+To move a document to a different item, do these steps:
+
+1. Link the document to the new item.
+2. Remove the old edge.
+
+If the document has no more use, archive it.
+
+An edge to an archived parent counts as a parent. The archive of the only
+parent of a document does not change who can edit the document.
+
+### The confirm of an edge proposal
+
+The confirm of an edge proposal writes an edge, so the link rule applies to
+`POST /api/proposals/{id}/confirm`. The caller must be a person. The caller
+must be able to edit the item at one end of the proposed edge. A refused
+confirm leaves the proposal pending. To propose an edge, and to reject a proposal,
+the link rule is not necessary: they write no edge.
 
 ## Related guides
 

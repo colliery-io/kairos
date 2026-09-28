@@ -2,6 +2,10 @@
 //! deployment in `~/.config/kairos/credentials.json`, mode 0600, keyed by
 //! the normalized deployment URL.
 //!
+//! A local session (`kairos login --email`, COLLIERY-T-0213) is an entry in
+//! the same file with `kind: "local_session"`. It is in the same place so
+//! that each command finds its bearer the way it always did.
+//!
 //! Resolution order for the config directory: `KAIROS_CONFIG_DIR`
 //! (tests/dev override) → `$XDG_CONFIG_HOME/kairos` → `$HOME/.config/kairos`.
 
@@ -12,23 +16,60 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::error::CliError;
+use kairos_client::types_auth::{REDACTED, Secret};
 
 /// Refresh this many seconds BEFORE the recorded expiry, so a token never
 /// dies mid-request.
 pub const EXPIRY_SKEW_SECONDS: u64 = 30;
 
+/// How a cache entry was made, which decides what the CLI does when the
+/// entry expires (COLLIERY-T-0213).
+///
+/// The shape of the token does not say this reliably, and an empty `issuer`
+/// is a guess. The entry records it. An OAuth entry goes back to its issuer
+/// for a new token. A local session has no issuer and no refresh token: the
+/// only way to a new one is the password, which the CLI does not keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialKind {
+    /// Tokens from an OIDC issuer (`kairos login`). The default, so that a
+    /// cache file from before COLLIERY-T-0213, which has no `kind`, keeps
+    /// its meaning.
+    #[default]
+    Oauth,
+    /// A session bearer from `POST /api/login` (`kairos login --email`).
+    LocalSession,
+}
+
+impl CredentialKind {
+    fn is_oauth(&self) -> bool {
+        *self == CredentialKind::Oauth
+    }
+}
+
 /// One deployment's cached credentials.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// `Debug` is written by hand (COLLIERY-T-0213). A derived `Debug` prints
+/// `access_token` and `refresh_token`, and each of them is a credential that
+/// works until it expires.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeploymentCredentials {
     pub access_token: String,
-    /// Absent when the issuer declined `offline_access`.
+    /// Absent when the issuer declined `offline_access`, and always absent
+    /// for a local session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     /// Access-token expiry as unix seconds.
     pub expires_at: u64,
-    /// The OIDC issuer the tokens came from (refresh goes back here).
+    /// The OIDC issuer the tokens came from (refresh goes back here). Empty
+    /// for a local session. It is written all the same, because a CLI from
+    /// before COLLIERY-T-0213 requires the field and calls a file without it
+    /// corrupted.
+    #[serde(default)]
     pub issuer: String,
-    /// The OAuth client id used for the device grant and for refresh.
+    /// The OAuth client id used for the device grant and for refresh. Empty
+    /// for a local session, for the same reason as `issuer`.
+    #[serde(default)]
     pub client_id: String,
     /// `X-Tenant` slug for dev/test host-less tenant resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,13 +80,99 @@ pub struct DeploymentCredentials {
     /// (no field) resolve to `access_token`, unchanged.
     #[serde(default)]
     pub api_bearer: crate::oidc::ApiBearer,
+    /// OAuth tokens or a local session (COLLIERY-T-0213). Omitted for OAuth,
+    /// so that an OAuth login writes the same file as before.
+    #[serde(default, skip_serializing_if = "CredentialKind::is_oauth")]
+    pub kind: CredentialKind,
+    /// The email of a local session. It is kept so that the message about an
+    /// expired session can give the exact command to log in again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+impl std::fmt::Debug for DeploymentCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeploymentCredentials")
+            .field("access_token", &REDACTED)
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| REDACTED),
+            )
+            .field("expires_at", &self.expires_at)
+            .field("issuer", &self.issuer)
+            .field("client_id", &self.client_id)
+            .field("tenant", &self.tenant)
+            .field("api_bearer", &self.api_bearer)
+            .field("kind", &self.kind)
+            .field("email", &self.email)
+            .finish()
+    }
 }
 
 impl DeploymentCredentials {
+    /// The cache entry for a local session (COLLIERY-T-0213).
+    pub fn local_session(
+        bearer: &Secret,
+        expires_at: u64,
+        email: String,
+        tenant: Option<String>,
+    ) -> Self {
+        Self {
+            access_token: bearer.expose().to_string(),
+            refresh_token: None,
+            expires_at,
+            issuer: String::new(),
+            client_id: String::new(),
+            tenant,
+            api_bearer: crate::oidc::ApiBearer::AccessToken,
+            kind: CredentialKind::LocalSession,
+            email: Some(email),
+        }
+    }
+
     /// True when the access token is expired (or within the skew window)
     /// and should be refreshed before use.
     pub fn needs_refresh(&self, now: u64) -> bool {
         self.expires_at <= now + EXPIRY_SKEW_SECONDS
+    }
+
+    /// True for a session from `kairos login --email`.
+    pub fn is_local_session(&self) -> bool {
+        self.kind == CredentialKind::LocalSession
+    }
+
+    /// True when a local session is over (COLLIERY-T-0213).
+    ///
+    /// There is no skew window here. The window of [`Self::needs_refresh`]
+    /// exists to get a new token a little early. A local session cannot get
+    /// a new token, so a window would only end the session 30 seconds before
+    /// the server does.
+    pub fn is_expired(&self, now: u64) -> bool {
+        self.expires_at <= now
+    }
+
+    /// The command that logs in to `deployment` again with this entry's
+    /// email and tenant (COLLIERY-T-0213). For a local session only.
+    pub fn login_command(&self, deployment: &str) -> String {
+        let mut command = format!("kairos login --url {deployment}");
+        match &self.email {
+            Some(email) => command.push_str(&format!(" --email {email}")),
+            None => command.push_str(" --email <EMAIL>"),
+        }
+        if let Some(tenant) = &self.tenant {
+            command.push_str(&format!(" --tenant {tenant}"));
+        }
+        command
+    }
+
+    /// What the CLI says when a command runs with a local session that is
+    /// over (COLLIERY-T-0213): what happened, and the command to run next.
+    pub fn session_expired_message(&self, deployment: &str) -> String {
+        format!(
+            "the session for {deployment} has expired.\n\
+             Run `{}` to log in again.",
+            self.login_command(deployment)
+        )
     }
 }
 
@@ -252,6 +379,143 @@ mod tests {
             client_id: "kairos-cli".into(),
             tenant: tenant.map(str::to_string),
             api_bearer: crate::oidc::ApiBearer::AccessToken,
+            kind: CredentialKind::Oauth,
+            email: None,
+        }
+    }
+
+    const BEARER: &str =
+        "kairos_ss_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn local_entry(expires_at: u64) -> DeploymentCredentials {
+        DeploymentCredentials::local_session(
+            &Secret::new(BEARER),
+            expires_at,
+            "ada@example.test".into(),
+            Some("acme".into()),
+        )
+    }
+
+    /// COLLIERY-T-0213: a local session goes through the cache file and
+    /// comes back the same, marked as a local session, mode 0600.
+    #[test]
+    fn a_local_session_round_trips() {
+        let dir = scratch_dir("local-roundtrip");
+        let path = dir.join("credentials.json");
+        let mut store = CredentialStore::default();
+        store.deployments.insert(
+            normalize_url("http://one.kairos.test/"),
+            local_entry(4_000_000_000),
+        );
+        store
+            .deployments
+            .insert(normalize_url("http://two.kairos.test"), entry(None));
+        save(&path, &store).expect("save");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "credentials.json must be 0600");
+        }
+
+        let loaded = load(&path).expect("load");
+        let found = entry_for(&loaded, "http://one.kairos.test").expect("entry");
+        assert_eq!(found, local_entry(4_000_000_000));
+        assert!(found.is_local_session());
+        assert_eq!(found.access_token, BEARER);
+        assert_eq!(found.expires_at, 4_000_000_000);
+        assert_eq!(found.refresh_token, None);
+        assert_eq!(found.issuer, "");
+        assert_eq!(found.email.as_deref(), Some("ada@example.test"));
+
+        // The file says which kind each entry is, and an OAuth entry has
+        // the fields it had before: no `kind`, no `email`.
+        let raw: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+        let local = &raw["deployments"]["http://one.kairos.test"];
+        assert_eq!(local["kind"], "local_session");
+        assert_eq!(local["issuer"], "");
+        assert_eq!(local["client_id"], "");
+        assert!(local.get("refresh_token").is_none());
+        let oauth = raw["deployments"]["http://two.kairos.test"]
+            .as_object()
+            .expect("entry");
+        assert!(!oauth.contains_key("kind"), "{oauth:?}");
+        assert!(!oauth.contains_key("email"), "{oauth:?}");
+        assert!(
+            !entry_for(&loaded, "http://two.kairos.test")
+                .expect("entry")
+                .is_local_session()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cache file from before COLLIERY-T-0213 has no `kind`. Its entries
+    /// are OAuth entries.
+    #[test]
+    fn an_entry_without_a_kind_is_an_oauth_entry() {
+        let store: CredentialStore = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "deployments": {"http://one.kairos.test": {
+                "access_token": "access-1", "refresh_token": "refresh-1",
+                "expires_at": 4_000_000_000_u64, "issuer": "http://localhost:5558/dex",
+                "client_id": "kairos-cli", "api_bearer": "access_token",
+            }}
+        }))
+        .expect("an old cache file");
+        let found = entry_for(&store, "http://one.kairos.test").expect("entry");
+        assert_eq!(found.kind, CredentialKind::Oauth);
+        assert_eq!(found, entry(None));
+    }
+
+    /// COLLIERY-T-0213: a local session is over AT its expiry, with no skew
+    /// window, and the message gives the exact command to log in again.
+    #[test]
+    fn local_session_expiry() {
+        let now = 1_000_000;
+        assert!(!local_entry(now + 1).is_expired(now));
+        assert!(local_entry(now).is_expired(now));
+        assert!(local_entry(now - 1).is_expired(now));
+        assert!(local_entry(0).is_expired(now));
+
+        let message = local_entry(1).session_expired_message("http://one.kairos.test");
+        assert_eq!(
+            message,
+            "the session for http://one.kairos.test has expired.\n\
+             Run `kairos login --url http://one.kairos.test --email ada@example.test \
+             --tenant acme` to log in again."
+        );
+        assert!(!message.contains(BEARER), "{message}");
+
+        let mut no_tenant = local_entry(1);
+        no_tenant.tenant = None;
+        assert_eq!(
+            no_tenant.login_command("http://one.kairos.test"),
+            "kairos login --url http://one.kairos.test --email ada@example.test"
+        );
+    }
+
+    /// COLLIERY-T-0213: `Debug` of an entry, and of the store that holds
+    /// it, prints neither the bearer nor the refresh token.
+    #[test]
+    fn debug_output_holds_no_token() {
+        let mut store = CredentialStore::default();
+        store
+            .deployments
+            .insert("http://one.kairos.test".into(), local_entry(4_000_000_000));
+        store
+            .deployments
+            .insert("http://two.kairos.test".into(), entry(None));
+        for rendered in [format!("{store:?}"), format!("{store:#?}")] {
+            assert!(!rendered.contains(BEARER), "{rendered}");
+            assert!(!rendered.contains("kairos_ss_"), "{rendered}");
+            assert!(!rendered.contains("access-1"), "{rendered}");
+            assert!(!rendered.contains("refresh-1"), "{rendered}");
+            assert!(rendered.contains(REDACTED), "{rendered}");
+            // What is not a secret stays readable.
+            assert!(rendered.contains("ada@example.test"), "{rendered}");
+            assert!(rendered.contains("LocalSession"), "{rendered}");
         }
     }
 

@@ -23,7 +23,7 @@
 //! DB access here uses a per-request sync connection (admin operations are
 //! rare and cross-tenant, so the tenant-pinned blocking pool does not fit).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router, middleware as axum_middleware};
@@ -39,7 +39,9 @@ use uuid::Uuid;
 
 use super::super::clamp_pagination;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::{self, AuthContext};
 
 /// The admin router, wrapped in its own auth layer (no tenant layer — see
@@ -51,6 +53,8 @@ pub fn router(state: AppState) -> Router<AppState> {
             "/api/admin/tenants/{slug}",
             axum::routing::delete(delete_tenant),
         )
+        // COLLIERY-T-0256: after the auth. See crate::input.
+        .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
         .route_layer(axum_middleware::from_fn_with_state(
             state,
             auth::require_auth,
@@ -69,8 +73,8 @@ fn require_deployment_admin(state: &AppState, auth: &AuthContext) -> Result<(), 
         Ok(())
     } else {
         Err(ApiError::forbidden(
-            "this action requires deployment-admin privileges \
-             (the caller's OIDC sub must be listed in KAIROS_DEPLOYMENT_ADMINS)",
+            "This action requires a deployment admin. The OIDC sub of the caller must be \
+             in KAIROS_DEPLOYMENT_ADMINS.",
         )
         .with_details(serde_json::json!({ "required": "deployment_admin" })))
     }
@@ -98,19 +102,21 @@ where
 fn map_tenant_error(e: TenantError) -> ApiError {
     match e {
         TenantError::InvalidSlug(slug) => ApiError::validation(format!(
-            "invalid tenant slug {slug:?}: must match ^[a-z][a-z0-9_-]{{1,62}}$"
+            "The tenant slug {slug:?} is not correct. A tenant slug must match \
+             ^[a-z][a-z0-9_-]{{1,62}}$."
         )),
         TenantError::AlreadyExists(slug) => {
-            ApiError::conflict(format!("tenant {slug:?} already exists"))
+            ApiError::conflict(format!("The tenant {slug:?} exists already."))
         }
         TenantError::NotFound(slug) => {
-            ApiError::not_found(format!("tenant {slug:?} does not exist"))
+            ApiError::not_found(format!("The tenant {slug:?} does not exist."))
         }
         TenantError::ConfirmationRequired(slug) => ApiError::unprocessable(
             "CONFIRMATION_REQUIRED",
             format!(
-                "dropping tenant {slug:?} is destructive and unrecoverable; \
-                 repeat the request with ?confirm=true"
+                "The delete of the tenant {slug:?} removes all its data, and you cannot \
+                 get the data back. To delete the tenant, send the request again with \
+                 ?confirm=true."
             ),
         ),
         e @ (TenantError::Migration { .. } | TenantError::Board(_) | TenantError::Database(_)) => {
@@ -138,7 +144,7 @@ fn map_tenant_error(e: TenantError) -> ApiError {
 pub(crate) async fn create_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
-    Json(body): Json<dto::CreateTenantRequest>,
+    ApiJson(body): ApiJson<dto::CreateTenantRequest>,
 ) -> Result<(StatusCode, Json<dto::TenantCreatedResponse>), ApiError> {
     require_deployment_admin(&state, &auth)?;
     let admin_sub = body
@@ -158,9 +164,9 @@ pub(crate) async fn create_tenant(
             .map_err(ApiError::internal)?;
         let admin = admin.ok_or_else(|| {
             ApiError::validation(format!(
-                "no user with external_id {admin_sub:?} exists yet; users are \
-                 provisioned at first login, so the initial admin must authenticate \
-                 once first"
+                "No user has the external_id {admin_sub:?}. The server makes a user at \
+                 the first login. The first admin must log in one time. Then send this \
+                 request again."
             ))
         })?;
 
@@ -215,7 +221,7 @@ pub(crate) async fn create_tenant(
 pub(crate) async fn list_tenants(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::TenantSummary>>, ApiError> {
     require_deployment_admin(&state, &auth)?;
     let (limit, offset) = clamp_pagination(&pagination);
@@ -246,6 +252,7 @@ pub(crate) async fn list_tenants(
 /// `?confirm=true` — required by the T-0008 destructive-operation guard.
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ConfirmParams {
     /// Must be `true` to actually drop the tenant.
     #[serde(default)]
@@ -276,7 +283,7 @@ pub(crate) async fn delete_tenant(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Path(slug): Path<String>,
-    Query(params): Query<ConfirmParams>,
+    ApiQuery(params): ApiQuery<ConfirmParams>,
 ) -> Result<Json<dto::TenantDeletedResponse>, ApiError> {
     require_deployment_admin(&state, &auth)?;
     let confirm = params.confirm.unwrap_or(false);

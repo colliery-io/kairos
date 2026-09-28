@@ -213,7 +213,7 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                 when=move || !state.full_access.get()
                 fallback=|| view! {
                     <Text dimmed=true size="sm">
-                        "Full access covers everything below — one \"*\" grant."
+                        "Full access is one grant, \"*\". It includes each capability below."
                     </Text>
                 }
             >
@@ -232,7 +232,7 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                         when=move || !state.manage_all.get()
                         fallback=|| view! {
                             <Text dimmed=true size="xs">
-                                "Individual content grants covered by manage_*."
+                                "manage_* includes each of these grants."
                             </Text>
                         }
                     >
@@ -266,7 +266,7 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                         when=move || !state.configure_all.get()
                         fallback=|| view! {
                             <Text dimmed=true size="xs">
-                                "Individual configuration grants covered by configure_*."
+                                "configure_* includes each of these grants."
                             </Text>
                         }
                     >
@@ -281,12 +281,12 @@ pub fn CapabilityEditor(state: EditorState) -> impl IntoView {
                         when=move || !state.manage_all.get()
                         fallback=|| view! {
                             <Text dimmed=true size="xs">
-                                "Member administration covered by manage_* (prefix glob)."
+                                "manage_* includes this grant."
                             </Text>
                         }
                     >
                         <CapabilityRow checked=state.administer_members
-                            label="Members: add/remove, grant capabilities"
+                            label="Members: add, remove, and give capabilities"
                             name="administer_members"/>
                     </Show>
                 </Stack>

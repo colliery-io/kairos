@@ -26,6 +26,22 @@ use kairos_db::models::{
 };
 use kairos_db::{create_board, graph, provision_tenant, run_public_migrations, schema};
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 const SCRATCH_DB: &str = "kairos_embeddings_test";
 
@@ -102,12 +118,14 @@ fn embedding_store_lifecycle() {
         .get_result::<Uuid>(&mut conn)
         .expect("inserting alice");
 
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating the delivery board")
@@ -228,7 +246,21 @@ fn embedding_store_lifecycle() {
     // NULL rather than missing: a document has no repository, and composing a
     // blank `repository:` line would put one token into every document alike.
     assert_eq!(enriched.repository, None, "this task has no repository");
-    assert_eq!(enriched.team, None, "and no team");
+    // COLLIERY-T-0230: a delivery board always has a team, and the task has
+    // the team of its board. Until then this fixture had a delivery board
+    // with no team, and the assertion was `None`.
+    assert_eq!(
+        enriched.team.as_deref(),
+        Some("delivery-team"),
+        "the team of the board travels with the task"
+    );
+    // The NULL case stays covered by the parent: an initiative is on a
+    // board of the organization, and has no delivery team.
+    let umbrella = pending
+        .iter()
+        .find(|p| p.id == parent.id)
+        .expect("the parent initiative");
+    assert_eq!(umbrella.team, None, "an initiative has no delivery team");
 
     let metadata = metadata_for(&mut conn, &[one.id, two.id]).expect("metadata");
     assert_eq!(

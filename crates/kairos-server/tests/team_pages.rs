@@ -234,7 +234,7 @@ async fn team_pages_endpoints_against_live_stack() {
     let err = rejection(bob.create_team_page(&team.id, &new_page).await);
     match &err {
         Error::Forbidden { message, .. } => assert!(
-            message.contains("team membership"),
+            message.contains("a member of the team"),
             "403 must name team membership: {message}"
         ),
         other => panic!("expected 403, got {other}"),

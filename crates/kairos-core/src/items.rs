@@ -40,6 +40,122 @@ pub fn cascade_descendants(root: Uuid, edges: &[ParentEdge]) -> Vec<Uuid> {
     order
 }
 
+/// What an archive by one principal reaches (COLLIERY-T-0234): the
+/// result of [`cascade_reach`]. Each descendant of the root is in exactly
+/// one of the three lists.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CascadeReach {
+    /// The descendants that the archive takes, in the order of
+    /// [`cascade_descendants`].
+    pub reached: Vec<Uuid>,
+    /// The descendants where the archive stops: the principal cannot edit
+    /// them.
+    pub stopped: Vec<Uuid>,
+    /// The descendants below a stop: `(item, stop)`. The archive does not
+    /// take them, whether or not the principal can edit them.
+    pub below: Vec<(Uuid, Uuid)>,
+}
+
+/// The cascade set of an archive by ONE principal (COLLIERY-T-0234): the
+/// descendants of `root` that the archive takes, and those that it leaves.
+///
+/// THE ATTACK that this function stops. A principal creates an initiative,
+/// so it can edit the initiative. The link rule lets it write a `parent`
+/// edge from its initiative to a task of a different team. It then
+/// archives the initiative. Until COLLIERY-T-0234 the cascade took each
+/// descendant and asked nothing, so the task of the other team was
+/// archived.
+///
+/// THE RULE. The archive takes a descendant when the principal may edit
+/// it (`may_edit`, the edit rule) AND may edit each item between it and
+/// the root, on each path. The archive stops at a descendant that the
+/// principal cannot edit, and takes nothing below it.
+///
+/// WHY nothing below a stop. Archive is an operation on a subtree. An
+/// archived task below a live initiative is hidden from the board of that
+/// initiative with no archived parent to explain it, and a restore of the
+/// root does not bring it back. So a subtree that the principal cannot
+/// take is left whole.
+///
+/// WHY each path. An item can have two parents. If one of them is a stop,
+/// the item is below a stop, and the rule above applies. The function
+/// archives less when the graph gives two answers.
+///
+/// `may_edit` is asked one time for each descendant. The root is not
+/// asked: the caller checks the edit rule for the root before the archive.
+/// Cycle-safe, as [`cascade_descendants`] is.
+pub fn cascade_reach(
+    root: Uuid,
+    edges: &[ParentEdge],
+    may_edit: impl Fn(Uuid) -> bool,
+) -> CascadeReach {
+    use std::collections::HashSet;
+
+    let descendants = cascade_descendants(root, edges);
+    let cannot_edit: Vec<Uuid> = descendants
+        .iter()
+        .copied()
+        .filter(|id| !may_edit(*id))
+        .collect();
+
+    // Not taken: each item that the principal cannot edit, and each item
+    // below one.
+    let mut left: HashSet<Uuid> = cannot_edit.iter().copied().collect();
+    for id in &cannot_edit {
+        left.extend(
+            cascade_descendants(*id, edges)
+                .into_iter()
+                .filter(|below| *below != root),
+        );
+    }
+
+    let reached: Vec<Uuid> = descendants
+        .iter()
+        .copied()
+        .filter(|id| !left.contains(id))
+        .collect();
+    let taken: HashSet<Uuid> = reached.iter().copied().chain([root]).collect();
+
+    // A stop is an item that the principal cannot edit, with a parent that
+    // the archive takes. Each other item that is left is below a stop.
+    let mut stopped: Vec<Uuid> = cannot_edit
+        .iter()
+        .copied()
+        .filter(|id| {
+            edges
+                .iter()
+                .any(|e| e.child_id == *id && taken.contains(&e.parent_id))
+        })
+        .collect();
+    let mut named: HashSet<Uuid> = stopped.iter().copied().collect();
+    let mut below: Vec<(Uuid, Uuid)> = Vec::new();
+    let mut name_below = |stop: Uuid, named: &mut HashSet<Uuid>| {
+        for id in cascade_descendants(stop, edges) {
+            if left.contains(&id) && id != root && named.insert(id) {
+                below.push((id, stop));
+            }
+        }
+    };
+    for stop in &stopped {
+        name_below(*stop, &mut named);
+    }
+    // Only a graph with a cycle leaves an item with no name. Such an item
+    // that the principal cannot edit is a stop too, so that each item that
+    // is left has a reason.
+    for id in &cannot_edit {
+        if named.insert(*id) {
+            stopped.push(*id);
+            name_below(*id, &mut named);
+        }
+    }
+
+    CascadeReach {
+        reached,
+        stopped,
+        below,
+    }
+}
+
 /// The optimistic-concurrency decision for a content edit (KAIROS-A-0004).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionCheck {
@@ -182,6 +298,132 @@ mod tests {
         );
         // Zero done-flagged columns: composition only.
         assert_eq!(children_progress_counts(&[(false, 4), (false, 2)]), (0, 6));
+    }
+
+    fn edge(parent_id: Uuid, child_id: Uuid) -> ParentEdge {
+        ParentEdge {
+            parent_id,
+            child_id,
+        }
+    }
+
+    /// COLLIERY-T-0234: with each descendant editable, the reach is the
+    /// cascade set of KAIROS-A-0001, in the same order.
+    #[test]
+    fn reach_is_the_cascade_set_when_the_principal_edits_each_item() {
+        let (s, i, t, u) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        let edges = [edge(s, i), edge(i, t), edge(i, u)];
+        let reach = cascade_reach(s, &edges, |_| true);
+        assert_eq!(reach.reached, cascade_descendants(s, &edges));
+        assert!(reach.stopped.is_empty() && reach.below.is_empty());
+    }
+
+    /// COLLIERY-T-0234, the attack: a child that the principal cannot
+    /// edit is not taken, and its siblings are.
+    #[test]
+    fn reach_leaves_a_child_that_the_principal_cannot_edit() {
+        let (i, mine, theirs) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let edges = [edge(i, mine), edge(i, theirs)];
+        let reach = cascade_reach(i, &edges, |id| id != theirs);
+        assert_eq!(reach.reached, vec![mine]);
+        assert_eq!(reach.stopped, vec![theirs]);
+        assert!(reach.below.is_empty());
+    }
+
+    /// COLLIERY-T-0234: the archive stops at the initiative, and the task
+    /// below it is left although the principal can edit it.
+    #[test]
+    fn reach_takes_nothing_below_a_stop() {
+        let (s, i, t) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let edges = [edge(s, i), edge(i, t)];
+        let reach = cascade_reach(s, &edges, |id| id != i);
+        assert!(reach.reached.is_empty());
+        assert_eq!(reach.stopped, vec![i]);
+        assert_eq!(reach.below, vec![(t, i)]);
+    }
+
+    /// COLLIERY-T-0234: an item with two parents is left when ONE parent
+    /// is a stop. A stop below a stop keeps its own reason.
+    #[test]
+    fn reach_archives_less_when_two_paths_disagree() {
+        let (root, open, shut, shared, deep) = (
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        );
+        let edges = [
+            edge(root, open),
+            edge(root, shut),
+            edge(open, shared),
+            edge(shut, shared),
+            edge(shared, deep),
+        ];
+        let reach = cascade_reach(root, &edges, |id| id != shut);
+        assert_eq!(reach.reached, vec![open]);
+        assert_eq!(reach.stopped, vec![shut]);
+        let mut below = reach.below.clone();
+        below.sort();
+        let mut expected = vec![(shared, shut), (deep, shut)];
+        expected.sort();
+        assert_eq!(below, expected);
+
+        // `shared` cannot be edited either: it has a parent that the
+        // archive takes, so it is a stop with its own reason.
+        let reach = cascade_reach(root, &edges, |id| id != shut && id != shared);
+        assert_eq!(reach.reached, vec![open]);
+        let mut stopped = reach.stopped.clone();
+        stopped.sort();
+        let mut expected = vec![shut, shared];
+        expected.sort();
+        assert_eq!(stopped, expected);
+        assert_eq!(reach.below.len(), 1);
+        assert_eq!(reach.below[0].0, deep);
+    }
+
+    /// COLLIERY-T-0234: each descendant is in exactly one list, for each
+    /// answer of the edit rule, and the root is in none. A cycle does not
+    /// change that.
+    #[test]
+    fn reach_puts_each_descendant_in_one_list() {
+        let ids: Vec<Uuid> = (0..5).map(|_| Uuid::new_v4()).collect();
+        let edges = [
+            edge(ids[0], ids[1]),
+            edge(ids[1], ids[2]),
+            edge(ids[2], ids[1]), // a cycle below the root
+            edge(ids[0], ids[3]),
+            edge(ids[3], ids[4]),
+            edge(ids[4], ids[0]), // a cycle through the root
+        ];
+        for mask in 0u8..16 {
+            let may_edit = |id: Uuid| {
+                let index = ids.iter().position(|x| *x == id).expect("known id");
+                mask & (1 << (index - 1)) != 0
+            };
+            let reach = cascade_reach(ids[0], &edges, may_edit);
+            let mut all: Vec<Uuid> = reach
+                .reached
+                .iter()
+                .chain(&reach.stopped)
+                .copied()
+                .chain(reach.below.iter().map(|(id, _)| *id))
+                .collect();
+            all.sort();
+            let mut expected = cascade_descendants(ids[0], &edges);
+            expected.sort();
+            assert_eq!(all, expected, "mask {mask:04b}: {reach:?}");
+            assert!(
+                reach.reached.iter().all(|id| may_edit(*id)),
+                "mask {mask:04b}: the archive takes an item that the principal cannot edit"
+            );
+            assert!(reach.stopped.iter().all(|id| !may_edit(*id)));
+        }
     }
 
     #[test]

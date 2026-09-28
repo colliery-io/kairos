@@ -34,18 +34,21 @@ pub use abac::{
     resolve_authorization_board, revoke_capability,
 };
 pub use boards::{
-    BoardError, add_column, add_transition, create_board, dead_end_columns, remove_column,
-    remove_transition, rename_column, reorder_columns, transition_adr, transition_initiative,
-    transition_strategy, transition_task,
+    BoardError, SeveralDeliveryBoards, add_column, add_transition, check_board_delete,
+    check_board_team, create_board, dead_end_columns, delivery_boards_for_team_delete,
+    remove_column, remove_transition, rename_column, reorder_columns,
+    teams_with_several_delivery_boards, transition_adr, transition_initiative, transition_strategy,
+    transition_task,
 };
 pub use graph::{
     GraphError, ItemRelationships, Neighbor, link_items, relationships_for, unlink_items,
 };
 pub use items::{
     CascadePreview, ContentUpdate, CreateAdr, CreateDocument, CreateInitiative, CreateStrategy,
-    CreateTask, ItemError, SoftDeleteOutcome, create_adr, create_document, create_initiative,
-    create_strategy, create_task, next_short_code, preview_cascade, rollback_item,
-    soft_delete_item, update_item_content,
+    CreateTask, ItemError, NotReached, NotReachedReason, Principal, SoftDeleteOutcome, create_adr,
+    create_document, create_initiative, create_strategy, create_task, next_short_code,
+    preview_cascade, preview_cascade_as, rollback_item, soft_delete_item, soft_delete_item_as,
+    update_item_content,
 };
 pub use migrations::{
     MigrationError, establish_migration_connection, has_pending_public_migrations,

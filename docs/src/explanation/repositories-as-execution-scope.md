@@ -193,10 +193,13 @@ What a person who does not manage the board creates is a *request*, and the
 widening is bounded to exactly that. The request goes to the board's entry
 column. It is counted as support work, whatever kind of task it is. The sender
 cannot ask for the planned lane and cannot name a later column; both are
-refused, not quietly corrected. Afterwards the sender cannot move the request,
-edit it or delete it. The one thing the sender may still do is draw a parent
-or blocking edge from it, so that the sender's own board shows what it is
-waiting on.
+refused, not quietly corrected. Afterwards the sender cannot move the request:
+not to another column, not to the planned lane, not to another board. What the
+sender keeps is what any author keeps. They may edit the request, withdraw it
+by archiving it, and link it, so that the sender's own board shows what it is
+waiting on. [Capabilities and
+access](capabilities-and-access.md#the-person-who-made-it-may-edit-it) argues
+where that line sits and why.
 
 The lane is the part that needed an argument. A team's planned lane is its
 plan: the work it chose, in the order it chose. Work that arrives from outside
@@ -321,11 +324,6 @@ while live tasks or a webhook connection still reference it, and the tasks of
 every team count. Archived tasks do not hold a repository down, for the reason
 [archiving](archiving.md) explains: a wind-down guard asks about live work.
 
-One gap is known. The web interface offers "new task" only on a board the
-person manages, so it has no control for sending a request to a different
-team yet. Requests work over the REST API, the CLI and MCP. The gap is
-recorded as COLLIERY-T-0232.
-
 Two questions are left open from the first decision. Tenants with genuinely
 co-owned codebases, where one answerable team turns out to be inadequate,
 would be the reason to revisit many-to-many ownership. And monorepo tenants
@@ -340,9 +338,8 @@ path dimension at all.
   amendment](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
   (KAIROS-A-0019).
 - COLLIERY-A-0023, approved on 2026-09-27, which amends the record above: the
-  team decides the board, and a repository is a link. It is kept in the Kairos
-  deployment where this project tracks its own work, so there is no file to
-  link to.
+  team decides the board, and a repository is a link. It has no file to link
+  to: see [ADR](../reference/glossary.md#adr) in the glossary.
 - [The whitelist stance that requests
   widen](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
   (KAIROS-A-0006).

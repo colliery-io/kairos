@@ -4,7 +4,11 @@
 
 use axum::http::request::Parts;
 use rmcp::handler::server::router::tool::ToolRouter;
-use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::handler::server::tool::ToolCallContext;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ContentBlock, Implementation, ServerCapabilities,
+    ServerInfo,
+};
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData, RoleServer, ServerHandler, tool_handler};
 use serde_json::json;
@@ -60,8 +64,24 @@ impl KairosMcp {
 // `#[tool_handler]` generates `call_tool`/`list_tools`/`get_tool` over
 // `self.tool_router` (built by the `#[tool_router]` block in
 // `super::tools`); `get_info` is provided by hand for REQ-1.7.
+//
+// `call_tool` is by hand (COLLIERY-T-0256): the refusal of the arguments
+// comes from the extractor as an error, and the agent gets it as a tool
+// error, in the form of each other tool error (`super::arguments`).
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for KairosMcp {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let call = ToolCallContext::new(self, request, context);
+        match self.tool_router.call(call).await {
+            Ok(result) => Ok(result),
+            Err(e) => super::arguments::tool_error_of(e),
+        }
+    }
+
     fn get_info(&self) -> ServerInfo {
         // REQ-1.7: `initialize` reports the server version (tool schemas
         // are versioned with the server).
@@ -87,12 +107,17 @@ impl ServerHandler for KairosMcp {
 /// structured extras (e.g. `allowed_targets` on `INVALID_TRANSITION`,
 /// `current` on `CONFLICT`).
 pub(super) fn tool_error(e: ApiError) -> CallToolResult {
+    CallToolResult::error(vec![ContentBlock::text(tool_error_text(&e))])
+}
+
+/// The text of [`tool_error`].
+pub(super) fn tool_error_text(e: &ApiError) -> String {
     let mut text = format!("{}: {}", e.code, e.message);
     if e.details != json!({}) {
         text.push_str("\ndetails: ");
         text.push_str(&e.details.to_string());
     }
-    CallToolResult::error(vec![ContentBlock::text(text)])
+    text
 }
 
 /// A successful tool result: one compact markdown/text content block

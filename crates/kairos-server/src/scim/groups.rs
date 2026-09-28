@@ -638,20 +638,16 @@ pub(crate) async fn create_group(
                 Some(ctx.actor_id),
             )
             .map_err(|e| match e {
-                boards::BoardError::Database(ref db)
-                    if matches!(
-                        db,
-                        diesel::result::Error::DatabaseError(
-                            diesel::result::DatabaseErrorKind::UniqueViolation,
-                            _
-                        )
-                    ) =>
-                {
-                    ScimError::uniqueness(format!(
-                        "a board with slug \"{}-delivery\" already exists",
-                        team.slug
-                    ))
-                }
+                // COLLIERY-T-0255: a live board has the slug that the
+                // delivery board of the team gets. The transaction rolls
+                // back, so no team is written.
+                boards::BoardError::SlugTaken {
+                    slug, board_name, ..
+                } => ScimError::uniqueness(format!(
+                    "The delivery board of the team gets the slug {slug:?}. The live board \
+                     {board_name:?} has that slug. Change the slug of that board, or use a \
+                     different name for the group."
+                )),
                 e => ScimError::internal(e),
             })?;
             log_scim_activity(
@@ -760,7 +756,9 @@ fn count_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result<i64, Sci
 
 /// `DELETE /scim/v2/Groups/{id}` — soft-delete the team + its delivery
 /// board (refused while the board holds items). The built-in
-/// `kairos-admins` group cannot be deleted.
+/// `kairos-admins` group cannot be deleted. A team of old data can have 2
+/// or more live delivery boards: the rule applies to each
+/// (COLLIERY-T-0250).
 pub(crate) async fn delete_group(
     State(state): State<AppState>,
     Extension(ctx): Extension<ScimContext>,
@@ -778,25 +776,24 @@ pub(crate) async fn delete_group(
             }
             GroupTarget::Team(team) => team,
         };
-        let board_id: Option<Uuid> = boards_schema::table
-            .filter(boards_schema::team_id.eq(team.id))
-            .filter(boards_schema::board_level.eq(BoardLevel::Delivery))
-            .filter(boards_schema::deleted_at.is_null())
-            .select(boards_schema::id)
-            .first(conn)
-            .optional()
-            .map_err(ScimError::internal)?;
-        if let Some(board_id) = board_id {
-            let item_count = count_board_items(conn, board_id)?;
-            if item_count > 0 {
-                return Err(ScimError::mutability(format!(
-                    "team {:?}'s delivery board still contains {item_count} item(s); \
-                     move or delete them before removing the group",
-                    team.slug
-                )));
-            }
-        }
+        // COLLIERY-T-0250: the same rule as `DELETE /api/teams/{id}`. One
+        // transaction holds the check and the delete. Each live delivery
+        // board of the team must be empty, and each goes with the team.
         scim_transaction(conn, |conn| {
+            let team_boards = boards::delivery_boards_for_team_delete(conn, team.id)
+                .map_err(ScimError::internal)?;
+            for board in &team_boards {
+                let item_count = count_board_items(conn, board.id)?;
+                if item_count > 0 {
+                    return Err(ScimError::mutability(format!(
+                        "The delivery board {:?} of the team {:?} has {item_count} live \
+                         item{}. Move or delete each item. Then delete the group.",
+                        board.name,
+                        team.slug,
+                        if item_count == 1 { "" } else { "s" },
+                    )));
+                }
+            }
             diesel::update(teams::table.filter(teams::id.eq(team.id)))
                 .set((
                     teams::deleted_at.eq(diesel::dsl::now),
@@ -804,15 +801,14 @@ pub(crate) async fn delete_group(
                 ))
                 .execute(conn)
                 .map_err(ScimError::internal)?;
-            if let Some(board_id) = board_id {
-                diesel::update(boards_schema::table.filter(boards_schema::id.eq(board_id)))
-                    .set((
-                        boards_schema::deleted_at.eq(diesel::dsl::now),
-                        boards_schema::updated_at.eq(diesel::dsl::now),
-                    ))
-                    .execute(conn)
-                    .map_err(ScimError::internal)?;
-            }
+            let board_ids: Vec<Uuid> = team_boards.iter().map(|board| board.id).collect();
+            diesel::update(boards_schema::table.filter(boards_schema::id.eq_any(board_ids)))
+                .set((
+                    boards_schema::deleted_at.eq(diesel::dsl::now),
+                    boards_schema::updated_at.eq(diesel::dsl::now),
+                ))
+                .execute(conn)
+                .map_err(ScimError::internal)?;
             log_scim_activity(
                 conn,
                 ctx.actor_id,

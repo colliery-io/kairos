@@ -36,7 +36,7 @@ Command groups, each detailed below:
 |---|---|
 | 0 | Success. |
 | 1 | API or validation error: not found, forbidden, conflict, invalid transition, bad input, transport failure. Also the case of several cached deployments with no `--url`. |
-| 2 | Authentication error: no cached credentials, expired or rejected credentials, a failed token refresh, HTTP 401, a corrupted credential cache. |
+| 2 | Authentication error: no cached credentials, expired or rejected credentials, a failed token refresh, an expired local session, a rejected email and password, HTTP 401, a corrupted credential cache. |
 
 Structured API rejections are rendered with their actionable detail: a 409
 `CONFLICT` prints the server-current version and title, a 422
@@ -61,10 +61,13 @@ entry.
 
 ## Authentication
 
+A deployment lets people log in through an OIDC issuer, with local accounts, or
+with both. `kairos login` has one mode for each. Both modes write the same
+credential cache, so every other command works the same after either.
+
 ### `kairos login`
 
-Logs in via the OAuth Device Authorization Grant and caches the resulting
-tokens.
+Logs in to a deployment and caches the credential.
 
 ```
 kairos login --url <URL> [OPTIONS]
@@ -73,6 +76,7 @@ kairos login --url <URL> [OPTIONS]
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--url <URL>` | string | required | Deployment base URL, e.g. `https://kairos.example.com`. |
+| `--email <EMAIL>` | string | none | Email of a local account. Selects the password login. Conflicts with `--issuer`, `--client-id` and `--bearer`. |
 | `--issuer <ISSUER>` | string | discovered | OIDC issuer override. Skips RFC 9728 discovery against the deployment. |
 | `--tenant <TENANT>` | string | none | Tenant slug, cached and sent as `X-Tenant` on subsequent API calls. |
 | `--client-id <CLIENT_ID>` | string | `kairos-cli` | OAuth client id registered for the CLI at the issuer. |
@@ -80,9 +84,43 @@ kairos login --url <URL> [OPTIONS]
 
 `login` takes neither `--json` nor the cached-deployment form of `--url`.
 
+| Mode | Selected by | Exchange | Cached credential |
+|---|---|---|---|
+| Issuer | no `--email` | OAuth Device Authorization Grant at the issuer | Access token or ID token, with a refresh token when the issuer gives one. |
+| Local account | `--email <EMAIL>` | `POST /api/login` with the email and the password | Session bearer, with the expiry that the server gives. No refresh token. |
+
+The password of a local account has two sources:
+
+| Standard input | Source |
+|---|---|
+| a terminal | A prompt, `Password for <EMAIL>: `. The terminal does not show the characters. |
+| a pipe or a file | The first line of standard input. The line ending is removed. Spaces are kept. |
+
+```
+printf '%s' "$PASSWORD" | kairos login --url <URL> --email <EMAIL>
+```
+
+There is no `--password` option, and no environment variable holds the
+password. An argument is visible in the process list and stays in the shell
+history.
+
+Failures of `login`:
+
+| Condition | Exit code | Message |
+|---|---|---|
+| No `--email`, and the deployment has no issuer | 1 | `this deployment has no OIDC issuer. It uses local accounts.` The message gives the command with `--email`. |
+| `--email`, and the deployment has local accounts off | 1 | `local accounts are off on this deployment.` The message gives the command without `--email`. |
+| `--email` with `--issuer`, `--client-id` or `--bearer` | 2 | A usage error from the argument parser. |
+| `--password` | 2 | A usage error from the argument parser. |
+| Wrong password, or no account with that email | 2 | `the deployment did not accept the email and password.` The two conditions give the same message. |
+| Too many failed attempts (HTTP 429) | 1 | `too many failed login attempts.` The message gives the wait in seconds. |
+| No password given | 1 | `no password was given.` |
+
 ### `kairos logout`
 
-Removes one deployment's entry from the credential cache.
+Removes one deployment's entry from the credential cache. For a local session,
+`logout` also ends the session on the server with `POST /api/logout`. After
+that, the bearer does not work.
 
 ```
 kairos logout [OPTIONS]
@@ -93,6 +131,11 @@ kairos logout [OPTIONS]
 | `--url <URL>` | string | the only cached deployment | Deployment whose credentials are forgotten. |
 
 `logout` takes neither `--tenant` nor `--json`.
+
+| Entry | Server call | Result when the call fails |
+|---|---|---|
+| Issuer tokens | none | — |
+| Local session | `POST /api/logout` | Exit code 1. The entry is removed from the cache. The session stays valid until it expires. |
 
 ### `kairos whoami`
 
@@ -114,6 +157,12 @@ The `/api/whoami` response carries more than the default rendering prints. The
 board capabilities the principal holds, the capabilities every member holds
 implicitly, and the caller's teams' repositories are available under `--json`
 only.
+
+`whoami` works the same with issuer tokens and with a local session. The CLI
+does not refresh a local session. After a local session expires, each command
+that reaches the API sends no request and exits with code 2. The message is
+`the session for <URL> has expired.`, and it gives the `kairos login` command
+with the cached `--email` and `--tenant`.
 
 ## Work items
 
@@ -282,6 +331,11 @@ kairos <noun> delete <SHORT_CODE> --confirm [OPTIONS]
 The delete is a soft delete and cascades to the item's children. Deleted items
 are hidden from `list` unless `--include-deleted` is passed, and are recoverable
 with `restore`.
+
+The cascade takes the descendants that you can edit
+([the edit rule](capabilities.md#the-edit-rule)). It stops at a descendant that
+you cannot edit, and takes nothing below it. The command names each descendant
+that stays, and the reason. With `--json`, they are in `not_reached`.
 
 ### `<noun> restore`
 
@@ -629,7 +683,7 @@ kairos repos create --forge <FORGE> --name <FULL_NAME> --repo-url <URL> --team <
 | `--default-branch <BRANCH>` | string | `main` | Default branch. |
 | `--description <DESCRIPTION>` | string | none | Short "how to work here" blurb for agents. |
 
-Permitted to an org admin or a member of the owning team.
+Permitted to an organization admin or a member of the owning team.
 
 ### `kairos repos update`
 
@@ -659,7 +713,7 @@ kairos repos delete <REPOSITORY> --confirm [OPTIONS]
 | `<REPOSITORY>` | slug or UUID | required | The repository. |
 | `--confirm` | flag | off | Required for the removal to happen. |
 
-Org admin only. Refused while any task or webhook connection still references
+Organization admin only. Refused while any task or webhook connection still references
 the repository.
 
 ### `kairos repos bind`
@@ -791,7 +845,7 @@ kairos admin tenants create --slug <SLUG> --name <NAME> [OPTIONS]
 |---|---|---|---|
 | `--slug <SLUG>` | string matching `^[a-z][a-z0-9_-]{1,62}$` | required | Organization slug. |
 | `--name <NAME>` | string | required | Organization display name. |
-| `--initial-admin <OIDC_SUB>` | string | the caller | OIDC `sub` of the initial org admin. That user must have logged in at least once. |
+| `--initial-admin <OIDC_SUB>` | string | the caller | OIDC `sub` of the initial organization admin. That user must have logged in at least once. |
 
 Provisions the organization row, the schema and the default boards.
 
@@ -816,7 +870,7 @@ them useful and why they are dangerous. In Kubernetes, `kubectl exec deploy/kair
 kairos-server <subcommand>`; in Compose, `docker compose run --rm kairos <subcommand>`.
 
 Everything here needs `DATABASE_URL` and applies pending public migrations first, with
-one deliberate exception noted below.
+two deliberate exceptions noted below.
 
 | Subcommand | What it does |
 |---|---|
@@ -826,6 +880,7 @@ one deliberate exception noted below.
 | `drop-tenant --slug <slug> --confirm` | Destroy a tenant: schema CASCADE plus the organization row. Refuses without `--confirm`. **Unrecoverable.** |
 | `migrate-tenants` | Apply pending tenant migrations in every tenant schema. |
 | `list-tenants` | List provisioned tenants. |
+| `check-delivery-boards` | List each team with 2 or more live delivery boards. **Only reads.** See below. |
 | `set-password --email <email> [--password <pw>]` | Set a local account's password. See below. |
 | `hash-password [--password <pw>]` | Print a PHC hash of a password and nothing else. **Needs no database.** |
 | `seed-demo [--force]` | Seed the `demo` fixture tenant. |
@@ -841,8 +896,10 @@ For the case the GUI cannot help with: the sole admin of a local-auth deployment
 forgotten their password, and there is no reset email. It therefore **cannot require a
 login**, which is why it lives here rather than in `kairos`.
 
-Omit `--password` and it reads from stdin. Prefer that: an argument is visible in `ps`,
-in your shell history, and in a container's command line.
+Omit `--password` and it asks for the password. Prefer that: an argument is visible in `ps`,
+in your shell history, and in a container's command line. On a terminal the command
+does not show the password that you type. When stdin is a pipe, the command reads one
+line from it.
 
 It **will not create an account**. Creating one would make this a way to mint an admin
 on any deployment whose database you can reach; the empty-deployment case is
@@ -852,6 +909,34 @@ authenticates with API keys, and a password under 12 characters.
 Setting a password **revokes every session that person holds**, and the command says how
 many. That is the point of running it after a suspected compromise.
 
+### `check-delivery-boards` — a report on old data
+
+```
+kairos-server check-delivery-boards
+```
+
+A team has one delivery board. An earlier version of the API permitted a second
+board. Old data can thus have a team with 2 or more live delivery boards. The
+command looks in each tenant, and it prints each such team and the boards of
+the team:
+
+```text
+acme: team platform (5b0c…) has 2 live delivery boards:
+acme:   platform-delivery (91e2…) created 2026-03-02T10:15:00+00:00
+acme:   platform-extra (c47a…) created 2026-06-11T08:30:00+00:00
+1 team(s) with 2 or more live delivery boards in 1 tenant(s)
+```
+
+A deleted team that has live boards is in the report, with the word `deleted`.
+
+The command only reads. It does not apply migrations, and its transaction is
+read-only. The exit code is 0 when the report is complete, with or without teams
+in it.
+
+To correct a team, move the cards to the board that stays, then delete the other
+board with `DELETE /api/boards/{id}`. The delete of the team is a second
+procedure. It removes the team and each delivery board of the team together.
+
 ### `hash-password` — before the deployment exists
 
 ```
@@ -859,7 +944,7 @@ kairos-server hash-password [--password <password>]
 ```
 
 Prints a PHC string on stdout and nothing else, so `kairos-server hash-password >
-secret` contains exactly the hash. It is the only subcommand that does **not** touch the
+secret` contains exactly the hash. It is the only subcommand that does **not** connect to the
 database, because its whole purpose is to produce a value for
 `KAIROS_BOOTSTRAP_PASSWORD_HASH` before there is a deployment to talk to — so the
 plaintext password never has to be written into a manifest.
@@ -869,7 +954,7 @@ plaintext password never has to be written into a manifest.
 | Path | Mode | Contents |
 |---|---|---|
 | config directory | `0700` | Resolved from `KAIROS_CONFIG_DIR`, else `$XDG_CONFIG_HOME/kairos`, else `$HOME/.config/kairos`. |
-| `credentials.json` inside it | `0600` | The token cache, keyed by normalized deployment URL. |
+| `credentials.json` inside it | `0600` | The credential cache, keyed by normalized deployment URL. Holds issuer tokens and local sessions. |
 
 [Configuration](configuration.md#cli-configuration) is the canonical entry for
 the resolution order, the file's full shape, and the refresh behaviour.

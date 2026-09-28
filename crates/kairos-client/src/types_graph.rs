@@ -33,6 +33,18 @@ pub struct GraphNode {
     /// answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// `true` while this node is in a terminal column, a column with
+    /// `is_done` (COLLIERY-T-0233). Done work does not block, and nothing
+    /// blocks done work: a `blocks` edge with a done node at one end is
+    /// history. Clients must draw that edge differently from an open
+    /// blocker. `false` for a node with no column.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0247). The default is for the client only: a
+    /// response of an older server has no `done`, and it reads as `false`.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub done: bool,
 }
 
 /// One typed directed edge between two returned nodes.
@@ -64,4 +76,50 @@ pub struct GraphResponse {
     /// ALL edges among the returned nodes — cross-links included, not
     /// just the discovery tree.
     pub edges: Vec<GraphEdge>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use utoipa::PartialSchema;
+
+    /// COLLIERY-T-0247, the schema half: the server sends `done` in each
+    /// response, so the schema lists it as required. `archived_at` is
+    /// absent on a live node, so it is not in the list.
+    #[test]
+    fn graph_node_schema_requires_done() {
+        let schema = serde_json::to_value(GraphNode::schema()).expect("serializes");
+        let required: Vec<&str> = schema["required"]
+            .as_array()
+            .expect("the schema has a `required` list")
+            .iter()
+            .filter_map(|name| name.as_str())
+            .collect();
+        assert!(
+            required.contains(&"done"),
+            "`done` must be required: {required:?}"
+        );
+        assert!(
+            !required.contains(&"archived_at"),
+            "`archived_at` must stay optional: {required:?}"
+        );
+    }
+
+    /// COLLIERY-T-0247, the read half: a response of an older server has no
+    /// `done`. The client reads it, and the node is not done.
+    #[test]
+    fn graph_node_without_done_deserializes() {
+        let node: GraphNode = serde_json::from_value(serde_json::json!({
+            "id": "i",
+            "short_code": "ACME-T-0001",
+            "entity_type": "task",
+            "title": "t",
+            "status": "Todo",
+            "depth": 0,
+            "degree": 1
+        }))
+        .expect("a node with no `done` deserializes");
+        assert!(!node.done);
+        assert_eq!(node.archived_at, None);
+    }
 }

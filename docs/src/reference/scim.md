@@ -1,17 +1,17 @@
 # `/scim/v2` — inbound SCIM 2.0 provisioning
 
-Kairos 0.4.0. The rest of the HTTP surface is specified by OpenAPI
-(`GET /api/openapi.json`), but this endpoint speaks the RFC 7643/7644 wire
-protocol to identity providers rather than the `/api` envelope, so it is
-described here. Implementation: `crates/kairos-server/src/scim/`.
+OpenAPI (`GET /api/openapi.json`) specifies the rest of the HTTP
+surface. But this endpoint speaks the RFC 7643/7644 wire protocol to identity
+providers rather than the `/api` envelope. Thus this page describes it.
+Implementation: `crates/kairos-server/src/scim/`.
 
 ## Scope
 
 `/scim/v2` accepts inbound SCIM 2.0 for user and group lifecycle. It is
 additive: JIT-on-first-login and `/api/members` add-by-email remain available
-whether or not SCIM is configured.
+whether or not you configure SCIM.
 
-To connect an IdP, see
+To connect an issuer, see
 [Provision users with SCIM](../how-to/provision-users-with-scim.md).
 
 ## Tokens
@@ -22,23 +22,25 @@ To connect an IdP, see
 | `GET /api/scim-tokens` | Metadata only; never secrets. |
 | `DELETE /api/scim-tokens/{id}` | Revokes. 404 for an unknown id, **409** for one already revoked. |
 
-All three are org-admin only, and — unlike `/scim/v2` — they are ordinary
-`/api` calls, so they need the tenant resolved the ordinary way: a host
+All three are org-admin only. Unlike `/scim/v2`, they are ordinary `/api`
+calls. Thus they need the tenant resolved the ordinary way: a host
 subdomain, `X-Tenant`, or a single-tenant deployment.
 
-These three are `/api` endpoints and are specified with the rest of that
-surface — request and response schemas, and every status — under
-[Machine access](rest/machine-access.md#scim-tokens). The table above states
-only what is particular to them.
+These three are `/api` endpoints.
+[Machine access](rest/machine-access.md#scim-tokens) specifies them with the
+rest of that surface — request and response schemas, and every status. The
+table above states only what is particular to them.
 
 ### Token format and tenant resolution
 
-Tokens look like `kairos_scim_<org-slug>_<64-hex-secret>`. The tenant is
-resolved **from the token** (A-0016: "tenant-scoped by the token, not by
-subdomain") — SCIM requests need no tenant subdomain or `X-Tenant`
-header. The split is unambiguous: the secret is exactly 64 lowercase-hex
-characters (hex never contains `_`), so the last `_` separates slug from
-secret even for slugs containing underscores. Every auth failure
+Tokens look like `kairos_scim_<org-slug>_<64-hex-secret>`. Kairos resolves
+the tenant **from the token** (A-0016: "tenant-scoped by the token, not by
+subdomain"). SCIM requests need no tenant subdomain or `X-Tenant`
+header. The split is unambiguous. The secret is exactly 64 lowercase-hex
+characters (hex never contains `_`). Thus the last `_` separates slug from
+secret even for slugs containing underscores.
+
+Every auth failure
 (malformed, unknown tenant, wrong secret, revoked) returns the same SCIM
 401 envelope.
 
@@ -53,29 +55,36 @@ Inbound SCIM Users bind to `public.users` in this order:
 | 3 | first `emails[].value` (primary preferred; or an email-shaped `userName`) | `users.email` |
 | 4 | *no match* | new row created with `external_id = externalId ?? userName`, `user_name = userName` |
 
-`userName` and `externalId` are **two columns**, because they are two things:
-`externalId` is the OIDC subject logins join on, and `userName` is the login
-identifier the IdP uses, commonly an email. Earlier versions served both from
-`users.external_id`; existing rows were backfilled `user_name = external_id`, so
+`userName` and `externalId` are **two columns**, because they are two things.
+`externalId` is the OIDC subject logins join on. `userName` is the login
+identifier the issuer uses, commonly an email. Earlier versions served both from
+`users.external_id`. Existing rows got `user_name = external_id` as a backfill, so
 a deployment that never sent a distinct `userName` sees no change.
 
-SCIM never overwrites the login join key, so a user who has already logged in
+SCIM never overwrites the login join key. Thus a user who has already logged in
 keeps the `sub` on their row and the email fallback links them.
 
-A SCIM-*created* user whose stored `external_id` is not the `sub` their later login
-presents — which is every IdP that does not send `externalId` — is matched on their
-email at first login and **adopted**, and their `external_id` is re-keyed to the
-presented subject. They log in as the user who was provisioned for them, with the
-membership that was granted.
+A SCIM-*created* user can have a stored `external_id` that is not the `sub` their
+later login presents. This occurs with every issuer that does not send `externalId`.
+At first login, Kairos matches that user on their email and **adopts** them. Kairos
+then re-keys their `external_id` to the presented subject. They log in as the user
+that SCIM provisioned for them, with the membership that SCIM granted.
 
-**This requires a verified email.** The login-side fallback fires only when the
-token asserts `email_verified` as literally true; an IdP that omits the claim, or
-sends anything else, gets a second user row without the membership instead — the
-behaviour of earlier versions. The trust boundary is deliberate and is written up in
-[KAIROS-A-0010](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0010.md):
-Kairos believes one claim and only when a single issuer asserts it, because the cost
-of being too lax is one person binding to another's identity, while the cost of
-being too strict is a duplicate row.
+**This requires a verified email.** The login-side fallback fires only when both
+of these conditions are true:
+
+- No user row has the presented `sub` as its `external_id`.
+- The token asserts `email_verified` as true: the boolean `true`, or the string
+  `"true"` in any letter case.
+
+An issuer that omits the claim, or sends any other value, gets a second user row
+instead. That row has no membership. That is the behaviour of earlier versions.
+
+The trust boundary is deliberate, and
+[KAIROS-A-0010](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0010.md)
+records it. Kairos believes one claim and only when a single issuer asserts it. The
+reason is the two costs. The cost of being too lax is one person binding to another's
+identity. The cost of being too strict is a duplicate row.
 
 Where several rows share the email, the **earliest-created** one wins, in both
 directions.
@@ -84,29 +93,31 @@ Outbound, `userName` comes from `users.user_name` and `externalId` from
 `users.external_id`.
 
 `userName eq "…"` and `externalId eq "…"` are **different queries**, each
-searching its own column. They were the same query in earlier versions, which
-meant an IdP filtering by login email against opaque subjects found nothing —
-including during its own reconciliation sweeps, where finding nothing means
+searching its own column. They were the same query in earlier versions. Thus
+an issuer that filtered by login email against opaque subjects found nothing.
+That included its own reconciliation sweeps, where a result of nothing means
 "absent", which means re-create.
 
-Configuring an IdP to satisfy this is
+Configuring an issuer to satisfy this is
 [Make the identity join work](../how-to/provision-users-with-scim.md#make-the-identity-join-work).
 
 ## Resource model
 
 A tenant's SCIM `Users` **are its org memberships**: a resource exists
-iff an `organization_members` row does; `id` is the stable
+iff an `organization_members` row does. The `id` is the stable
 `public.users.id` UUID. `POST` provisions (link-or-create user + create
-membership, role `member`); `PATCH {"active": false}` and `DELETE`
+membership, role `member`). `PATCH {"active": false}` and `DELETE`
 revoke the membership immediately while **retaining the `users` row**
-(audit integrity). A deprovisioned user then answers 404 to `GET`, `PATCH`,
+(audit integrity).
+
+A deprovisioned user then answers 404 to `GET`, `PATCH`,
 `PUT` and `DELETE` alike — the resource is gone, not inactive. Re-activation is
-therefore a fresh `POST`; an IdP that reactivates by `PATCH {"active": true}`
-against the id it remembers gets 404 and will report the user as failing to
+therefore a fresh `POST`. An issuer that reactivates by `PATCH {"active": true}`
+against the id it remembers gets 404. It will then report the user as failing to
 sync.
 
 **Deprovision vs. live tokens (A-0010)**: access tokens validate locally
-until their TTL, but org membership is checked per request — a
+until their TTL, but Kairos checks org membership per request. A
 deprovisioned user's still-valid OIDC token receives 403
 `MEMBERSHIP_REQUIRED` on the next `/api` call.
 
@@ -117,19 +128,19 @@ deprovisioned user's still-valid OIDC token receives 403
 | `kairos-admins` | the organization UUID | `organization_members.role`: add = promote to `admin`, remove = demote to `member` |
 | `kairos-team-<slug>` | the team UUID | `team_members`; `POST` creates the team + its delivery board, `DELETE` soft-deletes both |
 
-No other `displayName` is meaningful, and no other `displayName` is accepted:
+No other `displayName` is meaningful, and Kairos accepts no other `displayName`.
 `POST` of one is **400 `invalidValue`**, not a silent skip. The slug after
-`kairos-team-` must match `^[a-z][a-z0-9_-]{1,62}$`, so `kairos-team-Platform`
-and `kairos-team-x` are refused too. `GET /scim/v2/Groups` lists every live
-team, not only the SCIM-created ones.
+`kairos-team-` must match `^[a-z][a-z0-9_-]{1,62}$`, so Kairos refuses
+`kairos-team-Platform` and `kairos-team-x` too. `GET /scim/v2/Groups` lists every
+live team, not only the SCIM-created ones.
 
-Group members must already be provisioned Users of *this* tenant — a
-`public.users` row is not enough — and a member who is not is 400
-`invalidValue`. Push Users before group memberships; IdPs do this naturally.
+Group members must already be provisioned Users of *this* tenant. A
+`public.users` row is not enough. A member who is not one is 400
+`invalidValue`. Push Users before group memberships; issuers do this naturally.
 
-Demoting/deactivating/deleting the **last admin** is refused with 400
-`scimType: "mutability"` (`LAST_ADMIN`). Group renames are refused the same
-way; rename teams via `/api/teams`.
+Kairos refuses to demote, deactivate or delete the **last admin**, with 400
+`scimType: "mutability"` (`LAST_ADMIN`). Kairos refuses group renames the same
+way. Rename teams via `/api/teams`.
 
 ### What group writes refuse
 
@@ -138,10 +149,10 @@ way; rename teams via `/api/teams`.
 | Condition | Response |
 |---|---|
 | `DELETE` of `kairos-admins` | 400 `mutability` — it is built in and always exists |
-| `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the count. Move or delete the items through `/api` first; until then the IdP's delete will never succeed |
+| `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the board and the count. Move or delete the items through `/api` first; until then the issuer's delete will never succeed |
 | `POST` of `kairos-admins` | 409 `uniqueness` — it always exists |
 | `POST` of a team slug that already exists **and is live** | 409 `uniqueness` |
-| `POST` where the `<slug>-delivery` board slug collides | 409 `uniqueness` |
+| `POST` where a live board has the slug `<slug>-delivery` | 409 `uniqueness`. The `detail` names the slug and the board that has it. Kairos creates no team and no board |
 | `members` not an array, a member without `value`, or a `value` that is not a UUID | 400 `invalidValue` |
 | A `remove` on `path: "members"` with no value | Accepted, and removes **every** member |
 
@@ -160,19 +171,21 @@ way; rename teams via `/api/teams`.
 | `/Me` | not implemented. RFC 7643 has no field for advertising that, so it is not advertised: it is simply unrouted |
 
 A deleted team group can be re-created under the same name. `teams.slug` is
-unique among **live** teams only, so a routine reorganisation — remove a group,
-add it back — works. The soft-deleted row stays, holding its audit history; the
-re-created team is a new one with a new id.
+unique among **live** teams only. Thus an issuer can remove a group and add it
+back. The soft-deleted row stays and keeps its audit history. The re-created
+team is a new team with a new `id`. It does not get the members of the deleted
+team.
 
 ### Errors
 
 Errors from the handlers are the RFC 7644 §3.12 envelope
 (`urn:ietf:params:scim:api:messages:2.0:Error`) with `status`, `detail`, and a
-`scimType` for 400/409-class rejections; responses are `application/scim+json`
-(requests may use it or `application/json` — the content type is not checked).
+`scimType` for 400/409-class rejections. Responses are `application/scim+json`.
+Requests may use it or `application/json` — Kairos does not check the content
+type.
 
-Four classes of failure are answered **before** a handler runs, and therefore
-not in that envelope. An IdP's error handling has to tolerate them:
+Kairos answers four classes of failure **before** a handler runs, and therefore
+not in that envelope. An issuer's error handling has to tolerate them:
 
 | Failure | Response |
 |---|---|
@@ -181,8 +194,9 @@ not in that envelope. An IdP's error handling has to tolerate them:
 | A wrong method on a routed path, e.g. `POST /scim/v2/Users/{id}` | 405, empty body |
 | A body over 2 MiB | 413, plain text |
 
-Every authentication failure — malformed token, unknown tenant, wrong secret,
-revoked, or a missing `Bearer ` header — is one 401 with no `scimType`.
+Every authentication failure is one 401 with no `scimType`. Those failures are
+a malformed token, an unknown tenant, a wrong secret, a revoked token, or a
+missing `Bearer ` header.
 
 The handler refusals, beyond the group ones tabled above:
 
@@ -204,20 +218,20 @@ The handler refusals, beyond the group ones tabled above:
 | A filter Kairos does not support | 400 `invalidFilter` |
 | An unsupported PATCH path | 400 `invalidPath` |
 
-Every lifecycle mutation writes a tenant `activity_log` row attributed
-to the org admin who created the SCIM token (`details` prefixed
+Every lifecycle mutation writes a tenant `activity_log` row. Kairos attributes
+the row to the organization admin who created the SCIM token (`details` prefixed
 `scim token:<name>`). A call that changes nothing — a `PUT` with no profile
 delta, a promotion of an existing admin, a member add that was already true —
-writes no row. Token creation and revocation are logged separately, under
+writes no row. Kairos logs token creation and revocation separately, under
 `scim_token:<name>`, attributed to the admin who made the call.
 
 ## Related guides
 
 - [Provision users with SCIM](../how-to/provision-users-with-scim.md) — wiring
-  an IdP up, and the identity-join mapping to get right first
+  an issuer up, and the identity-join mapping to get right first
 - [Configure an OIDC issuer](../how-to/configure-an-oidc-issuer.md) — the
   authentication half; SCIM does lifecycle only
-- [Wind down a team](../how-to/wind-down-a-team.md) — what to do before an IdP
+- [Wind down a team](../how-to/wind-down-a-team.md) — what to do before an issuer
   can delete a team group
 
 ## Related reading
@@ -225,5 +239,5 @@ writes no row. Token creation and revocation are logged separately, under
 - [Machine access](rest/machine-access.md#scim-tokens) — the `/api/scim-tokens`
   endpoints in full
 - [Errors](errors.md) — the `/api` envelope that SCIM does *not* use
-- [Capabilities](capabilities.md) — what an org admin can do that a member
+- [Capabilities](capabilities.md) — what an organization admin can do that a member
   cannot

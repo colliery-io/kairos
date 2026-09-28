@@ -104,6 +104,7 @@ mod tests {
                     grants: gs.iter().map(|g| (*g).into()).collect(),
                 })
                 .collect(),
+            implicit: vec![],
         }
     }
 

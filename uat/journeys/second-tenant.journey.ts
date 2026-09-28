@@ -147,7 +147,7 @@ journey(
       // of the new organisation — buys nothing here.
       const listed = await api.raw('GET', '/api/admin/tenants');
       expect(listed.status).toBe(403);
-      expect(String(listed.body?.error?.message ?? '')).toContain('deployment-admin');
+      expect(String(listed.body?.error?.message ?? '')).toContain('deployment admin');
       const creating = await api.raw('POST', '/api/admin/tenants', {
         slug: `${slug}-nope`, name: 'should never exist',
       });

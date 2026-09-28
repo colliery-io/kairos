@@ -22,8 +22,8 @@ kairos teams delete <team-id> --confirm
 ```
 
 ```text
-409 — team "Mobile" still owns 1 repository: [payments-api];
-re-home them before removing the team
+409 — The team "Mobile" has 1 repository: [payments-api]. Give each
+repository to a different team. Then delete the team.
 ```
 
 The message lists the repositories by slug, and `details.repositories` carries
@@ -57,9 +57,9 @@ kairos teams delete <team-id> --confirm
 ```
 
 ```text
-422 BOARD_NOT_EMPTY — team "Mobile"'s delivery board still holds 2 live card(s):
-[DEMO-T-0041, DEMO-T-0043]; move them to another board
-(POST /api/tasks/{code}/move) or delete them, then retry
+422 BOARD_NOT_EMPTY — The delivery board "Mobile Delivery" of the team "Mobile"
+has 2 live cards: [DEMO-T-0041, DEMO-T-0043]. Move each card to a different board
+(POST /api/tasks/{code}/move) or delete it. Then delete the team.
 ```
 
 The refusal names the cards — up to twenty of them — so this is a worklist, not
@@ -90,6 +90,11 @@ a puzzle. Two ways to clear each one, and the choice matters:
   whole subtree with it, so check what a card holds before archiving it rather
   than after — restore does not un-cascade, and putting the subtree back is one
   item at a time.
+
+  **It takes only the children that you can edit.** Read the output of the
+  command. It names each child that stays live, and the capability that you
+  need on its board. Archive those children with an account that can edit them,
+  or ask an organization admin to archive the parent.
 
 ### Decide before you archive
 

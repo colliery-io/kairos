@@ -12,10 +12,10 @@ Every default listing hides put-away work. Each one takes an opt-in, and the
 hits come back **marked**.
 
 ![The Kairos search page with "Include work that has been put away" switched
-on and a text query of "invoice". The results list two tasks: a live one, and
-DEMO-T-0011 marked with a gold "put away" badge and a gold left edge. The Tasks
-group caption reads "2 on this page · 1 put
-away".](../images/search-put-away-results.png)
+on and a text query of "invoice". The results show one initiative and two
+tasks. The task DEMO-T-0006 is live. The task DEMO-T-0011 has a gold "put away"
+badge and a gold left edge. The caption of the Tasks group reads "2 on this
+page · 1 put away".](../images/search-put-away-results.png)
 
 ## Search for it
 
@@ -71,7 +71,8 @@ Two things about the widened board listing, because they look like bugs:
   column has since been removed from the live board. It is an audit view, not a
   board view.
 - The children-progress rollup and the blocks summary are **not** widened. The
-  counts keep counting live rows however the listing is asked for.
+  counts keep counting live rows however the listing is asked for. The blocks
+  summary also leaves out every edge with an end in a done column.
 
 ## Put it back
 
@@ -88,10 +89,15 @@ restoring the parent restores only the parent, and the response lists the
 archived descendants it did not touch so each can be a separate decision. If you
 want the subtree back, restore each item.
 
+**A child that you find live below an archived parent is not an error.** The
+archive takes only the children that its caller can edit. A child that the
+caller cannot edit stays live, and keeps its link to the archived parent. To
+put it away too, ask a person who can edit it.
+
 ## When a restore is refused
 
 A write to put-away work is refused as if the item were not there — `NOT_FOUND`,
-with the message `no live item with short code …`. That is the read-only rule,
+with the message `No live item has the short code …`. That is the read-only rule,
 not a missing item; read it, or restore it first.
 
 A restore itself is refused with 422 `RESTORE_BLOCKED` when the item's **board,

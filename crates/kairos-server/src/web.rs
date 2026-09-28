@@ -144,7 +144,14 @@ pub fn router(state: &AppState) -> Router<AppState> {
         endpoints: OnceCell::new(),
     });
     Router::new()
-        .route("/api/config", get(spa_config))
+        // COLLIERY-T-0256: `/api/config` has the rule of the inputs. The
+        // token relay has not: OAuth gives the inputs of a token endpoint.
+        .route(
+            "/api/config",
+            get(spa_config).route_layer(axum::middleware::from_fn(
+                crate::input::refuse_unknown_input,
+            )),
+        )
         .route("/api/auth/token", post(token_relay))
         .layer(Extension(web_auth))
 }

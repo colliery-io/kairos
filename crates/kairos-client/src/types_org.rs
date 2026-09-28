@@ -26,7 +26,9 @@ pub struct Board {
     pub slug: String,
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
-    /// Owning team (UUID); set for delivery boards (KAIROS-A-0002).
+    /// Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A
+    /// board of the organization has none: its team is the list of its
+    /// members.
     pub team_id: Option<String>,
     /// RFC 3339.
     pub created_at: String,
@@ -50,20 +52,33 @@ pub struct BoardColumn {
     pub updated_at: String,
     /// Occupants count as completed for children-progress rollups
     /// (KAIROS-T-0080).
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `is_done`, and it reads as
+    /// `false`.
     #[serde(default)]
+    #[schema(required = true)]
     pub is_done: bool,
-    /// When this column was REMOVED from its board (RFC 3339), absent
+    /// When this column was REMOVED from its board (RFC 3339), `null`
     /// while it is part of the board (KAIROS-T-0161, KAIROS-T-0164).
     ///
     /// `GET /api/boards/{id}` omits removed columns entirely unless it is
-    /// asked for them (`?include_removed_columns=true`), so this is `None`
-    /// on every default read. It is `Some` only for a caller that wants
-    /// the column an ARCHIVED card was put away in — the audit fact the
-    /// soft delete exists to preserve.
+    /// asked for them (`?include_removed_columns=true`), so this is `null`
+    /// on every default read. It is a timestamp only for a caller that
+    /// wants the column an ARCHIVED card was put away in — the audit fact
+    /// the soft delete exists to preserve.
     ///
     /// Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at`
     /// is the KAIROS-A-0020 work-item state, and a column is not work.
+    ///
+    /// The server sends it in each response, `null` for a live column, so
+    /// the schema shows it as required and nullable (COLLIERY-T-0256, the
+    /// pattern of COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `removed_at`, and it reads as
+    /// `None`.
     #[serde(default)]
+    #[schema(required = true)]
     pub removed_at: Option<String>,
 }
 
@@ -95,23 +110,49 @@ pub struct BoardDetail {
 /// Body of `POST /api/boards`: creates a board seeded with the system
 /// default columns/transitions for its level (KAIROS-A-0002).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateBoardRequest {
     pub name: String,
     pub slug: String,
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
-    /// Owning team (UUID) for delivery boards.
+    /// Owning team (UUID). Required for a delivery board
+    /// (COLLIERY-T-0230). Leave it out for a board of the organization.
     #[serde(default)]
     pub team_id: Option<String>,
 }
 
 /// Body of `PATCH /api/boards/{id}` (board settings).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateBoardRequest {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
     pub slug: Option<String>,
+    /// The team of the board (UUID, or null for a board of the
+    /// organization). The team of a board does not change
+    /// (COLLIERY-T-0243): a value that is not the team of the board is
+    /// refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the
+    /// value that the board has.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schema(value_type = Option<String>)]
+    pub team_id: Option<Option<String>>,
+}
+
+/// A field that is present, with its value or its null. With
+/// `#[serde(default)]`, a field that is absent is `None` and a null is
+/// `Some(None)`.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// One column's items in the `GET /api/boards/{id}/items` view: every live
@@ -134,12 +175,25 @@ pub struct BoardItemsResponse {
     /// `(done, total)` direct-children counts keyed by the PARENT item's
     /// short code, for every item on this board that has children
     /// (KAIROS-T-0080) — computed in one grouped query, never per item.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). It is an empty map when no item has
+    /// children. The default is for the client only.
     #[serde(default)]
+    #[schema(required = true)]
     pub children_progress: std::collections::BTreeMap<String, ProgressCounts>,
     /// Blocked-by/blocks counts keyed by short code, for every item on
-    /// this board with at least one live `blocks` edge (KAIROS-T-0091) —
-    /// one grouped query; soft-deleted neighbors never count.
+    /// this board with at least one open `blocks` edge (KAIROS-T-0091) —
+    /// one grouped query; soft-deleted neighbors never count. An edge is
+    /// open only while neither end sits in a terminal column
+    /// (COLLIERY-T-0214): done work does not block and is not blocked, so
+    /// a card in a terminal column has no entry.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). It is an empty map when no item has an
+    /// open `blocks` edge. The default is for the client only.
     #[serde(default)]
+    #[schema(required = true)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
 }
 
@@ -147,9 +201,13 @@ pub struct BoardItemsResponse {
 /// (KAIROS-T-0091).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct BlocksCounts {
-    /// Live incoming `blocks` edges (things blocking this item).
+    /// Open incoming `blocks` edges (things blocking this item): the
+    /// blocker is live, and neither end is in a terminal column
+    /// (COLLIERY-T-0214).
     pub blocked_by: i64,
-    /// Live outgoing `blocks` edges (things this item blocks).
+    /// Open outgoing `blocks` edges (things this item blocks): the blocked
+    /// item is live, and neither end is in a terminal column
+    /// (COLLIERY-T-0214).
     pub blocks: i64,
 }
 
@@ -161,12 +219,19 @@ pub struct ProgressCounts {
     pub total: i64,
     /// False when no board hosting the children has a done-flagged
     /// column — clients show composition only, never a done fraction.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required (COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `has_done`, and it reads as
+    /// `false`.
     #[serde(default)]
+    #[schema(required = true)]
     pub has_done: bool,
 }
 
 /// Body of `POST /api/boards/{id}/columns`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateColumnRequest {
     pub name: String,
     /// 0-indexed position; must not collide with an existing column
@@ -177,6 +242,7 @@ pub struct CreateColumnRequest {
 /// Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move,
 /// and/or set the done flag.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateColumnRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -192,6 +258,7 @@ pub struct UpdateColumnRequest {
 
 /// Body of `POST /api/boards/{id}/transitions`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTransitionRequest {
     /// Source column (UUID).
     pub from_column_id: String,
@@ -217,6 +284,7 @@ pub struct BoardMember {
 
 /// Body of `POST /api/boards/{id}/members`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddBoardMemberRequest {
     /// `public.users.id` (UUID).
     pub user_id: String,
@@ -228,6 +296,7 @@ pub struct AddBoardMemberRequest {
 /// Body of `PATCH /api/boards/{id}/members/{user_id}` — replaces the user's
 /// full capability set (revokes what is absent, grants what is new).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReplaceCapabilitiesRequest {
     /// The complete new capability set (at least one; use DELETE to revoke
     /// board membership entirely).
@@ -280,6 +349,7 @@ pub struct Team {
 /// board (slug `{slug}-delivery`) from the system defaults, in the same
 /// transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTeamRequest {
     pub name: String,
     pub slug: String,
@@ -291,6 +361,7 @@ pub struct CreateTeamRequest {
 
 /// Body of `PATCH /api/teams/{id}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTeamRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -313,6 +384,7 @@ pub struct TeamMember {
 
 /// Body of `POST /api/teams/{id}/members`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddTeamMemberRequest {
     /// `public.users.id` (UUID).
     pub user_id: String,
@@ -338,6 +410,7 @@ pub struct DeliveryStream {
 
 /// Body of `POST /api/delivery-streams`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateStreamRequest {
     pub name: String,
     pub slug: String,
@@ -347,6 +420,7 @@ pub struct CreateStreamRequest {
 
 /// Body of `PATCH /api/delivery-streams/{id}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateStreamRequest {
     #[serde(default)]
     pub name: Option<String>,
@@ -358,6 +432,7 @@ pub struct UpdateStreamRequest {
 
 /// Body of `POST /api/delivery-streams/{id}/teams`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddStreamTeamRequest {
     /// Team id (UUID).
     pub team_id: String,
@@ -386,6 +461,7 @@ pub struct OrgMember {
 /// `public.users` — users are JIT-provisioned at first login, so an unknown
 /// email means the person must log in once first (404 with that guidance).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddOrgMemberRequest {
     pub email: String,
     /// `admin|member`; defaults to `member`.
@@ -396,6 +472,7 @@ pub struct AddOrgMemberRequest {
 /// Body of `PATCH /api/members/{user_id}` — role change. Demoting the last
 /// admin is rejected (422 `LAST_ADMIN`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateOrgMemberRequest {
     /// `admin|member`.
     pub role: String,
@@ -505,6 +582,7 @@ pub struct WhoamiTeam {
 /// Body of `POST /api/admin/tenants` (deployment-admin only; see
 /// `KAIROS_DEPLOYMENT_ADMINS`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTenantRequest {
     /// Organization slug (`^[a-z][a-z0-9_-]{1,62}$`).
     pub slug: String,
@@ -560,4 +638,157 @@ pub struct TenantSummary {
 pub struct TenantDeletedResponse {
     pub slug: String,
     pub dropped: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use utoipa::PartialSchema;
+
+    /// The names in the `required` list of a schema.
+    fn required_of(schema: impl serde::Serialize) -> Vec<String> {
+        let schema = serde_json::to_value(schema).expect("serializes");
+        schema["required"]
+            .as_array()
+            .expect("the schema has a `required` list")
+            .iter()
+            .filter_map(|name| name.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// COLLIERY-T-0254, the schema half: the server sends `is_done` in
+    /// each response, so the schema lists it as required.
+    #[test]
+    fn board_column_schema_requires_is_done() {
+        let required = required_of(BoardColumn::schema());
+        assert!(
+            required.iter().any(|name| name == "is_done"),
+            "`is_done` must be required: {required:?}"
+        );
+    }
+
+    /// COLLIERY-T-0256, the schema half: the server sends `removed_at` in
+    /// each response, `null` for a live column. So the schema lists it as
+    /// required, and its type permits `null`.
+    #[test]
+    fn board_column_schema_requires_removed_at_and_permits_null() {
+        let required = required_of(BoardColumn::schema());
+        assert!(
+            required.iter().any(|name| name == "removed_at"),
+            "`removed_at` must be required: {required:?}"
+        );
+        let schema = serde_json::to_value(BoardColumn::schema()).expect("serializes");
+        assert_eq!(
+            schema["properties"]["removed_at"]["type"],
+            json!(["string", "null"]),
+            "{schema}"
+        );
+        // What the server sends for a live column.
+        let column = BoardColumn {
+            id: "c".to_string(),
+            board_id: "b".to_string(),
+            name: "Todo".to_string(),
+            position: 0,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            is_done: false,
+            removed_at: None,
+        };
+        let sent = serde_json::to_value(&column).expect("serializes");
+        assert!(
+            sent.as_object()
+                .expect("an object")
+                .contains_key("removed_at")
+        );
+        assert_eq!(sent["removed_at"], json!(null));
+    }
+
+    /// COLLIERY-T-0256, the read half: a response of an older server has
+    /// no `removed_at`. The client reads it, and the column is live.
+    #[test]
+    fn board_column_without_removed_at_deserializes() {
+        let column: BoardColumn = serde_json::from_value(json!({
+            "id": "c",
+            "board_id": "b",
+            "name": "Todo",
+            "position": 0,
+            "is_done": true,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .expect("a column with no `removed_at` deserializes");
+        assert_eq!(column.removed_at, None);
+    }
+
+    /// COLLIERY-T-0254, the read half: a response of an older server has
+    /// no `is_done`. The client reads it, and the column is not terminal.
+    #[test]
+    fn board_column_without_is_done_deserializes() {
+        let column: BoardColumn = serde_json::from_value(json!({
+            "id": "c",
+            "board_id": "b",
+            "name": "Todo",
+            "position": 0,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .expect("a column with no `is_done` deserializes");
+        assert!(!column.is_done);
+        assert_eq!(column.removed_at, None);
+    }
+
+    /// COLLIERY-T-0254, the schema half: the server sends the two maps in
+    /// each response, so the schema lists them as required.
+    #[test]
+    fn board_items_schema_requires_the_two_maps() {
+        let required = required_of(BoardItemsResponse::schema());
+        for field in ["children_progress", "blocks_summary"] {
+            assert!(
+                required.iter().any(|name| name == field),
+                "`{field}` must be required: {required:?}"
+            );
+        }
+    }
+
+    /// COLLIERY-T-0254, the read half: a response of an older server has
+    /// neither map. The client reads it, and the two maps are empty.
+    #[test]
+    fn board_items_without_the_two_maps_deserializes() {
+        let response: BoardItemsResponse = serde_json::from_value(json!({
+            "board": {
+                "id": "b",
+                "name": "Platform",
+                "slug": "platform-delivery",
+                "board_level": "delivery",
+                "team_id": null,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+            },
+            "columns": []
+        }))
+        .expect("a response with neither map deserializes");
+        assert!(response.children_progress.is_empty());
+        assert!(response.blocks_summary.is_empty());
+    }
+
+    /// COLLIERY-T-0254, the schema half: the server sends `has_done` in
+    /// each response, so the schema lists it as required.
+    #[test]
+    fn progress_counts_schema_requires_has_done() {
+        let required = required_of(ProgressCounts::schema());
+        assert!(
+            required.iter().any(|name| name == "has_done"),
+            "`has_done` must be required: {required:?}"
+        );
+    }
+
+    /// COLLIERY-T-0254, the read half: a response of an older server has
+    /// no `has_done`, and it reads as `false`.
+    #[test]
+    fn progress_counts_without_has_done_deserializes() {
+        let counts: ProgressCounts = serde_json::from_value(json!({"done": 1, "total": 2}))
+            .expect("counts with no `has_done` deserialize");
+        assert!(!counts.has_done);
+    }
 }

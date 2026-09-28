@@ -27,7 +27,7 @@ use common::{
     with_database,
 };
 use kairos_client::types::{CreateStrategyRequest, CreateTaskRequest, Pagination};
-use kairos_client::types_org::CreateBoardRequest;
+use kairos_client::types_org::CreateTeamRequest;
 use kairos_client::types_search::SearchRequest;
 use kairos_client::{Error, KairosClient};
 use kairos_db::models::{NewOrganizationMember, OrgRole};
@@ -68,20 +68,21 @@ fn rejection<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
     }
 }
 
-/// Seed one tenant's same-shaped fixture THROUGH THE API: a delivery
-/// board, a task on it, and a strategy on the default strategy board.
+/// Seed one tenant's same-shaped fixture THROUGH THE API: a team and its
+/// delivery board, a task on it, and a strategy on the default strategy
+/// board. A delivery board always has a team (COLLIERY-T-0230), so the
+/// board comes from the create of the team.
 /// Returns (task short code, strategy short code, delivery board id).
 async fn seed_tenant(admin: &KairosClient) -> (String, String, String) {
-    let board = admin
-        .create_board(&CreateBoardRequest {
+    let team = admin
+        .create_team(&CreateTeamRequest {
             name: "Delivery".into(),
             slug: "delivery".into(),
-            board_level: "delivery".into(),
-            team_id: None,
+            team_type: None,
         })
         .await
-        .expect("creating the delivery board");
-    let board_id = board.board.id.clone();
+        .expect("creating the team and its delivery board");
+    let board_id = team.delivery_board_id.expect("delivery board");
     let task = admin
         .create_task(&CreateTaskRequest {
             board_id: Some(board_id.clone()),

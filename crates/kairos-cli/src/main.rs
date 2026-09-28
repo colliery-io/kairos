@@ -8,9 +8,14 @@
 //!   its RFC 9728 protected-resource metadata (or `--issuer`); tokens
 //!   cached in `~/.config/kairos/credentials.json` (0600), keyed by
 //!   deployment URL.
+//! - `kairos login --url <deployment> --email <email>` — a local account
+//!   (COLLIERY-T-0213): the password comes from the terminal or from
+//!   standard input, `POST /api/login` gives a session bearer, and the
+//!   bearer goes into the same cache.
 //! - `kairos whoami [--json]` — `GET /api/whoami` through `KairosClient`
 //!   with a refreshing [`provider::CachedTokenProvider`].
-//! - `kairos logout [--url]` — clears the cached entry.
+//! - `kairos logout [--url]` — clears the cached entry, and ends a local
+//!   session on the server.
 //!
 //! The command tree (KAIROS-T-0037), nouns mirroring the S-0005 API:
 //! `orgs`, `boards` (list/show grouped by column), `strategies`,
@@ -28,6 +33,7 @@ mod context;
 mod credentials;
 mod error;
 mod oidc;
+mod password;
 mod provider;
 mod table;
 
@@ -51,8 +57,9 @@ use commands::streams::StreamsCommand;
 use commands::teams::TeamsCommand;
 use credentials::{CredentialStore, DeploymentCredentials, unix_now};
 use error::CliError;
-use kairos_client::KairosClient;
+use kairos_client::types_auth::LoginRequest;
 use kairos_client::types_org::WhoamiResponse;
+use kairos_client::{Error as ApiError, KairosClient};
 use provider::CachedTokenProvider;
 
 #[derive(Parser)]
@@ -70,11 +77,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Log in to a Kairos deployment via the OAuth Device Authorization Grant
+    /// Log in to a Kairos deployment: through its OIDC issuer, or with a local account
+    #[command(long_about = "Log in to a Kairos deployment.\n\n\
+        Without --email, the login goes through the OIDC issuer of the deployment \
+        (OAuth Device Authorization Grant).\n\
+        With --email, the login uses a local account. The CLI asks for the password \
+        on the terminal and does not show it.\n\n\
+        The password is never an argument. For a script, send it on standard input:\n  \
+        printf '%s' \"$PASSWORD\" | kairos login --url <URL> --email <EMAIL>")]
     Login {
         /// Deployment base URL (e.g. https://kairos.example.com)
         #[arg(long)]
         url: String,
+        /// Email of a local account. The CLI asks for the password, or reads it from standard input
+        // COLLIERY-T-0213. There is no `--password`, and there must not be
+        // one: an argument is visible in the process list and stays in the
+        // shell history. The conflicts are explicit because each of the
+        // three options means "the OAuth login", and a command that names
+        // both logins has no one meaning to fall back to.
+        #[arg(long, conflicts_with_all = ["issuer", "client_id", "bearer"])]
+        email: Option<String>,
         /// OIDC issuer override (skips RFC 9728 discovery against the deployment)
         #[arg(long)]
         issuer: Option<String>,
@@ -90,7 +112,7 @@ enum Command {
         #[arg(long, value_enum, default_value = "access_token")]
         bearer: oidc::ApiBearer,
     },
-    /// Forget the cached credentials for a deployment
+    /// Forget the cached credentials for a deployment, and end a local session
     Logout {
         /// Deployment base URL (defaults to the only cached deployment)
         #[arg(long)]
@@ -170,12 +192,19 @@ async fn run(command: Command) -> Result<(), CliError> {
     match command {
         Command::Login {
             url,
+            email: Some(email),
+            tenant,
+            ..
+        } => login_local(&url, &email, tenant).await,
+        Command::Login {
+            url,
+            email: None,
             issuer,
             tenant,
             client_id,
             bearer,
         } => login(&url, issuer.as_deref(), tenant, client_id, bearer).await,
-        Command::Logout { url } => logout(url.as_deref()),
+        Command::Logout { url } => logout(url.as_deref()).await,
         Command::Whoami { url, tenant, json } => whoami(url.as_deref(), tenant, json).await,
         Command::Orgs(command) => command.run().await,
         Command::Boards(command) => command.run().await,
@@ -281,6 +310,8 @@ async fn login(
             client_id,
             tenant,
             api_bearer,
+            kind: credentials::CredentialKind::Oauth,
+            email: None,
         },
     );
     credentials::save(&path, &store)?;
@@ -306,8 +337,148 @@ fn load_store_for_login(path: &std::path::Path) -> CredentialStore {
     }
 }
 
-/// `kairos logout` — drop the deployment's entry from the cache.
-fn logout(url: Option<&str>) -> Result<(), CliError> {
+/// `kairos login --email` — log in with a local account (COLLIERY-T-0213,
+/// KAIROS-I-0018).
+///
+/// A deployment with local accounts and no issuer has no device endpoint, so
+/// the OAuth login has nothing to talk to. Before this command, a person
+/// with a local account could not use the CLI at all.
+///
+/// The order of the steps is for the person at the terminal:
+///
+/// 1. `GET /api/config` first. If the deployment says that local accounts
+///    are off, the CLI stops before it asks for a password that it cannot
+///    use. A failure of `/api/config` itself does not stop the login: on a
+///    deployment with both logins the endpoint answers 502 when the issuer
+///    is down, and that is the moment a local admin account is for.
+/// 2. The password, from the terminal or from standard input.
+/// 3. `POST /api/login`. The request, and the password in it, are dropped
+///    when the call returns.
+/// 4. The session bearer goes into the credential cache, in the entry of
+///    this deployment, with the expiry that the server gave.
+async fn login_local(url: &str, email: &str, tenant: Option<String>) -> Result<(), CliError> {
+    let deployment = credentials::normalize_url(url);
+    if deployment.is_empty() {
+        return Err(CliError::Failure("--url must not be empty".to_string()));
+    }
+    let email = email.trim();
+    if email.is_empty() {
+        return Err(CliError::Failure("--email must not be empty".to_string()));
+    }
+
+    let mut client = KairosClient::anonymous(&deployment);
+    if let Some(tenant) = &tenant {
+        client = client.with_tenant(tenant);
+    }
+
+    match client.deployment_config().await {
+        Ok(config) if !config.local_auth => return Err(local_accounts_off(&deployment)),
+        Ok(_) => {}
+        // Nothing answered. The login cannot succeed, so do not ask for a
+        // password.
+        Err(err @ ApiError::Transport(_)) => return Err(err.into()),
+        // See step 1 above: `POST /api/login` decides.
+        Err(_) => {}
+    }
+
+    let response = {
+        let request = LoginRequest {
+            email: email.to_string(),
+            password: password::read(email)?,
+        };
+        client.login(&request).await
+        // `request` goes out of scope here, and the password with it.
+    }
+    .map_err(|err| login_failure(err, &deployment))?;
+
+    let expires_at = chrono::DateTime::parse_from_rfc3339(&response.expires_at)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp()).ok())
+        .ok_or_else(|| {
+            CliError::Failure(
+                "the deployment gave a session with an expiry that the CLI cannot read.\n\
+                 Make sure that the CLI and the deployment are the same version."
+                    .to_string(),
+            )
+        })?;
+
+    let path = credentials::credentials_path()?;
+    let mut store = load_store_for_login(&path);
+    store.deployments.insert(
+        deployment.clone(),
+        DeploymentCredentials::local_session(
+            &response.token,
+            expires_at,
+            response.user.email.clone(),
+            tenant,
+        ),
+    );
+    credentials::save(&path, &store)?;
+
+    println!("Logged in to {deployment} as {}.", response.user.email);
+    println!("The session expires at {}.", response.expires_at);
+    println!("Credentials cached in {} (mode 0600).", path.display());
+    Ok(())
+}
+
+/// `--email` on a deployment that has local accounts off (COLLIERY-T-0213).
+fn local_accounts_off(deployment: &str) -> CliError {
+    CliError::Failure(format!(
+        "local accounts are off on this deployment.\n\
+         Run `kairos login --url {deployment}` to log in through the issuer."
+    ))
+}
+
+/// What the CLI says when `POST /api/login` fails (COLLIERY-T-0213).
+///
+/// The 401 has ONE message, written here and not taken from the server. The
+/// server gives the same 401 for a wrong password and for an account that
+/// does not exist, so that a caller cannot find out which addresses are
+/// accounts. The CLI must not undo that. A fixed text cannot differ between
+/// the two cases, and it names no address.
+fn login_failure(err: ApiError, deployment: &str) -> CliError {
+    match err {
+        ApiError::Unauthorized { .. } => CliError::Auth(
+            "the deployment did not accept the email and password.\n\
+             Check them, then run the command again."
+                .to_string(),
+        ),
+        // The throttle of KAIROS-T-0202: 429 `TOO_MANY_REQUESTS`, with the
+        // wait in `details.retry_after_secs`.
+        ApiError::Other {
+            status: 429,
+            details,
+            ..
+        } => CliError::Failure(match details["retry_after_secs"].as_u64() {
+            Some(seconds) => format!(
+                "too many failed login attempts.\n\
+                 Wait {seconds} seconds, then try again."
+            ),
+            None => "too many failed login attempts.\n\
+                     Wait a minute, then try again."
+                .to_string(),
+        }),
+        // The route is mounted only with local accounts on. This is the
+        // answer when `/api/config` could not say so first.
+        ApiError::NotFound { .. } | ApiError::UnexpectedResponse { status: 404, .. } => {
+            local_accounts_off(deployment)
+        }
+        other => other.into(),
+    }
+}
+
+/// `kairos logout` — drop the deployment's entry from the cache, and end a
+/// local session on the server (COLLIERY-T-0213).
+///
+/// An OAuth token cannot be ended from here, so for an OAuth entry the
+/// command only forgets it, as before. A session bearer can: without the
+/// call to `POST /api/logout`, a bearer that was copied from the cache stays
+/// a working credential for the rest of its fortnight.
+///
+/// The entry is removed BEFORE the call and whatever the call does. A
+/// person who logs out wants the credential off this machine. A server that
+/// does not answer is not a reason to keep it.
+async fn logout(url: Option<&str>) -> Result<(), CliError> {
     let path = credentials::credentials_path()?;
     let mut store = credentials::load(&path)?;
     if store.deployments.is_empty() {
@@ -315,13 +486,8 @@ fn logout(url: Option<&str>) -> Result<(), CliError> {
         return Ok(());
     }
     let deployment = credentials::resolve_deployment(&store, url)?;
-    match store.deployments.remove(&deployment) {
-        Some(_) => {
-            credentials::save(&path, &store)?;
-            println!("Logged out of {deployment}.");
-            Ok(())
-        }
-        None => Err(CliError::Failure(format!(
+    let Some(entry) = store.deployments.remove(&deployment) else {
+        return Err(CliError::Failure(format!(
             "no cached credentials for {deployment} (cached: {})",
             store
                 .deployments
@@ -329,8 +495,37 @@ fn logout(url: Option<&str>) -> Result<(), CliError> {
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(", ")
-        ))),
+        )));
+    };
+    credentials::save(&path, &store)?;
+
+    if entry.is_local_session() {
+        let mut client = KairosClient::with_static_token(&deployment, entry.access_token);
+        if let Some(tenant) = entry.tenant {
+            client = client.with_tenant(tenant);
+        }
+        if let Err(err) = client.logout().await {
+            let reason = match err {
+                ApiError::Transport(_) => "the deployment did not answer".to_string(),
+                other => match other.status() {
+                    Some(status) => format!("the deployment answered {status}"),
+                    None => "the answer of the deployment was not readable".to_string(),
+                },
+            };
+            return Err(CliError::Failure(format!(
+                "the deployment did not end the session: {reason}.\n\
+                 The local entry is removed from the cache. The session stays valid \
+                 until it expires.\n\
+                 To end it now, ask an organization admin to end your sessions."
+            )));
+        }
+        println!("Logged out of {deployment}.");
+        println!("The session is ended on the server.");
+        return Ok(());
     }
+
+    println!("Logged out of {deployment}.");
+    Ok(())
 }
 
 /// `kairos whoami` — the identity probe via `kairos-client`.
@@ -407,11 +602,13 @@ mod tests {
         match cli.command {
             Command::Login {
                 url,
+                email,
                 issuer,
                 tenant,
                 client_id,
                 bearer,
             } => {
+                assert_eq!(email, None);
                 assert_eq!(url, "http://localhost:8080");
                 assert_eq!(issuer, None);
                 assert_eq!(tenant.as_deref(), Some("acme"));
@@ -455,6 +652,98 @@ mod tests {
             Cli::try_parse_from(["kairos", "login"]).is_err(),
             "--url is required"
         );
+    }
+
+    /// COLLIERY-T-0213: `--email` selects the password login, and it does
+    /// not go together with an option of the OAuth login.
+    #[test]
+    fn login_email_parses_and_conflicts_with_the_oauth_options() {
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "login",
+            "--url",
+            "http://localhost:8080",
+            "--email",
+            "ada@example.test",
+            "--tenant",
+            "acme",
+        ])
+        .unwrap_or_else(|err| panic!("login --email parses: {err}"));
+        assert!(matches!(cli.command, Command::Login { .. }));
+
+        for (flag, value) in [
+            ("--issuer", "https://idp.example.test"),
+            ("--client-id", "kairos-cli"),
+            ("--bearer", "id_token"),
+        ] {
+            let err = Cli::try_parse_from([
+                "kairos",
+                "login",
+                "--url",
+                "http://localhost:8080",
+                "--email",
+                "ada@example.test",
+                flag,
+                value,
+            ])
+            .err()
+            .expect("--email with an OAuth option is a usage error");
+            assert_eq!(
+                err.kind(),
+                clap::error::ErrorKind::ArgumentConflict,
+                "{flag}: {err}"
+            );
+        }
+    }
+
+    /// COLLIERY-T-0213: the password is never an argument. An argument is
+    /// visible in the process list and stays in the shell history. The test
+    /// reads the clap definition, so a flag that a later change adds under
+    /// this name, or as an alias, fails here.
+    #[test]
+    fn login_has_no_password_flag() {
+        use clap::CommandFactory;
+        let command = Cli::command();
+        let login = command
+            .get_subcommands()
+            .find(|sub| sub.get_name() == "login")
+            .expect("the login command");
+        assert!(
+            login
+                .get_arguments()
+                .any(|arg| arg.get_long() == Some("email")),
+            "login must offer --email"
+        );
+        for arg in login.get_arguments() {
+            let mut names: Vec<String> = vec![arg.get_id().to_string()];
+            names.extend(arg.get_long().map(str::to_string));
+            names.extend(
+                arg.get_all_aliases()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(str::to_string),
+            );
+            for name in names {
+                assert!(
+                    !name.to_lowercase().contains("password"),
+                    "login must not take the password as an argument, found {name:?}"
+                );
+            }
+        }
+
+        let err = Cli::try_parse_from([
+            "kairos",
+            "login",
+            "--url",
+            "http://localhost:8080",
+            "--email",
+            "ada@example.test",
+            "--password",
+            "x",
+        ])
+        .err()
+        .expect("--password is not an option");
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument, "{err}");
     }
 
     /// The KAIROS-T-0037 command tree parses: every A-0015 noun with its

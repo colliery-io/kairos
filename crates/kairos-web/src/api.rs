@@ -47,6 +47,51 @@ pub async fn get_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, 
     decode_response(auth, token, path, response).await
 }
 
+/// mirror of: `kairos_client::types::ListEnvelope<T>` (partial): one page
+/// of a list route, and the number of rows of the full list.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+}
+
+/// The largest page that the server gives (`MAX_LIMIT` of the server).
+pub const PAGE_LIMIT: i64 = 200;
+
+/// The offset of the next page of a list, or `None` when the list is
+/// complete (COLLIERY-T-0257). `fetched` is the number of rows that the
+/// client has, and `last_page` is the number of rows of the last page.
+///
+/// An empty page stops the read, also when `total` says that there are more
+/// rows: a row that a person deleted between two pages must not make a loop
+/// with no end. Pure, host-tested.
+pub fn next_offset(fetched: usize, last_page: usize, total: i64) -> Option<i64> {
+    let fetched = i64::try_from(fetched).unwrap_or(i64::MAX);
+    (last_page > 0 && fetched < total).then_some(fetched)
+}
+
+/// Each row of a list route: `GET {path}?limit=200&offset=N`, page after
+/// page, until the client has the full list (COLLIERY-T-0257). `path` has
+/// no query.
+///
+/// For a page that makes a decision from the FULL list. The page of the
+/// boards in the administration counts the delivery boards of a team, and
+/// a count from the first 200 boards only can be wrong.
+pub async fn get_all<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<Vec<T>, ApiError> {
+    let mut all = Vec::new();
+    let mut offset = 0;
+    loop {
+        let page: Page<T> =
+            get_json(auth, &format!("{path}?limit={PAGE_LIMIT}&offset={offset}")).await?;
+        let last_page = page.items.len();
+        all.extend(page.items);
+        match next_offset(all.len(), last_page, page.total) {
+            Some(next) => offset = next,
+            None => return Ok(all),
+        }
+    }
+}
+
 /// `POST {path}` with a JSON body and the bearer token; JSON-decode the
 /// response body (same shape as [`get_json`], per docs/gui-conventions.md).
 pub async fn post_json<B: Serialize, T: DeserializeOwned>(
@@ -65,6 +110,20 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
+    decode_response(auth, token, path, response).await
+}
+
+/// `POST {path}` with NO body and the bearer token; JSON-decode the
+/// response body. For a route that accepts no body (the confirm and the
+/// reject of a proposal): the server refuses a body there, and `null` is
+/// a body (COLLIERY-T-0256).
+pub async fn post_empty<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
+    let token = auth.token();
+    let mut request = gloo_net::http::Request::post(path);
+    if let Some(token) = &token {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    let response = request.send().await.map_err(|_| ApiError::Network)?;
     decode_response(auth, token, path, response).await
 }
 
@@ -199,6 +258,17 @@ pub struct Whoami {
     /// drives per-board admin gating (KAIROS-T-0052) for non-admins.
     #[serde(default)]
     pub capabilities: Vec<WhoamiBoardCapabilities>,
+    /// The COMPUTED capabilities that the server gives to each member of
+    /// the tenant with no grant (KAIROS-T-0105). Today the list holds
+    /// `file_backlog`: the person can send a request to the delivery board
+    /// of any team (COLLIERY-T-0218).
+    ///
+    /// The board page reads it to offer "New request" (COLLIERY-T-0232).
+    /// The GUI reads the list and does not assume it, so that a server that
+    /// stops giving `file_backlog` also stops the button. A body with no
+    /// `implicit` decodes to an empty list, which offers no request.
+    #[serde(default)]
+    pub implicit: Vec<String>,
 }
 
 /// mirror of: `kairos_server::app::WhoamiBoardCapabilities` (partial).
@@ -259,7 +329,8 @@ mod tests {
                 "board_id": "c3f4a5b6-1234-4c66-9e46-94e0d9e0f70f",
                 "board_slug": "platform-delivery",
                 "grants": ["configure_boards", "administer_members"]
-            }]
+            }],
+            "implicit": ["file_backlog"]
         });
         let whoami: Whoami = serde_json::from_value(body).expect("mirror decodes");
         assert_eq!(whoami.user.display_name, "alice");
@@ -268,5 +339,55 @@ mod tests {
         assert_eq!(whoami.teams[0].id, "b1e2…");
         assert_eq!(whoami.capabilities[0].board_slug, "platform-delivery");
         assert_eq!(whoami.capabilities[0].grants.len(), 2);
+        // COLLIERY-T-0232: the computed capabilities are on the mirror.
+        assert_eq!(whoami.implicit, ["file_backlog"]);
+    }
+
+    /// COLLIERY-T-0232: a body with no `implicit` gives an empty list. The
+    /// board page then offers no request, which is the safe direction.
+    #[test]
+    fn whoami_mirror_decodes_a_body_with_no_implicit_list() {
+        let body = serde_json::json!({
+            "user": {"id": "u-1", "email": "u@x.test", "display_name": "u"},
+            "organization": {"slug": "demo", "role": "member"}
+        });
+        let whoami: Whoami = serde_json::from_value(body).expect("mirror decodes");
+        assert!(whoami.implicit.is_empty());
+    }
+
+    /// COLLIERY-T-0257: a list with more rows than one page. The client
+    /// reads the next page from the number of rows that it has.
+    #[test]
+    fn the_next_page_starts_after_the_rows_that_the_client_has() {
+        // 450 boards: 3 pages.
+        assert_eq!(next_offset(200, 200, 450), Some(200));
+        assert_eq!(next_offset(400, 200, 450), Some(400));
+        assert_eq!(next_offset(450, 50, 450), None);
+        // A list of one page, and an empty list.
+        assert_eq!(next_offset(12, 12, 12), None);
+        assert_eq!(next_offset(0, 0, 0), None);
+        // A list of 200 rows is complete after one full page.
+        assert_eq!(next_offset(200, 200, 200), None);
+    }
+
+    /// An empty page stops the read: a row that a person deleted between
+    /// two pages makes `total` larger than the number of rows.
+    #[test]
+    fn an_empty_page_stops_the_read() {
+        assert_eq!(next_offset(400, 0, 401), None);
+        // A page that is not full, with more rows to come, reads on.
+        assert_eq!(next_offset(399, 199, 401), Some(399));
+    }
+
+    /// The mirror of a page reads `items` and `total`.
+    #[test]
+    fn a_page_decodes_the_list_envelope() {
+        let body = serde_json::json!({
+            "items": [{"slug": "platform"}, {"slug": "web"}],
+            "total": 450, "limit": 200, "offset": 0
+        });
+        let page: Page<serde_json::Value> = serde_json::from_value(body).expect("decodes");
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.total, 450);
     }
 }

@@ -137,20 +137,142 @@ pub const FILE_BACKLOG: &str = "file_backlog";
 /// under `implicit`.
 pub const COMPUTED_CAPABILITIES: &[&str] = &[FILE_BACKLOG];
 
-/// Relationship types a NON-admin may write between items they can
-/// otherwise manage (KAIROS-T-0111 amending A-0006's "relationships are
-/// tenant-wide configuration"): `parent` and `blocks` are the day-to-day
-/// decomposition and dependency edges — an agent that just sent a request
-/// to another team (`file_backlog`, COLLIERY-A-0023) must be able to hang it
-/// under its initiative and mark what it blocks. `supersedes`, `supports`
-/// and `informs` stay org-admin. The server's rule for a collaborative
-/// edge: manage on the SOURCE's board, or on the TARGET's board, or the
-/// caller CREATED the source item.
-pub const COLLABORATIVE_RELATIONSHIPS: &[&str] = &["parent", "blocks"];
+// ---------------------------------------------------------------------------
+// The edit rule and the link rule (COLLIERY-T-0228)
+// ---------------------------------------------------------------------------
 
-/// May a non-admin write `relationship` (see [`COLLABORATIVE_RELATIONSHIPS`])?
-pub fn is_collaborative_relationship(relationship: &str) -> bool {
-    COLLABORATIVE_RELATIONSHIPS.contains(&relationship)
+/// What the server knows about one principal and one item when it decides
+/// an edit (COLLIERY-T-0228). The server loads the three facts; the
+/// decision is [`may_edit_item`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditFacts {
+    /// The principal created the item (`created_by`).
+    pub created_item: bool,
+    /// The principal holds `manage_<type>` on the authorization board of
+    /// the item. `false` when the item has no authorization board.
+    pub holds_manage: bool,
+    /// The principal is an admin of the organization.
+    pub is_org_admin: bool,
+}
+
+/// THE EDIT RULE (COLLIERY-T-0228). A principal, a person or a service
+/// account, may edit an item when ONE of these is true:
+///
+/// 1. the principal created the item,
+/// 2. the principal holds `manage_<type>` on the authorization board of the
+///    item,
+/// 3. the principal is an admin of the organization.
+///
+/// Creation is the primary mechanism of ownership. A capability on a board
+/// is how a team shares that ownership. The rule applies to each item type:
+/// strategy, initiative, task, document, ADR. It reads who created the
+/// item and not where the item is, so the right stays with the creator when
+/// the item moves to a different board.
+///
+/// An edit is: the title and the content, the metadata, the repository of a
+/// task, the editorial lifecycle of a document, archive, and restore.
+///
+/// Creation does NOT grant movement. To move an item between columns, to
+/// change its lane, or to move it to a different board, the principal needs
+/// the capability on the board (`transition_items`, or `manage_tasks` on
+/// the two boards of a move). A team controls its own plan
+/// (COLLIERY-T-0218, COLLIERY-A-0023): a person who sends a request to a
+/// team can correct its text, link it and archive it, and cannot put it in
+/// the plan of that team. Creation grants nothing on a board, a team, a
+/// member, a capability, a repository or the configuration of the tenant.
+pub fn may_edit_item(facts: EditFacts) -> bool {
+    facts.created_item || facts.holds_manage || facts.is_org_admin
+}
+
+/// The `manage_<type>` capability of an item type: the capability of the
+/// edit rule ([`may_edit_item`]). One function for the server and for the
+/// cascade of an archive (COLLIERY-T-0234), so the refusal of an edit and
+/// the reason of an archive name the same capability.
+pub fn manage_capability(item_type: crate::short_code::ItemType) -> &'static str {
+    use crate::short_code::ItemType;
+    match item_type {
+        ItemType::Strategy => MANAGE_STRATEGIES,
+        ItemType::Initiative => MANAGE_INITIATIVES,
+        ItemType::Task => MANAGE_TASKS,
+        ItemType::Document => MANAGE_DOCUMENTS,
+        ItemType::Adr => MANAGE_ADRS,
+    }
+}
+
+/// THE LINK RULE (COLLIERY-T-0228). A principal may write an edge, which
+/// is to create it or to remove it, when the principal may edit the item
+/// at EITHER end ([`may_edit_item`]). The rule is the same for each
+/// relationship type: `parent`, `blocks`, `supports`, `informs`,
+/// `supersedes`.
+///
+/// Until COLLIERY-T-0228 `supports`, `informs` and `supersedes` needed the
+/// admin role, and `parent` and `blocks` looked at the creator of the
+/// source only. One rule for each type is easier to learn, and a person
+/// who can edit an item could not say what the item relates to.
+///
+/// The rule decides WHO. It does not decide WHICH edges can exist: the
+/// type rules (`graph::check_link`), the cycle check and the duplicate
+/// check do not change.
+pub fn may_write_edge(may_edit_source: bool, may_edit_target: bool) -> bool {
+    may_edit_source || may_edit_target
+}
+
+/// THE LINK RULE FOR THE PARENT OF A DOCUMENT (COLLIERY-T-0235): may this
+/// principal CREATE a `supports` edge that points at a document?
+///
+/// A document has no board. It takes its authority from the board of its
+/// EARLIEST `supports` parent. So the first `supports` edge of a document
+/// decides who can edit the document, and the link rule
+/// ([`may_write_edge`]) is too wide for that one edge.
+///
+/// THE ATTACK. A document has no parent. A principal who can edit some
+/// task writes `supports` from the task to the document, which the link
+/// rule permits for the source. The document now takes its authority from
+/// the board of the task, and the principal can edit and archive a
+/// document that it had no right to edit.
+///
+/// THE RULE. For a document with NO parent, the principal must be able to
+/// edit the DOCUMENT: with no board, that is its creator or an admin of
+/// the organization. For a document that HAS a parent, a new edge does not
+/// change the authority (the earliest edge still gives it), and the link
+/// rule applies as it is.
+pub fn may_link_document_parent(
+    document_has_parent: bool,
+    may_edit_source: bool,
+    may_edit_document: bool,
+) -> bool {
+    if document_has_parent {
+        may_write_edge(may_edit_source, may_edit_document)
+    } else {
+        may_edit_document
+    }
+}
+
+/// May this principal REMOVE a `supports` edge that points at a document
+/// (COLLIERY-T-0235)? Only a principal that may edit the DOCUMENT. The
+/// right to edit the parent is not sufficient.
+///
+/// THE ATTACK. A document has the parents A, the earliest, and B. A
+/// principal can edit A and B, and cannot edit the document. The link rule
+/// lets the principal remove the edge from A, because it can edit the
+/// source. B is now the earliest parent, and the document takes its
+/// authority from the board of B.
+///
+/// A principal that may edit the document can move it between parents. It
+/// gives the authority away, which is the right of an editor.
+pub fn may_unlink_document_parent(may_edit_document: bool) -> bool {
+    may_edit_document
+}
+
+/// A DOCUMENT ALWAYS HAS A PARENT (COLLIERY-T-0235): can one of `parents`
+/// edges be removed? Only when one parent or more stays. The rule is a
+/// rule of the data and not a permission: it applies to each principal,
+/// an admin of the organization too.
+///
+/// WHY. A document that supports nothing has no board, so no team answers
+/// for it. The owner decided that the server does not make that state.
+pub fn document_keeps_a_parent(parents: usize) -> bool {
+    parents > 1
 }
 
 // ---------------------------------------------------------------------------
@@ -160,22 +282,24 @@ pub fn is_collaborative_relationship(relationship: &str) -> bool {
 /// Tenant-wide configuration resources that live on no board. Per A-0006
 /// these are org-admin-only: no board-scoped capability can ever authorize
 /// writes to them.
+///
+/// Relationships were in this list until COLLIERY-T-0228. An edge is not
+/// configuration of the tenant: it is a statement about two items, so the
+/// person who may edit one of those items may write it. The server decides
+/// that (`require_edge_write`), for each relationship type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TenantConfigResource {
     /// `templates` rows.
     Templates,
     /// `metadata_definitions` (and their enum options).
     MetadataDefinitions,
-    /// `item_relationships` edges.
-    Relationships,
 }
 
 impl TenantConfigResource {
     /// Whether writes to this resource require `organization_members.role =
     /// 'admin'`. Constant `true` for every variant — encoded as a function so
     /// the policy has one citable home (A-0006: "Templates, metadata
-    /// definitions, relationships … only org admins can create, modify, or
-    /// delete them").
+    /// definitions … only org admins can create, modify, or delete them").
     pub const fn org_admin_only(self) -> bool {
         true
     }
@@ -238,6 +362,43 @@ pub fn is_authorized(grants: &[String], required: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- the parent of a document (COLLIERY-T-0235) ----------------------------
+
+    #[test]
+    fn a_document_with_no_parent_needs_the_right_to_edit_the_document() {
+        // The attack: the principal can edit the source only.
+        assert!(!may_link_document_parent(false, true, false));
+        assert!(!may_link_document_parent(false, false, false));
+        assert!(may_link_document_parent(false, false, true));
+        assert!(may_link_document_parent(false, true, true));
+    }
+
+    #[test]
+    fn a_document_with_a_parent_takes_the_link_rule() {
+        for source in [false, true] {
+            for document in [false, true] {
+                assert_eq!(
+                    may_link_document_parent(true, source, document),
+                    may_write_edge(source, document)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_remove_of_a_parent_needs_the_right_to_edit_the_document() {
+        assert!(may_unlink_document_parent(true));
+        assert!(!may_unlink_document_parent(false));
+    }
+
+    #[test]
+    fn the_last_parent_stays() {
+        assert!(!document_keeps_a_parent(0));
+        assert!(!document_keeps_a_parent(1));
+        assert!(document_keeps_a_parent(2));
+        assert!(document_keeps_a_parent(3));
+    }
 
     // -- exact matches ---------------------------------------------------------
 
@@ -429,7 +590,6 @@ mod tests {
         for resource in [
             TenantConfigResource::Templates,
             TenantConfigResource::MetadataDefinitions,
-            TenantConfigResource::Relationships,
         ] {
             assert!(resource.org_admin_only());
         }
@@ -452,6 +612,59 @@ mod tests {
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));
         assert!(!team_implies(GLOB_MANAGE));
+    }
+
+    /// COLLIERY-T-0228: each of the three facts is sufficient, and with
+    /// none of them there is no edit. All eight combinations.
+    #[test]
+    fn the_edit_rule_needs_one_fact_of_three() {
+        for created_item in [false, true] {
+            for holds_manage in [false, true] {
+                for is_org_admin in [false, true] {
+                    let facts = EditFacts {
+                        created_item,
+                        holds_manage,
+                        is_org_admin,
+                    };
+                    assert_eq!(
+                        may_edit_item(facts),
+                        created_item || holds_manage || is_org_admin,
+                        "{facts:?}"
+                    );
+                }
+            }
+        }
+        assert!(!may_edit_item(EditFacts {
+            created_item: false,
+            holds_manage: false,
+            is_org_admin: false,
+        }));
+        // Creation alone: no capability, no role.
+        assert!(may_edit_item(EditFacts {
+            created_item: true,
+            holds_manage: false,
+            is_org_admin: false,
+        }));
+    }
+
+    /// COLLIERY-T-0228: one end is sufficient; neither end is a refusal.
+    #[test]
+    fn the_link_rule_needs_one_end() {
+        assert!(may_write_edge(true, true));
+        assert!(may_write_edge(true, false));
+        assert!(may_write_edge(false, true));
+        assert!(!may_write_edge(false, false));
+    }
+
+    /// COLLIERY-T-0228: creation is not a capability. It is not in the
+    /// vocabulary that can be granted, nor in the computed one, so no grant
+    /// and no `whoami` can carry it to a board.
+    #[test]
+    fn creation_is_not_a_capability() {
+        for name in ["creator", "created_by", "owner", "edit_items"] {
+            assert!(!CAPABILITIES.contains(&name));
+            assert!(!COMPUTED_CAPABILITIES.contains(&name));
+        }
     }
 
     #[test]

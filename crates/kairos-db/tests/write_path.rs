@@ -44,6 +44,22 @@ use kairos_db::models::{
 };
 use kairos_db::{create_board, provision_tenant, run_public_migrations, schema};
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
@@ -208,12 +224,14 @@ fn write_path_lifecycle() {
     let adr_board = board_id_by_slug(&mut conn, "adrs");
     // Delivery boards are per-team and not provisioned by default; tasks
     // need one (KAIROS-T-0008 interpretation).
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(&mut conn, "Delivery Team", "delivery-team");
     let delivery_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         Some(alice),
     )
     .expect("creating delivery board")

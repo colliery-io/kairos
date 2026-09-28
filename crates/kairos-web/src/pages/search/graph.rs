@@ -7,7 +7,9 @@
 //! - Strategy | Initiative | Task as FIXED layered columns; layout is the
 //!   pure [`super::graph_layout`] module (deterministic, unit-tested);
 //! - `parent` is containment (lane bands), never an arrow;
-//! - `blocks` is the ONLY drawn arrow;
+//! - `blocks` is the ONLY drawn arrow, in two styles (COLLIERY-T-0233):
+//!   an open blocker, and a resolved one, where an end of the edge is in
+//!   a done column (the COLLIERY-T-0214 rule). The legend names both;
 //! - `supports`/`informs`/`supersedes` live in the side panel, which is
 //!   suppressed when empty;
 //! - depth 2 by default; `+N` badges expand in place (merge, no remount);
@@ -51,6 +53,21 @@ fn clip(title: &str, max: usize) -> String {
         let clipped: String = title.chars().take(max.saturating_sub(1)).collect();
         format!("{clipped}…")
     }
+}
+
+/// The room that the "put away" mark takes at the right end of the status
+/// row. The "done" mark (COLLIERY-T-0233) moves left by this when a node
+/// has the two marks.
+const PUT_AWAY_MARK_W: f64 = 52.0;
+
+/// Whether a `blocks` arrow is resolved (COLLIERY-T-0233): an end of the
+/// edge is in a done column, so the edge is history and not a blocker
+/// (the COLLIERY-T-0214 rule, which the board counts follow). An end
+/// that is not in the node set counts as not done.
+fn blocks_resolved(nodes: &[data::GraphNode], source_id: &str, target_id: &str) -> bool {
+    nodes
+        .iter()
+        .any(|node| node.done && (node.id == source_id || node.id == target_id))
 }
 
 /// One row of the supporting-material side panel.
@@ -229,6 +246,14 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                     })
                     .collect();
                 let geometry = graph_layout::layout(&canvas_inputs, &canvas_edges);
+                // COLLIERY-T-0233: the arrows whose edge has an end in a
+                // done column, keyed like the layout's arrows.
+                let resolved: std::collections::HashSet<(String, String)> = geometry
+                    .arrows
+                    .iter()
+                    .filter(|arrow| blocks_resolved(&nodes, &arrow.source_id, &arrow.target_id))
+                    .map(|arrow| (arrow.source_id.clone(), arrow.target_id.clone()))
+                    .collect();
                 let by_id = move |id: &str| nodes.iter().find(|n| n.id == id).cloned();
                 let focus_code = code.get_value();
 
@@ -332,8 +357,22 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         let source = arrow.source_id.clone();
                         let target = arrow.target_id.clone();
                         let path = arrow.path.clone();
+                        // COLLIERY-T-0233: a resolved arrow is history.
+                        // It has its own style and arrowhead, or the
+                        // reader takes a completed blocker for an open
+                        // one.
+                        let is_resolved = resolved
+                            .contains(&(arrow.source_id.clone(), arrow.target_id.clone()));
                         let hot = move || {
                             hovered.get().is_some_and(|h| h == source || h == target)
+                        };
+                        let (marker, tip) = if is_resolved {
+                            (
+                                "url(#kairos-graph-arrowhead-resolved)",
+                                "Resolved: one end is in a done column. This edge does not block.",
+                            )
+                        } else {
+                            ("url(#kairos-graph-arrowhead)", "Open blocker")
                         };
                         view! {
                             <path
@@ -342,9 +381,12 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                 } else {
                                     "kairos-graph__edge"
                                 }
+                                class:kairos-graph__edge--resolved=is_resolved
                                 d=path
-                                marker-end="url(#kairos-graph-arrowhead)"
-                            ></path>
+                                marker-end=marker
+                            >
+                                <title>{tip}</title>
+                            </path>
                         }
                     })
                     .collect_view();
@@ -364,11 +406,18 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         // line below is the editorial lifecycle, which
                         // has its own unrelated "archived".
                         let put_away = node.archived_at.is_some();
-                        let title_attr = if put_away {
-                            format!("{} — {} — put away", node.title, node.status)
-                        } else {
-                            format!("{} — {}", node.title, node.status)
-                        };
+                        // COLLIERY-T-0233: the node says if its item is
+                        // in a done column. The column NAME in `status`
+                        // does not say it: the flag is the decision of
+                        // the board, and the name can be any word.
+                        let done = node.done;
+                        let mut title_attr = format!("{} — {}", node.title, node.status);
+                        if done {
+                            title_attr.push_str(" — done");
+                        }
+                        if put_away {
+                            title_attr.push_str(" — put away");
+                        }
                         let node_code = node.short_code.clone();
                         let refocus_code = node_code.clone();
                         let detail_code = node_code.clone();
@@ -385,6 +434,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                     "kairos-graph__node"
                                 }
                                 class:kairos-graph__node--put-away=put_away
+                                class:kairos-graph__node--done=done
                                 on:mouseenter=move |_| hovered.set(Some(enter_id.clone()))
                                 on:mouseleave=move |_| hovered.set(None)
                             >
@@ -415,6 +465,13 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                     class="kairos-graph__status"
                                     x=x + 10.0 y=y + 50.0
                                 >{node.status.clone()}</text>
+                                {done.then(|| view! {
+                                    <text
+                                        class="kairos-graph__done"
+                                        x=x + w - 10.0 - if put_away { PUT_AWAY_MARK_W } else { 0.0 }
+                                        y=y + 50.0
+                                    >"done"</text>
+                                })}
                                 {put_away.then(|| view! {
                                     <text
                                         class="kairos-graph__put-away"
@@ -458,6 +515,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                             caption="parent = containment · blocks = arrows · depth 2, +N expands \
                                      · put-away items are drawn, marked"
                         >
+                            <GraphLegend/>
                             <div class="kairos-graph">
                                 <svg
                                     width=view_w
@@ -474,6 +532,22 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                             orient="auto-start-reverse"
                                         >
                                             <path d="M 0 0 L 10 5 L 0 10 z" class="kairos-graph__arrowhead"></path>
+                                        </marker>
+                                        // COLLIERY-T-0233: a marker does
+                                        // not inherit the stroke of its
+                                        // path, so the resolved style
+                                        // has its own arrowhead.
+                                        <marker
+                                            id="kairos-graph-arrowhead-resolved"
+                                            viewBox="0 0 10 10"
+                                            refX="9" refY="5"
+                                            markerWidth="7" markerHeight="7"
+                                            orient="auto-start-reverse"
+                                        >
+                                            <path
+                                                d="M 0 0 L 10 5 L 0 10 z"
+                                                class="kairos-graph__arrowhead kairos-graph__arrowhead--resolved"
+                                            ></path>
                                         </marker>
                                     </defs>
                                     {headers}
@@ -527,6 +601,42 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                 }.into_any()
             }
         }}
+    }
+}
+
+/// The legend of the canvas (COLLIERY-T-0233): the two styles of a
+/// `blocks` arrow. The samples have classes of their own, because a
+/// sample is not an edge of the graph. In `app.css` each sample shares its
+/// rule with the arrow that it explains, so the legend cannot show a style
+/// that the canvas does not draw.
+#[component]
+fn GraphLegend() -> impl IntoView {
+    let sample = |resolved: bool| {
+        view! {
+            <svg class="kairos-graph__legend-sample" width="44" height="12" aria-hidden="true">
+                <path
+                    class="kairos-graph__legend-line"
+                    class:kairos-graph__legend-line--resolved=resolved
+                    d="M 2 6 L 42 6"
+                ></path>
+            </svg>
+        }
+    };
+    view! {
+        <div class="kairos-graph__legend">
+            <Group gap="md" wrap=true>
+                <Group gap="xs">
+                    {sample(false)}
+                    <Text dimmed=true size="xs">"Open blocker"</Text>
+                </Group>
+                <Group gap="xs">
+                    {sample(true)}
+                    <Text dimmed=true size="xs">
+                        "Resolved: one end is in a done column"
+                    </Text>
+                </Group>
+            </Group>
+        </div>
     }
 }
 
@@ -707,5 +817,39 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                 </Group>
             </Stack>
         </Panel>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(id: &str, done: bool) -> data::GraphNode {
+        data::GraphNode {
+            id: id.to_string(),
+            short_code: format!("DEMO-T-{id}"),
+            entity_type: "task".to_string(),
+            title: String::new(),
+            status: String::new(),
+            depth: 0,
+            degree: 0,
+            archived_at: None,
+            done,
+        }
+    }
+
+    /// COLLIERY-T-0233: a `blocks` arrow is resolved when the node at
+    /// one end is in a done column, and open only when no end is.
+    #[test]
+    fn a_blocks_arrow_with_a_done_end_is_resolved() {
+        let nodes = vec![
+            node("open", false),
+            node("other", false),
+            node("done", true),
+        ];
+        assert!(!blocks_resolved(&nodes, "open", "other"));
+        assert!(blocks_resolved(&nodes, "done", "open"), "done blocker");
+        assert!(blocks_resolved(&nodes, "open", "done"), "done blocked item");
+        assert!(!blocks_resolved(&nodes, "open", "absent"), "unknown end");
     }
 }

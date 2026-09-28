@@ -50,6 +50,22 @@ use kairos_db::search::{
 };
 use kairos_db::{create_board, graph, provision_tenant, run_public_migrations, schema};
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 /// Same default as `.angreal/task_db.py`'s `DATABASE_URL`.
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
 
@@ -216,12 +232,14 @@ fn unified_search_pipeline() {
     .id;
     // Second delivery board quarantines the depth-cap chain and the
     // fan-out graph so board-scoped assertions stay exact.
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let scratch_team = seed_board_team(&mut conn, "Scratch Team", "scratch-team");
     let scratch_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Scratch",
         "scratch",
-        None,
+        Some(scratch_team),
         Some(alice),
     )
     .expect("creating scratch board")
@@ -326,12 +344,14 @@ fn unified_search_pipeline() {
     // `scratch_board` has one — board-scoped assertions elsewhere stay exact —
     // and terms that appear nowhere else in the fixture set, so the ranking
     // assertions cannot be perturbed by another case's prose.
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let relevance_team = seed_board_team(&mut conn, "Relevance Team", "relevance-team");
     let relevance_board = create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Relevance",
         "relevance",
-        None,
+        Some(relevance_team),
         Some(alice),
     )
     .expect("creating relevance board")

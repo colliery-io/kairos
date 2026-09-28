@@ -216,12 +216,14 @@ async fn archived_work_is_absent_from_every_default_listing() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning seeding connection to the tenant schema");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = common::seed_team(&mut conn, "Delivery Team", "delivery-team");
     kairos_db::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("creating the delivery board");

@@ -84,9 +84,54 @@ does nothing. Remove them.
 The bootstrap email is also a deployment admin. A new deployment has no organization,
 and only a deployment admin can create one.
 
+## Log in with the CLI
+
+The `kairos` CLI logs in to a local account with `--email`.
+
+**Step 1.** Run the login command with your email:
+
+```bash
+kairos login --url https://kairos.example.com --email you@example.com
+```
+
+**Step 2.** Type the password at the prompt. The terminal does not show it.
+
+**Step 3.** Make sure that the login worked:
+
+```bash
+kairos whoami
+```
+
+The CLI keeps the session in its credential cache. All other commands use it.
+By default, the session expires after 14 days. Then log in again.
+
+In a script, send the password on standard input:
+
+```bash
+printf '%s' "$PASSWORD" | kairos login --url https://kairos.example.com --email you@example.com
+```
+
+Do not look for a `--password` option. There is none, because an argument is
+visible in the process list.
+
+To end the session, log out:
+
+```bash
+kairos logout
+```
+
+On a deployment that resolves tenants by header, add `--tenant <slug>` to the login
+command.
+
 ## Create an organization
 
-The first admin has no organization to work in. Create one:
+The first admin has no organization to work in. Create one.
+
+**Step 1.** Log in as the first admin, as [Log in with the CLI](#log-in-with-the-cli)
+describes. Do not add `--tenant`. No tenant exists yet. Do not do step 3.
+`kairos whoami` needs an organization.
+
+**Step 2.** Create the organization:
 
 ```bash
 kairos admin tenants create --slug acme --name "Acme Inc"
@@ -202,4 +247,5 @@ local accounts refuses to start. That is deliberate: it has no way to let anybod
 - [Choosing how people log in](../explanation/choosing-how-people-log-in.md) — which of the three to use
 - [Configure an OIDC issuer](../how-to/configure-an-oidc-issuer.md) — the other path
 - [Configuration](../reference/configuration.md) — every variable on this page
+- [CLI](../reference/cli.md#kairos-login) — `kairos login --email`
 - [CLI](../reference/cli.md#operator-subcommands-kairos-server) — `set-password` and `hash-password`

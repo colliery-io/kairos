@@ -24,6 +24,7 @@ use uuid::Uuid;
 use super::auth::{display_prefix, generate_key, hash_key};
 use crate::api::{parse_uuid, require_capability};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -54,6 +55,7 @@ pub(crate) fn router() -> Router<AppState> {
 
 /// `POST /api/service-accounts` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateServiceAccountRequest {
     /// Operator label ("ci-deploy", ...).
     pub name: String,
@@ -76,6 +78,7 @@ pub(crate) struct ServiceAccountListResponse {
 
 /// `POST /api/service-accounts/{id}/keys` body.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateApiKeyRequest {
     /// Operator label for the key ("gha-main", ...).
     pub name: String,
@@ -195,7 +198,7 @@ pub(crate) async fn create_service_account(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<CreateServiceAccountRequest>,
+    ApiJson(body): ApiJson<CreateServiceAccountRequest>,
 ) -> Result<(StatusCode, Json<ServiceAccountView>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
@@ -328,7 +331,7 @@ pub(crate) async fn create_key(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<CreateApiKeyRequest>,
+    ApiJson(body): ApiJson<CreateApiKeyRequest>,
 ) -> Result<(StatusCode, Json<ApiKeyCreatedResponse>), ApiError> {
     let sa_id = parse_uuid(&id, "id")?;
     let name = body.name.trim().to_string();

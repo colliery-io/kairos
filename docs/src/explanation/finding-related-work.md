@@ -90,6 +90,16 @@ onto a board that then reports the wrong thing to the wrong people, and nobody
 re-reads an edge once it exists. A proposal costs a click; a wrong edge costs a
 conversation.
 
+The person who confirms must be able to edit the item at one end of the edge.
+That is the [link rule](../reference/capabilities.md#who-can-write-relationships),
+and it is the rule for each other edge. The reason is that a confirm is not a
+vote on a suggestion: it writes the edge. If the confirm asked only for a
+person, then a member who can edit neither item could draw a `parent` edge by
+two steps, a proposal and a confirm, that the server refuses as one step. A
+proposal must not be a way around a rule. So each member can suggest, and the
+people who own one of the two items decide. A refused confirm leaves the
+proposal where it was, for one of them.
+
 Rejections are kept, too. A pair that keeps being suggested and keeps being
 rejected is the clearest evidence available that the retrieval is wrong about
 something.

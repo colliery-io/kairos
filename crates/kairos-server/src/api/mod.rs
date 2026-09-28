@@ -52,6 +52,7 @@ use diesel::sql_types::{Text, Uuid as SqlUuid};
 use kairos_client::types as dto;
 use kairos_core::board::TransitionError;
 use kairos_core::short_code::ItemType;
+use kairos_db::models::enums::RelationshipType;
 use kairos_db::{AbacError, BoardError, GraphError, ItemError, abac};
 use serde_json::json;
 use uuid::Uuid;
@@ -118,7 +119,7 @@ pub fn clamp_list(query: &dto::ListQuery) -> (i64, i64, Liveness) {
 /// crate carries ids as strings, see `kairos_client::types`).
 pub fn parse_uuid(value: &str, field: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value)
-        .map_err(|_| ApiError::validation(format!("{field} must be a UUID, got {value:?}")))
+        .map_err(|_| ApiError::validation(format!("The value {value:?} of {field} is not a UUID.")))
 }
 
 /// [`parse_uuid`] over an optional field.
@@ -157,7 +158,11 @@ pub fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid,
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "No live board has the slug or the id {reference:?}."
+            ))
+        })
 }
 
 /// [`board_id_by_ref`] for an optional reference.
@@ -177,10 +182,51 @@ where
     value.parse::<T>().map_err(|_| {
         let allowed: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
         ApiError::validation(format!(
-            "{field} must be one of [{}], got {value:?}",
+            "The value {value:?} is not a value of {field}. The values are: {}.",
             allowed.join(", ")
         ))
     })
+}
+
+// ---------------------------------------------------------------------------
+// Transactions
+// ---------------------------------------------------------------------------
+
+/// Why an [`atomically`] transaction stopped: the closure refused, or
+/// diesel could not begin or commit.
+enum Abort {
+    Refused(ApiError),
+    Database(diesel::result::Error),
+}
+
+impl From<diesel::result::Error> for Abort {
+    fn from(e: diesel::result::Error) -> Self {
+        Abort::Database(e)
+    }
+}
+
+/// Run `f` in ONE database transaction: each write in it is committed, or
+/// none is (COLLIERY-T-0227).
+///
+/// The kairos-db services each run "in their own transaction". A handler
+/// that calls two of them made two commits, and an error from the second
+/// left the first in the tenant: a create that was refused for its edge
+/// left the item. Inside this function the transaction of a service is a
+/// savepoint, so an `Err` from `f` rolls back all of them.
+///
+/// Events are safe in here. `emit_event` is a `pg_notify`, and PostgreSQL
+/// delivers a notification when its transaction commits, so a create that
+/// is rolled back sends none. Short code sequences are not transactional: a
+/// number that a refused create took stays taken, which is correct.
+pub fn atomically<T>(
+    conn: &mut PgConnection,
+    f: impl FnOnce(&mut PgConnection) -> Result<T, ApiError>,
+) -> Result<T, ApiError> {
+    conn.transaction::<T, Abort, _>(|conn| f(conn).map_err(Abort::Refused))
+        .map_err(|abort| match abort {
+            Abort::Refused(e) => e,
+            Abort::Database(e) => ApiError::internal(e),
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +255,389 @@ pub fn require_capability(
     } else {
         Err(ApiError::capability_required(capability, board_id))
     }
+}
+
+/// What a principal lacks to edit one item: the `manage_<type>` capability
+/// of its type, on its authorization board. `board_id: None` = the item has
+/// no authorization board, and what is missing is the admin role.
+struct MissingEdit {
+    capability: &'static str,
+    board_id: Option<Uuid>,
+}
+
+/// The edit rule for one item, as a value: `None` = the principal may edit
+/// it. The shared core of [`require_item_edit`] and [`require_edge_write`],
+/// so the two read the same facts and decide with the same function
+/// ([`kairos_core::abac::may_edit_item`]).
+fn missing_edit(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    item_type: ItemType,
+) -> Result<Option<MissingEdit>, ApiError> {
+    let capability = meta::manage_capability(item_type);
+    let (facts, board_id) =
+        abac::edit_facts(conn, slug, user_id, item_id, capability).map_err(map_abac_error)?;
+    Ok(if kairos_core::abac::may_edit_item(facts) {
+        None
+    } else {
+        Some(MissingEdit {
+            capability,
+            board_id,
+        })
+    })
+}
+
+/// THE EDIT RULE (COLLIERY-T-0228): may this principal edit this item?
+///
+/// A principal, a person or a service account, may edit an item when ONE
+/// of these is true:
+///
+/// 1. the principal created the item (`created_by`),
+/// 2. the principal holds `manage_<type>` on the authorization board of
+///    the item ([`abac::resolve_authorization_board`]: the board of the
+///    item, or for a document the board of its `supports` parent),
+/// 3. the principal is an admin of the organization.
+///
+/// WHY. Creation is the primary mechanism of ownership: the person who
+/// wrote an item can correct it. A capability on a board is how a team
+/// shares that ownership. Until COLLIERY-T-0228 only rules 2 and 3
+/// existed, so a person who sent a request to a different team could not
+/// correct a wrong word in it.
+///
+/// The rule applies to each item type: strategy, initiative, task,
+/// document, ADR. It reads who created the item and not where the item is,
+/// so the right stays with the creator when the item moves to a different
+/// board.
+///
+/// AN EDIT IS: the title and the content, the metadata, the repository of
+/// a task, the editorial lifecycle of a document, archive, and restore.
+/// Each REST handler and each MCP tool for those writes calls this
+/// function, and no other check.
+///
+/// CREATION DOES NOT GRANT MOVEMENT. `transition`, `work-class` and `move`
+/// do not call this function. They call [`require_capability`], and the
+/// creator of an item gets nothing there. A team controls its own plan
+/// (COLLIERY-T-0218, COLLIERY-A-0023): the person who sends a request
+/// cannot move it out of the entry column, cannot put it in the planned
+/// lane, and cannot move it to a different board. Creation grants nothing
+/// on a board, a team, a member, a capability, a repository or the
+/// configuration of the tenant. Who may CREATE an item does not change
+/// either.
+///
+/// The refusal is the 403 of [`require_capability`]: it names the
+/// `manage_<type>` capability that the principal does not hold, and the
+/// board.
+pub fn require_item_edit(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    item_type: ItemType,
+) -> Result<(), ApiError> {
+    match missing_edit(conn, slug, user_id, item_id, item_type)? {
+        None => Ok(()),
+        Some(missing) => Err(ApiError::capability_required(
+            missing.capability,
+            missing.board_id,
+        )),
+    }
+}
+
+/// One end of an edge: the id and the type of the item.
+pub type EdgeEnd = (Uuid, ItemType);
+
+/// THE LINK RULE (COLLIERY-T-0228): may this principal write this edge?
+///
+/// A principal may create or remove an edge when the principal may EDIT
+/// the item at EITHER end, by the edit rule ([`require_item_edit`]): the
+/// creator of the source or of the target, or `manage_<type>` on the
+/// authorization board of the source or of the target, or an admin of the
+/// organization.
+///
+/// The rule is the same for each relationship type: `parent`, `blocks`,
+/// `supports`, `informs`, `supersedes`. No relationship type needs the
+/// admin role. Until COLLIERY-T-0228 `supports`, `informs` and
+/// `supersedes` did, and `parent` and `blocks` looked at the creator of
+/// the source only (KAIROS-T-0111). Each edge that the old rule allowed,
+/// this rule allows.
+///
+/// WHY either end. An edge is a statement about two items, and the two are
+/// frequently on the boards of two teams. If the rule needed the two ends,
+/// no person could link work across teams, which is what edges are for.
+///
+/// The rule decides WHO. It does not decide WHICH edges can exist: the
+/// type rules (`kairos_core::graph::check_link`), the cycle check and the
+/// duplicate check are in the graph service, and they do not change. A
+/// caller who may edit the two ends of an impossible edge gets
+/// `RELATIONSHIP_RULE`, not `FORBIDDEN`.
+///
+/// One function for REST `POST /api/relationships` and
+/// `DELETE /api/relationships/{id}`, for MCP `link_items` and
+/// `unlink_items`, and for the edge that MCP `create_item` writes for
+/// `parent`. They cannot give different answers.
+///
+/// The refusal names the two capabilities, one for each end, of which the
+/// principal needs one. `details.required_capability` and
+/// `details.board_id` are those of the source. `details.any_of` has the
+/// two ends.
+///
+/// # The one exception: `supports` to a document with no parent
+///
+/// COLLIERY-T-0235. For a `supports` edge to a DOCUMENT that has NO
+/// parent, the principal must be able to edit the DOCUMENT. The right to
+/// edit the source is not sufficient. With no parent the document has no
+/// board, so that is its creator, or an admin of the organization.
+///
+/// THE ATTACK that it stops. A document has no board: it takes its
+/// authority from the board of its earliest `supports` parent. A principal
+/// who can edit some task writes `supports` from the task to a document
+/// with no parent. That edge is the first, so the board of the task now
+/// answers for the document, and the principal can edit and archive it.
+///
+/// A document with no parent is old data: the server does not make one
+/// ([`require_edge_remove`]), and the data was not migrated. A document
+/// that HAS a parent takes the rule above with no change, because a later
+/// edge does not change which board answers for it. An ADR does not take
+/// its authority from `supports`, so an ADR takes the rule above too.
+///
+/// This function is the rule for the CREATE of an edge. The remove is
+/// [`require_edge_remove`], which is this rule for each edge but the
+/// `supports` edge of a document.
+///
+/// The refusal of the exception has the same `details` keys. `any_of` has
+/// one entry, the target, and `board_id` is null.
+pub fn require_edge_write(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: &str,
+    (source_id, source_type): EdgeEnd,
+    (target_id, target_type): EdgeEnd,
+) -> Result<(), ApiError> {
+    let source = missing_edit(conn, slug, user_id, source_id, source_type)?;
+    let target = missing_edit(conn, slug, user_id, target_id, target_type)?;
+    if is_document_parent_edge(relationship, target_type) {
+        // COLLIERY-T-0235: the first parent of a document decides who can
+        // edit the document. See the doc comment for the attack.
+        let has_parent = !abac::document_parents(conn, target_id)
+            .map_err(map_abac_error)?
+            .is_empty();
+        if kairos_core::abac::may_link_document_parent(
+            has_parent,
+            source.is_none(),
+            target.is_none(),
+        ) {
+            return Ok(());
+        }
+        if !has_parent {
+            let document = short_code_of(conn, target_id)?;
+            let capability = meta::manage_capability(target_type);
+            return Err(ApiError::forbidden(format!(
+                "{document} has no parent. Only its creator or an organization admin \
+                 can link it to an item."
+            ))
+            .with_details(json!({
+                "relationship": relationship,
+                "required_capability": capability,
+                "board_id": null,
+                "any_of": [
+                    {
+                        "end": "target",
+                        "required_capability": capability,
+                        "board_id": null,
+                    },
+                ],
+            })));
+        }
+    } else if kairos_core::abac::may_write_edge(source.is_none(), target.is_none()) {
+        return Ok(());
+    }
+    // From here the answer is a refusal, whatever follows: the text below
+    // only says what is missing.
+    let source_capability = meta::manage_capability(source_type);
+    let target_capability = meta::manage_capability(target_type);
+    let source_board = source.and_then(|missing| missing.board_id);
+    let target_board = target.and_then(|missing| missing.board_id);
+    let need = |capability: &str, board: Option<Uuid>, end: &str| match board {
+        Some(_) => format!("{capability:?} on the board of the {end}"),
+        None => format!("the organization admin role for the {end}"),
+    };
+    Err(ApiError::forbidden(format!(
+        "A {relationship} edge needs {}, or {}.",
+        need(source_capability, source_board, "source"),
+        need(target_capability, target_board, "target"),
+    ))
+    .with_details(json!({
+        "relationship": relationship,
+        "required_capability": source_capability,
+        "board_id": source_board,
+        "any_of": [
+            {
+                "end": "source",
+                "required_capability": source_capability,
+                "board_id": source_board,
+            },
+            {
+                "end": "target",
+                "required_capability": target_capability,
+                "board_id": target_board,
+            },
+        ],
+    })))
+}
+
+/// Is this the edge that gives a document a parent: `supports`, to a
+/// document (COLLIERY-T-0235)? `supports` to an ADR is not: an ADR has a
+/// board of its own, or no board, and takes no authority from the edge.
+fn is_document_parent_edge(relationship: &str, target_type: ItemType) -> bool {
+    relationship == RelationshipType::Supports.as_str() && target_type == ItemType::Document
+}
+
+/// The short code of an item, archived or not, for the text of a refusal.
+/// An id that names nothing gives the id.
+fn short_code_of(conn: &mut PgConnection, id: Uuid) -> Result<String, ApiError> {
+    #[derive(QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Text)]
+        short_code: String,
+    }
+    let row: Option<Row> = sql_query("SELECT short_code FROM entity_directory WHERE id = $1")
+        .bind::<SqlUuid, _>(id)
+        .get_result(conn)
+        .optional()
+        .map_err(ApiError::internal)?;
+    Ok(row.map_or_else(|| id.to_string(), |row| row.short_code))
+}
+
+/// THE RULE FOR THE REMOVE OF AN EDGE (COLLIERY-T-0235): may this
+/// principal remove this edge, and can the edge be removed?
+///
+/// For each edge but one, the rule is the link rule
+/// ([`require_edge_write`]): the principal may edit the item at either
+/// end. The one is the `supports` edge that points at a DOCUMENT, which
+/// has two rules of its own. They are asked in this order.
+///
+/// 1. WHO: the principal must be able to edit the DOCUMENT (its creator,
+///    `manage_documents` on its authorization board, or an admin of the
+///    organization). The right to edit the parent is not sufficient. The
+///    refusal is 403 `FORBIDDEN`. THIS NARROWS THE LINK RULE.
+///
+///    THE ATTACK that it stops. A document has the parents A, the
+///    earliest, and B. A principal can edit A and B, and cannot edit the
+///    document: for example, A is a request that the principal sent to the
+///    team that wrote the document. The link rule lets the principal
+///    remove the edge from A. B is now the earliest parent, the board of B
+///    answers for the document, and the principal can edit and archive it.
+///
+/// 2. WHICH: the LAST `supports` edge of a document cannot be removed, by
+///    any principal, an admin of the organization too. The refusal is 422
+///    `LAST_PARENT`: a rule of the data, not a permission.
+///
+///    WHY. A document has no board. It takes its authority from what it
+///    supports, so a document that supports nothing has no team to answer
+///    for it, and the next `supports` edge would give it to the board of
+///    whoever wrote that edge. The owner decided (2026-09-27) that the
+///    server does not make a document an orphan. To move a document, the
+///    caller links it to the new item first, and then removes the old
+///    edge.
+///
+/// WHO comes first, so a principal who may not edit the document learns
+/// nothing about its parents from the refusal.
+///
+/// "Last" counts the parents that [`abac::document_parents`] gives, which
+/// is what [`abac::resolve_authorization_board`] reads: an edge to an
+/// ARCHIVED parent counts, because an archived parent gives its board as
+/// it did while live. An edge that is not there is not the last edge: the
+/// graph service answers `NOT_FOUND` for it, as before.
+///
+/// The function takes a lock on the row of the document
+/// ([`abac::lock_document`]), so call it in the transaction of the remove.
+/// [`remove_edge`] does that, and is the one caller.
+pub fn require_edge_remove(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: &str,
+    source: EdgeEnd,
+    target: EdgeEnd,
+) -> Result<(), ApiError> {
+    let (source_id, _) = source;
+    let (document_id, target_type) = target;
+    if !is_document_parent_edge(relationship, target_type) {
+        return require_edge_write(conn, slug, user_id, relationship, source, target);
+    }
+
+    // 1. WHO.
+    let missing = missing_edit(conn, slug, user_id, document_id, target_type)?;
+    if !kairos_core::abac::may_unlink_document_parent(missing.is_none()) {
+        let capability = meta::manage_capability(target_type);
+        let board_id = missing.and_then(|missing| missing.board_id);
+        let need = match board_id {
+            Some(_) => format!("You need {capability:?} on the board of its parent."),
+            None => "The document has no board.".to_string(),
+        };
+        return Err(ApiError::forbidden(format!(
+            "To remove a supports edge of a document, you must be able to edit the document. \
+             {need} The creator of the document and an organization admin can also remove it."
+        ))
+        .with_details(json!({
+            "relationship": relationship,
+            "required_capability": capability,
+            "board_id": board_id,
+            "any_of": [
+                {
+                    "end": "target",
+                    "required_capability": capability,
+                    "board_id": board_id,
+                },
+            ],
+        })));
+    }
+
+    // 2. WHICH.
+    abac::lock_document(conn, document_id).map_err(map_abac_error)?;
+    let parents = abac::document_parents(conn, document_id).map_err(map_abac_error)?;
+    let is_parent = parents.iter().any(|parent| parent.parent_id == source_id);
+    if is_parent && !kairos_core::abac::document_keeps_a_parent(parents.len()) {
+        let document = short_code_of(conn, document_id)?;
+        let parent = short_code_of(conn, source_id)?;
+        return Err(ApiError::unprocessable(
+            "LAST_PARENT",
+            format!(
+                "{document} supports only {parent}. A document always has a parent. \
+                 Link the document to a different item first, or archive the document."
+            ),
+        )
+        .with_details(json!({
+            "relationship": relationship,
+            "document": document,
+            "parent": parent,
+        })));
+    }
+    Ok(())
+}
+
+/// Remove one edge: the rule ([`require_edge_remove`]) and the delete, in
+/// ONE transaction (COLLIERY-T-0235).
+///
+/// One function for REST `DELETE /api/relationships/{id}` and for MCP
+/// `unlink_items`, so the two surfaces cannot give different answers. The
+/// transaction holds the lock of the rule until the edge is gone.
+pub fn remove_edge(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    relationship: RelationshipType,
+    source: EdgeEnd,
+    target: EdgeEnd,
+) -> Result<(), ApiError> {
+    atomically(conn, |conn| {
+        require_edge_remove(conn, slug, user_id, relationship.as_str(), source, target)?;
+        kairos_db::graph::unlink_items(conn, source.0, target.0, relationship, user_id)
+            .map_err(meta::relationships::map_link_error)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +743,9 @@ pub fn resolve_item_type(conn: &mut PgConnection, id: Uuid) -> Result<Option<Ite
 /// work, so a 404 now means the code is unknown outright — claiming
 /// otherwise would send someone looking for an item that never existed.
 pub fn short_code_not_found(entity_type: &str, short_code: &str) -> ApiError {
-    ApiError::not_found(format!("no {entity_type} with short code {short_code:?}"))
+    ApiError::not_found(format!(
+        "No {entity_type} has the short code {short_code:?}."
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -335,10 +766,10 @@ pub fn map_abac_error(e: AbacError) -> ApiError {
 pub fn map_item_error(e: ItemError) -> ApiError {
     match e {
         ItemError::ItemNotFound { entity_type, id } => {
-            ApiError::not_found(format!("{entity_type} {id} does not exist"))
+            ApiError::not_found(format!("The {entity_type} {id} does not exist."))
         }
         ItemError::HistoryNotFound { item_id, version } => ApiError::not_found(format!(
-            "no history snapshot for item {item_id} at version {version}"
+            "The item {item_id} has no version {version} in its history."
         )),
         ItemError::VersionConflict {
             expected_version,
@@ -347,7 +778,9 @@ pub fn map_item_error(e: ItemError) -> ApiError {
             current_content,
             ..
         } => ApiError::conflict(format!(
-            "version mismatch: expected {expected_version}, current is {current_version}"
+            "The request has the version {expected_version}, and the current version is \
+             {current_version}. Get the item again, and make the edit on the current \
+             version."
         ))
         .with_details(json!({
             "current": {
@@ -356,21 +789,24 @@ pub fn map_item_error(e: ItemError) -> ApiError {
                 "content": current_content,
             }
         })),
-        ItemError::BoardNotFound(id) => ApiError::validation(format!("board {id} does not exist")),
-        ItemError::BoardHasNoColumns(id) => {
-            ApiError::validation(format!("board {id} has no columns to place the item in"))
+        ItemError::BoardNotFound(id) => {
+            ApiError::validation(format!("The board {id} does not exist."))
         }
+        ItemError::BoardHasNoColumns(id) => ApiError::validation(format!(
+            "The board {id} has no columns, so the item has no place on it. Add a column \
+             to the board."
+        )),
         ItemError::ColumnNotOnBoard {
             board_id,
             column_id,
         } => ApiError::validation(format!(
-            "column {column_id} is not a column of board {board_id}"
+            "The column {column_id} is not a column of the board {board_id}."
         )),
         ItemError::TemplateNotFound(id) => {
-            ApiError::validation(format!("template {id} does not exist"))
+            ApiError::validation(format!("The template {id} does not exist."))
         }
         ItemError::RepositoryNotFound(id) => {
-            ApiError::validation(format!("repository {id} does not exist"))
+            ApiError::validation(format!("The repository {id} does not exist."))
         }
         ItemError::Database(e) => ApiError::internal(e),
     }
@@ -383,11 +819,13 @@ pub fn map_item_error(e: ItemError) -> ApiError {
 pub fn map_board_error(e: BoardError) -> ApiError {
     match e {
         BoardError::ItemNotFound { entity_type, id } => {
-            ApiError::not_found(format!("{entity_type} {id} does not exist"))
+            ApiError::not_found(format!("The {entity_type} {id} does not exist."))
         }
         BoardError::ItemNotOnBoard { entity_type, id } => ApiError::unprocessable(
             "ITEM_NOT_ON_BOARD",
-            format!("{entity_type} {id} is not placed on a board, so it cannot be transitioned"),
+            format!(
+                "The {entity_type} {id} is not on a board, so it cannot move between columns."
+            ),
         ),
         BoardError::Transition(TransitionError::NotAllowed {
             from,
@@ -396,7 +834,7 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         }) => ApiError::unprocessable(
             "INVALID_TRANSITION",
             format!(
-                "transition {:?} -> {:?} is not allowed by this board",
+                "This board does not permit the transition from {:?} to {:?}.",
                 from.name, to.name
             ),
         )
@@ -410,27 +848,49 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         })),
         BoardError::Transition(e) => ApiError::unprocessable("INVALID_TRANSITION", e.to_string()),
         BoardError::ColumnNotFound(id) => {
-            ApiError::validation(format!("column {id} does not exist"))
+            ApiError::validation(format!("The column {id} does not exist."))
         }
-        BoardError::BoardNotFound(id) => ApiError::validation(format!("board {id} does not exist")),
+        BoardError::BoardNotFound(id) => {
+            ApiError::validation(format!("The board {id} does not exist."))
+        }
         // KAIROS-I-0012: moving a task between delivery boards.
         BoardError::SameBoard(id) => {
-            ApiError::unprocessable("SAME_BOARD", format!("the task is already on board {id}"))
+            ApiError::unprocessable(
+                "SAME_BOARD",
+                format!("The task is on the board {id} already."),
+            )
         }
         BoardError::NotDeliveryBoard(id) => ApiError::unprocessable(
             "NOT_DELIVERY_BOARD",
-            format!("board {id} is not a delivery board; tasks move between delivery boards only"),
+            format!(
+                "The board {id} is not a delivery board. A task moves between delivery \
+                 boards only."
+            ),
         ),
         BoardError::NoEntryColumn(id) => ApiError::unprocessable(
             "NO_ENTRY_COLUMN",
-            format!("board {id} has no columns to land in"),
+            format!(
+                "The board {id} has no columns, so the task has no place on it. Add a \
+                 column to the board."
+            ),
         ),
         // Board-configuration errors cannot arise from the entity routes;
         // reaching one here is a bug, not a client mistake.
         e @ (BoardError::TransitionNotFound { .. }
         | BoardError::MissingDefaults(_)
         | BoardError::InvalidDefaults { .. }
-        | BoardError::Rule(_)) => ApiError::internal(e),
+        | BoardError::Rule(_)
+        // Only `create_board` returns these (COLLIERY-T-0230, T-0240,
+        // T-0242), and no transition or move endpoint creates a board.
+        | BoardError::DeliveryBoardNeedsTeam
+        | BoardError::TeamHasDeliveryBoard { .. }
+        | BoardError::OrganizationBoardHasNoTeam(_)
+        // The create and the update of a board (COLLIERY-T-0255).
+        | BoardError::SlugTaken { .. }
+        // The delete and the update of a board (COLLIERY-T-0241, T-0243)
+        // are configuration calls too.
+        | BoardError::LastDeliveryBoard { .. }
+        | BoardError::BoardTeamIsFixed { .. }) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }
 }
@@ -442,7 +902,7 @@ pub fn map_graph_error(e: GraphError) -> ApiError {
     match e {
         GraphError::Rule(e) => ApiError::validation(e.to_string()),
         GraphError::ItemNotFound(id) => {
-            ApiError::validation(format!("related item {id} does not exist"))
+            ApiError::validation(format!("The related item {id} does not exist."))
         }
         e @ (GraphError::SelfLink(_)
         | GraphError::CycleDetected { .. }

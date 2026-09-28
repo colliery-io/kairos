@@ -23,6 +23,95 @@ use crate::auth::use_auth;
 
 const LEVELS: [&str; 4] = ["strategy", "initiative", "delivery", "adr"];
 
+/// The level of a delivery board. Every other level is a board of the
+/// organization.
+const DELIVERY: &str = "delivery";
+
+/// What the create form says when a delivery board has no team
+/// (COLLIERY-T-0230). The server refuses the same request with a 422. The
+/// form says it first, in the words of the form, and sends nothing.
+const SELECT_TEAM: &str = "Select the team that owns the board. A delivery board must \
+                           have a team.";
+
+/// Why the create form cannot send this board, or `None` when it can
+/// (COLLIERY-T-0230). A delivery board needs a team. A board of the
+/// organization has no delivery team, so nothing is necessary for it.
+/// Pure, host-tested.
+fn create_refusal(level: &str, team_id: Option<&str>) -> Option<&'static str> {
+    (level == DELIVERY && team_id.is_none()).then_some(SELECT_TEAM)
+}
+
+/// The team to send with a new board. Only a delivery board has a delivery
+/// team (COLLIERY-T-0230). The team control stays set after the level
+/// changes, so the level decides, not the control. Pure, host-tested.
+fn team_for_level(level: &str, team_id: Option<String>) -> Option<String> {
+    team_id.filter(|_| level == DELIVERY)
+}
+
+/// The title and the caption of the members panel of a board
+/// (COLLIERY-T-0230). Every board has a team. The team of a delivery board
+/// is its delivery team, which has a page of its own, so the panel keeps
+/// its words. The team of a board of the organization is the list of the
+/// members of the board: the panel IS the team, and says so. Pure,
+/// host-tested.
+fn members_panel_words(level: &str) -> (&'static str, &'static str) {
+    if level == DELIVERY {
+        (
+            "Members and capabilities",
+            "A person can write only with a capability grant (A-0006). Each member can read.",
+        )
+    } else {
+        (
+            "Team of this board",
+            "The members of this board are its team. To put a person in the team, add the \
+             person to the board.",
+        )
+    }
+}
+
+/// What the members panel says when the board has no member
+/// (COLLIERY-T-0230). Pure, host-tested.
+fn no_members_message(level: &str) -> &'static str {
+    if level == DELIVERY {
+        "This board has no capability grants. Add a member below."
+    } else {
+        "This board has no team members. Add a member below."
+    }
+}
+
+/// The name of the team, when the server refuses the delete of this board
+/// with `LAST_DELIVERY_BOARD` (COLLIERY-T-0251). The server refuses the
+/// delete of the only live delivery board of a live team
+/// (COLLIERY-T-0241). `boards` and `teams` are the live lists that the page
+/// has. A team of old data can have 2 or more delivery boards, and the
+/// delete of one of them is permitted. Pure, host-tested.
+fn only_delivery_board_of(
+    board: &api::Board,
+    boards: &[api::Board],
+    teams: &[api::Team],
+) -> Option<String> {
+    if board.board_level != DELIVERY {
+        return None;
+    }
+    let team_id = board.team_id.as_deref()?;
+    let team = teams.iter().find(|team| team.id == team_id)?;
+    let delivery_boards = boards
+        .iter()
+        .filter(|other| other.board_level == DELIVERY)
+        .filter(|other| other.team_id.as_deref() == Some(team_id))
+        .count();
+    (delivery_boards == 1).then(|| team.name.clone())
+}
+
+/// What the list says in the place of a delete that the server refuses
+/// (COLLIERY-T-0251). Pure, host-tested.
+fn only_delivery_board_note(team_name: &str) -> String {
+    format!(
+        "This board is the only delivery board of the team \"{team_name}\". \
+         To remove the board, delete the team."
+    )
+}
+
 /// `/admin/boards` — every live board, plus create/delete.
 #[component]
 pub fn AdminBoardsPage() -> impl IntoView {
@@ -72,11 +161,20 @@ pub fn AdminBoardsPage() -> impl IntoView {
             slug.get_untracked(),
             level.get_untracked(),
         );
+        let team_id = team_for_level(&l, team_id);
+        // COLLIERY-T-0230: a delivery board needs a team. The server
+        // refuses the request too; the form does not send it.
+        if let Some(message) = create_refusal(&l, team_id.as_deref()) {
+            outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
+                message.to_string(),
+            ))));
+            return;
+        }
         run_mutation(
             busy,
             outcome,
             reload,
-            format!("Board \"{n}\" created with the {l} default columns."),
+            format!("Kairos made the board \"{n}\" with the default columns of the level {l}."),
             async move {
                 api::create_board(auth, &n, &s, &l, team_id.as_deref())
                     .await
@@ -86,20 +184,29 @@ pub fn AdminBoardsPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Boards" sub="create, delete, configure"/>
+        <PageHeader title="Boards" sub="Make, delete, and configure the boards."/>
         <Stack gap="md">
             <MutationNotice outcome/>
-            <Panel title="All boards" caption="click a board to configure it">
+            <Panel title="All boards" caption="Click a board to configure it.">
                 {move || match boards.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="No boards yet — create one below."/>
+                        <Empty message="The organization has no boards. Make one below."/>
                     }.into_any(),
-                    Some(Ok(items)) => items.into_iter().map(|board| {
+                    Some(Ok(items)) => {
+                        let live_teams = teams.get().and_then(|result| result.ok()).unwrap_or_default();
+                        let all = items.clone();
+                        items.into_iter().map(move |board| {
                         let config_href = format!("/admin/boards/{}", board.id);
+                        // COLLIERY-T-0251: the server refuses the delete of
+                        // the only delivery board of a team. The page says
+                        // so, and does not offer the delete.
+                        let refused_for = StoredValue::new(
+                            only_delivery_board_of(&board, &all, &live_teams),
+                        );
                         // StoredValue keeps the delete handler Copy so the
                         // admin-gated `Show` child (a `Fn`) can rebuild it.
                         let board_id = StoredValue::new(board.id.clone());
@@ -119,30 +226,47 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                             let board_name = board_name.get_value();
                                             run_mutation(
                                                 busy, outcome, reload,
-                                                format!("Board \"{board_name}\" deleted."),
+                                                format!("Kairos deleted the board \
+                                                         \"{board_name}\"."),
                                                 async move {
                                                     api::delete_board(auth, &board_id).await.map(|_| ())
                                                 },
                                             );
                                         };
-                                        view! {
-                                            <Button variant="default" size="xs" bad=true
-                                                on_click=Callback::new(on_delete)>
-                                                "Delete"
-                                            </Button>
+                                        match refused_for.get_value() {
+                                            Some(team_name) => view! {
+                                                <Group gap="sm" wrap=true>
+                                                    <Text size="xs" dimmed=true>
+                                                        {only_delivery_board_note(&team_name)}
+                                                    </Text>
+                                                    <Anchor href="/admin/teams">"Open the teams"</Anchor>
+                                                    <Button variant="default" size="xs" bad=true
+                                                        disabled=true>
+                                                        "Delete"
+                                                    </Button>
+                                                </Group>
+                                            }.into_any(),
+                                            None => view! {
+                                                <Button variant="default" size="xs" bad=true
+                                                    on_click=Callback::new(on_delete)>
+                                                    "Delete"
+                                                </Button>
+                                            }.into_any(),
                                         }
                                     }
                                 </Show>
                             </Group>
                         }
-                    }).collect_view().into_any(),
+                    }).collect_view().into_any()
+                    }
                 }}
             </Panel>
             // Board creation is org-admin-only (tenant-level, A-0006);
             // capability holders configure existing boards but do not create
             // them (KAIROS-T-0052).
             <Show when=move || is_admin()>
-                <Panel title="Create board" caption="seeded with the level's default columns and transitions">
+                <Panel title="Create board" caption="A new board has the default columns \
+                                                     and transitions of its level.">
                     <Stack gap="sm">
                         <Group gap="sm" wrap=true top=true>
                             <TextInput label="Name" value=name placeholder="e.g. Platform Initiatives"/>
@@ -161,7 +285,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     _ => vec![String::new()],
                                 };
                                 view! {
-                                    <Select label="Owning team (delivery boards)" options value=team_slug/>
+                                    <Select label="Owning team (required)" options value=team_slug/>
                                 }
                             }}
                         </Show>
@@ -187,6 +311,12 @@ pub fn AdminBoardPage() -> impl IntoView {
     let reload = RwSignal::new(0u32);
     let outcome = RwSignal::new(None);
     let busy = RwSignal::new(false);
+    // The selection of the transition form. It is here and not in
+    // `TransitionsPanel`, because each reload makes a new panel: a
+    // selection in the panel went back to the first columns when a
+    // mutation completed (COLLIERY-T-0238).
+    let from_name = RwSignal::new(String::new());
+    let to_name = RwSignal::new(String::new());
 
     let detail = LocalResource::new(move || {
         let _ = auth.token();
@@ -203,6 +333,7 @@ pub fn AdminBoardPage() -> impl IntoView {
             }.into_any(),
             Some(Ok(detail)) => {
                 let id = detail.board.id.clone();
+                let level = detail.board.board_level.clone();
                 view! {
                     <PageHeader title=detail.board.name.clone() sub="board configuration"/>
                     <Stack gap="md">
@@ -215,8 +346,10 @@ pub fn AdminBoardPage() -> impl IntoView {
                         <ColumnsPanel board_id=id.clone() columns=detail.columns.clone()
                             transitions=detail.transitions.clone() busy outcome reload/>
                         <TransitionsPanel board_id=id.clone() columns=detail.columns.clone()
-                            transitions=detail.transitions.clone() busy outcome reload/>
-                        <MembersPanel board_id=id busy outcome reload/>
+                            transitions=detail.transitions.clone() busy outcome reload
+                            from_name to_name/>
+                        <MembersPanel board_id=id board_level=level
+                            busy outcome reload/>
                     </Stack>
                 }.into_any()
             }
@@ -251,7 +384,7 @@ fn ColumnsPanel(
             busy,
             outcome,
             reload,
-            format!("Column \"{name}\" added."),
+            format!("Kairos added the column \"{name}\"."),
             async move {
                 api::add_column(auth, &board_id, &name, position)
                     .await
@@ -279,7 +412,7 @@ fn ColumnsPanel(
                     outcome,
                     reload,
                     format!(
-                        "Column marked {}.",
+                        "Kairos marked the column as {}.",
                         if is_done { "not done" } else { "done" }
                     ),
                     async move {
@@ -297,7 +430,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Column renamed to \"{name}\"."),
+                    format!("Kairos changed the name of the column to \"{name}\"."),
                     async move {
                         api::update_column(auth, &board_id, &column_id, Some(&name), None, None)
                             .await
@@ -315,7 +448,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Column moved to position {target}."),
+                    format!("Kairos moved the column to the position {target}."),
                     async move {
                         api::update_column(auth, &board_id, &column_id, None, Some(target), None)
                             .await
@@ -330,7 +463,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    "Column removed.".to_string(),
+                    "Kairos removed the column.".to_string(),
                     async move {
                         api::remove_column(auth, &board_id, &column_id)
                             .await
@@ -376,7 +509,8 @@ fn ColumnsPanel(
         .collect_view();
 
     view! {
-        <Panel title="Columns" caption="ordered left to right on the board">
+        <Panel title="Columns" caption="The board shows the columns in this order, from \
+                                        left to right.">
             <Stack gap="sm">
                 {rows}
                 <Divider/>
@@ -389,6 +523,17 @@ fn ColumnsPanel(
     }
 }
 
+/// The new value of a selection of the transition form, or `None` when
+/// the selection stays (COLLIERY-T-0238). The selection stays when it
+/// names a column of the board. If not, it becomes the column at
+/// `default_index`, or empty for a board with too few columns.
+fn kept_or_default(names: &[String], selected: &str, default_index: usize) -> Option<String> {
+    if names.iter().any(|name| name == selected) {
+        return None;
+    }
+    Some(names.get(default_index).cloned().unwrap_or_default())
+}
+
 /// Transition edges: which column-to-column moves the board allows.
 #[component]
 fn TransitionsPanel(
@@ -398,6 +543,8 @@ fn TransitionsPanel(
     busy: RwSignal<bool>,
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
+    from_name: RwSignal<String>,
+    to_name: RwSignal<String>,
 ) -> impl IntoView {
     let auth = use_auth();
     let board = StoredValue::new(board_id);
@@ -413,8 +560,16 @@ fn TransitionsPanel(
     };
 
     let names: Vec<String> = columns.iter().map(|column| column.name.clone()).collect();
-    let from_name = RwSignal::new(names.first().cloned().unwrap_or_default());
-    let to_name = RwSignal::new(names.get(1).cloned().unwrap_or_default());
+    // The page owns the selection, so it stays across a reload
+    // (COLLIERY-T-0238). A selection that names no column of the board
+    // (the first load, or a column that was renamed or removed) goes to
+    // the default.
+    if let Some(name) = kept_or_default(&names, &from_name.get_untracked(), 0) {
+        from_name.set(name);
+    }
+    if let Some(name) = kept_or_default(&names, &to_name.get_untracked(), 1) {
+        to_name.set(name);
+    }
     let by_name = StoredValue::new(
         columns
             .iter()
@@ -440,7 +595,7 @@ fn TransitionsPanel(
             busy,
             outcome,
             reload,
-            format!("Transition {from} → {to} added."),
+            format!("Kairos added the transition from {from} to {to}."),
             async move {
                 api::add_transition(auth, &board_id, &from_id, &to_id)
                     .await
@@ -465,7 +620,7 @@ fn TransitionsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Transition {done} removed."),
+                    format!("Kairos removed the transition {done}."),
                     async move {
                         api::remove_transition(auth, &board_id, &transition_id)
                             .await
@@ -486,7 +641,8 @@ fn TransitionsPanel(
         .collect_view();
 
     view! {
-        <Panel title="Transitions" caption="allowed column-to-column moves (anything absent is not offered on the board)">
+        <Panel title="Transitions" caption="A card can move only along a transition of \
+                                            this list.">
             <Stack gap="sm">
                 {rows}
                 <Divider/>
@@ -503,9 +659,14 @@ fn TransitionsPanel(
 /// Board members and their A-0006 capability grants: list with pills, an
 /// inline grant editor per member (PATCH replaces the full set), removal,
 /// and an add-member flow (org-member picker + the same grant editor).
+///
+/// On a board of the organization the panel is the team of the board
+/// (COLLIERY-T-0230), and its title and caption say so: see
+/// [`members_panel_words`]. The mechanics are the same for every level.
 #[component]
 fn MembersPanel(
     board_id: String,
+    board_level: String,
     busy: RwSignal<bool>,
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
@@ -542,14 +703,16 @@ fn MembersPanel(
             });
         let Some(user_id) = user_id else {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Pick an organization member to add.".to_string(),
+                "Select a member of the organization.".to_string(),
             ))));
             return;
         };
         let capabilities = add_editor.selection();
         if capabilities.is_empty() {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Select at least one capability — grants are whitelist-only (A-0006).".to_string(),
+                "Select one capability or more. A person can write only with a capability \
+                 grant (A-0006)."
+                    .to_string(),
             ))));
             return;
         }
@@ -558,7 +721,10 @@ fn MembersPanel(
             busy,
             outcome,
             reload,
-            format!("{email} added with: {}.", capabilities.join(", ")),
+            format!(
+                "Kairos added {email} with these capabilities: {}.",
+                capabilities.join(", ")
+            ),
             async move {
                 api::add_board_member(auth, &board_id, &user_id, &capabilities)
                     .await
@@ -567,9 +733,11 @@ fn MembersPanel(
         );
     };
 
+    let (title, caption) = members_panel_words(&board_level);
+    let empty_message = no_members_message(&board_level);
+
     view! {
-        <Panel title="Members and capabilities"
-            caption="write access is whitelist-only (A-0006); reads are open tenant-wide">
+        <Panel title=title caption=caption>
             <Stack gap="md">
                 {move || match members.get() {
                     None => view! { <Loading/> }.into_any(),
@@ -577,7 +745,7 @@ fn MembersPanel(
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(list)) if list.is_empty() => view! {
-                        <Empty message="No capability grants on this board yet — add a member below."/>
+                        <Empty message=empty_message/>
                     }.into_any(),
                     Some(Ok(list)) => list.into_iter().map(|member| {
                         let editor = EditorState::from_capabilities(&member.capabilities);
@@ -591,7 +759,8 @@ fn MembersPanel(
                             let capabilities = editor.selection();
                             if capabilities.is_empty() {
                                 outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                                    "A member needs at least one capability — use Remove to revoke membership."
+                                    "A member must have one capability or more. To remove \
+                                     the member from the board, use Remove."
                                         .to_string(),
                                 ))));
                                 return;
@@ -601,7 +770,7 @@ fn MembersPanel(
                             let saved_email = member_email.get_value();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{saved_email} now has: {}.", capabilities.join(", ")),
+                                format!("{saved_email} has these capabilities: {}.", capabilities.join(", ")),
                                 async move {
                                     api::replace_capabilities(auth, &board_id, &user_id, &capabilities)
                                         .await
@@ -615,7 +784,8 @@ fn MembersPanel(
                             let removed_email = member_email.get_value();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{removed_email} removed from the board (all grants revoked)."),
+                                format!("Kairos removed {removed_email} from the board. \
+                                         The person has no grants on the board."),
                                 async move {
                                     api::remove_board_member(auth, &board_id, &user_id)
                                         .await
@@ -685,5 +855,153 @@ fn MembersPanel(
                 </Group>
             </Stack>
         </Panel>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// COLLIERY-T-0230: the form does not send a delivery board with no
+    /// team, and the refusal names the missing team.
+    #[test]
+    fn a_delivery_board_with_no_team_is_not_sent() {
+        let refusal = create_refusal("delivery", None).expect("a refusal");
+        assert!(refusal.contains("team"), "{refusal}");
+        assert_eq!(create_refusal("delivery", Some("t1")), None);
+    }
+
+    /// A board of the organization has no delivery team, so the form asks
+    /// for none and sends none, whatever the team control holds.
+    #[test]
+    fn a_board_of_the_organization_is_sent_with_no_team() {
+        for level in ["strategy", "initiative", "adr"] {
+            assert_eq!(create_refusal(level, None), None, "{level}");
+            assert_eq!(team_for_level(level, Some("t1".into())), None, "{level}");
+        }
+        assert_eq!(
+            team_for_level("delivery", Some("t1".into())),
+            Some("t1".to_string())
+        );
+    }
+
+    /// COLLIERY-T-0230: on a board of the organization the members are the
+    /// team of the board, and the panel says so. A delivery board keeps the
+    /// words it had: its team is the delivery team.
+    #[test]
+    fn the_members_of_a_board_of_the_organization_are_its_team() {
+        for level in ["strategy", "initiative", "adr"] {
+            let (title, caption) = members_panel_words(level);
+            assert_eq!(title, "Team of this board", "{level}");
+            assert!(
+                caption.contains("members of this board are its team"),
+                "{level}: {caption}"
+            );
+            assert!(no_members_message(level).contains("team"), "{level}");
+        }
+        let (title, caption) = members_panel_words("delivery");
+        assert_eq!(title, "Members and capabilities");
+        assert!(
+            caption.contains("only with a capability grant"),
+            "{caption}"
+        );
+        assert_eq!(
+            no_members_message("delivery"),
+            "This board has no capability grants. Add a member below."
+        );
+    }
+
+    fn board(id: &str, level: &str, team_id: Option<&str>) -> api::Board {
+        api::Board {
+            id: id.to_string(),
+            name: id.to_string(),
+            slug: id.to_string(),
+            board_level: level.to_string(),
+            team_id: team_id.map(str::to_string),
+        }
+    }
+
+    fn team(id: &str, name: &str) -> api::Team {
+        api::Team {
+            id: id.to_string(),
+            name: name.to_string(),
+            slug: name.to_lowercase(),
+            team_type: "stream_aligned".to_string(),
+            delivery_board_id: None,
+        }
+    }
+
+    /// COLLIERY-T-0251: the page does not offer the delete of the only
+    /// delivery board of a team, and the note names the team.
+    #[test]
+    fn the_only_delivery_board_of_a_team_has_no_delete() {
+        let teams = [team("t1", "Platform"), team("t2", "Web")];
+        let boards = [
+            board("b1", "delivery", Some("t1")),
+            board("b2", "delivery", Some("t2")),
+            board("b3", "initiative", None),
+        ];
+        assert_eq!(
+            only_delivery_board_of(&boards[0], &boards, &teams),
+            Some("Platform".to_string())
+        );
+        assert_eq!(
+            only_delivery_board_of(&boards[1], &boards, &teams),
+            Some("Web".to_string())
+        );
+        // A board of the organization has no delivery team.
+        assert_eq!(only_delivery_board_of(&boards[2], &boards, &teams), None);
+        let note = only_delivery_board_note("Platform");
+        assert!(note.contains("\"Platform\""), "{note}");
+        assert!(note.contains("delete the team"), "{note}");
+    }
+
+    /// COLLIERY-T-0251: a team of old data can have 2 delivery boards, and
+    /// the server permits the delete of one. A delivery board of a team
+    /// that is not live, or with no team, is not in the rule.
+    #[test]
+    fn a_team_with_two_delivery_boards_can_delete_one() {
+        let teams = [team("t1", "Platform")];
+        let boards = [
+            board("b1", "delivery", Some("t1")),
+            board("b2", "delivery", Some("t1")),
+            board("b3", "delivery", Some("gone")),
+            board("b4", "delivery", None),
+            // A board of a different level does not count as a second
+            // delivery board.
+            board("b5", "initiative", Some("t1")),
+        ];
+        for board in &boards {
+            assert_eq!(
+                only_delivery_board_of(board, &boards, &teams),
+                None,
+                "{}",
+                board.id
+            );
+        }
+        // One of the two is deleted: the other is now the only one.
+        assert_eq!(
+            only_delivery_board_of(&boards[0], &boards[..1], &teams),
+            Some("Platform".to_string())
+        );
+    }
+
+    /// COLLIERY-T-0238: the selection of the transition form stays when
+    /// it names a column of the board, and goes to the default when it
+    /// does not.
+    #[test]
+    fn the_selection_of_the_transition_form_stays_across_a_reload() {
+        let names: Vec<String> = ["Backlog", "Todo", "Active", "Review"]
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(kept_or_default(&names, "Active", 0), None);
+        assert_eq!(kept_or_default(&names, "Review", 1), None);
+        // The first load, and a column that was removed.
+        assert_eq!(kept_or_default(&names, "", 0), Some("Backlog".to_string()));
+        assert_eq!(kept_or_default(&names, "Gone", 1), Some("Todo".to_string()));
+        // A board with too few columns has no default.
+        assert_eq!(kept_or_default(&names[..1], "", 1), Some(String::new()));
+        assert_eq!(kept_or_default(&[], "", 0), Some(String::new()));
     }
 }

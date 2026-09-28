@@ -1,8 +1,11 @@
 //! `/api/relationships` + `GET /api/{entity_type}/{short_code}/relationships`
 //! (KAIROS-S-0005, graph semantics per KAIROS-A-0001 / T-0013).
 //!
-//! Reads are open tenant-wide; POST/DELETE are org-admin only (A-0006:
-//! relationships are tenant-wide configuration). The T-0013 typed link
+//! Reads are open tenant-wide; POST/DELETE take the link rule
+//! (COLLIERY-T-0228): the caller may edit the item at either end, for each
+//! relationship type. COLLIERY-T-0235 narrows it for the `supports` edge
+//! of a document, and refuses the remove of the last one (422
+//! `LAST_PARENT`): see [`crate::api::require_edge_remove`]. The T-0013 typed link
 //! errors map to 422 with a machine-readable reason:
 //! `RELATIONSHIP_RULE` (type-rule matrix violation), `CYCLE_DETECTED`
 //! (acyclic relationship would close a cycle), `ALREADY_LINKED`
@@ -23,12 +26,14 @@ use uuid::Uuid;
 
 use diesel::prelude::*;
 
-use super::{require_edge_capability, resolve_family_item};
+use super::resolve_family_item;
 use crate::api::convert::IntoDto;
 use crate::api::convert_meta::timestamp;
-use crate::api::{Liveness, parse_enum, parse_uuid, resolve_short_code};
+use crate::api::{Liveness, parse_enum, parse_uuid, require_edge_write, resolve_short_code};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -165,6 +170,8 @@ pub(crate) async fn get_item_links(
 /// Query of [`get_item_graph`] (explicit struct — serde_urlencoded
 /// cannot flatten, T-0021 lesson).
 #[derive(serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GraphQuery {
     /// Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH.
     depth: Option<u32>,
@@ -183,6 +190,11 @@ pub(crate) struct GraphQuery {
 /// them also broke paths that merely passed THROUGH archived work: the
 /// walk hops over `item_relationships` directly, so the far side stayed
 /// in the node set with its connecting node deleted out of the middle.
+///
+/// **The mark `done: true` shows a node in a terminal column**
+/// (COLLIERY-T-0233, the rule of COLLIERY-T-0214). A `blocks` edge with a
+/// done node at one end is history, not a blocker. The graph keeps the
+/// edge, and the client draws it with a different style.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/graph",
@@ -201,7 +213,7 @@ pub(crate) async fn get_item_graph(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path((family, short_code)): Path<(String, String)>,
-    axum::extract::Query(query): axum::extract::Query<GraphQuery>,
+    ApiQuery(query): ApiQuery<GraphQuery>,
 ) -> Result<Json<kairos_client::types_graph::GraphResponse>, ApiError> {
     use kairos_client::types_graph as graph_dto;
     let depth = query
@@ -229,6 +241,7 @@ pub(crate) async fn get_item_graph(
                         depth: node.depth,
                         degree: node.degree,
                         archived_at: node.archived_at.map(timestamp),
+                        done: node.done,
                     })
                     .collect(),
                 edges: edges
@@ -248,7 +261,7 @@ pub(crate) async fn get_item_graph(
 
 /// [`GraphError`] → HTTP for the relationship write endpoints: the typed
 /// T-0013 rejections become 422 with a reason code (module docs).
-fn map_link_error(e: GraphError) -> ApiError {
+pub(crate) fn map_link_error(e: GraphError) -> ApiError {
     match e {
         GraphError::Rule(rule) => ApiError::unprocessable("RELATIONSHIP_RULE", rule.to_string()),
         e @ GraphError::CycleDetected { .. } => {
@@ -272,6 +285,10 @@ fn map_link_error(e: GraphError) -> ApiError {
 /// Archived neighbours are among them (KAIROS-T-0158) and carry
 /// `archived_at`; nothing here filters, because filtering here is what
 /// made "what did this initiative contain?" answer short.
+///
+/// Neighbours in a terminal column are among them too, and carry `done`
+/// (COLLIERY-T-0214): a completed blocker stays on the list as history,
+/// marked, while the board's `blocks_summary` stops counting it.
 fn group_neighbors(
     neighbors: Vec<Neighbor>,
     edge_ids: &HashMap<(RelationshipType, Uuid, bool), Uuid>,
@@ -290,6 +307,7 @@ fn group_neighbors(
             entity_type: neighbor.entity_type.entity_type().to_string(),
             title: neighbor.title,
             archived_at: neighbor.archived_at.map(timestamp),
+            done: neighbor.done,
         };
         match groups.last_mut() {
             Some(group) if group.relationship == relationship => group.items.push(item),
@@ -314,6 +332,11 @@ fn group_neighbors(
 /// the honest default is to report every edge and say which ends are put
 /// away. The item itself may be archived too (resolution is
 /// [`Liveness::IncludeArchived`] since KAIROS-T-0154).
+///
+/// **The mark `done: true` shows a neighbour in a terminal column**
+/// (COLLIERY-T-0214). Done work does not block, and nothing blocks done
+/// work. A `blocks` edge with a done end is history, not a blocker. The
+/// list keeps the edge: only the counts on the board change.
 #[utoipa::path(
     get,
     path = "/api/{entity_type}/{short_code}/relationships",
@@ -373,7 +396,15 @@ pub(crate) async fn get_relationships(
     Ok(Json(response))
 }
 
-/// Create a relationship edge (org admin only, A-0006). The T-0013 graph
+/// Create a relationship edge.
+///
+/// The link rule applies (COLLIERY-T-0228). The caller can edit the source
+/// or the target. The rule is the same for each relationship type.
+///
+/// One exception (COLLIERY-T-0235) is a `supports` edge to a document
+/// that has no parent. The caller must be able to edit the document.
+///
+/// The T-0013 graph
 /// service enforces the A-0001 type-rule matrix, cycle prevention for
 /// `parent`/`blocks`, and duplicate detection — each rejection is a 422
 /// with its typed reason (module docs).
@@ -384,7 +415,7 @@ pub(crate) async fn get_relationships(
     request_body = dto::CreateRelationshipRequest,
     responses(
         (status = 201, description = "Edge created (relationship_add activity row written)", body = dto::Relationship),
-        (status = 403, description = "Caller is not an org admin", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "The caller may edit neither the source nor the target. For a supports edge to a document with no parent: the caller may not edit the document", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Rule violation, cycle, duplicate edge, or unknown endpoint", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -392,7 +423,7 @@ pub(crate) async fn create_relationship(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateRelationshipRequest>,
+    ApiJson(body): ApiJson<dto::CreateRelationshipRequest>,
 ) -> Result<(StatusCode, Json<dto::Relationship>), ApiError> {
     let relationship = parse_enum(&body.relationship, "relationship", RelationshipType::ALL)?;
     let user = auth.user_id;
@@ -405,7 +436,8 @@ pub(crate) async fn create_relationship(
                     resolve_short_code(conn, &body.source_short_code, Liveness::LiveOnly)?
                         .ok_or_else(|| {
                             ApiError::validation(format!(
-                                "source_short_code {:?} does not name a live item",
+                                "The source_short_code {:?} is not the short code of a \
+                                 live item.",
                                 body.source_short_code
                             ))
                         })?;
@@ -413,15 +445,15 @@ pub(crate) async fn create_relationship(
                     resolve_short_code(conn, &body.target_short_code, Liveness::LiveOnly)?
                         .ok_or_else(|| {
                             ApiError::validation(format!(
-                                "target_short_code {:?} does not name a live item",
+                                "The target_short_code {:?} is not the short code of a \
+                                 live item.",
                                 body.target_short_code
                             ))
                         })?;
-                // KAIROS-T-0111: collaborative edges (parent, blocks) by members
-                // who manage either end or authored the source; the rest admin.
-                require_edge_capability(
+                // COLLIERY-T-0228: the link rule, for each relationship type.
+                require_edge_write(
                     conn,
-                    &tenant_ctx,
+                    &tenant_ctx.slug,
                     user,
                     relationship.as_str(),
                     (source_id, source_type),
@@ -435,7 +467,17 @@ pub(crate) async fn create_relationship(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Remove a relationship edge by id (org admin only, A-0006). Goes
+/// Remove a relationship edge by id.
+///
+/// The link rule applies (COLLIERY-T-0228), as for the create.
+///
+/// The `supports` edge of a document has two rules of its own
+/// (COLLIERY-T-0235). The caller must be able to edit the document. The
+/// server refuses to remove the last `supports` edge of a document: 422
+/// `LAST_PARENT`. Link the document to a different item first, or archive
+/// the document.
+///
+/// Goes
 /// through the T-0013 unlink service so the `relationship_remove`
 /// activity row is written.
 #[utoipa::path(
@@ -445,8 +487,9 @@ pub(crate) async fn create_relationship(
     params(("id" = String, Path, description = "Relationship edge id (UUID)")),
     responses(
         (status = 200, description = "Edge removed", body = dto::DeletedResponse),
-        (status = 403, description = "Caller is not an org admin", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "The caller may edit neither the source nor the target. For the supports edge of a document: the caller may not edit the document", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "No such edge", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "LAST_PARENT: the edge is the last supports edge of a document", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_relationship(
@@ -468,28 +511,31 @@ pub(crate) async fn delete_relationship(
                 .first(conn)
                 .optional()
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            // KAIROS-T-0111: removing an edge is gated exactly like writing it.
-            let source_type = crate::api::resolve_item_type(conn, edge.source_id)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            let target_type = crate::api::resolve_item_type(conn, edge.target_id)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            require_edge_capability(
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
+            // KAIROS-T-0111: removing an edge is gated exactly like writing
+            // it. COLLIERY-T-0228: by the link rule. COLLIERY-T-0235: but
+            // for the `supports` edge of a document.
+            let source_type =
+                crate::api::resolve_item_type(conn, edge.source_id)?.ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
+            let target_type =
+                crate::api::resolve_item_type(conn, edge.target_id)?.ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
+            // COLLIERY-T-0235: the rule of the remove and the delete, in
+            // one transaction, by the ONE function that MCP
+            // `unlink_items` calls.
+            crate::api::remove_edge(
                 conn,
-                &tenant_ctx,
+                &tenant_ctx.slug,
                 user,
-                edge.relationship.as_str(),
+                edge.relationship,
                 (edge.source_id, source_type),
                 (edge.target_id, target_type),
             )?;
-            graph::unlink_items(
-                conn,
-                edge.source_id,
-                edge.target_id,
-                edge.relationship,
-                user,
-            )
-            .map_err(map_link_error)?;
             Ok(dto::DeletedResponse { id: id.to_string() })
         })
         .await?;

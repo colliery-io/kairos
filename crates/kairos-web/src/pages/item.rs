@@ -212,6 +212,7 @@ fn ItemLoaded(
     let archived = archived_at.is_some();
     let banner_code = item.short_code.clone();
     let item_id = item.id.clone();
+    let created_by = item.created_by.clone();
     let editorial_archived = item.lifecycle.as_deref() == Some("archived");
     let ItemDetail {
         short_code,
@@ -239,7 +240,7 @@ fn ItemLoaded(
             }
         }
     });
-    let can_restore = restore_power(family, board);
+    let can_restore = restore_power(family, board, created_by.clone());
 
     view! {
         <PageHeader title=header_title sub=family.label()/>
@@ -311,7 +312,7 @@ fn ItemLoaded(
             />
             <Stack gap="sm">
                 <BoardPanel family code=short_code.clone() board column_id
-                    work_class=lane repository archived on_moved/>
+                    work_class=lane repository created_by archived on_moved/>
                 {lifecycle.map(|current| view! {
                     <LifecyclePanel code=short_code.clone() current archived on_moved/>
                 })}
@@ -334,7 +335,8 @@ fn ItemLoaded(
 /// `manage_<family>` that putting it away asked for (KAIROS-T-0160 —
 /// restoring is the inverse of archiving, not a new privilege, so no
 /// deployment ends up with someone who can archive and nobody who can
-/// restore).
+/// restore). It is one of the three ways in of the edit rule
+/// (COLLIERY-T-0228); the creator of the item needs no capability.
 fn manage_capability(family: Family) -> &'static str {
     match family {
         Family::Strategy => "manage_strategies",
@@ -345,8 +347,11 @@ fn manage_capability(family: Family) -> &'static str {
     }
 }
 
-/// May the signed-in user restore THIS item? The shared whoami mirror
-/// (KAIROS-T-0072), read against the item's own board once it has loaded.
+/// May the signed-in user restore THIS item? A restore is an edit, so the
+/// answer is the edit rule (COLLIERY-T-0228, [`boards::may_edit_item`]):
+/// the user created the item, or holds its `manage_<family>` capability.
+/// The shared whoami mirror (KAIROS-T-0072), read against the item's own
+/// board once it has loaded.
 /// `false` until whoami and the board read have both resolved; an
 /// off-board item (`Ok(None)`) or an unreadable board falls back to the
 /// board-less mirror, because the server resolves such an item's
@@ -354,8 +359,10 @@ fn manage_capability(family: Family) -> &'static str {
 fn restore_power(
     family: Family,
     board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
+    created_by: String,
 ) -> Memo<bool> {
     let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let created_by = StoredValue::new(created_by);
     Memo::new(move |_| {
         let Some(me) = whoami
             .and_then(|resource| resource.get())
@@ -364,13 +371,19 @@ fn restore_power(
             return false;
         };
         let required = manage_capability(family);
-        match board.get() {
+        created_by.with_value(|created_by| match board.get() {
             None => false,
-            Some(Ok(Some(board))) => {
-                boards::holds_capability(&me, Some(&board.slug), board.team_id.as_deref(), required)
+            Some(Ok(Some(board))) => boards::may_edit_item(
+                &me,
+                created_by,
+                Some(&board.slug),
+                board.team_id.as_deref(),
+                required,
+            ),
+            Some(Ok(None)) | Some(Err(_)) => {
+                boards::may_edit_item(&me, created_by, None, None, required)
             }
-            Some(Ok(None)) | Some(Err(_)) => boards::holds_capability(&me, None, None, required),
-        }
+        })
     })
 }
 
@@ -460,7 +473,8 @@ fn ArchivedBanner(
 }
 
 /// The Restore action (KAIROS-T-0160's endpoint): visible only to someone
-/// holding `manage_<family>`, and rendering the 422 `RESTORE_BLOCKED`
+/// who may edit the item (its creator, or a holder of `manage_<family>`;
+/// COLLIERY-T-0228), and rendering the 422 `RESTORE_BLOCKED`
 /// refusal as a sentence naming what is gone — the refusal is the useful
 /// half of the feature, so it never shows as a raw error code.
 #[component]
@@ -750,6 +764,9 @@ fn BoardPanel(
     work_class: Option<String>,
     /// The task's bound repository slug (KAIROS-T-0109), if any.
     repository: Option<String>,
+    /// The user id of the creator of the item. It opens the repository
+    /// control, which is an edit, and NO move control (COLLIERY-T-0228).
+    created_by: String,
     /// The item is archived (ADR-20): its placement is a record of where
     /// it was put away, and every move endpoint resolves live-only, so the
     /// write controls are replaced by the reason they are gone.
@@ -759,6 +776,7 @@ fn BoardPanel(
     let code = StoredValue::new(code);
     let work_class = StoredValue::new(work_class);
     let repository = StoredValue::new(repository);
+    let created_by = StoredValue::new(created_by);
     let column_id = StoredValue::new(column_id);
     view! {
         <Panel title="Board" caption="placement">
@@ -815,9 +833,14 @@ fn BoardPanel(
                                     board_slug=board.slug.clone()
                                     team_id=board.team_id.clone()
                                     current=repository.get_value()
+                                    created_by=created_by.get_value()
                                     on_moved
                                 />
                             })}
+                            // The two controls below MOVE the item. The
+                            // creator of an item gets no right to move it
+                            // (COLLIERY-T-0228): they take no `created_by`,
+                            // and must not.
                             {(!archived && matches!(family, Family::Task)).then(|| view! {
                                 <MoveBoardControl
                                     code=code.get_value()
@@ -846,9 +869,14 @@ fn BoardPanel(
 
 /// One board power as a memo over the shell's shared whoami identity
 /// (KAIROS-T-0072 client mirror; the server remains the authority). Shared
-/// by [`MoveControl`] (`transition`) and [`RepositoryControl`] (`create`
+/// by [`MoveControl`] (`transition`) and [`MoveBoardControl`] (`create`
 /// tasks = `manage_tasks`) so both controls gate through one derivation
 /// (KAIROS-T-0114). `false` until whoami has resolved.
+///
+/// These are the MOVE controls. A board power does not know who created
+/// the item, so the creator gets nothing here (COLLIERY-T-0228).
+/// [`RepositoryControl`] left this function for that reason: the
+/// repository is an edit, and it asks [`boards::may_edit_item`].
 fn board_power(
     board_slug: String,
     team_id: Option<String>,
@@ -875,7 +903,8 @@ fn board_power(
 use repositories::api::NO_REPOSITORY;
 
 /// The task's repository link (KAIROS-T-0109): pick a repository, or none.
-/// The server enforces `manage_tasks`; a refusal shows inline.
+/// The server enforces the edit rule (COLLIERY-T-0228): the creator of the
+/// task, or `manage_tasks` on its board. A refusal shows inline.
 ///
 /// A task may link to a repository of any team (COLLIERY-A-0023), so the
 /// picker offers every live repository of the tenant (COLLIERY-T-0221):
@@ -898,6 +927,8 @@ fn RepositoryControl(
     team_id: Option<String>,
     /// The current link (slug).
     current: Option<String>,
+    /// The user id of the creator of the task.
+    created_by: String,
     on_moved: Callback<String>,
 ) -> impl IntoView {
     let auth = use_auth();
@@ -910,13 +941,28 @@ fn RepositoryControl(
     );
     let busy = RwSignal::new(false);
     let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
-    // Same `manage_tasks` mirror as the board's create affordance.
-    let can_bind = board_power(
-        board_slug,
-        team_id.clone(),
-        Some(boards::data::EntityKind::Task),
-        |powers| powers.create,
-    );
+    // The edit rule (COLLIERY-T-0228): the creator of the task, or
+    // `manage_tasks` on its board. Until then this was the `manage_tasks`
+    // mirror alone, so the person who sent a request did not see the
+    // control that the server lets them use.
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let slug = StoredValue::new(board_slug);
+    let team = StoredValue::new(team_id.clone());
+    let created_by = StoredValue::new(created_by);
+    let can_bind = Memo::new(move |_| {
+        whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+            .is_some_and(|me| {
+                boards::may_edit_item(
+                    &me,
+                    &created_by.get_value(),
+                    Some(&slug.get_value()),
+                    team.get_value().as_deref(),
+                    "manage_tasks",
+                )
+            })
+    });
     let board_team = StoredValue::new(team_id);
     let repos = LocalResource::new(move || {
         let _ = auth.token();
@@ -1711,6 +1757,7 @@ fn RelationshipGroupView(
     #[prop(into)] direction: String,
 ) -> impl IntoView {
     let label = relationship_label(&group.relationship, direction == "outgoing");
+    let is_blocks = group.relationship == "blocks";
     view! {
         <div class="kairos-relationships__group">
             <Group gap="sm">
@@ -1732,12 +1779,28 @@ fn RelationshipGroupView(
                         </span>
                     }
                 });
+                // COLLIERY-T-0214: done work does not block and is not
+                // blocked. The edge stays on the list as history, so the
+                // row says which end is finished; an unmarked completed
+                // blocker reads as one still in the way. Only on `blocks`
+                // edges: that is where the mark changes what the reader
+                // does next. "done" is the board admin's word for the
+                // column flag, in the same colour.
+                let done = (is_blocks && item.done).then(|| view! {
+                    <span
+                        class="kairos-done-badge"
+                        title="In a done column: this edge no longer blocks"
+                    >
+                        <Pill color=token::OK>"done"</Pill>
+                    </span>
+                });
                 view! {
                     <Group gap="sm" justify="between">
                         <Anchor href=format!("/items/{}", item.short_code)>
                             {format!("{} — {}", item.short_code, item.title)}
                         </Anchor>
                         <Group gap="sm">
+                            {done}
                             {put_away}
                             <Pill color=token::VIOLET>{item.entity_type.clone()}</Pill>
                         </Group>

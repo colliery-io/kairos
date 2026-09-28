@@ -118,6 +118,118 @@ scope](repositories-as-execution-scope.md#requests-between-teams-are-support-wor
 is where that widening is argued and its bounds described, because it exists
 for the sake of coordination between teams.
 
+## The person who made it may edit it
+
+Everything above is about boards. One rule is about items, and it cuts across
+the board model rather than extending it: **whoever created an item may edit
+it**, with no capability on the board it sits on.
+
+Creation is the primary mechanism of ownership. That is the position, and the
+rest follows from taking it seriously. The person who wrote a task knows what
+it was meant to say; if they cannot correct a wrong word in it, the system has
+decided that a team's board matters more than the accuracy of what is on it.
+A capability on a board is then best understood as how a team *shares* that
+ownership — the means by which people who did not write an item come to be
+trusted with it — rather than as the only source of it.
+
+The rule arrived through a smaller question. A member who sends a request to
+another team has no grant on that team's board, by construction, and so could
+not fix the request they had just written, nor archive it when it turned out to
+be a duplicate. An earlier amendment had let them *link* it, as a special case
+for two relationship types and one end of the edge. The special cases were
+multiplying, and each was a fragment of the same idea. Stating the idea once is
+both the smaller rule and the more predictable one.
+
+**What counts as an edit** is everything that changes what the item says or
+whether it is in view: title and content, metadata, the repository a task
+points at, a document's editorial lifecycle, archiving and restoring.
+[Capabilities](../reference/capabilities.md#the-edit-rule) has the list against
+the routes.
+
+**What does not count is movement**, and this is the half to remember. Moving
+an item between columns, changing its lane, and moving it to another board all
+still require the capability on the board, and having created the item buys
+nothing there. The reason is that movement is not a fact about the item. Where
+a card sits on a team's board is a statement about that team's plan — what they
+have accepted, what they are doing, what is done — and [a team controls its own
+plan](repositories-as-execution-scope.md#requests-between-teams-are-support-work).
+If authorship conferred movement, sending a request would be a way to schedule
+another team's work, which is exactly what requests exist to prevent. So the
+person who sends a request can sharpen it, link it and withdraw it, and cannot
+pull it out of the entry column or into the planned lane.
+
+The line is drawn where the two kinds of ownership stop overlapping: the author
+owns what the item says; the team owns where it is.
+
+Two consequences are worth accepting knowingly. The right follows the person,
+not the placement, so it survives the item moving to a board its creator has
+never had access to — a team that takes over a task also takes on its author as
+someone who may edit it. And "what can this person do?" is no longer answered
+by listing their grants alone: it is their grants, plus what they have made.
+Both remain a query, which is the property that mattered.
+
+Creation grants nothing else. It is not a capability, it cannot be granted or
+revoked, and it confers no authority over any board, team, member or
+configuration — nor over creating more items, which is gated exactly as before.
+
+### Links follow from edits
+
+Once "may edit" has one definition, the rule for relationships stops needing
+its own: **whoever may edit the item at either end of an edge may write that
+edge**, for every relationship type.
+
+Either end, rather than both, because an edge is a statement about two items
+that usually sit on two teams' boards, and a rule that required authority over
+both would make cross-team links — the ones coordination depends on — the
+hardest to write. One end is enough to have standing to say how your item
+relates to something else.
+
+Every type, rather than some, because the earlier split was an accident of
+history rather than a judgement about risk. Relationships were once classed as
+tenant-wide configuration and reserved to organisation admins; two types were
+later carved out for members. The result was that someone who could rewrite an
+ADR entirely could not record which ADR it superseded. Consistent behaviour is
+the better experience, and nothing about `supports` or `supersedes` makes them
+more dangerous to write than `blocks`.
+
+The rule decides who may write an edge. Which edges can exist at all — the
+type rules, the cycle check — is a property of the graph and is unchanged.
+
+### The one edge that carries authority
+
+There is one edge the rule is too generous for, and it is worth seeing why,
+because it is the only place where writing an edge changes who may edit
+something.
+
+A document borrows its authority from what it supports. Its board is the board
+of its earliest `supports` parent. So that one edge is not only a statement
+about two items: it decides which team answers for the document. "Either end"
+is the right rule for a statement and the wrong rule for a transfer.
+
+Two things followed from the plain link rule. A document that supported
+nothing had no team to answer for it, and the first person to attach it to
+their own work took it: they could edit the source, the edge was the
+document's first, and their board became its board. And a person who could
+edit a document's earliest parent, but not the document, could remove that
+edge and leave a later parent — perhaps their own — as the earliest.
+
+So the rule narrows in exactly the places where the edge moves authority.
+Attaching a document that has no parent needs the right to edit the document.
+Removing a parent of a document needs the right to edit the document. And no
+one, an organisation admin included, may remove a document's last parent: the
+server does not create the state the first problem starts from. Adding a
+parent to a document that already has one moves nothing, because the earliest
+edge still wins, so it stays on the plain rule.
+
+The way to move a document is therefore to attach it to the new item first and
+detach it from the old one second. Someone who may edit the document may do
+both, and in doing so gives its authority to another board, which is theirs to
+give.
+
+This is an interim shape. It keeps "authority from the parent's board" and
+closes the two ways to take it. A list of editors per document would remove
+the need for the edge to carry authority at all.
+
 ## Things that have no board of their own
 
 Not everything sits on a board, and each case is resolved by asking what board
@@ -126,16 +238,20 @@ it *belongs* to rather than by inventing a new access surface.
 **A document inherits its parent's board.** Documents are not free-floating
 artifacts in Kairos; a document supports a workflow item, and that relationship
 is how it is anchored. So editing a document that supports an initiative
-requires write access on that initiative's board. The alternative — giving
+requires write access on that initiative's board, or having written the
+document. The alternative — giving
 documents their own synthetic board context — would have created a second place
 to grant access and a second place to get it wrong. The consequence worth
 knowing is that a document's access changes if its parent moves, which is
-correct and occasionally surprising.
+correct and occasionally surprising — for everyone but its author, whose right
+to edit it does not depend on where the parent is.
 
-**Tenant-wide configuration is organisation-admin only.** Templates, metadata
-definitions and the relationship vocabulary are not scoped to a board, so there
-is no board-scoped answer to give. This is the case the org-admin bypass exists
-for.
+**Tenant-wide configuration is organisation-admin only.** Templates and
+metadata definitions are not scoped to a board, so there is no board-scoped
+answer to give. This is the case the org-admin bypass exists for. Individual
+relationships used to be classed with them and no longer are: an edge belongs
+to the two items it joins, and [is written by whoever may edit
+one](#links-follow-from-edits).
 
 ## Resolving the board, as a chain
 
@@ -166,7 +282,12 @@ flowchart TD
 The amber path is the one worth remembering: **no board means org admin only.**
 That is not a denial so much as a fallback, and it is why an off-board ADR and a
 document nobody has attached to anything both behave like tenant-wide
-configuration.
+configuration. The chain answers the board question only. For an edit, the
+item's creator passes before the chain is consulted at all, so an off-board ADR
+is editable by the admin who wrote it and by any other admin — and a document
+with no parent is still editable by its author. The server no longer lets a
+document lose its last parent, so such a document is old data; see [the one
+edge that carries authority](#the-one-edge-that-carries-authority).
 
 ## Archived work is not less accessible
 
@@ -199,6 +320,11 @@ mean.
 - [Archiving is not a permission
   boundary](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0020.md)
   (KAIROS-A-0020).
+- The edit rule and the link rule (COLLIERY-T-0228): creation is the primary
+  mechanism of ownership, a link follows the same rule as an edit, and movement
+  stays with the team of the board.
+- A document always has a parent, and its `supports` edge is written by whoever
+  may edit the document (COLLIERY-T-0235).
 
 <!-- KAIROS-I-0016 / KAIROS-T-0171 (E6): the capability vocabulary and the
      computed grant sets are cited to KAIROS-A-0006 rather than restated here,

@@ -50,6 +50,11 @@
 //! root plus every live descendant across all five entity tables. One
 //! `activity_log` row (action `delete`) on the root records the cascade
 //! count and the cascaded short codes.
+//!
+//! [`soft_delete_item`] applies no permission rule: it is the service, and
+//! it takes each descendant. An archive FOR A PRINCIPAL is
+//! [`soft_delete_item_as`] (COLLIERY-T-0234), which applies the edit rule
+//! to each descendant. Each REST handler and each MCP tool calls that one.
 
 use chrono::NaiveDate;
 use diesel::pg::PgConnection;
@@ -62,6 +67,7 @@ use uuid::Uuid;
 use kairos_core::items as rules;
 use kairos_core::short_code::{self, ItemType};
 
+use crate::abac;
 use crate::events::{self, EventKind};
 
 use crate::models::enums::{
@@ -608,6 +614,10 @@ pub struct CreateTask<'a> {
 /// (COLLIERY-T-0216). THE source of a task's team: create reads it here and
 /// [`crate::boards::move_task`] reads the target board's the same way, so
 /// the two cannot disagree about whose work a task is.
+///
+/// `None` is for old data only. Since COLLIERY-T-0230 a delivery board is
+/// not created with no team, but no migration gives a team to a board that
+/// was created before, so that row can exist and must be read.
 pub fn board_team(conn: &mut PgConnection, board_id: Uuid) -> Result<Option<Uuid>, ItemError> {
     use crate::schema::boards;
     Ok(boards::table
@@ -1126,6 +1136,46 @@ pub fn rollback_item(
 // Soft-delete cascade (KAIROS-A-0001)
 // ---------------------------------------------------------------------------
 
+/// The principal that an archive is for (COLLIERY-T-0234): the
+/// organization, by the slug of the tenant, and the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Principal<'a> {
+    /// The slug of the tenant, which identifies the organization
+    /// ([`abac::is_org_admin`]).
+    pub org_slug: &'a str,
+    /// The person or the service account.
+    pub user_id: Uuid,
+}
+
+/// Why an archive did not reach a descendant (COLLIERY-T-0234).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotReachedReason {
+    /// The principal cannot edit the descendant: it did not create it,
+    /// does not hold `capability` on `board_id`, and is not an admin.
+    /// `board_id: None` = the descendant has no authorization board.
+    CannotEdit {
+        /// The `manage_<type>` capability of the descendant.
+        capability: &'static str,
+        /// The authorization board of the descendant.
+        board_id: Option<Uuid>,
+    },
+    /// The descendant is below an item that the archive did not reach.
+    Below {
+        /// The short code of that item.
+        short_code: String,
+    },
+}
+
+/// One LIVE descendant that an archive did not reach (COLLIERY-T-0234).
+/// It stays live, and it keeps its `parent` edge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotReached {
+    /// The short code of the descendant.
+    pub short_code: String,
+    /// Why the archive did not reach it.
+    pub reason: NotReachedReason,
+}
+
 /// What [`soft_delete_item`] deleted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SoftDeleteOutcome {
@@ -1134,6 +1184,10 @@ pub struct SoftDeleteOutcome {
     /// Short codes of the descendants cascaded to (root excluded; only rows
     /// that were live), sorted.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that the archive did not reach, sorted by
+    /// short code (COLLIERY-T-0234). Always empty from
+    /// [`soft_delete_item`], which applies no rule.
+    pub not_reached: Vec<NotReached>,
 }
 
 /// The AUTHORITATIVE pre-delete cascade set (KAIROS-T-0051): what a
@@ -1148,6 +1202,162 @@ pub struct CascadePreview {
     /// excluded), sorted — identical to the
     /// [`SoftDeleteOutcome::cascaded_short_codes`] the delete would produce.
     pub cascaded_short_codes: Vec<String>,
+    /// The live descendants that the archive would not reach, sorted by
+    /// short code (COLLIERY-T-0234). Always empty from
+    /// [`preview_cascade`], which applies no rule.
+    pub not_reached: Vec<NotReached>,
+}
+
+/// What an archive of one root takes and what it leaves: the shared read
+/// of the preview and of the delete, so the two cannot disagree.
+struct CascadePlan {
+    root_short_code: String,
+    /// The descendants to archive (root excluded). Rows that are archived
+    /// already are in the list; the write filters them out.
+    reached: Vec<Uuid>,
+    /// The LIVE descendants that the archive leaves, sorted by short code.
+    not_reached: Vec<NotReached>,
+}
+
+/// Plan the cascade of an archive. Call it inside the transaction of the
+/// caller.
+///
+/// `principal: None` = no rule: the plan takes each descendant
+/// (KAIROS-A-0001, the service as it was).
+///
+/// `principal: Some` = the archive is for that principal
+/// (COLLIERY-T-0234), and the edit rule applies to each descendant.
+///
+/// THE ATTACK that the check stops. A principal creates an initiative, so
+/// it can edit it. The link rule lets it write a `parent` edge from its
+/// initiative to a task of a different team. It archives its initiative.
+/// Until COLLIERY-T-0234 the cascade took the task of the other team.
+///
+/// The check is for the SET, not for each item:
+/// [`abac::edit_facts_of_items`] loads the facts of each descendant in a
+/// number of reads that does not grow with the number of descendants. The
+/// decision for each item is [`kairos_core::abac::may_edit_item`], and the
+/// walk is [`kairos_core::items::cascade_reach`]. A descendant with no
+/// facts (its row is in no table) is not editable: the check fails closed.
+fn plan_cascade(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+    principal: Option<Principal<'_>>,
+) -> Result<CascadePlan, ItemError> {
+    use crate::schema::item_relationships;
+
+    let (.., root_short_code) =
+        load_live_content(conn, item_type, item_id)?.ok_or(ItemError::ItemNotFound {
+            entity_type: item_type.entity_type(),
+            id: item_id,
+        })?;
+
+    let edges: Vec<rules::ParentEdge> = item_relationships::table
+        .filter(item_relationships::relationship.eq(RelationshipType::Parent))
+        .select((item_relationships::source_id, item_relationships::target_id))
+        .load::<(Uuid, Uuid)>(conn)?
+        .into_iter()
+        .map(|(parent_id, child_id)| rules::ParentEdge {
+            parent_id,
+            child_id,
+        })
+        .collect();
+
+    let Some(principal) = principal else {
+        return Ok(CascadePlan {
+            root_short_code,
+            reached: rules::cascade_descendants(item_id, &edges),
+            not_reached: Vec::new(),
+        });
+    };
+
+    let descendants = rules::cascade_descendants(item_id, &edges);
+    let facts_of =
+        abac::edit_facts_of_items(conn, principal.org_slug, principal.user_id, &descendants)
+            .map_err(abac_error)?;
+    let reach = rules::cascade_reach(item_id, &edges, |id| {
+        facts_of
+            .get(&id)
+            .is_some_and(|item| kairos_core::abac::may_edit_item(item.facts))
+    });
+
+    // Name the LIVE items that stay. An item that is archived already has
+    // nothing to leave; it can still be the stop above a live item.
+    let mut not_reached: Vec<NotReached> = Vec::new();
+    for stop in &reach.stopped {
+        if let Some(item) = facts_of.get(stop).filter(|item| item.live) {
+            not_reached.push(NotReached {
+                short_code: item.short_code.clone(),
+                reason: NotReachedReason::CannotEdit {
+                    capability: item.manage_capability,
+                    board_id: item.board_id,
+                },
+            });
+        }
+    }
+    for (id, stop) in &reach.below {
+        let (Some(item), Some(stop)) = (facts_of.get(id), facts_of.get(stop)) else {
+            continue;
+        };
+        if item.live {
+            not_reached.push(NotReached {
+                short_code: item.short_code.clone(),
+                reason: NotReachedReason::Below {
+                    short_code: stop.short_code.clone(),
+                },
+            });
+        }
+    }
+    not_reached.sort_by(|a, b| a.short_code.cmp(&b.short_code));
+
+    Ok(CascadePlan {
+        root_short_code,
+        reached: reach.reached,
+        not_reached,
+    })
+}
+
+/// The facts of the edit rule are reads: the one error they can give is an
+/// error of the database.
+fn abac_error(e: abac::AbacError) -> ItemError {
+    match e {
+        abac::AbacError::Database(e) => ItemError::Database(e),
+        other => ItemError::Database(DieselError::QueryBuilderError(Box::new(other))),
+    }
+}
+
+fn preview_planned(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+    principal: Option<Principal<'_>>,
+) -> Result<CascadePreview, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        let plan = plan_cascade(conn, item_type, item_id, principal)?;
+
+        // `plan.reached` excludes the root, so these ids are the
+        // descendants a delete would cascade to — exactly the ids
+        // `soft_delete_item` collects short codes for (minus the root it
+        // then filters out).
+        let mut cascaded_short_codes: Vec<String> = Vec::new();
+        for preview_in_table in [
+            live_short_codes_strategies,
+            live_short_codes_initiatives,
+            live_short_codes_tasks,
+            live_short_codes_documents,
+            live_short_codes_adrs,
+        ] {
+            cascaded_short_codes.extend(preview_in_table(conn, &plan.reached)?);
+        }
+        cascaded_short_codes.sort();
+
+        Ok(CascadePreview {
+            root_short_code: plan.root_short_code,
+            cascaded_short_codes,
+            not_reached: plan.not_reached,
+        })
+    })
 }
 
 /// Preview the KAIROS-A-0001 soft-delete cascade WITHOUT mutating anything
@@ -1159,54 +1369,31 @@ pub struct CascadePreview {
 /// read-only mirror of the delete's per-table filter). Runs in one
 /// read transaction for a consistent edge/row snapshot. 404 (via
 /// [`ItemError::ItemNotFound`]) if the root is missing or soft-deleted.
+///
+/// No permission rule, as [`soft_delete_item`]. The preview for a
+/// principal is [`preview_cascade_as`].
 pub fn preview_cascade(
     conn: &mut PgConnection,
     item_type: ItemType,
     item_id: Uuid,
 ) -> Result<CascadePreview, ItemError> {
-    conn.transaction::<_, ItemError, _>(|conn| {
-        use crate::schema::item_relationships;
+    preview_planned(conn, item_type, item_id, None)
+}
 
-        let (.., root_short_code) =
-            load_live_content(conn, item_type, item_id)?.ok_or(ItemError::ItemNotFound {
-                entity_type: item_type.entity_type(),
-                id: item_id,
-            })?;
-
-        let edges: Vec<rules::ParentEdge> = item_relationships::table
-            .filter(item_relationships::relationship.eq(RelationshipType::Parent))
-            .select((item_relationships::source_id, item_relationships::target_id))
-            .load::<(Uuid, Uuid)>(conn)?
-            .into_iter()
-            .map(|(parent_id, child_id)| rules::ParentEdge {
-                parent_id,
-                child_id,
-            })
-            .collect();
-
-        // `cascade_descendants` excludes the root, so these ids are the
-        // descendants a delete would cascade to — exactly the ids
-        // `soft_delete_item` collects short codes for (minus the root it
-        // then filters out).
-        let ids = rules::cascade_descendants(item_id, &edges);
-
-        let mut cascaded_short_codes: Vec<String> = Vec::new();
-        for preview_in_table in [
-            live_short_codes_strategies,
-            live_short_codes_initiatives,
-            live_short_codes_tasks,
-            live_short_codes_documents,
-            live_short_codes_adrs,
-        ] {
-            cascaded_short_codes.extend(preview_in_table(conn, &ids)?);
-        }
-        cascaded_short_codes.sort();
-
-        Ok(CascadePreview {
-            root_short_code,
-            cascaded_short_codes,
-        })
-    })
+/// Preview what [`soft_delete_item_as`] would do for this principal
+/// (COLLIERY-T-0234): the descendants that the archive would take, and the
+/// live descendants that it would leave, with the reason. It is the same
+/// plan as the archive, so the two cannot disagree. It writes nothing.
+///
+/// The answer is for the principal who asks. It does not say whether the
+/// principal may archive the root: the archive checks that.
+pub fn preview_cascade_as(
+    conn: &mut PgConnection,
+    principal: Principal<'_>,
+    item_type: ItemType,
+    item_id: Uuid,
+) -> Result<CascadePreview, ItemError> {
+    preview_planned(conn, item_type, item_id, Some(principal))
 }
 
 /// Soft-delete an item and cascade to its descendants (KAIROS-A-0001), in
@@ -1225,33 +1412,64 @@ pub fn preview_cascade(
 /// the whole of what archiving means (KAIROS-A-0020). Nothing removes the
 /// rows: the KAIROS-T-0015 sweeper prunes `item_history` and
 /// `activity_log` only, and is not wired into the server yet.
+///
+/// NO PERMISSION RULE (COLLIERY-T-0234). This function takes each
+/// descendant and asks nothing: `actor` is only the name in the record. It
+/// is for a caller that is not a principal, such as a test fixture. A
+/// surface that acts for a principal must call [`soft_delete_item_as`].
 pub fn soft_delete_item(
     conn: &mut PgConnection,
     item_type: ItemType,
     item_id: Uuid,
     actor: Uuid,
 ) -> Result<SoftDeleteOutcome, ItemError> {
+    soft_delete_planned(conn, item_type, item_id, actor, None)
+}
+
+/// Archive an item FOR A PRINCIPAL (COLLIERY-T-0234): the soft delete of
+/// [`soft_delete_item`], with the edit rule applied to each descendant.
+///
+/// THE ATTACK that this function stops. A principal creates an initiative,
+/// so it can edit it. The link rule lets it write a `parent` edge from its
+/// initiative to a task of a different team. It archives its initiative.
+/// Until COLLIERY-T-0234 the task of the other team was archived too.
+///
+/// THE RULE. The archive takes a descendant that the principal may edit.
+/// It stops at a descendant that the principal may not edit, and takes
+/// nothing below it. Each live descendant that stays is named in
+/// [`SoftDeleteOutcome::not_reached`], with the reason. It keeps its
+/// `parent` edge: this function removes no edge.
+///
+/// THE ROOT is not checked here. The caller applies the edit rule to the
+/// root before the call (`require_item_edit`), and the root is archived
+/// when some descendants stay.
+///
+/// ONE TRANSACTION, as before: the plan, each write, the record and the
+/// event. The archive takes the permitted subtree, or it takes nothing.
+///
+/// The record of the archive (`activity_log`) names the descendants that
+/// stayed, after the ones that went: `not_reached:<codes>`.
+pub fn soft_delete_item_as(
+    conn: &mut PgConnection,
+    principal: Principal<'_>,
+    item_type: ItemType,
+    item_id: Uuid,
+) -> Result<SoftDeleteOutcome, ItemError> {
+    soft_delete_planned(conn, item_type, item_id, principal.user_id, Some(principal))
+}
+
+fn soft_delete_planned(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    item_id: Uuid,
+    actor: Uuid,
+    principal: Option<Principal<'_>>,
+) -> Result<SoftDeleteOutcome, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
-        use crate::schema::item_relationships;
+        let plan = plan_cascade(conn, item_type, item_id, principal)?;
+        let root_short_code = plan.root_short_code;
 
-        let (.., root_short_code) =
-            load_live_content(conn, item_type, item_id)?.ok_or(ItemError::ItemNotFound {
-                entity_type: item_type.entity_type(),
-                id: item_id,
-            })?;
-
-        let edges: Vec<rules::ParentEdge> = item_relationships::table
-            .filter(item_relationships::relationship.eq(RelationshipType::Parent))
-            .select((item_relationships::source_id, item_relationships::target_id))
-            .load::<(Uuid, Uuid)>(conn)?
-            .into_iter()
-            .map(|(parent_id, child_id)| rules::ParentEdge {
-                parent_id,
-                child_id,
-            })
-            .collect();
-
-        let mut ids = rules::cascade_descendants(item_id, &edges);
+        let mut ids = plan.reached;
         ids.push(item_id);
 
         let mut deleted: Vec<String> = Vec::new();
@@ -1271,7 +1489,7 @@ pub fn soft_delete_item(
             .collect();
         cascaded_short_codes.sort();
 
-        let details = if cascaded_short_codes.is_empty() {
+        let mut details = if cascaded_short_codes.is_empty() {
             format!("short_code:{root_short_code} cascade:0")
         } else {
             format!(
@@ -1280,6 +1498,14 @@ pub fn soft_delete_item(
                 cascaded_short_codes.join(",")
             )
         };
+        if !plan.not_reached.is_empty() {
+            let codes: Vec<&str> = plan
+                .not_reached
+                .iter()
+                .map(|item| item.short_code.as_str())
+                .collect();
+            details.push_str(&format!(" not_reached:{}", codes.join(",")));
+        }
         log_activity(
             conn,
             actor,
@@ -1303,6 +1529,7 @@ pub fn soft_delete_item(
         Ok(SoftDeleteOutcome {
             root_short_code,
             cascaded_short_codes,
+            not_reached: plan.not_reached,
         })
     })
 }

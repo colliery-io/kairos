@@ -11,7 +11,15 @@ Operations addressed by `{entity_type}` and a short code, so they work uniformly
 
 ### `POST /api/relationships`
 
-Create a relationship edge (org admin only, A-0006). The T-0013 graph
+Create a relationship edge.
+
+The link rule applies (COLLIERY-T-0228). The caller can edit the source
+or the target. The rule is the same for each relationship type.
+
+One exception (COLLIERY-T-0235) is a `supports` edge to a document
+that has no parent. The caller must be able to edit the document.
+
+The T-0013 graph
 service enforces the A-0001 type-rule matrix, cycle prevention for
 `parent`/`blocks`, and duplicate detection — each rejection is a 422
 with its typed reason (module docs).
@@ -21,12 +29,22 @@ Request body (required): `application/json`, [`CreateRelationshipRequest`](schem
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Relationship`](schemas.md#relationship) | Edge created (relationship_add activity row written) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Caller is not an org admin |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller may edit neither the source nor the target. For a supports edge to a document with no parent: the caller may not edit the document |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Rule violation, cycle, duplicate edge, or unknown endpoint |
 
 ### `DELETE /api/relationships/{id}`
 
-Remove a relationship edge by id (org admin only, A-0006). Goes
+Remove a relationship edge by id.
+
+The link rule applies (COLLIERY-T-0228), as for the create.
+
+The `supports` edge of a document has two rules of its own
+(COLLIERY-T-0235). The caller must be able to edit the document. The
+server refuses to remove the last `supports` edge of a document: 422
+`LAST_PARENT`. Link the document to a different item first, or archive
+the document.
+
+Goes
 through the T-0013 unlink service so the `relationship_remove`
 activity row is written.
 
@@ -37,8 +55,9 @@ activity row is written.
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`DeletedResponse`](schemas.md#deletedresponse) | Edge removed |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Caller is not an org admin |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller may edit neither the source nor the target. For the supports edge of a document: the caller may not edit the document |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such edge |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_PARENT: the edge is the last supports edge of a document |
 
 ### `GET /api/{entity_type}/{short_code}/children-progress`
 
@@ -81,11 +100,16 @@ them also broke paths that merely passed THROUGH archived work: the
 walk hops over `item_relationships` directly, so the far side stayed
 in the node set with its connecting node deleted out of the middle.
 
+**The mark `done: true` shows a node in a terminal column**
+(COLLIERY-T-0233, the rule of COLLIERY-T-0214). A `blocks` edge with a
+done node at one end is history, not a blocker. The graph keeps the
+edge, and the client draws it with a different style.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Entity family (plural URL segment) |
 | `short_code` | path | yes | `string` | The focal item's short code |
-| `depth` | path | yes | `integer`, nullable | Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH. |
+| `depth` | query | no | `integer` | Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH. |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -124,6 +148,11 @@ the honest default is to report every edge and say which ends are put
 away. The item itself may be archived too (resolution is
 [`Liveness::IncludeArchived`] since KAIROS-T-0154).
 
+**The mark `done: true` shows a neighbour in a terminal column**
+(COLLIERY-T-0214). Done work does not block, and nothing blocks done
+work. A `blocks` edge with a done end is history, not a blocker. The
+list keeps the edge: only the counts on the board change.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Plural family name (strategies|initiatives|tasks|documents|adrs) |
@@ -152,8 +181,12 @@ An item's metadata values with their definitions (open tenant-wide).
 
 ### `PATCH /api/{entity_type}/{short_code}/metadata`
 
-Set/update/clear metadata values on an item (requires the item's
-`manage_<type>` capability on its authorization board). Every entry is
+Set/update/clear metadata values on an item.
+
+The edit rule applies (COLLIERY-T-0228). The caller created the
+item, holds `manage_<type>` on its authorization board, or is an organization admin.
+
+Every entry is
 validated BEFORE anything is written (A-0003: unknown slug and invalid
 values are 422 `VALIDATION`); the writes then apply atomically.
 
@@ -167,7 +200,7 @@ Request body (required): `application/json`, [`UpdateMetadataRequest`](schemas.m
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`ItemMetadataResponse`](schemas.md#itemmetadataresponse) | The item's metadata after the update |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability on the item's board |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown definition slug or invalid value for its type |
 
@@ -195,8 +228,12 @@ snapshot with `?version=N`.
 
 ### `GET /api/{entity_type}/{short_code}/cascade-preview`
 
-The authoritative KAIROS-A-0001 descendant set a delete of this item
-would cascade to, computed without deleting (open tenant-wide read).
+What an archive of this item BY THE CALLER would take, and what it
+would leave (COLLIERY-T-0234), computed without deleting. An open
+tenant-wide read: it names short codes, which each member can read.
+
+The answer is for the caller who asks. It does not say whether the
+caller may archive the item itself: `DELETE` checks that.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -205,7 +242,7 @@ would cascade to, computed without deleting (open tenant-wide read).
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`CascadePreviewResponse`](schemas.md#cascadepreviewresponse) | The transitive descendant set a soft-delete would cascade to (root excluded), matching the eventual DeleteResponse |
+| `200` | [`CascadePreviewResponse`](schemas.md#cascadepreviewresponse) | What a soft-delete by the caller would cascade to (root excluded), and the live descendants that it would leave, matching the eventual DeleteResponse |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 
 ## restore
@@ -222,7 +259,7 @@ Put an archived item back on its board.
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`RestoreResponse`](schemas.md#restoreresponse) | Restored |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code, or the item is not archived |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Its board, column, team or repository is gone; details.missing names them |
 
@@ -271,6 +308,10 @@ reader expects.
 
 Confirm a proposal, creating the edge.
 
+The caller is a person. The link rule applies (COLLIERY-T-0234): the
+caller can edit the item at one end of the edge. A refused confirm
+leaves the proposal pending.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | The proposal |
@@ -279,7 +320,7 @@ Confirm a proposal, creating the edge.
 |---|---|---|
 | `200` | [`EdgeProposalDto`](schemas.md#edgeproposaldto) | Confirmed; the relationship now exists |
 | `400` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The edge was refused by the graph's own rules — a cycle, or a shape the rule matrix forbids |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A service account may propose but not decide. A person needs the link rule: the caller can edit the item at one end; details.any_of names the two capabilities |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such proposal |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Already decided |
 

@@ -9,10 +9,12 @@ admin. ("Tenant" and "organization" are the same thing seen from two sides —
 - Your OIDC `sub` is listed in `KAIROS_DEPLOYMENT_ADMINS` (Helm:
   `config.deploymentAdmins`). With that variable empty, the admin routes return
   403 to everyone, including you.
-- **The intended initial org admin has logged in at least once.** Users are
+- **The intended initial organization admin has logged in at least once.** Users are
   provisioned just-in-time at first login, so a `sub` that has never
   authenticated does not exist yet and provisioning is refused.
-- You are logged in: `kairos login --url https://<host>`.
+- You are logged in: `kairos login --url https://<host>`. With a local account,
+  add `--email <your-email>`. A local account is a deployment admin as
+  `local:<email>`.
 
 ## 1. Confirm you hold the deployment-admin routes
 
@@ -81,10 +83,10 @@ see [Configuration → Tenant resolution](../reference/configuration.md#tenant-r
 - **Neither set:** only the `X-Tenant: acme` header resolves a tenant. The CLI
   sends it for you when you pass `--tenant acme` to `kairos login`.
 
-Verify as the new org admin:
+Verify as the new organization admin:
 
 ```sh
-kairos login --url https://<host> --tenant acme
+kairos login --url https://<host> --tenant acme   # local account: add --email <email>
 kairos whoami        # org: acme (admin)
 kairos boards list   # the default boards
 ```
@@ -93,9 +95,9 @@ kairos boards list   # the default boards
 
 Any of three, and they compose:
 
-- **SCIM push from the IdP** — the option that keeps joiners and leavers correct
+- **SCIM push from the issuer** — the option that keeps joiners and leavers correct
   without anyone remembering. See [SCIM](../reference/scim.md).
-- **`kairos members add --email …`** — explicit, by the org admin. The person
+- **`kairos members add --email …`** — explicit, by the organization admin. The person
   must have logged in at least once, same as the initial admin in step 2.
 - **Just-in-time at first login** — anyone your issuer authenticates becomes a
   member on arrival. Adequate for a small organization, and the reason the

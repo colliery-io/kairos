@@ -79,6 +79,7 @@ angreal test integration     # real Postgres + Dex
 angreal test e2e             # API + MCP + GUI smoke
 angreal test uat             # persona journeys, with a readable report
 angreal docs serve           # the documentation book, live-reloading
+angreal docs images          # the screenshots of the book, from a new demo seed
 ```
 
 `angreal tree` lists everything. Once the server is up, sign in at

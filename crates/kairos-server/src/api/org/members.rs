@@ -15,7 +15,7 @@
 //! user:{id}` (the existing ActivityAction vocabulary has no generic
 //! update action).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -31,7 +31,9 @@ use uuid::Uuid;
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::is_unique_violation;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -77,7 +79,7 @@ fn load_membership(
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!(
-                "user {user_id} is not a member of this organization"
+                "The user {user_id} is not a member of this organization."
             ))
         })
 }
@@ -97,8 +99,8 @@ fn admin_count(conn: &mut PgConnection, org_id: Uuid) -> Result<i64, ApiError> {
 fn last_admin_error() -> ApiError {
     ApiError::unprocessable(
         "LAST_ADMIN",
-        "this organization must retain at least one admin; \
-         promote another member before demoting or removing this one",
+        "An organization must have one admin or more. Make a different member an admin. \
+         Then change or remove this member.",
     )
 }
 
@@ -139,7 +141,7 @@ fn log_membership_activity(
 pub(crate) async fn list_members(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::OrgMember>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let org_id = tenant.org_id;
@@ -195,7 +197,7 @@ pub(crate) async fn add_member(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::AddOrgMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddOrgMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::OrgMember>), ApiError> {
     let role = body
         .role
@@ -219,8 +221,8 @@ pub(crate) async fn add_member(
                 .map_err(ApiError::internal)?;
             let target = target.ok_or_else(|| {
                 ApiError::not_found(format!(
-                    "no user with email {:?} exists yet; users are provisioned at first \
-                     login, so ask them to log in once, then add them",
+                    "No user has the email {:?}. The server makes a user at the first \
+                     login. Tell the person to log in one time. Then add the person.",
                     body.email
                 ))
             })?;
@@ -234,7 +236,7 @@ pub(crate) async fn add_member(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "{:?} is already a member of this organization",
+                            "{:?} is a member of this organization already.",
                             body.email
                         ))
                     } else {
@@ -275,7 +277,7 @@ pub(crate) async fn update_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(user_id): Path<String>,
-    Json(body): Json<dto::UpdateOrgMemberRequest>,
+    ApiJson(body): ApiJson<dto::UpdateOrgMemberRequest>,
 ) -> Result<Json<dto::OrgMember>, ApiError> {
     let target = parse_uuid(&user_id, "user_id")?;
     let new_role = parse_enum::<OrgRole>(&body.role, "role", OrgRole::ALL)?;

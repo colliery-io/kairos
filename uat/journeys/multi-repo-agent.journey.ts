@@ -464,7 +464,7 @@ journey(
         'the agent\'s own words reach the person deciding, not a label',
       ).toContain('same rounding decision');
 
-      const confirmed = await api.post(`/api/proposals/${pending[0].id}/confirm`, {});
+      const confirmed = await api.post(`/api/proposals/${pending[0].id}/confirm`);
       expect(confirmed.state).toBe('confirmed');
 
       // NOW it is an edge.
@@ -502,7 +502,7 @@ journey(
       expect(tools, 'there is no confirm tool for an agent to reach for').not.toContain('confirm_proposal');
       const pending = await (await alice.api()).get(`/api/items/${spare}/proposals`);
       const agentApi = await agent.api();
-      const refused = await agentApi.raw('POST', `/api/proposals/${pending[0].id}/confirm`, {});
+      const refused = await agentApi.raw('POST', `/api/proposals/${pending[0].id}/confirm`);
       expect(refused.status, 'a service account may propose but not decide').toBe(403);
       return {
         agent_has_confirm_tool: false,

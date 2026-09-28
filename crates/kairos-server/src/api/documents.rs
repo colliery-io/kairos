@@ -13,10 +13,21 @@
 //! unknown parent, or a non-workflow parent, is 422 `VALIDATION`. When the
 //! parent resolves to no board (off-board ADR ancestry cannot happen for
 //! workflow parents, but defense-in-depth), the org-admin-only fallback
-//! applies. Create + link are two service transactions; the parent
-//! pre-checks make a link failure after create unreachable in practice.
+//! applies.
+//!
+//! That is the CREATE gate, and COLLIERY-T-0228 did not change it. Each
+//! later write to the document (content, lifecycle, archive) takes the
+//! edit rule ([`super::require_item_edit`]): its creator, or
+//! `manage_documents` on the authorization board, or an org admin.
+//!
+//! COLLIERY-T-0227: create + link run in ONE transaction
+//! ([`super::atomically`]). They were two, on the reasoning that the parent
+//! pre-checks made a link failure after the create unreachable. The checks
+//! cannot see a parent that is archived after them, nor a database error,
+//! and either one left a document with no parent: no board authorizes it,
+//! so only an org admin could remove it.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -31,11 +42,14 @@ use serde_json::json;
 
 use super::convert::IntoDto;
 use super::{
-    Liveness, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
-    parse_opt_uuid, require_capability, resolve_short_code, short_code_not_found,
+    Liveness, atomically, clamp_list, map_abac_error, map_graph_error, map_item_error, parse_enum,
+    parse_opt_uuid, require_capability, require_item_edit, resolve_short_code,
+    short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -58,8 +72,12 @@ pub fn router() -> Router<AppState> {
 }
 
 /// Set a document's editorial lifecycle (KAIROS-T-0078): a free-transition
-/// label — draft | review | published | archived — gated like every other
-/// document write (`manage_documents` on the authorization board). Not a
+/// label — draft | review | published | archived.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
+/// The lifecycle is a label and not a column, so this write is an edit and
+/// not a move. Not a
 /// content edit: no version bump, no history row; activity-logged and
 /// announced via the existing `item_updated` thin event.
 #[utoipa::path(
@@ -70,7 +88,7 @@ pub fn router() -> Router<AppState> {
     request_body = dto::SetLifecycleRequest,
     responses(
         (status = 200, description = "Lifecycle updated", body = dto::Document),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 422, description = "Bad lifecycle value", body = dto::ErrorEnvelope),
     ),
@@ -80,7 +98,7 @@ pub(crate) async fn set_lifecycle(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::SetLifecycleRequest>,
+    ApiJson(body): ApiJson<dto::SetLifecycleRequest>,
 ) -> Result<Json<dto::Document>, ApiError> {
     let lifecycle = parse_enum(
         &body.lifecycle,
@@ -93,8 +111,7 @@ pub(crate) async fn set_lifecycle(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, document.id, ItemType::Document)?;
             let updated = items::set_document_lifecycle(conn, document.id, lifecycle, user)
                 .map_err(map_item_error)?;
             Ok(updated.into_dto())
@@ -124,16 +141,6 @@ fn load(
         .ok_or_else(|| short_code_not_found("document", short_code))
 }
 
-/// The board that authorizes writes to this document: its parent workflow
-/// item's board via the `supports` edge (A-0006 inheritance); `None` = no
-/// board context → org-admin-only fallback.
-fn authorization_board(
-    conn: &mut PgConnection,
-    document_id: uuid::Uuid,
-) -> Result<Option<uuid::Uuid>, ApiError> {
-    abac::resolve_authorization_board(conn, document_id).map_err(map_abac_error)
-}
-
 /// List documents (open tenant-wide, S-0005 list envelope).
 ///
 /// `?include_deleted=true` widens the listing to archived work, each row
@@ -155,7 +162,7 @@ fn authorization_board(
 pub(crate) async fn list_documents(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Document>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
@@ -220,7 +227,8 @@ pub(crate) async fn get_document(
 
 /// Create a document attached to a workflow item (`parent_short_code`
 /// REQUIRED — see the module docs). Requires `manage_documents` on the
-/// parent's board. With `template_id`, the template's content and metadata
+/// parent's board. COLLIERY-T-0228 did not change this gate. A document
+/// has no board, so this gate decides which item a document can support. With `template_id`, the template's content and metadata
 /// defaults are stamped (KAIROS-A-0003).
 #[utoipa::path(
     post,
@@ -237,12 +245,13 @@ pub(crate) async fn create_document(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateDocumentRequest>,
+    ApiJson(body): ApiJson<dto::CreateDocumentRequest>,
 ) -> Result<(StatusCode, Json<dto::Document>), ApiError> {
     let parent_short_code = body.parent_short_code.clone().ok_or_else(|| {
         ApiError::validation(
-            "parent_short_code is required: documents attach to a strategy, initiative, \
-             or task via a supports edge (KAIROS-A-0006)",
+            "The request has no parent_short_code. A document must have a parent: a \
+             strategy, an initiative, or a task. A supports edge links the document to \
+             the parent (KAIROS-A-0006).",
         )
     })?;
     let template_id = parse_opt_uuid(body.template_id.as_deref(), "template_id")?;
@@ -255,7 +264,8 @@ pub(crate) async fn create_document(
                 resolve_short_code(conn, &parent_short_code, Liveness::LiveOnly)?.ok_or_else(
                     || {
                         ApiError::validation(format!(
-                            "parent_short_code {parent_short_code:?} does not name a live item"
+                            "The parent_short_code {parent_short_code:?} is not the short \
+                             code of a live item."
                         ))
                     },
                 )?;
@@ -264,39 +274,46 @@ pub(crate) async fn create_document(
                 ItemType::Strategy | ItemType::Initiative | ItemType::Task
             ) {
                 return Err(ApiError::validation(format!(
-                    "parent_short_code {parent_short_code:?} is a {parent_type}; documents \
-                     attach to a strategy, initiative, or task"
+                    "The item {parent_short_code:?} of parent_short_code has the type \
+                     {parent_type}. The parent of a document is a strategy, an \
+                     initiative, or a task."
                 )));
             }
             let board =
                 abac::resolve_authorization_board(conn, parent_id).map_err(map_abac_error)?;
             require_capability(conn, &slug, board, user, MANAGE)?;
-            let created = items::create_document(
-                conn,
-                items::CreateDocument {
-                    title: &body.title,
-                    content: body.content.as_deref(),
-                    template_id,
-                },
-                user,
-            )
-            .map_err(map_item_error)?;
-            graph::link_items(
-                conn,
-                parent_id,
-                created.id,
-                RelationshipType::Supports,
-                user,
-            )
-            .map_err(map_graph_error)?;
+            // COLLIERY-T-0227: the document and its edge, or neither.
+            let created = atomically(conn, |conn| {
+                let created = items::create_document(
+                    conn,
+                    items::CreateDocument {
+                        title: &body.title,
+                        content: body.content.as_deref(),
+                        template_id,
+                    },
+                    user,
+                )
+                .map_err(map_item_error)?;
+                graph::link_items(
+                    conn,
+                    parent_id,
+                    created.id,
+                    RelationshipType::Supports,
+                    user,
+                )
+                .map_err(map_graph_error)?;
+                Ok(created)
+            })?;
             Ok(created.into_dto())
         })
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update document content (KAIROS-A-0004 optimistic concurrency; requires
-/// `manage_documents` on the parent's board — A-0006 inheritance).
+/// Update document content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/documents/{short_code}",
@@ -305,7 +322,7 @@ pub(crate) async fn create_document(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Document),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -315,7 +332,7 @@ pub(crate) async fn update_document(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Document>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -323,8 +340,7 @@ pub(crate) async fn update_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, document.id, ItemType::Document)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -339,7 +355,9 @@ pub(crate) async fn update_document(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }
@@ -350,8 +368,10 @@ pub(crate) async fn update_document(
     Ok(Json(updated))
 }
 
-/// Soft-delete a document (requires `manage_documents` on the parent's
-/// board — A-0006 inheritance).
+/// Soft-delete a document.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// document, holds `manage_documents` on the board of its parent, or is an organization admin.
 #[utoipa::path(
     delete,
     path = "/api/documents/{short_code}",
@@ -359,7 +379,7 @@ pub(crate) async fn update_document(
     params(("short_code" = String, Path, description = "Document short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -375,15 +395,11 @@ pub(crate) async fn delete_document(
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let board = authorization_board(conn, document.id)?;
-            require_capability(conn, &slug, board, user, MANAGE)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Document, document.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the document, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome =
+                super::cascade::archive_item(conn, &slug, user, document.id, ItemType::Document)?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))

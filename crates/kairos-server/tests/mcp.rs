@@ -33,9 +33,10 @@
 //!   update_item stale-version conflict carrying the current state
 //!   (REQ-1.5) → delete_item (confirm required; cascade listed) →
 //!   board_items reflects the delete;
-//! - ABAC parity (REQ-1.1): a non-admin member is FORBIDDEN from the
-//!   the org-admin-gated non-collaborative link_items (and MAY write the
-//!   collaborative blocks edge, KAIROS-T-0111);
+//! - ABAC parity (REQ-1.1): the link rule and the edit rule
+//!   (COLLIERY-T-0228). A member who can edit one end writes an edge of
+//!   each relationship type; a member who can edit neither end is
+//!   FORBIDDEN. The creator of a request edits it and cannot move it;
 //! - NFR-1.3: the tool calls landed in `activity_log` exactly like API
 //!   calls (asserted straight from the scratch database).
 
@@ -442,7 +443,8 @@ async fn mcp_endpoint_against_live_stack() {
 
     // --- membership + boards + explicit capability grants (A-0006) ----------
     // alice is a plain MEMBER (no admin bypass): the write tools below prove
-    // the capability path, and link_items(informs) proves the org-admin denial.
+    // the capability path, and link_items(informs) proves that no
+    // relationship type needs the admin role (COLLIERY-T-0228).
     let alice = user_id(&mut conn, "alice@kairos.test");
     diesel::insert_into(organization_members::table)
         .values(NewOrganizationMember {
@@ -456,12 +458,25 @@ async fn mcp_endpoint_against_live_stack() {
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
+    // COLLIERY-T-0230: a delivery board always has a team, so the team is
+    // made first. Alice joins it in the repositories section below: until
+    // then she has her explicit grants and nothing from the team.
+    let platform: kairos_db::models::teams::Team =
+        diesel::insert_into(kairos_db::schema::teams::table)
+            .values(kairos_db::models::teams::NewTeam {
+                name: "Platform".into(),
+                slug: "platform".into(),
+                team_type: kairos_db::models::enums::TeamType::Platform,
+            })
+            .returning(kairos_db::models::teams::Team::as_returning())
+            .get_result(&mut conn)
+            .expect("team");
     let delivery = kairos_db::boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
-        None,
+        Some(platform.id),
         None,
     )
     .expect("creating the delivery board");
@@ -599,7 +614,10 @@ async fn mcp_endpoint_against_live_stack() {
         for needed in [
             "| `short_code` | string | yes |",
             "| `repository` | string | no |",
-            "Requires `manage_tasks`",
+            // COLLIERY-T-0228: the section said "Requires `manage_tasks`".
+            // The edit rule has three ways in, and the page gives them.
+            "The edit rule applies",
+            "`manage_tasks`",
             "Refuses:",
             "`FORBIDDEN`",
             "`VALIDATION`",
@@ -809,7 +827,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
-    assert!(text.contains("not found"), "{text}");
+    assert!(text.contains("The text of search is not in"), "{text}");
 
     let text = session
         .call_ok(
@@ -909,16 +927,38 @@ async fn mcp_endpoint_against_live_stack() {
         "current content for reconciliation: {text}"
     );
 
-    // --- ABAC parity: non-collaborative link_items is org-admin-gated; alice
-    // is a member. The collaborative `blocks` (KAIROS-T-0111) she may write
-    // since she manages both boards.
+    // --- ABAC parity: the link rule (COLLIERY-T-0228). alice is a member,
+    // and she can edit the items here. Until then `informs` was refused
+    // with FORBIDDEN, because it needed the admin role, and the type rule
+    // was never reached. The refusal of THIS edge is the type rule now:
+    // `informs` runs from a document or an ADR.
     let text = session
         .call_err(
             "link_items",
             json!({"source": initiative_code, "target": task_code, "relationship": "informs"}),
         )
         .await;
-    assert!(text.contains("FORBIDDEN"), "{text}");
+    assert!(
+        text.contains("RELATIONSHIP_RULE") && !text.contains("FORBIDDEN"),
+        "{text}"
+    );
+    // An `informs` edge that the type rule allows: she writes it, and
+    // removes it. The negative case, a member who can edit neither end, is
+    // below, where bob has a session.
+    let text = session
+        .call_ok(
+            "link_items",
+            json!({"source": adr_code, "target": initiative_code, "relationship": "informs"}),
+        )
+        .await;
+    assert!(text.contains("Linked"), "{text}");
+    let text = session
+        .call_ok(
+            "unlink_items",
+            json!({"source": adr_code, "target": initiative_code, "relationship": "informs"}),
+        )
+        .await;
+    assert!(text.contains("Unlinked"), "{text}");
     let text = session
         .call_ok(
             "link_items",
@@ -1018,32 +1058,20 @@ async fn mcp_endpoint_against_live_stack() {
     );
     assert_eq!(activity_count(&mut conn, alice, "transition"), 1);
     assert_eq!(activity_count(&mut conn, alice, "delete"), 1);
-    // The parent edge from create_item(parent) plus the blocks edge above
-    // (KAIROS-T-0111) are relationship_add rows; the unlink one remove.
-    assert_eq!(activity_count(&mut conn, alice, "relationship_add"), 2);
-    assert_eq!(activity_count(&mut conn, alice, "relationship_remove"), 1);
+    // The parent edge from create_item(parent) plus the informs edge and
+    // the blocks edge above are relationship_add rows; the two unlinks are
+    // removes. COLLIERY-T-0228 added the informs pair: a member writes it.
+    assert_eq!(activity_count(&mut conn, alice, "relationship_add"), 3);
+    assert_eq!(activity_count(&mut conn, alice, "relationship_remove"), 2);
 
     // --- repositories (KAIROS-T-0107, A-0019) --------------------------------
-    // Give the delivery board an owning team, register a repo under it, and
-    // exercise the directory tools plus the `repository` filters. Cross-team
-    // filing over MCP is covered by tests/file_backlog.rs.
+    // Put alice on the team of the delivery board, register a repo under
+    // it, and exercise the directory tools plus the `repository` filters.
+    // The board has had its team since it was made (COLLIERY-T-0230).
+    // Cross-team filing over MCP is covered by tests/file_backlog.rs.
     sql_query("SET search_path TO org_acme, public")
         .execute(&mut conn)
         .expect("pinning search_path");
-    let platform: kairos_db::models::teams::Team =
-        diesel::insert_into(kairos_db::schema::teams::table)
-            .values(kairos_db::models::teams::NewTeam {
-                name: "Platform".into(),
-                slug: "platform".into(),
-                team_type: kairos_db::models::enums::TeamType::Platform,
-            })
-            .returning(kairos_db::models::teams::Team::as_returning())
-            .get_result(&mut conn)
-            .expect("team");
-    diesel::update(boards::table.filter(boards::id.eq(delivery.id)))
-        .set(boards::team_id.eq(Some(platform.id)))
-        .execute(&mut conn)
-        .expect("owning the delivery board");
     diesel::insert_into(kairos_db::schema::team_members::table)
         .values(kairos_db::models::teams::NewTeamMember {
             team_id: platform.id,
@@ -1379,16 +1407,105 @@ async fn mcp_endpoint_against_live_stack() {
             && text.contains("transition_items"),
         "the person who filed a request gets the request rule: {text}"
     );
+    // COLLIERY-T-0228: the explanation says what he CAN do, and it is true.
+    assert_eq!(
+        text.lines().next().unwrap_or_default(),
+        format!(
+            "FORBIDDEN: {filed} is a request in the entry column of the board of team platform. \
+             That team moves it. You created it (file_backlog), so you can edit it, link it and \
+             archive it. To move it, you need \"transition_items\" on that board."
+        ),
+        "{text}"
+    );
+    // He created the request, so he can edit it (the edit rule,
+    // COLLIERY-T-0228). Until then this call was refused with the request
+    // rule.
     let text = bob_session
-        .call_err(
+        .call_ok(
             "update_item",
             json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
         )
         .await;
+    assert!(text.contains("to version 2"), "{text}");
+    let text = session
+        .call_ok("get_item", json!({"short_code": filed}))
+        .await;
     assert!(
-        text.contains("request in the entry column") && text.contains("file_backlog"),
-        "{text}"
+        text.contains("edited by the filer") && text.contains("column: Backlog"),
+        "the edit is stored, and the request did not move: {text}"
     );
+    // The link rule, negative: bob can edit neither end of these edges. He
+    // created none of the items and holds no grant on their boards. Each
+    // relationship type is refused, and the refusal names the capability.
+    let edges_before: i64 = {
+        use kairos_db::schema::item_relationships;
+        sql_query("SET search_path TO org_acme, public")
+            .execute(&mut conn)
+            .expect("pinning search_path");
+        item_relationships::table
+            .count()
+            .get_result(&mut conn)
+            .expect("counting edges")
+    };
+    for (relationship, source, target, source_capability, target_capability) in [
+        (
+            "parent",
+            &bucket_code,
+            &unbound_code,
+            "manage_initiatives",
+            "manage_tasks",
+        ),
+        (
+            "blocks",
+            &bucket_code,
+            &unbound_code,
+            "manage_initiatives",
+            "manage_tasks",
+        ),
+        (
+            "supports",
+            &bucket_code,
+            &adr_code,
+            "manage_initiatives",
+            "manage_adrs",
+        ),
+        (
+            "informs",
+            &adr_code,
+            &bucket_code,
+            "manage_adrs",
+            "manage_initiatives",
+        ),
+        (
+            "supersedes",
+            &adr_code,
+            &adr_code,
+            "manage_adrs",
+            "manage_adrs",
+        ),
+    ] {
+        let text = bob_session
+            .call_err(
+                "link_items",
+                json!({"source": source, "target": target, "relationship": relationship}),
+            )
+            .await;
+        assert!(
+            text.starts_with("FORBIDDEN: ")
+                && text.contains(source_capability)
+                && text.contains(target_capability),
+            "{relationship} by a member who can edit neither end: {text}"
+        );
+        assert!(!text.contains("admin role"), "{text}");
+    }
+    {
+        use kairos_db::schema::item_relationships;
+        let edges_after: i64 = item_relationships::table
+            .count()
+            .get_result(&mut conn)
+            .expect("counting edges");
+        assert_eq!(edges_before, edges_after, "a refused link writes no edge");
+    }
     // A card in the entry column that bob did NOT file: the plain refusal.
     let text = bob_session
         .call_err(
@@ -1405,7 +1522,7 @@ async fn mcp_endpoint_against_live_stack() {
         "he did not file it, so the request rule is not his to be told: {text}"
     );
     // The team moves his request to Active. It is not in the entry column
-    // now, so a refused write names the missing capability and no more.
+    // now, so a refused MOVE names the missing capability and no more.
     // Before COLLIERY-T-0218 this refusal said that the card "sits in
     // platform's Backlog".
     session
@@ -1420,6 +1537,11 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": filed, "to_column": "Active"}),
         )
         .await;
+    //
+    // COLLIERY-T-0228: `update_item` and `delete_item` were in this list of
+    // refusals. They are edits, he created the request, and so they are
+    // allowed, below. `move_item` takes their place: it is a move, and
+    // creation grants no movement.
     for (tool, arguments, capability) in [
         (
             "transition_item",
@@ -1427,13 +1549,8 @@ async fn mcp_endpoint_against_live_stack() {
             "transition_items",
         ),
         (
-            "update_item",
-            json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
-            "manage_tasks",
-        ),
-        (
-            "delete_item",
-            json!({"short_code": filed, "confirm": true}),
+            "move_item",
+            json!({"short_code": filed, "to_board": "initiatives"}),
             "manage_tasks",
         ),
     ] {
@@ -1449,20 +1566,153 @@ async fn mcp_endpoint_against_live_stack() {
             "{tool} on a card in Active does not name the Backlog: {text}"
         );
     }
+    let text = session
+        .call_ok("get_item", json!({"short_code": filed}))
+        .await;
+    assert!(
+        text.contains("column: Active"),
+        "no refusal moved it: {text}"
+    );
+    // The edits of its creator, wherever the team moved the card.
+    let text = bob_session
+        .call_ok(
+            "update_item",
+            json!({"short_code": filed, "content": "edited again by the filer", "version": 2}),
+        )
+        .await;
+    assert!(text.contains("to version 3"), "{text}");
+    let text = bob_session
+        .call_ok("delete_item", json!({"short_code": filed, "confirm": true}))
+        .await;
+    assert!(text.contains(&format!("Deleted {filed}")), "{text}");
+    let text = bob_session
+        .call_ok("restore_item", json!({"short_code": filed}))
+        .await;
+    assert!(text.contains(&format!("Restored {filed}")), "{text}");
+    let text = session
+        .call_ok("get_item", json!({"short_code": filed}))
+        .await;
+    assert!(
+        text.contains("column: Active") && text.contains("edited again by the filer"),
+        "the request is back where the team put it: {text}"
+    );
 
     // --- KAIROS-T-0128: move_item (the I-0012 board move) -------------------
     // A second delivery board to move to, with alice able to manage both.
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let web_team = common::seed_team(&mut conn, "Web", "web");
     let web_board = kairos_db::boards::create_board(
         &mut conn,
         BoardLevel::Delivery,
         "Web Delivery",
         "web-delivery",
-        None,
+        Some(web_team),
         None,
     )
     .expect("creating the web delivery board");
     abac::grant_capability(&mut conn, web_board.id, alice, "manage_tasks", alice)
         .expect("granting manage_tasks on web");
+    // --- COLLIERY-T-0249: a write tool refuses an argument that it does
+    // --- not know, names it, and writes nothing. `column` is the argument
+    // --- that `create_item` has not (KAIROS-T-0178).
+    let tasks_before: i64 = {
+        use kairos_db::schema::tasks::dsl;
+        dsl::tasks.count().get_result(&mut conn).expect("counting")
+    };
+    let text = session
+        .call_err(
+            "create_item",
+            json!({
+                "item_type": "task",
+                "title": "Placed by hand",
+                "board": "platform-delivery",
+                "column": "In Progress",
+            }),
+        )
+        .await;
+    // COLLIERY-T-0256: the refusal has the form of each other tool error,
+    // `CODE: message` and a line of details.
+    let (first_line, details) = text.split_once("\ndetails: ").expect("a line of details");
+    assert!(
+        first_line.starts_with(
+            "VALIDATION: The call has the argument \"column\". This tool does not accept \
+             that argument. The arguments of this tool are: item_type, title, board, "
+        ),
+        "{text}"
+    );
+    let details: Value = serde_json::from_str(details).expect("the details are JSON");
+    assert_eq!(details["argument"], "column", "{text}");
+    assert_eq!(details["allowed"][0], "item_type", "{text}");
+    let tasks_after: i64 = {
+        use kairos_db::schema::tasks::dsl;
+        dsl::tasks.count().get_result(&mut conn).expect("counting")
+    };
+    assert_eq!(tasks_after, tasks_before, "no task was written");
+    // The schema of the tool says it, so a client can know before the call.
+    // COLLIERY-T-0256: the rule is for each tool, the tools that read too.
+    for tool in listed["tools"].as_array().expect("tools array") {
+        let name = tool["name"].as_str().expect("tool name");
+        assert_eq!(
+            tool["inputSchema"]["additionalProperties"],
+            json!(false),
+            "{name}: additionalProperties is false for each tool"
+        );
+    }
+    // A tool that reads refuses such an argument, in the same form.
+    let text = session
+        .call_err(
+            "board_items",
+            json!({"board": "platform-delivery", "no_such_argument": true}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "VALIDATION: The call has the argument \"no_such_argument\". This tool does not \
+         accept that argument. The arguments of this tool are: board, column, repository, \
+         include_deleted.\n\
+         details: {\"allowed\":[\"board\",\"column\",\"repository\",\"include_deleted\"],\
+         \"argument\":\"no_such_argument\"}"
+    );
+    session
+        .call_ok(
+            "board_items",
+            json!({"board": "platform-delivery", "include_deleted": true}),
+        )
+        .await;
+    // An argument in an object of the call.
+    let text = session
+        .call_err(
+            "search",
+            json!({"q": "cache", "filter": {"board": "platform-delivery"}}),
+        )
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"board\". This tool does not accept \
+             that argument. The arguments of this tool are: entity_type, board_id, "
+        ),
+        "{text}"
+    );
+    // `whoami` has no arguments.
+    let text = session.call_err("whoami", json!({"verbose": true})).await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"verbose\". This tool does not accept \
+             that argument. This tool has no arguments."
+        ),
+        "{text}"
+    );
+    session.call_ok("whoami", json!({})).await;
+    // An argument that the tool must have, and the call has not.
+    let text = session.call_err("get_item", json!({})).await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call does not have the argument \"short_code\". This tool \
+             must have that argument. The arguments of this tool are: short_code."
+        ),
+        "{text}"
+    );
+
     let text = session
         .call_ok(
             "create_item",
@@ -1577,7 +1827,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.contains("VALIDATION") && text.contains("pass `board`"),
+        text.contains("VALIDATION") && text.contains("Send `board`"),
         "{text}"
     );
     // Only tasks: an initiative is told to use transition_item instead.
@@ -1918,7 +2168,7 @@ async fn mcp_endpoint_against_live_stack() {
     assert_eq!(
         text,
         format!(
-            "VALIDATION: initiative {other} is not a task. \
+            "VALIDATION: The initiative {other} is not a task. \
              set_repository applies to tasks only."
         )
     );
@@ -1932,7 +2182,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "NOT_FOUND: no live item with short code \"ACME-T-9999\""
+        "NOT_FOUND: No live item has the short code \"ACME-T-9999\"."
     );
     let text = session
         .call_err(
@@ -1940,7 +2190,7 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": task_code, "repository": "ledger"}),
         )
         .await;
-    assert!(text.starts_with("NOT_FOUND: no live item"), "{text}");
+    assert!(text.starts_with("NOT_FOUND: No live item"), "{text}");
 
     // bob has no `manage_tasks` on the board. He did not file this task, so
     // the refusal names the capability and no more.
@@ -1973,21 +2223,27 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(text.starts_with("FORBIDDEN: "), "{text}");
     assert_eq!(placement(&mut conn, &found), before);
-    // The request that he filed, still in the entry column: the same code,
-    // with the request rule that the other write tools give him.
+    // The request that he created, still in the entry column. The
+    // repository is an edit, so its creator sets it and clears it
+    // (COLLIERY-T-0228). Until then this call was refused with the request
+    // rule. The board, the team and the column of the request do not
+    // change.
+    let request_before = placement(&mut conn, &no_repository);
     let text = bob_session
-        .call_err(
+        .call_ok(
             "set_repository",
             json!({"short_code": no_repository, "repository": "ledger"}),
         )
         .await;
-    assert!(
-        text.starts_with("FORBIDDEN: ")
-            && text.contains("is a request in the entry column")
-            && text.contains("manage_tasks"),
-        "{text}"
-    );
-    assert_eq!(placement(&mut conn, &no_repository).repository, None);
+    assert!(text.contains("ledger"), "{text}");
+    let request_bound = placement(&mut conn, &no_repository);
+    assert_eq!(request_bound.repository, Some(ledger.id));
+    assert_eq!(request_bound.board, request_before.board);
+    assert_eq!(request_bound.team, request_before.team);
+    bob_session
+        .call_ok("set_repository", json!({"short_code": no_repository}))
+        .await;
+    assert_eq!(placement(&mut conn, &no_repository), request_before);
     let (status, refused) = rest(
         &router,
         &bob_token,

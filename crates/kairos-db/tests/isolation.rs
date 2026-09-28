@@ -65,6 +65,22 @@ use kairos_db::{abac, create_board, graph, provision_tenant, run_public_migratio
 
 use kairos_core::retention::{RetentionConfig, RetentionMode};
 
+/// A team for the delivery board of a fixture (COLLIERY-T-0230): a row in
+/// `teams` and nothing more. A delivery board always has a team, so a
+/// fixture that makes a delivery board makes its team first.
+fn seed_board_team(conn: &mut PgConnection, name: &str, slug: &str) -> Uuid {
+    use kairos_db::schema::teams;
+    diesel::insert_into(teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.to_string(),
+            slug: slug.to_string(),
+            team_type: kairos_db::models::TeamType::StreamAligned,
+        })
+        .returning(teams::id)
+        .get_result(conn)
+        .unwrap_or_else(|e| panic!("inserting team {slug:?}: {e}"))
+}
+
 // ===========================================================================
 // Scratch-database plumbing + fixtures
 // ===========================================================================
@@ -244,12 +260,14 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
     let strategy_board = board_id_by_slug(conn, "strategy");
     let initiative_board = board_id_by_slug(conn, "initiatives");
     let adr_board = board_id_by_slug(conn, "adrs");
+    // COLLIERY-T-0230: a delivery board always has a team.
+    let delivery_team = seed_board_team(conn, "Delivery Team", "delivery-team");
     let delivery_board = create_board(
         conn,
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
-        None,
+        Some(delivery_team),
         None,
     )
     .expect("creating delivery board")

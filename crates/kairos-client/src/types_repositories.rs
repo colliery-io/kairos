@@ -27,6 +27,7 @@ pub struct RepositoryRef {
 /// live repository, of any team. The board and the team of the task do not
 /// change (COLLIERY-T-0217, COLLIERY-A-0023).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetTaskRepositoryRequest {
     #[serde(default)]
     pub repository: Option<String>,
@@ -95,6 +96,7 @@ pub struct RepositoryDetail {
 
 /// Body of `POST /api/repositories`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRepositoryRequest {
     /// Tenant-unique slug; defaults to one derived from `repo_full_name`
     /// (`acme/payments-api` → `acme-payments-api`).
@@ -121,6 +123,7 @@ pub struct CreateRepositoryRequest {
 /// change: each stays on its board and keeps its link (COLLIERY-T-0219,
 /// COLLIERY-A-0023).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateRepositoryRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,

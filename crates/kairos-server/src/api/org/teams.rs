@@ -9,7 +9,7 @@
 //! `delivery_board_id`. Team deletion requires that board to be empty (422
 //! `BOARD_NOT_EMPTY`) and soft-deletes team + board together.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -30,7 +30,9 @@ use super::{
     run_in_transaction,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -68,7 +70,7 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live team {team_id}")))
+        .ok_or_else(|| ApiError::not_found(format!("No live team has the id {team_id}.")))
 }
 
 /// The team's ONE live delivery board, if any (exactly-one semantics,
@@ -117,7 +119,7 @@ fn log_team_activity(
 pub(crate) async fn list_teams(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::Team>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -210,7 +212,7 @@ pub(crate) async fn get_team_by_slug(
                 .optional()
                 .map_err(ApiError::internal)?;
             let team =
-                team.ok_or_else(|| ApiError::not_found(format!("no team with slug {slug:?}")))?;
+                team.ok_or_else(|| ApiError::not_found(format!("No team has the slug {slug:?}.")))?;
             let board = delivery_board_of(conn, team.id)?;
             Ok(team_to_dto(team, board))
         })
@@ -221,6 +223,8 @@ pub(crate) async fn get_team_by_slug(
 /// Query of [`list_team_links`] (explicit struct — serde_urlencoded
 /// cannot flatten).
 #[derive(serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct TeamLinksQuery {
     /// Comma-separated states; defaults to `open,draft` — the panel's
     /// question is "what is in flight", not merged history.
@@ -249,7 +253,7 @@ pub(crate) async fn list_team_links(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    axum::extract::Query(query): axum::extract::Query<TeamLinksQuery>,
+    ApiQuery(query): ApiQuery<TeamLinksQuery>,
 ) -> Result<Json<Vec<kairos_client::types_forge::TeamLink>>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let states: Vec<String> = query
@@ -335,6 +339,10 @@ pub(crate) async fn list_work_documents(
 
 /// Create a team AND its delivery board (seeded from the system delivery
 /// defaults, slug `{slug}-delivery`) in one transaction. Org-admin-only.
+///
+/// A live board can have the slug `{slug}-delivery` already
+/// (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
+/// board, and the server creates no team.
 #[utoipa::path(
     post,
     path = "/api/teams",
@@ -343,7 +351,7 @@ pub(crate) async fn list_work_documents(
     responses(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Team or board slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live team has the slug, or a live board has the slug of the delivery board", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad team_type", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -351,7 +359,7 @@ pub(crate) async fn create_team(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateTeamRequest>,
+    ApiJson(body): ApiJson<dto::CreateTeamRequest>,
 ) -> Result<(StatusCode, Json<dto::Team>), ApiError> {
     let team_type = body
         .team_type
@@ -378,7 +386,7 @@ pub(crate) async fn create_team(
                     .map_err(|e| {
                         if is_unique_violation(&e) {
                             ApiError::conflict(format!(
-                                "a team with slug {:?} already exists",
+                                "A live team has the slug {:?} already.",
                                 body.slug
                             ))
                         } else {
@@ -396,12 +404,23 @@ pub(crate) async fn create_team(
                     Some(user),
                 )
                 .map_err(|e| match e {
-                    boards::BoardError::Database(ref db) if is_unique_violation(db) => {
-                        ApiError::conflict(format!(
-                            "a board with slug {:?} already exists",
-                            format!("{}-delivery", body.slug)
-                        ))
-                    }
+                    // COLLIERY-T-0255: the caller sent the slug of the
+                    // team, and not that of the board. The refusal says
+                    // where the slug of the board comes from. The
+                    // transaction rolls back, so no team is written.
+                    boards::BoardError::SlugTaken {
+                        slug,
+                        board_id,
+                        board_name,
+                    } => ApiError::conflict(format!(
+                        "The delivery board of the team gets the slug {slug:?}. The live \
+                         board {board_name:?} has that slug. Send a different slug for the \
+                         team, or change the slug of that board."
+                    ))
+                    .with_details(serde_json::json!({
+                        "slug": slug,
+                        "board": { "id": board_id, "name": board_name },
+                    })),
                     e => map_config_error(e),
                 })?;
                 // KAIROS-T-0082: a team is never born bare — the page
@@ -444,12 +463,12 @@ pub(crate) async fn update_team(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateTeamRequest>,
+    ApiJson(body): ApiJson<dto::UpdateTeamRequest>,
 ) -> Result<Json<dto::Team>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     if body.name.is_none() && body.slug.is_none() && body.team_type.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, slug, team_type is required",
+            "The request has no field to change. Send one or more of name, slug and team_type.",
         ));
     }
     let team_type = body
@@ -479,7 +498,7 @@ pub(crate) async fn update_team(
                 .get_result(conn)
                 .map_err(|e| {
                     if is_unique_violation(&e) {
-                        ApiError::conflict("a team with that slug already exists")
+                        ApiError::conflict("A live team has that slug already.")
                     } else {
                         ApiError::internal(e)
                     }
@@ -500,6 +519,10 @@ pub(crate) async fn update_team(
 
 /// Soft-delete a team and its delivery board together. The board must be
 /// empty (422 `BOARD_NOT_EMPTY` — the T-0010 empty rule). Org-admin-only.
+///
+/// A team of old data can have 2 or more live delivery boards. The delete
+/// applies the rule to each board, and it removes each board with the team
+/// (COLLIERY-T-0250). The refusal names the board that is not empty.
 #[utoipa::path(
     delete,
     path = "/api/teams/{id}",
@@ -535,7 +558,8 @@ pub(crate) async fn delete_team(
             if !owned.is_empty() {
                 let slugs: Vec<&str> = owned.iter().map(|r| r.slug.as_str()).collect();
                 return Err(ApiError::conflict(format!(
-                    "team {:?} still owns {} repositor{}: [{}]; re-home them before removing the team",
+                    "The team {:?} has {} repositor{}: [{}]. Give each repository to a \
+                     different team. Then delete the team.",
                     team.name,
                     owned.len(),
                     if owned.len() == 1 { "y" } else { "ies" },
@@ -543,29 +567,42 @@ pub(crate) async fn delete_team(
                 ))
                 .with_details(serde_json::json!({ "repositories": slugs })));
             }
-            let board = delivery_board_of(conn, team_id)?;
-            if let Some(board_id) = board {
-                let item_count = count_live_board_items(conn, board_id)?;
-                if item_count > 0 {
-                    let items = super::live_board_item_codes(conn, board_id, 20)?;
-                    return Err(ApiError::unprocessable(
-                        "BOARD_NOT_EMPTY",
-                        format!(
-                            "team {:?}'s delivery board still holds {item_count} live card(s): [{}]; \
-                             move them to another board (POST /api/tasks/{{code}}/move) or \
-                             delete them, then retry",
-                            team.name,
-                            items.join(", ")
-                        ),
-                    )
-                    .with_details(serde_json::json!({
-                        "board_id": board_id,
-                        "item_count": item_count,
-                        "items": items,
-                    })));
-                }
-            }
+            // COLLIERY-T-0250: one transaction holds the check and the
+            // delete. The team has one delivery board by the rule
+            // (COLLIERY-T-0240), and old data can have more. Each live
+            // delivery board must be empty, and each goes with the team.
             run_in_transaction(conn, |conn| {
+                let team_boards = kairos_db::delivery_boards_for_team_delete(conn, team_id)
+                    .map_err(ApiError::internal)?;
+                for board in &team_boards {
+                    let item_count = count_live_board_items(conn, board.id)?;
+                    if item_count > 0 {
+                        let items = super::live_board_item_codes(conn, board.id, 20)?;
+                        return Err(ApiError::unprocessable(
+                            "BOARD_NOT_EMPTY",
+                            format!(
+                                "The delivery board {:?} of the team {:?} has {item_count} live \
+                                 card{}: [{}]. Move each card to a different board \
+                                 (POST /api/tasks/{{code}}/move) or delete it. Then delete the \
+                                 team.",
+                                board.name,
+                                team.name,
+                                if item_count == 1 { "" } else { "s" },
+                                items.join(", ")
+                            ),
+                        )
+                        .with_details(serde_json::json!({
+                            "board_id": board.id,
+                            "board": {
+                                "id": board.id,
+                                "name": board.name,
+                                "slug": board.slug,
+                            },
+                            "item_count": item_count,
+                            "items": items,
+                        })));
+                    }
+                }
                 diesel::update(dsl::teams.filter(dsl::id.eq(team_id)))
                     .set((
                         dsl::deleted_at.eq(diesel::dsl::now),
@@ -573,15 +610,14 @@ pub(crate) async fn delete_team(
                     ))
                     .execute(conn)
                     .map_err(ApiError::internal)?;
-                if let Some(board_id) = board {
-                    diesel::update(boards_dsl::boards.filter(boards_dsl::id.eq(board_id)))
-                        .set((
-                            boards_dsl::deleted_at.eq(diesel::dsl::now),
-                            boards_dsl::updated_at.eq(diesel::dsl::now),
-                        ))
-                        .execute(conn)
-                        .map_err(ApiError::internal)?;
-                }
+                let board_ids: Vec<Uuid> = team_boards.iter().map(|board| board.id).collect();
+                diesel::update(boards_dsl::boards.filter(boards_dsl::id.eq_any(board_ids)))
+                    .set((
+                        boards_dsl::deleted_at.eq(diesel::dsl::now),
+                        boards_dsl::updated_at.eq(diesel::dsl::now),
+                    ))
+                    .execute(conn)
+                    .map_err(ApiError::internal)?;
                 log_team_activity(
                     conn,
                     user,
@@ -682,7 +718,7 @@ pub(crate) async fn add_member(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::AddTeamMemberRequest>,
+    ApiJson(body): ApiJson<dto::AddTeamMemberRequest>,
 ) -> Result<(StatusCode, Json<dto::TeamMember>), ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let target = parse_uuid(&body.user_id, "user_id")?;
@@ -704,7 +740,7 @@ pub(crate) async fn add_member(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "user {target} is already a member of team {team_id}"
+                            "The user {target} is a member of the team {team_id} already."
                         ))
                     } else {
                         ApiError::internal(e)
@@ -776,7 +812,7 @@ pub(crate) async fn remove_member(
             .map_err(ApiError::internal)?;
             if deleted == 0 {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of team {team_id}"
+                    "The user {target} is not a member of the team {team_id}."
                 )));
             }
             log_team_activity(

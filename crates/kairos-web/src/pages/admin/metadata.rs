@@ -34,7 +34,7 @@ fn EnumOptionsEditor(options: RwSignal<Vec<String>>) -> impl IntoView {
     };
     view! {
         <Stack gap="xs">
-            <Text dimmed=true size="sm">"Allowed values (display order):"</Text>
+            <Text dimmed=true size="sm">"Values, in display order:"</Text>
             <Group gap="xs" wrap=true>
                 {move || options.get().into_iter().enumerate().map(|(index, option)| {
                     view! {
@@ -95,7 +95,7 @@ pub fn AdminMetadataPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("Definition \"{n}\" ({t}) created."),
+            format!("Kairos made the definition \"{n}\" ({t})."),
             async move {
                 api::create_definition(auth, &n, &s, &t, &options)
                     .await
@@ -105,7 +105,8 @@ pub fn AdminMetadataPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Metadata definitions" sub="typed fields items can carry (A-0003)"/>
+        <PageHeader title="Metadata definitions" sub="The typed fields that an item can \
+                                                      have (A-0003)."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Definitions">
@@ -115,7 +116,8 @@ pub fn AdminMetadataPage() -> impl IntoView {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(list)) if list.is_empty() => view! {
-                        <Empty message="No metadata definitions yet — create one below."/>
+                        <Empty message="The organization has no metadata definitions. \
+                                        Make one below."/>
                     }.into_any(),
                     Some(Ok(list)) => list.into_iter().map(|definition| {
                         view! { <DefinitionRow definition busy outcome reload/> }
@@ -123,7 +125,8 @@ pub fn AdminMetadataPage() -> impl IntoView {
                 }}
             </Panel>
             <Panel title="Create definition"
-                caption="enum definitions need at least one allowed value; string/date take none">
+                caption="An enum definition must have one value or more. A string \
+                         definition and a date definition have no values.">
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Priority"/>
@@ -171,7 +174,7 @@ fn DefinitionRow(
             busy,
             outcome,
             reload,
-            format!("Definition \"{n}\" updated."),
+            format!("Kairos changed the definition \"{n}\"."),
             async move {
                 api::update_definition(auth, &id, &n, &s, options.as_deref())
                     .await
@@ -186,7 +189,7 @@ fn DefinitionRow(
             busy,
             outcome,
             reload,
-            format!("Definition \"{deleted_name}\" deleted."),
+            format!("Kairos deleted the definition \"{deleted_name}\"."),
             async move { api::delete_definition(auth, &id).await.map(|_| ()) },
         );
     };

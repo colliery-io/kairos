@@ -314,7 +314,8 @@ pub async fn relationships(auth: Auth, short_code: &str) -> Result<ItemRelations
     api::get_json(auth, &format!("/api/{family}/{short_code}/relationships")).await
 }
 
-/// `POST /api/relationships` (org admin; the typed 422s — `RELATIONSHIP_RULE`,
+/// `POST /api/relationships` (the link rule, COLLIERY-T-0228: the caller may
+/// edit one end; the typed 422s — `RELATIONSHIP_RULE`,
 /// `CYCLE_DETECTED`, `ALREADY_LINKED` — arrive as `ApiError::Http{code}`).
 pub async fn create_relationship(
     auth: Auth,
@@ -323,7 +324,11 @@ pub async fn create_relationship(
     api::post_json(auth, "/api/relationships", request).await
 }
 
-/// `DELETE /api/relationships/{id}` (org admin).
+/// `DELETE /api/relationships/{id}` (the link rule, as for the create).
+/// The server refuses to remove the last `supports` edge of a document
+/// with 422 `LAST_PARENT` (COLLIERY-T-0235). The refusal arrives as
+/// `ApiError::Http`, and the panel shows the message of the server. The
+/// client makes no check of its own.
 pub async fn delete_relationship(
     auth: Auth,
     relationship_id: &str,
@@ -579,6 +584,11 @@ pub struct GraphNode {
     /// the one wrong answer.
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// `true` while the node is in a terminal column (COLLIERY-T-0233).
+    /// A `blocks` arrow with a done node at one end is history, and the
+    /// canvas draws it with the resolved style.
+    #[serde(default)]
+    pub done: bool,
 }
 
 /// mirror of: `kairos_client::types_graph::GraphEdge`.
@@ -632,7 +642,8 @@ mod graph_tests {
                 "id": "n2", "short_code": "DEMO-I-0001", "entity_type": "initiative",
                 "title": "Sign-up overhaul", "status": "Done",
                 "depth": 1, "degree": 4,
-                "archived_at": "2026-09-23T11:30:07.479107Z"
+                "archived_at": "2026-09-23T11:30:07.479107Z",
+                "done": true
             }],
             "edges": [{
                 "source_id": "n2", "target_id": "n1",
@@ -649,5 +660,9 @@ mod graph_tests {
             decoded.nodes[1].archived_at.as_deref(),
             Some("2026-09-23T11:30:07.479107Z")
         );
+        // COLLIERY-T-0233: a node in a terminal column carries `done`. A
+        // payload without the field decodes as not done.
+        assert!(!decoded.nodes[0].done);
+        assert!(decoded.nodes[1].done);
     }
 }

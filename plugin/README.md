@@ -20,7 +20,9 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
 - `meta/` — `kairos` (the `/kairos` router), `grilling` (model-invoked), `grill-me`,
   `handoff`, `writing-great-skills` (the normative authoring reference), `bootstrap`
   (wires a repo to a deployment — detects the repository from the git remote, takes the
-  team board from the team of the principal — and writes `.claude/kairos.local.md`)
+  team board from the team of the principal — and writes `.claude/kairos.local.md`).
+  It reads `/api/config` to choose the authentication path: OAuth, or a service account
+  with an API key on a deployment with no issuer.
 - `workflow/` — `to-initiative`, `decompose`, `triage` (user-invoked), `implement`
   (model-invoked per KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
@@ -44,6 +46,8 @@ also says to name a board at create and how to send a request (COLLIERY-A-0023).
 tested (`hooks/test_session_start.py`, part of `angreal test unit`).
 Hooks cannot drive the client's OAuth flow (KAIROS-A-0011) and tokens live with the MCP client
 (KAIROS-A-0014), so the hook deliberately never authenticates; offline degrades to a note.
+That holds on the service-account path too: the MCP client sends the API key, and the hook
+does not read `KAIROS_MCP_KEY`.
 
 ## Sessions are scoped to a team board and a repository
 
@@ -65,7 +69,9 @@ JSON cannot carry comments, so this note lives here: `plugin/.mcp.json` ships wi
 `{{KAIROS_DEPLOYMENT_URL}}` placeholder instead of a real deployment URL. The `/bootstrap`
 skill fills it per-repo (KAIROS-A-0014): it asks for the Kairos deployment URL and writes the
 concrete MCP endpoint (`<deployment-url>/mcp`) into the consuming repo's configuration, along
-with `.claude/kairos.local.md`. Do not replace the placeholder in this file with a real URL —
+with `.claude/kairos.local.md`. On a deployment with no issuer it also writes the header
+`"Authorization": "Bearer ${KAIROS_MCP_KEY}"`. The header holds the name of an environment
+variable, never the API key (`skills/meta/bootstrap/SERVICE-ACCOUNT.md`). Do not replace the placeholder in this file with a real URL —
 the template must stay deployment-agnostic.
 
 ## `references/` are rendered artifacts

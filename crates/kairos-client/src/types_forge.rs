@@ -24,6 +24,7 @@ pub struct ForgeConnection {
 /// registered repository (slug or UUID). Register the repository first
 /// via `POST /api/repositories`; its `forge` must be `github` or `gitlab`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateForgeConnectionRequest {
     pub repository: String,
 }

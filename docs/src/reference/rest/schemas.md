@@ -30,6 +30,8 @@ Body of `POST /api/boards/{id}/members`.
 | `capabilities` | array of `string` | yes | Capabilities to grant (KAIROS-A-0006 vocabulary or glob; at least one). |
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## AddOrgMemberRequest
 
 Body of `POST /api/members`. The user is resolved by email from `public.users` — users are JIT-provisioned at first login, so an unknown email means the person must log in once first (404 with that guidance).
@@ -39,6 +41,8 @@ Body of `POST /api/members`. The user is resolved by email from `public.users` �
 | `email` | `string` | yes |  |
 | `role` | `string`, nullable | no | `admin|member`; defaults to `member`. |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## AddStreamTeamRequest
 
 Body of `POST /api/delivery-streams/{id}/teams`.
@@ -47,6 +51,8 @@ Body of `POST /api/delivery-streams/{id}/teams`.
 |---|---|---|---|
 | `team_id` | `string` | yes | Team id (UUID). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## AddTeamMemberRequest
 
 Body of `POST /api/teams/{id}/members`.
@@ -54,6 +60,8 @@ Body of `POST /api/teams/{id}/members`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Adr
 
@@ -118,8 +126,8 @@ Dependency counts behind a board card's blocked-by/blocks badges (KAIROS-T-0091)
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `blocked_by` | `integer` | yes | Live incoming `blocks` edges (things blocking this item). |
-| `blocks` | `integer` | yes | Live outgoing `blocks` edges (things this item blocks). |
+| `blocked_by` | `integer` | yes | Open incoming `blocks` edges (things blocking this item): the blocker is live, and neither end is in a terminal column (COLLIERY-T-0214). |
+| `blocks` | `integer` | yes | Open outgoing `blocks` edges (things this item blocks): the blocked item is live, and neither end is in a terminal column (COLLIERY-T-0214). |
 
 ## Board
 
@@ -132,7 +140,7 @@ A board (`/api/boards` list element).
 | `id` | `string` | yes | Board id (UUID). |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID); set for delivery boards (KAIROS-A-0002). |
+| `team_id` | `string`, nullable | no | Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A board of the organization has none: its team is the list of its members. |
 | `updated_at` | `string` | yes | RFC 3339. |
 
 ## BoardColumn
@@ -144,10 +152,10 @@ A board column.
 | `board_id` | `string` | yes | Owning board (UUID). |
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Column id (UUID). |
-| `is_done` | `boolean` | no | Occupants count as completed for children-progress rollups (KAIROS-T-0080). |
+| `is_done` | `boolean` | yes | Occupants count as completed for children-progress rollups (KAIROS-T-0080). The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `is_done`, and it reads as `false`. |
 | `name` | `string` | yes |  |
 | `position` | `integer` | yes | Display ordering, 0-indexed. |
-| `removed_at` | `string`, nullable | no | When this column was REMOVED from its board (RFC 3339), absent while it is part of the board (KAIROS-T-0161, KAIROS-T-0164). `GET /api/boards/{id}` omits removed columns entirely unless it is asked for them (`?include_removed_columns=true`), so this is `None` on every default read. It is `Some` only for a caller that wants the column an ARCHIVED card was put away in — the audit fact the soft delete exists to preserve. Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at` is the KAIROS-A-0020 work-item state, and a column is not work. |
+| `removed_at` | `string`, nullable | yes | When this column was REMOVED from its board (RFC 3339), `null` while it is part of the board (KAIROS-T-0161, KAIROS-T-0164). `GET /api/boards/{id}` omits removed columns entirely unless it is asked for them (`?include_removed_columns=true`), so this is `null` on every default read. It is a timestamp only for a caller that wants the column an ARCHIVED card was put away in — the audit fact the soft delete exists to preserve. Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at` is the KAIROS-A-0020 work-item state, and a column is not work. The server sends it in each response, `null` for a live column, so the schema shows it as required and nullable (COLLIERY-T-0256, the pattern of COLLIERY-T-0254). The default is for the client only: a response of an older server has no `removed_at`, and it reads as `None`. |
 | `updated_at` | `string` | yes | RFC 3339. |
 
 ## BoardColumnItems
@@ -172,9 +180,9 @@ Response of `GET /api/boards/{id}/items`: all items on the board, grouped by col
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `blocks_summary` | `object` | no | Blocked-by/blocks counts keyed by short code, for every item on this board with at least one live `blocks` edge (KAIROS-T-0091) — one grouped query; soft-deleted neighbors never count. |
+| `blocks_summary` | `object` | yes | Blocked-by/blocks counts keyed by short code, for every item on this board with at least one open `blocks` edge (KAIROS-T-0091) — one grouped query; soft-deleted neighbors never count. An edge is open only while neither end sits in a terminal column (COLLIERY-T-0214): done work does not block and is not blocked, so a card in a terminal column has no entry. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). It is an empty map when no item has an open `blocks` edge. The default is for the client only. |
 | `board` | [`Board`](schemas.md#board) | yes |  |
-| `children_progress` | `object` | no | `(done, total)` direct-children counts keyed by the PARENT item's short code, for every item on this board that has children (KAIROS-T-0080) — computed in one grouped query, never per item. |
+| `children_progress` | `object` | yes | `(done, total)` direct-children counts keyed by the PARENT item's short code, for every item on this board that has children (KAIROS-T-0080) — computed in one grouped query, never per item. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). It is an empty map when no item has children. The default is for the client only. |
 | `columns` | array of [`BoardColumnItems`](schemas.md#boardcolumnitems) | yes |  |
 
 ## BoardMember
@@ -207,6 +215,7 @@ Response of `GET /api/{entity_type}/{short_code}/cascade-preview` (KAIROS-T-0051
 |---|---|---|---|
 | `cascade_count` | `integer` | yes | How many live descendants a delete would cascade to (root excluded). |
 | `cascaded_short_codes` | array of `string` | yes | Short codes of the live descendants a delete would cascade to, sorted. |
+| `not_reached` | array of [`NotReached`](schemas.md#notreached) | no | The live descendants that an archive BY THIS CALLER would not reach, sorted by short code (COLLIERY-T-0234). The preview answers for the caller who asks: a different caller can get a different answer. Absent when the archive would reach each descendant. |
 | `short_code` | `string` | yes | The item's short code (the cascade root). |
 
 ## ChildColumnProgress
@@ -229,7 +238,7 @@ Response of `GET /api/{entity_type}/{short_code}/children-progress` (KAIROS-T-00
 |---|---|---|---|
 | `by_column` | array of [`ChildColumnProgress`](schemas.md#childcolumnprogress) | yes | Per-column composition, board-then-position order. |
 | `done` | `integer` | yes | Children sitting in `is_done` columns. |
-| `has_done_columns` | `boolean` | no | False when no board hosting the children has a done-flagged column — show composition only, never a done fraction. |
+| `has_done_columns` | `boolean` | yes | False when no board hosting the children has a done-flagged column — show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done_columns`, and it reads as `false`. |
 | `short_code` | `string` | yes | The parent item's short code. |
 | `total` | `integer` | yes | Direct live children (soft-deleted excluded; supports/informs material never counts). |
 
@@ -246,6 +255,8 @@ Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (
 | `decision_maker` | `string`, nullable | no |  |
 | `title` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateApiKeyRequest
 
 `POST /api/service-accounts/{id}/keys` body.
@@ -254,6 +265,8 @@ Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (
 |---|---|---|---|
 | `expires_at` | `string`, nullable | no | Optional RFC 3339 expiry; omitted = never expires. |
 | `name` | `string` | yes | Operator label for the key ("gha-main", ...). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateBoardRequest
 
@@ -264,7 +277,9 @@ Body of `POST /api/boards`: creates a board seeded with the system default colum
 | `board_level` | `string` | yes | `strategy|initiative|delivery|adr`. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID) for delivery boards. |
+| `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Leave it out for a board of the organization. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateColumnRequest
 
@@ -274,6 +289,8 @@ Body of `POST /api/boards/{id}/columns`.
 |---|---|---|---|
 | `name` | `string` | yes |  |
 | `position` | `integer` | yes | 0-indexed position; must not collide with an existing column (422 `DUPLICATE_COLUMN_POSITION`). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateDocumentRequest
 
@@ -286,6 +303,8 @@ Body of `POST /api/documents`. Documents attach to a workflow item at birth: `pa
 | `template_id` | `string`, nullable | no | Template to stamp content + metadata defaults from (UUID). |
 | `title` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateForgeConnectionRequest
 
 Body of `POST /api/forge-connections`: connect webhooks for a registered repository (slug or UUID). Register the repository first via `POST /api/repositories`; its `forge` must be `github` or `gitlab`.
@@ -293,6 +312,8 @@ Body of `POST /api/forge-connections`: connect webhooks for a registered reposit
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `repository` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateInitiativeRequest
 
@@ -307,6 +328,8 @@ Body of `POST /api/initiatives`.
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `title` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateLocalAccountRequest
 
 `POST /api/local-accounts` body.
@@ -317,6 +340,8 @@ Body of `POST /api/initiatives`.
 | `email` | `string` | yes | The person's email. Lower-cased and trimmed; it is the login identifier. |
 | `password` | `string` | yes | The initial password. At least [`crate::local_auth::MIN_PASSWORD_LEN`] characters. |
 | `role` | `string`, nullable | no | Organization role, `member` (default) or `admin`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateMetadataDefinitionRequest
 
@@ -330,15 +355,19 @@ Body of `POST /api/metadata-definitions` (org admin).
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateRelationshipRequest
 
-Body of `POST /api/relationships` (org admin only, KAIROS-A-0006).
+Body of `POST /api/relationships`. The caller may edit the item at either end (the link rule, COLLIERY-T-0228).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `relationship` | `string` | yes | `parent|supports|informs|supersedes|blocks`. |
 | `source_short_code` | `string` | yes | Short code of the edge's source item (KAIROS-A-0001 orientation). |
 | `target_short_code` | `string` | yes | Short code of the edge's target item. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateRepositoryRequest
 
@@ -354,6 +383,8 @@ Body of `POST /api/repositories`.
 | `slug` | `string`, nullable | no | Tenant-unique slug; defaults to one derived from `repo_full_name` (`acme/payments-api` → `acme-payments-api`). |
 | `team` | `string` | yes | The owning team (UUID or slug). Exactly one (KAIROS-A-0019). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateScimTokenRequest
 
 `POST /api/scim-tokens` body.
@@ -362,6 +393,8 @@ Body of `POST /api/repositories`.
 |---|---|---|---|
 | `name` | `string` | yes | Operator label ("okta-prod", ...). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateServiceAccountRequest
 
 `POST /api/service-accounts` body.
@@ -369,6 +402,8 @@ Body of `POST /api/repositories`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `name` | `string` | yes | Operator label ("ci-deploy", ...). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateStrategyRequest
 
@@ -382,6 +417,8 @@ Body of `POST /api/strategies`.
 | `hypothesis` | `string`, nullable | no |  |
 | `title` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateStreamRequest
 
 Body of `POST /api/delivery-streams`.
@@ -392,6 +429,8 @@ Body of `POST /api/delivery-streams`.
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateTaskRequest
 
 Body of `POST /api/tasks`.
@@ -401,11 +440,13 @@ Body of `POST /api/tasks`.
 | `board_id` | `string`, nullable | no | Board to create the task on — SLUG or UUID (KAIROS-T-0150). Optional when `team_id` is given: the task then goes to the delivery board of that team. A request with no board and no team is a 422, with or without a `repository` (COLLIERY-T-0217, COLLIERY-A-0023). Until then a `repository` alone chose the board (KAIROS-T-0104). |
 | `column_id` | `string`, nullable | no | Column to place it in (UUID); defaults to the board's first column. |
 | `content` | `string` | no | Markdown content; defaults to empty. |
-| `repository` | `string`, nullable | no | The repository the task links to (slug or UUID, KAIROS-T-0104). An optional link that says where the code is. It can be any live repository, of any team, and it does not choose the board (COLLIERY-T-0217, COLLIERY-A-0023). `repository` is THE reference field name on the wire (KAIROS-T-0115); `repository_id` is accepted as an alias for one release. |
+| `repository` | `string`, nullable | no | The repository the task links to (slug or UUID, KAIROS-T-0104). An optional link that says where the code is. It can be any live repository, of any team, and it does not choose the board (COLLIERY-T-0217, COLLIERY-A-0023). `repository` is THE reference field name on the wire (KAIROS-T-0115). The old name `repository_id` is refused, as each field that the route does not know (COLLIERY-T-0259). |
 | `task_type` | `string`, nullable | no | `task|bug|tech_debt|support`; defaults to `task`. |
 | `team_id` | `string`, nullable | no | A team (UUID). It names the team whose delivery board gets the task, when no board is named (COLLIERY-T-0217); a team without exactly one live delivery board is a 422. With a board it must be that board's team (COLLIERY-T-0216): any other team is a 422, never silently ignored. The BOARD decides the team of the task in both cases. |
 | `title` | `string` | yes |  |
 | `work_class` | `string`, nullable | no | Planned/Support lane (`planned|support`, KAIROS-T-0077). Defaults to `support` when `task_type` is `support`, else `planned`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTeamAnnouncementRequest
 
@@ -415,6 +456,8 @@ Body of `POST /api/teams/{id}/announcements`.
 |---|---|---|---|
 | `body` | `string` | yes | Markdown body. |
 | `pinned` | `boolean` | no | Pin it to the top of the feed. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTeamPageRequest
 
@@ -429,6 +472,8 @@ Body of `POST /api/teams/{id}/pages`.
 | `slug` | `string` | yes | URL segment, unique among siblings. |
 | `title` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateTeamRequest
 
 Body of `POST /api/teams`. Creating a team also creates its delivery board (slug `{slug}-delivery`) from the system defaults, in the same transaction.
@@ -438,6 +483,8 @@ Body of `POST /api/teams`. Creating a team also creates its delivery board (slug
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 | `team_type` | `string`, nullable | no | `stream_aligned|platform|enabling|complicated_subsystem`; defaults to `stream_aligned`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTemplateRequest
 
@@ -450,6 +497,8 @@ Body of `POST /api/templates` (org admin).
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateTenantRequest
 
 Body of `POST /api/admin/tenants` (deployment-admin only; see `KAIROS_DEPLOYMENT_ADMINS`).
@@ -460,6 +509,8 @@ Body of `POST /api/admin/tenants` (deployment-admin only; see `KAIROS_DEPLOYMENT
 | `name` | `string` | yes | Organization display name. |
 | `slug` | `string` | yes | Organization slug (`^[a-z][a-z0-9_-]{1,62}$`). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## CreateTransitionRequest
 
 Body of `POST /api/boards/{id}/transitions`.
@@ -468,6 +519,8 @@ Body of `POST /api/boards/{id}/transitions`.
 |---|---|---|---|
 | `from_column_id` | `string` | yes | Source column (UUID). |
 | `to_column_id` | `string` | yes | Target column (UUID). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreatedForgeConnection
 
@@ -481,6 +534,7 @@ Response of `DELETE /api/{family}/{short_code}` â the soft delete and its K
 |---|---|---|---|
 | `cascade_count` | `integer` | yes | How many live descendants were cascaded to (root excluded). |
 | `cascaded_short_codes` | array of `string` | yes | Short codes of the cascaded descendants, sorted. |
+| `not_reached` | array of [`NotReached`](schemas.md#notreached) | no | The live descendants that the archive did not reach, sorted by short code (COLLIERY-T-0234). They stay live and keep their `parent` edge. Absent when the archive reached each descendant. |
 | `short_code` | `string` | yes | The deleted item's short code. |
 
 ## DeletedResponse
@@ -588,6 +642,7 @@ One hydrated node of the focal subgraph.
 | `archived_at` | `string`, nullable | no | When this node was archived, RFC 3339; absent while it is live. The subgraph is archived-INCLUSIVE (KAIROS-T-0158) — omitting a node used to break the paths THROUGH it, leaving the far side floating with no route back to the focus. Clients must draw a marked node distinctly; drawing it as live is the one wrong answer. |
 | `degree` | `integer` | yes | The node's TOTAL edge count — clients render `+N` where `N = degree - edges shown` for undisplayed neighbors. Archived neighbours count, because they are drawn. |
 | `depth` | `integer` | yes | Minimum hop distance from the focus (0 = the focus itself). |
+| `done` | `boolean` | yes | `true` while this node is in a terminal column, a column with `is_done` (COLLIERY-T-0233). Done work does not block, and nothing blocks done work: a `blocks` edge with a done node at one end is history. Clients must draw that edge differently from an open blocker. `false` for a node with no column. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0247). The default is for the client only: a response of an older server has no `done`, and it reads as `false`. |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `id` | `string` | yes | Entity id (UUID). |
 | `short_code` | `string` | yes |  |
@@ -849,6 +904,8 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `email` | `string` | yes | The account's email address. Matched case-insensitively. |
 | `password` | `string` | yes |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## LoginResponse
 
 `POST /api/login` 200 body. The token is returned EXACTLY ONCE — only its SHA-256 is stored.
@@ -876,7 +933,7 @@ A metadata field definition, as returned by `/api/metadata-definitions`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `created_at` | `string` | yes | RFC 3339. |
-| `entity_types` | array of `string` | no | Entity types this definition applies to (KAIROS-T-0078): `strategy|initiative|task|document|adr`. EMPTY = applies to every type. Enforced on the write paths, not just rendering. |
+| `entity_types` | array of `string` | yes | Entity types this definition applies to (KAIROS-T-0078): `strategy|initiative|task|document|adr`. EMPTY = applies to every type. Enforced on the write paths, not just rendering. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `entity_types`, and it reads as an empty list. |
 | `enum_options` | array of `string` | yes | Allowed values in display order (empty unless `field_type = enum`). |
 | `field_type` | `string` | yes | `string|enum|date`. |
 | `id` | `string` | yes | Definition id (UUID). |
@@ -904,6 +961,19 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## NotReached
+
+One live descendant that an archive does not reach (COLLIERY-T-0234). The archive stops at a descendant that the caller cannot edit, and takes nothing below it. An entry has one of two reasons. `required_capability`, with `board_id`: the caller cannot edit this item. `below`: this item is below the named item, where the archive stopped.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `below` | `string`, nullable | no | The short code of the item above this one where the archive stopped. |
+| `board_id` | `string`, nullable | no | The authorization board of the descendant (UUID). |
+| `required_capability` | `string`, nullable | no | The `manage_<type>` capability that the caller does not hold. |
+| `short_code` | `string` | yes | The short code of the descendant. |
 
 ## OrgDeleteResponse
 
@@ -934,7 +1004,7 @@ A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the children si
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `done` | `integer` | yes |  |
-| `has_done` | `boolean` | no | False when no board hosting the children has a done-flagged column — clients show composition only, never a done fraction. |
+| `has_done` | `boolean` | yes | False when no board hosting the children has a done-flagged column — clients show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done`, and it reads as `false`. |
 | `total` | `integer` | yes |  |
 
 ## RelatedItem
@@ -944,6 +1014,7 @@ One hydrated neighbor of an item in the relationship graph.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this neighbour was archived, RFC 3339; absent while it is live. Relationship lists are archived-INCLUSIVE (KAIROS-T-0158): an item's edges describe what it contains and depends on, and dropping an archived endpoint silently shrinks that answer. The row therefore comes back with this marker, and every renderer must show it — ADR-20: anything serving an archived row says so, or an auditor mistakes it for live work. |
+| `done` | `boolean` | no | `true` when this neighbour sits in a terminal column (a column the board marks `is_done`); absent otherwise (COLLIERY-T-0214). Done work does not block and is not blocked, so a `blocks` edge to a done neighbour is history, not an open blocker: the board's `blocks_summary` does not count it. The edge still comes back here, because the list is the record, and every renderer of a `blocks` neighbour must show this marker. It follows the neighbour's current column; nothing is stored. |
 | `entity_type` | `string` | yes | `strategy|initiative|task|document|adr`. |
 | `id` | `string` | yes | The neighbor's entity id (UUID). |
 | `relationship_id` | `string` | yes | The edge's id (UUID) — pass to `DELETE /api/relationships/{id}`. |
@@ -1021,6 +1092,8 @@ Body of `PATCH /api/boards/{id}/members/{user_id}` — replaces the user's full 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `capabilities` | array of `string` | yes | The complete new capability set (at least one; use DELETE to revoke board membership entirely). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Repository
 
@@ -1133,10 +1206,12 @@ The `filter` capability. Fields are AND with each other; array values are OR wit
 | `include_deleted` | `boolean` | no | Include archived (soft-deleted) items (default false). Composes with every other capability — `q` and `traverse` included since KAIROS-T-0157 — and is a complete request on its own. Archived hits are served with `archived_at` set (KAIROS-A-0020). |
 | `is_bucket` | `boolean`, nullable | no | Restrict to (non-)bucket initiatives (initiative-level attribute; other entity types are excluded). |
 | `metadata` | `object`, nullable | no | Metadata conditions keyed by definition slug; string values support trailing-`*` globs (e.g. `"component": "auth*"`). All entries must match (AND). |
-| `repository` | `string`, nullable | no | Restrict to tasks issued against this repository (slug or UUID — KAIROS-T-0115 made every repository reference on the wire the same shape; `repository_id` is accepted as an alias). Task-level attribute, other entity types are excluded. |
+| `repository` | `string`, nullable | no | Restrict to tasks issued against this repository (slug or UUID — KAIROS-T-0115 made every repository reference on the wire the same shape; the old name `repository_id` is refused, COLLIERY-T-0259). Task-level attribute, other entity types are excluded. |
 | `task_type` | `array`, nullable | no | Restrict to tasks of these types (`task|bug|tech_debt|support`; excludes non-task entities). |
 | `team_id` | `string`, nullable | no | Restrict to tasks assigned to this team (UUID; task-level attribute, other entity types are excluded). |
 | `work_class` | `array`, nullable | no | Restrict to tasks in these Planned/Support lanes (`planned|support`, KAIROS-T-0077; task-level attribute, other entity types are excluded). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchRequest
 
@@ -1150,6 +1225,8 @@ Body of `POST /api/search`. All fields optional; at least one of `q`/`filter`/`t
 | `q` | `string`, nullable | no | Full-text search (PostgreSQL websearch semantics; quoted phrases, `OR`, `-negation`). |
 | `sort` | [`SearchSort`](schemas.md#searchsort), nullable | no |  |
 | `traverse` | [`SearchTraverse`](schemas.md#searchtraverse), nullable | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchResponse
 
@@ -1183,6 +1260,8 @@ The `sort` clause, applied to the combined cross-type result set before paginati
 | `field` | `string` | yes | `created_at|updated_at|title|relevance`. `relevance` requires `q`. |
 | `order` | `string` | yes | `asc|desc`. |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## SearchTraverse
 
 The `traverse` capability: recursive walk of the relationship graph from a starting node.
@@ -1194,6 +1273,8 @@ The `traverse` capability: recursive walk of the relationship graph from a start
 | `from` | [`SearchTraverseFrom`](schemas.md#searchtraversefrom) | yes | The starting entity, identified by exactly one of `short_code`/`id`. |
 | `relationships` | array of `string` | yes | Relationship types to follow (non-empty; `parent|supports|informs|supersedes|blocks`). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## SearchTraverseFrom
 
 `traverse.from`: exactly one of `short_code`/`id`.
@@ -1202,6 +1283,8 @@ The `traverse` capability: recursive walk of the relationship graph from a start
 |---|---|---|---|
 | `id` | `string`, nullable | no | The starting entity's id (UUID). |
 | `short_code` | `string`, nullable | no | The starting entity's short code (e.g. `"ACME-S-0001"`). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## ServiceAccountListResponse
 
@@ -1252,6 +1335,8 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 |---|---|---|---|
 | `lifecycle` | `string` | yes | `draft|review|published|archived`. |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## SetPasswordRequest
 
 `PUT /api/local-accounts/{user_id}/password` body.
@@ -1259,6 +1344,8 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `password` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SetTaskRepositoryRequest
 
@@ -1268,6 +1355,8 @@ Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task
 |---|---|---|---|
 | `repository` | `string`, nullable | no |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## SetWorkClassRequest
 
 transitions â the board rules engine is never consulted.
@@ -1275,6 +1364,8 @@ transitions â the board rules engine is never consulted.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `work_class` | `string` | yes | `planned|support`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Strategy
 
@@ -1447,6 +1538,8 @@ One template ↔ metadata-definition association in a template write.
 | `definition_slug` | `string` | yes | Slug of an existing metadata definition. |
 | `required` | `boolean` | no |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## TemplateMetadataField
 
 One metadata field a template carries (`template_metadata` hydrated with its definition).
@@ -1513,6 +1606,8 @@ Body of `POST /api/{family}/{short_code}/transition`.
 |---|---|---|---|
 | `to_column_id` | `string` | yes | Target column (UUID). Must be reachable from the item's current column per the board's transition graph, else 422 `INVALID_TRANSITION` with `details.allowed_targets`. |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateBoardRequest
 
 Body of `PATCH /api/boards/{id}` (board settings).
@@ -1521,6 +1616,9 @@ Body of `PATCH /api/boards/{id}` (board settings).
 |---|---|---|---|
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
+| `team_id` | `string`, nullable | no | The team of the board (UUID, or null for a board of the organization). The team of a board does not change (COLLIERY-T-0243): a value that is not the team of the board is refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the value that the board has. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateColumnRequest
 
@@ -1532,6 +1630,8 @@ Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set t
 | `name` | `string`, nullable | no |  |
 | `position` | `integer`, nullable | no | New 0-indexed position; the other columns shift around it. |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateContentRequest
 
 Body of `PATCH /api/{family}/{short_code}` â the KAIROS-A-0004 optimistic-concurrency content edit. `version` is the version the edit is based on; a stale value gets 409 `CONFLICT` with the current entity in `details.current`.
@@ -1541,6 +1641,8 @@ Body of `PATCH /api/{family}/{short_code}` â the KAIROS-A-0004 optimistic-c
 | `content` | `string` | yes | New markdown content (full replacement). |
 | `title` | `string`, nullable | no | New title; omitted = keep the current title. |
 | `version` | `integer` | yes | The version this edit is based on ("I'm editing version N"). |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateMetadataDefinitionRequest
 
@@ -1553,6 +1655,8 @@ Body of `PATCH /api/metadata-definitions/{id}` (org admin). Omitted fields are u
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateMetadataRequest
 
 Body of `PATCH /api/{entity_type}/{short_code}/metadata`: definition slug → value. Values are validated against the definition's type (KAIROS-A-0003: enum membership, date parse, string passthrough) and upserted; `null` clears the value. Unknown slugs are 422 `VALIDATION`.
@@ -1561,6 +1665,8 @@ Body of `PATCH /api/{entity_type}/{short_code}/metadata`: definition slug → va
 |---|---|---|---|
 | `values` | `object` | yes | Definition slug → new value (`null` removes the value). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateOrgMemberRequest
 
 Body of `PATCH /api/members/{user_id}` — role change. Demoting the last admin is rejected (422 `LAST_ADMIN`).
@@ -1568,6 +1674,8 @@ Body of `PATCH /api/members/{user_id}` — role change. Demoting the last admin 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `role` | `string` | yes | `admin|member`. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateRepositoryRequest
 
@@ -1581,6 +1689,8 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 | `slug` | `string`, nullable | no |  |
 | `team` | `string`, nullable | no | New owning team (UUID or slug). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateStreamRequest
 
 Body of `PATCH /api/delivery-streams/{id}`.
@@ -1590,6 +1700,8 @@ Body of `PATCH /api/delivery-streams/{id}`.
 | `description` | `string`, nullable | no |  |
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateTeamPageRequest
 
@@ -1605,6 +1717,8 @@ Body of `PATCH /api/teams/{id}/pages/{page_id}` — EITHER a version-checked con
 | `title` | `string`, nullable | no | New title (content edits only). |
 | `version` | `integer`, nullable | no | The version this edit is based on (KAIROS-A-0004 pattern; 409 with `details.current` when stale). |
 
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## UpdateTeamRequest
 
 Body of `PATCH /api/teams/{id}`.
@@ -1614,6 +1728,8 @@ Body of `PATCH /api/teams/{id}`.
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
 | `team_type` | `string`, nullable | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateTemplateRequest
 
@@ -1625,4 +1741,6 @@ Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are unchanged; `
 | `metadata` | `array`, nullable | no | Replacement metadata association list. |
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

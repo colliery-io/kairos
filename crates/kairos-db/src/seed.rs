@@ -29,7 +29,7 @@
 //!   with two `blocks` edges, including one bug and one tech-debt item
 //!   parented to the matching bucket, most bound to a repository, and one
 //!   filed CROSS-TEAM by carol (web) into platform's Backlog against
-//!   `payments-api`
+//!   `payments-api`, in the Support lane (COLLIERY-T-0245)
 //! - `priority` metadata stamps on four tasks
 //! - two ADRs on the ADR board, the newer superseding the older
 //!   (`supersedes` edge; the old one sits in the Superseded column)
@@ -649,7 +649,9 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                 work_class: WorkClass::Planned,
                 repo: Some(portal_repo.id),
                 parent: signup.id,
-                actor: bob,
+                // COLLIERY-T-0245: carol, a member of web. bob is not, so
+                // from him this card was a request in the planned lane.
+                actor: carol,
                 priority: Some("low"),
             },
             SeedTask {
@@ -735,6 +737,9 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             // NOT a platform member) files work against platform's
             // payments-api; it lands in platform's Backlog behind their
             // triage gate. The e2e (KAIROS-T-0110) asserts on this row.
+            // COLLIERY-T-0245 (COLLIERY-A-0023): a request between teams
+            // arrives in the Support lane. A manager of the board can move
+            // it to the planned lane later; the seed shows the arrival.
             SeedTask {
                 board: platform_board,
                 column: "Backlog",
@@ -743,7 +748,7 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
                           GET /invoices/export?from=&to= returning CSV. \
                           Blocks the portal export button.",
                 task_type: TaskType::Task,
-                work_class: WorkClass::Planned,
+                work_class: WorkClass::Support,
                 repo: Some(payments_repo.id),
                 parent: billing.id,
                 actor: carol,

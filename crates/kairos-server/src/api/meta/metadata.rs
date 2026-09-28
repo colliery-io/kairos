@@ -1,10 +1,11 @@
 //! `GET/PATCH /api/{entity_type}/{short_code}/metadata` (KAIROS-S-0005,
 //! typed validation per KAIROS-A-0003).
 //!
-//! Reads are open tenant-wide. PATCH is gated by the item's
+//! Reads are open tenant-wide. PATCH takes the edit rule
+//! (COLLIERY-T-0228): the caller created the item, or holds the item's
 //! `manage_<type>` capability on its authorization board (A-0006:
-//! documents inherit their parent's board via `supports`; off-board items
-//! fall back to org-admin-only). Values are validated against the
+//! documents inherit their parent's board via `supports`), or is an org
+//! admin. Values are validated against the
 //! referenced `metadata_definitions` row — enum membership, date parse,
 //! string passthrough — then upserted into `item_metadata` (`null`
 //! clears). Per A-0004, metadata writes are NOT versioned and write no
@@ -16,15 +17,13 @@ use axum::{Json, Router};
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
 use kairos_client::types_meta as dto;
-use kairos_db::abac;
 use kairos_db::models::templates::NewItemMetadata;
 
-use super::{
-    item_metadata_response, manage_capability, resolve_family_item, validated_metadata_ops,
-};
+use super::{item_metadata_response, resolve_family_item, validated_metadata_ops};
 use crate::api::Liveness;
-use crate::api::{map_abac_error, require_capability};
+use crate::api::require_item_edit;
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
@@ -66,8 +65,12 @@ pub(crate) async fn get_metadata(
     Ok(Json(response))
 }
 
-/// Set/update/clear metadata values on an item (requires the item's
-/// `manage_<type>` capability on its authorization board). Every entry is
+/// Set/update/clear metadata values on an item.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// item, holds `manage_<type>` on its authorization board, or is an organization admin.
+///
+/// Every entry is
 /// validated BEFORE anything is written (A-0003: unknown slug and invalid
 /// values are 422 `VALIDATION`); the writes then apply atomically.
 #[utoipa::path(
@@ -81,7 +84,7 @@ pub(crate) async fn get_metadata(
     request_body = dto::UpdateMetadataRequest,
     responses(
         (status = 200, description = "The item's metadata after the update", body = dto::ItemMetadataResponse),
-        (status = 403, description = "Missing capability on the item's board", body = kairos_client::types::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown family or short code", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Unknown definition slug or invalid value for its type", body = kairos_client::types::ErrorEnvelope),
     ),
@@ -91,7 +94,7 @@ pub(crate) async fn update_metadata(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path((family, short_code)): Path<(String, String)>,
-    Json(body): Json<dto::UpdateMetadataRequest>,
+    ApiJson(body): ApiJson<dto::UpdateMetadataRequest>,
 ) -> Result<Json<dto::ItemMetadataResponse>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -100,8 +103,7 @@ pub(crate) async fn update_metadata(
         .run(&tenant.slug, move |conn| {
             let (item_id, item_type) =
                 resolve_family_item(conn, &family, &short_code, Liveness::LiveOnly)?;
-            let board = abac::resolve_authorization_board(conn, item_id).map_err(map_abac_error)?;
-            require_capability(conn, &slug, board, user, manage_capability(item_type))?;
+            require_item_edit(conn, &slug, user, item_id, item_type)?;
 
             // Phase 1 — resolve + validate every entry (no writes yet): a bad
             // entry rejects the whole PATCH. Shared with MCP `set_metadata`

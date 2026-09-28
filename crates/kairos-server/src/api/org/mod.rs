@@ -73,13 +73,13 @@ fn capability_vocabulary() -> impl Iterator<Item = &'static str> {
 pub fn validate_capabilities(capabilities: &[String]) -> Result<(), ApiError> {
     if capabilities.is_empty() {
         return Err(ApiError::validation(
-            "capabilities must contain at least one capability",
+            "The list capabilities is empty. Send one capability or more.",
         ));
     }
     for capability in capabilities {
         if !capability_vocabulary().any(|known| known == capability.as_str()) {
             return Err(ApiError::validation(format!(
-                "unknown capability {capability:?}; allowed: [{}]",
+                "{capability:?} is not a capability. The capabilities are: {}.",
                 capability_vocabulary().collect::<Vec<_>>().join(", ")
             )));
         }
@@ -101,7 +101,7 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live board {board_id}")))
+        .ok_or_else(|| ApiError::not_found(format!("No live board has the id {board_id}.")))
 }
 
 /// How many LIVE workflow items (strategies/initiatives/tasks/ADRs) sit on
@@ -242,12 +242,64 @@ pub fn is_unique_violation(e: &diesel::result::Error) -> bool {
 /// `VALIDATION`.
 pub fn map_config_error(e: BoardError) -> ApiError {
     match e {
-        BoardError::BoardNotFound(id) => ApiError::not_found(format!("no live board {id}")),
-        BoardError::ColumnNotFound(id) => ApiError::not_found(format!("no column {id}")),
-        BoardError::TransitionNotFound { board_id, from, to } => {
-            ApiError::not_found(format!("no transition {from} -> {to} on board {board_id}"))
+        BoardError::BoardNotFound(id) => {
+            ApiError::not_found(format!("No live board has the id {id}."))
         }
+        BoardError::ColumnNotFound(id) => {
+            ApiError::not_found(format!("The column {id} does not exist."))
+        }
+        BoardError::TransitionNotFound { board_id, from, to } => ApiError::not_found(format!(
+            "The board {board_id} has no transition from {from} to {to}."
+        )),
         BoardError::Rule(rule) => map_column_rule_error(rule),
+        // COLLIERY-T-0230: the caller left out the team of a delivery
+        // board. That is a mistake in the request, so it is a 422 that says
+        // which field to send.
+        e @ BoardError::DeliveryBoardNeedsTeam => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "team_id" }))
+        }
+        // COLLIERY-T-0242: the mirror of the rule above. The caller sent a
+        // team for a board that has none.
+        e @ BoardError::OrganizationBoardHasNoTeam(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "team_id" }))
+        }
+        // COLLIERY-T-0240: a rule of the data, so a 422 with its own code.
+        // The details name the board that the team has.
+        BoardError::TeamHasDeliveryBoard {
+            team_id,
+            board_id,
+            ref board_name,
+            ref board_slug,
+        } => {
+            ApiError::unprocessable("TEAM_HAS_DELIVERY_BOARD", e.to_string()).with_details(json!({
+                "team_id": team_id,
+                "board": { "id": board_id, "name": board_name, "slug": board_slug },
+            }))
+        }
+        // COLLIERY-T-0241.
+        BoardError::LastDeliveryBoard {
+            board_id,
+            team_id,
+            ref team_name,
+        } => ApiError::unprocessable("LAST_DELIVERY_BOARD", e.to_string()).with_details(json!({
+            "board_id": board_id,
+            "team": { "id": team_id, "name": team_name },
+        })),
+        // COLLIERY-T-0243. The details give the team that the board has.
+        BoardError::BoardTeamIsFixed { board_id, team_id } => {
+            ApiError::unprocessable("BOARD_TEAM_IS_FIXED", e.to_string())
+                .with_details(json!({ "board_id": board_id, "team_id": team_id }))
+        }
+        // COLLIERY-T-0255: a live board has the slug. 409 `CONFLICT`, the
+        // refusal of the slug of a team. The details name the board.
+        BoardError::SlugTaken {
+            ref slug,
+            board_id,
+            ref board_name,
+        } => ApiError::conflict(e.to_string()).with_details(json!({
+            "slug": slug,
+            "board": { "id": board_id, "name": board_name },
+        })),
         e @ (BoardError::MissingDefaults(_) | BoardError::InvalidDefaults { .. }) => {
             // Provisioning seeds all four default configs; absence is an
             // operator/data problem, not a client mistake.
@@ -270,7 +322,8 @@ fn map_column_rule_error(e: ColumnRuleError) -> ApiError {
         ColumnRuleError::ColumnNotEmpty { column, item_count } => ApiError::unprocessable(
             "COLUMN_NOT_EMPTY",
             format!(
-                "column {:?} still contains {item_count} item(s); move them before removing it",
+                "The column {:?} has items. The number of items is {item_count}. Move \
+                 each item to a different column. Then remove the column.",
                 column.name
             ),
         )
@@ -280,15 +333,16 @@ fn map_column_rule_error(e: ColumnRuleError) -> ApiError {
         })),
         ColumnRuleError::DuplicateName(name) => ApiError::unprocessable(
             "DUPLICATE_COLUMN_NAME",
-            format!("board already has a column named {name:?}"),
+            format!("The board has a column with the name {name:?} already."),
         ),
         ColumnRuleError::DuplicatePosition(position) => ApiError::unprocessable(
             "DUPLICATE_COLUMN_POSITION",
-            format!("board already has a column at position {position}"),
+            format!("The board has a column at the position {position} already."),
         ),
-        ColumnRuleError::DuplicateTransition => {
-            ApiError::unprocessable("DUPLICATE_TRANSITION", "transition already exists")
-        }
+        ColumnRuleError::DuplicateTransition => ApiError::unprocessable(
+            "DUPLICATE_TRANSITION",
+            "The board has this transition already.",
+        ),
         e @ (ColumnRuleError::UnknownColumn(_)
         | ColumnRuleError::EmptyName
         | ColumnRuleError::NegativePosition(_)
@@ -308,16 +362,18 @@ pub fn map_grant_error(e: AbacError) -> ApiError {
             capability,
             ..
         } => ApiError::conflict(format!(
-            "capability {capability:?} is already granted to user {user_id} on this board"
+            "The user {user_id} has the capability {capability:?} on this board already."
         )),
         AbacError::GrantNotFound {
             user_id,
             capability,
             ..
         } => ApiError::not_found(format!(
-            "capability {capability:?} is not granted to user {user_id} on this board"
+            "The user {user_id} does not have the capability {capability:?} on this board."
         )),
-        AbacError::EmptyCapability => ApiError::validation("capability must not be empty"),
+        AbacError::EmptyCapability => {
+            ApiError::validation("The capability is empty. Send the name of a capability.")
+        }
         AbacError::Database(e) => ApiError::internal(e),
     }
 }
@@ -335,7 +391,7 @@ pub fn require_user_exists(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::validation(format!("user {user_id} does not exist")))
+        .ok_or_else(|| ApiError::validation(format!("The user {user_id} does not exist.")))
 }
 
 #[cfg(test)]

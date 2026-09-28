@@ -92,7 +92,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("Repository \"{n}\" registered."),
+            format!("Kairos registered the repository \"{n}\"."),
             async move {
                 api::create_repository(
                     auth,
@@ -111,13 +111,21 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Repositories" sub="the codebases that tasks link to, and their webhooks"/>
+        <PageHeader title="Repositories" sub="The repositories that tasks link to, and \
+                                              their webhooks."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             {move || secret.get().map(|s| view! {
-                <Panel title="Webhook connected — copy these now" caption="the secret is shown once and cannot be re-read">
+                <Panel title="The webhook is connected. Copy these values now." caption="Kairos \
+                                                                                         shows \
+                                                                                         the \
+                                                                                         secret \
+                                                                                         one \
+                                                                                         time \
+                                                                                         only.">
                     <Stack gap="xs" attr:data-testid="webhook-secret">
-                        <Text size="sm">{format!("Repository {}: paste into the forge's webhook settings.", s.slug)}</Text>
+                        <Text size="sm">{format!("Repository {}: put these values in the \
+                                                  webhook settings of the forge.", s.slug)}</Text>
                         <Group gap="sm" wrap=true>
                             <Text dimmed=true size="xs">"Payload URL"</Text>
                             <Code>{s.webhook_url.clone()}</Code>
@@ -135,14 +143,17 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                     </Stack>
                 </Panel>
             })}
-            <Panel title="All repositories" caption="one owning team each; open counts cover all boards">
+            <Panel title="All repositories" caption="Each repository has one team that \
+                                                     owns it. The count of open tasks \
+                                                     includes all boards.">
                 {move || match repos.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="No repositories registered yet — register one below."/>
+                        <Empty message="The organization has no repositories. Register \
+                                        one below."/>
                     }.into_any(),
                     Some(Ok(items)) => {
                         let team_options = teams.get().and_then(|t| t.ok()).unwrap_or_default();
@@ -153,7 +164,10 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                     }
                 }}
             </Panel>
-            <Panel title="Register repository" caption="any member of the owning team may also do this from the CLI (kairos repos create)">
+            <Panel title="Register repository" caption="A member of the team that owns \
+                                                        the repository can also do this \
+                                                        from the CLI (kairos repos \
+                                                        create).">
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <Select label="Forge" value=forge
@@ -165,10 +179,17 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         }}
                     </Group>
                     <Group gap="sm" wrap=true top=true>
-                        <TextInput label="Slug (optional)" value=slug placeholder="derived from the full name"/>
+                        <TextInput label="Slug (optional)" value=slug placeholder="Kairos \
+                                                                                   makes \
+                                                                                   it \
+                                                                                   from \
+                                                                                   the \
+                                                                                   full \
+                                                                                   name"/>
                         <TextInput label="Default branch (optional)" value=branch placeholder="main"/>
                         <TextInput label="How to work here (optional)" value=description
-                            placeholder="what an agent should know before working in this repo"/>
+                            placeholder="What an agent must know before it works in this \
+                                         repository"/>
                     </Group>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Register repository"</Button>
@@ -229,7 +250,7 @@ fn RepositoryRow(
             busy,
             outcome,
             reload,
-            format!("Repository \"{s}\" updated."),
+            format!("Kairos changed the repository \"{s}\"."),
             async move {
                 api::update_repository(
                     auth,
@@ -251,7 +272,7 @@ fn RepositoryRow(
             busy,
             outcome,
             reload,
-            format!("Repository \"{reference}\" deleted."),
+            format!("Kairos deleted the repository \"{reference}\"."),
             async move { api::delete_repository(auth, &reference).await.map(|_| ()) },
         );
     };
@@ -261,7 +282,7 @@ fn RepositoryRow(
             busy,
             outcome,
             reload,
-            format!("Webhook connected for \"{reference}\"."),
+            format!("Kairos connected the webhook of \"{reference}\"."),
             async move {
                 let created = api::connect_webhook(auth, &reference).await?;
                 secret.set(Some(Secret {
@@ -279,7 +300,7 @@ fn RepositoryRow(
             busy,
             outcome,
             reload,
-            format!("Webhook disconnected for \"{reference}\"."),
+            format!("Kairos disconnected the webhook of \"{reference}\"."),
             async move {
                 let detail = api::repository_detail(auth, &reference).await?;
                 // The row's `has_webhook` may be stale (another operator
@@ -287,7 +308,8 @@ fn RepositoryRow(
                 // disconnect that never happened.
                 let Some(id) = detail.connection_id else {
                     return Err(ApiError::Unknown(format!(
-                        "No webhook to disconnect: \"{reference}\" has no forge connection."
+                        "\"{reference}\" has no forge connection, so it has no webhook to \
+                         disconnect."
                     )));
                 };
                 api::disconnect_webhook(auth, &id).await?;

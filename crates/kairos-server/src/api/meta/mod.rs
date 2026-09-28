@@ -19,15 +19,20 @@
 //!   configuration).
 //! - Metadata-definition and template writes are org-admin only
 //!   ([`require_org_admin`] — checked against the membership role the
-//!   tenant middleware already resolved). Relationship writes are org-admin
-//!   EXCEPT the collaborative `parent`/`blocks` edges, which a member may
-//!   write when they manage either end or authored the source
-//!   ([`require_edge_capability`], KAIROS-T-0111).
-//! - Item-metadata writes are gated by the item's `manage_<type>`
-//!   capability on its authorization board
+//!   tenant middleware already resolved).
+//! - Relationship writes take the LINK rule
+//!   ([`crate::api::require_edge_write`], COLLIERY-T-0228): the caller may
+//!   edit the item at either end. No relationship type needs the admin
+//!   role. The `supports` edge of a document is narrower, and a document
+//!   keeps its last one ([`crate::api::require_edge_remove`],
+//!   COLLIERY-T-0235).
+//! - Item-metadata writes and restore take the EDIT rule
+//!   ([`crate::api::require_item_edit`], COLLIERY-T-0228): the caller
+//!   created the item, or holds its `manage_<type>` capability on its
+//!   authorization board
 //!   ([`kairos_db::abac::resolve_authorization_board`]: own board for
-//!   board items, the parent's board for documents via `supports`, the
-//!   org-admin fallback when no board context exists).
+//!   board items, the parent's board for documents via `supports`), or is
+//!   an org admin.
 //!
 //! # The `{entity_type}` path segment
 //!
@@ -72,108 +77,22 @@ pub fn router() -> Router<AppState> {
         .merge(activity::router())
 }
 
-/// The A-0006 gate for tenant-wide configuration (relationships, metadata
-/// definitions, templates): org admins only. The role was resolved from
+/// The A-0006 gate for tenant-wide configuration (metadata definitions,
+/// templates): org admins only. The role was resolved from
 /// `public.organization_members` by the tenant middleware.
+///
+/// Relationships left this gate with COLLIERY-T-0228: an edge takes the
+/// link rule ([`crate::api::require_edge_write`]).
 pub fn require_org_admin(tenant: &TenantContext) -> Result<(), ApiError> {
     if tenant.role == OrgRole::Admin {
         Ok(())
     } else {
         Err(ApiError::forbidden(
-            "this action requires the organization admin role \
-             (relationships, metadata definitions, and templates are \
-             tenant-wide configuration, KAIROS-A-0006)",
+            "This action requires the organization admin role. \
+             Metadata definitions and templates are configuration of the tenant.",
         )
         .with_details(json!({ "required_role": "admin" })))
     }
-}
-
-/// Authorize writing (or removing) one relationship edge (KAIROS-T-0111,
-/// amending A-0006). Org admins may write any edge. For a COLLABORATIVE
-/// type (`parent`, `blocks` — [`kairos_core::abac::is_collaborative_relationship`])
-/// a member may write it when they hold `manage_<family>` on the source
-/// item's board, or on the target item's board, or they CREATED the source
-/// item — which is what lets a `file_backlog` filer (A-0019 §4) hang the
-/// task they just filed under their initiative and mark what it blocks.
-/// Every other type stays org-admin. One helper, shared by the HTTP
-/// relationship routes, MCP `link_items`/`unlink_items`, and the `parent`
-/// write inside MCP `create_item` — so the three cannot diverge.
-pub fn require_edge_capability(
-    conn: &mut PgConnection,
-    tenant: &TenantContext,
-    user: Uuid,
-    relationship: &str,
-    (source_id, source_type): (Uuid, ItemType),
-    (target_id, target_type): (Uuid, ItemType),
-) -> Result<(), ApiError> {
-    if tenant.role == OrgRole::Admin {
-        return Ok(());
-    }
-    if !kairos_core::abac::is_collaborative_relationship(relationship) {
-        return Err(ApiError::forbidden(format!(
-            "{relationship} relationships require the organization admin role; only [{}] \
-             may be written by members (KAIROS-T-0111)",
-            kairos_core::abac::COLLABORATIVE_RELATIONSHIPS.join(", ")
-        ))
-        .with_details(json!({ "required_role": "admin", "relationship": relationship })));
-    }
-    let target_board = kairos_db::abac::resolve_authorization_board(conn, target_id)
-        .map_err(super::map_abac_error)?;
-    require_edge_capability_on(
-        conn,
-        tenant,
-        user,
-        relationship,
-        (source_id, source_type),
-        (target_board, target_type),
-    )
-}
-
-/// [`require_edge_capability`] for a target that may not exist yet (MCP
-/// `create_item` writes the `parent` edge onto the item it is about to
-/// create): the target is identified by the board it WILL sit on and its
-/// type. The admin and non-collaborative arms are the caller's
-/// ([`require_edge_capability`] handles them; this is its shared core).
-pub fn require_edge_capability_on(
-    conn: &mut PgConnection,
-    tenant: &TenantContext,
-    user: Uuid,
-    relationship: &str,
-    (source_id, source_type): (Uuid, ItemType),
-    (target_board, target_type): (Option<Uuid>, ItemType),
-) -> Result<(), ApiError> {
-    if tenant.role == OrgRole::Admin {
-        return Ok(());
-    }
-    if !kairos_core::abac::is_collaborative_relationship(relationship) {
-        return Err(ApiError::forbidden(format!(
-            "{relationship} relationships require the organization admin role; only [{}] \
-             may be written by members (KAIROS-T-0111)",
-            kairos_core::abac::COLLABORATIVE_RELATIONSHIPS.join(", ")
-        ))
-        .with_details(json!({ "required_role": "admin", "relationship": relationship })));
-    }
-    let slug = tenant.slug.as_str();
-    let source_board = kairos_db::abac::resolve_authorization_board(conn, source_id)
-        .map_err(super::map_abac_error)?;
-    for (board, item_type) in [(source_board, source_type), (target_board, target_type)] {
-        if let Some(board) = board
-            && kairos_db::abac::authorize(conn, slug, board, user, manage_capability(item_type))
-                .map_err(super::map_abac_error)?
-        {
-            return Ok(());
-        }
-    }
-    if kairos_db::abac::item_created_by(conn, source_id).map_err(super::map_abac_error)?
-        == Some(user)
-    {
-        return Ok(());
-    }
-    Err(ApiError::forbidden(format!(
-        "a {relationship} edge needs manage_* on the source's or the target's board, or \
-         authorship of the source item"
-    ))
-    .with_details(json!({ "relationship": relationship })))
 }
 
 /// Map a plural `{entity_type}` path segment (the S-0005 family names, as
@@ -189,15 +108,11 @@ pub fn item_type_of_family(family: &str) -> Option<ItemType> {
     }
 }
 
-/// The A-0006 manage capability for an entity type.
+/// The A-0006 manage capability for an entity type. The table is in
+/// [`kairos_core::abac::manage_capability`], which the cascade of an
+/// archive reads too (COLLIERY-T-0234).
 pub fn manage_capability(item_type: ItemType) -> &'static str {
-    match item_type {
-        ItemType::Strategy => "manage_strategies",
-        ItemType::Initiative => "manage_initiatives",
-        ItemType::Task => "manage_tasks",
-        ItemType::Document => "manage_documents",
-        ItemType::Adr => "manage_adrs",
-    }
+    kairos_core::abac::manage_capability(item_type)
 }
 
 /// Resolve an `{entity_type}/{short_code}` path pair to an item: the family
@@ -217,8 +132,8 @@ pub fn resolve_family_item(
 ) -> Result<(Uuid, ItemType), ApiError> {
     let item_type = item_type_of_family(family).ok_or_else(|| {
         ApiError::not_found(format!(
-            "unknown entity family {family:?}; expected one of \
-             strategies, initiatives, tasks, documents, adrs"
+            "{family:?} is not an entity family. The entity families are: strategies, \
+             initiatives, tasks, documents, adrs."
         ))
     })?;
     resolve_short_code(conn, short_code, liveness)?
@@ -256,8 +171,8 @@ pub fn validate_metadata_value(
             .map(|_| ())
             .map_err(|_| {
                 ApiError::validation(format!(
-                    "metadata {:?} is a date field; {value:?} is not a valid \
-                     YYYY-MM-DD date",
+                    "The metadata {:?} is a date. The value {value:?} is not a date. Send \
+                     the date as YYYY-MM-DD.",
                     definition.slug
                 ))
             }),
@@ -267,7 +182,8 @@ pub fn validate_metadata_value(
                 Ok(())
             } else {
                 Err(ApiError::validation(format!(
-                    "metadata {:?} must be one of [{}], got {value:?}",
+                    "The value {value:?} is not a value of the metadata {:?}. The values \
+                     are: {}.",
                     definition.slug,
                     allowed.join(", ")
                 )))
@@ -309,7 +225,7 @@ pub fn validated_metadata_ops(
             .map_err(ApiError::internal)?
             .ok_or_else(|| {
                 ApiError::validation(format!(
-                    "unknown metadata definition slug {definition_slug:?}"
+                    "No metadata definition has the slug {definition_slug:?}."
                 ))
             })?;
 
@@ -327,7 +243,8 @@ pub fn validated_metadata_ops(
             .map_err(ApiError::internal)?
         {
             return Err(ApiError::validation(format!(
-                "metadata definition {definition_slug:?} does not apply to {} items",
+                "The metadata definition {definition_slug:?} does not apply to an item of \
+                 the type {}.",
                 item_type.entity_type()
             )));
         }

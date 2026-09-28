@@ -16,7 +16,7 @@
 //! (KAIROS-T-0154/0155). A count alone left the admin nowhere to go,
 //! which is what made KAIROS-T-0152 a trap.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -36,7 +36,9 @@ use super::{enum_option_values, require_org_admin};
 use crate::api::convert_meta::definition_dto;
 use crate::api::{clamp_pagination, parse_enum, parse_uuid};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -62,7 +64,7 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<MetadataDefinition, ApiErro
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no metadata definition {id} exists")))
+        .ok_or_else(|| ApiError::not_found(format!("The metadata definition {id} does not exist.")))
 }
 
 /// The entity-type vocabulary for scope rows (KAIROS-T-0078) — matches
@@ -87,7 +89,8 @@ fn check_entity_types(entity_types: &[String]) -> Result<(), ApiError> {
     for entity_type in entity_types {
         if !ENTITY_TYPES.contains(&entity_type.as_str()) {
             return Err(ApiError::validation(format!(
-                "entity_types must be drawn from [{}], got {entity_type:?}",
+                "The value {entity_type:?} of entity_types is not an entity type. The \
+                 entity types are: {}.",
                 ENTITY_TYPES.join(", ")
             )));
         }
@@ -96,7 +99,10 @@ fn check_entity_types(entity_types: &[String]) -> Result<(), ApiError> {
     deduped.sort();
     deduped.dedup();
     if deduped.len() != entity_types.len() {
-        return Err(ApiError::validation("entity_types contains duplicates"));
+        return Err(ApiError::validation(
+            "The list entity_types has the same entity type two times. Send each entity \
+             type one time.",
+        ));
     }
     Ok(())
 }
@@ -141,11 +147,15 @@ fn hydrate(
 fn check_option_rules(field_type: FieldType, options: &[String]) -> Result<(), ApiError> {
     match field_type {
         FieldType::Enum if options.is_empty() => Err(ApiError::validation(
-            "an enum metadata definition needs at least one enum_options value",
+            "A metadata definition of the type enum must have one value or more in \
+             enum_options.",
         )),
-        FieldType::String | FieldType::Date if !options.is_empty() => Err(ApiError::validation(
-            format!("enum_options only apply to enum definitions (field_type is {field_type})"),
-        )),
+        FieldType::String | FieldType::Date if !options.is_empty() => {
+            Err(ApiError::validation(format!(
+                "The request has enum_options, and the field_type is {field_type}. Only a \
+                 definition of the type enum has enum_options."
+            )))
+        }
         _ => Ok(()),
     }
 }
@@ -185,7 +195,7 @@ fn map_write_error(e: DieselError) -> ApiError {
     match e {
         DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, info) => {
             ApiError::validation(format!(
-                "metadata definition conflicts with an existing row: {}",
+                "The metadata definition is in conflict with a definition that exists: {}.",
                 info.message()
             ))
         }
@@ -312,6 +322,7 @@ fn blocker_list(labels: &[String], total: i64) -> String {
 /// over [`dto_base::Pagination`] — serde_urlencoded does not flatten.)
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DefinitionListQuery {
     /// Page size (default 50, max 200).
     #[serde(default)]
@@ -341,7 +352,7 @@ pub(crate) struct DefinitionListQuery {
 pub(crate) async fn list_definitions(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<DefinitionListQuery>,
+    ApiQuery(query): ApiQuery<DefinitionListQuery>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::MetadataDefinition>>, ApiError> {
     let pagination = dto_base::Pagination {
         limit: query.limit,
@@ -352,7 +363,8 @@ pub(crate) async fn list_definitions(
         && !ENTITY_TYPES.contains(&entity_type.as_str())
     {
         return Err(ApiError::validation(format!(
-            "entity_type must be one of [{}], got {entity_type:?}",
+            "The value {entity_type:?} of entity_type is not an entity type. The entity \
+             types are: {}.",
             ENTITY_TYPES.join(", ")
         )));
     }
@@ -426,7 +438,7 @@ pub(crate) async fn list_definitions(
 pub(crate) async fn create_definition(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateMetadataDefinitionRequest>,
+    ApiJson(body): ApiJson<dto::CreateMetadataDefinitionRequest>,
 ) -> Result<(StatusCode, Json<dto::MetadataDefinition>), ApiError> {
     require_org_admin(&tenant)?;
     let field_type = parse_enum(&body.field_type, "field_type", FieldType::ALL)?;
@@ -505,7 +517,7 @@ pub(crate) async fn update_definition(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateMetadataDefinitionRequest>,
+    ApiJson(body): ApiJson<dto::UpdateMetadataDefinitionRequest>,
 ) -> Result<Json<dto::MetadataDefinition>, ApiError> {
     require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "definition id")?;
@@ -520,8 +532,8 @@ pub(crate) async fn update_definition(
             if let Some(options) = &body.enum_options {
                 if existing.field_type != FieldType::Enum {
                     return Err(ApiError::validation(format!(
-                        "enum_options only apply to enum definitions \
-                         (field_type is {})",
+                        "The request has enum_options, and the field_type is {}. Only a \
+                         definition of the type enum has enum_options.",
                         existing.field_type
                     )));
                 }
@@ -601,11 +613,14 @@ pub(crate) async fn delete_definition(
                 if item_values > 0 {
                     let labels: Vec<String> =
                         carriers.iter().map(|carrier| carrier.label()).collect();
-                    blockers.push(format!("carried by {}", blocker_list(&labels, item_values)));
+                    blockers.push(format!(
+                        "These items have a value: {}",
+                        blocker_list(&labels, item_values)
+                    ));
                 }
                 if template_fields > 0 {
                     blockers.push(format!(
-                        "collected by template(s) {}",
+                        "These templates have the field: {}",
                         blocker_list(&templates, template_fields)
                     ));
                 }
@@ -613,15 +628,15 @@ pub(crate) async fn delete_definition(
                     StatusCode::CONFLICT,
                     "DEFINITION_IN_USE",
                     format!(
-                        "metadata definition {:?} is in use ({item_values} item \
-                         value(s), {template_fields} template field(s)): {}; \
-                         clear those references first{}",
+                        "The metadata definition {:?} is in use. The number of item \
+                         values is {item_values}, and the number of template fields is \
+                         {template_fields}. {}. Remove each value and each field. Then \
+                         delete the definition.{}",
                         definition.slug,
-                        blockers.join("; "),
+                        blockers.join(". "),
                         if has_archived {
-                            " — an archived carrier is still readable by short \
-                             code, but must be restored before its value can be \
-                             cleared"
+                            " You can read an archived item by its short code. Restore \
+                             the item, and then remove its value."
                         } else {
                             ""
                         }

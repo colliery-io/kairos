@@ -191,7 +191,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
     assert!(
         err.message()
             .expect("enveloped message")
-            .contains("authenticate once first"),
+            .contains("must log in one time"),
         "{err}"
     );
 
@@ -220,7 +220,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         assert_eq!(err.code(), Some("MEMBERSHIP_REQUIRED"), "{err}");
     }
 
-    // Unknown email → 404 with the "log in once first" contract.
+    // Unknown email → 404 with the "log in one time first" contract.
     let err = rejection(
         svc.add_org_member(&AddOrgMemberRequest {
             email: "dave@kairos.test".into(),
@@ -230,7 +230,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
     );
     match &err {
         Error::NotFound { message, .. } => {
-            assert!(message.contains("log in once"), "{message}");
+            assert!(message.contains("log in one time"), "{message}");
         }
         other => panic!("expected NotFound, got {other}"),
     }

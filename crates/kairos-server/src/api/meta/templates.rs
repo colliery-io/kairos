@@ -8,7 +8,7 @@
 //! relationship to documents (A-0003 — `documents.template_id` is `ON
 //! DELETE SET NULL`, associations cascade).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -27,7 +27,9 @@ use crate::api::convert::IntoDto;
 use crate::api::convert_meta::template_detail_dto;
 use crate::api::{clamp_pagination, parse_uuid};
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -50,7 +52,7 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<Template, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no template {id} exists")))
+        .ok_or_else(|| ApiError::not_found(format!("The template {id} does not exist.")))
 }
 
 /// The template's associated metadata fields, hydrated with their
@@ -106,7 +108,8 @@ fn resolve_entries(
     for entry in entries {
         if seen.contains(&entry.definition_slug.as_str()) {
             return Err(ApiError::validation(format!(
-                "duplicate metadata entry for definition slug {:?}",
+                "The request has the definition slug {:?} two times. Send each definition \
+                 one time.",
                 entry.definition_slug
             )));
         }
@@ -119,7 +122,7 @@ fn resolve_entries(
             .map_err(ApiError::internal)?
             .ok_or_else(|| {
                 ApiError::validation(format!(
-                    "unknown metadata definition slug {:?}",
+                    "No metadata definition has the slug {:?}.",
                     entry.definition_slug
                 ))
             })?;
@@ -165,7 +168,7 @@ fn map_write_error(e: DieselError) -> ApiError {
     match e {
         DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, info) => {
             ApiError::validation(format!(
-                "template conflicts with an existing row: {}",
+                "The template is in conflict with a template that exists: {}.",
                 info.message()
             ))
         }
@@ -186,7 +189,7 @@ fn map_write_error(e: DieselError) -> ApiError {
 pub(crate) async fn list_templates(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto_base::Pagination>,
+    ApiQuery(pagination): ApiQuery<dto_base::Pagination>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::Template>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -260,7 +263,7 @@ pub(crate) async fn get_template(
 pub(crate) async fn create_template(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateTemplateRequest>,
+    ApiJson(body): ApiJson<dto::CreateTemplateRequest>,
 ) -> Result<(StatusCode, Json<dto::TemplateDetail>), ApiError> {
     require_org_admin(&tenant)?;
     let created = state
@@ -309,7 +312,7 @@ pub(crate) async fn update_template(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Json(body): Json<dto::UpdateTemplateRequest>,
+    ApiJson(body): ApiJson<dto::UpdateTemplateRequest>,
 ) -> Result<Json<dto::TemplateDetail>, ApiError> {
     require_org_admin(&tenant)?;
     let id = parse_uuid(&id, "template id")?;

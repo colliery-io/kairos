@@ -1,11 +1,12 @@
 //! `/api/adrs` (KAIROS-S-0005) — see [`super`] for the shared T-0018
 //! handler pattern. ADR board placement is optional (both `board_id` and
 //! `column_id`, or neither): on-board ADRs authorize against their board;
-//! off-board ADRs have no board context, so writes fall back to the
+//! off-board ADRs have no board context, so the create falls back to the
 //! org-admin-only policy (KAIROS-A-0006) and transitions are 422
-//! `ITEM_NOT_ON_BOARD` (T-0010's typed error).
+//! `ITEM_NOT_ON_BOARD` (T-0010's typed error). An edit of an off-board ADR
+//! is for its creator or an org admin (the edit rule, COLLIERY-T-0228).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -21,10 +22,12 @@ use serde_json::json;
 use super::convert::IntoDto;
 use super::{
     Liveness, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref, parse_opt_uuid,
-    parse_uuid, require_capability, short_code_not_found,
+    parse_uuid, require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
+use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -76,7 +79,7 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 pub(crate) async fn list_adrs(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Adr>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state
@@ -156,7 +159,7 @@ pub(crate) async fn create_adr(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
-    Json(body): Json<dto::CreateAdrRequest>,
+    ApiJson(body): ApiJson<dto::CreateAdrRequest>,
 ) -> Result<(StatusCode, Json<dto::Adr>), ApiError> {
     // KAIROS-T-0150: slug or UUID; resolved in the closure below.
     let column_id = parse_opt_uuid(body.column_id.as_deref(), "column_id")?;
@@ -165,7 +168,10 @@ pub(crate) async fn create_adr(
         .as_deref()
         .map(|value| {
             value.parse::<NaiveDate>().map_err(|_| {
-                ApiError::validation(format!("decision_date must be YYYY-MM-DD, got {value:?}"))
+                ApiError::validation(format!(
+                    "The value {value:?} of decision_date is not a date. Send the date as \
+                     YYYY-MM-DD."
+                ))
             })
         })
         .transpose()?;
@@ -195,8 +201,11 @@ pub(crate) async fn create_adr(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// Update ADR content (KAIROS-A-0004 optimistic concurrency; requires
-/// `manage_adrs` on the ADR's board, or org admin for off-board ADRs).
+/// Update ADR content (KAIROS-A-0004 optimistic concurrency).
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// ADR, holds `manage_adrs` on its board, or is an organization admin.
+/// An off-board ADR has no board: its creator or an organization admin.
 #[utoipa::path(
     patch,
     path = "/api/adrs/{short_code}",
@@ -205,7 +214,7 @@ pub(crate) async fn create_adr(
     request_body = dto::UpdateContentRequest,
     responses(
         (status = 200, description = "Updated (new version)", body = dto::Adr),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
         (status = 409, description = "Stale version; details.current carries the current entity", body = dto::ErrorEnvelope),
     ),
@@ -215,7 +224,7 @@ pub(crate) async fn update_adr(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::UpdateContentRequest>,
+    ApiJson(body): ApiJson<dto::UpdateContentRequest>,
 ) -> Result<Json<dto::Adr>, ApiError> {
     let user = auth.user_id;
     let slug = tenant.slug.clone();
@@ -223,7 +232,7 @@ pub(crate) async fn update_adr(
         .blocking
         .run(&tenant.slug, move |conn| {
             let adr = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, adr.board_id, user, MANAGE)?;
+            require_item_edit(conn, &slug, user, adr.id, ItemType::Adr)?;
             let update = items::ContentUpdate {
                 new_title: body.title.as_deref(),
                 new_content: &body.content,
@@ -238,7 +247,9 @@ pub(crate) async fn update_adr(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }
@@ -249,8 +260,11 @@ pub(crate) async fn update_adr(
     Ok(Json(updated))
 }
 
-/// Soft-delete an ADR (requires `manage_adrs` on the ADR's board, or org
-/// admin for off-board ADRs).
+/// Soft-delete an ADR.
+///
+/// The edit rule applies (COLLIERY-T-0228). The caller created the
+/// ADR, holds `manage_adrs` on its board, or is an organization admin.
+/// An off-board ADR has no board: its creator or an organization admin.
 #[utoipa::path(
     delete,
     path = "/api/adrs/{short_code}",
@@ -258,7 +272,7 @@ pub(crate) async fn update_adr(
     params(("short_code" = String, Path, description = "ADR short code")),
     responses(
         (status = 200, description = "Soft-deleted; notes the cascade", body = dto::DeleteResponse),
-        (status = 403, description = "Missing capability", body = dto::ErrorEnvelope),
+        (status = 403, description = "Refused by the edit rule: the caller did not create the item and lacks the capability", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
     ),
 )]
@@ -274,21 +288,18 @@ pub(crate) async fn delete_adr(
         .blocking
         .run(&tenant.slug, move |conn| {
             let adr = load(conn, &short_code, Liveness::LiveOnly)?;
-            require_capability(conn, &slug, adr.board_id, user, MANAGE)?;
-            let outcome = items::soft_delete_item(conn, ItemType::Adr, adr.id, user)
-                .map_err(map_item_error)?;
-            Ok(dto::DeleteResponse {
-                short_code: outcome.root_short_code,
-                cascade_count: outcome.cascaded_short_codes.len() as i64,
-                cascaded_short_codes: outcome.cascaded_short_codes,
-            })
+            // The edit rule for the ADR, and then for each descendant
+            // (COLLIERY-T-0234): `archive_item` does the two.
+            let outcome = super::cascade::archive_item(conn, &slug, user, adr.id, ItemType::Adr)?;
+            Ok(super::cascade::delete_response(outcome))
         })
         .await?;
     Ok(Json(outcome))
 }
 
 /// Move an ADR to another column of its board (requires `transition_items`
-/// on the ADR's board). An off-board ADR cannot be transitioned: 422
+/// on the ADR's board). The creator of the ADR gets no right here
+/// (COLLIERY-T-0228). An off-board ADR cannot be transitioned: 422
 /// `ITEM_NOT_ON_BOARD`.
 #[utoipa::path(
     post,
@@ -308,7 +319,7 @@ pub(crate) async fn transition_adr(
     Extension(auth): Extension<AuthContext>,
     Extension(tenant): Extension<TenantContext>,
     Path(short_code): Path<String>,
-    Json(body): Json<dto::TransitionRequest>,
+    ApiJson(body): ApiJson<dto::TransitionRequest>,
 ) -> Result<Json<dto::Adr>, ApiError> {
     let to_column_id = parse_uuid(&body.to_column_id, "to_column_id")?;
     let user = auth.user_id;
@@ -317,6 +328,9 @@ pub(crate) async fn transition_adr(
         .blocking
         .run(&tenant.slug, move |conn| {
             let adr = load(conn, &short_code, Liveness::LiveOnly)?;
+            // NOT an edit (COLLIERY-T-0228): creation grants no right here.
+            // The creator of an item needs this capability as all others do,
+            // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, adr.board_id, user, "transition_items")?;
             boards::transition_adr(conn, adr.id, to_column_id, user).map_err(map_board_error)?;
             Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())

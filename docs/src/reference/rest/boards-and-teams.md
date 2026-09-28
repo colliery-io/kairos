@@ -37,7 +37,13 @@ shares.
 
 A board of the organization (strategy, initiative, adr) has no
 `team_id`. Its team is the list of its members
-(`GET /api/boards/{id}/members`).
+(`GET /api/boards/{id}/members`). A request for such a board with a
+`team_id` is a 422 (COLLIERY-T-0242).
+
+A team has one delivery board (COLLIERY-T-0240). A request for a
+delivery board for a team that has a live delivery board is a 422
+`TEAM_HAS_DELIVERY_BOARD`. The refusal names the board that the team
+has. A deleted board does not count.
 
 Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#createboardrequest)
 
@@ -46,7 +52,7 @@ Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#c
 | `201` | [`BoardDetail`](schemas.md#boarddetail) | Created, with the seeded configuration |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, or a delivery board with no team |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD |
 
 ### `GET /api/boards/{id}`
 
@@ -69,6 +75,12 @@ Soft-delete a board. Only allowed when NO workflow item references it
 (422 `BOARD_NOT_EMPTY` otherwise — the T-0010 empty rule applied at
 board scope). Requires `configure_boards` on the board.
 
+The only delivery board of a team is not deleted (COLLIERY-T-0241): 422
+`LAST_DELIVERY_BOARD`. A team always has a delivery board. To remove
+the board, delete the team (`DELETE /api/teams/{id}`), which removes
+the team and its board together. This check comes before the check for
+live items, because no retry can pass it.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |
@@ -78,18 +90,22 @@ board scope). Requires `configure_boards` on the board.
 | `200` | [`OrgDeleteResponse`](schemas.md#orgdeleteresponse) | Soft-deleted |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY, or LAST_DELIVERY_BOARD |
 
 ### `PATCH /api/boards/{id}`
 
 Update board settings (name/slug). Requires `configure_boards` on the
 board.
 
-The body has no `team_id`, and that is deliberate (COLLIERY-T-0230). A
-live delivery board cannot lose its team, and no route moves a board to
-a different team. The tasks of a board have the team of the board
-(COLLIERY-T-0216). A route that changes the team must thus change the
-tasks too, in the same transaction.
+The team of a board does not change (COLLIERY-T-0230, COLLIERY-T-0243).
+A `team_id` that is not the team of the board is a 422
+`BOARD_TEAM_IS_FIXED`, and the update writes nothing. To give work to a
+different team, move the task (`POST /api/tasks/{code}/move`).
+
+The server accepts a `team_id` equal to the team of the board, and
+changes nothing. A client can thus send back the board that it read.
+That `team_id` is not a field to update: the body must have `name` or
+`slug`.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -103,6 +119,7 @@ Request body (required): `application/json`, [`UpdateBoardRequest`](schemas.md#u
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No field to update, or BOARD_TEAM_IS_FIXED |
 
 ### `GET /api/boards/{id}/columns`
 

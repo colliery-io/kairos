@@ -73,6 +73,47 @@ pub enum BoardError {
     /// and a request goes to nobody.
     #[error("A delivery board needs a team. Send the team as team_id.")]
     DeliveryBoardNeedsTeam,
+    /// `create_board`: the team has a live delivery board
+    /// (COLLIERY-T-0240). A team has exactly one delivery board. Routing
+    /// ([`crate::repositories::delivery_board_for_team`]) finds no board
+    /// for a team that has two. Carries the board that the team has.
+    #[error(
+        "The team has the delivery board {board_name:?}. A team has only one delivery board. \
+         Use that board."
+    )]
+    TeamHasDeliveryBoard {
+        team_id: Uuid,
+        board_id: Uuid,
+        board_name: String,
+        board_slug: String,
+    },
+    /// `create_board`: a board of the organization was sent with a team
+    /// (COLLIERY-T-0242). The team of such a board is the list of its
+    /// members, so it has no `team_id`.
+    #[error("Only a delivery board has a team. Do not send team_id for a board of level {0}.")]
+    OrganizationBoardHasNoTeam(BoardLevel),
+    /// `check_board_delete`: the board is the only live delivery board of
+    /// a live team (COLLIERY-T-0241). The delete of the team removes the
+    /// team and its board together.
+    #[error(
+        "This board is the only delivery board of the team {team_name:?}. A team always has a \
+         delivery board. To remove the board, delete the team."
+    )]
+    LastDeliveryBoard {
+        board_id: Uuid,
+        team_id: Uuid,
+        team_name: String,
+    },
+    /// `check_board_team`: an update sent a team that is not the team of
+    /// the board (COLLIERY-T-0243). The team of a board never changes.
+    #[error(
+        "The team of a board does not change. To give the work to a different team, move the \
+         task to the board of that team."
+    )]
+    BoardTeamIsFixed {
+        board_id: Uuid,
+        team_id: Option<Uuid>,
+    },
     /// No `system_board_defaults` row is seeded for this level.
     #[error("no system_board_defaults row for level {0}")]
     MissingDefaults(BoardLevel),
@@ -186,6 +227,98 @@ fn column_name(columns: &[rules::Column], id: Uuid) -> Result<String, BoardError
 }
 
 // ---------------------------------------------------------------------------
+// The team of a board (COLLIERY-T-0240, T-0241, T-0243)
+// ---------------------------------------------------------------------------
+
+/// Lock the row of a team until the transaction ends, and return the name
+/// of the team. `None` when the team does not exist or is deleted.
+///
+/// Each function that counts the delivery boards of a team takes this lock
+/// first. Two of them cannot then count at the same time and each write.
+fn lock_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Option<String>, DieselError> {
+    use crate::schema::teams::dsl;
+    // The row of a deleted team is locked too: a lock is about the row,
+    // and not about the state of the team.
+    let team: Option<(String, Option<chrono::DateTime<chrono::Utc>>)> = dsl::teams
+        .filter(dsl::id.eq(team_id))
+        .select((dsl::name, dsl::deleted_at))
+        .for_update()
+        .first(conn)
+        .optional()?;
+    Ok(team.and_then(|(name, deleted_at)| deleted_at.is_none().then_some(name)))
+}
+
+/// The live delivery boards of a team, oldest first. One, by the rule. Old
+/// data can have more (COLLIERY-T-0240).
+fn live_delivery_boards(conn: &mut PgConnection, team_id: Uuid) -> Result<Vec<Board>, DieselError> {
+    use crate::schema::boards::dsl;
+    dsl::boards
+        .filter(dsl::team_id.eq(team_id))
+        .filter(dsl::board_level.eq(BoardLevel::Delivery))
+        .filter(dsl::deleted_at.is_null())
+        .order((dsl::created_at.asc(), dsl::id.asc()))
+        .select(Board::as_select())
+        .load(conn)
+}
+
+/// Refuse the delete of the only delivery board of a team
+/// (COLLIERY-T-0241): [`BoardError::LastDeliveryBoard`]. A team always has
+/// a delivery board, because the board gives a task its team
+/// (COLLIERY-T-0216) and receives the requests to the team
+/// (COLLIERY-T-0218).
+///
+/// These deletes are not refused:
+///
+/// - a board of the organization, which has no delivery team,
+/// - a delivery board with no team, or with a deleted team (old data),
+/// - one of the two delivery boards of a team (old data, COLLIERY-T-0240).
+///
+/// The delete of a team does not call this. It removes the team and the
+/// board together, so no team is left with no board.
+///
+/// Call it in the transaction that deletes the board. It locks the row of
+/// the team, so two deletes cannot each see the board of the other.
+pub fn check_board_delete(conn: &mut PgConnection, board: &Board) -> Result<(), BoardError> {
+    let (BoardLevel::Delivery, Some(team_id)) = (board.board_level, board.team_id) else {
+        return Ok(());
+    };
+    let Some(team_name) = lock_team(conn, team_id)? else {
+        return Ok(());
+    };
+    let others = live_delivery_boards(conn, team_id)?
+        .into_iter()
+        .filter(|other| other.id != board.id)
+        .count();
+    if others == 0 {
+        return Err(BoardError::LastDeliveryBoard {
+            board_id: board.id,
+            team_id,
+            team_name,
+        });
+    }
+    Ok(())
+}
+
+/// Refuse a change of the team of a board (COLLIERY-T-0243):
+/// [`BoardError::BoardTeamIsFixed`]. The team of a board never changes. The
+/// tasks of a board have the team of the board (COLLIERY-T-0216), and a
+/// task goes to a different team when it moves to the board of that team.
+///
+/// `sent` is the `team_id` of the update: `None` when the update has no
+/// `team_id`, `Some(None)` for a null. A `team_id` equal to the team of
+/// the board is accepted and changes nothing, so a client can send back
+/// the board that it read.
+pub fn check_board_team(board: &Board, sent: Option<Option<Uuid>>) -> Result<(), BoardError> {
+    match sent {
+        Some(team_id) if team_id != board.team_id => Err(BoardError::BoardTeamIsFixed {
+            board_id: board.id,
+            team_id: board.team_id,
+        }),
+        _ => Ok(()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Board creation (defaults seeding, KAIROS-A-0002)
 // ---------------------------------------------------------------------------
 
@@ -229,6 +362,21 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
 /// The check is on create only. No migration and no database constraint
 /// goes with it: a delivery board with no team can exist in old data, and
 /// readers must continue to accept that row.
+///
+/// # A team has one delivery board (COLLIERY-T-0240, COLLIERY-T-0242)
+///
+/// - A delivery board for a team that has a LIVE delivery board is refused
+///   with [`BoardError::TeamHasDeliveryBoard`], which names that board. A
+///   deleted board does not count: it is not a board of the team any more.
+/// - A board of the organization with a `team_id` is refused with
+///   [`BoardError::OrganizationBoardHasNoTeam`].
+///
+/// Two creates at the same time must not each see no board. The
+/// transaction thus locks the row of the team (`FOR UPDATE`) before it
+/// looks for a board, and the second create waits for the first. A lock,
+/// and not a unique index: a tenant can have a team with two delivery
+/// boards in old data, and the migration that adds the index fails on that
+/// tenant.
 pub fn create_board(
     conn: &mut PgConnection,
     level: BoardLevel,
@@ -240,9 +388,24 @@ pub fn create_board(
     if level == BoardLevel::Delivery && team_id.is_none() {
         return Err(BoardError::DeliveryBoardNeedsTeam);
     }
+    if level != BoardLevel::Delivery && team_id.is_some() {
+        return Err(BoardError::OrganizationBoardHasNoTeam(level));
+    }
     conn.transaction::<_, BoardError, _>(|conn| {
         use crate::schema::system_board_defaults;
         use crate::schema::{board_columns, board_transitions, boards};
+
+        if let Some(team_id) = team_id {
+            lock_team(conn, team_id)?;
+            if let Some(board) = live_delivery_boards(conn, team_id)?.into_iter().next() {
+                return Err(BoardError::TeamHasDeliveryBoard {
+                    team_id,
+                    board_id: board.id,
+                    board_name: board.name,
+                    board_slug: board.slug,
+                });
+            }
+        }
 
         let defaults: SystemBoardDefault = system_board_defaults::table
             .filter(system_board_defaults::board_level.eq(level))

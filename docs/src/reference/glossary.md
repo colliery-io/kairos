@@ -65,10 +65,15 @@ Every board has a team. The rule has two forms.
 - A delivery board has a delivery [team](#team). The board holds the team in
   `team_id`. Kairos refuses to create a delivery board with no team. A live
   delivery board cannot lose its team.
+
+  A team has only one delivery board. Kairos refuses to create a second
+  delivery board for a team. Kairos refuses to delete the only delivery board
+  of a team. The team of a board does not change.
 - A board of the organization has the level `strategy`, `initiative` or `adr`.
   It has no delivery team and no `team_id`. Its team is the list of the members
   of the board. A person joins that team when an administrator adds the person
   to the board.
+  Kairos refuses to create a board of the organization with a `team_id`.
 
 Documents sit on no board at all. They inherit their parent item's board for
 authorization purposes.

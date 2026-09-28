@@ -115,6 +115,29 @@ pub struct UpdateBoardRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub slug: Option<String>,
+    /// The team of the board (UUID, or null for a board of the
+    /// organization). The team of a board does not change
+    /// (COLLIERY-T-0243): a value that is not the team of the board is
+    /// refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the
+    /// value that the board has.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schema(value_type = Option<String>)]
+    pub team_id: Option<Option<String>>,
+}
+
+/// A field that is present, with its value or its null. With
+/// `#[serde(default)]`, a field that is absent is `None` and a null is
+/// `Some(None)`.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// One column's items in the `GET /api/boards/{id}/items` view: every live

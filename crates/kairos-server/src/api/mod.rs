@@ -856,9 +856,15 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         | BoardError::MissingDefaults(_)
         | BoardError::InvalidDefaults { .. }
         | BoardError::Rule(_)
-        // Only `create_board` returns this (COLLIERY-T-0230), and no
-        // transition or move endpoint creates a board.
-        | BoardError::DeliveryBoardNeedsTeam) => ApiError::internal(e),
+        // Only `create_board` returns these (COLLIERY-T-0230, T-0240,
+        // T-0242), and no transition or move endpoint creates a board.
+        | BoardError::DeliveryBoardNeedsTeam
+        | BoardError::TeamHasDeliveryBoard { .. }
+        | BoardError::OrganizationBoardHasNoTeam(_)
+        // The delete and the update of a board (COLLIERY-T-0241, T-0243)
+        // are configuration calls too.
+        | BoardError::LastDeliveryBoard { .. }
+        | BoardError::BoardTeamIsFixed { .. }) => ApiError::internal(e),
         BoardError::Database(e) => ApiError::internal(e),
     }
 }

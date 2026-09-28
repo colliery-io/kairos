@@ -5,7 +5,7 @@
 //!
 //! - A DELIVERY board has a delivery team (`team_id`). `POST /api/boards`
 //!   refuses a delivery board with no team, and no route can clear the team
-//!   of a live delivery board.
+//!   of a live delivery board (COLLIERY-T-0243 made the update refuse it).
 //! - A board of the ORGANIZATION (strategy, initiative, adr) has no row in
 //!   `teams`. Its team is the list of the members of the board. A person
 //!   joins that team when the person is added to the board.
@@ -228,59 +228,37 @@ async fn a_board_always_has_a_team_against_live_stack() {
     // =======================================================================
     // c: a live delivery board cannot lose its team
     // =======================================================================
-    // PATCH /api/boards/{id} is the only update route of a board. Its body
-    // has `name` and `slug` and no `team_id`, so a request cannot address
-    // the team at all.
+    // PATCH /api/boards/{id} is the only update route of a board. It
+    // refuses a `team_id` that is not the team of the board
+    // (COLLIERY-T-0243), so a request cannot clear or change the team.
+    // `board_team_rules.rs` has the full rule.
     let uri = format!("/api/boards/{platform_board}");
-    let (status, body) = request(
-        &router,
-        Method::PATCH,
-        &uri,
-        Some(&svc_token),
-        &TENANT,
-        Some(json!({ "team_id": null })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_eq!(error_code(&body), "VALIDATION");
-    assert_eq!(team_of_board(&mut conn, &platform_board), Some(platform_id));
-
-    // With a valid field next to it, the update runs and the team stays.
-    let (status, body) = request(
-        &router,
-        Method::PATCH,
-        &uri,
-        Some(&svc_token),
-        &TENANT,
-        Some(json!({ "name": "Platform Work", "team_id": null })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["name"], "Platform Work");
-    assert_eq!(
-        body["team_id"],
-        platform.id.as_str(),
-        "the update does not clear the team: {body}"
-    );
-    assert_eq!(team_of_board(&mut conn, &platform_board), Some(platform_id));
-    // Nor can it move the board to a different team.
-    let (status, body) = request(
-        &router,
-        Method::PATCH,
-        &uri,
-        Some(&svc_token),
-        &TENANT,
-        Some(json!({ "name": "Platform Delivery", "team_id": bare_team.to_string() })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(team_of_board(&mut conn, &platform_board), Some(platform_id));
+    for body in [
+        json!({ "team_id": null }),
+        json!({ "name": "Platform Work", "team_id": null }),
+        // Nor can it move the board to a different team.
+        json!({ "name": "Platform Work", "team_id": bare_team.to_string() }),
+    ] {
+        let (status, answer) = request(
+            &router,
+            Method::PATCH,
+            &uri,
+            Some(&svc_token),
+            &TENANT,
+            Some(body.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}: {answer}");
+        assert_eq!(error_code(&answer), "BOARD_TEAM_IS_FIXED", "{body}");
+        assert_eq!(team_of_board(&mut conn, &platform_board), Some(platform_id));
+    }
     let typed = svc
         .update_board(
             &platform_board,
             &UpdateBoardRequest {
                 name: None,
                 slug: Some("platform-work".into()),
+                team_id: None,
             },
         )
         .await

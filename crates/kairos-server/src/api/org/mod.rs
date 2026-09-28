@@ -254,6 +254,38 @@ pub fn map_config_error(e: BoardError) -> ApiError {
         e @ BoardError::DeliveryBoardNeedsTeam => {
             ApiError::validation(e.to_string()).with_details(json!({ "field": "team_id" }))
         }
+        // COLLIERY-T-0242: the mirror of the rule above. The caller sent a
+        // team for a board that has none.
+        e @ BoardError::OrganizationBoardHasNoTeam(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "team_id" }))
+        }
+        // COLLIERY-T-0240: a rule of the data, so a 422 with its own code.
+        // The details name the board that the team has.
+        BoardError::TeamHasDeliveryBoard {
+            team_id,
+            board_id,
+            ref board_name,
+            ref board_slug,
+        } => {
+            ApiError::unprocessable("TEAM_HAS_DELIVERY_BOARD", e.to_string()).with_details(json!({
+                "team_id": team_id,
+                "board": { "id": board_id, "name": board_name, "slug": board_slug },
+            }))
+        }
+        // COLLIERY-T-0241.
+        BoardError::LastDeliveryBoard {
+            board_id,
+            team_id,
+            ref team_name,
+        } => ApiError::unprocessable("LAST_DELIVERY_BOARD", e.to_string()).with_details(json!({
+            "board_id": board_id,
+            "team": { "id": team_id, "name": team_name },
+        })),
+        // COLLIERY-T-0243. The details give the team that the board has.
+        BoardError::BoardTeamIsFixed { board_id, team_id } => {
+            ApiError::unprocessable("BOARD_TEAM_IS_FIXED", e.to_string())
+                .with_details(json!({ "board_id": board_id, "team_id": team_id }))
+        }
         e @ (BoardError::MissingDefaults(_) | BoardError::InvalidDefaults { .. }) => {
             // Provisioning seeds all four default configs; absence is an
             // operator/data problem, not a client mistake.

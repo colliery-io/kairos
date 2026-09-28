@@ -91,6 +91,9 @@ A client applying the general rule would branch wrongly here.
 | `DUPLICATE_COLUMN_POSITION` | 422 | A live column of that board already holds the position | — |
 | `DUPLICATE_TRANSITION` | 422 | That edge already exists | — |
 | `NO_ENTRY_COLUMN` | 422 | The target board has no column to admit an arriving item | — |
+| `TEAM_HAS_DELIVERY_BOARD` | 422 | The team has a live delivery board. A team has only one delivery board | `team_id` and `board` (`id`, `name`, `slug`), the board that the team has |
+| `LAST_DELIVERY_BOARD` | 422 | The board is the only delivery board of a team. Delete the team to remove the team and its board together | `board_id` and `team` (`id`, `name`) |
+| `BOARD_TEAM_IS_FIXED` | 422 | The update of a board has a `team_id` that is not the team of the board. The team of a board does not change. Move the task to give work to a different team | `board_id` and `team_id`, the team that the board has |
 
 ### Moving and restoring work
 

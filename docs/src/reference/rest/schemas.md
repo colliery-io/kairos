@@ -1536,6 +1536,7 @@ Body of `PATCH /api/boards/{id}` (board settings).
 |---|---|---|---|
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
+| `team_id` | `string`, nullable | no | The team of the board (UUID, or null for a board of the organization). The team of a board does not change (COLLIERY-T-0243): a value that is not the team of the board is refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the value that the board has. |
 
 ## UpdateColumnRequest
 

@@ -8,6 +8,7 @@
 
 pub mod abac;
 pub mod api_keys;
+pub mod board_items;
 pub mod boards;
 pub mod embeddings;
 pub mod events;

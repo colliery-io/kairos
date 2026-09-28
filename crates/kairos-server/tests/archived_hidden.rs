@@ -108,7 +108,7 @@ async fn board_codes_marked(
     let items = if include_deleted {
         client.board_items_including_archived(&id).await
     } else {
-        client.board_items(&id).await
+        client.board_items(&id, &Default::default()).await
     }
     .expect("board items");
     let mut codes: Vec<(String, bool)> = Vec::new();

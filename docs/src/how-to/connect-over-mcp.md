@@ -132,6 +132,10 @@ the queue for one checkout
 ([Repositories as execution
 scope](../explanation/repositories-as-execution-scope.md#the-agents-frame-is-the-checkout)).
 
+The result of `board_items` has 200 items at most. A result can be a part of
+the board. Then its first lines give the `offset` of the next part. Call the
+tool again with that `offset`.
+
 ## Related
 
 - [MCP tools](../reference/mcp-tools.md) — all twenty-one, with arguments and

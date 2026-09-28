@@ -179,7 +179,7 @@ Board detail: the board plus its full configuration (`GET /api/boards/{id}`).
 
 ## BoardItemsResponse
 
-Response of `GET /api/boards/{id}/items`: all items on the board, grouped by column (columns in position order).
+Response of `GET /api/boards/{id}/items`: one page of the items on the board, grouped by column (columns in position order). The order of the items is: the position of the column, then the type, then the short code (COLLIERY-T-0261). The order of the types is: strategy, initiative, task, ADR. Each column is in each page, and a column can have no item on a page.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -187,6 +187,9 @@ Response of `GET /api/boards/{id}/items`: all items on the board, grouped by col
 | `board` | [`Board`](schemas.md#board) | yes |  |
 | `children_progress` | `object` | yes | `(done, total)` direct-children counts keyed by the PARENT item's short code, for every item on this board that has children (KAIROS-T-0080) — computed in one grouped query, never per item. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). It is an empty map when no item has children. The default is for the client only. |
 | `columns` | array of [`BoardColumnItems`](schemas.md#boardcolumnitems) | yes |  |
+| `limit` | `integer` | yes | The `limit` that the server applied. |
+| `offset` | `integer` | yes | The `offset` that the server applied. |
+| `total` | `integer` | yes | The number of items on the board after the filters, on all pages (COLLIERY-T-0261). The default is for the client only: a response of an older server has no `total`, and it has each item. |
 
 ## BoardMember
 

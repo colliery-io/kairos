@@ -301,7 +301,7 @@ async fn completed_work_does_not_block_and_is_not_blocked() {
     // REST board items: the counts on the cards
     // =======================================================================
     let board = svc
-        .board_items(&delivery.to_string())
+        .board_items(&delivery.to_string(), &Default::default())
         .await
         .expect("board items");
     let counts = |code: &str| {
@@ -451,7 +451,7 @@ async fn completed_work_does_not_block_and_is_not_blocked() {
     assert!(text.contains("Active"), "{text}");
 
     let board = svc
-        .board_items(&delivery.to_string())
+        .board_items(&delivery.to_string(), &Default::default())
         .await
         .expect("board items after the reopen");
     let counts = |code: &str| {

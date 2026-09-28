@@ -62,8 +62,15 @@ curl "https://<host>/api/boards/<board-id>/items?include_deleted=true" \
   -H "Authorization: Bearer <token>"
 ```
 
+The board route gives 200 items in one response by default, and 1000 at most
+(`limit`). `total` in the response is the number of items of the board. If
+`total` is larger than the number of items in the response, send `offset` to
+read the next page.
+
 Over MCP, `board_items {board, include_deleted: true}` renders archived cards
-marked `[archived]`, in the column each was put away in.
+marked `[archived]`, in the column each was put away in. A result can be a part
+of the board. Then its first lines say so, and they give the `offset` of the
+next part.
 
 Two things about the widened board listing, because they look like bugs:
 

@@ -1034,6 +1034,34 @@ fn doc_parent_options(view: &data::BoardView) -> Vec<(String, String)> {
         .collect()
 }
 
+/// One read of the board, for the gate (COLLIERY-T-0261). The read ends
+/// when this value drops: at the end of the read, and also when the page
+/// stops a read before its end. The gate thus cannot stay closed.
+struct BoardRead {
+    gate: StoredValue<data::RefetchGate>,
+    refresh: RwSignal<u64>,
+}
+
+impl BoardRead {
+    fn start(gate: StoredValue<data::RefetchGate>, refresh: RwSignal<u64>) -> Self {
+        gate.try_update_value(data::RefetchGate::started);
+        BoardRead { gate, refresh }
+    }
+}
+
+impl Drop for BoardRead {
+    fn drop(&mut self) {
+        let again = self
+            .gate
+            .try_update_value(data::RefetchGate::finished)
+            .unwrap_or(false);
+        // An event came during the read: one more read.
+        if again {
+            self.refresh.try_update(|n| *n += 1);
+        }
+    }
+}
+
 /// `/boards/:board` — columns from the board config, items grouped, a
 /// board-filtered live subscription, click-to-move, create-from-column.
 #[component]
@@ -1046,13 +1074,29 @@ pub fn BoardPage() -> impl IntoView {
     // Bumped by mutations and /ws/events messages: re-runs the resource
     // (silently — the previous value stays up while the fetch runs).
     let refresh = RwSignal::new(0u64);
+    // COLLIERY-T-0261: a read of a large board is 2 requests or more. One
+    // read runs at a time: the events that come during a read give one
+    // more read after it, and not one read for each event.
+    let gate = StoredValue::new(data::RefetchGate::default());
     let board = LocalResource::new(move || {
         let _ = auth.token();
         let _ = refresh.get();
         let param = params.read().get("board").unwrap_or_default();
-        async move { data::load_board_view(auth, &param).await }
+        let read = BoardRead::start(gate, refresh);
+        async move {
+            let view = data::load_board_view(auth, &param).await;
+            drop(read);
+            view
+        }
     });
-    let refetch = move || refresh.update(|n| *n += 1);
+    let refetch = move || {
+        let now = gate
+            .try_update_value(data::RefetchGate::request)
+            .unwrap_or(false);
+        if now {
+            refresh.update(|n| *n += 1);
+        }
+    };
 
     // Failed mutations (transition/create) surface here, page-level.
     let action_error = RwSignal::new(None::<ApiError>);
@@ -1407,6 +1451,21 @@ fn BoardBody(
                 </Group>
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
+        }}
+        {move || {
+            // COLLIERY-T-0261: the board has 2000 cards at most. A board
+            // with more cards says so, with the numbers.
+            model
+                .with(|m| {
+                    m.as_ref().and_then(|view| {
+                        data::board_cap_note(view.items.card_count(), view.items.total)
+                    })
+                })
+                .map(|note| view! {
+                    <div class="kairos-board-notice" role="status" data-testid="board-cap">
+                        <Banner color=token::GOLD icon="!">{note}</Banner>
+                    </div>
+                })
         }}
         {move || sent.get().map(|request| {
             // COLLIERY-T-0232: the notice names the team, the column and

@@ -7,17 +7,23 @@ use crate::context::{Common, client, print_json};
 use crate::error::CliError;
 use crate::table::Table;
 
-use kairos_client::types_org::BoardItemsResponse;
+use kairos_client::types_org::{BoardItemsQuery, BoardItemsResponse};
 
 /// Operations on boards.
 #[derive(clap::Subcommand, Debug)]
 pub enum BoardsCommand {
     /// List boards (paginated)
     List(ListArgs),
-    /// Show a board's live items grouped by column
+    /// Show a board's live items grouped by column (one page)
     Show {
         /// Board id (UUID)
         board_id: String,
+        /// Page size (server default 200, max 1000)
+        #[arg(long)]
+        limit: Option<i64>,
+        /// Items to skip
+        #[arg(long)]
+        offset: Option<i64>,
         #[command(flatten)]
         common: Common,
     },
@@ -53,13 +59,34 @@ impl BoardsCommand {
                 );
                 Ok(())
             }
-            Self::Show { board_id, common } => {
+            Self::Show {
+                board_id,
+                limit,
+                offset,
+                common,
+            } => {
                 let client = client(&common)?;
-                let items = client.board_items(&board_id).await?;
+                // COLLIERY-T-0261: one page of the board.
+                let query = BoardItemsQuery {
+                    limit,
+                    offset,
+                    ..BoardItemsQuery::default()
+                };
+                let items = client.board_items(&board_id, &query).await?;
                 if common.json {
                     return print_json(&items);
                 }
                 print_board_items(&items);
+                println!();
+                println!(
+                    "total: {} (limit {}, offset {})",
+                    items.total, items.limit, items.offset
+                );
+                // The page is a part of the board: say so, and say how to
+                // read the next part.
+                if let Some(note) = items.incomplete_note("use --offset") {
+                    println!("{note}");
+                }
                 Ok(())
             }
         }

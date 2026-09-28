@@ -493,7 +493,10 @@ async fn task_repository_binding_against_live_stack() {
     );
 
     // Board items: every task carries its ref; the filter narrows tasks only.
-    let items = svc.board_items(&platform_board).await.expect("board items");
+    let items = svc
+        .board_items(&platform_board, &Default::default())
+        .await
+        .expect("board items");
     let platform_tasks: Vec<_> = items.columns.iter().flat_map(|c| c.tasks.iter()).collect();
     assert_eq!(
         platform_tasks.len(),

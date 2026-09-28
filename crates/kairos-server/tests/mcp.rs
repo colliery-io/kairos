@@ -1671,16 +1671,94 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         "VALIDATION: The call has the argument \"no_such_argument\". This tool does not \
          accept that argument. The arguments of this tool are: board, column, repository, \
-         include_deleted.\n\
-         details: {\"allowed\":[\"board\",\"column\",\"repository\",\"include_deleted\"],\
-         \"argument\":\"no_such_argument\"}"
+         include_deleted, limit, offset.\n\
+         details: {\"allowed\":[\"board\",\"column\",\"repository\",\"include_deleted\",\
+         \"limit\",\"offset\"],\"argument\":\"no_such_argument\"}"
     );
-    session
+    let full = session
         .call_ok(
             "board_items",
             json!({"board": "platform-delivery", "include_deleted": true}),
         )
         .await;
+
+    // --- board_items: a part of a board says that it is a part ---------------
+    // COLLIERY-T-0261. The cards of a result are the lines `- CODE [...`.
+    let cards = |text: &str| -> Vec<String> {
+        text.lines()
+            .filter(|line| line.starts_with("- "))
+            .map(|line| line.to_string())
+            .collect()
+    };
+    let all = cards(&full);
+    assert!(all.len() >= 3, "the board has 3 cards or more: {full}");
+    assert!(
+        !full.contains("This result shows"),
+        "the full board has no note: {full}"
+    );
+    let total = all.len();
+    let mut read: Vec<String> = Vec::new();
+    let mut offset = 0;
+    loop {
+        let part = session
+            .call_ok(
+                "board_items",
+                json!({
+                    "board": "platform-delivery", "include_deleted": true,
+                    "limit": 2, "offset": offset,
+                }),
+            )
+            .await;
+        let shown = cards(&part);
+        let next = offset + shown.len();
+        let note = if next < total {
+            format!(
+                "The board has {total} items that agree with the filters. This result shows \
+                 {} (limit 2, offset {offset}). To read the next part, call the tool with \
+                 offset {next}.",
+                shown.len()
+            )
+        } else {
+            format!(
+                "The board has {total} items that agree with the filters. This result shows \
+                 {} (limit 2, offset {offset}). To read the first part, call the tool with \
+                 offset 0.",
+                shown.len()
+            )
+        };
+        // THE DEFECT: before COLLIERY-T-0261 the tool had no `limit`, and
+        // the result had each card of the board.
+        assert!(part.lines().any(|line| line == note), "{note}\n{part}");
+        assert!(part.contains(" in this result)"), "{part}");
+        assert!(shown.len() <= 2, "{part}");
+        read.extend(shown);
+        if next >= total {
+            break;
+        }
+        offset = next;
+    }
+    assert_eq!(
+        read, all,
+        "the parts give the board, in the order of the board"
+    );
+    // With no filter, the note has the words of the board.
+    let live_total = cards(
+        &session
+            .call_ok("board_items", json!({"board": "platform-delivery"}))
+            .await,
+    )
+    .len();
+    let part = session
+        .call_ok(
+            "board_items",
+            json!({"board": "platform-delivery", "limit": 1}),
+        )
+        .await;
+    let note = format!(
+        "The board has {live_total} items. This result shows 1 (limit 1, offset 0). To read \
+         the next part, call the tool with offset 1."
+    );
+    assert!(part.lines().any(|line| line == note), "{note}\n{part}");
     // An argument in an object of the call.
     let text = session
         .call_err(

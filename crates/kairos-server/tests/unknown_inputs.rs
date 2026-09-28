@@ -502,7 +502,10 @@ async fn a_known_input_passes_and_a_refusal_writes_nothing_against_live_stack() 
             "column",
         )
         .await;
-    assert_eq!(allowed, ["repository", "include_deleted"]);
+    assert_eq!(
+        allowed,
+        ["repository", "include_deleted", "limit", "offset"]
+    );
     stack
         .ok(
             Method::GET,

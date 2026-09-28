@@ -150,6 +150,22 @@ The items on a board, grouped by column: short code, type and title.
 | `column` | string | no | all columns | Column name or UUID. |
 | `repository` | string | no | all | Narrow the tasks to those that link to this repository. Slug or UUID. |
 | `include_deleted` | boolean | no | `false` | Add archived cards back, each marked `[archived]`, in the column they were put away in. Columns that have since been removed appear only when this is true, and only carrying archived cards. |
+| `limit` | integer | no | `200` | The number of items in the result. The maximum is 1000. Kairos changes a larger value to 1000. |
+| `offset` | integer | no | `0` | The number of items to skip. |
+
+The result has 200 items at most by default. The filters (`column`,
+`repository`, `include_deleted`) apply before `limit` and `offset`. The order of
+the items is: the position of the column, then the type, then the short code.
+The order of the types is: strategy, initiative, task, ADR.
+
+When the result is a part of the board, its first lines say so:
+
+```
+The board has 340 items. This result shows 200 (limit 200, offset 0). To read the next part, call the tool with offset 200.
+```
+
+Call the tool again with that `offset` until you have each part. In such a
+result, the number after the name of a column is the count for that result.
 
 A removed column can be named as `column` only while `include_deleted` is
 true; otherwise it is not among the board's columns and is refused as unknown.

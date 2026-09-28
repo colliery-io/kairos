@@ -597,24 +597,53 @@ pub(crate) async fn delete_board(
 // Items view
 // ---------------------------------------------------------------------------
 
-/// Query of `GET /api/boards/{id}/items` (KAIROS-T-0104).
-#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
-#[into_params(parameter_in = Query)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct BoardItemsQuery {
-    /// Narrow the TASKS to those bound to this repository (slug or UUID).
-    /// Other entity types are unaffected. Unknown repository → 422.
-    pub repository: Option<String>,
-    /// Include archived (put-away) cards, each marked with `archived_at`
-    /// (KAIROS-A-0020 rule 2). Default false — a board is a live board
-    /// unless the reader says otherwise (rule 3).
-    #[serde(default)]
-    pub include_deleted: bool,
+/// The `(limit, offset)` of one page of the items of a board
+/// (COLLIERY-T-0261). The rule is that of the other lists
+/// ([`clamp_pagination`]): the server changes a value that is out of the
+/// limits, and it does not refuse it. The limits are different, because a
+/// board view needs each card: the default is 200 and the maximum is
+/// 1000.
+fn clamp_board_items_page(query: &dto::BoardItemsQuery) -> (i64, i64) {
+    let limit = query
+        .limit
+        .unwrap_or(dto::BOARD_ITEMS_DEFAULT_LIMIT)
+        .clamp(1, dto::BOARD_ITEMS_MAX_LIMIT);
+    let offset = query.offset.unwrap_or(0).max(0);
+    (limit, offset)
 }
 
-/// All live items on the board, grouped by column (columns in position
-/// order; every entity type — strategies, initiatives, tasks, ADRs). Open
-/// tenant-wide. `?repository=` narrows the tasks (KAIROS-T-0104).
+/// The rows of one item type with the given ids, by id.
+macro_rules! rows_by_id {
+    ($conn:expr, $table:ident, $model:ty, $ids:expr) => {{
+        let ids: Vec<Uuid> = $ids;
+        if ids.is_empty() {
+            HashMap::new()
+        } else {
+            $table::table
+                .filter($table::id.eq_any(ids))
+                .select(<$model>::as_select())
+                .load::<$model>($conn)
+                .map_err(ApiError::internal)?
+                .into_iter()
+                .map(|row| (row.id, row))
+                .collect::<HashMap<Uuid, $model>>()
+        }
+    }};
+}
+
+/// One page of the items on the board, grouped by column (columns in
+/// position order; every entity type — strategies, initiatives, tasks,
+/// ADRs). Open tenant-wide. `?repository=` narrows the tasks
+/// (KAIROS-T-0104).
+///
+/// The route has pages (COLLIERY-T-0261). `limit` is 200 by default and
+/// 1000 at most. `total` is the number of items after the filters, on all
+/// pages. Each column is in each page. `children_progress` and
+/// `blocks_summary` have the items of the page.
+///
+/// The order of the items is: the position of the column, then the type,
+/// then the short code. The order of the types is: strategy, initiative,
+/// task, ADR.
 ///
 /// `?include_deleted=true` adds the archived cards back, in the column
 /// each was put away in and marked with `archived_at` (KAIROS-T-0159).
@@ -633,9 +662,9 @@ pub(crate) struct BoardItemsQuery {
     get,
     path = "/api/boards/{id}/items",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)"), BoardItemsQuery),
+    params(("id" = String, Path, description = "Board id (UUID)"), dto::BoardItemsQuery),
     responses(
-        (status = 200, description = "Items grouped by column", body = dto::BoardItemsResponse),
+        (status = 200, description = "One page of the items, grouped by column", body = dto::BoardItemsResponse),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -643,12 +672,14 @@ pub(crate) async fn board_items(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    ApiQuery(query): ApiQuery<BoardItemsQuery>,
+    ApiQuery(query): ApiQuery<dto::BoardItemsQuery>,
 ) -> Result<Json<dto::BoardItemsResponse>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
+    let (limit, offset) = clamp_board_items_page(&query);
     let response = state
         .blocking
         .run(&tenant.slug, move |conn| {
+            use kairos_db::board_items::{BoardItemFilter, CardKind, board_item_page};
             use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
             let board = load_board(conn, board_id)?;
@@ -659,7 +690,6 @@ pub(crate) async fn board_items(
             // floor — and silently, since a card whose column is missing
             // from `index_of` is simply never bucketed.
             let columns = load_columns_including_removed(conn, board_id, query.include_deleted)?;
-            let live_only = !query.include_deleted;
             let repository_filter: Option<Uuid> = query
                 .repository
                 .as_deref()
@@ -669,6 +699,22 @@ pub(crate) async fn board_items(
                         .map_err(crate::api::tasks::map_repository_error)
                 })
                 .transpose()?;
+
+            // COLLIERY-T-0261: the ids of the page, in the order of the
+            // page, and the count after the filters. 2 queries.
+            let column_ids: Vec<Uuid> = columns.iter().map(|column| column.id).collect();
+            let page = board_item_page(
+                conn,
+                &BoardItemFilter {
+                    board_id,
+                    column_ids: &column_ids,
+                    include_archived: query.include_deleted,
+                    repository_id: repository_filter,
+                },
+                limit,
+                offset,
+            )
+            .map_err(ApiError::internal)?;
 
             let mut groups: Vec<dto::BoardColumnItems> = columns
                 .into_iter()
@@ -685,67 +731,68 @@ pub(crate) async fn board_items(
                 .enumerate()
                 .map(|(i, g)| (g.column.id.clone(), i))
                 .collect();
+
+            // The rows of the page: one query for each type that the page
+            // has, and no query for a card.
+            let ids_of = |kind: CardKind| -> Vec<Uuid> {
+                page.cards
+                    .iter()
+                    .filter(|(card_kind, _)| *card_kind == kind)
+                    .map(|(_, id)| *id)
+                    .collect()
+            };
+            let mut strategy_rows =
+                rows_by_id!(conn, strategies, Strategy, ids_of(CardKind::Strategy));
+            let mut initiative_rows =
+                rows_by_id!(conn, initiatives, Initiative, ids_of(CardKind::Initiative));
+            let mut task_rows = rows_by_id!(conn, tasks, Task, ids_of(CardKind::Task));
+            let mut adr_rows = rows_by_id!(conn, adrs, Adr, ids_of(CardKind::Adr));
+
             // Parent short codes for the children-progress map
             // (KAIROS-T-0080): collected while bucketing so the rollup
             // stays ONE grouped query for the whole board.
             let mut item_codes: Vec<(Uuid, String)> = Vec::new();
-
-            let mut strategy_query = strategies::table
-                .filter(strategies::board_id.eq(board_id))
-                .into_boxed();
-            if live_only {
-                strategy_query = strategy_query.filter(strategies::deleted_at.is_null());
-            }
-            let strategy_rows: Vec<Strategy> = strategy_query
-                .order(strategies::short_code.asc())
-                .select(Strategy::as_select())
-                .load(conn)
-                .map_err(ApiError::internal)?;
-            for row in strategy_rows {
-                if let Some(&i) = index_of.get(&row.column_id.to_string()) {
-                    item_codes.push((row.id, row.short_code.clone()));
-                    groups[i].strategies.push(row.into_dto());
-                }
-            }
-            let mut initiative_query = initiatives::table
-                .filter(initiatives::board_id.eq(board_id))
-                .into_boxed();
-            if live_only {
-                initiative_query = initiative_query.filter(initiatives::deleted_at.is_null());
-            }
-            let initiative_rows: Vec<Initiative> = initiative_query
-                .order(initiatives::short_code.asc())
-                .select(Initiative::as_select())
-                .load(conn)
-                .map_err(ApiError::internal)?;
-            for row in initiative_rows {
-                if let Some(&i) = index_of.get(&row.column_id.to_string()) {
-                    item_codes.push((row.id, row.short_code.clone()));
-                    groups[i].initiatives.push(row.into_dto());
-                }
-            }
-            let mut task_query = tasks::table
-                .filter(tasks::board_id.eq(board_id))
-                .into_boxed();
-            if live_only {
-                task_query = task_query.filter(tasks::deleted_at.is_null());
-            }
-            if let Some(repository_id) = repository_filter {
-                task_query = task_query.filter(tasks::repository_id.eq(repository_id));
-            }
-            let task_rows: Vec<Task> = task_query
-                .order(tasks::short_code.asc())
-                .select(Task::as_select())
-                .load(conn)
-                .map_err(ApiError::internal)?;
-            for row in task_rows {
-                if let Some(&i) = index_of.get(&row.column_id.to_string()) {
-                    item_codes.push((row.id, row.short_code.clone()));
-                    groups[i].tasks.push(row.into_dto());
+            // The cards go to their columns in the order of the page, so
+            // each list of a column has the order of the page.
+            for (kind, id) in &page.cards {
+                match kind {
+                    CardKind::Strategy => {
+                        if let Some(row) = strategy_rows.remove(id)
+                            && let Some(&i) = index_of.get(&row.column_id.to_string())
+                        {
+                            item_codes.push((row.id, row.short_code.clone()));
+                            groups[i].strategies.push(row.into_dto());
+                        }
+                    }
+                    CardKind::Initiative => {
+                        if let Some(row) = initiative_rows.remove(id)
+                            && let Some(&i) = index_of.get(&row.column_id.to_string())
+                        {
+                            item_codes.push((row.id, row.short_code.clone()));
+                            groups[i].initiatives.push(row.into_dto());
+                        }
+                    }
+                    CardKind::Task => {
+                        if let Some(row) = task_rows.remove(id)
+                            && let Some(&i) = index_of.get(&row.column_id.to_string())
+                        {
+                            item_codes.push((row.id, row.short_code.clone()));
+                            groups[i].tasks.push(row.into_dto());
+                        }
+                    }
+                    CardKind::Adr => {
+                        if let Some(row) = adr_rows.remove(id)
+                            && let Some(column_id) = row.column_id
+                            && let Some(&i) = index_of.get(&column_id.to_string())
+                        {
+                            item_codes.push((row.id, row.short_code.clone()));
+                            groups[i].adrs.push(row.into_dto());
+                        }
+                    }
                 }
             }
             // KAIROS-T-0104: embed the repository ref on every task — ONE
-            // query for the whole board (collect, attach, redistribute).
+            // query for the whole page (collect, attach, redistribute).
             {
                 let mut all: Vec<kairos_client::types::Task> = groups
                     .iter_mut()
@@ -762,23 +809,6 @@ pub(crate) async fn board_items(
                 }
                 for group in groups.iter_mut() {
                     group.tasks = by_column.remove(&group.column.id).unwrap_or_default();
-                }
-            }
-            let mut adr_query = adrs::table.filter(adrs::board_id.eq(board_id)).into_boxed();
-            if live_only {
-                adr_query = adr_query.filter(adrs::deleted_at.is_null());
-            }
-            let adr_rows: Vec<Adr> = adr_query
-                .order(adrs::short_code.asc())
-                .select(Adr::as_select())
-                .load(conn)
-                .map_err(ApiError::internal)?;
-            for row in adr_rows {
-                if let Some(column_id) = row.column_id
-                    && let Some(&i) = index_of.get(&column_id.to_string())
-                {
-                    item_codes.push((row.id, row.short_code.clone()));
-                    groups[i].adrs.push(row.into_dto());
                 }
             }
 
@@ -826,6 +856,9 @@ pub(crate) async fn board_items(
             Ok(dto::BoardItemsResponse {
                 board: board.into_dto(),
                 columns: groups,
+                total: page.total,
+                limit,
+                offset,
                 children_progress,
                 blocks_summary,
             })

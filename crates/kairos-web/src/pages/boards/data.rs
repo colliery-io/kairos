@@ -110,6 +110,11 @@ pub struct BoardColumnItems {
 pub struct BoardItemsResponse {
     pub board: Board,
     pub columns: Vec<BoardColumnItems>,
+    /// The number of cards of the board, on all pages (COLLIERY-T-0261).
+    /// After [`load_board_view`] it can be larger than the number of cards
+    /// that the view has: the view reads [`BOARD_CARD_CAP`] cards at most.
+    #[serde(default)]
+    pub total: i64,
     /// Children rollups keyed by the PARENT item's short code
     /// (KAIROS-T-0080); absent for items without children.
     #[serde(default)]
@@ -165,6 +170,140 @@ pub struct ThinEvent {
     pub event: String,
 }
 
+// ---- the pages of the items of a board (COLLIERY-T-0261) --------------------
+
+/// The size of a page of the items of a board: the maximum of the server
+/// (`BOARD_ITEMS_MAX_LIMIT`). A board with 1000 cards or fewer is thus
+/// one request, as it was before the route had pages.
+pub const BOARD_PAGE_LIMIT: i64 = 1000;
+
+/// The number of cards that the board view reads at most. A board with
+/// more cards says so ([`board_cap_note`]).
+pub const BOARD_CARD_CAP: usize = 2000;
+
+impl BoardItemsResponse {
+    /// The number of cards of the response, in all columns.
+    pub fn card_count(&self) -> usize {
+        self.columns
+            .iter()
+            .map(|c| c.strategies.len() + c.initiatives.len() + c.tasks.len() + c.adrs.len())
+            .sum()
+    }
+
+    /// Add the next page to this response: the cards go to the end of
+    /// their columns, and the two maps get the entries of the page.
+    /// `total` becomes that of the newer page. A column that this
+    /// response does not have goes to the end of the columns. Pure,
+    /// host-tested.
+    pub fn add_page(&mut self, page: BoardItemsResponse) {
+        for mut group in page.columns {
+            match self
+                .columns
+                .iter_mut()
+                .find(|mine| mine.column.id == group.column.id)
+            {
+                Some(mine) => {
+                    mine.strategies.append(&mut group.strategies);
+                    mine.initiatives.append(&mut group.initiatives);
+                    mine.tasks.append(&mut group.tasks);
+                    mine.adrs.append(&mut group.adrs);
+                }
+                None => self.columns.push(group),
+            }
+        }
+        self.children_progress.extend(page.children_progress);
+        self.blocks_summary.extend(page.blocks_summary);
+        self.total = page.total;
+    }
+}
+
+/// The `(limit, offset)` of the next page of the items of a board, or
+/// `None` when the view has each card or has [`BOARD_CARD_CAP`] cards.
+/// `fetched` is the number of cards that the view has, and `last_page` is
+/// the number of cards of the last page. The last page before the cap is
+/// smaller, so that the view does not go above the cap.
+///
+/// An empty page stops the read, as in [`crate::api::next_offset`]. Pure,
+/// host-tested.
+pub fn next_board_page(fetched: usize, last_page: usize, total: i64) -> Option<(i64, i64)> {
+    let offset = crate::api::next_offset(fetched, last_page, total)?;
+    let room = BOARD_CARD_CAP.saturating_sub(fetched);
+    if room == 0 {
+        return None;
+    }
+    let limit = i64::try_from(room)
+        .unwrap_or(BOARD_PAGE_LIMIT)
+        .min(BOARD_PAGE_LIMIT);
+    Some((limit, offset))
+}
+
+/// The sentences that the board shows when it does not have each card
+/// (COLLIERY-T-0261), or `None` when it has each card. The filters of the
+/// board apply to the cards that the board has, so the note sends the
+/// person to the search. Pure, host-tested.
+pub fn board_cap_note(shown: usize, total: i64) -> Option<String> {
+    let shown = i64::try_from(shown).unwrap_or(i64::MAX);
+    (shown < total).then(|| {
+        format!(
+            "The board shows {shown} of {total} cards. To find a card that the board does \
+             not show, use the search."
+        )
+    })
+}
+
+/// Each card of a board, page after page, up to [`BOARD_CARD_CAP`] cards:
+/// `GET /api/boards/{id}/items?limit=&offset=`. `total` of the result is
+/// the number of cards of the board.
+pub async fn load_board_items(auth: Auth, board_id: &str) -> Result<BoardItemsResponse, ApiError> {
+    let path = format!("/api/boards/{board_id}/items");
+    let mut items: BoardItemsResponse =
+        get_json(auth, &crate::api::page_url(&path, BOARD_PAGE_LIMIT, 0)).await?;
+    let mut last_page = items.card_count();
+    while let Some((limit, offset)) = next_board_page(items.card_count(), last_page, items.total) {
+        let page: BoardItemsResponse =
+            get_json(auth, &crate::api::page_url(&path, limit, offset)).await?;
+        last_page = page.card_count();
+        items.add_page(page);
+    }
+    Ok(items)
+}
+
+/// Lets one read of the board run at a time (COLLIERY-T-0261). A read of
+/// a large board is 2 requests or more, and each event of the board asks
+/// for a read. With the gate, the events that come during a read give ONE
+/// more read after it, and not one read for each event.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RefetchGate {
+    /// The number of reads that run.
+    running: u32,
+    /// An event came during a read.
+    pending: bool,
+}
+
+impl RefetchGate {
+    /// An event asks for a read. `true`: start the read now. `false`: a
+    /// read runs, and the gate gives one more read after it.
+    pub fn request(&mut self) -> bool {
+        if self.running > 0 {
+            self.pending = true;
+            return false;
+        }
+        true
+    }
+
+    /// A read starts.
+    pub fn started(&mut self) {
+        self.running = self.running.saturating_add(1);
+    }
+
+    /// A read ends. `true`: an event came during the read, so start one
+    /// more read.
+    pub fn finished(&mut self) -> bool {
+        self.running = self.running.saturating_sub(1);
+        self.running == 0 && std::mem::take(&mut self.pending)
+    }
+}
+
 // ---- the whole board view in one fetch -------------------------------------
 
 /// Everything the board view renders: configuration (columns +
@@ -195,8 +334,8 @@ pub async fn load_board_view(auth: Auth, param: &str) -> Result<BoardView, ApiEr
             code: Some("NOT_FOUND".to_string()),
         })?;
     let detail: BoardDetail = get_json(auth, &format!("/api/boards/{}", board.id)).await?;
-    let items: BoardItemsResponse =
-        get_json(auth, &format!("/api/boards/{}/items", board.id)).await?;
+    // COLLIERY-T-0261: the items come in pages.
+    let items = load_board_items(auth, &board.id).await?;
     Ok(BoardView { detail, items })
 }
 
@@ -489,6 +628,178 @@ pub async fn create_document(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One page of the items of a board: the tasks `first..first + count`
+    /// in the column `column`, with an entry in each map for each task.
+    fn page(column: &str, first: usize, count: usize, total: i64) -> BoardItemsResponse {
+        let column_of = |id: &str, position: i32| {
+            serde_json::json!({
+                "column": {"id": id, "name": id, "position": position},
+                "strategies": [], "initiatives": [], "tasks": [], "adrs": []
+            })
+        };
+        let mut columns = vec![column_of("todo", 0), column_of("doing", 1)];
+        let codes: Vec<String> = (first..first + count)
+            .map(|number| format!("DEMO-T-{number:04}"))
+            .collect();
+        let tasks: Vec<serde_json::Value> = codes
+            .iter()
+            .map(|code| {
+                serde_json::json!({
+                    "short_code": code, "title": code,
+                    "task_type": "task", "work_class": "planned"
+                })
+            })
+            .collect();
+        let index = if column == "todo" { 0 } else { 1 };
+        columns[index]["tasks"] = serde_json::Value::Array(tasks);
+        let progress: serde_json::Map<String, serde_json::Value> = codes
+            .iter()
+            .map(|code| (code.clone(), serde_json::json!({"done": 0, "total": 1})))
+            .collect();
+        let blocks: serde_json::Map<String, serde_json::Value> = codes
+            .iter()
+            .map(|code| {
+                (
+                    code.clone(),
+                    serde_json::json!({"blocked_by": 1, "blocks": 0}),
+                )
+            })
+            .collect();
+        serde_json::from_value(serde_json::json!({
+            "board": {"id": "b", "name": "Demo", "slug": "demo-delivery",
+                      "board_level": "delivery"},
+            "columns": columns,
+            "total": total,
+            "children_progress": progress,
+            "blocks_summary": blocks
+        }))
+        .expect("mirror decodes")
+    }
+
+    /// COLLIERY-T-0261: the pages of a board go together as one view.
+    #[test]
+    fn the_pages_of_a_board_go_together() {
+        // 5 cards: 3 in `todo` and 2 in `doing`, in pages of 2 cards.
+        let mut view = page("todo", 1, 2, 5);
+        view.add_page({
+            // The second page has the last card of `todo` and the first
+            // card of `doing`.
+            let mut second = page("todo", 3, 1, 5);
+            second.add_page(page("doing", 4, 1, 5));
+            second
+        });
+        view.add_page(page("doing", 5, 1, 5));
+        assert_eq!(view.card_count(), 5);
+        assert_eq!(view.total, 5);
+        assert_eq!(view.columns.len(), 2, "each column is there one time");
+        let codes = |index: usize| -> Vec<&str> {
+            view.columns[index]
+                .tasks
+                .iter()
+                .map(|task| task.short_code.as_str())
+                .collect()
+        };
+        assert_eq!(codes(0), ["DEMO-T-0001", "DEMO-T-0002", "DEMO-T-0003"]);
+        assert_eq!(codes(1), ["DEMO-T-0004", "DEMO-T-0005"]);
+        // The maps have the entries of each page.
+        assert_eq!(view.children_progress.len(), 5);
+        assert_eq!(view.blocks_summary.len(), 5);
+        assert_eq!(board_cap_note(view.card_count(), view.total), None);
+    }
+
+    /// COLLIERY-T-0261: a response of a server with no pages has no
+    /// `total`. The view has one page, and no note.
+    #[test]
+    fn a_response_with_no_total_is_the_full_board() {
+        let items: BoardItemsResponse = serde_json::from_value(serde_json::json!({
+            "board": {"id": "b", "name": "Demo", "slug": "demo-delivery",
+                      "board_level": "delivery"},
+            "columns": []
+        }))
+        .expect("mirror decodes");
+        assert_eq!(items.total, 0);
+        assert_eq!(next_board_page(0, 0, items.total), None);
+        assert_eq!(board_cap_note(250, items.total), None);
+    }
+
+    /// COLLIERY-T-0261: the view reads each page of a board, and it stops
+    /// at the cap.
+    #[test]
+    fn the_view_reads_each_page_up_to_the_cap() {
+        /// The pages that the view reads for a board of `total` cards:
+        /// `(limit, offset)` of each request.
+        fn requests(total: usize) -> Vec<(i64, i64)> {
+            let mut requests = vec![(BOARD_PAGE_LIMIT, 0)];
+            let mut fetched = 0;
+            loop {
+                let (limit, offset) = *requests.last().expect("a request");
+                let last_page = (total - offset as usize).min(limit as usize);
+                fetched += last_page;
+                match next_board_page(fetched, last_page, total as i64) {
+                    Some(next) => requests.push(next),
+                    None => return requests,
+                }
+            }
+        }
+        // One request for a board of 1000 cards or fewer, as before.
+        assert_eq!(requests(0), [(1000, 0)]);
+        assert_eq!(requests(210), [(1000, 0)]);
+        assert_eq!(requests(1000), [(1000, 0)]);
+        assert_eq!(requests(1001), [(1000, 0), (1000, 1000)]);
+        assert_eq!(requests(2000), [(1000, 0), (1000, 1000)]);
+        // Above the cap: 2 requests, and no more.
+        assert_eq!(requests(2340), [(1000, 0), (1000, 1000)]);
+        assert_eq!(requests(50_000), [(1000, 0), (1000, 1000)]);
+        // An empty page stops the read.
+        assert_eq!(next_board_page(1000, 0, 1500), None);
+        // The last page before the cap is smaller.
+        assert_eq!(next_board_page(1500, 500, 5000), Some((500, 1500)));
+    }
+
+    /// COLLIERY-T-0261: above the cap the board says so, with the numbers.
+    #[test]
+    fn the_board_says_that_it_does_not_show_each_card() {
+        assert_eq!(
+            board_cap_note(2000, 2340).as_deref(),
+            Some(
+                "The board shows 2000 of 2340 cards. To find a card that the board does \
+                 not show, use the search."
+            )
+        );
+        assert_eq!(board_cap_note(2000, 2000), None);
+        assert_eq!(board_cap_note(1000, 1000), None);
+        assert_eq!(board_cap_note(0, 0), None);
+    }
+
+    /// COLLIERY-T-0261: the events that come during a read of the board
+    /// give one more read, and not one read for each event.
+    #[test]
+    fn the_gate_gives_one_read_for_the_events_of_a_read() {
+        let mut gate = RefetchGate::default();
+        // No read runs: the event starts a read.
+        assert!(gate.request());
+        gate.started();
+        // 3 events come during the read: no read starts.
+        assert!(!gate.request());
+        assert!(!gate.request());
+        assert!(!gate.request());
+        // The read ends: ONE more read.
+        assert!(gate.finished());
+        gate.started();
+        // No event came during that read: no more read.
+        assert!(!gate.finished());
+        // And the next event starts a read.
+        assert!(gate.request());
+        // 2 reads run at the same time (the person went to a different
+        // board): the read that follows waits for the last of them.
+        gate.started();
+        gate.started();
+        assert!(!gate.request());
+        assert!(!gate.finished());
+        assert!(gate.finished());
+        assert!(!gate.finished(), "a read that ends 2 times does no harm");
+    }
 
     /// The board-view mirrors decode a realistic
     /// `GET /api/boards/{id}` + `GET /api/boards/{id}/items` pair

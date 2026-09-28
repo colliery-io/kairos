@@ -283,7 +283,13 @@ async fn run_op(
                 record_call(recorder, OpClass::Read, false, client.get_task(code)).await;
             }
             1 => {
-                record_call(recorder, OpClass::Read, false, client.board_items(&home.id)).await;
+                record_call(
+                    recorder,
+                    OpClass::Read,
+                    false,
+                    client.board_items(&home.id, &Default::default()),
+                )
+                .await;
             }
             _ => {
                 record_call(

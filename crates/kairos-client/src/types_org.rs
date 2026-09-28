@@ -9,7 +9,7 @@
 //! 422 `VALIDATION`.
 
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::types::{Adr, Initiative, Strategy, Task};
 
@@ -166,12 +166,62 @@ pub struct BoardColumnItems {
     pub adrs: Vec<Adr>,
 }
 
-/// Response of `GET /api/boards/{id}/items`: all items on the board,
-/// grouped by column (columns in position order).
+/// The default of `limit` of `GET /api/boards/{id}/items`
+/// (COLLIERY-T-0261).
+pub const BOARD_ITEMS_DEFAULT_LIMIT: i64 = 200;
+/// The maximum of `limit` of `GET /api/boards/{id}/items`
+/// (COLLIERY-T-0261).
+pub const BOARD_ITEMS_MAX_LIMIT: i64 = 1000;
+
+/// Query of `GET /api/boards/{id}/items` (KAIROS-T-0104,
+/// COLLIERY-T-0261). Each filter applies before the page.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct BoardItemsQuery {
+    /// Narrow the TASKS to those bound to this repository (slug or UUID).
+    /// Other entity types are unaffected. Unknown repository → 422.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    /// Include archived (put-away) cards, each marked with `archived_at`
+    /// (KAIROS-A-0020 rule 2). Default false — a board is a live board
+    /// unless the reader says otherwise (rule 3).
+    #[serde(default)]
+    pub include_deleted: bool,
+    /// The number of items on a page (default 200, maximum 1000). The
+    /// server changes a larger value to 1000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// The number of items to skip (default 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+}
+
+/// Response of `GET /api/boards/{id}/items`: one page of the items on the
+/// board, grouped by column (columns in position order).
+///
+/// The order of the items is: the position of the column, then the
+/// type, then the short code (COLLIERY-T-0261). The order of the types
+/// is: strategy, initiative, task, ADR. Each column is in each page, and
+/// a column can have no item on a page.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct BoardItemsResponse {
     pub board: Board,
     pub columns: Vec<BoardColumnItems>,
+    /// The number of items on the board after the filters, on all pages
+    /// (COLLIERY-T-0261). The default is for the client only: a response
+    /// of an older server has no `total`, and it has each item.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub total: i64,
+    /// The `limit` that the server applied.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub limit: i64,
+    /// The `offset` that the server applied.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub offset: i64,
     /// `(done, total)` direct-children counts keyed by the PARENT item's
     /// short code, for every item on this board that has children
     /// (KAIROS-T-0080) — computed in one grouped query, never per item.
@@ -195,6 +245,85 @@ pub struct BoardItemsResponse {
     #[serde(default)]
     #[schema(required = true)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
+}
+
+impl BoardItemsResponse {
+    /// The number of items of the response, in all columns.
+    pub fn item_count(&self) -> usize {
+        self.columns
+            .iter()
+            .map(|c| c.strategies.len() + c.initiatives.len() + c.tasks.len() + c.adrs.len())
+            .sum()
+    }
+
+    /// Add the next page to this response (COLLIERY-T-0261): the items go
+    /// to the end of their columns, and the two maps get the entries of
+    /// the page. `total` becomes that of the newer page. A column that
+    /// this response does not have goes to the end of the columns.
+    pub fn add_page(&mut self, page: BoardItemsResponse) {
+        for mut group in page.columns {
+            match self
+                .columns
+                .iter_mut()
+                .find(|mine| mine.column.id == group.column.id)
+            {
+                Some(mine) => {
+                    mine.strategies.append(&mut group.strategies);
+                    mine.initiatives.append(&mut group.initiatives);
+                    mine.tasks.append(&mut group.tasks);
+                    mine.adrs.append(&mut group.adrs);
+                }
+                None => self.columns.push(group),
+            }
+        }
+        self.children_progress.extend(page.children_progress);
+        self.blocks_summary.extend(page.blocks_summary);
+        self.total = page.total;
+    }
+
+    /// The note of a response that is a part of the board
+    /// ([`incomplete_board_note`]), or `None` when the response has each
+    /// item of the board.
+    pub fn incomplete_note(&self, next: &str) -> Option<String> {
+        let shown = i64::try_from(self.item_count()).unwrap_or(i64::MAX);
+        incomplete_board_note(
+            &format!("The board has {} items.", self.total),
+            self.total,
+            shown,
+            self.limit,
+            self.offset,
+            next,
+        )
+    }
+}
+
+/// The sentences that tell a reader that a result is a part of the items
+/// of a board, and how to get the next part (COLLIERY-T-0261). `None` when
+/// the result has each item. `subject` is the sentence that gives the
+/// total. `next` names the parameter of the reader: `call the tool with
+/// offset` for MCP, `use --offset` for the CLI. Pure.
+///
+/// "The board has 340 items. This result shows 200 (limit 200, offset 0).
+/// To read the next part, call the tool with offset 200."
+pub fn incomplete_board_note(
+    subject: &str,
+    total: i64,
+    shown: i64,
+    limit: i64,
+    offset: i64,
+    next: &str,
+) -> Option<String> {
+    if shown >= total {
+        return None;
+    }
+    let mut note = format!("{subject} This result shows {shown} (limit {limit}, offset {offset}).");
+    let next_offset = offset.saturating_add(shown);
+    if shown > 0 && next_offset < total {
+        note.push_str(&format!(" To read the next part, {next} {next_offset}."));
+    } else if offset > 0 {
+        note.push_str(&format!(" To read the first part, {next} 0."));
+    }
+    Some(note)
 }
 
 /// Dependency counts behind a board card's blocked-by/blocks badges
@@ -770,6 +899,124 @@ mod tests {
         .expect("a response with neither map deserializes");
         assert!(response.children_progress.is_empty());
         assert!(response.blocks_summary.is_empty());
+        // COLLIERY-T-0261: and it has no `total`, `limit` or `offset`.
+        assert_eq!((response.total, response.limit, response.offset), (0, 0, 0));
+    }
+
+    /// A response with one column and the tasks of the given short codes.
+    fn page_of(codes: &[&str], total: i64, limit: i64, offset: i64) -> BoardItemsResponse {
+        let tasks: Vec<serde_json::Value> = codes
+            .iter()
+            .map(|code| {
+                json!({
+                    "id": code, "short_code": code, "title": code, "content": "",
+                    "board_id": "b", "column_id": "c", "task_type": "task",
+                    "work_class": "planned", "team_id": null, "version": 1,
+                    "created_by": "u", "updated_by": "u",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                })
+            })
+            .collect();
+        let progress: serde_json::Map<String, serde_json::Value> = codes
+            .iter()
+            .map(|code| {
+                (
+                    code.to_string(),
+                    json!({"done": 0, "total": 1, "has_done": true}),
+                )
+            })
+            .collect();
+        serde_json::from_value(json!({
+            "board": {
+                "id": "b", "name": "Platform", "slug": "platform-delivery",
+                "board_level": "delivery", "team_id": null,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z"
+            },
+            "columns": [{
+                "column": {
+                    "id": "c", "board_id": "b", "name": "Todo", "position": 0,
+                    "is_done": false,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z"
+                },
+                "strategies": [], "initiatives": [], "tasks": tasks, "adrs": []
+            }],
+            "total": total, "limit": limit, "offset": offset,
+            "children_progress": progress,
+            "blocks_summary": {}
+        }))
+        .expect("a page deserializes")
+    }
+
+    /// COLLIERY-T-0261: the pages of a board go together as one response.
+    #[test]
+    fn board_items_pages_go_together() {
+        let mut all = page_of(&["A-T-0001", "A-T-0002"], 3, 2, 0);
+        assert_eq!(all.item_count(), 2);
+        all.add_page(page_of(&["A-T-0003"], 3, 2, 2));
+        assert_eq!(all.item_count(), 3);
+        assert_eq!(all.columns.len(), 1, "the column is there one time");
+        let codes: Vec<&str> = all.columns[0]
+            .tasks
+            .iter()
+            .map(|task| task.short_code.as_str())
+            .collect();
+        assert_eq!(codes, ["A-T-0001", "A-T-0002", "A-T-0003"]);
+        assert_eq!(all.children_progress.len(), 3, "the maps go together");
+        assert_eq!(all.total, 3);
+    }
+
+    /// COLLIERY-T-0261: a response that is a part of the board says so,
+    /// and it says how to get the next part.
+    #[test]
+    fn board_items_note_gives_the_next_part() {
+        let complete = page_of(&["A-T-0001"], 1, 200, 0);
+        assert_eq!(complete.incomplete_note("use --offset"), None);
+        assert_eq!(
+            incomplete_board_note(
+                "The board has 340 items.",
+                340,
+                200,
+                200,
+                0,
+                "call the tool with offset"
+            )
+            .as_deref(),
+            Some(
+                "The board has 340 items. This result shows 200 (limit 200, offset 0). \
+                 To read the next part, call the tool with offset 200."
+            )
+        );
+        // The last part: no next part.
+        assert_eq!(
+            page_of(&["A-T-0003"], 3, 2, 2)
+                .incomplete_note("use --offset")
+                .as_deref(),
+            Some(
+                "The board has 3 items. This result shows 1 (limit 2, offset 2). \
+                 To read the first part, use --offset 0."
+            )
+        );
+        // An offset after the last item.
+        assert_eq!(
+            page_of(&[], 3, 2, 10)
+                .incomplete_note("use --offset")
+                .as_deref(),
+            Some(
+                "The board has 3 items. This result shows 0 (limit 2, offset 10). \
+                 To read the first part, use --offset 0."
+            )
+        );
+    }
+
+    /// COLLIERY-T-0261: the query has no parameter that the caller did
+    /// not set, so the server applies its defaults.
+    #[test]
+    fn board_items_query_has_no_absent_parameter() {
+        let query = serde_json::to_value(BoardItemsQuery::default()).expect("the query");
+        assert_eq!(query, json!({"include_deleted": false}));
     }
 
     /// COLLIERY-T-0254, the schema half: the server sends `has_done` in

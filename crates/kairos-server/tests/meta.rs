@@ -443,7 +443,7 @@ async fn meta_endpoints_against_live_stack() {
         // here, while both ends are open: the counts are of open edges only
         // (COLLIERY-T-0214), and t1 is about to be completed.
         let board = bob
-            .board_items(&delivery_board.to_string())
+            .board_items(&delivery_board.to_string(), &Default::default())
             .await
             .expect("delivery board items");
         let t1_counts = board
@@ -569,7 +569,7 @@ async fn meta_endpoints_against_live_stack() {
     // block (COLLIERY-T-0214): the edge t1 -> t2 is still drawn in the
     // graph above, and it adds to neither card's count.
     let board = bob
-        .board_items(&delivery_board.to_string())
+        .board_items(&delivery_board.to_string(), &Default::default())
         .await
         .expect("delivery board items");
     assert!(

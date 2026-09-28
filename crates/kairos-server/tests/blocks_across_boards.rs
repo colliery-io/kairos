@@ -180,7 +180,7 @@ async fn a_board_hears_a_blocker_on_a_different_board() {
     let counts = |code: String| {
         let svc = svc.clone();
         async move {
-            svc.board_items(&watched.to_string())
+            svc.board_items(&watched.to_string(), &Default::default())
                 .await
                 .expect("board items")
                 .blocks_summary

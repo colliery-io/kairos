@@ -214,9 +214,19 @@ Request body (required): `application/json`, [`UpdateColumnRequest`](schemas.md#
 
 ### `GET /api/boards/{id}/items`
 
-All live items on the board, grouped by column (columns in position
-order; every entity type — strategies, initiatives, tasks, ADRs). Open
-tenant-wide. `?repository=` narrows the tasks (KAIROS-T-0104).
+One page of the items on the board, grouped by column (columns in
+position order; every entity type — strategies, initiatives, tasks,
+ADRs). Open tenant-wide. `?repository=` narrows the tasks
+(KAIROS-T-0104).
+
+The route has pages (COLLIERY-T-0261). `limit` is 200 by default and
+1000 at most. `total` is the number of items after the filters, on all
+pages. Each column is in each page. `children_progress` and
+`blocks_summary` have the items of the page.
+
+The order of the items is: the position of the column, then the type,
+then the short code. The order of the types is: strategy, initiative,
+task, ADR.
 
 `?include_deleted=true` adds the archived cards back, in the column
 each was put away in and marked with `archived_at` (KAIROS-T-0159).
@@ -237,10 +247,12 @@ with a mark on the done end.
 | `id` | path | yes | `string` | Board id (UUID) |
 | `repository` | query | no | `string` | Narrow the TASKS to those bound to this repository (slug or UUID). Other entity types are unaffected. Unknown repository → 422. |
 | `include_deleted` | query | no | `boolean` | Include archived (put-away) cards, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — a board is a live board unless the reader says otherwise (rule 3). |
+| `limit` | query | no | `integer` | The number of items on a page (default 200, maximum 1000). The server changes a larger value to 1000. |
+| `offset` | query | no | `integer` | The number of items to skip (default 0). |
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`BoardItemsResponse`](schemas.md#boarditemsresponse) | Items grouped by column |
+| `200` | [`BoardItemsResponse`](schemas.md#boarditemsresponse) | One page of the items, grouped by column |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
 
 ### `GET /api/boards/{id}/transitions`

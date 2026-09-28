@@ -40,14 +40,14 @@ use crate::types_meta::{
     UpdateMetadataRequest, UpdateTemplateRequest,
 };
 use crate::types_org::{
-    AddBoardMemberRequest, AddOrgMemberRequest, AddStreamTeamRequest, AddTeamMemberRequest, Board,
-    BoardColumn, BoardDetail, BoardItemsResponse, BoardMember, BoardTransition, CreateBoardRequest,
-    CreateColumnRequest, CreateStreamRequest, CreateTeamRequest, CreateTenantRequest,
-    CreateTransitionRequest, DeliveryStream, OrgDeleteResponse, OrgMember,
-    RemoveBoardMemberResponse, RemoveOrgMemberResponse, ReplaceCapabilitiesRequest, Team,
-    TeamMember, TenantCreatedResponse, TenantDeletedResponse, TenantSummary, UpdateBoardRequest,
-    UpdateColumnRequest, UpdateOrgMemberRequest, UpdateStreamRequest, UpdateTeamRequest,
-    WhoamiResponse,
+    AddBoardMemberRequest, AddOrgMemberRequest, AddStreamTeamRequest, AddTeamMemberRequest,
+    BOARD_ITEMS_MAX_LIMIT, Board, BoardColumn, BoardDetail, BoardItemsQuery, BoardItemsResponse,
+    BoardMember, BoardTransition, CreateBoardRequest, CreateColumnRequest, CreateStreamRequest,
+    CreateTeamRequest, CreateTenantRequest, CreateTransitionRequest, DeliveryStream,
+    OrgDeleteResponse, OrgMember, RemoveBoardMemberResponse, RemoveOrgMemberResponse,
+    ReplaceCapabilitiesRequest, Team, TeamMember, TenantCreatedResponse, TenantDeletedResponse,
+    TenantSummary, UpdateBoardRequest, UpdateColumnRequest, UpdateOrgMemberRequest,
+    UpdateStreamRequest, UpdateTeamRequest, WhoamiResponse,
 };
 use crate::types_search::{SearchRequest, SearchResponse};
 use crate::types_team_pages::{
@@ -562,17 +562,20 @@ impl KairosClient {
 
     /// `GET /api/boards/{id}/items?repository=` — the board narrowed to
     /// tasks bound to one repository (slug or UUID, KAIROS-T-0104); other
-    /// entity types are unaffected.
+    /// entity types are unaffected. Each item, page after page
+    /// (COLLIERY-T-0261).
     pub async fn board_items_for_repository(
         &self,
         board_id: &str,
         repository: &str,
     ) -> Result<BoardItemsResponse, Error> {
-        // Slugs are `[a-z0-9-]` and UUIDs are hex, so no encoding is needed
-        // for valid input; anything else is rejected server-side anyway.
-        self.get(&format!(
-            "/api/boards/{board_id}/items?repository={repository}"
-        ))
+        self.board_items_all(
+            board_id,
+            &BoardItemsQuery {
+                repository: Some(repository.to_string()),
+                ..BoardItemsQuery::default()
+            },
+        )
         .await
     }
 
@@ -634,23 +637,71 @@ impl KairosClient {
         self.delete(&format!("/api/boards/{board_id}")).await
     }
 
-    /// `GET /api/boards/{id}/items` — every live item grouped by column.
-    pub async fn board_items(&self, board_id: &str) -> Result<BoardItemsResponse, Error> {
-        self.get(&format!("/api/boards/{board_id}/items")).await
+    /// `GET /api/boards/{id}/items` — ONE page of the items, grouped by
+    /// column (COLLIERY-T-0261). The default of `limit` is 200 and the
+    /// maximum is 1000. `total` of the response is the number of items on
+    /// all pages. For each item of the board, use
+    /// [`Client::board_items_all`].
+    pub async fn board_items(
+        &self,
+        board_id: &str,
+        query: &BoardItemsQuery,
+    ) -> Result<BoardItemsResponse, Error> {
+        self.get_query(&format!("/api/boards/{board_id}/items"), query)
+            .await
+    }
+
+    /// Each item of a board: `GET /api/boards/{id}/items`, page after
+    /// page, as one response (COLLIERY-T-0261). `limit` and `offset` of
+    /// `query` have no effect: the pages have the maximum size, and the
+    /// first page is at offset 0.
+    pub async fn board_items_all(
+        &self,
+        board_id: &str,
+        query: &BoardItemsQuery,
+    ) -> Result<BoardItemsResponse, Error> {
+        let page_query = |offset: i64| BoardItemsQuery {
+            limit: Some(BOARD_ITEMS_MAX_LIMIT),
+            offset: Some(offset),
+            ..query.clone()
+        };
+        let mut all = self.board_items(board_id, &page_query(0)).await?;
+        loop {
+            let read = i64::try_from(all.item_count()).unwrap_or(i64::MAX);
+            if read >= all.total {
+                break;
+            }
+            let page = self.board_items(board_id, &page_query(read)).await?;
+            // A page with no item: the board got smaller between two
+            // pages. Stop, so that the loop has an end.
+            if page.item_count() == 0 {
+                all.total = page.total;
+                break;
+            }
+            all.add_page(page);
+        }
+        all.limit = i64::try_from(all.item_count()).unwrap_or(i64::MAX);
+        all.offset = 0;
+        Ok(all)
     }
 
     /// `GET /api/boards/{id}/items?include_deleted=true` — the board as it
     /// was, archived cards included and each marked with `archived_at`
     /// (KAIROS-A-0020 rule 2). Not a board view: the put-away cards still
     /// carry the column they were put away in, so this answers "what was
-    /// in Done last quarter?", not "what is on the board now?".
+    /// in Done last quarter?", not "what is on the board now?". Each
+    /// item, page after page (COLLIERY-T-0261).
     pub async fn board_items_including_archived(
         &self,
         board_id: &str,
     ) -> Result<BoardItemsResponse, Error> {
-        self.get(&format!(
-            "/api/boards/{board_id}/items?include_deleted=true"
-        ))
+        self.board_items_all(
+            board_id,
+            &BoardItemsQuery {
+                include_deleted: true,
+                ..BoardItemsQuery::default()
+            },
+        )
         .await
     }
 

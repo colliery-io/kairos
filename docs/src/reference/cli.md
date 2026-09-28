@@ -424,9 +424,17 @@ kairos boards show <BOARD_ID> [OPTIONS]
 | Argument | Type | Default | Description |
 |---|---|---|---|
 | `<BOARD_ID>` | UUID | required | Board to show. |
+| `--limit <LIMIT>` | integer | server default 200, maximum 1000 | Page size. |
+| `--offset <OFFSET>` | integer | 0 | Items to skip. |
 
-Shows the board's live items grouped by column. Archived items are not shown
-and there is no flag to include them.
+Shows one page of the board's live items grouped by column. Archived items are
+not shown and there is no flag to include them. The last lines give the total,
+and they tell you when the page is a part of the board:
+
+```
+total: 340 (limit 200, offset 0)
+The board has 340 items. This result shows 200 (limit 200, offset 0). To read the next part, use --offset 200.
+```
 
 Board capability grants are not part of the CLI surface. See
 [Capabilities and access](../explanation/capabilities-and-access.md).

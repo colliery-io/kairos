@@ -26,7 +26,7 @@ Resolve the board with `whoami`/`my_boards` (the user's delivery board) unless t
 
 ## Show what needs attention
 
-`board_items` on Backlog and Blocked; present buckets, oldest first, with counts and a one-line summary per item:
+`board_items` on Backlog and Blocked (`column=Backlog`, then `column=Blocked`). `board_items` gives 200 items at most in one result. When the result is a part of the board, its first lines say so and give the `offset` of the next part. Call `board_items` again with that `offset` until you have each part. The counts of a bucket are the counts of all the parts. Present buckets, oldest first, with counts and a one-line summary per item:
 
 1. **Unrefined** — Backlog items without acceptance criteria
 2. **Unprioritized bugs** — Bugs without a priority value

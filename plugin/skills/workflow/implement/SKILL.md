@@ -11,6 +11,8 @@ Execute one Kairos task from Todo to Completed.
 
 Your **queue** is the board of your team, filtered by the repository of this checkout. The SessionStart context gives both: `team_board` and `repository` (`.claude/kairos.local.md`, COLLIERY-A-0023). Given a short code, `get_item` it. Given nothing, `board_items` with `board=<team_board>` and `repository=<this repo>` → Todo → the highest-priority item with no unresolved `blocks` edge; state the pick and why before starting. (No `repository` wired? Fall back to `my_boards` → the delivery board → `board_items` unfiltered, and suggest `/kairos:bootstrap`.)
 
+**Read each part of the board before you pick.** `board_items` gives 200 items at most in one result. When the result is a part of the board, its first lines say so and give the `offset` of the next part. Call `board_items` again with that `offset` until you have each part. Then make the decision. To read one column only, send `column` (`column=Todo`).
+
 **Stay in your repository.** `get_item` prints the link of the task: `repository: <slug> (owner: <team>)`. The owner can be a different team; that is normal. If the slug differs from this checkout, stop: say which repository holds the code, and pick a different task. A task with no repository that needs code in this checkout: link it with `set_repository` (`short_code`, `repository`), then continue.
 
 **The work of other teams in this repository is not in your queue.** Find it with `search` (`filter.repository`), or in the commits. Read it; the team of its board does it.

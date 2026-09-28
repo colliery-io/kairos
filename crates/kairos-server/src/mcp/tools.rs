@@ -44,8 +44,12 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use kairos_client::types_org::{
+    BOARD_ITEMS_DEFAULT_LIMIT, BOARD_ITEMS_MAX_LIMIT, incomplete_board_note,
+};
 use kairos_core::search as core_search;
 use kairos_core::short_code::ItemType;
+use kairos_db::board_items::{BoardItemFilter, board_item_page};
 use kairos_db::models::boards::{Board, BoardColumn};
 use kairos_db::models::enums::{
     BoardLevel, BucketType, Complexity, DocumentLifecycle, OrgRole, RelationshipType, TaskType,
@@ -126,6 +130,11 @@ pub struct BoardItemsParams {
     /// question is historical ("what was in Done last quarter?"), never
     /// to decide what to work on next.
     pub include_deleted: Option<bool>,
+    /// The number of items in the result (default 200, maximum 1000).
+    pub limit: Option<i64>,
+    /// The number of items to skip (default 0). The result says which
+    /// offset gives the next part of the board.
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -737,7 +746,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
     )]
     pub async fn board_items(
         &self,
@@ -769,7 +778,53 @@ impl KairosMcp {
                         .map_err(crate::api::tasks::map_repository_error)
                 })
                 .transpose()?;
-            let items = board_item_rows(conn, board.id, repository, liveness)?;
+            // COLLIERY-T-0261: one page of the board. The filters apply
+            // before the page, and the order is that of the REST route.
+            let limit = params
+                .limit
+                .unwrap_or(BOARD_ITEMS_DEFAULT_LIMIT)
+                .clamp(1, BOARD_ITEMS_MAX_LIMIT);
+            let offset = params.offset.unwrap_or(0).max(0);
+            let column_ids: Vec<Uuid> = columns.iter().map(|c| c.id).collect();
+            let page = board_item_page(
+                conn,
+                &BoardItemFilter {
+                    board_id: board.id,
+                    column_ids: &column_ids,
+                    include_archived: liveness == Liveness::IncludeArchived,
+                    repository_id: repository,
+                },
+                limit,
+                offset,
+            )
+            .map_err(ApiError::internal)?;
+            let page_ids: Vec<Uuid> = page.cards.iter().map(|(_, id)| *id).collect();
+            let mut items = board_item_rows(conn, board.id, repository, liveness, Some(&page_ids))?;
+            let place: HashMap<Uuid, usize> = page_ids
+                .iter()
+                .enumerate()
+                .map(|(place, id)| (*id, place))
+                .collect();
+            items.sort_by_key(|item| place.get(&item.id).copied().unwrap_or(usize::MAX));
+            let filtered = params.column.is_some()
+                || params.repository.is_some()
+                || liveness == Liveness::IncludeArchived;
+            let subject = if filtered {
+                format!(
+                    "The board has {} items that agree with the filters.",
+                    page.total
+                )
+            } else {
+                format!("The board has {} items.", page.total)
+            };
+            let incomplete = incomplete_board_note(
+                &subject,
+                page.total,
+                i64::try_from(items.len()).unwrap_or(i64::MAX),
+                limit,
+                offset,
+                "call the tool with offset",
+            );
             let repo_ids: Vec<Uuid> = items.iter().filter_map(|i| i.repository_id).collect();
             let repo_slugs = repo_slug_map(conn, &repo_ids)?;
             // The same rollup the board card shows, in the same one
@@ -786,10 +841,24 @@ impl KairosMcp {
                 "# Board {} — {} ({})\n",
                 board.slug, board.name, board.board_level
             );
+            // Before the columns, so that an agent reads it first: a part
+            // of a board must not look like the board.
+            if let Some(note) = &incomplete {
+                out.push_str(&format!("\n{note}\n"));
+            }
             for column in &columns {
                 let in_column: Vec<&BoardItemRow> =
                     items.iter().filter(|i| i.column_id == column.id).collect();
-                out.push_str(&format!("\n## {} ({})\n", column.name, in_column.len()));
+                // The number is that of the column only when the result
+                // is the full board.
+                out.push_str(&match incomplete {
+                    Some(_) => format!(
+                        "\n## {} ({} in this result)\n",
+                        column.name,
+                        in_column.len()
+                    ),
+                    None => format!("\n## {} ({})\n", column.name, in_column.len()),
+                });
                 for item in in_column {
                     // The marker is not decoration: an agent that cannot
                     // tell put-away work from live work will pick one up
@@ -2204,11 +2273,15 @@ type BoardAdrSelect = (Uuid, Option<Uuid>, String, String, Option<DateTime<Utc>>
 /// can have it without `list_boards`' per-column counts silently widening
 /// too: those count live work (ADR-20 rule 5) and pass
 /// [`Liveness::LiveOnly`].
+///
+/// `only` narrows the rows to the items with these ids
+/// (COLLIERY-T-0261): the items of one page of the board.
 fn board_item_rows(
     conn: &mut PgConnection,
     board_id: Uuid,
     repository: Option<Uuid>,
     liveness: Liveness,
+    only: Option<&[Uuid]>,
 ) -> Result<Vec<BoardItemRow>, ApiError> {
     use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
@@ -2219,6 +2292,9 @@ fn board_item_rows(
         .into_boxed();
     if live_only {
         strategy_query = strategy_query.filter(strategies::deleted_at.is_null());
+    }
+    if let Some(ids) = only {
+        strategy_query = strategy_query.filter(strategies::id.eq_any(ids));
     }
     let strategies: Vec<BoardStrategySelect> = strategy_query
         .order(strategies::short_code.asc())
@@ -2251,6 +2327,9 @@ fn board_item_rows(
     if live_only {
         initiative_query = initiative_query.filter(initiatives::deleted_at.is_null());
     }
+    if let Some(ids) = only {
+        initiative_query = initiative_query.filter(initiatives::id.eq_any(ids));
+    }
     let initiatives: Vec<BoardInitiativeSelect> = initiative_query
         .order(initiatives::short_code.asc())
         .select((
@@ -2280,6 +2359,9 @@ fn board_item_rows(
         .into_boxed();
     if live_only {
         task_query = task_query.filter(tasks::deleted_at.is_null());
+    }
+    if let Some(ids) = only {
+        task_query = task_query.filter(tasks::id.eq_any(ids));
     }
     if let Some(repository) = repository {
         task_query = task_query.filter(tasks::repository_id.eq(repository));
@@ -2320,6 +2402,9 @@ fn board_item_rows(
     let mut adr_query = adrs::table.filter(adrs::board_id.eq(board_id)).into_boxed();
     if live_only {
         adr_query = adr_query.filter(adrs::deleted_at.is_null());
+    }
+    if let Some(ids) = only {
+        adr_query = adr_query.filter(adrs::id.eq_any(ids));
     }
     let adrs: Vec<BoardAdrSelect> = adr_query
         .order(adrs::short_code.asc())
@@ -2375,7 +2460,7 @@ fn column_item_counts(
     board_id: Uuid,
 ) -> Result<HashMap<Uuid, i64>, ApiError> {
     let mut counts: HashMap<Uuid, i64> = HashMap::new();
-    for row in board_item_rows(conn, board_id, None, Liveness::LiveOnly)? {
+    for row in board_item_rows(conn, board_id, None, Liveness::LiveOnly, None)? {
         *counts.entry(row.column_id).or_default() += 1;
     }
     Ok(counts)

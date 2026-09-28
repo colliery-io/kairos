@@ -1003,7 +1003,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         .expect("creating task on the delivery board");
 
     let items = bob
-        .board_items(&strategy_board)
+        .board_items(&strategy_board, &Default::default())
         .await
         .expect("strategy board items");
     assert_eq!(items.board.id, strategy_board);
@@ -1021,9 +1021,35 @@ async fn org_and_admin_endpoints_against_live_stack() {
     for group in items.columns.iter().filter(|g| g.column.name != "Draft") {
         assert_eq!(group.strategies.len(), 0);
     }
+    // COLLIERY-T-0261: the typed client sends `limit` and `offset`, and
+    // it reads each page.
+    assert_eq!((items.total, items.limit, items.offset), (2, 200, 0));
+    let page = bob
+        .board_items(
+            &strategy_board,
+            &kairos_client::types_org::BoardItemsQuery {
+                limit: Some(1),
+                offset: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("the second page");
+    assert_eq!((page.total, page.limit, page.offset), (2, 1, 1));
+    assert_eq!(page.item_count(), 1, "{page:?}");
+    assert_eq!(
+        page.columns[0].strategies[0].short_code, draft_group.strategies[1].short_code,
+        "{page:?}"
+    );
+    let all = bob
+        .board_items_all(&strategy_board, &Default::default())
+        .await
+        .expect("each page");
+    assert_eq!(all.columns, items.columns);
+    assert_eq!(all.total, 2);
 
     let items = bob
-        .board_items(&delivery_board)
+        .board_items(&delivery_board, &Default::default())
         .await
         .expect("delivery board items");
     let backlog_group = items

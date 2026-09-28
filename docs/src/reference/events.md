@@ -1,9 +1,9 @@
 # `GET /ws/events` — the WebSocket event channel
 
-Kairos 0.4.0. This is the deployment's only push channel; the rest of the HTTP
-surface is specified by OpenAPI (`GET /api/openapi.json`), which does not model
-WebSockets, so the channel is described here instead. Implementation:
-`crates/kairos-server/src/ws.rs`.
+This is the deployment's only push channel. OpenAPI
+(`GET /api/openapi.json`) specifies the rest of the HTTP surface. OpenAPI does
+not model WebSockets, so this page describes the channel instead.
+Implementation: `crates/kairos-server/src/ws.rs`.
 
 ## Purpose
 
@@ -18,17 +18,19 @@ GET /ws/events            # WebSocket upgrade
 ```
 
 - **Authentication** is the standard stack — bearer token, then tenant
-  resolution — evaluated *before* the protocol upgrade: a missing or
-  invalid token is the usual `401`, a non-member the usual `403`, an
-  unknown tenant the usual `404`.
+  resolution. The server evaluates it *before* the protocol upgrade. A
+  missing or invalid token gets the usual `401`. A non-member gets the
+  usual `403`. An unknown tenant gets the usual `404`.
 - Tokens travel in the `Authorization: Bearer <jwt>` header. Browser
-  `WebSocket` clients cannot set request headers, so the ONE supported
-  fallback is the `?access_token=<jwt>` query parameter (promoted into
-  the `Authorization` header ahead of the auth layer). Browser clients
-  resolve their tenant via the `Host` subdomain (A-0005 §2).
+  `WebSocket` clients cannot set request headers. Thus the ONE supported
+  fallback is the `?access_token=<jwt>` query parameter. The server
+  promotes that parameter into the `Authorization` header ahead of the
+  auth layer. Browser clients resolve their tenant via the `Host`
+  subdomain (A-0005 §2).
 - The connection is **bound to the resolved tenant** at upgrade time.
-  Reads are open tenant-wide (A-0006), so every org member may
-  subscribe; only that tenant's events are ever delivered.
+  Each organization member can read tenant-wide (A-0006), so each
+  organization member may subscribe. The server delivers only the events
+  of that tenant.
 
 ## Server → client: thin events
 

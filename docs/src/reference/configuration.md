@@ -107,7 +107,7 @@ password.
 
 There is no password-reset email. Two paths exist instead:
 
-- **An org admin** resets it: `PUT /api/local-accounts/{user_id}/password`.
+- **An organization admin** resets it: `PUT /api/local-accounts/{user_id}/password`.
 - **An operator** resets it with no login at all:
   `kairos-server set-password --email <email>`, which reads the password from stdin when
   `--password` is absent. It lives beside `drop-tenant` among the
@@ -128,7 +128,7 @@ Local accounts are **additive**, not an alternative: a deployment may have both 
 issuer and local accounts, and neither path knows about the other. A person with one
 email address is one `users` row either way (KAIROS-T-0197).
 
-Accounts are created by an org admin. There is no self-service sign-up and no
+Accounts are created by an organization admin. There is no self-service sign-up and no
 password-reset email — the two intended uses are a small team with no identity
 provider, and a break-glass admin for when an issuer is unreachable.
 

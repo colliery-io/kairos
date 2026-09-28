@@ -18,7 +18,7 @@ team's **In flight** panel.
     --repo-url https://github.com/acme/payments-api --team platform \
     --slug payments-api
   ```
-- You are an **org admin**. Connecting and rotating are admin-only.
+- You are an **organization admin**. Connecting and rotating are admin-only.
 - Two configuration values are set:
 
   ```sh

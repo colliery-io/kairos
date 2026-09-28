@@ -683,7 +683,7 @@ kairos repos create --forge <FORGE> --name <FULL_NAME> --repo-url <URL> --team <
 | `--default-branch <BRANCH>` | string | `main` | Default branch. |
 | `--description <DESCRIPTION>` | string | none | Short "how to work here" blurb for agents. |
 
-Permitted to an org admin or a member of the owning team.
+Permitted to an organization admin or a member of the owning team.
 
 ### `kairos repos update`
 
@@ -713,7 +713,7 @@ kairos repos delete <REPOSITORY> --confirm [OPTIONS]
 | `<REPOSITORY>` | slug or UUID | required | The repository. |
 | `--confirm` | flag | off | Required for the removal to happen. |
 
-Org admin only. Refused while any task or webhook connection still references
+Organization admin only. Refused while any task or webhook connection still references
 the repository.
 
 ### `kairos repos bind`
@@ -845,7 +845,7 @@ kairos admin tenants create --slug <SLUG> --name <NAME> [OPTIONS]
 |---|---|---|---|
 | `--slug <SLUG>` | string matching `^[a-z][a-z0-9_-]{1,62}$` | required | Organization slug. |
 | `--name <NAME>` | string | required | Organization display name. |
-| `--initial-admin <OIDC_SUB>` | string | the caller | OIDC `sub` of the initial org admin. That user must have logged in at least once. |
+| `--initial-admin <OIDC_SUB>` | string | the caller | OIDC `sub` of the initial organization admin. That user must have logged in at least once. |
 
 Provisions the organization row, the schema and the default boards.
 

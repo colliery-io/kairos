@@ -145,7 +145,7 @@ helm test kairos          # runs a Pod that curls /healthz
 
 ## 6. Provision the first tenant
 
-A fresh install has no organizations. Log in through your IdP, then follow
+A fresh install has no organizations. Log in through your issuer, then follow
 [Provision a tenant](provision-a-tenant.md) — the `config.deploymentAdmins`
 value from step 2 is what grants you the cross-tenant admin routes.
 

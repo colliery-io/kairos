@@ -40,7 +40,7 @@ The reason is structural rather than an oversight. A grant is a
 `(board, user, capability)` triple, and neither templates nor metadata
 definitions belong to a board — they are tenant-wide, scoped at most by item
 type. So "configure metadata on this board" could only ever have meant "edit
-definitions that affect every board", which is the authority an org admin already
+definitions that affect every board", which is the authority an organization admin already
 has. Delegating it properly would mean scoping those resources to boards first.
 
 If you granted either capability, nothing changes for the grantee: the grant

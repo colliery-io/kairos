@@ -10,7 +10,7 @@ of board; **delete** and **archive** name the same act.
 ## ADR
 
 Architecture Decision Record. One of the five work-item types, letter `A` in a
-short code. An ADR normally sits on an ADR board; an org admin may also create
+short code. An ADR normally sits on an ADR board; an organization admin may also create
 one off-board, with no board and no column.
 
 ## archived

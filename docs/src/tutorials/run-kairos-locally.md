@@ -312,7 +312,7 @@ built for: an organisation brings its own issuer. Local accounts are the small-t
 exception, and a first lesson is the wrong place to teach an exception.
 
 If you are here because you want to run Kairos for a handful of people and never
-touch an IdP, read
+touch an issuer, read
 [Choosing how people log in](../explanation/choosing-how-people-log-in.md) after
 this — it is the page that tells you whether that is the right call.
 

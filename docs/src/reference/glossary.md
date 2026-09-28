@@ -13,6 +13,15 @@ Architecture Decision Record. One of the five work-item types, letter `A` in a
 short code. An ADR normally sits on an ADR board; an organization admin may also create
 one off-board, with no board and no column.
 
+This book names the ADRs of the Kairos project by short code. An ADR with the
+prefix `KAIROS-A-` is a file in the archive of the repository. The book links
+to that file. An ADR with the prefix `COLLIERY-A-` is in the Kairos deployment
+where the project tracks its work. It has no file in the repository, so the
+book gives its short code with no link.
+
+Where a page needs the reason of such a decision, the page gives the reason in
+its own words.
+
 ## archived
 
 Two unrelated states share this word.

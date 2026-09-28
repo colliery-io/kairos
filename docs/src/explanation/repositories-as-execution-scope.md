@@ -338,9 +338,8 @@ path dimension at all.
   amendment](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
   (KAIROS-A-0019).
 - COLLIERY-A-0023, approved on 2026-09-27, which amends the record above: the
-  team decides the board, and a repository is a link. It is kept in the Kairos
-  deployment where this project tracks its own work, so there is no file to
-  link to.
+  team decides the board, and a repository is a link. It has no file to link
+  to: see [ADR](../reference/glossary.md#adr) in the glossary.
 - [The whitelist stance that requests
   widen](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
   (KAIROS-A-0006).

@@ -371,7 +371,8 @@ async fn a_write_with_an_unknown_field_is_refused_against_live_stack() {
         )
         .await;
     let other_code = other["short_code"].as_str().expect("code").to_string();
-    // The alias of `repository` stays a field of the route.
+    // The old name of `repository` is not a field of the route
+    // (COLLIERY-T-0259).
     let (status, answer) = stack
         .send(
             Method::POST,
@@ -380,9 +381,9 @@ async fn a_write_with_an_unknown_field_is_refused_against_live_stack() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
-    assert!(
-        answer["error"]["details"]["field"] != "repository_id",
-        "the refusal is about the repository, and not about the field: {answer}"
+    assert_eq!(
+        answer["error"]["details"]["field"], "repository_id",
+        "the refusal names the old field: {answer}"
     );
 
     // --- task update (the edit of the content) ------------------------------

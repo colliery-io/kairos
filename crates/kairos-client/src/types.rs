@@ -297,9 +297,10 @@ pub struct CreateTaskRequest {
     /// optional link that says where the code is. It can be any live
     /// repository, of any team, and it does not choose the board
     /// (COLLIERY-T-0217, COLLIERY-A-0023).
-    /// `repository` is THE reference field name on the wire (KAIROS-T-0115);
-    /// `repository_id` is accepted as an alias for one release.
-    #[serde(default, alias = "repository_id")]
+    /// `repository` is THE reference field name on the wire (KAIROS-T-0115).
+    /// The old name `repository_id` is refused, as each field that the
+    /// route does not know (COLLIERY-T-0259).
+    #[serde(default)]
     pub repository: Option<String>,
 }
 

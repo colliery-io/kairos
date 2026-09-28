@@ -21,7 +21,7 @@ use uuid::Uuid;
 use super::super::convert::IntoDto;
 use super::super::convert_org::team_to_dto;
 use super::super::{clamp_pagination, parse_uuid, require_capability};
-use super::is_unique_violation;
+use super::{check_slug_form, is_unique_violation};
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
@@ -160,6 +160,10 @@ pub(crate) async fn get_stream(
 }
 
 /// Create a delivery stream. Org-admin-only.
+///
+/// The slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+/// form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+/// `VALIDATION` with `details.field` = `slug`.
 #[utoipa::path(
     post,
     path = "/api/delivery-streams",
@@ -169,6 +173,7 @@ pub(crate) async fn get_stream(
         (status = 201, description = "Created", body = dto::DeliveryStream),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "The slug does not have the form of a slug", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_stream(
@@ -177,6 +182,8 @@ pub(crate) async fn create_stream(
     Extension(tenant): Extension<TenantContext>,
     ApiJson(body): ApiJson<dto::CreateStreamRequest>,
 ) -> Result<(StatusCode, Json<dto::DeliveryStream>), ApiError> {
+    // COLLIERY-T-0260: the form of the slug that the caller sent.
+    check_slug_form("delivery stream", &body.slug)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let stream = state
@@ -216,6 +223,11 @@ pub(crate) async fn create_stream(
 }
 
 /// Update a delivery stream. Org-admin-only.
+///
+/// A new slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+/// form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+/// `VALIDATION` with `details.field` = `slug`. A delivery stream with a
+/// slug from before the rule keeps that slug.
 #[utoipa::path(
     patch,
     path = "/api/delivery-streams/{id}",
@@ -227,7 +239,7 @@ pub(crate) async fn create_stream(
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown stream", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Empty body", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Empty body, or the new slug does not have the form of a slug", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_stream(
@@ -251,7 +263,16 @@ pub(crate) async fn update_stream(
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::delivery_streams::dsl;
             require_capability(conn, &slug, None, user, MANAGE)?;
-            load_stream(conn, stream_id)?;
+            let stream = load_stream(conn, stream_id)?;
+            // COLLIERY-T-0260: the form of a slug that the caller sent. A
+            // delivery stream keeps a slug from before the rule, so a
+            // request that sends the slug that the stream has is not a
+            // change.
+            if let Some(new_slug) = body.slug.as_deref()
+                && new_slug != stream.slug
+            {
+                check_slug_form("delivery stream", new_slug)?;
+            }
             let updated: DeliveryStream =
                 diesel::update(dsl::delivery_streams.filter(dsl::id.eq(stream_id)))
                     .set((

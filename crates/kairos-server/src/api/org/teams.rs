@@ -26,8 +26,8 @@ use uuid::Uuid;
 use super::super::convert_org::team_to_dto;
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    count_live_board_items, is_unique_violation, map_config_error, require_user_exists,
-    run_in_transaction,
+    check_slug_form, count_live_board_items, is_unique_violation, map_config_error,
+    require_user_exists, run_in_transaction,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -340,6 +340,10 @@ pub(crate) async fn list_work_documents(
 /// Create a team AND its delivery board (seeded from the system delivery
 /// defaults, slug `{slug}-delivery`) in one transaction. Org-admin-only.
 ///
+/// The slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+/// form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+/// `VALIDATION` with `details.field` = `slug`.
+///
 /// A live board can have the slug `{slug}-delivery` already
 /// (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
 /// board, and the server creates no team.
@@ -352,7 +356,7 @@ pub(crate) async fn list_work_documents(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "A live team has the slug, or a live board has the slug of the delivery board", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad team_type", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad team_type, or the slug does not have the form of a slug", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_team(
@@ -367,6 +371,10 @@ pub(crate) async fn create_team(
         .map(|v| parse_enum::<TeamType>(v, "team_type", TeamType::ALL))
         .transpose()?
         .unwrap_or(TeamType::StreamAligned);
+    // COLLIERY-T-0260: the form of the slug that the caller sent. The
+    // slug `{slug}-delivery` of the delivery board is a slug that the
+    // server makes, so it gets no check.
+    check_slug_form("team", &body.slug)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let team = state
@@ -444,6 +452,11 @@ pub(crate) async fn create_team(
 
 /// Update a team (name/slug/team_type). Org-admin-only. The delivery
 /// board's name/slug are independent and unchanged.
+///
+/// A new slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+/// form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+/// `VALIDATION` with `details.field` = `slug`. A team with a slug from
+/// before the rule keeps that slug.
 #[utoipa::path(
     patch,
     path = "/api/teams/{id}",
@@ -455,7 +468,7 @@ pub(crate) async fn create_team(
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad team_type or empty body", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad team_type, empty body, or the new slug does not have the form of a slug", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_team(
@@ -483,7 +496,15 @@ pub(crate) async fn update_team(
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::teams::dsl;
             require_capability(conn, &slug, None, user, MANAGE)?;
-            load_team(conn, team_id)?;
+            let team = load_team(conn, team_id)?;
+            // COLLIERY-T-0260: the form of a slug that the caller sent. A
+            // team keeps a slug from before the rule, so a request that
+            // sends the slug that the team has is not a change.
+            if let Some(new_slug) = body.slug.as_deref()
+                && new_slug != team.slug
+            {
+                check_slug_form("team", new_slug)?;
+            }
             let updated: Team = diesel::update(dsl::teams.filter(dsl::id.eq(team_id)))
                 .set((
                     TeamChangeset {

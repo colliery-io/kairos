@@ -91,6 +91,23 @@ pub fn validate_capabilities(capabilities: &[String]) -> Result<(), ApiError> {
 // Shared loading + error mapping
 // ---------------------------------------------------------------------------
 
+/// 422 `VALIDATION` for a slug that does not have the form of a slug
+/// (COLLIERY-T-0258, COLLIERY-T-0260, [`kairos_core::slug::is_valid_slug`]).
+/// `kind` is `board`, `team` or `delivery stream`. The refusal gives the
+/// rule. The check is for a slug that the caller sent: the server does not
+/// apply it to the slug `<team-slug>-delivery` that it makes with a team.
+pub fn check_slug_form(kind: &str, slug: &str) -> Result<(), ApiError> {
+    if kairos_core::slug::is_valid_slug(slug) {
+        return Ok(());
+    }
+    Err(ApiError::validation(format!(
+        "The {kind} slug {slug:?} is not correct. A {kind} slug must match {}, and it cannot \
+         have the form of a UUID. Send a different slug.",
+        kairos_core::slug::SLUG_RULE
+    ))
+    .with_details(json!({ "field": "slug" })))
+}
+
 /// Load a live board by id, or 404.
 pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiError> {
     use kairos_db::schema::boards::dsl;

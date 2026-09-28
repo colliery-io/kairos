@@ -382,6 +382,10 @@ List teams (open tenant-wide).
 Create a team AND its delivery board (seeded from the system delivery
 defaults, slug `{slug}-delivery`) in one transaction. Org-admin-only.
 
+The slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+`VALIDATION` with `details.field` = `slug`.
+
 A live board can have the slug `{slug}-delivery` already
 (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
 board, and the server creates no team.
@@ -393,7 +397,7 @@ Request body (required): `application/json`, [`CreateTeamRequest`](schemas.md#cr
 | `201` | [`Team`](schemas.md#team) | Created; delivery_board_id names the team's new board |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live team has the slug, or a live board has the slug of the delivery board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type, or the slug does not have the form of a slug |
 
 ### `GET /api/teams/by-slug/{slug}`
 
@@ -447,6 +451,11 @@ applies the rule to each board, and it removes each board with the team
 Update a team (name/slug/team_type). Org-admin-only. The delivery
 board's name/slug are independent and unchanged.
 
+A new slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+`VALIDATION` with `details.field` = `slug`. A team with a slug from
+before the rule keeps that slug.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Team id (UUID) |
@@ -459,7 +468,7 @@ Request body (required): `application/json`, [`UpdateTeamRequest`](schemas.md#up
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown team |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type or empty body |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type, empty body, or the new slug does not have the form of a slug |
 
 ### `GET /api/teams/{id}/links`
 
@@ -688,6 +697,10 @@ List delivery streams (open tenant-wide).
 
 Create a delivery stream. Org-admin-only.
 
+The slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+`VALIDATION` with `details.field` = `slug`.
+
 Request body (required): `application/json`, [`CreateStreamRequest`](schemas.md#createstreamrequest)
 
 | Response | Body | Meaning |
@@ -695,6 +708,7 @@ Request body (required): `application/json`, [`CreateStreamRequest`](schemas.md#
 | `201` | [`DeliveryStream`](schemas.md#deliverystream) | Created |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The slug does not have the form of a slug |
 
 ### `GET /api/delivery-streams/{id}`
 
@@ -728,6 +742,11 @@ stream is recoverable). Org-admin-only.
 
 Update a delivery stream. Org-admin-only.
 
+A new slug must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the
+form of a UUID (COLLIERY-T-0260). If not, the request is a 422
+`VALIDATION` with `details.field` = `slug`. A delivery stream with a
+slug from before the rule keeps that slug.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Stream id (UUID) |
@@ -740,7 +759,7 @@ Request body (required): `application/json`, [`UpdateStreamRequest`](schemas.md#
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown stream |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already in use |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Empty body |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Empty body, or the new slug does not have the form of a slug |
 
 ### `GET /api/delivery-streams/{id}/teams`
 

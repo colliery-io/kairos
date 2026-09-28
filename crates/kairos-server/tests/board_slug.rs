@@ -562,9 +562,9 @@ async fn a_sent_slug_has_the_form_of_a_board_slug_against_live_stack() {
     assert_eq!(board["slug"], "plans", "{board}");
 
     // --- the slug that the server makes for a team ----------------------------
-    // REST has no rule for the form of a team slug, and a team slug of 63
-    // characters is correct for SCIM. The slug of the delivery board is
-    // longer than 63 characters, and the server makes the board.
+    // A team slug of 63 characters has the form (COLLIERY-T-0260), and it
+    // is correct for SCIM. The slug of the delivery board is longer than
+    // 63 characters, and the server makes the board.
     let team_slug = "t".repeat(63);
     let team = stack
         .ok(

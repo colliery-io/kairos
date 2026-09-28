@@ -75,11 +75,7 @@ the update of a board with the slug of a live board. The refusal is 409
 `CONFLICT`, and it names the board that has the slug. A deleted board does not
 keep its slug.
 
-A slug that a caller sends must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot
-have the form of a UUID. If not, the refusal is 422 `VALIDATION`, and it gives
-the rule. The rule does not apply to the slug that Kairos makes for the
-delivery board of a team. A board with a slug from before the rule keeps that
-slug.
+A slug that a caller sends must agree with the rule of a [slug](#slug).
 
 Every board has a team. The rule has two forms.
 
@@ -190,6 +186,8 @@ See [board](#board).
 A grouping of teams, with a name, slug and description. Membership is
 many-to-many: a team may belong to several streams and a stream holds several
 teams. Streams carry no boards and no work of their own.
+
+A slug that a caller sends must agree with the rule of a [slug](#slug).
 
 ## document
 
@@ -399,6 +397,28 @@ from the organization slug, the letter is the item type, and the number comes
 from a per-type sequence. Short codes identify items in every API, every CLI
 command and every MCP tool.
 
+## slug
+
+The short name of a board, a team or a delivery stream in a URL and in a
+command. A slug that a caller sends must match `^[a-z][a-z0-9_-]{1,62}$`, and
+it cannot have the form of a UUID. The slug has 2 to 63 characters. The first
+character is a lowercase letter. Each other character is a lowercase letter, a
+digit, `-` or `_`.
+
+Kairos applies the rule to the create and to the update of a board, a team and
+a delivery stream. A slug that does not agree with the rule gets the refusal
+422 `VALIDATION` with `details.field` = `slug`. The message gives the rule.
+Send a different slug.
+
+- The rule applies only to a slug that the request changes. A board, a team or
+  a delivery stream with a slug from before the rule keeps that slug. You can
+  read it, change its other fields and delete it.
+- The rule does not apply to the slug `{team-slug}-delivery` that Kairos makes
+  for the delivery board of a team. That slug can have more than 63 characters.
+- A [repository](#repository) and an [organization](#organization) have
+  different rules. The slug of a repository must match
+  `^[a-z0-9][a-z0-9-]{1,62}$`.
+
 ## strategy
 
 One of the five work-item types, letter `S`. Flight Level 3. May carry a
@@ -431,6 +451,9 @@ Topologies:
 
 `stream_aligned` is the default. The type is descriptive: it does not change
 permissions or the board of a task.
+
+A team has a slug, and the page of the team is `/teams/{slug}`. A slug that a
+caller sends must agree with the rule of a [slug](#slug).
 
 Every board has a team, but only a delivery board has a team of this kind. The
 team of a board of the organization is the list of the members of that board.

@@ -250,6 +250,12 @@ pub fn AdminBoardPage() -> impl IntoView {
     let reload = RwSignal::new(0u32);
     let outcome = RwSignal::new(None);
     let busy = RwSignal::new(false);
+    // The selection of the transition form. It is here and not in
+    // `TransitionsPanel`, because each reload makes a new panel: a
+    // selection in the panel went back to the first columns when a
+    // mutation completed (COLLIERY-T-0238).
+    let from_name = RwSignal::new(String::new());
+    let to_name = RwSignal::new(String::new());
 
     let detail = LocalResource::new(move || {
         let _ = auth.token();
@@ -279,7 +285,8 @@ pub fn AdminBoardPage() -> impl IntoView {
                         <ColumnsPanel board_id=id.clone() columns=detail.columns.clone()
                             transitions=detail.transitions.clone() busy outcome reload/>
                         <TransitionsPanel board_id=id.clone() columns=detail.columns.clone()
-                            transitions=detail.transitions.clone() busy outcome reload/>
+                            transitions=detail.transitions.clone() busy outcome reload
+                            from_name to_name/>
                         <MembersPanel board_id=id board_level=level
                             busy outcome reload/>
                     </Stack>
@@ -454,6 +461,17 @@ fn ColumnsPanel(
     }
 }
 
+/// The new value of a selection of the transition form, or `None` when
+/// the selection stays (COLLIERY-T-0238). The selection stays when it
+/// names a column of the board. If not, it becomes the column at
+/// `default_index`, or empty for a board with too few columns.
+fn kept_or_default(names: &[String], selected: &str, default_index: usize) -> Option<String> {
+    if names.iter().any(|name| name == selected) {
+        return None;
+    }
+    Some(names.get(default_index).cloned().unwrap_or_default())
+}
+
 /// Transition edges: which column-to-column moves the board allows.
 #[component]
 fn TransitionsPanel(
@@ -463,6 +481,8 @@ fn TransitionsPanel(
     busy: RwSignal<bool>,
     outcome: RwSignal<MutationOutcome>,
     reload: RwSignal<u32>,
+    from_name: RwSignal<String>,
+    to_name: RwSignal<String>,
 ) -> impl IntoView {
     let auth = use_auth();
     let board = StoredValue::new(board_id);
@@ -478,8 +498,16 @@ fn TransitionsPanel(
     };
 
     let names: Vec<String> = columns.iter().map(|column| column.name.clone()).collect();
-    let from_name = RwSignal::new(names.first().cloned().unwrap_or_default());
-    let to_name = RwSignal::new(names.get(1).cloned().unwrap_or_default());
+    // The page owns the selection, so it stays across a reload
+    // (COLLIERY-T-0238). A selection that names no column of the board
+    // (the first load, or a column that was renamed or removed) goes to
+    // the default.
+    if let Some(name) = kept_or_default(&names, &from_name.get_untracked(), 0) {
+        from_name.set(name);
+    }
+    if let Some(name) = kept_or_default(&names, &to_name.get_untracked(), 1) {
+        to_name.set(name);
+    }
     let by_name = StoredValue::new(
         columns
             .iter()
@@ -808,5 +836,24 @@ mod tests {
             no_members_message("delivery"),
             "No capability grants on this board yet — add a member below."
         );
+    }
+
+    /// COLLIERY-T-0238: the selection of the transition form stays when
+    /// it names a column of the board, and goes to the default when it
+    /// does not.
+    #[test]
+    fn the_selection_of_the_transition_form_stays_across_a_reload() {
+        let names: Vec<String> = ["Backlog", "Todo", "Active", "Review"]
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(kept_or_default(&names, "Active", 0), None);
+        assert_eq!(kept_or_default(&names, "Review", 1), None);
+        // The first load, and a column that was removed.
+        assert_eq!(kept_or_default(&names, "", 0), Some("Backlog".to_string()));
+        assert_eq!(kept_or_default(&names, "Gone", 1), Some("Todo".to_string()));
+        // A board with too few columns has no default.
+        assert_eq!(kept_or_default(&names[..1], "", 1), Some(String::new()));
+        assert_eq!(kept_or_default(&[], "", 0), Some(String::new()));
     }
 }

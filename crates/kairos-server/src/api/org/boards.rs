@@ -357,7 +357,8 @@ pub(crate) async fn create_board(
                     .map_err(ApiError::internal)?;
                 if exists.is_none() {
                     return Err(ApiError::validation(format!(
-                        "team {team_id} does not exist"
+                        "The team {team_id} is not in the organization. Send the id of a \
+                         team of the organization as team_id."
                     )));
                 }
             }
@@ -426,7 +427,8 @@ pub(crate) async fn update_board(
                 .transpose()
         })
         .transpose()?;
-    let nothing_to_update = || ApiError::validation("at least one of name, slug is required");
+    let nothing_to_update =
+        || ApiError::validation("The request has no field to change. Send name, slug, or the two.");
     if body.name.is_none() && body.slug.is_none() && sent_team.is_none() {
         return Err(nothing_to_update());
     }
@@ -523,9 +525,10 @@ pub(crate) async fn delete_board(
                     return Err(ApiError::unprocessable(
                         "BOARD_NOT_EMPTY",
                         format!(
-                            "board {:?} still holds {item_count} live card(s): [{}]; move them \
-                             to another board or delete them, then retry",
+                            "The board {:?} has {item_count} live card{}: [{}]. Move each card \
+                             to a different board or delete it. Then delete the board.",
                             board.name,
+                            if item_count == 1 { "" } else { "s" },
                             items.join(", ")
                         ),
                     )

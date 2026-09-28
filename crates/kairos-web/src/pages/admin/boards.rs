@@ -77,6 +77,39 @@ fn no_members_message(level: &str) -> &'static str {
     }
 }
 
+/// The name of the team, when the server refuses the delete of this board
+/// with `LAST_DELIVERY_BOARD` (COLLIERY-T-0251). The server refuses the
+/// delete of the only live delivery board of a live team
+/// (COLLIERY-T-0241). `boards` and `teams` are the live lists that the page
+/// has. A team of old data can have 2 or more delivery boards, and the
+/// delete of one of them is permitted. Pure, host-tested.
+fn only_delivery_board_of(
+    board: &api::Board,
+    boards: &[api::Board],
+    teams: &[api::Team],
+) -> Option<String> {
+    if board.board_level != DELIVERY {
+        return None;
+    }
+    let team_id = board.team_id.as_deref()?;
+    let team = teams.iter().find(|team| team.id == team_id)?;
+    let delivery_boards = boards
+        .iter()
+        .filter(|other| other.board_level == DELIVERY)
+        .filter(|other| other.team_id.as_deref() == Some(team_id))
+        .count();
+    (delivery_boards == 1).then(|| team.name.clone())
+}
+
+/// What the list says in the place of a delete that the server refuses
+/// (COLLIERY-T-0251). Pure, host-tested.
+fn only_delivery_board_note(team_name: &str) -> String {
+    format!(
+        "This board is the only delivery board of the team \"{team_name}\". \
+         To remove the board, delete the team."
+    )
+}
+
 /// `/admin/boards` — every live board, plus create/delete.
 #[component]
 pub fn AdminBoardsPage() -> impl IntoView {
@@ -161,8 +194,17 @@ pub fn AdminBoardsPage() -> impl IntoView {
                     Some(Ok(items)) if items.is_empty() => view! {
                         <Empty message="No boards yet — create one below."/>
                     }.into_any(),
-                    Some(Ok(items)) => items.into_iter().map(|board| {
+                    Some(Ok(items)) => {
+                        let live_teams = teams.get().and_then(|result| result.ok()).unwrap_or_default();
+                        let all = items.clone();
+                        items.into_iter().map(move |board| {
                         let config_href = format!("/admin/boards/{}", board.id);
+                        // COLLIERY-T-0251: the server refuses the delete of
+                        // the only delivery board of a team. The page says
+                        // so, and does not offer the delete.
+                        let refused_for = StoredValue::new(
+                            only_delivery_board_of(&board, &all, &live_teams),
+                        );
                         // StoredValue keeps the delete handler Copy so the
                         // admin-gated `Show` child (a `Fn`) can rebuild it.
                         let board_id = StoredValue::new(board.id.clone());
@@ -188,17 +230,32 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                                 },
                                             );
                                         };
-                                        view! {
-                                            <Button variant="default" size="xs" bad=true
-                                                on_click=Callback::new(on_delete)>
-                                                "Delete"
-                                            </Button>
+                                        match refused_for.get_value() {
+                                            Some(team_name) => view! {
+                                                <Group gap="sm" wrap=true>
+                                                    <Text size="xs" dimmed=true>
+                                                        {only_delivery_board_note(&team_name)}
+                                                    </Text>
+                                                    <Anchor href="/admin/teams">"Open the teams"</Anchor>
+                                                    <Button variant="default" size="xs" bad=true
+                                                        disabled=true>
+                                                        "Delete"
+                                                    </Button>
+                                                </Group>
+                                            }.into_any(),
+                                            None => view! {
+                                                <Button variant="default" size="xs" bad=true
+                                                    on_click=Callback::new(on_delete)>
+                                                    "Delete"
+                                                </Button>
+                                            }.into_any(),
                                         }
                                     }
                                 </Show>
                             </Group>
                         }
-                    }).collect_view().into_any(),
+                    }).collect_view().into_any()
+                    }
                 }}
             </Panel>
             // Board creation is org-admin-only (tenant-level, A-0006);
@@ -835,6 +892,81 @@ mod tests {
         assert_eq!(
             no_members_message("delivery"),
             "No capability grants on this board yet — add a member below."
+        );
+    }
+
+    fn board(id: &str, level: &str, team_id: Option<&str>) -> api::Board {
+        api::Board {
+            id: id.to_string(),
+            name: id.to_string(),
+            slug: id.to_string(),
+            board_level: level.to_string(),
+            team_id: team_id.map(str::to_string),
+        }
+    }
+
+    fn team(id: &str, name: &str) -> api::Team {
+        api::Team {
+            id: id.to_string(),
+            name: name.to_string(),
+            slug: name.to_lowercase(),
+            team_type: "stream_aligned".to_string(),
+            delivery_board_id: None,
+        }
+    }
+
+    /// COLLIERY-T-0251: the page does not offer the delete of the only
+    /// delivery board of a team, and the note names the team.
+    #[test]
+    fn the_only_delivery_board_of_a_team_has_no_delete() {
+        let teams = [team("t1", "Platform"), team("t2", "Web")];
+        let boards = [
+            board("b1", "delivery", Some("t1")),
+            board("b2", "delivery", Some("t2")),
+            board("b3", "initiative", None),
+        ];
+        assert_eq!(
+            only_delivery_board_of(&boards[0], &boards, &teams),
+            Some("Platform".to_string())
+        );
+        assert_eq!(
+            only_delivery_board_of(&boards[1], &boards, &teams),
+            Some("Web".to_string())
+        );
+        // A board of the organization has no delivery team.
+        assert_eq!(only_delivery_board_of(&boards[2], &boards, &teams), None);
+        let note = only_delivery_board_note("Platform");
+        assert!(note.contains("\"Platform\""), "{note}");
+        assert!(note.contains("delete the team"), "{note}");
+    }
+
+    /// COLLIERY-T-0251: a team of old data can have 2 delivery boards, and
+    /// the server permits the delete of one. A delivery board of a team
+    /// that is not live, or with no team, is not in the rule.
+    #[test]
+    fn a_team_with_two_delivery_boards_can_delete_one() {
+        let teams = [team("t1", "Platform")];
+        let boards = [
+            board("b1", "delivery", Some("t1")),
+            board("b2", "delivery", Some("t1")),
+            board("b3", "delivery", Some("gone")),
+            board("b4", "delivery", None),
+            // A board of a different level does not count as a second
+            // delivery board.
+            board("b5", "initiative", Some("t1")),
+        ];
+        for board in &boards {
+            assert_eq!(
+                only_delivery_board_of(board, &boards, &teams),
+                None,
+                "{}",
+                board.id
+            );
+        }
+        // One of the two is deleted: the other is now the only one.
+        assert_eq!(
+            only_delivery_board_of(&boards[0], &boards[..1], &teams),
+            Some("Platform".to_string())
         );
     }
 

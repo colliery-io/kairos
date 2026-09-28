@@ -73,17 +73,29 @@ journey(
       await expect(relationships).toBeVisible();
       // The children carry their titles in the link text, so take the code
       // from the href a reader would follow (KAIROS-T-0137).
+      // The panel is visible before its lists are: the relationships come
+      // from a second request. So read the links until the initiatives are
+      // there (COLLIERY-T-0237).
       const links = relationships.locator('a[href*="/items/"]');
-      const hrefs = await links.evaluateAll((els) =>
-        els.map((el) => (el as HTMLAnchorElement).getAttribute('href') ?? ''),
-      );
-      initiatives = [
-        ...new Set(
-          hrefs
-            .map((h) => h.split('/items/')[1] ?? '')
-            .filter((c) => /-I-\d{4}$/.test(c)),
-        ),
-      ];
+      const read = async () => {
+        const hrefs = await links.evaluateAll((els) =>
+          els.map((el) => (el as HTMLAnchorElement).getAttribute('href') ?? ''),
+        );
+        return [
+          ...new Set(
+            hrefs
+              .map((h) => h.split('/items/')[1] ?? '')
+              .filter((c) => /-I-\d{4}$/.test(c)),
+          ),
+        ];
+      };
+      await expect
+        .poll(async () => (await read()).length, {
+          message: 'the strategy has initiatives under it',
+          timeout: 15_000,
+        })
+        .toBeGreaterThan(0);
+      initiatives = await read();
       expect(initiatives.length, 'the strategy has initiatives under it').toBeGreaterThan(0);
       return { strategy, initiatives };
     });

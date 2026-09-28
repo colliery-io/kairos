@@ -70,22 +70,8 @@ export function laneCard(page: Page, lane: Lane, columnName: string, code: strin
 /** Drag a card to a column IN A NAMED LANE (see `gui.dragCard` for why the
  * mouse is driven by hand rather than through `dragTo`). */
 export async function dragInLane(page: Page, code: string, lane: Lane, toColumn: string): Promise<void> {
-  const source = card(page, code).first();
   const target = laneColumn(page, lane, toColumn);
-  await target.scrollIntoViewIfNeeded();
-  await source.scrollIntoViewIfNeeded();
-  const from = await source.boundingBox();
-  const box = await target.boundingBox();
-  const viewport = page.viewportSize();
-  if (!from || !box || !viewport) throw new Error(`no geometry for ${code} → ${lane}/${toColumn}`);
-  const at = {
-    x: (Math.max(box.x, 0) + Math.min(box.x + box.width, viewport.width)) / 2,
-    y: (Math.max(box.y, 0) + Math.min(box.y + box.height, viewport.height)) / 2,
-  };
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at.x, at.y, { steps: 2 });
-  await page.mouse.up();
+  await dragToTarget(page, card(page, code).first(), target, `card ${code}`, `${lane}/${toColumn}`);
   await expect(laneCard(page, lane, toColumn, code)).toBeVisible({ timeout: 15_000 });
 }
 
@@ -103,22 +89,52 @@ export async function dragInLane(page: Page, code: string, lane: Lane, toColumn:
  * of the target that is on screen without scrolling again.
  */
 export async function dragCard(page: Page, code: string, toColumn: string): Promise<void> {
-  const source = card(page, code).first();
   const target = column(page, toColumn);
-  await target.scrollIntoViewIfNeeded();
-  await source.scrollIntoViewIfNeeded();
-  const from = await source.boundingBox();
-  if (!from) throw new Error(`card ${code} has no bounding box`);
-  const at = await visiblePoint(page, target, `column ${toColumn}`);
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(at.x, at.y, { steps: 2 });
-  await page.mouse.up();
+  await dragToTarget(page, card(page, code).first(), target, `card ${code}`, `column ${toColumn}`);
   await expect(cardIn(page, toColumn, code)).toBeVisible({ timeout: 15_000 });
 }
 
-/** The centre of the part of `target` that is inside the viewport. */
-async function visiblePoint(page: Page, target: Locator, what: string): Promise<{ x: number; y: number }> {
+/**
+ * The drag of `dragCard` and `dragInLane` (COLLIERY-T-0253). The two ends
+ * are not always in one viewport: a column of a different lane can be some
+ * screens from the card. A person then does this: press, move the card
+ * (the drag starts), turn the wheel until the target shows, move to it,
+ * release. The wheel turns only AFTER the drag starts, so the defect of
+ * KAIROS-T-0124 #8 does not come back. The same approach is in
+ * `e2e/helpers/drag.ts`. The two packages share no code.
+ */
+async function dragToTarget(
+  page: Page,
+  source: Locator,
+  target: Locator,
+  sourceName: string,
+  targetName: string,
+): Promise<void> {
+  await target.scrollIntoViewIfNeeded();
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  if (!from) throw new Error(`${sourceName} has no bounding box`);
+  const origin = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  const near = await visiblePoint(page, target, targetName);
+  await page.mouse.move(origin.x, origin.y);
+  await page.mouse.down();
+  if (near) {
+    await page.mouse.move(near.x, near.y, { steps: 2 });
+  } else {
+    // Start the drag on the card, then scroll, then go to the target.
+    await page.mouse.move(origin.x + 12, origin.y + 12, { steps: 2 });
+    const far = await wheelTo(page, target, targetName);
+    await page.mouse.move(far.x, far.y, { steps: 2 });
+  }
+  await page.mouse.up();
+}
+
+/** The centre of the part of `target` that is inside the viewport, or null. */
+async function visiblePoint(
+  page: Page,
+  target: Locator,
+  what: string,
+): Promise<{ x: number; y: number } | null> {
   const box = await target.boundingBox();
   const viewport = page.viewportSize();
   if (!box) throw new Error(`${what} has no bounding box`);
@@ -127,8 +143,41 @@ async function visiblePoint(page: Page, target: Locator, what: string): Promise<
   const top = Math.max(box.y, 0);
   const right = Math.min(box.x + box.width, viewport.width);
   const bottom = Math.min(box.y + box.height, viewport.height);
-  if (right - left < 4 || bottom - top < 4) throw new Error(`${what} is not in the viewport`);
+  if (right - left < 4 || bottom - top < 4) return null;
   return { x: (left + right) / 2, y: (top + bottom) / 2 };
+}
+
+/**
+ * Turn the wheel, with the mouse button down and the drag in progress,
+ * until a part of `target` is in the viewport. Returns a point of that part.
+ */
+async function wheelTo(page: Page, target: Locator, what: string): Promise<{ x: number; y: number }> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error('the page has no viewport size');
+  // Each turn is less than one viewport, so the target cannot go past.
+  const turn = { x: viewport.width / 2, y: viewport.height / 2 };
+  for (let turns = 0; turns < 200; turns += 1) {
+    const at = await visiblePoint(page, target, what);
+    if (at) return at;
+    const box = await target.boundingBox();
+    if (!box) throw new Error(`${what} has no bounding box`);
+    const before = { x: box.x, y: box.y };
+    const dx = box.x + box.width <= 0 ? -turn.x : box.x >= viewport.width ? turn.x : 0;
+    const dy = box.y + box.height <= 0 ? -turn.y : box.y >= viewport.height ? turn.y : 0;
+    await page.mouse.wheel(dx, dy);
+    // The scroll is not synchronous with the wheel event. Wait until the
+    // target moves; a target that does not move cannot be reached.
+    const deadline = Date.now() + 2_000;
+    for (;;) {
+      const now = await target.boundingBox();
+      if (now && (now.x !== before.x || now.y !== before.y)) break;
+      if (Date.now() > deadline) {
+        throw new Error(`the page does not scroll to ${what} during the drag`);
+      }
+      await page.waitForTimeout(50);
+    }
+  }
+  throw new Error(`${what} is not in the viewport`);
 }
 
 /** The column a card currently sits in, read from the DOM. */

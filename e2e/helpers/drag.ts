@@ -17,6 +17,12 @@
 // target column shows, move to it, release. The helper does the same. The
 // wheel turns only AFTER the drag starts, so the defect above does not
 // come back: the drag origin is hit-tested before the page scrolls.
+//
+// COLLIERY-T-0253: each column is now as tall as the tallest column of its
+// lane, so the adjacent column of the same lane is at the height of the
+// card. `dragAcross` does that drag, and it fails if the page scrolls. The
+// wheel stays in `dragTo` for a target that is not in the viewport: a
+// column of a different lane.
 import type { Locator, Page } from '@playwright/test';
 
 interface Point {
@@ -89,4 +95,35 @@ export async function dragTo(page: Page, source: Locator, target: Locator): Prom
     await page.mouse.move(far.x, far.y, { steps: 2 });
   }
   await page.mouse.up();
+}
+
+/**
+ * Drag `source` to `target` at the height of `source`, with no scroll
+ * (COLLIERY-T-0253): press on the card, move horizontally to the target
+ * column, release. It throws if the target has no part at that height, and
+ * if the page scrolls between the press and the release.
+ */
+export async function dragAcross(page: Page, source: Locator, target: Locator): Promise<void> {
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  const to = await target.boundingBox();
+  if (!from) throw new Error('drag source has no bounding box');
+  if (!to) throw new Error('drag target has no bounding box');
+  const origin = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+  if (origin.y < to.y || origin.y > to.y + to.height) {
+    throw new Error(
+      `the drag target is not at the height of the card: card y=${origin.y}, ` +
+        `target y=${to.y} to ${to.y + to.height}`,
+    );
+  }
+  const scroll = () => page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+  const before = await scroll();
+  await page.mouse.move(origin.x, origin.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, origin.y, { steps: 4 });
+  await page.mouse.up();
+  const after = await scroll();
+  if (after.x !== before.x || after.y !== before.y) {
+    throw new Error(`the page scrolled during the drag: ${JSON.stringify({ before, after })}`);
+  }
 }

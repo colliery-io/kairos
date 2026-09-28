@@ -262,10 +262,13 @@ body {
 
 /* Board view: a row of FLUID equal-width columns (KAIROS-T-0126): they
    share the lane width down to a readable floor, so the default five
-   columns fit a laptop viewport; below the floor the row scrolls. */
+   columns fit a laptop viewport; below the floor the row scrolls.
+   COLLIERY-T-0253: each column is as tall as the tallest column of its
+   lane. The column is the drop target, so a person can drop a card at
+   the height of the card, in each column of the lane. */
 .kairos-board {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: var(--space-sm);
   overflow-x: auto;
   padding-bottom: var(--space-sm);

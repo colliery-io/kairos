@@ -186,6 +186,7 @@ nothing on the others. The other 409s and what they carry instead:
 |---|---|
 | Deleting a team that still owns repositories | `repositories` — the slugs to re-home |
 | Registering a repository whose slug is taken | — |
+| The create or the update of a board with the slug of a live board. The create of a team whose delivery board gets such a slug | `slug`, and `board` (`id`, `name`): the board that has the slug |
 | Registering a repository already registered for that forge | — |
 | `DEFINITION_IN_USE` (its own code; see below) | its own fields |
 

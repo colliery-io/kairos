@@ -29,8 +29,8 @@ use uuid::Uuid;
 use super::super::convert::{IntoDto, attach_repositories};
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    count_live_board_items, is_unique_violation, load_board, map_config_error, map_grant_error,
-    require_user_exists, run_in_transaction, validate_capabilities,
+    count_live_board_items, load_board, map_config_error, map_grant_error, require_user_exists,
+    run_in_transaction, validate_capabilities,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -321,6 +321,11 @@ pub(crate) async fn get_board(
 /// delivery board for a team that has a live delivery board is a 422
 /// `TEAM_HAS_DELIVERY_BOARD`. The refusal names the board that the team
 /// has. A deleted board does not count.
+///
+/// A live board has its slug alone (COLLIERY-T-0255). A request with the
+/// slug of a live board is a 409 `CONFLICT`. The refusal names the slug
+/// and the board that has it (`details.slug`, `details.board`). A deleted
+/// board does not keep its slug.
 #[utoipa::path(
     post,
     path = "/api/boards",
@@ -329,7 +334,7 @@ pub(crate) async fn get_board(
     responses(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad level/team reference, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -367,17 +372,11 @@ pub(crate) async fn create_board(
                     )));
                 }
             }
+            // COLLIERY-T-0255: a slug that a live board has is a 409 that
+            // names the board (`BoardError::SlugTaken`).
             let board =
                 boards::create_board(conn, level, &body.name, &body.slug, team_id, Some(user))
-                    .map_err(|e| match e {
-                        boards::BoardError::Database(ref db) if is_unique_violation(db) => {
-                            ApiError::conflict(format!(
-                                "a board with slug {:?} already exists",
-                                body.slug
-                            ))
-                        }
-                        e => map_config_error(e),
-                    })?;
+                    .map_err(map_config_error)?;
             board_detail(conn, board, false)
         })
         .await?;
@@ -397,6 +396,10 @@ pub(crate) async fn create_board(
 /// read. That `team_id` is not a field to update: the body must have `name`
 /// or `slug`.
 ///
+/// A `slug` that a different live board has is a 409 `CONFLICT`, and the
+/// update writes nothing (COLLIERY-T-0255). The refusal names the slug and
+/// the board that has it. A board can keep its slug in an update.
+///
 /// The body has the fields `name`, `slug` and `team_id` only. A different
 /// field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
 /// names the field (COLLIERY-T-0249).
@@ -410,7 +413,7 @@ pub(crate) async fn create_board(
         (status = 200, description = "Updated", body = dto::Board),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "No field to update, or BOARD_TEAM_IS_FIXED", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -455,7 +458,12 @@ pub(crate) async fn update_board(
             if body.name.is_none() && body.slug.is_none() {
                 return Err(nothing_to_update());
             }
-            let updated: Board = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
+            // COLLIERY-T-0255: two live boards cannot have the same slug.
+            if let Some(new_slug) = body.slug.as_deref() {
+                boards::check_board_slug(conn, new_slug, Some(board_id))
+                    .map_err(map_config_error)?;
+            }
+            let updated = diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
                 .set((
                     kairos_db::models::boards::BoardChangeset {
                         name: body.name.clone(),
@@ -465,14 +473,13 @@ pub(crate) async fn update_board(
                     dsl::updated_at.eq(diesel::dsl::now),
                 ))
                 .returning(Board::as_returning())
-                .get_result(conn)
-                .map_err(|e| {
-                    if is_unique_violation(&e) {
-                        ApiError::conflict("a board with that slug already exists")
-                    } else {
-                        ApiError::internal(e)
-                    }
-                })?;
+                .get_result::<Board>(conn);
+            // An update at the same time got the slug first: the index
+            // refused this one. The refusal has the same form.
+            let updated = updated.map_err(|e| {
+                let slug = body.slug.as_deref().unwrap_or(&board.slug);
+                map_config_error(boards::slug_violation(conn, slug, Some(board_id), e))
+            })?;
             log_activity(
                 conn,
                 user,

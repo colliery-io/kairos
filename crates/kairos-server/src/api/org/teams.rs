@@ -339,6 +339,10 @@ pub(crate) async fn list_work_documents(
 
 /// Create a team AND its delivery board (seeded from the system delivery
 /// defaults, slug `{slug}-delivery`) in one transaction. Org-admin-only.
+///
+/// A live board can have the slug `{slug}-delivery` already
+/// (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
+/// board, and the server creates no team.
 #[utoipa::path(
     post,
     path = "/api/teams",
@@ -347,7 +351,7 @@ pub(crate) async fn list_work_documents(
     responses(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "Team or board slug already in use", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live team has the slug, or a live board has the slug of the delivery board", body = kairos_client::types::ErrorEnvelope),
         (status = 422, description = "Bad team_type", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
@@ -400,12 +404,23 @@ pub(crate) async fn create_team(
                     Some(user),
                 )
                 .map_err(|e| match e {
-                    boards::BoardError::Database(ref db) if is_unique_violation(db) => {
-                        ApiError::conflict(format!(
-                            "a board with slug {:?} already exists",
-                            format!("{}-delivery", body.slug)
-                        ))
-                    }
+                    // COLLIERY-T-0255: the caller sent the slug of the
+                    // team, and not that of the board. The refusal says
+                    // where the slug of the board comes from. The
+                    // transaction rolls back, so no team is written.
+                    boards::BoardError::SlugTaken {
+                        slug,
+                        board_id,
+                        board_name,
+                    } => ApiError::conflict(format!(
+                        "The delivery board of the team gets the slug {slug:?}. The live \
+                         board {board_name:?} has that slug. Send a different slug for the \
+                         team, or change the slug of that board."
+                    ))
+                    .with_details(serde_json::json!({
+                        "slug": slug,
+                        "board": { "id": board_id, "name": board_name },
+                    })),
                     e => map_config_error(e),
                 })?;
                 // KAIROS-T-0082: a team is never born bare — the page

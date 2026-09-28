@@ -885,6 +885,8 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         | BoardError::DeliveryBoardNeedsTeam
         | BoardError::TeamHasDeliveryBoard { .. }
         | BoardError::OrganizationBoardHasNoTeam(_)
+        // The create and the update of a board (COLLIERY-T-0255).
+        | BoardError::SlugTaken { .. }
         // The delete and the update of a board (COLLIERY-T-0241, T-0243)
         // are configuration calls too.
         | BoardError::LastDeliveryBoard { .. }

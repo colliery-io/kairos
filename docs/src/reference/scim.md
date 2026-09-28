@@ -152,7 +152,7 @@ way. Rename teams via `/api/teams`.
 | `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the board and the count. Move or delete the items through `/api` first; until then the issuer's delete will never succeed |
 | `POST` of `kairos-admins` | 409 `uniqueness` — it always exists |
 | `POST` of a team slug that already exists **and is live** | 409 `uniqueness` |
-| `POST` where the `<slug>-delivery` board slug collides | 409 `uniqueness` |
+| `POST` where a live board has the slug `<slug>-delivery` | 409 `uniqueness`. The `detail` names the slug and the board that has it. Kairos creates no team and no board |
 | `members` not an array, a member without `value`, or a `value` that is not a UUID | 400 `invalidValue` |
 | A `remove` on `path: "members"` with no value | Accepted, and removes **every** member |
 

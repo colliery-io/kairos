@@ -116,7 +116,7 @@ fn related_work_proposes_and_degrades() {
         &mut conn,
         BoardLevel::Initiative,
         "Initiatives",
-        "initiatives",
+        "related-initiatives",
         None,
         Some(alice),
     )

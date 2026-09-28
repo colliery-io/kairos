@@ -290,6 +290,16 @@ pub fn map_config_error(e: BoardError) -> ApiError {
             ApiError::unprocessable("BOARD_TEAM_IS_FIXED", e.to_string())
                 .with_details(json!({ "board_id": board_id, "team_id": team_id }))
         }
+        // COLLIERY-T-0255: a live board has the slug. 409 `CONFLICT`, the
+        // refusal of the slug of a team. The details name the board.
+        BoardError::SlugTaken {
+            ref slug,
+            board_id,
+            ref board_name,
+        } => ApiError::conflict(e.to_string()).with_details(json!({
+            "slug": slug,
+            "board": { "id": board_id, "name": board_name },
+        })),
         e @ (BoardError::MissingDefaults(_) | BoardError::InvalidDefaults { .. }) => {
             // Provisioning seeds all four default configs; absence is an
             // operator/data problem, not a client mistake.

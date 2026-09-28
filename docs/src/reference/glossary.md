@@ -69,6 +69,12 @@ grouping into three kinds of board.
   capabilities are granted per board.
 - **The ADR board** — holds ADRs.
 
+A board has a slug, and the GUI, the MCP tools and the CLI find a board by its
+slug. Two live boards cannot have the same slug. Kairos refuses the create and
+the update of a board with the slug of a live board. The refusal is 409
+`CONFLICT`, and it names the board that has the slug. A deleted board does not
+keep its slug.
+
 Every board has a team. The rule has two forms.
 
 - A delivery board has a delivery [team](#team). The board holds the team in

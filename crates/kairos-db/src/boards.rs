@@ -114,6 +114,18 @@ pub enum BoardError {
         board_id: Uuid,
         team_id: Option<Uuid>,
     },
+    /// `create_board`, `check_board_slug`: a live board has the slug
+    /// (COLLIERY-T-0255). Two live boards cannot have the same slug: a
+    /// board is addressed by its slug. Carries the board that has it.
+    #[error(
+        "The live board {board_name:?} has the slug {slug:?}. Two live boards cannot have the \
+         same slug. Send a different slug."
+    )]
+    SlugTaken {
+        slug: String,
+        board_id: Uuid,
+        board_name: String,
+    },
     /// No `system_board_defaults` row is seeded for this level.
     #[error("no system_board_defaults row for level {0}")]
     MissingDefaults(BoardLevel),
@@ -246,6 +258,86 @@ fn lock_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Option<String>, D
         .first(conn)
         .optional()?;
     Ok(team.and_then(|(name, deleted_at)| deleted_at.is_none().then_some(name)))
+}
+
+/// The name of the partial unique index on the slug of a live board
+/// (COLLIERY-T-0255, migration `boards_live_slug_uniqueness`).
+const LIVE_SLUG_INDEX: &str = "boards_live_slug_key";
+
+/// True for the refusal of the database that the index of the slug gives.
+fn is_slug_violation(e: &DieselError) -> bool {
+    matches!(
+        e,
+        DieselError::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, info)
+            if info.constraint_name() == Some(LIVE_SLUG_INDEX)
+    )
+}
+
+/// The live board that has a slug, if one has it. `except` is the board of
+/// an update: a board is not in conflict with itself.
+fn live_board_with_slug(
+    conn: &mut PgConnection,
+    slug: &str,
+    except: Option<Uuid>,
+) -> Result<Option<Board>, DieselError> {
+    use crate::schema::boards::dsl;
+    let mut query = dsl::boards
+        .filter(dsl::slug.eq(slug))
+        .filter(dsl::deleted_at.is_null())
+        .select(Board::as_select())
+        .into_boxed();
+    if let Some(except) = except {
+        query = query.filter(dsl::id.ne(except));
+    }
+    query.first(conn).optional()
+}
+
+/// Refuse a slug that a live board has (COLLIERY-T-0255), with
+/// [`BoardError::SlugTaken`], which names that board. For the create of a
+/// board, and for an update that sends a slug (`except` is the board of
+/// the update).
+///
+/// The check gives the refusal that a person can read. The index
+/// `boards_live_slug_key` is the rule: two writes at the same time can each
+/// pass this check, and the index refuses the second.
+/// [`slug_violation`] gives that refusal the same form.
+pub fn check_board_slug(
+    conn: &mut PgConnection,
+    slug: &str,
+    except: Option<Uuid>,
+) -> Result<(), BoardError> {
+    match live_board_with_slug(conn, slug, except)? {
+        Some(board) => Err(BoardError::SlugTaken {
+            slug: slug.to_string(),
+            board_id: board.id,
+            board_name: board.name,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// The error of a write of a board, with the refusal of the index of the
+/// slug as [`BoardError::SlugTaken`] (COLLIERY-T-0255). Each other error
+/// stays as it is.
+///
+/// Call it when the failed statement is rolled back: after the transaction
+/// of the write, or after a statement that is in no transaction. It reads
+/// the board that has the slug.
+pub fn slug_violation(
+    conn: &mut PgConnection,
+    slug: &str,
+    except: Option<Uuid>,
+    e: DieselError,
+) -> BoardError {
+    if !is_slug_violation(&e) {
+        return BoardError::Database(e);
+    }
+    match check_board_slug(conn, slug, except) {
+        Err(taken) => taken,
+        // The board that had the slug is not there now. The caller can
+        // send the write again.
+        Ok(()) => BoardError::Database(e),
+    }
 }
 
 /// The live delivery boards of a team, oldest first. One, by the rule. Old
@@ -451,6 +543,13 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
 /// - A board of the organization with a `team_id` is refused with
 ///   [`BoardError::OrganizationBoardHasNoTeam`].
 ///
+/// # A live board has its slug alone (COLLIERY-T-0255)
+///
+/// A slug that a live board has is refused with [`BoardError::SlugTaken`],
+/// which names that board. A deleted board does not keep its slug. The
+/// index `boards_live_slug_key` is the rule for two creates at the same
+/// time, and its refusal has the same form.
+///
 /// Two creates at the same time must not each see no board. The
 /// transaction thus locks the row of the team (`FOR UPDATE`) before it
 /// looks for a board, and the second create waits for the first. A lock,
@@ -471,9 +570,12 @@ pub fn create_board(
     if level != BoardLevel::Delivery && team_id.is_some() {
         return Err(BoardError::OrganizationBoardHasNoTeam(level));
     }
-    conn.transaction::<_, BoardError, _>(|conn| {
+    let created = conn.transaction::<_, BoardError, _>(|conn| {
         use crate::schema::system_board_defaults;
         use crate::schema::{board_columns, board_transitions, boards};
+
+        // COLLIERY-T-0255: two live boards cannot have the same slug.
+        check_board_slug(conn, slug, None)?;
 
         if let Some(team_id) = team_id {
             lock_team(conn, team_id)?;
@@ -542,6 +644,12 @@ pub fn create_board(
             )?;
         }
         Ok(board)
+    });
+    // A create at the same time got the slug first: the index refused this
+    // one. The transaction is rolled back, so the read is permitted.
+    created.map_err(|e| match e {
+        BoardError::Database(db) => slug_violation(conn, slug, None, db),
+        e => e,
     })
 }
 

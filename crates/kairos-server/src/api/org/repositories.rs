@@ -22,7 +22,7 @@
 //! Webhook wiring is a separate resource (`/api/forge-connections`,
 //! [`super::forge`]) that hangs off a repository.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -40,6 +40,7 @@ use super::super::{parse_enum, require_capability};
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -226,6 +227,8 @@ fn render_one(conn: &mut PgConnection, repo: Repository) -> Result<dto::Reposito
 
 /// Query of `GET /api/repositories`.
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ListRepositoriesQuery {
     /// Only this team's repositories (UUID or slug).
     pub team: Option<String>,
@@ -252,7 +255,7 @@ pub(crate) struct ListRepositoriesQuery {
 pub(crate) async fn list_repositories(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<ListRepositoriesQuery>,
+    ApiQuery(query): ApiQuery<ListRepositoriesQuery>,
 ) -> Result<Json<Vec<dto::Repository>>, ApiError> {
     let rows = state
         .blocking

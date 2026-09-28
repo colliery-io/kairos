@@ -10,7 +10,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -35,6 +35,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -223,7 +224,7 @@ fn log_activity(
 pub(crate) async fn list_boards(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::Board>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -256,6 +257,8 @@ pub(crate) async fn list_boards(
 
 /// Query of `GET /api/boards/{id}`.
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct BoardDetailQuery {
     /// Also return the columns that have been REMOVED from this board,
     /// each carrying `removed_at` (default `false` — a removed column is
@@ -284,7 +287,7 @@ pub(crate) async fn get_board(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Query(query): Query<BoardDetailQuery>,
+    ApiQuery(query): ApiQuery<BoardDetailQuery>,
 ) -> Result<Json<dto::BoardDetail>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let detail = state
@@ -565,6 +568,8 @@ pub(crate) async fn delete_board(
 
 /// Query of `GET /api/boards/{id}/items` (KAIROS-T-0104).
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct BoardItemsQuery {
     /// Narrow the TASKS to those bound to this repository (slug or UUID).
     /// Other entity types are unaffected. Unknown repository → 422.
@@ -607,7 +612,7 @@ pub(crate) async fn board_items(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    Query(query): Query<BoardItemsQuery>,
+    ApiQuery(query): ApiQuery<BoardItemsQuery>,
 ) -> Result<Json<dto::BoardItemsResponse>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let response = state

@@ -27,7 +27,7 @@
 //! and either one left a document with no parent: no board authorizes it,
 //! so only an org admin could remove it.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -49,6 +49,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -161,7 +162,7 @@ fn load(
 pub(crate) async fn list_documents(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Document>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state

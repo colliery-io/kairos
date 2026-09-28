@@ -48,6 +48,7 @@ use super::convert::IntoDto;
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -86,7 +87,7 @@ pub(crate) async fn related(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     axum::extract::Path(short_code): axum::extract::Path<String>,
-    axum::extract::Query(params): axum::extract::Query<RelatedQuery>,
+    ApiQuery(params): ApiQuery<RelatedQuery>,
 ) -> Result<Json<dto_search::RelatedWorkResponse>, ApiError> {
     let Some(service) = state.embedding.clone() else {
         // 503 rather than 404 or an empty list: the resource exists, this
@@ -146,6 +147,7 @@ pub(crate) async fn related(
 
 /// Query parameters for [`related`].
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RelatedQuery {
     /// How many proposals to return.
     pub limit: Option<usize>,

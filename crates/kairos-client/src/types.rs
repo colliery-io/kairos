@@ -425,6 +425,7 @@ pub struct ListEnvelope<T: ToSchema> {
 /// parameters; all complex querying is `POST /api/search`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct Pagination {
     /// Page size (default 50, max 200).
     #[serde(default)]
@@ -447,6 +448,7 @@ pub struct Pagination {
 /// exactly what it meant before: live rows only.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct ListQuery {
     /// Page size (default 50, max 200).
     #[serde(default)]

@@ -30,7 +30,7 @@ Body of `POST /api/boards/{id}/members`.
 | `capabilities` | array of `string` | yes | Capabilities to grant (KAIROS-A-0006 vocabulary or glob; at least one). |
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## AddOrgMemberRequest
 
@@ -41,7 +41,7 @@ Body of `POST /api/members`. The user is resolved by email from `public.users` �
 | `email` | `string` | yes |  |
 | `role` | `string`, nullable | no | `admin|member`; defaults to `member`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## AddStreamTeamRequest
 
@@ -51,7 +51,7 @@ Body of `POST /api/delivery-streams/{id}/teams`.
 |---|---|---|---|
 | `team_id` | `string` | yes | Team id (UUID). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## AddTeamMemberRequest
 
@@ -61,7 +61,7 @@ Body of `POST /api/teams/{id}/members`.
 |---|---|---|---|
 | `user_id` | `string` | yes | `public.users.id` (UUID). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Adr
 
@@ -155,7 +155,7 @@ A board column.
 | `is_done` | `boolean` | yes | Occupants count as completed for children-progress rollups (KAIROS-T-0080). The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `is_done`, and it reads as `false`. |
 | `name` | `string` | yes |  |
 | `position` | `integer` | yes | Display ordering, 0-indexed. |
-| `removed_at` | `string`, nullable | no | When this column was REMOVED from its board (RFC 3339), absent while it is part of the board (KAIROS-T-0161, KAIROS-T-0164). `GET /api/boards/{id}` omits removed columns entirely unless it is asked for them (`?include_removed_columns=true`), so this is `None` on every default read. It is `Some` only for a caller that wants the column an ARCHIVED card was put away in — the audit fact the soft delete exists to preserve. Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at` is the KAIROS-A-0020 work-item state, and a column is not work. |
+| `removed_at` | `string`, nullable | yes | When this column was REMOVED from its board (RFC 3339), `null` while it is part of the board (KAIROS-T-0161, KAIROS-T-0164). `GET /api/boards/{id}` omits removed columns entirely unless it is asked for them (`?include_removed_columns=true`), so this is `null` on every default read. It is a timestamp only for a caller that wants the column an ARCHIVED card was put away in — the audit fact the soft delete exists to preserve. Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at` is the KAIROS-A-0020 work-item state, and a column is not work. The server sends it in each response, `null` for a live column, so the schema shows it as required and nullable (COLLIERY-T-0256, the pattern of COLLIERY-T-0254). The default is for the client only: a response of an older server has no `removed_at`, and it reads as `None`. |
 | `updated_at` | `string` | yes | RFC 3339. |
 
 ## BoardColumnItems
@@ -255,7 +255,7 @@ Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (
 | `decision_maker` | `string`, nullable | no |  |
 | `title` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateApiKeyRequest
 
@@ -266,7 +266,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 | `expires_at` | `string`, nullable | no | Optional RFC 3339 expiry; omitted = never expires. |
 | `name` | `string` | yes | Operator label for the key ("gha-main", ...). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateBoardRequest
 
@@ -279,7 +279,7 @@ Body of `POST /api/boards`: creates a board seeded with the system default colum
 | `slug` | `string` | yes |  |
 | `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Leave it out for a board of the organization. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateColumnRequest
 
@@ -290,7 +290,7 @@ Body of `POST /api/boards/{id}/columns`.
 | `name` | `string` | yes |  |
 | `position` | `integer` | yes | 0-indexed position; must not collide with an existing column (422 `DUPLICATE_COLUMN_POSITION`). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateDocumentRequest
 
@@ -303,7 +303,7 @@ Body of `POST /api/documents`. Documents attach to a workflow item at birth: `pa
 | `template_id` | `string`, nullable | no | Template to stamp content + metadata defaults from (UUID). |
 | `title` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateForgeConnectionRequest
 
@@ -313,7 +313,7 @@ Body of `POST /api/forge-connections`: connect webhooks for a registered reposit
 |---|---|---|---|
 | `repository` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateInitiativeRequest
 
@@ -328,7 +328,7 @@ Body of `POST /api/initiatives`.
 | `content` | `string` | no | Markdown content; defaults to empty. |
 | `title` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateLocalAccountRequest
 
@@ -341,7 +341,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 | `password` | `string` | yes | The initial password. At least [`crate::local_auth::MIN_PASSWORD_LEN`] characters. |
 | `role` | `string`, nullable | no | Organization role, `member` (default) or `admin`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateMetadataDefinitionRequest
 
@@ -355,7 +355,7 @@ Body of `POST /api/metadata-definitions` (org admin).
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateRelationshipRequest
 
@@ -367,7 +367,7 @@ Body of `POST /api/relationships`. The caller may edit the item at either end (t
 | `source_short_code` | `string` | yes | Short code of the edge's source item (KAIROS-A-0001 orientation). |
 | `target_short_code` | `string` | yes | Short code of the edge's target item. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateRepositoryRequest
 
@@ -383,7 +383,7 @@ Body of `POST /api/repositories`.
 | `slug` | `string`, nullable | no | Tenant-unique slug; defaults to one derived from `repo_full_name` (`acme/payments-api` → `acme-payments-api`). |
 | `team` | `string` | yes | The owning team (UUID or slug). Exactly one (KAIROS-A-0019). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateScimTokenRequest
 
@@ -393,7 +393,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 |---|---|---|---|
 | `name` | `string` | yes | Operator label ("okta-prod", ...). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateServiceAccountRequest
 
@@ -403,7 +403,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 |---|---|---|---|
 | `name` | `string` | yes | Operator label ("ci-deploy", ...). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateStrategyRequest
 
@@ -417,7 +417,7 @@ Body of `POST /api/strategies`.
 | `hypothesis` | `string`, nullable | no |  |
 | `title` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateStreamRequest
 
@@ -429,7 +429,7 @@ Body of `POST /api/delivery-streams`.
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTaskRequest
 
@@ -446,7 +446,7 @@ Body of `POST /api/tasks`.
 | `title` | `string` | yes |  |
 | `work_class` | `string`, nullable | no | Planned/Support lane (`planned|support`, KAIROS-T-0077). Defaults to `support` when `task_type` is `support`, else `planned`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTeamAnnouncementRequest
 
@@ -457,7 +457,7 @@ Body of `POST /api/teams/{id}/announcements`.
 | `body` | `string` | yes | Markdown body. |
 | `pinned` | `boolean` | no | Pin it to the top of the feed. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTeamPageRequest
 
@@ -472,7 +472,7 @@ Body of `POST /api/teams/{id}/pages`.
 | `slug` | `string` | yes | URL segment, unique among siblings. |
 | `title` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTeamRequest
 
@@ -484,7 +484,7 @@ Body of `POST /api/teams`. Creating a team also creates its delivery board (slug
 | `slug` | `string` | yes |  |
 | `team_type` | `string`, nullable | no | `stream_aligned|platform|enabling|complicated_subsystem`; defaults to `stream_aligned`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTemplateRequest
 
@@ -497,7 +497,7 @@ Body of `POST /api/templates` (org admin).
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTenantRequest
 
@@ -509,7 +509,7 @@ Body of `POST /api/admin/tenants` (deployment-admin only; see `KAIROS_DEPLOYMENT
 | `name` | `string` | yes | Organization display name. |
 | `slug` | `string` | yes | Organization slug (`^[a-z][a-z0-9_-]{1,62}$`). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreateTransitionRequest
 
@@ -520,7 +520,7 @@ Body of `POST /api/boards/{id}/transitions`.
 | `from_column_id` | `string` | yes | Source column (UUID). |
 | `to_column_id` | `string` | yes | Target column (UUID). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CreatedForgeConnection
 
@@ -904,7 +904,7 @@ The S-0005 list envelope: `{items, total, limit, offset}`.
 | `email` | `string` | yes | The account's email address. Matched case-insensitively. |
 | `password` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## LoginResponse
 
@@ -962,7 +962,7 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 |---|---|---|---|
 | `board` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## NotReached
 
@@ -1093,7 +1093,7 @@ Body of `PATCH /api/boards/{id}/members/{user_id}` — replaces the user's full 
 |---|---|---|---|
 | `capabilities` | array of `string` | yes | The complete new capability set (at least one; use DELETE to revoke board membership entirely). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Repository
 
@@ -1211,7 +1211,7 @@ The `filter` capability. Fields are AND with each other; array values are OR wit
 | `team_id` | `string`, nullable | no | Restrict to tasks assigned to this team (UUID; task-level attribute, other entity types are excluded). |
 | `work_class` | `array`, nullable | no | Restrict to tasks in these Planned/Support lanes (`planned|support`, KAIROS-T-0077; task-level attribute, other entity types are excluded). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchRequest
 
@@ -1226,7 +1226,7 @@ Body of `POST /api/search`. All fields optional; at least one of `q`/`filter`/`t
 | `sort` | [`SearchSort`](schemas.md#searchsort), nullable | no |  |
 | `traverse` | [`SearchTraverse`](schemas.md#searchtraverse), nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchResponse
 
@@ -1260,7 +1260,7 @@ The `sort` clause, applied to the combined cross-type result set before paginati
 | `field` | `string` | yes | `created_at|updated_at|title|relevance`. `relevance` requires `q`. |
 | `order` | `string` | yes | `asc|desc`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchTraverse
 
@@ -1273,7 +1273,7 @@ The `traverse` capability: recursive walk of the relationship graph from a start
 | `from` | [`SearchTraverseFrom`](schemas.md#searchtraversefrom) | yes | The starting entity, identified by exactly one of `short_code`/`id`. |
 | `relationships` | array of `string` | yes | Relationship types to follow (non-empty; `parent|supports|informs|supersedes|blocks`). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SearchTraverseFrom
 
@@ -1284,7 +1284,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 | `id` | `string`, nullable | no | The starting entity's id (UUID). |
 | `short_code` | `string`, nullable | no | The starting entity's short code (e.g. `"ACME-S-0001"`). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## ServiceAccountListResponse
 
@@ -1335,7 +1335,7 @@ Body of `POST /api/tasks/{short_code}/work-class` (KAIROS-T-0077): move a task b
 |---|---|---|---|
 | `lifecycle` | `string` | yes | `draft|review|published|archived`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SetPasswordRequest
 
@@ -1345,7 +1345,7 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 |---|---|---|---|
 | `password` | `string` | yes |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SetTaskRepositoryRequest
 
@@ -1355,7 +1355,7 @@ Body of `PUT /api/tasks/{short_code}/repository` — set the repository the task
 |---|---|---|---|
 | `repository` | `string`, nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SetWorkClassRequest
 
@@ -1365,7 +1365,7 @@ transitions â the board rules engine is never consulted.
 |---|---|---|---|
 | `work_class` | `string` | yes | `planned|support`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## Strategy
 
@@ -1538,7 +1538,7 @@ One template ↔ metadata-definition association in a template write.
 | `definition_slug` | `string` | yes | Slug of an existing metadata definition. |
 | `required` | `boolean` | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## TemplateMetadataField
 
@@ -1606,7 +1606,7 @@ Body of `POST /api/{family}/{short_code}/transition`.
 |---|---|---|---|
 | `to_column_id` | `string` | yes | Target column (UUID). Must be reachable from the item's current column per the board's transition graph, else 422 `INVALID_TRANSITION` with `details.allowed_targets`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateBoardRequest
 
@@ -1618,7 +1618,7 @@ Body of `PATCH /api/boards/{id}` (board settings).
 | `slug` | `string`, nullable | no |  |
 | `team_id` | `string`, nullable | no | The team of the board (UUID, or null for a board of the organization). The team of a board does not change (COLLIERY-T-0243): a value that is not the team of the board is refused with 422 `BOARD_TEAM_IS_FIXED`. Leave it out, or send the value that the board has. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateColumnRequest
 
@@ -1630,7 +1630,7 @@ Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set t
 | `name` | `string`, nullable | no |  |
 | `position` | `integer`, nullable | no | New 0-indexed position; the other columns shift around it. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateContentRequest
 
@@ -1642,7 +1642,7 @@ Body of `PATCH /api/{family}/{short_code}` â the KAIROS-A-0004 optimistic-c
 | `title` | `string`, nullable | no | New title; omitted = keep the current title. |
 | `version` | `integer` | yes | The version this edit is based on ("I'm editing version N"). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateMetadataDefinitionRequest
 
@@ -1655,7 +1655,7 @@ Body of `PATCH /api/metadata-definitions/{id}` (org admin). Omitted fields are u
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateMetadataRequest
 
@@ -1665,7 +1665,7 @@ Body of `PATCH /api/{entity_type}/{short_code}/metadata`: definition slug → va
 |---|---|---|---|
 | `values` | `object` | yes | Definition slug → new value (`null` removes the value). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateOrgMemberRequest
 
@@ -1675,7 +1675,7 @@ Body of `PATCH /api/members/{user_id}` — role change. Demoting the last admin 
 |---|---|---|---|
 | `role` | `string` | yes | `admin|member`. |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateRepositoryRequest
 
@@ -1689,7 +1689,7 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 | `slug` | `string`, nullable | no |  |
 | `team` | `string`, nullable | no | New owning team (UUID or slug). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateStreamRequest
 
@@ -1701,7 +1701,7 @@ Body of `PATCH /api/delivery-streams/{id}`.
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateTeamPageRequest
 
@@ -1717,7 +1717,7 @@ Body of `PATCH /api/teams/{id}/pages/{page_id}` — EITHER a version-checked con
 | `title` | `string`, nullable | no | New title (content edits only). |
 | `version` | `integer`, nullable | no | The version this edit is based on (KAIROS-A-0004 pattern; 409 with `details.current` when stale). |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateTeamRequest
 
@@ -1729,7 +1729,7 @@ Body of `PATCH /api/teams/{id}`.
 | `slug` | `string`, nullable | no |  |
 | `team_type` | `string`, nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## UpdateTemplateRequest
 
@@ -1742,5 +1742,5 @@ Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are unchanged; `
 | `name` | `string`, nullable | no |  |
 | `slug` | `string`, nullable | no |  |
 
-The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-body-that-a-route-does-not-accept)).
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

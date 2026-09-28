@@ -46,18 +46,27 @@ Codes an agent can receive, and what each means.
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. |
 
-**A write tool refuses an argument that it does not know.** The tools that
-write have the rule of the write routes of the REST API. The tool does not
-ignore the argument, and it writes nothing. The schema of each of these tools
-shows `additionalProperties: false`. This refusal has no code. Its text names
-the argument and gives the arguments of the tool:
+**Each tool refuses an argument that it does not know.** Each tool has the
+rule of the routes of the REST API, the tools that read too. The tool does not
+ignore the argument, and it writes nothing. The schema of each tool shows
+`additionalProperties: false`. The refusal is `VALIDATION`. Its text names the
+argument and gives the arguments of the tool:
 
 ```text
-failed to deserialize parameters: unknown field `column`, expected one of `item_type`, `title`, `board`, …
+VALIDATION: The call has the argument "column". This tool does not accept that argument. The arguments of this tool are: item_type, title, board, …
+details: {"allowed":["item_type","title","board", …],"argument":"column"}
 ```
 
-An argument that is absent, or that has the wrong JSON type, has a refusal of the
-same form. The tools that only read ignore an argument that they do not know.
+An argument can be in an object of the call, such as `filter` of `search`. Then
+the list is the list of that object. `whoami` has no arguments, and its refusal
+says `This tool has no arguments.`
+
+A call without an argument that the tool must have has a refusal of the same
+form: `VALIDATION: The call does not have the argument "short_code". This tool
+must have that argument. …`. An argument with the wrong JSON type is
+`VALIDATION` too, and the text gives the fault. See
+[An input that a route does not accept](errors.md#an-input-that-a-route-does-not-accept)
+for the rule of the REST API.
 
 `DEFINITION_IN_USE`, the refusal that protects a metadata definition carrying
 values, belongs to the REST surface — `DELETE /api/metadata-definitions/{id}`.

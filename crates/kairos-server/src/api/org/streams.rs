@@ -3,7 +3,7 @@
 //! org-admin-only (tenant-wide org structure, the A-0006 tenant-config
 //! fallback); reads are open tenant-wide.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -25,6 +25,7 @@ use super::is_unique_violation;
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -99,7 +100,7 @@ fn log_stream_activity(
 pub(crate) async fn list_streams(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::DeliveryStream>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state

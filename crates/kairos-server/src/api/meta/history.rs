@@ -7,7 +7,7 @@
 //! the create-time baseline (T-0012), so every item has history from
 //! birth.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use diesel::prelude::*;
@@ -22,6 +22,7 @@ use crate::api::clamp_pagination;
 use crate::api::convert::IntoDto;
 use crate::app::AppState;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -48,7 +49,7 @@ pub(crate) async fn get_history(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path((family, short_code)): Path<(String, String)>,
-    Query(query): Query<dto::HistoryQuery>,
+    ApiQuery(query): ApiQuery<dto::HistoryQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let (limit, offset) = clamp_pagination(&dto_base::Pagination {
         limit: query.limit,

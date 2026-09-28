@@ -27,6 +27,9 @@ GET /ws/events            # WebSocket upgrade
   promotes that parameter into the `Authorization` header ahead of the
   auth layer. Browser clients resolve their tenant via the `Host`
   subdomain (A-0005 §2).
+- `access_token` is the one query parameter of the route. The server
+  refuses each other parameter with `400 VALIDATION`. See
+  [Errors](errors.md#a-query-parameter).
 - The connection is **bound to the resolved tenant** at upgrade time.
   Each organization member can read tenant-wide (A-0006), so each
   organization member may subscribe. The server delivers only the events

@@ -1,7 +1,7 @@
 //! `/api/initiatives` (KAIROS-S-0005) — see [`super`] for the shared
 //! T-0018 handler pattern.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -22,6 +22,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -85,7 +86,7 @@ fn load(
 pub(crate) async fn list_initiatives(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Initiative>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state

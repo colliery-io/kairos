@@ -109,7 +109,7 @@ edge, and the client draws it with a different style.
 |---|---|---|---|---|
 | `entity_type` | path | yes | `string` | Entity family (plural URL segment) |
 | `short_code` | path | yes | `string` | The focal item's short code |
-| `depth` | path | yes | `integer`, nullable | Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH. |
+| `depth` | query | no | `integer` | Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH. |
 
 | Response | Body | Meaning |
 |---|---|---|

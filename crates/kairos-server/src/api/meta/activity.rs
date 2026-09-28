@@ -7,7 +7,7 @@
 //! filter values (bad UUID, unknown action, non-RFC-3339 `since`) are 422
 //! `VALIDATION`.
 
-use axum::extract::{Extension, Query, State};
+use axum::extract::{Extension, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
@@ -21,6 +21,7 @@ use crate::api::convert::IntoDto;
 use crate::api::{clamp_pagination, parse_enum, parse_uuid};
 use crate::app::AppState;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -41,7 +42,7 @@ pub fn router() -> Router<AppState> {
 pub(crate) async fn get_activity(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ActivityQuery>,
+    ApiQuery(query): ApiQuery<dto::ActivityQuery>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::ActivityEntry>>, ApiError> {
     let entity_id = query
         .entity_id

@@ -9,7 +9,7 @@
 //! `delivery_board_id`. Team deletion requires that board to be empty (422
 //! `BOARD_NOT_EMPTY`) and soft-deletes team + board together.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -32,6 +32,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -118,7 +119,7 @@ fn log_team_activity(
 pub(crate) async fn list_teams(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::Team>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state
@@ -222,6 +223,8 @@ pub(crate) async fn get_team_by_slug(
 /// Query of [`list_team_links`] (explicit struct — serde_urlencoded
 /// cannot flatten).
 #[derive(serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct TeamLinksQuery {
     /// Comma-separated states; defaults to `open,draft` — the panel's
     /// question is "what is in flight", not merged history.
@@ -250,7 +253,7 @@ pub(crate) async fn list_team_links(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
-    axum::extract::Query(query): axum::extract::Query<TeamLinksQuery>,
+    ApiQuery(query): ApiQuery<TeamLinksQuery>,
 ) -> Result<Json<Vec<kairos_client::types_forge::TeamLink>>, ApiError> {
     let team_id = parse_uuid(&id, "id")?;
     let states: Vec<String> = query

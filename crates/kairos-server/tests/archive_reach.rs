@@ -396,7 +396,8 @@ impl McpSession {
 
 /// A raw request as one principal: the status and the JSON body. For the
 /// routes that the typed client does not have (proposals), and for the
-/// checks on the wire shape.
+/// checks on the wire shape. It sends no body: the routes that it calls
+/// accept none (COLLIERY-T-0256).
 async fn raw(
     http: &reqwest::Client,
     method: reqwest::Method,
@@ -408,7 +409,6 @@ async fn raw(
         .request(method, format!("{base_url}{path}"))
         .bearer_auth(token)
         .header("X-Tenant", "acme")
-        .json(&json!({}))
         .send()
         .await
         .expect("raw request");

@@ -52,7 +52,7 @@ use axum::extract::{Extension, Request};
 use axum::http::HeaderValue;
 use axum::http::header::AUTHORIZATION;
 use axum::middleware::{self as axum_middleware, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tokio::sync::broadcast;
 use uuid::Uuid;
@@ -135,7 +135,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .layer(Extension(hub))
         // route_layer wraps bottom-up (the layer added LAST runs FIRST):
         // promote_query_token → require_auth → require_tenant — the
-        // A-0010 ordering with the browser fallback ahead of it.
+        // A-0010 ordering with the browser fallback ahead of it. The layer
+        // of COLLIERY-T-0256 is the last to run.
+        .route_layer(axum_middleware::from_fn(refuse_unknown_query))
         .route_layer(axum_middleware::from_fn_with_state(
             state.clone(),
             tenant::require_tenant,
@@ -158,6 +160,15 @@ fn query_access_token(query: &str) -> Option<&str> {
         .split('&')
         .find_map(|pair| pair.strip_prefix("access_token="))
         .filter(|token| !token.is_empty())
+}
+
+/// COLLIERY-T-0256: `access_token` is the one query parameter of this
+/// route. Each other parameter is refused, as on the routes of the API.
+async fn refuse_unknown_query(req: Request, next: Next) -> Response {
+    match crate::input::refuse_parameters_not_in(req.uri(), &["access_token"]) {
+        Some(refusal) => refusal.into_response(),
+        None => next.run(req).await,
+    }
 }
 
 /// Copy `?access_token=<jwt>` into the `Authorization` header when the

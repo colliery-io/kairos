@@ -33,6 +33,7 @@ use crate::api::{Liveness, parse_enum, parse_uuid, require_edge_write, resolve_s
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -169,6 +170,8 @@ pub(crate) async fn get_item_links(
 /// Query of [`get_item_graph`] (explicit struct — serde_urlencoded
 /// cannot flatten, T-0021 lesson).
 #[derive(serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct GraphQuery {
     /// Hop bound; defaults to 2, capped at MAX_TRAVERSE_DEPTH.
     depth: Option<u32>,
@@ -210,7 +213,7 @@ pub(crate) async fn get_item_graph(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path((family, short_code)): Path<(String, String)>,
-    axum::extract::Query(query): axum::extract::Query<GraphQuery>,
+    ApiQuery(query): ApiQuery<GraphQuery>,
 ) -> Result<Json<kairos_client::types_graph::GraphResponse>, ApiError> {
     use kairos_client::types_graph as graph_dto;
     let depth = query

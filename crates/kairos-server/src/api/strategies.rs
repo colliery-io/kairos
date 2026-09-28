@@ -1,7 +1,7 @@
 //! `/api/strategies` (KAIROS-S-0005) — the reference implementation of the
 //! T-0018 handler pattern; see [`super`] for the shared conventions.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -21,6 +21,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -84,7 +85,7 @@ fn load(
 pub(crate) async fn list_strategies(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Strategy>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state

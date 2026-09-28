@@ -8,7 +8,7 @@
 //! relationship to documents (A-0003 — `documents.template_id` is `ON
 //! DELETE SET NULL`, associations cascade).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -29,6 +29,7 @@ use crate::api::{clamp_pagination, parse_uuid};
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -187,7 +188,7 @@ fn map_write_error(e: DieselError) -> ApiError {
 pub(crate) async fn list_templates(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<dto_base::Pagination>,
+    ApiQuery(pagination): ApiQuery<dto_base::Pagination>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::Template>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let envelope = state

@@ -15,7 +15,7 @@
 //! user:{id}` (the existing ActivityAction vocabulary has no generic
 //! update action).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -33,6 +33,7 @@ use super::is_unique_violation;
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -140,7 +141,7 @@ fn log_membership_activity(
 pub(crate) async fn list_members(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(pagination): Query<Pagination>,
+    ApiQuery(pagination): ApiQuery<Pagination>,
 ) -> Result<Json<ListEnvelope<dto::OrgMember>>, ApiError> {
     let (limit, offset) = clamp_pagination(&pagination);
     let org_id = tenant.org_id;

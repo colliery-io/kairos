@@ -311,6 +311,14 @@ impl KairosClient {
         .await
     }
 
+    /// POST with no body, expecting 200 OK (restore, rotate). The server
+    /// refuses a body on a route that accepts none (COLLIERY-T-0256), and
+    /// `{}` and `null` are bodies.
+    async fn post_empty<T: DeserializeOwned>(&self, path: &str) -> Result<T, Error> {
+        self.execute(format!("POST {path}"), 200, self.http.post(self.url(path)))
+            .await
+    }
+
     async fn patch<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -431,10 +439,10 @@ macro_rules! entity_family {
                                 "work back (KAIROS-A-0020). 422 `RESTORE_BLOCKED` when its ",
                                 "board, column, team or repository is gone.")]
         pub async fn $restore(&self, short_code: &str) -> Result<RestoreResponse, Error> {
-            self.post_ok(
-                &format!(concat!("/api/", $family, "/{}/restore"), short_code),
-                &(),
-            )
+            self.post_empty(&format!(
+                concat!("/api/", $family, "/{}/restore"),
+                short_code
+            ))
             .await
         }
     };
@@ -1153,11 +1161,8 @@ impl KairosClient {
         &self,
         id: &str,
     ) -> Result<crate::types_forge::CreatedForgeConnection, Error> {
-        self.post_ok(
-            &format!("/api/forge-connections/{id}/rotate"),
-            &serde_json::json!({}),
-        )
-        .await
+        self.post_empty(&format!("/api/forge-connections/{id}/rotate"))
+            .await
     }
 
     /// `GET /api/{family}/{short_code}/graph?depth=N` — the focal

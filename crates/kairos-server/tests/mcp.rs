@@ -1630,46 +1630,88 @@ async fn mcp_endpoint_against_live_stack() {
             }),
         )
         .await;
+    // COLLIERY-T-0256: the refusal has the form of each other tool error,
+    // `CODE: message` and a line of details.
+    let (first_line, details) = text.split_once("\ndetails: ").expect("a line of details");
     assert!(
-        text.starts_with("failed to deserialize parameters: unknown field `column`, expected one of `item_type`, `title`, `board`"),
+        first_line.starts_with(
+            "VALIDATION: The call has the argument \"column\". This tool does not accept \
+             that argument. The arguments of this tool are: item_type, title, board, "
+        ),
         "{text}"
     );
+    let details: Value = serde_json::from_str(details).expect("the details are JSON");
+    assert_eq!(details["argument"], "column", "{text}");
+    assert_eq!(details["allowed"][0], "item_type", "{text}");
     let tasks_after: i64 = {
         use kairos_db::schema::tasks::dsl;
         dsl::tasks.count().get_result(&mut conn).expect("counting")
     };
     assert_eq!(tasks_after, tasks_before, "no task was written");
     // The schema of the tool says it, so a client can know before the call.
-    let write_tools = [
-        "create_item",
-        "update_item",
-        "edit_item",
-        "transition_item",
-        "move_item",
-        "set_repository",
-        "link_items",
-        "unlink_items",
-        "set_metadata",
-        "delete_item",
-        "restore_item",
-        "propose_edge",
-    ];
+    // COLLIERY-T-0256: the rule is for each tool, the tools that read too.
     for tool in listed["tools"].as_array().expect("tools array") {
         let name = tool["name"].as_str().expect("tool name");
-        let closed = tool["inputSchema"]["additionalProperties"] == json!(false);
         assert_eq!(
-            closed,
-            write_tools.contains(&name),
-            "{name}: additionalProperties is false for each write tool, and only for those"
+            tool["inputSchema"]["additionalProperties"],
+            json!(false),
+            "{name}: additionalProperties is false for each tool"
         );
     }
-    // A tool that only reads ignores such an argument, as before.
-    session
-        .call_ok(
+    // A tool that reads refuses such an argument, in the same form.
+    let text = session
+        .call_err(
             "board_items",
             json!({"board": "platform-delivery", "no_such_argument": true}),
         )
         .await;
+    assert_eq!(
+        text,
+        "VALIDATION: The call has the argument \"no_such_argument\". This tool does not \
+         accept that argument. The arguments of this tool are: board, column, repository, \
+         include_deleted.\n\
+         details: {\"allowed\":[\"board\",\"column\",\"repository\",\"include_deleted\"],\
+         \"argument\":\"no_such_argument\"}"
+    );
+    session
+        .call_ok(
+            "board_items",
+            json!({"board": "platform-delivery", "include_deleted": true}),
+        )
+        .await;
+    // An argument in an object of the call.
+    let text = session
+        .call_err(
+            "search",
+            json!({"q": "cache", "filter": {"board": "platform-delivery"}}),
+        )
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"board\". This tool does not accept \
+             that argument. The arguments of this tool are: entity_type, board_id, "
+        ),
+        "{text}"
+    );
+    // `whoami` has no arguments.
+    let text = session.call_err("whoami", json!({"verbose": true})).await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"verbose\". This tool does not accept \
+             that argument. This tool has no arguments."
+        ),
+        "{text}"
+    );
+    session.call_ok("whoami", json!({})).await;
+    // An argument that the tool must have, and the call has not.
+    let text = session.call_err("get_item", json!({})).await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call does not have the argument \"short_code\". This tool \
+             must have that argument. The arguments of this tool are: short_code."
+        ),
+        "{text}"
+    );
 
     let text = session
         .call_ok(

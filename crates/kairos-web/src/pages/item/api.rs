@@ -1332,7 +1332,7 @@ pub async fn fetch_edge_proposals(auth: Auth, code: String) -> Result<Vec<EdgePr
 
 /// `POST /api/proposals/{id}/confirm` — create the edge.
 pub async fn confirm_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
-    crate::api::post_json(auth, &format!("/api/proposals/{id}/confirm"), &()).await
+    crate::api::post_empty(auth, &format!("/api/proposals/{id}/confirm")).await
 }
 
 /// One possibly-related item (KAIROS-T-0195).
@@ -1378,5 +1378,5 @@ pub async fn fetch_related_work(auth: Auth, code: String) -> Result<RelatedWork,
 
 /// `POST /api/proposals/{id}/reject` — recorded, not erased.
 pub async fn reject_edge_proposal(auth: Auth, id: String) -> Result<EdgeProposal, ApiError> {
-    crate::api::post_json(auth, &format!("/api/proposals/{id}/reject"), &()).await
+    crate::api::post_empty(auth, &format!("/api/proposals/{id}/reject")).await
 }

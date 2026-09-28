@@ -68,6 +68,20 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     decode_response(auth, token, path, response).await
 }
 
+/// `POST {path}` with NO body and the bearer token; JSON-decode the
+/// response body. For a route that accepts no body (the confirm and the
+/// reject of a proposal): the server refuses a body there, and `null` is
+/// a body (COLLIERY-T-0256).
+pub async fn post_empty<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
+    let token = auth.token();
+    let mut request = gloo_net::http::Request::post(path);
+    if let Some(token) = &token {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    let response = request.send().await.map_err(|_| ApiError::Network)?;
+    decode_response(auth, token, path, response).await
+}
+
 /// `PATCH {path}` with a JSON body and the bearer token; JSON-decode the
 /// response body (same shape as [`get_json`], per docs/gui-conventions.md).
 pub async fn patch_json<B: Serialize, T: DeserializeOwned>(

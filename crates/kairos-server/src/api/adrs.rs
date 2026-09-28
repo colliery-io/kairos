@@ -6,7 +6,7 @@
 //! `ITEM_NOT_ON_BOARD` (T-0010's typed error). An edit of an off-board ADR
 //! is for its creator or an org admin (the edit rule, COLLIERY-T-0228).
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -27,6 +27,7 @@ use super::{
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
 use crate::middleware::tenant::TenantContext;
 
@@ -78,7 +79,7 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 pub(crate) async fn list_adrs(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Adr>>, ApiError> {
     let (limit, offset, liveness) = clamp_list(&query);
     let envelope = state

@@ -74,7 +74,7 @@ fn body_rejection(rejection: &JsonRejection) -> ApiError {
 /// The message of the deepest cause of an error: the message of
 /// `serde_json`, without the prefix of axum. For a fault of shape it starts
 /// with the path to the fault (`metadata[0].default: `).
-fn innermost(error: &dyn std::error::Error) -> String {
+pub(crate) fn innermost(error: &dyn std::error::Error) -> String {
     let mut cause = error;
     while let Some(next) = cause.source() {
         cause = next;

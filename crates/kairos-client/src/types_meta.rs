@@ -395,6 +395,7 @@ pub struct HistorySnapshot {
 /// Query of `GET /api/{entity_type}/{short_code}/history`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct HistoryQuery {
     /// Return this version's full snapshot instead of the version list.
     #[serde(default)]
@@ -434,6 +435,7 @@ pub struct ActivityEntry {
 /// Query of `GET /api/activity` (S-0005: all filters combinable).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct ActivityQuery {
     /// Filter: activity for a specific entity (UUID).
     #[serde(default)]

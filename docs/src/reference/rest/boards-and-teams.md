@@ -62,7 +62,7 @@ tenant-wide).
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |
-| `include_removed_columns` | path | yes | `boolean` | Also return the columns that have been REMOVED from this board, each carrying `removed_at` (default `false` — a removed column is not part of the board and must not render on one, KAIROS-T-0161).  The one legitimate caller is a reader holding an ARCHIVED item that still points at such a column: "which column was this put away in?" has to stay answerable (KAIROS-A-0020, KAIROS-T-0164). |
+| `include_removed_columns` | query | no | `boolean` | Also return the columns that have been REMOVED from this board, each carrying `removed_at` (default `false` — a removed column is not part of the board and must not render on one, KAIROS-T-0161).  The one legitimate caller is a reader holding an ARCHIVED item that still points at such a column: "which column was this put away in?" has to stay answerable (KAIROS-A-0020, KAIROS-T-0164). |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -217,8 +217,8 @@ with a mark on the done end.
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |
-| `repository` | path | yes | `string`, nullable | Narrow the TASKS to those bound to this repository (slug or UUID). Other entity types are unaffected. Unknown repository → 422. |
-| `include_deleted` | path | yes | `boolean` | Include archived (put-away) cards, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — a board is a live board unless the reader says otherwise (rule 3). |
+| `repository` | query | no | `string` | Narrow the TASKS to those bound to this repository (slug or UUID). Other entity types are unaffected. Unknown repository → 422. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) cards, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — a board is a live board unless the reader says otherwise (rule 3). |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -448,8 +448,8 @@ repository is attributed to the team. Open tenant-wide.
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Team id (UUID) |
-| `state` | path | yes | `string`, nullable | Comma-separated states; defaults to `open,draft` — the panel's question is "what is in flight", not merged history. |
-| `limit` | path | yes | `integer`, nullable | Result cap (default 100). |
+| `state` | query | no | `string` | Comma-separated states; defaults to `open,draft` — the panel's question is "what is in flight", not merged history. |
+| `limit` | query | no | `integer` | Result cap (default 100). |
 
 | Response | Body | Meaning |
 |---|---|---|

@@ -16,7 +16,7 @@
 //! (KAIROS-T-0154/0155). A count alone left the admin nowhere to go,
 //! which is what made KAIROS-T-0152 a trap.
 
-use axum::extract::{Extension, Path, Query, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
@@ -38,6 +38,7 @@ use crate::api::{clamp_pagination, parse_enum, parse_uuid};
 use crate::app::AppState;
 use crate::body::ApiJson;
 use crate::error::ApiError;
+use crate::input::ApiQuery;
 use crate::middleware::tenant::TenantContext;
 
 pub fn router() -> Router<AppState> {
@@ -313,6 +314,7 @@ fn blocker_list(labels: &[String], total: i64) -> String {
 /// over [`dto_base::Pagination`] — serde_urlencoded does not flatten.)
 #[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DefinitionListQuery {
     /// Page size (default 50, max 200).
     #[serde(default)]
@@ -342,7 +344,7 @@ pub(crate) struct DefinitionListQuery {
 pub(crate) async fn list_definitions(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    Query(query): Query<DefinitionListQuery>,
+    ApiQuery(query): ApiQuery<DefinitionListQuery>,
 ) -> Result<Json<dto_base::ListEnvelope<dto::MetadataDefinition>>, ApiError> {
     let pagination = dto_base::Pagination {
         limit: query.limit,

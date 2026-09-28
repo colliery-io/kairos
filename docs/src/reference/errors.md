@@ -37,7 +37,7 @@ in *this* envelope. See [SCIM](scim.md#errors).
 | `NOT_FOUND` | 404 | The thing the call is about does not exist | — |
 | `TENANT_NOT_FOUND` | 404 | The request host resolves to no provisioned tenant | — |
 | `CONFLICT` | 409 | A state conflict. Usually optimistic concurrency: the submitted `version` is stale. Also emitted where a create collides with an existing row, or a delete is blocked by what still points at the entity | `current` — the full current entity — on a version conflict **only**; see below |
-| `VALIDATION` | 422, or **400** on `POST /api/search`. 400 or 415 for [a body that the server cannot read](#a-body-that-a-route-does-not-accept) | A body or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`). `field` and `allowed` for a field that the route does not know |
+| `VALIDATION` | 422, or **400** on `POST /api/search`. 400 or 415 for [an input that the server cannot read](#an-input-that-a-route-does-not-accept) | A body, a query or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`). `field` and `allowed` for a field that the route does not know. `parameter` and `allowed` for a query parameter that the route does not know |
 | `INTERNAL` | 500 | Server fault; the message is logged, not returned in detail | — |
 
 **`VALIDATION` is 422 everywhere except `POST /api/search`**, which answers
@@ -47,15 +47,27 @@ conversion produce — a blank `q`, an inverted date range, a bad `limit` or
 timestamp, an out-of-vocabulary enum value, an unknown field. The code is the
 same; the status is not. Branch on the code.
 
-### A body that a route does not accept
+### An input that a route does not accept
+
+**The server refuses each input that a route does not know.** The server does
+not ignore the input: an input that does nothing tells the client that it did
+something. The refusal is `VALIDATION`, the message names the input, and the
+server writes nothing. The rule has three parts:
+
+| The input | The rule | Status |
+|---|---|---|
+| A field of the body | A route refuses a field that it does not know | 422 |
+| A query parameter | A route refuses a parameter that it does not know. A route with no query parameters refuses each parameter | 400 |
+| The body | A route with no body refuses a body that is not empty | 400 |
+
+The rule applies to each route below `/api`, the `GET` routes too, and to
+`/ws/events`.
+
+#### A field of the body
 
 Each write route of the API has a body with a known set of fields. The table of
 the body in [Schemas](rest/schemas.md) gives the set. In the OpenAPI spec the
 schema of the body has `additionalProperties: false`.
-
-**The server refuses a write with a field that the route does not know.** The
-server does not ignore the field. The refusal is `VALIDATION`, the message names
-the field, and the server writes nothing:
 
 ```json
 {
@@ -87,12 +99,72 @@ and the same code. The status tells the reasons apart:
 
 On `POST /api/search` the first two are 400, as each refusal of that route is.
 
-The rule does not apply to `/scim/v2`. RFC 7644 tells a SCIM server to ignore an
-attribute that it does not know. It does not apply to `/webhooks` and to
-`POST /api/auth/token`: the git forge and the OAuth standard define those
-bodies.
+#### A query parameter
 
-The MCP tools that write have the same rule. See
+The page of each route in the [REST API](rest-api.md) gives its query
+parameters. `GET /api/boards?limit=5&page=2` has this refusal:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION",
+    "message": "The request has the query parameter \"page\". This route does not accept that parameter. The query parameters of this route are: limit, offset.",
+    "details": { "parameter": "page", "allowed": ["limit", "offset"] }
+  }
+}
+```
+
+`details.parameter` is the first unknown parameter that the server finds.
+`details.allowed` is the list of the parameters of the route. For a route with
+no query parameters the list is empty, and the message says `This route has no
+query parameters.`
+
+A parameter with a value that the route cannot read has the same status and the
+same code. `GET /api/boards?limit=many` has the message `The value of the query
+parameter "limit" is not correct: invalid digit found in string.` Its `details`
+has `parameter` only.
+
+`access_token` is the one query parameter of `/ws/events`.
+
+#### A body on a route that has none
+
+These routes accept no body:
+
+- each `GET` and each `DELETE`
+- a restore: `POST /api/{family}/{short_code}/restore`
+- the confirm and the reject of a proposal
+- the rotate of a forge connection
+- `POST /api/logout`
+
+A request to one of them with a body has this refusal:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION",
+    "message": "The request has a body. This route does not accept a body. Send the request with no body.",
+    "details": {}
+  }
+}
+```
+
+A body of zero length is no body. `{}` and `null` are bodies, and the server
+refuses them.
+
+#### The routes that the rule does not apply to
+
+A third party defines the inputs of these routes, so the rule does not apply:
+
+| Route | The inputs are those of |
+|---|---|
+| `/scim/v2` | RFC 7644. It tells a SCIM server to ignore an attribute that it does not know |
+| `/webhooks` | The git forge |
+| `POST /api/auth/token` | The OAuth standard |
+| `/mcp`, `/.well-known/oauth-protected-resource` | The MCP transport and RFC 9728. The arguments of a tool have the rule: see below |
+| `/healthz`, `/readyz`, `/metrics` | The probe of the platform that runs the server |
+| Each path of the GUI, and its files | The browser. The GUI reads the query of its own pages |
+
+Each MCP tool has the same rule for its arguments. See
 [MCP tools](mcp-tools.md#refusal-codes).
 
 **`FORBIDDEN`'s `details` has five shapes**, and which one arrives depends on

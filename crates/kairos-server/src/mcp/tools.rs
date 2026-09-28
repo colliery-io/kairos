@@ -36,7 +36,6 @@ use diesel::sql_query;
 use diesel::sql_types::{
     Nullable as SqlNullable, Text as SqlText, Timestamptz as SqlTimestamptz, Uuid as SqlUuid,
 };
-use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::CallToolResult;
 use rmcp::schemars::JsonSchema;
 use rmcp::service::RequestContext;
@@ -65,22 +64,31 @@ use crate::api::{
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
 
+use super::arguments::Parameters;
 use super::service::{KairosMcp, tool_error, tool_text};
 
 // ---------------------------------------------------------------------------
 // Tool inputs (frozen names/shapes per S-0006's inventory tables)
 // ---------------------------------------------------------------------------
 //
-// COLLIERY-T-0249: the input of each tool that WRITES has
-// `deny_unknown_fields`, the rule of the write routes of the API. A call
-// with an argument that the tool does not know is refused, and rmcp gives
-// the refusal as a tool error that names the argument: "failed to
-// deserialize parameters: unknown field `column`, expected one of ...".
-// The schema of the tool shows `additionalProperties: false`. The tools
-// that only read ignore such an argument, as before.
+// COLLIERY-T-0249, COLLIERY-T-0256: the input of each tool has
+// `deny_unknown_fields`, the rule of the routes of the API. A call with an
+// argument that the tool does not know is refused, and the refusal is a
+// tool error that names the argument: "VALIDATION: The call has the
+// argument "column". This tool does not accept that argument. ..."
+// (`super::arguments`). The schema of the tool shows
+// `additionalProperties: false`. The rule is for the tools that read too:
+// an argument that does nothing tells the agent that it did something.
+
+/// `whoami` has no arguments. The type is there for the rule.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct WhoamiParams {}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct ListRepositoriesParams {
     /// Only this team's repositories (slug or UUID).
     pub team: Option<String>,
@@ -88,6 +96,7 @@ pub struct ListRepositoriesParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct GetRepositoryParams {
     /// The repository, by slug (e.g. "payments-api") or UUID.
     pub repository: String,
@@ -95,6 +104,7 @@ pub struct GetRepositoryParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct MyBoardsParams {
     /// Restrict to one board level: strategy | initiative | delivery | adr.
     pub level: Option<String>,
@@ -102,6 +112,7 @@ pub struct MyBoardsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct BoardItemsParams {
     /// The board, by slug (e.g. "platform-delivery") or UUID.
     pub board: String,
@@ -119,6 +130,7 @@ pub struct BoardItemsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct GetItemParams {
     /// The item's short code (e.g. "ACME-T-0012").
     pub short_code: String,
@@ -126,6 +138,7 @@ pub struct GetItemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct GetHistoryParams {
     /// The item's short code.
     pub short_code: String,
@@ -154,6 +167,7 @@ pub struct ProposeEdgeParams {
 /// Parameters for `related_work` (KAIROS-T-0191).
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct RelatedWorkParams {
     /// The item to find related work for, by short code.
     pub short_code: String,
@@ -164,6 +178,7 @@ pub struct RelatedWorkParams {
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SearchParams {
     /// Full-text query (websearch syntax: quoted phrases, OR, -negation).
     pub q: Option<String>,
@@ -183,6 +198,7 @@ pub struct SearchParams {
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SearchFilterParams {
     /// Restrict to entity types: strategy | initiative | task | document | adr.
     pub entity_type: Option<Vec<String>>,
@@ -216,6 +232,7 @@ pub struct SearchFilterParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SearchTraverseParams {
     /// The starting item's short code (e.g. "ACME-S-0001").
     pub from: String,
@@ -229,6 +246,7 @@ pub struct SearchTraverseParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct SearchSortParams {
     /// created_at | updated_at | title | relevance (relevance requires `q`).
     pub field: String,
@@ -433,6 +451,7 @@ impl KairosMcp {
     )]
     pub async fn whoami(
         &self,
+        Parameters(WhoamiParams {}): Parameters<WhoamiParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, tenant) = Self::caller(&context)?;

@@ -60,18 +60,25 @@ pub struct BoardColumn {
     #[serde(default)]
     #[schema(required = true)]
     pub is_done: bool,
-    /// When this column was REMOVED from its board (RFC 3339), absent
+    /// When this column was REMOVED from its board (RFC 3339), `null`
     /// while it is part of the board (KAIROS-T-0161, KAIROS-T-0164).
     ///
     /// `GET /api/boards/{id}` omits removed columns entirely unless it is
-    /// asked for them (`?include_removed_columns=true`), so this is `None`
-    /// on every default read. It is `Some` only for a caller that wants
-    /// the column an ARCHIVED card was put away in — the audit fact the
-    /// soft delete exists to preserve.
+    /// asked for them (`?include_removed_columns=true`), so this is `null`
+    /// on every default read. It is a timestamp only for a caller that
+    /// wants the column an ARCHIVED card was put away in — the audit fact
+    /// the soft delete exists to preserve.
     ///
     /// Named `removed_at`, not `archived_at`: the entity DTOs' `archived_at`
     /// is the KAIROS-A-0020 work-item state, and a column is not work.
+    ///
+    /// The server sends it in each response, `null` for a live column, so
+    /// the schema shows it as required and nullable (COLLIERY-T-0256, the
+    /// pattern of COLLIERY-T-0254). The default is for the client only: a
+    /// response of an older server has no `removed_at`, and it reads as
+    /// `None`.
     #[serde(default)]
+    #[schema(required = true)]
     pub removed_at: Option<String>,
 }
 
@@ -651,8 +658,7 @@ mod tests {
     }
 
     /// COLLIERY-T-0254, the schema half: the server sends `is_done` in
-    /// each response, so the schema lists it as required. `removed_at` is
-    /// not in the list.
+    /// each response, so the schema lists it as required.
     #[test]
     fn board_column_schema_requires_is_done() {
         let required = required_of(BoardColumn::schema());
@@ -660,10 +666,59 @@ mod tests {
             required.iter().any(|name| name == "is_done"),
             "`is_done` must be required: {required:?}"
         );
+    }
+
+    /// COLLIERY-T-0256, the schema half: the server sends `removed_at` in
+    /// each response, `null` for a live column. So the schema lists it as
+    /// required, and its type permits `null`.
+    #[test]
+    fn board_column_schema_requires_removed_at_and_permits_null() {
+        let required = required_of(BoardColumn::schema());
         assert!(
-            !required.iter().any(|name| name == "removed_at"),
-            "`removed_at` must stay optional: {required:?}"
+            required.iter().any(|name| name == "removed_at"),
+            "`removed_at` must be required: {required:?}"
         );
+        let schema = serde_json::to_value(BoardColumn::schema()).expect("serializes");
+        assert_eq!(
+            schema["properties"]["removed_at"]["type"],
+            json!(["string", "null"]),
+            "{schema}"
+        );
+        // What the server sends for a live column.
+        let column = BoardColumn {
+            id: "c".to_string(),
+            board_id: "b".to_string(),
+            name: "Todo".to_string(),
+            position: 0,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            is_done: false,
+            removed_at: None,
+        };
+        let sent = serde_json::to_value(&column).expect("serializes");
+        assert!(
+            sent.as_object()
+                .expect("an object")
+                .contains_key("removed_at")
+        );
+        assert_eq!(sent["removed_at"], json!(null));
+    }
+
+    /// COLLIERY-T-0256, the read half: a response of an older server has
+    /// no `removed_at`. The client reads it, and the column is live.
+    #[test]
+    fn board_column_without_removed_at_deserializes() {
+        let column: BoardColumn = serde_json::from_value(json!({
+            "id": "c",
+            "board_id": "b",
+            "name": "Todo",
+            "position": 0,
+            "is_done": true,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .expect("a column with no `removed_at` deserializes");
+        assert_eq!(column.removed_at, None);
     }
 
     /// COLLIERY-T-0254, the read half: a response of an older server has

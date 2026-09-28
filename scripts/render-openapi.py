@@ -330,7 +330,7 @@ def render(spec):
                     page.append(
                         "The server refuses a body with a field that is not "
                         "in this table "
-                        "([Errors](../errors.md#a-body-that-a-route-does-not-accept)).\n"
+                        "([Errors](../errors.md#a-field-of-the-body)).\n"
                     )
             elif node.get("enum"):
                 values = ", ".join(f"`{v}`" for v in node["enum"])

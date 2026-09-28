@@ -290,7 +290,7 @@ async fn cli_login_whoami_refresh_logout_live() {
     assert!(
         login_output
             .iter()
-            .any(|l| l.contains(&format!("Discovered OIDC issuer: {ISSUER}"))),
+            .any(|l| l.contains(&format!("The OIDC issuer of the deployment is: {ISSUER}"))),
         "RFC 9728 discovery not reported: {login_output:#?}"
     );
 
@@ -308,7 +308,7 @@ async fn cli_login_whoami_refresh_logout_live() {
     let login_text = login_output.join("\n");
     assert!(login_text.contains("enter code:"), "{login_text}");
     assert!(
-        login_text.contains(&format!("Logged in to {base_url}")),
+        login_text.contains(&format!("You are logged in to {base_url}")),
         "{login_text}"
     );
 
@@ -401,7 +401,7 @@ async fn cli_login_whoami_refresh_logout_live() {
 
     let (code, _, stderr) = run_cli(config_dir.path(), &["whoami"]).await;
     assert_eq!(code, 2, "a failed refresh is an auth error: {stderr}");
-    assert!(stderr.contains("could not be refreshed"), "{stderr}");
+    assert!(stderr.contains("could not refresh it"), "{stderr}");
     assert!(stderr.contains("kairos login --url"), "{stderr}");
 
     // --- phase E: corrupted cache → exit 2, actionable -----------------------
@@ -416,7 +416,7 @@ async fn cli_login_whoami_refresh_logout_live() {
     let (code, stdout, stderr) = run_cli(config_dir.path(), &["logout"]).await;
     assert_eq!(code, 0, "logout failed: {stderr}");
     assert!(
-        stdout.contains(&format!("Logged out of {base_url}")),
+        stdout.contains(&format!("You are logged out of {base_url}")),
         "{stdout}"
     );
     let cache: serde_json::Value =

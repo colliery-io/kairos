@@ -105,8 +105,8 @@ pub fn resolve_slug(config: &AppConfig, headers: &HeaderMap) -> Result<String, A
     }
 
     Err(ApiError::tenant_not_found(
-        "no tenant resolvable from the request \
-         (expected a Host subdomain or an X-Tenant header)",
+        "The request does not give an organization. Send the organization as the \
+         subdomain of the host, or send the header X-Tenant.",
     ))
 }
 
@@ -135,7 +135,7 @@ pub async fn require_tenant(
     };
     if !is_valid_slug(&slug) {
         return Err(ApiError::tenant_not_found(format!(
-            "{slug:?} is not a valid organization slug"
+            "{slug:?} is not the slug of an organization. A slug must match ^[a-z][a-z0-9_-]{{1,62}}$."
         )));
     }
 
@@ -162,7 +162,7 @@ pub async fn require_tenant(
             .optional()
             .map_err(ApiError::internal)?;
         let org = org.ok_or_else(|| {
-            ApiError::tenant_not_found(format!("no organization with slug {slug:?}"))
+            ApiError::tenant_not_found(format!("No organization has the slug {slug:?}."))
         })?;
         let role: Option<OrgRole> = organization_members::table
             .filter(organization_members::organization_id.eq(org.id))

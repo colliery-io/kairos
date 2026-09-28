@@ -135,26 +135,27 @@ impl SearchArgs {
         if let Some(raw) = &self.query_json {
             if self.has_flag_query() {
                 return Err(CliError::Failure(
-                    "--query-json carries the full search body and cannot be combined \
-                     with the other search flags"
+                    "--query-json has the full search body. Do not use it with the other \
+                     search flags."
                         .to_string(),
                 ));
             }
             let text = if raw == "-" {
                 let mut text = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut text)
-                    .map_err(|err| CliError::Failure(format!("cannot read stdin: {err}")))?;
+                std::io::stdin().read_to_string(&mut text).map_err(|err| {
+                    CliError::Failure(format!("The CLI cannot read standard input: {err}."))
+                })?;
                 text
             } else if let Some(path) = raw.strip_prefix('@') {
-                std::fs::read_to_string(path)
-                    .map_err(|err| CliError::Failure(format!("cannot read {path}: {err}")))?
+                std::fs::read_to_string(path).map_err(|err| {
+                    CliError::Failure(format!("The CLI cannot read {path}: {err}."))
+                })?
             } else {
                 raw.clone()
             };
             return serde_json::from_str(&text).map_err(|err| {
                 CliError::Failure(format!(
-                    "--query-json is not a valid S-0005 search body: {err}"
+                    "The value of --query-json is not a correct search body: {err}."
                 ))
             });
         }
@@ -198,8 +199,8 @@ impl SearchArgs {
 
         if self.query.is_none() && filter.is_none() && traverse.is_none() {
             return Err(CliError::Failure(
-                "nothing to search for: pass --query, a filter flag, --from/--from-id, \
-                 or --query-json"
+                "The command has no search. Use --query, a filter flag, --from, --from-id or \
+                 --query-json."
                     .to_string(),
             ));
         }
@@ -223,7 +224,7 @@ impl SearchArgs {
         for pair in &self.metadata {
             let Some((key, value)) = pair.split_once('=') else {
                 return Err(CliError::Failure(format!(
-                    "--metadata takes KEY=VALUE pairs, got {pair:?}"
+                    "The value {pair:?} of --metadata is not correct. Write it as KEY=VALUE."
                 )));
             };
             map.insert(key.trim().to_string(), value.trim().to_string());
@@ -238,8 +239,8 @@ impl SearchArgs {
         if self.from.is_none() && self.from_id.is_none() {
             if !self.relationships.is_empty() || self.direction.is_some() || self.depth.is_some() {
                 return Err(CliError::Failure(
-                    "--relationships/--direction/--depth describe a traversal and require \
-                     --from or --from-id"
+                    "--relationships, --direction and --depth are for a traversal. Use them \
+                     with --from or --from-id."
                         .to_string(),
                 ));
             }
@@ -247,14 +248,14 @@ impl SearchArgs {
         }
         if self.relationships.is_empty() {
             return Err(CliError::Failure(
-                "traversal requires at least one --relationships \
-                 (parent|supports|informs|supersedes|blocks)"
+                "A traversal needs one --relationships or more. The values are: parent, \
+                 supports, informs, supersedes, blocks."
                     .to_string(),
             ));
         }
         if self.depth.is_none() {
             return Err(CliError::Failure(
-                "traversal requires --depth (1-10)".to_string(),
+                "A traversal needs --depth. The depth is a number from 1 to 10.".to_string(),
             ));
         }
         Ok(Some(SearchTraverse {
@@ -456,7 +457,7 @@ mod tests {
         }
         .build_request()
         .expect_err("flags + --query-json conflict");
-        assert!(err.to_string().contains("cannot be combined"), "{err}");
+        assert!(err.to_string().contains("Do not use it with"), "{err}");
 
         let err = SearchArgs {
             query_json: Some(r#"{"query": "typo"}"#.into()),
@@ -464,12 +465,18 @@ mod tests {
         }
         .build_request()
         .expect_err("unknown fields rejected");
-        assert!(err.to_string().contains("not a valid"), "{err}");
+        assert!(
+            err.to_string().contains("is not a correct search body"),
+            "{err}"
+        );
 
         let err = SearchArgs::default()
             .build_request()
             .expect_err("empty search");
-        assert!(err.to_string().contains("nothing to search"), "{err}");
+        assert!(
+            err.to_string().contains("The command has no search"),
+            "{err}"
+        );
 
         let err = SearchArgs {
             metadata: vec!["no-equals".into()],

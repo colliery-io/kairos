@@ -631,12 +631,13 @@ then to each descendant. The rule is the same as for REST `DELETE`.
   stays live, and each item below it stays live.
 - A descendant that stays keeps its `parent` edge.
 
-When some descendants stay, the output has these lines after the cascade line:
+When some descendants stay, the output has these lines after the line of the
+descendants:
 
 ```text
-The archive did not reach 2 item(s). They stay live and keep their parent.
-- ACME-I-0002: you need `manage_initiatives` on board <board-id>.
-- ACME-T-0009: it is below ACME-I-0002.
+The archive did not reach 2 items. They stay live and keep their parent.
+- ACME-I-0002: You need `manage_initiatives` on the board <board-id>.
+- ACME-T-0009: It is below ACME-I-0002.
 ```
 
 The output has no such lines when the archive reached each descendant.

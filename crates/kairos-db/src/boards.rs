@@ -38,29 +38,31 @@ use crate::models::public::SystemBoardDefault;
 #[derive(Debug, thiserror::Error)]
 pub enum BoardError {
     /// No board with this id exists (or it is soft-deleted).
-    #[error("board {0} does not exist")]
+    #[error("The board {0} does not exist.")]
     BoardNotFound(Uuid),
     /// No column with this id exists.
-    #[error("column {0} does not exist")]
+    #[error("The column {0} does not exist.")]
     ColumnNotFound(Uuid),
     /// No live item of this type with this id exists.
-    #[error("{entity_type} {id} does not exist")]
+    #[error("The {entity_type} {id} does not exist.")]
     ItemNotFound { entity_type: &'static str, id: Uuid },
     /// The item exists but is not placed on a board (ADRs may have NULL
     /// board_id/column_id).
-    #[error("{entity_type} {id} is not on a board")]
+    #[error("The {entity_type} {id} is not on a board.")]
     ItemNotOnBoard { entity_type: &'static str, id: Uuid },
     /// `move_task`: the target is the board the task is already on.
-    #[error("task is already on board {0}")]
+    #[error("The task is on the board {0} already.")]
     SameBoard(Uuid),
     /// `move_task`: tasks move between DELIVERY boards only.
-    #[error("board {0} is not a delivery board")]
+    #[error("The board {0} is not a delivery board.")]
     NotDeliveryBoard(Uuid),
     /// `move_task`: the target board has no columns to land in.
-    #[error("board {0} has no entry column")]
+    #[error(
+        "The board {0} has no columns, so the task has no place on it. Add a column to the board."
+    )]
     NoEntryColumn(Uuid),
     /// The transition edge to remove does not exist.
-    #[error("transition {from} -> {to} does not exist on board {board_id}")]
+    #[error("The board {board_id} has no transition from {from} to {to}.")]
     TransitionNotFound {
         board_id: Uuid,
         from: Uuid,
@@ -127,10 +129,10 @@ pub enum BoardError {
         board_name: String,
     },
     /// No `system_board_defaults` row is seeded for this level.
-    #[error("no system_board_defaults row for level {0}")]
+    #[error("The table system_board_defaults has no row for the level {0}.")]
     MissingDefaults(BoardLevel),
     /// The seeded `system_board_defaults` row is malformed.
-    #[error("invalid system_board_defaults for level {level}: {source}")]
+    #[error("The row of system_board_defaults for the level {level} is not correct. {source}")]
     InvalidDefaults {
         level: BoardLevel,
         source: rules::DefaultConfigError,
@@ -143,7 +145,7 @@ pub enum BoardError {
     #[error(transparent)]
     Rule(#[from] rules::ColumnRuleError),
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

@@ -128,7 +128,7 @@ async fn web_surfaces_against_live_stack() {
     )
     .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(body.contains("refresh_token is required"), "{body}");
+    assert!(body.contains("The request has no refresh_token"), "{body}");
 
     // --- 3. a well-formed grant is relayed to the live issuer: a bogus
     //        code comes back as Dex's own OAuth error, passed through ----

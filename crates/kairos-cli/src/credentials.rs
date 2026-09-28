@@ -169,8 +169,7 @@ impl DeploymentCredentials {
     /// over (COLLIERY-T-0213): what happened, and the command to run next.
     pub fn session_expired_message(&self, deployment: &str) -> String {
         format!(
-            "the session for {deployment} has expired.\n\
-             Run `{}` to log in again.",
+            "The session for {deployment} expired.\nRun `{}` to log in again.",
             self.login_command(deployment)
         )
     }
@@ -228,8 +227,8 @@ pub fn config_dir() -> Result<PathBuf, CliError> {
     match std::env::var("HOME") {
         Ok(home) if !home.is_empty() => Ok(Path::new(&home).join(".config").join("kairos")),
         _ => Err(CliError::Failure(
-            "cannot locate the config directory: none of KAIROS_CONFIG_DIR, XDG_CONFIG_HOME, \
-             or HOME is set"
+            "The CLI cannot find the configuration directory. Set KAIROS_CONFIG_DIR, \
+             XDG_CONFIG_HOME or HOME."
                 .to_string(),
         )),
     }
@@ -251,16 +250,16 @@ pub fn load(path: &Path) -> Result<CredentialStore, CliError> {
         }
         Err(err) => {
             return Err(CliError::Failure(format!(
-                "cannot read {}: {err}",
+                "The CLI cannot read {}: {err}.",
                 path.display()
             )));
         }
     };
     serde_json::from_str(&contents).map_err(|err| {
         CliError::Auth(format!(
-            "the credential cache at {} is corrupted ({err}).\n\
-             Run `kairos login --url <deployment>` to re-authenticate (this rewrites the \
-             cache), or delete the file.",
+            "The credential cache at {} is corrupted ({err}).\n\
+             Run `kairos login --url <deployment>` to log in again. The login writes a new \
+             cache. As an alternative, delete the file.",
             path.display()
         ))
     })
@@ -269,19 +268,27 @@ pub fn load(path: &Path) -> Result<CredentialStore, CliError> {
 /// Write the store to `path` atomically (temp file + rename) with mode
 /// 0600, creating the parent directory (0700) when needed.
 pub fn save(path: &Path, store: &CredentialStore) -> Result<(), CliError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| CliError::Failure(format!("{} has no parent directory", path.display())))?;
+    let parent = path.parent().ok_or_else(|| {
+        CliError::Failure(format!(
+            "The path {} has no parent directory.",
+            path.display()
+        ))
+    })?;
     create_private_dir(parent)?;
 
-    let json = serde_json::to_string_pretty(store)
-        .map_err(|err| CliError::Failure(format!("cannot serialize credentials: {err}")))?;
+    let json = serde_json::to_string_pretty(store).map_err(|err| {
+        CliError::Failure(format!(
+            "The CLI cannot write the credentials as JSON: {err}."
+        ))
+    })?;
 
     let tmp = path.with_extension("json.tmp");
-    write_private_file(&tmp, &json)
-        .map_err(|err| CliError::Failure(format!("cannot write {}: {err}", tmp.display())))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|err| CliError::Failure(format!("cannot write {}: {err}", path.display())))?;
+    write_private_file(&tmp, &json).map_err(|err| {
+        CliError::Failure(format!("The CLI cannot write {}: {err}.", tmp.display()))
+    })?;
+    std::fs::rename(&tmp, path).map_err(|err| {
+        CliError::Failure(format!("The CLI cannot write {}: {err}.", path.display()))
+    })?;
     Ok(())
 }
 
@@ -294,11 +301,14 @@ fn create_private_dir(dir: &Path) -> Result<(), CliError> {
             .recursive(true)
             .mode(0o700)
             .create(dir)
-            .map_err(|err| CliError::Failure(format!("cannot create {}: {err}", dir.display())))?;
+            .map_err(|err| {
+                CliError::Failure(format!("The CLI cannot make {}: {err}.", dir.display()))
+            })?;
     }
     #[cfg(not(unix))]
-    std::fs::create_dir_all(dir)
-        .map_err(|err| CliError::Failure(format!("cannot create {}: {err}", dir.display())))?;
+    std::fs::create_dir_all(dir).map_err(|err| {
+        CliError::Failure(format!("The CLI cannot make {}: {err}.", dir.display()))
+    })?;
     Ok(())
 }
 
@@ -329,7 +339,7 @@ pub fn entry_for(store: &CredentialStore, url: &str) -> Result<DeploymentCredent
     let key = normalize_url(url);
     store.deployments.get(&key).cloned().ok_or_else(|| {
         CliError::Auth(format!(
-            "not logged in to {key}.\nRun `kairos login --url {key}` first."
+            "You are not logged in to {key}.\nRun `kairos login --url {key}` first."
         ))
     })
 }
@@ -344,12 +354,14 @@ pub fn resolve_deployment(store: &CredentialStore, url: Option<&str>) -> Result<
     match (keys.next(), keys.next()) {
         (Some(only), None) => Ok(only.clone()),
         (None, _) => Err(CliError::Auth(
-            "no cached credentials.\nRun `kairos login --url <deployment>` first.".to_string(),
+            "The cache has no credentials.\nRun `kairos login --url <deployment>` first."
+                .to_string(),
         )),
         (Some(_), Some(_)) => {
             let known: Vec<&str> = store.deployments.keys().map(String::as_str).collect();
             Err(CliError::Failure(format!(
-                "multiple deployments are cached ({}); pass --url to pick one",
+                "The cache has credentials for more than one deployment ({}). Use --url to \
+                 select one.",
                 known.join(", ")
             )))
         }
@@ -482,9 +494,9 @@ mod tests {
         let message = local_entry(1).session_expired_message("http://one.kairos.test");
         assert_eq!(
             message,
-            "the session for http://one.kairos.test has expired.\n\
-             Run `kairos login --url http://one.kairos.test --email ada@example.test \
-             --tenant acme` to log in again."
+            "The session for http://one.kairos.test expired.\n\
+             Run `kairos login --url http://one.kairos.test --email ada@example.test --tenant \
+             acme` to log in again."
         );
         assert!(!message.contains(BEARER), "{message}");
 

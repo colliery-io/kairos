@@ -113,11 +113,11 @@ use crate::models::graph::{ItemRelationship, NewActivityLogEntry, NewItemRelatio
 pub enum GraphError {
     /// No live item with this id exists in any entity table (unknown id or
     /// soft-deleted — every lookup here spells `deleted_at IS NULL`).
-    #[error("item {0} does not exist")]
+    #[error("The item {0} does not exist.")]
     ItemNotFound(Uuid),
     /// An item cannot be related to itself (mirrors the DDL `CHECK
     /// (source_id != target_id)`).
-    #[error("item {0} cannot be linked to itself")]
+    #[error("An edge cannot go from the item {0} to the same item. Send two different items.")]
     SelfLink(Uuid),
     /// The `(relationship, source_type, target_type)` combination is
     /// outside the KAIROS-A-0001 type-rule matrix.
@@ -125,7 +125,9 @@ pub enum GraphError {
     Rule(#[from] rules::GraphRuleError),
     /// Adding this edge would create a directed cycle in an acyclic
     /// relationship (`parent`/`blocks`, KAIROS-A-0001).
-    #[error("{relationship} edge {source_id} -> {target_id} would create a cycle")]
+    #[error(
+        "A {relationship} edge from {source_id} to {target_id} makes a cycle. A {relationship} edge must not make a cycle."
+    )]
     CycleDetected {
         relationship: RelationshipType,
         source_id: Uuid,
@@ -133,21 +135,21 @@ pub enum GraphError {
     },
     /// The edge already exists (`UNIQUE (source_id, target_id,
     /// relationship)`) — nothing changed and no activity row was written.
-    #[error("{relationship} edge {source_id} -> {target_id} already exists")]
+    #[error("The {relationship} edge from {source_id} to {target_id} exists already.")]
     AlreadyLinked {
         relationship: RelationshipType,
         source_id: Uuid,
         target_id: Uuid,
     },
     /// No such edge exists to unlink.
-    #[error("no {relationship} edge {source_id} -> {target_id} exists")]
+    #[error("No {relationship} edge goes from {source_id} to {target_id}.")]
     NotLinked {
         relationship: RelationshipType,
         source_id: Uuid,
         target_id: Uuid,
     },
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

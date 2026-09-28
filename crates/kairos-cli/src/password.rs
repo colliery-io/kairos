@@ -55,7 +55,7 @@ where
     let password = if is_terminal {
         prompt_hidden(prompt).map_err(|err| {
             CliError::Failure(format!(
-                "cannot read the password from the terminal: {err}.\n\
+                "The CLI cannot read the password from the terminal: {err}.\n\
                  Run the command in a terminal, or send the password on standard input."
             ))
         })?
@@ -63,7 +63,7 @@ where
         let mut line = String::new();
         piped.read_line(&mut line).map_err(|err| {
             CliError::Failure(format!(
-                "cannot read the password from standard input: {err}."
+                "The CLI cannot read the password from standard input: {err}."
             ))
         })?;
         line
@@ -76,7 +76,7 @@ where
         .unwrap_or(&password);
     if password.is_empty() {
         return Err(CliError::Failure(
-            "no password was given.\n\
+            "The command got no password.\n\
              Type the password at the prompt, or send it on standard input."
                 .to_string(),
         ));
@@ -142,7 +142,10 @@ mod tests {
         for input in ["", "\n", "\r\n"] {
             let err = piped(input).expect_err("empty");
             assert_eq!(err.exit_code(), EXIT_FAILURE);
-            assert!(err.to_string().contains("no password was given"), "{err}");
+            assert!(
+                err.to_string().contains("The command got no password"),
+                "{err}"
+            );
         }
     }
 

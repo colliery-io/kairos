@@ -135,7 +135,7 @@ pub(crate) async fn create_token(
 ) -> Result<(StatusCode, Json<ScimTokenCreatedResponse>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("name must not be empty"));
+        return Err(ApiError::validation("The name is empty. Send a name."));
     }
     let token = generate_token(&tenant.slug);
     let token_hash = hash_token(&token);
@@ -234,10 +234,12 @@ pub(crate) async fn revoke_token(
             require_capability(conn, &slug, None, user, MANAGE)?;
             let existing = kairos_db::scim::find_token(conn, token_id)
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no SCIM token {token_id}")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The SCIM token {token_id} does not exist."))
+                })?;
             if existing.revoked_at.is_some() {
                 return Err(ApiError::conflict(format!(
-                    "SCIM token {token_id} is already revoked"
+                    "An admin revoked the SCIM token {token_id} already."
                 )));
             }
             let row = kairos_db::scim::revoke_token(conn, token_id).map_err(ApiError::internal)?;

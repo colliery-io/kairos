@@ -399,26 +399,34 @@ pub enum SortOrder {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SearchValidationError {
     /// None of `q`/`filter`/`traverse` is present and constraining.
-    #[error("at least one of q, filter, or traverse must be provided")]
+    #[error("The request has no q, no filter and no traverse. Send one or more of them.")]
     NoCapability,
     /// `q` is present but blank.
-    #[error("q must not be blank")]
+    #[error("The value of q is empty. Send the text to find.")]
     BlankQuery,
     /// `filter.entity_type` is present but empty (would match nothing by
     /// accident; an explicit empty OR-list is almost certainly a bug).
-    #[error("filter.entity_type must not be an empty list")]
+    #[error(
+        "The list filter.entity_type is empty. Send one entity type or more, or remove the field."
+    )]
     EmptyEntityTypes,
     /// `filter.task_type` is present but empty.
-    #[error("filter.task_type must not be an empty list")]
+    #[error("The list filter.task_type is empty. Send one task type or more, or remove the field.")]
     EmptyTaskTypes,
     /// `filter.work_class` is present but empty (KAIROS-T-0077).
-    #[error("filter.work_class must not be an empty list")]
+    #[error(
+        "The list filter.work_class is empty. Send one work class or more, or remove the field."
+    )]
     EmptyWorkClasses,
     /// A `filter.metadata` key is blank.
-    #[error("filter.metadata keys must not be blank")]
+    #[error(
+        "A key of filter.metadata is empty. Send the slug of a metadata definition as the key."
+    )]
     BlankMetadataKey,
     /// `created_after`/`created_before` do not form a sane range.
-    #[error("created_after ({after}) must be before created_before ({before})")]
+    #[error(
+        "The value {after} of created_after is not before the value {before} of created_before. Send an earlier created_after."
+    )]
     InvertedDateRange {
         /// The submitted `created_after`.
         after: DateTime<Utc>,
@@ -426,19 +434,21 @@ pub enum SearchValidationError {
         before: DateTime<Utc>,
     },
     /// `traverse.from` names neither `short_code` nor `id`.
-    #[error("traverse.from must name a short_code or an id")]
+    #[error("The object traverse.from has no short_code and no id. Send one of them.")]
     TraverseFromMissing,
     /// `traverse.from` names both `short_code` and `id`.
-    #[error("traverse.from must name exactly one of short_code or id, not both")]
+    #[error("The object traverse.from has a short_code and an id. Send only one of them.")]
     TraverseFromAmbiguous,
     /// `traverse.relationships` is empty.
-    #[error("traverse.relationships must not be empty")]
+    #[error("The list traverse.relationships is empty. Send one relationship or more.")]
     NoRelationships,
     /// `traverse.depth` is missing (required per A-0007).
-    #[error("traverse.depth is required")]
+    #[error("The request has no traverse.depth. Send a depth.")]
     TraverseDepthRequired,
     /// `traverse.depth` is outside `1..=` [`MAX_TRAVERSE_DEPTH`].
-    #[error("traverse.depth {depth} is out of range (must be 1..={cap})")]
+    #[error(
+        "The value {depth} of traverse.depth is not correct. The depth is a number from 1 to {cap}."
+    )]
     TraverseDepthOutOfRange {
         /// The submitted depth.
         depth: u32,
@@ -446,7 +456,7 @@ pub enum SearchValidationError {
         cap: u32,
     },
     /// `limit` is outside `1..=` [`MAX_LIMIT`].
-    #[error("limit {limit} is out of range (must be 1..={cap})")]
+    #[error("The value {limit} of limit is not correct. The limit is a number from 1 to {cap}.")]
     LimitOutOfRange {
         /// The submitted limit.
         limit: i64,
@@ -454,14 +464,14 @@ pub enum SearchValidationError {
         cap: i64,
     },
     /// `offset` is negative.
-    #[error("offset {offset} must not be negative")]
+    #[error("The value {offset} of offset is not correct. The offset is 0 or more.")]
     NegativeOffset {
         /// The submitted offset.
         offset: i64,
     },
     /// `sort.field` is `relevance` but there is no `q` to be relevant to
     /// (KAIROS-T-0186).
-    #[error("sort.field relevance requires q")]
+    #[error("The sort field relevance needs q. Send q, or send a different sort field.")]
     RelevanceWithoutQuery,
 }
 

@@ -67,8 +67,8 @@ use provider::CachedTokenProvider;
     name = "kairos",
     version,
     about = "The Kairos command-line interface",
-    long_about = "The Kairos command-line interface (KAIROS-A-0015).\n\
-                  Exit codes: 0 success, 1 API/validation error, 2 auth error."
+    long_about = "The Kairos command-line interface (KAIROS-A-0015).\nThe exit codes are: 0 for \
+         success, 1 for an error of the API or of the input, 2 for an error of the login."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -235,19 +235,21 @@ async fn login(
 ) -> Result<(), CliError> {
     let deployment = credentials::normalize_url(url);
     if deployment.is_empty() {
-        return Err(CliError::Failure("--url must not be empty".to_string()));
+        return Err(CliError::Failure(
+            "The value of --url is empty. Give the URL of the deployment.".to_string(),
+        ));
     }
     let http = reqwest::Client::new();
 
     let issuer = match issuer_override {
         Some(issuer) => {
             let issuer = issuer.trim_end_matches('/').to_string();
-            println!("Using issuer override: {issuer}");
+            println!("The CLI uses the issuer of --issuer: {issuer}");
             issuer
         }
         None => {
             let issuer = oidc::discover_issuer(&http, &deployment).await?;
-            println!("Discovered OIDC issuer: {issuer}");
+            println!("The OIDC issuer of the deployment is: {issuer}");
             issuer
         }
     };
@@ -260,18 +262,19 @@ async fn login(
         Some(complete) => {
             println!("To sign in, open: {complete}");
             println!(
-                "(or visit {} and enter code: {})",
+                "(As an alternative, open {} and enter code: {})",
                 grant.verification_uri, grant.user_code
             );
         }
         None => {
-            println!("To sign in, visit: {}", grant.verification_uri);
+            println!("To sign in, open: {}", grant.verification_uri);
             println!("and enter code: {}", grant.user_code);
         }
     }
     println!();
     println!(
-        "Waiting for approval (polling every {}s; the code expires in {}s)...",
+        "The CLI waits for the approval. It asks the issuer each {} seconds. The code expires \
+         in {} seconds.",
         grant.interval.unwrap_or(5).max(1),
         grant.expires_in
     );
@@ -279,8 +282,8 @@ async fn login(
     let token = oidc::poll_device_grant(&http, &endpoints, &client_id, &grant).await?;
     if token.refresh_token.is_none() {
         eprintln!(
-            "warning: the issuer did not return a refresh token; \
-             you will need to log in again when the access token expires"
+            "warning: The issuer gave no refresh token. You must log in again when the access \
+             token expires."
         );
     }
 
@@ -290,9 +293,9 @@ async fn login(
         .bearer_for(api_bearer)
         .ok_or_else(|| {
             CliError::Auth(
-                "--bearer id_token was requested but the issuer returned no id_token.\n\
-                 Ensure the OAuth client requests the `openid` scope, or use \
-                 `--bearer access_token`."
+                "The command has --bearer id_token, and the issuer gave no id_token.\n\
+                 Make sure that the OAuth client asks for the scope `openid`, or use `--bearer \
+                 access_token`."
                     .to_string(),
             )
         })?
@@ -317,8 +320,8 @@ async fn login(
     credentials::save(&path, &store)?;
 
     println!();
-    println!("Logged in to {deployment}.");
-    println!("Credentials cached in {} (mode 0600).", path.display());
+    println!("You are logged in to {deployment}.");
+    println!("The credentials are in {} (mode 0600).", path.display());
     Ok(())
 }
 
@@ -329,7 +332,8 @@ fn load_store_for_login(path: &std::path::Path) -> CredentialStore {
         Ok(store) => store,
         Err(_) => {
             eprintln!(
-                "warning: the credential cache at {} was unreadable and has been reset",
+                "warning: The CLI could not read the credential cache at {}. The CLI made a \
+                 new cache.",
                 path.display()
             );
             CredentialStore::default()
@@ -359,11 +363,15 @@ fn load_store_for_login(path: &std::path::Path) -> CredentialStore {
 async fn login_local(url: &str, email: &str, tenant: Option<String>) -> Result<(), CliError> {
     let deployment = credentials::normalize_url(url);
     if deployment.is_empty() {
-        return Err(CliError::Failure("--url must not be empty".to_string()));
+        return Err(CliError::Failure(
+            "The value of --url is empty. Give the URL of the deployment.".to_string(),
+        ));
     }
     let email = email.trim();
     if email.is_empty() {
-        return Err(CliError::Failure("--email must not be empty".to_string()));
+        return Err(CliError::Failure(
+            "The value of --email is empty. Give the email of the account.".to_string(),
+        ));
     }
 
     let mut client = KairosClient::anonymous(&deployment);
@@ -396,7 +404,7 @@ async fn login_local(url: &str, email: &str, tenant: Option<String>) -> Result<(
         .and_then(|at| u64::try_from(at.timestamp()).ok())
         .ok_or_else(|| {
             CliError::Failure(
-                "the deployment gave a session with an expiry that the CLI cannot read.\n\
+                "The deployment gave a session with an expiry that the CLI cannot read.\n\
                  Make sure that the CLI and the deployment are the same version."
                     .to_string(),
             )
@@ -415,16 +423,19 @@ async fn login_local(url: &str, email: &str, tenant: Option<String>) -> Result<(
     );
     credentials::save(&path, &store)?;
 
-    println!("Logged in to {deployment} as {}.", response.user.email);
+    println!(
+        "You are logged in to {deployment} as {}.",
+        response.user.email
+    );
     println!("The session expires at {}.", response.expires_at);
-    println!("Credentials cached in {} (mode 0600).", path.display());
+    println!("The credentials are in {} (mode 0600).", path.display());
     Ok(())
 }
 
 /// `--email` on a deployment that has local accounts off (COLLIERY-T-0213).
 fn local_accounts_off(deployment: &str) -> CliError {
     CliError::Failure(format!(
-        "local accounts are off on this deployment.\n\
+        "Local accounts are off on this deployment.\n\
          Run `kairos login --url {deployment}` to log in through the issuer."
     ))
 }
@@ -439,8 +450,8 @@ fn local_accounts_off(deployment: &str) -> CliError {
 fn login_failure(err: ApiError, deployment: &str) -> CliError {
     match err {
         ApiError::Unauthorized { .. } => CliError::Auth(
-            "the deployment did not accept the email and password.\n\
-             Check them, then run the command again."
+            "The deployment did not accept the email and the password.\n\
+             Make sure that they are correct. Then run the command again."
                 .to_string(),
         ),
         // The throttle of KAIROS-T-0202: 429 `TOO_MANY_REQUESTS`, with the
@@ -451,12 +462,13 @@ fn login_failure(err: ApiError, deployment: &str) -> CliError {
             ..
         } => CliError::Failure(match details["retry_after_secs"].as_u64() {
             Some(seconds) => format!(
-                "too many failed login attempts.\n\
-                 Wait {seconds} seconds, then try again."
+                "The number of incorrect logins is too large.\n\
+                 Wait {seconds} seconds. Then try again."
             ),
-            None => "too many failed login attempts.\n\
-                     Wait a minute, then try again."
-                .to_string(),
+            None => {
+                "The number of incorrect logins is too large.\nWait one minute. Then try again."
+                    .to_string()
+            }
         }),
         // The route is mounted only with local accounts on. This is the
         // answer when `/api/config` could not say so first.
@@ -482,13 +494,13 @@ async fn logout(url: Option<&str>) -> Result<(), CliError> {
     let path = credentials::credentials_path()?;
     let mut store = credentials::load(&path)?;
     if store.deployments.is_empty() {
-        println!("No cached credentials; nothing to do.");
+        println!("The cache has no credentials. The CLI changed nothing.");
         return Ok(());
     }
     let deployment = credentials::resolve_deployment(&store, url)?;
     let Some(entry) = store.deployments.remove(&deployment) else {
         return Err(CliError::Failure(format!(
-            "no cached credentials for {deployment} (cached: {})",
+            "The cache has no credentials for {deployment}. The cache has: {}.",
             store
                 .deployments
                 .keys()
@@ -513,18 +525,18 @@ async fn logout(url: Option<&str>) -> Result<(), CliError> {
                 },
             };
             return Err(CliError::Failure(format!(
-                "the deployment did not end the session: {reason}.\n\
-                 The local entry is removed from the cache. The session stays valid \
+                "The deployment did not end the session: {reason}.\n\
+                 The CLI removed the local entry from the cache. The session stays in effect \
                  until it expires.\n\
                  To end it now, ask an organization admin to end your sessions."
             )));
         }
-        println!("Logged out of {deployment}.");
-        println!("The session is ended on the server.");
+        println!("You are logged out of {deployment}.");
+        println!("The server ended the session.");
         return Ok(());
     }
 
-    println!("Logged out of {deployment}.");
+    println!("You are logged out of {deployment}.");
     Ok(())
 }
 
@@ -549,8 +561,9 @@ async fn whoami(
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&identity)
-                .map_err(|err| CliError::Failure(format!("cannot render JSON: {err}")))?
+            serde_json::to_string_pretty(&identity).map_err(|err| CliError::Failure(format!(
+                "The CLI cannot write the JSON: {err}."
+            )))?
         );
     } else {
         print_identity(&identity);

@@ -43,8 +43,8 @@ impl From<ApiError> for CliError {
     fn from(err: ApiError) -> Self {
         match err {
             ApiError::Unauthorized { message, .. } => CliError::Auth(format!(
-                "the deployment rejected the token (401): {message}\n\
-                 Run `kairos login --url <deployment>` to re-authenticate."
+                "The deployment did not accept the token (401): {message}\n\
+                 Run `kairos login --url <deployment>` to log in again."
             )),
             ApiError::Token(message) => CliError::Auth(message),
             ApiError::Forbidden {
@@ -53,21 +53,21 @@ impl From<ApiError> for CliError {
                 details,
                 ..
             } => {
-                let mut text = format!("access denied (403): {message}");
+                let mut text = format!("The deployment refused the request (403): {message}");
                 if let Some(capability) = capability {
                     text.push_str(&format!(
-                        "\nThis action requires the {capability:?} capability on the item's \
-                         board; ask an org admin to grant it."
+                        "\nThis action requires the capability {capability:?} on the board of \
+                         the item. Ask an organization admin for the capability."
                     ));
                 } else if details["required"] == "deployment_admin" {
                     text.push_str(
-                        "\nThis is a deployment-admin operation: your OIDC subject must be \
-                         listed in the server's KAIROS_DEPLOYMENT_ADMINS.",
+                        "\nOnly a deployment admin can do this. Your OIDC subject must be in \
+                         KAIROS_DEPLOYMENT_ADMINS of the server.",
                     );
                 } else {
                     text.push_str(
-                        "\nYou are authenticated, but this deployment has not granted you \
-                         access. Ask an org admin to add you as a member.",
+                        "\nYou are logged in, but you are not a member of this organization. \
+                         Ask an organization admin to add you as a member.",
                     );
                 }
                 CliError::Failure(text)
@@ -78,13 +78,13 @@ impl From<ApiError> for CliError {
                 current,
                 ..
             } => {
-                let mut text = format!("conflict (409 {code}): {message}");
+                let mut text = format!("The request is in conflict (409 {code}): {message}");
                 if let Some(version) = current["version"].as_i64() {
                     let title = current["title"].as_str().unwrap_or("?");
                     text.push_str(&format!(
-                        "\nThe server-current version is {version} (title: {title:?}). \
-                         Review it with `get`, then re-run the edit — the CLI re-bases on \
-                         the latest version unless you pass --version explicitly."
+                        "\nThe current version on the server is {version} (title: {title:?}). \
+                         Read the item with `get`. Then run the edit again. The CLI makes the \
+                         edit on the current version, unless you use --version."
                     ));
                 }
                 CliError::Failure(text)
@@ -94,10 +94,10 @@ impl From<ApiError> for CliError {
                 allowed_targets,
                 ..
             } => {
-                let mut text = format!("invalid transition (422): {message}");
+                let mut text = format!("The transition is not correct (422): {message}");
                 match allowed_targets.as_array() {
                     Some(targets) if !targets.is_empty() => {
-                        text.push_str("\nAllowed target columns:");
+                        text.push_str("\nThe item can move to these columns:");
                         for target in targets {
                             text.push_str(&format!(
                                 "\n  - {} ({})",
@@ -106,8 +106,9 @@ impl From<ApiError> for CliError {
                             ));
                         }
                     }
-                    Some(_) => text
-                        .push_str("\nNo transitions are allowed from the item's current column."),
+                    Some(_) => {
+                        text.push_str("\nNo transition starts at the current column of the item.")
+                    }
                     None => {}
                 }
                 CliError::Failure(text)
@@ -118,13 +119,11 @@ impl From<ApiError> for CliError {
                 message,
                 ..
             } if code == "LAST_ADMIN" => CliError::Failure(format!(
-                "{status} LAST_ADMIN: {message}\n\
-                 An organization must keep at least one admin; promote another member \
-                 to admin first."
+                "{status} LAST_ADMIN: {message}\nMake a different member an admin first."
             )),
             ApiError::Transport(err) => CliError::Failure(format!(
-                "could not reach the deployment: {err}\n\
-                 Check the URL and your network connection."
+                "The CLI cannot connect to the deployment: {err}\n\
+                 Make sure that the URL is correct and that the network connection works."
             )),
             other => CliError::Failure(other.to_string()),
         }
@@ -168,7 +167,7 @@ mod tests {
         }
         .into();
         assert_eq!(forbidden.exit_code(), EXIT_FAILURE);
-        assert!(forbidden.to_string().contains("org admin"));
+        assert!(forbidden.to_string().contains("organization admin"));
     }
 
     /// 403 with a KAIROS-A-0006 capability check names the capability
@@ -216,7 +215,10 @@ mod tests {
         .into();
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         let text = err.to_string();
-        assert!(text.contains("server-current version is 4"), "{text}");
+        assert!(
+            text.contains("current version on the server is 4"),
+            "{text}"
+        );
         assert!(text.contains("Newer title"), "{text}");
         assert!(text.contains("--version"), "{text}");
     }
@@ -235,7 +237,10 @@ mod tests {
         .into();
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         let text = err.to_string();
-        assert!(text.contains("Allowed target columns:"), "{text}");
+        assert!(
+            text.contains("The item can move to these columns:"),
+            "{text}"
+        );
         assert!(text.contains("Todo (0193-c1)"), "{text}");
         assert!(text.contains("Blocked (0193-c2)"), "{text}");
 
@@ -248,7 +253,7 @@ mod tests {
         assert!(
             empty
                 .to_string()
-                .contains("No transitions are allowed from the item's current column"),
+                .contains("No transition starts at the current column of the item"),
             "{empty}"
         );
     }
@@ -266,6 +271,9 @@ mod tests {
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         let text = err.to_string();
         assert!(text.contains("LAST_ADMIN"), "{text}");
-        assert!(text.contains("at least one admin"), "{text}");
+        assert!(
+            text.contains("Make a different member an admin first"),
+            "{text}"
+        );
     }
 }

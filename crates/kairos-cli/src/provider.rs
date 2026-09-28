@@ -71,8 +71,8 @@ impl CachedTokenProvider {
 
         let Some(refresh_token) = entry.refresh_token.as_deref() else {
             return Err(Error::Token(format!(
-                "the cached access token for {url} has expired and no refresh token was \
-                 issued.\nRun `kairos login --url {url}` to re-authenticate.",
+                "The access token for {url} expired, and the cache has no refresh token.\n\
+                 Run `kairos login --url {url}` to log in again.",
                 url = self.deployment
             )));
         };
@@ -81,8 +81,8 @@ impl CachedTokenProvider {
             .await
             .map_err(|err| {
                 Error::Token(format!(
-                    "cannot refresh the access token ({err}).\n\
-                     Run `kairos login --url {url}` to re-authenticate.",
+                    "The CLI cannot refresh the access token ({err}).\n\
+                     Run `kairos login --url {url}` to log in again.",
                     url = self.deployment
                 ))
             })?;
@@ -95,8 +95,8 @@ impl CachedTokenProvider {
         .await
         .map_err(|reason| {
             Error::Token(format!(
-                "the session for {url} has expired and could not be refreshed ({reason}).\n\
-                 Run `kairos login --url {url}` to re-authenticate.",
+                "The session for {url} expired, and the CLI could not refresh it ({reason}).\n\
+                 Run `kairos login --url {url}` to log in again.",
                 url = self.deployment
             ))
         })?;
@@ -108,8 +108,9 @@ impl CachedTokenProvider {
             .bearer_for(updated.api_bearer)
             .ok_or_else(|| {
                 Error::Token(format!(
-                    "the refreshed session for {url} returned no id_token, which this \
-                     deployment requires.\nRun `kairos login --url {url}` to re-authenticate.",
+                    "The refresh of the session for {url} gave no id_token. This deployment \
+                     must have an id_token.\n\
+                     Run `kairos login --url {url}` to log in again.",
                     url = self.deployment
                 ))
             })?
@@ -185,9 +186,9 @@ mod tests {
         };
         assert_eq!(
             message,
-            "the session for http://one.kairos.test has expired.\n\
-             Run `kairos login --url http://one.kairos.test --email ada@example.test` \
-             to log in again."
+            "The session for http://one.kairos.test expired.\n\
+             Run `kairos login --url http://one.kairos.test --email ada@example.test` to log \
+             in again."
         );
         assert!(!message.contains("refresh"), "{message}");
         assert!(!message.contains(BEARER), "{message}");

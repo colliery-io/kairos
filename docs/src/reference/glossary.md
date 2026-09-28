@@ -75,6 +75,12 @@ the update of a board with the slug of a live board. The refusal is 409
 `CONFLICT`, and it names the board that has the slug. A deleted board does not
 keep its slug.
 
+A slug that a caller sends must match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot
+have the form of a UUID. If not, the refusal is 422 `VALIDATION`, and it gives
+the rule. The rule does not apply to the slug that Kairos makes for the
+delivery board of a team. A board with a slug from before the rule keeps that
+slug.
+
 Every board has a team. The rule has two forms.
 
 - A delivery board has a delivery [team](#team). The board holds the team in

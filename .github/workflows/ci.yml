@@ -119,6 +119,13 @@ jobs:
       - name: Gate 5 — Simplified Technical English
         run: angreal docs ste
 
+      # COLLIERY-T-0258: the same rules for the texts of errors in the Rust code
+      # (`#[error("...")]` attributes and the arguments of `ApiError` constructors).
+      # `scripts/ste-code-baseline.json` is the ceiling. It reads the source as text,
+      # so it needs no build.
+      - name: Gate 5 — Simplified Technical English, the texts of the code
+        run: angreal docs ste --code
+
       - name: Gate 6 — GUI conventions grep
         run: angreal web lint
 

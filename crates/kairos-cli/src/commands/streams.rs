@@ -162,7 +162,7 @@ impl StreamsCommand {
                     return print_json(&stream);
                 }
                 println!(
-                    "Created delivery stream {} ({}, id {})",
+                    "Kairos made the delivery stream {} ({}, id {}).",
                     stream.name, stream.slug, stream.id
                 );
                 Ok(())
@@ -176,7 +176,8 @@ impl StreamsCommand {
             } => {
                 if name.is_none() && slug.is_none() && description.is_none() {
                     return Err(CliError::Failure(
-                        "nothing to update: pass --name, --slug, or --description".to_string(),
+                        "The command has no change. Use --name, --slug or --description."
+                            .to_string(),
                     ));
                 }
                 let client = client(&common)?;
@@ -194,7 +195,7 @@ impl StreamsCommand {
                     return print_json(&stream);
                 }
                 println!(
-                    "Updated delivery stream {} ({}, id {})",
+                    "Kairos changed the delivery stream {} ({}, id {}).",
                     stream.name, stream.slug, stream.id
                 );
                 Ok(())
@@ -204,13 +205,13 @@ impl StreamsCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("delivery stream {stream_id}"))?;
+                require_confirm(confirm, &format!("the delivery stream {stream_id}"))?;
                 let client = client(&common)?;
                 let response = client.delete_stream(&stream_id).await?;
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Deleted delivery stream {}", response.id);
+                println!("Kairos deleted the delivery stream {}.", response.id);
                 Ok(())
             }
             Self::Teams(command) => command.run().await,
@@ -255,7 +256,10 @@ impl StreamTeamsCommand {
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Added team {} to stream {stream_id}", response.id);
+                println!(
+                    "Kairos added the team {} to the stream {stream_id}.",
+                    response.id
+                );
                 Ok(())
             }
             Self::Remove {
@@ -268,7 +272,10 @@ impl StreamTeamsCommand {
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Removed team {} from stream {stream_id}", response.id);
+                println!(
+                    "Kairos removed the team {} from the stream {stream_id}.",
+                    response.id
+                );
                 Ok(())
             }
         }

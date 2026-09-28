@@ -86,14 +86,14 @@ use crate::models::templates::{NewItemMetadata, Template};
 pub enum ItemError {
     /// No live item of this type with this id exists (soft-deleted rows are
     /// not found).
-    #[error("{entity_type} {id} does not exist")]
+    #[error("The {entity_type} {id} does not exist.")]
     ItemNotFound { entity_type: &'static str, id: Uuid },
     /// KAIROS-A-0004 optimistic-concurrency conflict: the submitted base
     /// version is stale. Carries the item's current version, title, and
     /// content so the client can reconcile (maps to HTTP 409).
     #[error(
-        "version conflict on {item_id}: submitted base version \
-         {expected_version}, current version {current_version}"
+        "The request has the version {expected_version} of the item {item_id}, and the \
+         current version is {current_version}. Make the edit on the current version."
     )]
     VersionConflict {
         item_id: Uuid,
@@ -104,25 +104,25 @@ pub enum ItemError {
     },
     /// No `item_history` snapshot exists for this item/version (rollback
     /// target does not exist).
-    #[error("no history snapshot for item {item_id} at version {version}")]
+    #[error("The item {item_id} has no version {version} in its history.")]
     HistoryNotFound { item_id: Uuid, version: i32 },
     /// No live board with this id exists.
-    #[error("board {0} does not exist")]
+    #[error("The board {0} does not exist.")]
     BoardNotFound(Uuid),
     /// The board exists but has no columns to default-place an item into.
-    #[error("board {0} has no columns")]
+    #[error("The board {0} has no columns. Add a column to the board.")]
     BoardHasNoColumns(Uuid),
     /// An explicit `column_id` does not belong to the given board.
-    #[error("column {column_id} is not a column of board {board_id}")]
+    #[error("The column {column_id} is not a column of the board {board_id}.")]
     ColumnNotOnBoard { board_id: Uuid, column_id: Uuid },
     /// No template with this id exists.
-    #[error("template {0} does not exist")]
+    #[error("The template {0} does not exist.")]
     TemplateNotFound(Uuid),
     /// No live repository with this id (KAIROS-T-0103).
-    #[error("repository {0} does not exist")]
+    #[error("The repository {0} does not exist.")]
     RepositoryNotFound(Uuid),
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

@@ -258,7 +258,7 @@ fn actor_label(members: &HashMap<String, String>, actor_id: &str) -> String {
 async fn fetch_item_head(auth: Auth, code: String) -> Result<(ItemHead, &'static str), ApiError> {
     let family = family_of_short_code(&code).ok_or_else(|| ApiError::Http {
         status: 404,
-        message: format!("{code:?} is not a Kairos short code (expected e.g. DEMO-T-0001)"),
+        message: format!("{code:?} is not a short code. A short code has the form DEMO-T-0001."),
         code: Some("NOT_FOUND".to_string()),
     })?;
     let head = api::get_json::<ItemHead>(auth, &format!("/api/{family}/{code}")).await?;
@@ -288,11 +288,11 @@ async fn fetch_snapshot(
     .await
 }
 
-/// `GET /api/members?limit=200` → actor_id → display name map (+ the raw
-/// list for the actor filter options).
+/// `GET /api/members` → actor_id → display name map (+ the raw list for
+/// the actor filter options). Each member, page after page
+/// (COLLIERY-T-0258).
 async fn fetch_members(auth: Auth) -> Result<Vec<Member>, ApiError> {
-    let envelope: ListEnvelope<Member> = api::get_json(auth, "/api/members?limit=200").await?;
-    Ok(envelope.items)
+    api::get_all(auth, "/api/members").await
 }
 
 /// Best-effort entity_id → short_code directory from the five family list
@@ -499,7 +499,7 @@ pub fn ActivityPage() -> impl IntoView {
                 </Group>
             </Panel>
             {move || match feed.get() {
-                None => view! { <Loading label="Loading activity…"/> }.into_any(),
+                None => view! { <Loading label="Kairos gets the activity."/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(page)) if page.items.is_empty() => view! {
                     <Empty message="No activity matches these filters — clear them, or make a change somewhere and come back."/>
@@ -544,9 +544,9 @@ pub fn ActivityPage() -> impl IntoView {
                         <Panel title="Feed" caption="newest first">
                             {lens_error.map(|error| view! {
                                 <Banner color=token::BAD icon="✕">
-                                    {format!("Team lens unavailable: {}", match &error {
+                                    {format!("The page cannot show the team lens. {}", match &error {
                                         ApiError::Http { message, .. } => message.clone(),
-                                        ApiError::Network => "could not reach the server".to_string(),
+                                        ApiError::Network => "The page cannot connect to the server.".to_string(),
                                         ApiError::Unknown(message) => message.clone(),
                                     })}
                                 </Banner>
@@ -638,9 +638,11 @@ fn FeedTable(
 /// Offset pagination controls under the feed table.
 #[component]
 fn FeedPager(page: ListEnvelope<ActivityEntry>, applied: RwSignal<FeedFilters>) -> impl IntoView {
-    let shown_from = page.offset + 1;
     let shown_to = page.offset + page.items.len() as i64;
     let total = page.total;
+    // COLLIERY-T-0258: the feed has no bound, so the page shows a part of
+    // it and says which part.
+    let range = api::page_range_note(page.offset, page.items.len(), total);
     let no_prev = page.offset == 0;
     let no_next = shown_to >= total;
     let prev_offset = (page.offset - PAGE_SIZE).max(0);
@@ -650,7 +652,7 @@ fn FeedPager(page: ListEnvelope<ActivityEntry>, applied: RwSignal<FeedFilters>) 
     };
     view! {
         <Group justify="between">
-            <Text dimmed=true size="xs">{format!("{shown_from}–{shown_to} of {total}")}</Text>
+            <Text dimmed=true size="xs">{range}</Text>
             <Group gap="xs">
                 <Button
                     variant="default"
@@ -801,7 +803,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 Err(error) => {
                     let message = match error {
                         ApiError::Http { message, .. } => message,
-                        ApiError::Network => "the server is unreachable".to_string(),
+                        ApiError::Network => "The page cannot connect to the server.".to_string(),
                         ApiError::Unknown(message) => message,
                     };
                     notice.set(Some(RollbackNotice::Failed(message)));
@@ -821,7 +823,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
         }}
         <Stack gap="md">
             {move || match head.get() {
-                None => view! { <Loading label="Loading item…"/> }.into_any(),
+                None => view! { <Loading label="Kairos gets the item."/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok((item, _))) => {
                     let archived_at = item.archived_at.clone();
@@ -893,7 +895,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 }.into_any(),
             })}
             {move || match versions.get() {
-                None => view! { <Loading label="Loading history…"/> }.into_any(),
+                None => view! { <Loading label="Kairos gets the history."/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(page)) if page.items.is_empty() => view! {
                     <Empty message="No history yet — every item gets a v1 snapshot at creation, so this usually means the item was just created by an older data set."/>
@@ -914,8 +916,17 @@ pub fn ItemHistoryPage() -> impl IntoView {
                     let archived = head_now
                         .as_ref()
                         .is_some_and(|(item, _)| item.archived_at.is_some());
+                    // COLLIERY-T-0258: the list has the newest 200 versions.
+                    // An item with more versions says that the list is
+                    // not complete.
+                    let incomplete = api::incomplete_list_note(page.items.len(), page.total);
                     view! {
                         <Panel title="Versions" caption="newest first — pick A and B to diff">
+                            {incomplete.map(|note| view! {
+                                <Text size="xs" dimmed=true>
+                                    {format!("{note} The list has the newest versions.")}
+                                </Text>
+                            })}
                             {archived.then(|| view! {
                                 <Text size="xs" dimmed=true>
                                     "Reading and diffing work as usual. Rolling back does not: \

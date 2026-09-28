@@ -48,25 +48,29 @@ pub enum AbacError {
     /// Grants must not be empty strings (a defense-in-depth guard; the
     /// vocabulary itself is validated at the API layer per KAIROS-A-0006's
     /// extensible-text design).
-    #[error("capability must not be empty")]
+    #[error("The capability is empty. Send the name of a capability.")]
     EmptyCapability,
     /// The `(board_id, user_id, capability)` grant already exists (composite
     /// PK) — the grant is unchanged and no activity row was written.
-    #[error("capability {capability:?} is already granted to user {user_id} on board {board_id}")]
+    #[error(
+        "The user {user_id} has the capability {capability:?} on the board {board_id} already."
+    )]
     AlreadyGranted {
         board_id: Uuid,
         user_id: Uuid,
         capability: String,
     },
     /// No such grant exists to revoke.
-    #[error("capability {capability:?} is not granted to user {user_id} on board {board_id}")]
+    #[error(
+        "The user {user_id} does not have the capability {capability:?} on the board {board_id}."
+    )]
     GrantNotFound {
         board_id: Uuid,
         user_id: Uuid,
         capability: String,
     },
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

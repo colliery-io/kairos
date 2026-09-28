@@ -16,16 +16,6 @@ use serde_json::{Value, json};
 use crate::api::{delete_json, get_json, patch_json, post_json};
 use crate::auth::Auth;
 
-/// mirror of: `kairos_client::types::ListEnvelope<T>` (partial — the admin
-/// views read `items` only; paging can land with a follow-up task).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ListEnvelope<T> {
-    pub items: Vec<T>,
-}
-
-/// Big-enough page for admin lists (server clamps to its own max).
-const PAGE: &str = "limit=200";
-
 // ---------------------------------------------------------------------------
 // Boards + configuration (columns, transitions)
 // ---------------------------------------------------------------------------
@@ -379,10 +369,9 @@ pub struct OrgMember {
     pub role: String,
 }
 
-/// `GET /api/members`.
+/// `GET /api/members`: each member, page after page (COLLIERY-T-0258).
 pub async fn list_org_members(auth: Auth) -> Result<Vec<OrgMember>, ApiError> {
-    let envelope: ListEnvelope<OrgMember> = get_json(auth, &format!("/api/members?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/members").await
 }
 
 /// `POST /api/members` — resolve by email (users are JIT-provisioned at
@@ -466,11 +455,9 @@ fn metadata_entries_json(entries: &[TemplateMetadataEntry]) -> Vec<Value> {
         .collect()
 }
 
-/// `GET /api/templates`.
+/// `GET /api/templates`: each template, page after page (COLLIERY-T-0258).
 pub async fn list_templates(auth: Auth) -> Result<Vec<Template>, ApiError> {
-    let envelope: ListEnvelope<Template> =
-        get_json(auth, &format!("/api/templates?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/templates").await
 }
 
 /// `GET /api/templates/{id}` — template + its metadata associations.
@@ -541,11 +528,10 @@ pub struct MetadataDefinition {
     pub enum_options: Vec<String>,
 }
 
-/// `GET /api/metadata-definitions`.
+/// `GET /api/metadata-definitions`: each definition, page after page
+/// (COLLIERY-T-0258).
 pub async fn list_definitions(auth: Auth) -> Result<Vec<MetadataDefinition>, ApiError> {
-    let envelope: ListEnvelope<MetadataDefinition> =
-        get_json(auth, &format!("/api/metadata-definitions?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/metadata-definitions").await
 }
 
 /// `POST /api/metadata-definitions` — `enum_options` required non-empty for

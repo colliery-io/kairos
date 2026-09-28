@@ -118,8 +118,8 @@ pub enum SeedError {
     /// The `demo` tenant already exists and `force` was false. Nothing was
     /// changed; pass `force = true` (CLI: `--force`) to drop and reseed.
     #[error(
-        "tenant {DEMO_SLUG:?} is already seeded; pass --force to drop and \
-         recreate it (destructive for the demo tenant only)"
+        "The tenant {DEMO_SLUG:?} has the demo data already. To delete the tenant and make \
+         it again, use --force. That deletes the data of the demo tenant only."
     )]
     AlreadySeeded,
     /// Tenant provisioning / teardown failed.
@@ -144,7 +144,7 @@ pub enum SeedError {
     #[error(transparent)]
     Repository(#[from] crate::repositories::RepositoryError),
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

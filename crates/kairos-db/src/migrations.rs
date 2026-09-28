@@ -41,19 +41,19 @@ pub const TENANT_MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/
 pub enum MigrationError {
     /// Could not connect to the database (bad URL, server unreachable,
     /// authentication failure, ...).
-    #[error("failed to connect to database for migrations: {0}")]
+    #[error("The server cannot connect to the database for the migrations: {0}.")]
     Connection(#[from] diesel::ConnectionError),
     /// A migration failed to apply.
-    #[error("failed to run public schema migrations: {0}")]
+    #[error("The migrations of the public schema did not complete: {0}.")]
     Migration(String),
     /// A required PostgreSQL extension is not installable on this server
     /// (KAIROS-T-0187). Checked before any migration runs, because the
     /// alternative is PostgreSQL's own `extension "vector" is not available`
     /// arriving from the middle of a migration run with no hint what to do.
     #[error(
-        "required PostgreSQL extension {name:?} is not available on this server. \
-         {hint} See https://colliery-io.github.io/kairos/how-to/install-with-helm.html \
-         for the database Kairos needs."
+        "This PostgreSQL server does not have the extension {name:?}. Kairos must have that \
+         extension. {hint} For the database that Kairos needs, see \
+         https://colliery-io.github.io/kairos/how-to/install-with-helm.html."
     )]
     MissingExtension {
         /// The extension that could not be found.

@@ -51,10 +51,12 @@ pub const ENV_RETENTION_MODE: &str = "KAIROS_RETENTION_MODE";
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RetentionConfigError {
     /// A day/count variable did not parse as an unsigned integer.
-    #[error("invalid integer for {var}: {value:?}")]
+    #[error("The value {value:?} of {var} is not an integer.")]
     InvalidInt { var: &'static str, value: String },
     /// `KAIROS_RETENTION_MODE` was not one of `archive|discard|off`.
-    #[error("invalid {ENV_RETENTION_MODE}: {value:?} (expected archive|discard|off)")]
+    #[error(
+        "The value {value:?} of {ENV_RETENTION_MODE} is not correct. The values are: archive, discard, off."
+    )]
     InvalidMode { value: String },
 }
 

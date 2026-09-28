@@ -80,11 +80,11 @@ impl KeysCommand {
                     return print_json(&created);
                 }
                 // The raw key is shown exactly once — make it unmissable.
-                println!("API key minted for service account {service_account}.");
+                println!("Kairos made an API key for the service account {service_account}.");
                 println!();
                 println!("    {}", created.key);
                 println!();
-                println!("Store it now — it will NOT be shown again.");
+                println!("Keep the key in a safe place now. Kairos does NOT show it again.");
                 Ok(())
             }
             Self::List {
@@ -110,13 +110,13 @@ impl KeysCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("API key {key_id}"))?;
+                require_confirm(confirm, &format!("the API key {key_id}"))?;
                 let client = client(&common)?;
                 let deleted = client.revoke_api_key(&service_account, &key_id).await?;
                 if common.json {
                     return print_json(&deleted);
                 }
-                println!("Revoked key {}.", deleted.id);
+                println!("Kairos revoked the key {}.", deleted.id);
                 Ok(())
             }
         }

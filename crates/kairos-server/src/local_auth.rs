@@ -71,11 +71,11 @@ const ARGON2_P_COST: u32 = 1;
 #[derive(Debug, thiserror::Error)]
 pub enum PasswordError {
     /// The password could not be hashed (argon2 configuration or OS randomness).
-    #[error("could not hash password: {0}")]
+    #[error("The server cannot hash the password: {0}.")]
     Hash(String),
     /// The stored value is not a parseable PHC string — corruption or a manual
     /// edit, never a wrong password.
-    #[error("stored password hash is malformed: {0}")]
+    #[error("The hash of the password in the database is not correct: {0}.")]
     MalformedStoredHash(String),
 }
 
@@ -159,7 +159,7 @@ pub fn validate_password(password: &str) -> Result<(), PasswordTooShort> {
 /// is safe here and only here: this is a password being SET by someone who already
 /// knows it, not one being guessed.
 #[derive(Debug, Clone, Copy, thiserror::Error)]
-#[error("password must be at least {minimum} characters ({got} given)")]
+#[error("The password has {got} characters. A password must have {minimum} characters or more.")]
 pub struct PasswordTooShort {
     /// [`MIN_PASSWORD_LEN`].
     pub minimum: usize,
@@ -297,7 +297,7 @@ mod tests {
         let err = validate_password("short").expect_err("too short");
         assert_eq!(err.minimum, MIN_PASSWORD_LEN);
         assert_eq!(err.got, 5);
-        assert!(err.to_string().contains("at least 12"), "{err}");
+        assert!(err.to_string().contains("12 characters or more"), "{err}");
     }
 
     #[test]

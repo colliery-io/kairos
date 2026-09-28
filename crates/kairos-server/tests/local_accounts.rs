@@ -500,7 +500,7 @@ async fn the_break_glass_subcommand_needs_no_login() {
         .expect("run");
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("at least 12"),
+        String::from_utf8_lossy(&output.stderr).contains("12 characters or more"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );

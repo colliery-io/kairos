@@ -466,15 +466,15 @@ pub async fn fetch_definitions(
     auth: Auth,
     family: Family,
 ) -> Result<Vec<MetadataDefinition>, ApiError> {
-    let page: Page<MetadataDefinition> = get_json(
+    // COLLIERY-T-0258: each definition of the type, page after page.
+    crate::api::get_all(
         auth,
         &format!(
-            "/api/metadata-definitions?limit=200&entity_type={}",
+            "/api/metadata-definitions?entity_type={}",
             family.entity_type()
         ),
     )
-    .await?;
-    Ok(page.items)
+    .await
 }
 
 /// `PATCH /api/documents/{short_code}/lifecycle` — set the editorial
@@ -585,9 +585,10 @@ pub async fn fetch_archived_by(auth: Auth, item_id: String) -> Option<String> {
     .await
     .ok()?;
     let event = events.items.into_iter().next()?;
-    let members: Page<MemberName> = get_json(auth, "/api/members?limit=200").await.ok()?;
+    // COLLIERY-T-0258: each member, so that the name of a member after the
+    // first 200 is on the banner too.
+    let members: Vec<MemberName> = crate::api::get_all(auth, "/api/members").await.ok()?;
     let name = members
-        .items
         .into_iter()
         .find(|member| member.user_id == event.actor_id)
         .map(|member| member.display_name)
@@ -600,10 +601,10 @@ pub async fn fetch_archived_by(auth: Auth, item_id: String) -> Option<String> {
     Some(name)
 }
 
-/// `GET /api/templates` → the picker's list.
+/// `GET /api/templates` → the picker's list: each template, page after
+/// page (COLLIERY-T-0258).
 pub async fn fetch_templates(auth: Auth) -> Result<Vec<TemplateSummary>, ApiError> {
-    let page: Page<TemplateSummary> = get_json(auth, "/api/templates?limit=200").await?;
-    Ok(page.items)
+    crate::api::get_all(auth, "/api/templates").await
 }
 
 /// `GET /api/templates/{id}` → content preview + declared metadata fields.
@@ -671,7 +672,7 @@ pub(crate) async fn patch_versioned<B: Serialize, T: DeserializeOwned>(
             // break; surface it as a plain error rather than guessing.
             None => Err(SaveError::Api(ApiError::Http {
                 status,
-                message: "conflict response carried no details.current".to_string(),
+                message: "The conflict response has no details.current.".to_string(),
                 code: Some("CONFLICT".to_string()),
             })),
         };
@@ -679,10 +680,11 @@ pub(crate) async fn patch_versioned<B: Serialize, T: DeserializeOwned>(
     if !(200..300).contains(&status) {
         return Err(SaveError::Api(error_from(status, response).await));
     }
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| SaveError::Api(ApiError::Unknown(format!("decoding {path}: {e}"))))
+    response.json::<T>().await.map_err(|e| {
+        SaveError::Api(ApiError::Unknown(format!(
+            "The page cannot read the response of {path}: {e}."
+        )))
+    })
 }
 
 /// `PATCH /api/{family}/{short_code}/metadata`: definition slug → value
@@ -809,10 +811,11 @@ pub async fn restore_item(
     if !(200..300).contains(&status) {
         return Err(RestoreError::Api(error_from(status, response).await));
     }
-    response
-        .json::<RestoreOutcome>()
-        .await
-        .map_err(|e| RestoreError::Api(ApiError::Unknown(format!("decoding {path}: {e}"))))
+    response.json::<RestoreOutcome>().await.map_err(|e| {
+        RestoreError::Api(ApiError::Unknown(format!(
+            "The page cannot read the response of {path}: {e}."
+        )))
+    })
 }
 
 /// `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
@@ -838,7 +841,7 @@ pub fn error_text(error: &ApiError) -> String {
             Some(code) => format!("{code} ({status}): {message}"),
             None => format!("HTTP {status}: {message}"),
         },
-        ApiError::Network => "Cannot reach the server.".to_string(),
+        ApiError::Network => "The page cannot connect to the server.".to_string(),
         ApiError::Unknown(message) => message.clone(),
     }
 }
@@ -874,12 +877,14 @@ async fn send<B: Serialize>(
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let request = match body {
-        Some(body) => request
-            .json(body)
-            .map_err(|e| ApiError::Unknown(format!("encoding {path}: {e}")))?,
-        None => request
-            .build()
-            .map_err(|e| ApiError::Unknown(format!("building {path}: {e}")))?,
+        Some(body) => request.json(body).map_err(|e| {
+            ApiError::Unknown(format!(
+                "The page cannot write the request for {path}: {e}."
+            ))
+        })?,
+        None => request.build().map_err(|e| {
+            ApiError::Unknown(format!("The page cannot make the request for {path}: {e}."))
+        })?,
     };
     request.send().await.map_err(|_| ApiError::Network)
 }
@@ -900,10 +905,9 @@ async fn send_json<B: Serialize, T: DeserializeOwned>(
     if !(200..300).contains(&status) {
         return Err(error_from(status, response).await);
     }
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| ApiError::Unknown(format!("decoding {path}: {e}")))
+    response.json::<T>().await.map_err(|e| {
+        ApiError::Unknown(format!("The page cannot read the response of {path}: {e}."))
+    })
 }
 
 /// Non-2xx → `ApiError` via the S-0005 envelope (the `api.rs` mapping,

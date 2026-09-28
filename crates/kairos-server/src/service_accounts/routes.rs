@@ -202,7 +202,7 @@ pub(crate) async fn create_service_account(
 ) -> Result<(StatusCode, Json<ServiceAccountView>), ApiError> {
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("name must not be empty"));
+        return Err(ApiError::validation("The name is empty. Send a name."));
     }
     let user = auth.user_id;
     let org_id = tenant.org_id;
@@ -287,7 +287,9 @@ pub(crate) async fn delete_service_account(
             require_capability(conn, &slug, None, user, MANAGE)?;
             let sa = kairos_db::service_accounts::find_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no service account {sa_id}")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                })?;
             kairos_db::service_accounts::delete_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?;
             log_activity(
@@ -336,12 +338,12 @@ pub(crate) async fn create_key(
     let sa_id = parse_uuid(&id, "id")?;
     let name = body.name.trim().to_string();
     if name.is_empty() {
-        return Err(ApiError::validation("name must not be empty"));
+        return Err(ApiError::validation("The name is empty. Send a name."));
     }
     let expires_at = match body.expires_at.as_deref() {
         Some(raw) => Some(
             chrono::DateTime::parse_from_rfc3339(raw)
-                .map_err(|e| ApiError::validation(format!("expires_at is not RFC 3339: {e}")))?
+                .map_err(|e| ApiError::validation(format!("The value of expires_at is not a timestamp: {e}. Send an RFC 3339 timestamp.")))?
                 .with_timezone(&chrono::Utc),
         ),
         None => None,
@@ -360,7 +362,9 @@ pub(crate) async fn create_key(
             require_capability(conn, &slug, None, user, MANAGE)?;
             kairos_db::service_accounts::find_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no service account {sa_id}")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                })?;
             let row = kairos_db::api_keys::create_key(
                 conn,
                 NewApiKey {
@@ -426,7 +430,9 @@ pub(crate) async fn list_keys(
             require_capability(conn, &slug, None, user, MANAGE)?;
             kairos_db::service_accounts::find_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no service account {sa_id}")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                })?;
             kairos_db::api_keys::list_keys(conn, sa_id).map_err(ApiError::internal)
         })
         .await?;
@@ -470,16 +476,18 @@ pub(crate) async fn revoke_key(
             require_capability(conn, &slug, None, user, MANAGE)?;
             kairos_db::service_accounts::find_service_account(conn, org_id, sa_id)
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no service account {sa_id}")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The service account {sa_id} does not exist."))
+                })?;
             let existing = kairos_db::api_keys::find_key(conn, key_id)
                 .map_err(ApiError::internal)?
                 .filter(|k| k.user_id == sa_id)
                 .ok_or_else(|| {
-                    ApiError::not_found(format!("no key {key_id} for service account {sa_id}"))
+                    ApiError::not_found(format!("The service account {sa_id} has no key {key_id}."))
                 })?;
             if existing.revoked_at.is_some() {
                 return Err(ApiError::conflict(format!(
-                    "key {key_id} is already revoked"
+                    "An admin revoked the key {key_id} already."
                 )));
             }
             let row = kairos_db::api_keys::revoke_key(conn, key_id).map_err(ApiError::internal)?;

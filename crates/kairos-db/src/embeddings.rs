@@ -46,7 +46,9 @@ pub enum EmbeddingError {
     /// A vector's width disagrees with the dimension recorded beside it. Checked
     /// on the way in: a row whose `dimension` lies is worse than no row, because
     /// every later comparison trusts it.
-    #[error("vector has {got} dimensions but {declared} was declared")]
+    #[error(
+        "The vector has {got} dimensions, and the call gave {declared} as the number of dimensions."
+    )]
     DimensionMismatch {
         /// The vector's actual width.
         got: usize,
@@ -54,13 +56,14 @@ pub enum EmbeddingError {
         declared: usize,
     },
     /// No item carries this short code.
-    #[error("no item with short code {0:?}")]
+    #[error("No item has the short code {0:?}.")]
     ItemNotFound(String),
     /// Stored rows disagree with the width the columns are being pinned to.
     #[error(
-        "{rows} row(s) in {table} are not {wanted}-dimensional, so the column cannot be \
-         pinned to {wanted}. Re-embed under the configured model first — \
-         `angreal db backfill-embeddings`, or `kairos-server embed-backfill`."
+        "The table {table} has {rows} rows with vectors that do not have {wanted} dimensions. \
+         Thus the column cannot have the type of {wanted} dimensions. First make the \
+         vectors again with the model of the configuration. Use \
+         `angreal db backfill-embeddings` or `kairos-server embed-backfill`."
     )]
     MixedDimensions {
         /// Which table.

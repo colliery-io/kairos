@@ -93,7 +93,7 @@ impl std::fmt::Display for Relationship {
 /// KAIROS-A-0001 matrix (see module docs). `rule` restates the allowed
 /// shape for the relationship, for error messages.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{relationship} edge {source_type} -> {target_type} is not allowed ({rule})")]
+#[error("A {relationship} edge cannot go from {source_type} to {target_type}. {rule}")]
 pub struct GraphRuleError {
     /// The rejected edge type.
     pub relationship: Relationship,
@@ -109,16 +109,18 @@ pub struct GraphRuleError {
 /// [`GraphRuleError`]).
 fn rule_text(relationship: Relationship) -> &'static str {
     match relationship {
-        Relationship::Parent => "parent runs strategy -> initiative or initiative -> task",
+        Relationship::Parent => {
+            "A parent edge goes from a strategy to an initiative, or from an initiative to a task."
+        }
         Relationship::Supports => {
-            "supports runs workflow item (strategy/initiative/task) -> document/adr"
+            "A supports edge goes from a strategy, an initiative or a task to a document or an adr."
         }
         Relationship::Informs => {
-            "informs runs document/adr -> workflow item (strategy/initiative/task)"
+            "An informs edge goes from a document or an adr to a strategy, an initiative or a task."
         }
-        Relationship::Supersedes => "supersedes runs adr -> adr",
+        Relationship::Supersedes => "A supersedes edge goes from an adr to an adr.",
         Relationship::Blocks => {
-            "blocks runs workflow item -> workflow item (strategy/initiative/task)"
+            "A blocks edge goes between two items of the types strategy, initiative and task."
         }
     }
 }
@@ -290,7 +292,7 @@ mod tests {
         let err = check_link(Relationship::Supersedes, Strategy, Task).unwrap_err();
         let message = err.to_string();
         assert!(
-            message.contains("supersedes") && message.contains("adr -> adr"),
+            message.contains("supersedes") && message.contains("from an adr to an adr"),
             "message restates the allowed shape: {message}"
         );
     }

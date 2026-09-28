@@ -61,7 +61,7 @@ impl ApiError {
         Self::new(
             StatusCode::TOO_MANY_REQUESTS,
             "TOO_MANY_REQUESTS",
-            "too many failed authentication attempts; try again shortly",
+            "The number of incorrect logins is too large. Wait, and then try again.",
         )
         .with_details(json!({ "retry_after_secs": retry_after_secs }))
     }
@@ -74,8 +74,8 @@ impl ApiError {
             StatusCode::FORBIDDEN,
             "MEMBERSHIP_REQUIRED",
             format!(
-                "you are not a member of organization {slug:?}; \
-                 request access from an organization admin"
+                "You are not a member of the organization {slug:?}. Ask an organization admin \
+                 for access."
             ),
         )
         .with_details(json!({ "organization": slug }))
@@ -122,10 +122,10 @@ impl ApiError {
     /// was board-scoped; `null` = the org-admin-only fallback applied).
     pub fn capability_required(capability: &str, board_id: Option<uuid::Uuid>) -> Self {
         let scope = match board_id {
-            Some(board_id) => format!("capability {capability:?} on board {board_id}"),
-            None => "organization admin role".to_string(),
+            Some(board_id) => format!("the capability {capability:?} on the board {board_id}"),
+            None => "the organization admin role".to_string(),
         };
-        Self::forbidden(format!("this action requires {scope}")).with_details(json!({
+        Self::forbidden(format!("This action requires {scope}.")).with_details(json!({
             "required_capability": capability,
             "board_id": board_id,
         }))
@@ -138,7 +138,7 @@ impl ApiError {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "INTERNAL",
-            "internal server error",
+            "The server had an internal error. Try again. If the error stays, tell an admin.",
         )
     }
 }
@@ -180,7 +180,7 @@ mod tests {
         let err = ApiError::membership_required("acme");
         assert_eq!(err.status, StatusCode::FORBIDDEN);
         assert_eq!(err.code, "MEMBERSHIP_REQUIRED");
-        assert!(err.message.contains("request access"));
+        assert!(err.message.contains("Ask an organization admin"));
         assert_eq!(err.details["organization"], "acme");
     }
 }

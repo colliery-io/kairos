@@ -337,12 +337,12 @@ async fn cli_command_tree_golden_path_live() {
     .await;
     assert_eq!(code, 0, "initiatives create failed: {stderr}");
     assert!(
-        stdout.starts_with("Created initiative "),
+        stdout.starts_with("Kairos made the initiative "),
         "unexpected create rendering: {stdout}"
     );
     let initiative_code = stdout
         .split_whitespace()
-        .nth(2)
+        .nth(4)
         .expect("initiative short code")
         .to_string();
     assert!(initiative_code.contains("-I-"), "{initiative_code}");
@@ -389,8 +389,14 @@ async fn cli_command_tree_golden_path_live() {
     )
     .await;
     assert_eq!(code, 1, "invalid transition must exit 1: {stderr}");
-    assert!(stderr.contains("invalid transition (422)"), "{stderr}");
-    assert!(stderr.contains("Allowed target columns:"), "{stderr}");
+    assert!(
+        stderr.contains("The transition is not correct (422)"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("The item can move to these columns:"),
+        "{stderr}"
+    );
     assert!(stderr.contains(&format!("Todo ({todo})")), "{stderr}");
 
     // ... then valid (Backlog → Todo).
@@ -402,7 +408,7 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "valid transition failed: {stderr}");
     assert_eq!(
         stdout.trim(),
-        format!("Transitioned task {task_code} to column {todo}")
+        format!("Kairos moved the task {task_code} to the column {todo}.")
     );
 
     // --- search finds it: flags, --json, and the --query-json escape hatch -----
@@ -480,7 +486,10 @@ async fn cli_command_tree_golden_path_live() {
     .await;
     assert_eq!(code, 1, "stale edit must exit 1: {stderr}");
     assert!(stderr.contains("conflict (409"), "{stderr}");
-    assert!(stderr.contains("server-current version is 2"), "{stderr}");
+    assert!(
+        stderr.contains("current version on the server is 2"),
+        "{stderr}"
+    );
     assert!(stderr.contains("--version"), "{stderr}");
 
     // Without --version the edit re-bases on the fetched current entity.
@@ -498,7 +507,7 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "re-based edit failed: {stderr}");
     assert_eq!(
         stdout.trim(),
-        format!("Edited task {task_code}: now version 3")
+        format!("Kairos changed the task {task_code}. The new version is 3.")
     );
 
     // --- delete: refused without --confirm, then deleted ------------------------
@@ -512,7 +521,7 @@ async fn cli_command_tree_golden_path_live() {
     )
     .await;
     assert_eq!(code, 0, "confirmed delete failed: {stderr}");
-    assert_eq!(stdout.trim(), format!("Deleted {task_code}"));
+    assert_eq!(stdout.trim(), format!("Kairos archived {task_code}."));
 
     // An archived task still reads (KAIROS-A-0020, KAIROS-T-0155), and the
     // banner is what stops someone quoting a retired ticket as current.
@@ -609,7 +618,7 @@ async fn cli_command_tree_golden_path_live() {
     )
     .await;
     assert_eq!(code, 0, "repos bind failed: {stderr}");
-    assert!(stdout.contains("bound to payments-api"), "{stdout}");
+    assert!(stdout.contains("to payments-api"), "{stdout}");
 
     let (code, stdout, stderr) =
         run_cli(config_dir.path(), &["repos", "get", "payments-api"]).await;
@@ -718,7 +727,10 @@ async fn cli_command_tree_golden_path_live() {
 
     let (code, stdout, stderr) = run_cli(config_dir.path(), &["repos", "unbind", &bind_code]).await;
     assert_eq!(code, 0, "repos unbind failed: {stderr}");
-    assert!(stdout.contains("unbound"), "{stdout}");
+    assert!(
+        stdout.contains("Kairos removed the repository of"),
+        "{stdout}"
+    );
 
     // --- teardown ----------------------------------------------------------------
     drop(conn);

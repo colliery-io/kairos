@@ -151,12 +151,12 @@ cargo build -p kairos-cli
 The CLI prints a URL and a short code, and waits:
 
 ```
-Discovered OIDC issuer: http://localhost:41558/dex
+The OIDC issuer of the deployment is: http://localhost:41558/dex
 
 To sign in, open: http://localhost:41558/dex/device?user_code=SBCM-THZP
-(or visit http://localhost:41558/dex/device and enter code: SBCM-THZP)
+(As an alternative, open http://localhost:41558/dex/device and enter code: SBCM-THZP)
 
-Waiting for approval (polling every 5s; the code expires in 600s)...
+The CLI waits for the approval. It asks the issuer each 5 seconds. The code expires in 600 seconds.
 ```
 
 Open that URL and sign in as `alice@kairos.test` again. The CLI notices and
@@ -191,7 +191,7 @@ access](../explanation/capabilities-and-access.md).
 ```
 
 ```
-Created task DEMO-T-0013 (version 1): Try Kairos out
+Kairos made the task DEMO-T-0013 (version 1): Try Kairos out
 ```
 
 Your short code may differ — mine was `DEMO-T-0013`. Use yours below.
@@ -235,7 +235,7 @@ Each column's id is printed next to its name above. Copy the id of the
 ```
 
 ```
-Transitioned task DEMO-T-0013 to column 9b2a0dd5-c9ef-48e9-a947-d866dcf21618
+Kairos moved the task DEMO-T-0013 to the column 9b2a0dd5-c9ef-48e9-a947-d866dcf21618.
 ```
 
 Now go back to the browser and reload Platform Delivery. Your card has moved

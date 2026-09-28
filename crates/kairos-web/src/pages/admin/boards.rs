@@ -285,7 +285,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     _ => vec![String::new()],
                                 };
                                 view! {
-                                    <Select label="Owning team (required)" options value=team_slug/>
+                                    <Select label="Owner team (required)" options value=team_slug/>
                                 }
                             }}
                         </Show>
@@ -327,7 +327,7 @@ pub fn AdminBoardPage() -> impl IntoView {
 
     view! {
         {move || match detail.get() {
-            None => view! { <Loading label="Loading board…"/> }.into_any(),
+            None => view! { <Loading label="Kairos gets the board."/> }.into_any(),
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
             }.into_any(),

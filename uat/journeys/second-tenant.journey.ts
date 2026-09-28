@@ -157,7 +157,7 @@ journey(
       // The CLI says the same thing, in the words he would read.
       const fromTerminal = await cli.run(['admin', 'tenants', 'list']);
       expect(fromTerminal.code).not.toBe(0);
-      expect(`${fromTerminal.stderr}${fromTerminal.stdout}`).toContain('deployment-admin');
+      expect(`${fromTerminal.stderr}${fromTerminal.stdout}`).toContain('Only a deployment admin can do this');
       return {
         list: listed.status,
         create: creating.status,

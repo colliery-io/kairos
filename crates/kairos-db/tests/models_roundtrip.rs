@@ -519,7 +519,7 @@ async fn models_round_trip() {
         .expect_err("loading a row with an unknown action must fail");
     assert!(
         err.to_string()
-            .contains("unknown ActivityAction value \"bogus\""),
+            .contains("\"bogus\" is not a value of ActivityAction."),
         "unexpected error: {err}"
     );
 

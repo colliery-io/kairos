@@ -202,7 +202,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                         on_retry=Callback::new(move |_| reload.update(|n| *n += 1))
                     />
                 }.into_any(),
-                _ => view! { <Loading label="Walking the graph…"/> }.into_any(),
+                _ => view! { <Loading label="Kairos reads the graph."/> }.into_any(),
             },
             Some((nodes, edges)) => {
                 // ---- canvas geometry (pure, deterministic) -----------------
@@ -667,7 +667,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
         let other_code = other.get_untracked().trim().to_uppercase();
         if other_code.is_empty() {
             feedback.set(Some(Err(ApiError::Unknown(
-                "Enter the other item's short code.".to_string(),
+                "Enter the short code of the other item.".to_string(),
             ))));
             return;
         }
@@ -784,7 +784,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                             }.into_any()
                         }
                     }
-                    _ => view! { <Loading label="Loading edges…"/> }.into_any(),
+                    _ => view! { <Loading label="Kairos gets the edges."/> }.into_any(),
                 }}
                 <Group gap="sm" wrap=true top=true>
                     <Stack gap="xs">

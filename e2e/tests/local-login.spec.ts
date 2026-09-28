@@ -60,7 +60,7 @@ test('local login: the form signs in with a password and reaches a board', async
   // wrong password, an unknown email and an account that has no password. The GUI must
   // not improve on it — "no account with that email" would rebuild the
   // account-enumeration oracle the endpoint was careful to avoid.
-  await expect(page.getByText('incorrect email or password')).toBeVisible();
+  await expect(page.getByText('The email or the password is not correct.')).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
   // Still on the form, and still able to try again.
   await expect(password).toBeVisible();

@@ -17,7 +17,7 @@ use diesel::sql_types::Text;
 /// A TEXT value read from the database that is not a member of the enum's
 /// CHECK set (schema drift, hand-edited rows, ...).
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown {enum_name} value {value:?}")]
+#[error("{value:?} is not a value of {enum_name}.")]
 pub struct UnknownEnumValue {
     /// The Rust enum that rejected the value.
     pub enum_name: &'static str,

@@ -421,7 +421,7 @@ pub fn SearchPage() -> impl IntoView {
             </Panel>
 
             {move || match results.get() {
-                None => view! { <Loading label="Searching…"/> }.into_any(),
+                None => view! { <Loading label="Kairos does the search."/> }.into_any(),
                 Some(Err(error)) => view! {
                     <ErrorState
                         error=error
@@ -437,13 +437,16 @@ pub fn SearchPage() -> impl IntoView {
                 Some(Ok(Some(response))) => {
                     let (total, limit, offset) =
                         (response.total, response.limit.max(1), response.offset);
-                    let start = offset + 1;
+                    // COLLIERY-T-0258: the results have no bound, so the
+                    // page shows a part of them and says which part.
                     let end = (offset + limit).min(total);
+                    let shown = usize::try_from((end - offset).max(0)).unwrap_or(0);
+                    let range = crate::api::page_range_note(offset, shown, total);
                     let groups = response.results;
                     view! {
                         <Group justify="between">
                             <Text dimmed=true size="sm">
-                                {format!("Showing {start}–{end} of {total} (grouped by type)")}
+                                {format!("{range} The groups are the types of the items.")}
                             </Text>
                             <Group gap="sm">
                                 <Button

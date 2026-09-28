@@ -175,7 +175,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         <TextInput label="Full name" value=name placeholder="e.g. acme/payments-api"/>
                         <TextInput label="URL" value=url placeholder="https://github.com/acme/payments-api"/>
                         {move || view! {
-                            <Select label="Owning team" value=team options=team_slugs.get()/>
+                            <Select label="Owner team" value=team options=team_slugs.get()/>
                         }}
                     </Group>
                     <Group gap="sm" wrap=true top=true>
@@ -359,7 +359,7 @@ fn RepositoryRow(
                         <TextInput label="Slug" value=edit_slug/>
                         <TextInput label="URL" value=edit_url/>
                         <TextInput label="Default branch" value=edit_branch/>
-                        <Select label="Owning team" value=edit_team options=team_slugs.get_value()/>
+                        <Select label="Owner team" value=edit_team options=team_slugs.get_value()/>
                     </Group>
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="How to work here" value=edit_description/>

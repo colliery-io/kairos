@@ -124,19 +124,19 @@ impl EditArgs {
             (Some(content), _) => Some(content.clone()),
             (None, Some(path)) if path == Path::new("-") => {
                 let mut text = String::new();
-                std::io::stdin()
-                    .read_to_string(&mut text)
-                    .map_err(|err| CliError::Failure(format!("cannot read stdin: {err}")))?;
+                std::io::stdin().read_to_string(&mut text).map_err(|err| {
+                    CliError::Failure(format!("The CLI cannot read standard input: {err}."))
+                })?;
                 Some(text)
             }
             (None, Some(path)) => Some(std::fs::read_to_string(path).map_err(|err| {
-                CliError::Failure(format!("cannot read {}: {err}", path.display()))
+                CliError::Failure(format!("The CLI cannot read {}: {err}.", path.display()))
             })?),
             (None, None) => None,
         };
         if self.title.is_none() && content.is_none() {
             return Err(CliError::Failure(
-                "nothing to edit: pass --title, --content, or --content-file".to_string(),
+                "The command has no change. Use --title, --content or --content-file.".to_string(),
             ));
         }
         Ok(UpdateContentRequest {
@@ -192,7 +192,7 @@ pub fn require_confirm(confirm: bool, what: &str) -> Result<(), CliError> {
         Ok(())
     } else {
         Err(CliError::Failure(format!(
-            "refusing to delete {what} without --confirm"
+            "The delete of {what} needs --confirm. Run the command again with --confirm."
         )))
     }
 }
@@ -496,7 +496,7 @@ pub fn emit_get<T: EntityView>(common: &Common, item: &T) -> Result<(), CliError
     }
     println!("{}: {}", item.short_code(), item.title());
     if let Some(archived_at) = item.archived_at() {
-        println!("  ARCHIVED: {archived_at} — put away; readable, but not on a board");
+        println!("  ARCHIVED: {archived_at}. You can read this item. It is not on a board.");
     }
     for (label, value) in item.fields() {
         println!("  {label}: {value}");
@@ -511,7 +511,7 @@ pub fn emit_created<T: EntityView>(common: &Common, item: &T) -> Result<(), CliE
         return print_json(item);
     }
     println!(
-        "Created {} {} (version {}): {}",
+        "Kairos made the {} {} (version {}): {}",
         T::NOUN,
         item.short_code(),
         item.version(),
@@ -525,7 +525,7 @@ pub fn emit_edited<T: EntityView>(common: &Common, item: &T) -> Result<(), CliEr
         return print_json(item);
     }
     println!(
-        "Edited {} {}: now version {}",
+        "Kairos changed the {} {}. The new version is {}.",
         T::NOUN,
         item.short_code(),
         item.version()
@@ -538,7 +538,7 @@ pub fn emit_transitioned<T: EntityView>(common: &Common, item: &T) -> Result<(),
         return print_json(item);
     }
     println!(
-        "Transitioned {} {} to column {}",
+        "Kairos moved the {} {} to the column {}.",
         T::NOUN,
         item.short_code(),
         item.column_id().unwrap_or("-")
@@ -554,7 +554,7 @@ pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
         return print_json(task);
     }
     println!(
-        "Moved task {} to board {} (column {})",
+        "Kairos moved the task {} to the board {} (column {}).",
         task.short_code, task.board_id, task.column_id
     );
     Ok(())
@@ -565,17 +565,17 @@ pub fn emit_restored(common: &Common, response: &RestoreResponse) -> Result<(), 
     if common.json {
         return print_json(response);
     }
-    println!("Restored {}", response.short_code);
+    println!("Kairos restored {}.", response.short_code);
     if response.still_archived_count > 0 {
         // Named, not silently omitted: a cascade delete archived these, and
         // a restore deliberately does not resurrect a subtree nobody asked
         // to revisit (KAIROS-T-0160).
         println!(
-            "  still archived below it ({}): {}",
+            "  The number of items below it that stay in the archive is {}: {}.",
             response.still_archived_count,
             response.still_archived_short_codes.join(", ")
         );
-        println!("  restore them separately if you need them");
+        println!("  To get one back, restore it by its short code.");
     }
     Ok(())
 }
@@ -585,12 +585,13 @@ pub fn emit_deleted(common: &Common, response: &DeleteResponse) -> Result<(), Cl
         return print_json(response);
     }
     if response.cascade_count == 0 {
-        println!("Deleted {}", response.short_code);
+        println!("Kairos archived {}.", response.short_code);
     } else {
         println!(
-            "Deleted {} (cascaded to {} descendants: {})",
+            "Kairos archived {}. The archive took {} descendant{}: {}.",
             response.short_code,
             response.cascade_count,
+            if response.cascade_count == 1 { "" } else { "s" },
             response.cascaded_short_codes.join(", ")
         );
     }
@@ -610,21 +611,22 @@ fn not_reached_lines(items: &[kairos_client::types::NotReached]) -> Vec<String> 
         return Vec::new();
     }
     let mut lines = vec![format!(
-        "  not archived ({}): they stay live and keep their parent",
-        items.len()
+        "  The archive did not reach {} item{}. They stay live and keep their parent.",
+        items.len(),
+        if items.len() == 1 { "" } else { "s" }
     )];
     for item in items {
         let reason = match (&item.below, &item.required_capability, &item.board_id) {
-            (Some(stop), _, _) => format!("it is below {stop}"),
+            (Some(stop), _, _) => format!("It is below {stop}."),
             (None, Some(capability), Some(board)) => {
-                format!("you need {capability} on board {board}")
+                format!("You need {capability} on the board {board}.")
             }
             (None, Some(capability), None) => {
-                format!("it has no board for {capability}; ask an organization admin")
+                format!("It has no board for {capability}. Ask an organization admin.")
             }
-            (None, None, _) => "you cannot edit it".to_string(),
+            (None, None, _) => "You cannot edit it.".to_string(),
         };
-        lines.push(format!("    {}: {reason}", item.short_code));
+        lines.push(format!("    - {}: {reason}", item.short_code));
     }
     lines
 }
@@ -1032,9 +1034,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "  not archived (2): they stay live and keep their parent".to_string(),
-                "    ACME-I-0002: you need manage_initiatives on board b-1".to_string(),
-                "    ACME-T-0009: it is below ACME-I-0002".to_string(),
+                "  The archive did not reach 2 items. They stay live and keep their parent."
+                    .to_string(),
+                "    - ACME-I-0002: You need manage_initiatives on the board b-1.".to_string(),
+                "    - ACME-T-0009: It is below ACME-I-0002.".to_string(),
             ]
         );
     }

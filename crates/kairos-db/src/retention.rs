@@ -72,34 +72,36 @@ use crate::tenant::{self, TenantError};
 #[derive(Debug, thiserror::Error)]
 pub enum RetentionError {
     /// The slug does not match the KAIROS-S-0004 organization slug pattern.
-    #[error("invalid tenant slug {0:?}: must match ^[a-z][a-z0-9_-]{{1,62}}$")]
+    #[error(
+        "The tenant slug {0:?} is not correct. A tenant slug must match ^[a-z][a-z0-9_-]{{1,62}}$."
+    )]
     InvalidSlug(String),
     /// No `org_{slug}` schema exists for this tenant.
-    #[error("tenant {0:?} does not exist")]
+    #[error("The tenant {0:?} does not exist.")]
     TenantNotFound(String),
     /// The configured archive target kind is recognized but not shipped in
     /// v1 (KAIROS-T-0015: filesystem only; S3-compatible offload is a
     /// follow-up — NOT IMPLEMENTED).
     #[error(
-        "archive target {0:?} is not implemented: v1 ships the filesystem target only \
-         (KAIROS-T-0015); S3-compatible offload is a follow-up"
+        "This version does not have the archive target {0:?}. It has only the filesystem \
+         target (KAIROS-T-0015)."
     )]
     ArchiveTargetNotImplemented(String),
     /// Writing (or fsyncing) an archive file failed; nothing was deleted.
-    #[error("archive write failed at {path:?}: {source}")]
+    #[error("The server cannot write the archive at {path:?}: {source}.")]
     ArchiveIo {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
     /// Serializing a row for the NDJSON archive failed.
-    #[error("serializing archive row: {0}")]
+    #[error("The server cannot write a row of the archive as JSON: {0}.")]
     Serialize(#[from] serde_json::Error),
     /// Listing tenants for the fleet sweep failed.
     #[error(transparent)]
     Tenant(#[from] TenantError),
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

@@ -48,7 +48,7 @@ pub fn print_json<T: Serialize>(value: &T) -> Result<(), CliError> {
     println!(
         "{}",
         serde_json::to_string_pretty(value)
-            .map_err(|err| CliError::Failure(format!("cannot render JSON: {err}")))?
+            .map_err(|err| CliError::Failure(format!("The CLI cannot write the JSON: {err}.")))?
     );
     Ok(())
 }

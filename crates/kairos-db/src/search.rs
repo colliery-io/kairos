@@ -100,13 +100,13 @@ pub enum SearchError {
     Invalid(#[from] SearchValidationError),
     /// `traverse.from` names no entity the request may see: unknown, or
     /// soft-deleted without `filter.include_deleted` (KAIROS-T-0157).
-    #[error("traverse root {reference} does not exist")]
+    #[error("The item {reference} of traverse.from does not exist.")]
     TraverseRootNotFound {
         /// The submitted `short_code` or `id`, for the error envelope.
         reference: String,
     },
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

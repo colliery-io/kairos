@@ -103,8 +103,19 @@ def docs_build():
         Out of scope entirely: explanation/, ADRs, Status Updates, commit messages.
         STE is hostile to argument and those exist to argue.
 
+        --code (COLLIERY-T-0258) checks the texts of errors in the Rust code in place
+        of the book: each `#[error("...")]` attribute of kairos-core, kairos-db and
+        the server, and each text that is a direct argument of an `ApiError`
+        constructor. It reads the source as text and needs no Rust build. Its baseline
+        is scripts/ste-code-baseline.json. It adds the rules of a text of an error: a
+        capital at the start, a period at the end, no contraction, no semicolon, no
+        dash or arrow as punctuation, no Latin abbreviation, no plural in parentheses.
+        It CANNOT see a text that the code puts in a variable first, the result texts
+        of the MCP tools, the CLI texts and the GUI texts.
+
         --list      print every violation with its rule ID
         --baseline  rewrite the baseline from the current tree (lock in improvements)
+        --code      check the texts of errors in the code, not the book
         """,
         risk_level="read_only",
     ),
@@ -123,9 +134,18 @@ def docs_build():
     is_flag=True,
     help="rewrite scripts/ste-baseline.json from the current tree",
 )
-def docs_ste(list_all=False, baseline=False):
+@angreal.argument(
+    name="code",
+    long="code",
+    takes_value=False,
+    is_flag=True,
+    help="check the texts of errors in the Rust code, not the book",
+)
+def docs_ste(list_all=False, baseline=False, code=False):
     """Run scripts/ste-check.py. Pure Python, no services, no build."""
     args = [sys.executable, str(PROJECT_ROOT / "scripts" / "ste-check.py")]
+    if code:
+        args.append("--code")
     if list_all:
         args.append("--list")
     if baseline:

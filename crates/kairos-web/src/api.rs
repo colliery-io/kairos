@@ -70,9 +70,46 @@ pub fn next_offset(fetched: usize, last_page: usize, total: i64) -> Option<i64> 
     (last_page > 0 && fetched < total).then_some(fetched)
 }
 
+/// The URL of one page of a list route (COLLIERY-T-0258). `path` can have
+/// a query (`/api/metadata-definitions?entity_type=task`): the page
+/// parameters go after it. Pure, host-tested.
+pub fn page_url(path: &str, limit: i64, offset: i64) -> String {
+    let separator = if path.contains('?') { '&' } else { '?' };
+    format!("{path}{separator}limit={limit}&offset={offset}")
+}
+
+/// The sentence that a page shows when it has only a part of a list
+/// (COLLIERY-T-0258), or `None` when the page has the full list. `shown`
+/// is the number of rows on the page, and `total` is the number of rows of
+/// the full list. Pure, host-tested.
+pub fn incomplete_list_note(shown: usize, total: i64) -> Option<String> {
+    let shown = i64::try_from(shown).unwrap_or(i64::MAX);
+    (shown < total).then(|| format!("The list shows {shown} of {total} items."))
+}
+
+/// The sentence of a pager (COLLIERY-T-0258): the rows that the page
+/// shows, and the number of rows of the full list. `offset` is the offset
+/// of the page, and `shown` is the number of rows on it. A page that does
+/// not have the full list thus says so, and the pager gives the next
+/// page. Pure, host-tested.
+pub fn page_range_note(offset: i64, shown: usize, total: i64) -> String {
+    let shown = i64::try_from(shown).unwrap_or(i64::MAX);
+    if shown == 0 {
+        return format!("The list shows 0 of {total} items.");
+    }
+    let first = offset + 1;
+    let last = offset.saturating_add(shown);
+    format!("The list shows items {first} to {last} of {total}.")
+}
+
 /// Each row of a list route: `GET {path}?limit=200&offset=N`, page after
-/// page, until the client has the full list (COLLIERY-T-0257). `path` has
-/// no query.
+/// page, until the client has the full list (COLLIERY-T-0257). `path` can
+/// have a query (COLLIERY-T-0258).
+///
+/// For a list with a bound: the members, the teams, the boards, the
+/// templates, the definitions and the streams of an organization. A feed
+/// with no bound (the activity, the results of a search) has a pager, and
+/// it does not use this function.
 ///
 /// For a page that makes a decision from the FULL list. The page of the
 /// boards in the administration counts the delivery boards of a team, and
@@ -81,8 +118,7 @@ pub async fn get_all<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<Vec<
     let mut all = Vec::new();
     let mut offset = 0;
     loop {
-        let page: Page<T> =
-            get_json(auth, &format!("{path}?limit={PAGE_LIMIT}&offset={offset}")).await?;
+        let page: Page<T> = get_json(auth, &page_url(path, PAGE_LIMIT, offset)).await?;
         let last_page = page.items.len();
         all.extend(page.items);
         match next_offset(all.len(), last_page, page.total) {
@@ -106,7 +142,11 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
     }
     let response = request
         .json(body)
-        .map_err(|e| ApiError::Unknown(format!("encoding {path}: {e}")))?
+        .map_err(|e| {
+            ApiError::Unknown(format!(
+                "The page cannot write the request for {path}: {e}."
+            ))
+        })?
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
@@ -141,7 +181,11 @@ pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
     }
     let response = request
         .json(body)
-        .map_err(|e| ApiError::Unknown(format!("encoding {path}: {e}")))?
+        .map_err(|e| {
+            ApiError::Unknown(format!(
+                "The page cannot write the request for {path}: {e}."
+            ))
+        })?
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
@@ -161,7 +205,11 @@ pub async fn put_json<B: Serialize, T: DeserializeOwned>(
     }
     let response = request
         .json(body)
-        .map_err(|e| ApiError::Unknown(format!("encoding {path}: {e}")))?
+        .map_err(|e| {
+            ApiError::Unknown(format!(
+                "The page cannot write the request for {path}: {e}."
+            ))
+        })?
         .send()
         .await
         .map_err(|_| ApiError::Network)?;
@@ -205,10 +253,9 @@ async fn decode_response<T: DeserializeOwned>(
     if !(200..300).contains(&status) {
         return Err(error_from_response(status, response).await);
     }
-    response
-        .json::<T>()
-        .await
-        .map_err(|e| ApiError::Unknown(format!("decoding {path}: {e}")))
+    response.json::<T>().await.map_err(|e| {
+        ApiError::Unknown(format!("The page cannot read the response of {path}: {e}."))
+    })
 }
 
 /// Map a non-2xx response onto [`ApiError`] via the S-0005 error envelope
@@ -377,6 +424,56 @@ mod tests {
         assert_eq!(next_offset(400, 0, 401), None);
         // A page that is not full, with more rows to come, reads on.
         assert_eq!(next_offset(399, 199, 401), Some(399));
+    }
+
+    /// COLLIERY-T-0258: the page parameters go after the query of the path.
+    #[test]
+    fn the_page_parameters_go_after_the_query_of_the_path() {
+        assert_eq!(
+            page_url("/api/teams", 200, 0),
+            "/api/teams?limit=200&offset=0"
+        );
+        assert_eq!(
+            page_url("/api/metadata-definitions?entity_type=task", 200, 400),
+            "/api/metadata-definitions?entity_type=task&limit=200&offset=400"
+        );
+    }
+
+    /// COLLIERY-T-0258: a page that has a part of a list says so.
+    #[test]
+    fn a_page_with_a_part_of_a_list_says_so() {
+        assert_eq!(
+            incomplete_list_note(100, 2340).as_deref(),
+            Some("The list shows 100 of 2340 items.")
+        );
+        assert_eq!(
+            incomplete_list_note(200, 201).as_deref(),
+            Some("The list shows 200 of 201 items.")
+        );
+        // The full list, an empty list, and a list that lost a row.
+        assert_eq!(incomplete_list_note(12, 12), None);
+        assert_eq!(incomplete_list_note(0, 0), None);
+        assert_eq!(incomplete_list_note(13, 12), None);
+    }
+
+    /// COLLIERY-T-0258: the pager gives the rows of the page and the number
+    /// of rows of the full list.
+    #[test]
+    fn the_pager_gives_the_rows_of_the_page() {
+        assert_eq!(
+            page_range_note(0, 25, 2340),
+            "The list shows items 1 to 25 of 2340."
+        );
+        assert_eq!(
+            page_range_note(2325, 15, 2340),
+            "The list shows items 2326 to 2340 of 2340."
+        );
+        assert_eq!(
+            page_range_note(0, 3, 3),
+            "The list shows items 1 to 3 of 3."
+        );
+        // A page after the end of the list.
+        assert_eq!(page_range_note(50, 0, 40), "The list shows 0 of 40 items.");
     }
 
     /// The mirror of a page reads `items` and `total`.

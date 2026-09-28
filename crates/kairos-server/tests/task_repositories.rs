@@ -201,7 +201,7 @@ async fn task_repository_binding_against_live_stack() {
         "the refusal names both arguments that are missing: {message}"
     );
     assert!(
-        message.contains("does not choose a board"),
+        message.contains("does not select a board"),
         "and says why the repository was not enough: {message}"
     );
     // The pre-rename wire field (KAIROS-T-0115) is not a field of the route

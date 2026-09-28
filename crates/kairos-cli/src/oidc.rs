@@ -111,7 +111,7 @@ pub fn classify_poll_response(status: u16, body: &str) -> PollOutcome {
         return match serde_json::from_str::<TokenResponse>(body) {
             Ok(token) => PollOutcome::Token(token),
             Err(err) => PollOutcome::Fatal(format!(
-                "the issuer returned an unreadable token response: {err}"
+                "The CLI cannot read the token response of the issuer: {err}."
             )),
         };
     }
@@ -128,14 +128,14 @@ pub fn classify_poll_response(status: u16, body: &str) -> PollOutcome {
             "access_denied" => PollOutcome::Denied,
             "expired_token" => PollOutcome::Expired,
             other => PollOutcome::Fatal(format!(
-                "the issuer rejected the device grant: {other}{}",
+                "The issuer did not accept the device grant: {other}{}",
                 err.error_description
                     .map(|d| format!(" ({d})"))
                     .unwrap_or_default()
             )),
         },
         Err(_) => PollOutcome::Fatal(format!(
-            "unexpected {status} response from the token endpoint: {body}"
+            "The token endpoint gave the status {status}: {body}"
         )),
     }
 }
@@ -149,16 +149,16 @@ pub async fn discover_issuer(
     let metadata_url = format!("{deployment_url}{PROTECTED_RESOURCE_PATH}");
     let response = http.get(&metadata_url).send().await.map_err(|err| {
         CliError::Failure(format!(
-            "cannot reach the deployment at {deployment_url}: {err}\n\
-             Check the URL and your network connection."
+            "The CLI cannot reach the deployment at {deployment_url}: {err}\n\
+             Make sure that the URL is correct and that the network connection works."
         ))
     })?;
     let status = response.status();
     if !status.is_success() {
         return Err(CliError::Failure(format!(
-            "the deployment did not serve OAuth protected-resource metadata \
-             ({metadata_url} returned {status}).\n\
-             Is the URL a Kairos deployment? You can bypass discovery with \
+            "The deployment did not give the OAuth protected-resource metadata \
+             ({metadata_url} gave {status}).\n\
+             Make sure that the URL is a Kairos deployment. To give the issuer directly, use \
              `--issuer <oidc-issuer-url>`."
         )));
     }
@@ -169,7 +169,7 @@ pub async fn discover_issuer(
     }
     let metadata: ProtectedResource = response.json().await.map_err(|err| {
         CliError::Failure(format!(
-            "unreadable protected-resource metadata from {metadata_url}: {err}"
+            "The CLI cannot read the protected-resource metadata from {metadata_url}: {err}."
         ))
     })?;
     // An EMPTY list is a meaningful answer and not a broken deployment
@@ -182,10 +182,10 @@ pub async fn discover_issuer(
         .next()
         .ok_or_else(|| {
             CliError::Failure(format!(
-                "this deployment has no OIDC issuer. It uses local accounts.\n\
-                 Run `kairos login --url {deployment_url} --email <EMAIL>` to log in \
-                 with a password.\n\
-                 If the deployment has an issuer, name it with `--issuer <URL>`."
+                "This deployment has no OIDC issuer. It uses local accounts.\n\
+                 Run `kairos login --url {deployment_url} --email <EMAIL>` to log in with a \
+                 password.\n\
+                 If the deployment has an issuer, give it with `--issuer <URL>`."
             ))
         })
 }
@@ -204,11 +204,15 @@ pub async fn discover_endpoints(
         .send()
         .await
         .map_err(|err| {
-            CliError::Failure(format!("cannot reach the OIDC issuer at {issuer}: {err}"))
+            CliError::Failure(format!(
+                "The CLI cannot reach the OIDC issuer at {issuer}: {err}."
+            ))
         })?
         .error_for_status()
         .map_err(|err| {
-            CliError::Failure(format!("OIDC discovery failed at {discovery_url}: {err}"))
+            CliError::Failure(format!(
+                "The OIDC discovery at {discovery_url} did not complete: {err}."
+            ))
         })?;
     #[derive(Deserialize)]
     struct Discovery {
@@ -218,15 +222,15 @@ pub async fn discover_endpoints(
     }
     let discovery: Discovery = response.json().await.map_err(|err| {
         CliError::Failure(format!(
-            "unreadable OIDC discovery document from {discovery_url}: {err}"
+            "The CLI cannot read the OIDC discovery document from {discovery_url}: {err}."
         ))
     })?;
     let device_authorization_endpoint =
         discovery.device_authorization_endpoint.ok_or_else(|| {
             CliError::Failure(format!(
-                "the issuer {issuer} does not advertise a device_authorization_endpoint; \
-                 the Device Authorization Grant (required by `kairos login`, KAIROS-A-0010) \
-                 must be enabled on the IdP"
+                "The issuer {issuer} gives no device_authorization_endpoint. `kairos login` \
+                 needs the Device Authorization Grant (KAIROS-A-0010). Enable that grant on \
+                 the issuer."
             ))
         })?;
     Ok(IssuerEndpoints {
@@ -248,19 +252,19 @@ pub async fn start_device_grant(
         .await
         .map_err(|err| {
             CliError::Failure(format!(
-                "cannot reach the device authorization endpoint: {err}"
+                "The CLI cannot reach the device authorization endpoint: {err}."
             ))
         })?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     if !status.is_success() {
         return Err(CliError::Failure(format!(
-            "the issuer refused to start the device grant ({status}): {body}"
+            "The issuer did not start the device grant ({status}): {body}"
         )));
     }
     serde_json::from_str(&body).map_err(|err| {
         CliError::Failure(format!(
-            "unreadable device authorization response: {err} (body: {body})"
+            "The CLI cannot read the device authorization response: {err} (body: {body})."
         ))
     })
 }
@@ -279,8 +283,8 @@ pub async fn poll_device_grant(
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
         if std::time::Instant::now() >= deadline {
             return Err(CliError::Auth(
-                "the device code expired before the login was approved.\n\
-                 Run `kairos login` again and approve promptly."
+                "The device code expired before you approved the login.\n\
+                 Run `kairos login` again, and approve the login immediately."
                     .to_string(),
             ));
         }
@@ -293,7 +297,9 @@ pub async fn poll_device_grant(
             ])
             .send()
             .await
-            .map_err(|err| CliError::Failure(format!("cannot reach the token endpoint: {err}")))?;
+            .map_err(|err| {
+                CliError::Failure(format!("The CLI cannot reach the token endpoint: {err}."))
+            })?;
         let status = response.status().as_u16();
         let body = response.text().await.unwrap_or_default();
         match classify_poll_response(status, &body) {
@@ -302,15 +308,15 @@ pub async fn poll_device_grant(
             PollOutcome::SlowDown => interval += 5,
             PollOutcome::Denied => {
                 return Err(CliError::Auth(
-                    "the login was declined at the verification page.\n\
-                     Run `kairos login` again if this was a mistake."
+                    "The verification page refused the login.\n\
+                     If that was an error, run `kairos login` again."
                         .to_string(),
                 ));
             }
             PollOutcome::Expired => {
                 return Err(CliError::Auth(
-                    "the device code expired before the login was approved.\n\
-                     Run `kairos login` again and approve promptly."
+                    "The device code expired before you approved the login.\n\
+                     Run `kairos login` again, and approve the login immediately."
                         .to_string(),
                 ));
             }
@@ -337,15 +343,16 @@ pub async fn refresh_grant(
         ])
         .send()
         .await
-        .map_err(|err| format!("cannot reach the token endpoint: {err}"))?;
+        .map_err(|err| format!("The CLI cannot reach the token endpoint: {err}."))?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
     if !status.is_success() {
         return Err(format!(
-            "the issuer rejected the refresh ({status}): {body}"
+            "The issuer did not accept the refresh ({status}): {body}"
         ));
     }
-    serde_json::from_str(&body).map_err(|err| format!("unreadable token response: {err}"))
+    serde_json::from_str(&body)
+        .map_err(|err| format!("The CLI cannot read the token response: {err}."))
 }
 
 #[cfg(test)]

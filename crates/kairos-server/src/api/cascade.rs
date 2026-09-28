@@ -117,21 +117,22 @@ pub(crate) fn not_reached_lines(items: &[items::NotReached]) -> String {
         return String::new();
     }
     let mut out = format!(
-        "The archive did not reach {} item(s). They stay live and keep their parent.\n",
-        items.len()
+        "The archive did not reach {} item{}. They stay live and keep their parent.\n",
+        items.len(),
+        if items.len() == 1 { "" } else { "s" }
     );
     for item in items {
         let reason = match &item.reason {
             items::NotReachedReason::CannotEdit {
                 capability,
                 board_id: Some(board_id),
-            } => format!("you need `{capability}` on board {board_id}"),
+            } => format!("You need `{capability}` on the board {board_id}"),
             items::NotReachedReason::CannotEdit {
                 capability,
                 board_id: None,
-            } => format!("it has no board for `{capability}`; ask an organization admin"),
+            } => format!("It has no board for `{capability}`. Ask an organization admin"),
             items::NotReachedReason::Below { short_code } => {
-                format!("it is below {short_code}")
+                format!("It is below {short_code}")
             }
         };
         out.push_str(&format!("- {}: {reason}.\n", item.short_code));
@@ -219,10 +220,10 @@ mod tests {
         assert_eq!(not_reached_lines(&[]), "");
         assert_eq!(
             not_reached_lines(&left()),
-            "The archive did not reach 2 item(s). They stay live and keep their parent.\n\
-             - ACME-I-0002: you need `manage_initiatives` on board \
+            "The archive did not reach 2 items. They stay live and keep their parent.\n\
+             - ACME-I-0002: You need `manage_initiatives` on the board \
              00000000-0000-0000-0000-000000000000.\n\
-             - ACME-T-0009: it is below ACME-I-0002.\n"
+             - ACME-T-0009: It is below ACME-I-0002.\n"
         );
     }
 

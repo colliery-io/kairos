@@ -108,13 +108,13 @@ Failures of `login`:
 
 | Condition | Exit code | Message |
 |---|---|---|
-| No `--email`, and the deployment has no issuer | 1 | `this deployment has no OIDC issuer. It uses local accounts.` The message gives the command with `--email`. |
-| `--email`, and the deployment has local accounts off | 1 | `local accounts are off on this deployment.` The message gives the command without `--email`. |
+| No `--email`, and the deployment has no issuer | 1 | `This deployment has no OIDC issuer. It uses local accounts.` The message gives the command with `--email`. |
+| `--email`, and the deployment has local accounts off | 1 | `Local accounts are off on this deployment.` The message gives the command without `--email`. |
 | `--email` with `--issuer`, `--client-id` or `--bearer` | 2 | A usage error from the argument parser. |
 | `--password` | 2 | A usage error from the argument parser. |
-| Wrong password, or no account with that email | 2 | `the deployment did not accept the email and password.` The two conditions give the same message. |
-| Too many failed attempts (HTTP 429) | 1 | `too many failed login attempts.` The message gives the wait in seconds. |
-| No password given | 1 | `no password was given.` |
+| Wrong password, or no account with that email | 2 | `The deployment did not accept the email and the password.` The two conditions give the same message. |
+| Too many failed attempts (HTTP 429) | 1 | `The number of incorrect logins is too large.` The message gives the wait in seconds. |
+| No password given | 1 | `The command got no password.` |
 
 ### `kairos logout`
 
@@ -161,7 +161,7 @@ only.
 `whoami` works the same with issuer tokens and with a local session. The CLI
 does not refresh a local session. After a local session expires, each command
 that reaches the API sends no request and exits with code 2. The message is
-`the session for <URL> has expired.`, and it gives the `kairos login` command
+`The session for <URL> expired.`, and it gives the `kairos login` command
 with the cached `--email` and `--tenant`.
 
 ## Work items

@@ -138,7 +138,7 @@ The GUI shows the message of the server in the dialog. The dialog stays open.
 | 403 `FORBIDDEN` | You sent the work class `planned`. | Remove the work class, or send `support`. |
 | 403 `FORBIDDEN` | You named a column that is not the entry column. | Remove the column. |
 | 403 `FORBIDDEN` | The board is not a delivery board. | Name the delivery board of the team. |
-| 422 `VALIDATION` | You named a repository and no board or team. The message is `name a board or a team (board_id or team_id); a repository is a link and does not choose a board`. | Name a board or a team. |
+| 422 `VALIDATION` | You named a repository and no board or team. The message starts with `The request has no board_id and no team_id.` | Name a board or a team. |
 | 422 `VALIDATION` | You named a team that is not the team of the board. | Name the team of the board, or no team. |
 
 ## What to do instead

@@ -108,7 +108,7 @@ where
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
     /// The discovery document or JWKS could not be fetched/parsed.
-    #[error("OIDC discovery against {issuer} failed: {message}")]
+    #[error("The OIDC discovery at the issuer {issuer} did not complete: {message}.")]
     Discovery {
         /// The configured issuer URL.
         issuer: String,
@@ -121,24 +121,26 @@ pub enum DiscoveryError {
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
     /// No `Authorization: Bearer <token>` header.
-    #[error("missing bearer token")]
+    #[error("The request has no bearer token. Send the header `Authorization: Bearer <token>`.")]
     MissingToken,
     /// The token header has no `kid` or names a key the issuer does not
     /// publish (even after a JWKS refresh).
-    #[error("token signed with unknown key {kid:?}")]
+    #[error(
+        "The issuer does not have the key {kid:?} of the signature of the token. Log in again."
+    )]
     UnknownKey {
         /// The offending key id (empty when the header had none).
         kid: String,
     },
     /// Signature/`iss`/`aud`/`exp` validation failed.
-    #[error("token validation failed: {0}")]
+    #[error("The token is not correct: {0}. Log in again.")]
     Invalid(#[from] jsonwebtoken::errors::Error),
     /// The token is valid but has no usable `email` claim.
-    #[error("token has no email claim (request the openid+email scopes)")]
+    #[error("The token has no email claim. Ask for the scopes openid and email at the login.")]
     MissingEmail,
     /// Refreshing the JWKS failed — a server-side problem, mapped to 500
     /// rather than 401.
-    #[error("JWKS refresh failed: {0}")]
+    #[error("The server cannot get the keys of the issuer: {0}.")]
     KeyFetch(String),
     /// This deployment has no OIDC issuer (KAIROS-T-0208), so a JWT cannot be
     /// validated by anything.
@@ -150,9 +152,8 @@ pub enum VerifyError {
     /// who gets a bare "invalid token" would go looking for the fault in their own
     /// token for a long time.
     #[error(
-        "this deployment has no OIDC issuer configured, so a JWT cannot be \
-         validated; log in with a password (POST /api/login) or set \
-         OIDC_ISSUER_URL"
+        "This deployment has no OIDC issuer, so the server cannot accept a JWT. Log in \
+         with a password (POST /api/login), or set OIDC_ISSUER_URL."
     )]
     NoIssuer,
 }

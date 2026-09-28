@@ -16,6 +16,9 @@
 //!   REST and over SCIM,
 //! - a reference by slug gives the live board.
 //!
+//! COLLIERY-T-0258 — a slug that a caller sends has the form of a board
+//! slug. The refusal is 422 `VALIDATION`, and it gives the rule.
+//!
 //! The migration is in `kairos-db/tests/board_slug_migration.rs`.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Each test
@@ -427,6 +430,161 @@ async fn a_team_is_not_created_without_its_board_against_live_stack() {
         .await;
     assert!(team["delivery_board_id"].is_string(), "{team}");
     assert_eq!(live_boards(&mut stack.conn, "payments-delivery"), 1);
+
+    stack.shutdown();
+}
+
+/// The refusal of a slug that does not have the form of a board slug
+/// (COLLIERY-T-0258): 422 `VALIDATION`, the message gives the slug and the
+/// rule, and the details name the field.
+fn assert_slug_form(status: StatusCode, answer: &Value, slug: &str) {
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{answer}");
+    assert_eq!(error_code(answer), "VALIDATION", "{answer}");
+    assert_eq!(
+        answer["error"]["message"],
+        format!(
+            "The board slug {slug:?} is not correct. A board slug must match \
+             ^[a-z][a-z0-9_-]{{1,62}}$, and it cannot have the form of a UUID. Send a \
+             different slug."
+        ),
+        "{answer}"
+    );
+    assert_eq!(answer["error"]["details"], json!({"field": "slug"}));
+}
+
+/// COLLIERY-T-0258: a slug that a caller sends has the form of a board
+/// slug. The slug that the server makes for a team, and the slug that a
+/// board has from before the rule, are not subject to the check.
+#[tokio::test]
+async fn a_sent_slug_has_the_form_of_a_board_slug_against_live_stack() {
+    let mut stack = Stack::boot("kairos_board_slug_form_t0258_test").await;
+
+    // --- create -------------------------------------------------------------
+    let before = (
+        count(&mut stack.conn, "boards"),
+        count(&mut stack.conn, "activity_log"),
+    );
+    for slug in [
+        "Road Map",
+        "roadmap!",
+        "r",
+        "9lives",
+        "-roadmap",
+        "road/map",
+        "",
+        "abcdef12-0000-7000-8000-000000000003",
+    ] {
+        let (status, answer) = stack.create_board("Roadmap", slug).await;
+        // THE DEFECT: before COLLIERY-T-0258 each of these creates gave 201.
+        assert_slug_form(status, &answer, slug);
+    }
+    let long = "a".repeat(64);
+    let (status, answer) = stack.create_board("Roadmap", &long).await;
+    assert_slug_form(status, &answer, &long);
+    assert_eq!(
+        (
+            count(&mut stack.conn, "boards"),
+            count(&mut stack.conn, "activity_log"),
+        ),
+        before,
+        "a refused create wrote nothing"
+    );
+    for slug in ["roadmap", "road_map-2", "ab", &"a".repeat(63)] {
+        let (status, answer) = stack.create_board("Roadmap", slug).await;
+        assert_eq!(status, StatusCode::CREATED, "{slug}: {answer}");
+    }
+
+    // --- update -------------------------------------------------------------
+    let (status, plans) = stack.create_board("Plans", "plans").await;
+    assert_eq!(status, StatusCode::CREATED, "{plans}");
+    let plans_id = plans["id"].as_str().expect("board id").to_string();
+    let plans_uri = format!("/api/boards/{plans_id}");
+    let before = count(&mut stack.conn, "activity_log");
+    let (status, answer) = stack
+        .send(
+            Method::PATCH,
+            &plans_uri,
+            Some(json!({"name": "Renamed", "slug": "The Plans"})),
+        )
+        .await;
+    assert_slug_form(status, &answer, "The Plans");
+    let board = stack.ok(Method::GET, &plans_uri, None).await;
+    assert_eq!(board["slug"], "plans", "no change of the slug: {board}");
+    assert_eq!(board["name"], "Plans", "no change of the name: {board}");
+    assert_eq!(count(&mut stack.conn, "activity_log"), before);
+
+    // --- a board with a slug from before the rule stays as it is --------------
+    diesel::sql_query(format!(
+        "UPDATE boards SET slug = 'Old Plans' WHERE id = '{plans_id}'"
+    ))
+    .execute(&mut stack.conn)
+    .expect("a slug from before the rule");
+    let board = stack.ok(Method::GET, &plans_uri, None).await;
+    assert_eq!(board["slug"], "Old Plans", "{board}");
+    // An update of a different field passes, with the slug and with no slug.
+    let board = stack
+        .ok(Method::PATCH, &plans_uri, Some(json!({"name": "Plans 2"})))
+        .await;
+    assert_eq!(board["name"], "Plans 2", "{board}");
+    let board = stack
+        .ok(
+            Method::PATCH,
+            &plans_uri,
+            Some(json!({"name": "Plans 3", "slug": "Old Plans"})),
+        )
+        .await;
+    assert_eq!(board["name"], "Plans 3", "{board}");
+    assert_eq!(board["slug"], "Old Plans", "{board}");
+    // A different slug that does not have the form is a refusal.
+    let (status, answer) = stack
+        .send(
+            Method::PATCH,
+            &plans_uri,
+            Some(json!({"slug": "Older Plans"})),
+        )
+        .await;
+    assert_slug_form(status, &answer, "Older Plans");
+    // The board can get a slug that has the form, and the delete passes.
+    let (status, old) = stack.create_board("Old", "old").await;
+    assert_eq!(status, StatusCode::CREATED, "{old}");
+    let old_id = old["id"].as_str().expect("board id").to_string();
+    diesel::sql_query(format!(
+        "UPDATE boards SET slug = 'Old Board' WHERE id = '{old_id}'"
+    ))
+    .execute(&mut stack.conn)
+    .expect("a slug from before the rule");
+    stack
+        .ok(Method::DELETE, &format!("/api/boards/{old_id}"), None)
+        .await;
+    let board = stack
+        .ok(Method::PATCH, &plans_uri, Some(json!({"slug": "plans"})))
+        .await;
+    assert_eq!(board["slug"], "plans", "{board}");
+
+    // --- the slug that the server makes for a team ----------------------------
+    // REST has no rule for the form of a team slug, and a team slug of 63
+    // characters is correct for SCIM. The slug of the delivery board is
+    // longer than 63 characters, and the server makes the board.
+    let team_slug = "t".repeat(63);
+    let team = stack
+        .ok(
+            Method::POST,
+            "/api/teams",
+            Some(json!({"name": "Long", "slug": team_slug})),
+        )
+        .await;
+    let board_id = team["delivery_board_id"].as_str().expect("board id");
+    let board_uri = format!("/api/boards/{board_id}");
+    let board = stack.ok(Method::GET, &board_uri, None).await;
+    assert_eq!(board["slug"], format!("{team_slug}-delivery"), "{board}");
+    let board = stack
+        .ok(
+            Method::PATCH,
+            &board_uri,
+            Some(json!({"name": "Long board"})),
+        )
+        .await;
+    assert_eq!(board["name"], "Long board", "{board}");
 
     stack.shutdown();
 }

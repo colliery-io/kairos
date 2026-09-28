@@ -157,7 +157,7 @@ async fn the_board_decides_the_team_against_live_stack() {
         "names the team that was sent and the board: {message}"
     );
     assert!(
-        message.contains("the board decides"),
+        message.contains("The board gives the team"),
         "says which of the two wins: {message}"
     );
 

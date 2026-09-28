@@ -104,8 +104,8 @@ journey(
       const refused = await cli.run(['adrs', 'transition', decision, '--to', columnId('Decided')]);
       expect(refused.code).toBe(1);
       const said = refused.stderr + refused.stdout;
-      expect(said).toContain('invalid transition (422)');
-      expect(said).toContain('Allowed target columns:');
+      expect(said).toContain('The transition is not correct (422)');
+      expect(said).toContain('The item can move to these columns:');
       expect(said).toContain('Discussion');
       await cli.ok(['adrs', 'transition', decision, '--to', columnId('Discussion')]);
       const decided = await cli.json(['adrs', 'transition', decision, '--to', columnId('Decided')]);

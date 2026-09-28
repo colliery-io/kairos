@@ -20,7 +20,7 @@ pub fn is_valid_slug(slug: &str) -> bool {
 }
 
 /// `8-4-4-4-12` lowercase hex — the canonical UUID text form.
-fn looks_like_uuid(s: &str) -> bool {
+pub(crate) fn looks_like_uuid(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
     parts.len() == 5
         && [8, 4, 4, 4, 12]

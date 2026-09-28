@@ -45,6 +45,10 @@ delivery board for a team that has a live delivery board is a 422
 `TEAM_HAS_DELIVERY_BOARD`. The refusal names the board that the team
 has. A deleted board does not count.
 
+A `slug` must have the form of a board slug (COLLIERY-T-0258). It must
+match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the form of a UUID.
+If not, the request is a 422 `VALIDATION` with `details.field` = `slug`.
+
 A live board has its slug alone (COLLIERY-T-0255). A request with the
 slug of a live board is a 409 `CONFLICT`. The refusal names the slug
 and the board that has it (`details.slug`, `details.board`). A deleted
@@ -57,7 +61,7 @@ Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#c
 | `201` | [`BoardDetail`](schemas.md#boarddetail) | Created, with the seeded configuration |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug; details.board names it |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, a slug that does not have the form of a board slug, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD |
 
 ### `GET /api/boards/{id}`
 
@@ -111,6 +115,11 @@ The server accepts a `team_id` equal to the team of the board, and
 changes nothing. A client can thus send back the `team_id` that it
 read. That `team_id` is not a field to update: the body must have `name`
 or `slug`.
+
+A new `slug` must have the form of a board slug (COLLIERY-T-0258). If
+not, the request is a 422 `VALIDATION`, and the update writes nothing.
+A board with a slug from before the rule keeps that slug. An update of
+the name of that board passes.
 
 A `slug` that a different live board has is a 409 `CONFLICT`, and the
 update writes nothing (COLLIERY-T-0255). The refusal names the slug and

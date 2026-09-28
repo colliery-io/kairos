@@ -28,31 +28,36 @@ use crate::models::repositories::{NewRepository, Repository, RepositoryChangeset
 #[derive(Debug, thiserror::Error)]
 pub enum RepositoryError {
     /// No live repository with this id.
-    #[error("repository {0} does not exist")]
+    #[error("The repository {0} does not exist.")]
     NotFound(Uuid),
     /// No live repository with this slug.
-    #[error("repository {0:?} does not exist")]
+    #[error("No live repository has the slug {0:?}.")]
     SlugNotFound(String),
     /// The slug fails [`kairos_core::repositories::is_valid_slug`].
-    #[error("invalid repository slug {0:?}: expected ^[a-z0-9][a-z0-9-]{{1,62}}$")]
+    #[error(
+        "The repository slug {0:?} is not correct. A repository slug must match ^[a-z0-9][a-z0-9-]{{1,62}}$."
+    )]
     InvalidSlug(String),
     /// A live repository already carries this slug.
-    #[error("repository slug {0:?} is already taken")]
+    #[error("A repository has the slug {0:?} already.")]
     SlugTaken(String),
     /// A live repository already covers this `(forge, full name)`.
-    #[error("{forge} repository {repo:?} is already registered")]
+    #[error("The {forge} repository {repo:?} is in the directory already.")]
     AlreadyRegistered { forge: Forge, repo: String },
     /// The owning team does not exist.
-    #[error("team {0} does not exist")]
+    #[error("The team {0} does not exist.")]
     TeamNotFound(Uuid),
     /// The team has no live delivery board to route tickets onto (or, in
     /// a misconfigured tenant, more than one).
-    #[error("team {team} has {count} live delivery boards; exactly one is needed to route tasks")]
+    #[error(
+        "The team {team} has {count} live delivery boards. A team must have one live delivery board."
+    )]
     NoDeliveryBoard { team: Uuid, count: usize },
     /// Deletion refused: live tasks and/or a live webhook connection still
     /// reference the repository.
     #[error(
-        "repository {id} is still referenced by {tasks} live task(s) and {connections} live connection(s)"
+        "The repository {id} is in use. The number of live tasks that link to it is {tasks}, and \
+         the number of its live webhook connections is {connections}."
     )]
     InUse {
         id: Uuid,
@@ -65,22 +70,22 @@ pub enum RepositoryError {
     /// COLLIERY-T-0217 a repository alone was enough, and this error meant
     /// "no board and no repository".
     #[error(
-        "name a board or a team (board_id or team_id); a repository is a link and does not \
-         choose a board"
+        "The request has no board_id and no team_id. Send one of them. A repository is a \
+         link, and it does not select a board."
     )]
     NothingToRouteBy,
     /// The caller named a team that the board does not belong to
     /// (COLLIERY-T-0216): the board decides a task's team.
     #[error(
-        "team {team} is not the team of board {board}; the board decides a task's team, \
-         so name the board's own team or none"
+        "The team {team} is not the team of the board {board}. The board gives the team of \
+         a task. Send the team of the board, or send no team."
     )]
     TeamNotBoardTeam {
         board: Uuid,
         board_team: Option<Uuid>,
         team: Uuid,
     },
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

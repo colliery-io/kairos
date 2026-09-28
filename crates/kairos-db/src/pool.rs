@@ -57,16 +57,18 @@ pub enum PoolError {
     /// The slug does not match the KAIROS-S-0004 organization slug pattern.
     /// Validated slugs contain no quoting metacharacters, which is what
     /// makes interpolating `org_{slug}` into `SET search_path` safe.
-    #[error("invalid tenant slug {0:?}: must match ^[a-z][a-z0-9_-]{{1,62}}$")]
+    #[error(
+        "The tenant slug {0:?} is not correct. A tenant slug must match ^[a-z][a-z0-9_-]{{1,62}}$."
+    )]
     InvalidSlug(String),
     /// Building the pool failed (bad URL, unreachable server, ...).
-    #[error("failed to build connection pool: {0}")]
+    #[error("The server cannot make the connection pool: {0}.")]
     Build(#[from] diesel_async::pooled_connection::PoolError),
     /// Checking a connection out of the pool failed.
-    #[error("failed to check out connection: {0}")]
+    #[error("The server cannot get a connection from the pool: {0}.")]
     Checkout(#[from] diesel_async::pooled_connection::bb8::RunError),
     /// Pinning or resetting `search_path` failed.
-    #[error("failed to set search_path: {0}")]
+    #[error("The server cannot set search_path: {0}.")]
     SearchPath(#[from] diesel::result::Error),
 }
 

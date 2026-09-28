@@ -39,8 +39,11 @@ pub fn family_of(short_code: &str) -> Option<&'static str> {
 
 /// [`family_of`] as an [`ApiError`] for fetchers that need a family.
 fn family_or_err(short_code: &str) -> Result<&'static str, ApiError> {
-    family_of(short_code)
-        .ok_or_else(|| ApiError::Unknown(format!("{short_code:?} is not a Kairos short code")))
+    family_of(short_code).ok_or_else(|| {
+        ApiError::Unknown(format!(
+            "{short_code:?} is not a short code. A short code has the form DEMO-T-0001."
+        ))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -188,12 +191,6 @@ pub async fn search(auth: Auth, request: &SearchRequest) -> Result<SearchRespons
 // Boards (filter-builder options)
 // ---------------------------------------------------------------------------
 
-/// mirror of: `kairos_client::types::ListEnvelope<Board>` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct BoardList {
-    pub items: Vec<Board>,
-}
-
 /// mirror of: `kairos_client::types_org::Board` (partial).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Board {
@@ -216,11 +213,10 @@ pub struct BoardColumn {
     pub name: String,
 }
 
-/// `GET /api/boards` (first page is plenty — a tenant has a handful).
+/// `GET /api/boards`: each live board, page after page (COLLIERY-T-0258),
+/// so that the board filter offers each board.
 pub async fn boards(auth: Auth) -> Result<Vec<Board>, ApiError> {
-    api::get_json::<BoardList>(auth, "/api/boards?limit=100")
-        .await
-        .map(|list| list.items)
+    api::get_all(auth, "/api/boards").await
 }
 
 /// `GET /api/boards/{id}` → its columns, in position order.

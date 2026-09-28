@@ -72,7 +72,7 @@ pub fn ItemPage() -> impl IntoView {
             // the router settles — render nothing clickable until it is
             // resolved, so no tab is ever built from an empty code.
             let Some((details_href, graph_href)) = tab_hrefs(&code) else {
-                return view! { <Loading label="Loading item…"/> }.into_any();
+                return view! { <Loading label="Kairos gets the item."/> }.into_any();
             };
             match Family::of_short_code(&code) {
                 Some(family) => {
@@ -163,7 +163,7 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
             </div>
         })}
         {move || match detail.get() {
-            None => view! { <Loading label="Loading item…"/> }.into_any(),
+            None => view! { <Loading label="Kairos gets the item."/> }.into_any(),
             Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
             Some(Ok(item)) => view! {
                 <ItemLoaded item family on_saved on_moved/>
@@ -781,7 +781,7 @@ fn BoardPanel(
     view! {
         <Panel title="Board" caption="placement">
             {move || match board.get() {
-                None => view! { <Loading label="Loading board…"/> }.into_any(),
+                None => view! { <Loading label="Kairos gets the board."/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
                 Some(Ok(None)) => {
                     let message = match family {
@@ -992,7 +992,7 @@ fn RepositoryControl(
         {move || can_bind.get().then(|| view! {
         <div class="kairos-item__repository" data-testid="repository-control">
             {move || match repos.get() {
-                None => view! { <Text size="xs" dimmed=true>"Loading repositories…"</Text> }.into_any(),
+                None => view! { <Text size="xs" dimmed=true>"Kairos gets the repositories."</Text> }.into_any(),
                 Some(Err(_)) => view! { <Text size="xs" dimmed=true>"Repositories unavailable."</Text> }.into_any(),
                 Some(Ok(list)) if list.is_empty() => view! {
                     <Text size="xs" dimmed=true>"No repositories in this organization."</Text>
@@ -1507,13 +1507,13 @@ fn RelatedWorkPanel(#[prop(into)] code: String) -> impl IntoView {
                     }
                 >
                     {move || match related.get().flatten() {
-                        None => view! { <Text size="xs" dimmed=true>"Searching…"</Text> }.into_any(),
+                        None => view! { <Text size="xs" dimmed=true>"Kairos does the search."</Text> }.into_any(),
                         // 503 means embeddings are off on this deployment. Not an
                         // error: say so plainly once, since the person just
                         // clicked and deserves an answer rather than silence.
                         Some(Err(ApiError::Http { status: 503, .. })) => view! {
                             <Text size="xs" dimmed=true>
-                                "Semantic retrieval is not enabled on this deployment."
+                                "This deployment does not have the search for related work."
                             </Text>
                         }.into_any(),
                         Some(Err(e)) => view! {
@@ -1588,7 +1588,7 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
     view! {
         <Panel title="Relationships" caption="summary">
             {move || match relationships.get() {
-                None => view! { <Loading label="Loading relationships…"/> }.into_any(),
+                None => view! { <Loading label="Kairos gets the relationships."/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(relationships))
                     if relationships.outgoing.is_empty() && relationships.incoming.is_empty() =>

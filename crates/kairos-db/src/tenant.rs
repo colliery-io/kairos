@@ -42,29 +42,31 @@ use crate::models::enums::BoardLevel;
 #[derive(Debug, thiserror::Error)]
 pub enum TenantError {
     /// The slug does not match the KAIROS-S-0004 organization slug pattern.
-    #[error("invalid tenant slug {0:?}: must match ^[a-z][a-z0-9_-]{{1,62}}$")]
+    #[error(
+        "The tenant slug {0:?} is not correct. A tenant slug must match ^[a-z][a-z0-9_-]{{1,62}}$."
+    )]
     InvalidSlug(String),
     /// An organization with this slug is already provisioned.
-    #[error("tenant {0:?} already exists")]
+    #[error("The tenant {0:?} exists already.")]
     AlreadyExists(String),
     /// No organization with this slug exists.
-    #[error("tenant {0:?} does not exist")]
+    #[error("The tenant {0:?} does not exist.")]
     NotFound(String),
     /// `drop_tenant` was called without `confirm = true`.
     #[error(
-        "refusing to drop tenant {0:?}: destructive operation requires explicit confirmation \
-         (pass confirm = true / --confirm)"
+        "The delete of the tenant {0:?} removes all its data. To delete the tenant, send \
+         confirm = true or use --confirm."
     )]
     ConfirmationRequired(String),
     /// The tenant migration tree failed to apply for one schema.
-    #[error("tenant migration failed for {slug:?}: {message}")]
+    #[error("The migrations of the tenant {slug:?} did not complete: {message}.")]
     Migration { slug: String, message: String },
     /// Creating a default board from the seeded `system_board_defaults`
     /// failed (missing/malformed defaults row, or any board-layer error).
-    #[error("creating default board failed: {0}")]
+    #[error("The server cannot make the default board: {0}.")]
     Board(#[from] BoardError),
     /// Any other database error.
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

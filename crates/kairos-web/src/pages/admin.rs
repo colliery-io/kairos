@@ -72,7 +72,7 @@ pub fn AdminPage() -> impl IntoView {
     });
     view! {
         {move || match whoami.get() {
-            None => view! { <Loading label="Checking access…"/> }.into_any(),
+            None => view! { <Loading label="Kairos checks your access."/> }.into_any(),
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| whoami.refetch())/>
             }.into_any(),

@@ -58,9 +58,9 @@ impl ServiceAccountsCommand {
                 if common.json {
                     return print_json(&sa);
                 }
-                println!("Created service account {} ({}).", sa.name, sa.id);
+                println!("Kairos made the service account {} ({}).", sa.name, sa.id);
                 println!(
-                    "Mint a key with: kairos keys create --service-account {}",
+                    "To make a key, run: kairos keys create --service-account {}",
                     sa.id
                 );
                 Ok(())
@@ -84,13 +84,16 @@ impl ServiceAccountsCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("service account {id} and all its keys"))?;
+                require_confirm(
+                    confirm,
+                    &format!("the service account {id} and all its keys"),
+                )?;
                 let client = client(&common)?;
                 let deleted = client.delete_service_account(&id).await?;
                 if common.json {
                     return print_json(&deleted);
                 }
-                println!("Deleted service account {}.", deleted.id);
+                println!("Kairos deleted the service account {}.", deleted.id);
                 Ok(())
             }
         }

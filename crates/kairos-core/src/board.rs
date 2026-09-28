@@ -59,6 +59,33 @@ fn allowed_targets(columns: &[Column], transitions: &[Transition], from: Uuid) -
 }
 
 // ---------------------------------------------------------------------------
+// Board slug
+// ---------------------------------------------------------------------------
+
+/// The form of a board slug, as the refusal gives it (COLLIERY-T-0258).
+pub const BOARD_SLUG_RULE: &str = "^[a-z][a-z0-9_-]{1,62}$";
+
+/// Whether `slug` has the form of a board slug (COLLIERY-T-0258):
+/// [`BOARD_SLUG_RULE`], the rule of a team slug and of an organization
+/// slug, so that `<team-slug>-delivery` has only characters that the rule
+/// permits. A slug with the form of a UUID does not pass: a reference to a
+/// board is read as an id first (KAIROS-T-0116), so no request could
+/// reach that board by its slug.
+///
+/// The rule is for a slug that a caller SENDS. The server does not apply
+/// it to the slug that it makes for the delivery board of a team, and a
+/// board that has a different slug from before the rule stays as it is.
+pub fn is_valid_board_slug(slug: &str) -> bool {
+    let bytes = slug.as_bytes();
+    (2..=63).contains(&bytes.len())
+        && bytes[0].is_ascii_lowercase()
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-' || *b == b'_')
+        && !crate::repositories::looks_like_uuid(slug)
+}
+
+// ---------------------------------------------------------------------------
 // Transition validation
 // ---------------------------------------------------------------------------
 
@@ -66,25 +93,40 @@ fn allowed_targets(columns: &[Column], transitions: &[Transition], from: Uuid) -
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TransitionError {
     /// The item's current column is not on the board (data drift).
-    #[error("source column {0} is not a column of this board")]
+    #[error("The source column {0} is not a column of this board.")]
     UnknownFromColumn(Uuid),
     /// The requested target column is not on the board.
-    #[error("target column {0} is not a column of this board")]
+    #[error("The target column {0} is not a column of this board.")]
     UnknownToColumn(Uuid),
     /// No `board_transitions` edge allows this move. Carries the allowed
     /// target columns for the item's current column so the API layer can
     /// return them in the error envelope (S-0006 REQ-1.4).
     #[error(
-        "transition {from} -> {to} is not allowed; allowed targets from {from}: [{targets}]",
+        "This board does not permit the transition from {from} to {to}. {targets}",
         from = .from.name,
         to = .to.name,
-        targets = .allowed_targets.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "),
+        targets = targets_sentence(.from, .allowed_targets),
     )]
     NotAllowed {
         from: ColumnRef,
         to: ColumnRef,
         allowed_targets: Vec<ColumnRef>,
     },
+}
+
+/// The sentence of [`TransitionError::NotAllowed`] that gives the columns
+/// an item can move to (COLLIERY-T-0258). A column with no transition out of
+/// it gets a sentence of its own, and not an empty list.
+fn targets_sentence(from: &ColumnRef, allowed_targets: &[ColumnRef]) -> String {
+    if allowed_targets.is_empty() {
+        return format!("No transition starts at {}.", from.name);
+    }
+    let names: Vec<&str> = allowed_targets.iter().map(|c| c.name.as_str()).collect();
+    format!(
+        "From {}, an item can move to: {}.",
+        from.name,
+        names.join(", ")
+    )
 }
 
 /// A move from `from` to `to` is allowed iff a matching transition edge
@@ -125,40 +167,44 @@ pub fn can_transition(
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ColumnRuleError {
     /// The referenced column is not on the board.
-    #[error("column {0} is not a column of this board")]
+    #[error("The column {0} is not a column of this board.")]
     UnknownColumn(Uuid),
     /// Column names must be non-empty.
-    #[error("column name must not be empty")]
+    #[error("The name of the column is empty. Send a name.")]
     EmptyName,
     /// Another column on the board already has this name.
-    #[error("board already has a column named {0:?}")]
+    #[error("The board has a column with the name {0:?} already.")]
     DuplicateName(String),
     /// Another column on the board already occupies this position.
-    #[error("board already has a column at position {0}")]
+    #[error("The board has a column at the position {0} already.")]
     DuplicatePosition(i32),
     /// Positions are 0-indexed display order; negatives are reserved.
-    #[error("column position must be >= 0, got {0}")]
+    #[error("The position {0} is not correct. A position is 0 or more.")]
     NegativePosition(i32),
     /// Removal is only allowed when no items occupy the column
     /// (KAIROS-A-0002: "items in a removed column must be moved first").
     #[error(
-        "column {name:?} still contains {item_count} item(s); move them before removing it",
+        "The column {name:?} has items. The number of items is {item_count}. Move each item to a different column. Then remove the column.",
         name = .column.name,
     )]
     ColumnNotEmpty { column: ColumnRef, item_count: u64 },
     /// A reorder must mention every column of the board exactly once.
-    #[error("reorder must list every column exactly once: board has {expected}, got {actual}")]
+    #[error(
+        "The board has {expected} columns, and the list has {actual}. Send each column of the board one time."
+    )]
     ReorderLengthMismatch { expected: usize, actual: usize },
     /// A reorder listed the same column twice.
-    #[error("reorder lists column {0} more than once")]
+    #[error(
+        "The list has the column {0} more than one time. Send each column of the board one time."
+    )]
     ReorderDuplicateColumn(Uuid),
     /// A transition must connect two distinct columns (mirrors the S-0004
     /// `CHECK (from_column_id != to_column_id)`).
-    #[error("a transition must connect two distinct columns")]
+    #[error("A transition goes between two different columns. Send two different columns.")]
     SelfTransition,
     /// The transition edge already exists (mirrors the S-0004
     /// `UNIQUE (board_id, from_column_id, to_column_id)`).
-    #[error("transition already exists")]
+    #[error("The board has this transition already.")]
     DuplicateTransition,
 }
 
@@ -314,25 +360,29 @@ pub struct DefaultBoardConfig {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DefaultConfigError {
     /// The `columns` text contained no column names.
-    #[error("default board config has no columns")]
+    #[error("The default board configuration has no columns. Add one column or more.")]
     NoColumns,
     /// A column line was empty.
-    #[error("default board config contains an empty column name")]
+    #[error(
+        "The default board configuration has a column with an empty name. Give each column a name."
+    )]
     EmptyColumnName,
     /// The same column name appears twice.
-    #[error("default board config lists column {0:?} more than once")]
+    #[error("The default board configuration has the column {0:?} more than one time.")]
     DuplicateColumn(String),
     /// A transition line is not of the form `"From -> To"`.
-    #[error("malformed default transition line {0:?} (expected \"From -> To\")")]
+    #[error("The default transition line {0:?} is not correct. Write the line as \"From -> To\".")]
     MalformedTransition(String),
     /// A transition references a column name not in `columns`.
-    #[error("default transition {line:?} references unknown column {column:?}")]
+    #[error(
+        "The default transition {line:?} has the column {column:?}. The default board configuration has no column with that name."
+    )]
     UnknownTransitionColumn { line: String, column: String },
     /// A transition connects a column to itself.
-    #[error("default transition {0:?} connects a column to itself")]
+    #[error("The default transition {0:?} goes from a column to the same column.")]
     SelfTransition(String),
     /// The same transition appears twice.
-    #[error("default board config lists transition {0:?} more than once")]
+    #[error("The default board configuration has the transition {0:?} more than one time.")]
     DuplicateTransition(String),
 }
 
@@ -404,6 +454,34 @@ pub fn parse_default_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COLLIERY-T-0258: the form of a board slug.
+    #[test]
+    fn board_slug_form() {
+        for slug in ["roadmap", "platform-delivery", "road_map", "ab", "a1"] {
+            assert!(is_valid_board_slug(slug), "{slug:?} is a board slug");
+        }
+        assert!(is_valid_board_slug(&"a".repeat(63)));
+        for slug in [
+            "", "a", "Roadmap", "road map", "9lives", "-roadmap", "_roadmap", "road.map",
+            "road/map", "roadmäp",
+        ] {
+            assert!(!is_valid_board_slug(slug), "{slug:?} is not a board slug");
+        }
+        assert!(!is_valid_board_slug(&"a".repeat(64)));
+        // A reference to a board is read as an id first.
+        assert!(!is_valid_board_slug("abcdef12-0000-7000-8000-000000000003"));
+        assert!(is_valid_board_slug("abcdef12-0000-7000-8000-00000000000x"));
+    }
+
+    /// COLLIERY-T-0258: the delivery board of a team gets a slug that has
+    /// the form, for a team slug that leaves room for `-delivery`.
+    #[test]
+    fn the_slug_of_a_delivery_board_has_the_form() {
+        for team in ["platform", "web", "data_science", "t2"] {
+            assert!(is_valid_board_slug(&format!("{team}-delivery")));
+        }
+    }
 
     /// A little board: A(0) -> B(1) -> C(2), plus B <-> D(3) (bidirectional).
     fn fixture() -> (Vec<Column>, Vec<Transition>, [Uuid; 4]) {

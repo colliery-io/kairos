@@ -47,7 +47,7 @@ pub fn LoginPage() -> impl IntoView {
                 <Stack gap="sm" center=true>
                     <BrandMark/>
                     {move || match config.get() {
-                        None => view! { <Loading label="Checking how to sign in…"/> }.into_any(),
+                        None => view! { <Loading label="Kairos gets the sign-in methods."/> }.into_any(),
                         // A failed /api/config still offers the provider button: it is
                         // the path that worked before this page could ask, and an error
                         // with no way forward is worse than a button that might work.
@@ -242,7 +242,7 @@ pub fn CallbackPage() -> impl IntoView {
     view! {
         <div class="kairos-center-screen">
             {move || match exchange.get() {
-                None => view! { <Loading label="Completing sign-in…"/> }.into_any(),
+                None => view! { <Loading label="Kairos completes the sign-in."/> }.into_any(),
                 Some(Ok(return_to)) => view! { <Redirect path=return_to/> }.into_any(),
                 Some(Err(message)) => view! {
                     <Stack gap="sm" center=true>

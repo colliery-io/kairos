@@ -215,6 +215,37 @@ count of current violations per file, and the gate fails when a file gets *worse
 new file starts at zero. That is how the rule applies from today forward without a
 rewrite nobody reviewed — and the baseline only ever goes down.
 
+#### The texts of the code — `angreal docs ste --code`
+
+The same checker reads the texts of errors in the Rust code (COLLIERY-T-0258). It
+reads the source as text, so it needs no build. A text comes from one of two places:
+
+- an `#[error("...")]` attribute in `kairos-core`, `kairos-db` or the server, or
+- a string that is a direct argument of an `ApiError` constructor, or the format
+  string of a `format!` in that argument.
+
+A format placeholder (`{name}`) and a quoted name count as one technical noun. The
+rules of the table above apply, with 20 words for an instruction (STE-S2) and 25
+words for a description (STE-S3). These rules apply also:
+
+| ID | How |
+|---|---|
+| STE-C1 | The text does not start with a capital, a placeholder or a field name. |
+| STE-C2 | The text does not end with a period. |
+| STE-C3 | A contraction. |
+| STE-C4 | A semicolon. |
+| STE-C5 | A dash or an arrow as punctuation. |
+| STE-C6 | A Latin abbreviation. |
+| STE-C7 | A plural in parentheses, as in "item(s)". |
+
+The baseline is `scripts/ste-code-baseline.json`. It is a ceiling that only goes
+down, and a file that is not in it must be clean. `--list` prints each violation
+with its file and line. `--baseline` writes the baseline again.
+
+The check does not see each text. It cannot see a text that the code puts in a
+variable before the constructor gets it, the result texts of the MCP tools, the CLI
+texts and the GUI texts. A reviewer checks those.
+
 ### 6.2 Checked by a reviewer
 
 STE-S1, STE-S3, STE-G2, STE-G3, STE-G5, STE-G6, STE-V4, STE-P1, STE-P2 and STE-P3.

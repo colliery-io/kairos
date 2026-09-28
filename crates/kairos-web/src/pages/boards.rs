@@ -48,7 +48,7 @@ fn describe(error: &ApiError) -> String {
             Some(code) => format!("{code}: {message}"),
             None => message.clone(),
         },
-        ApiError::Network => "Could not reach the server.".to_string(),
+        ApiError::Network => "The page cannot connect to the server.".to_string(),
         ApiError::Unknown(message) => message.clone(),
     }
 }
@@ -788,7 +788,7 @@ pub fn BoardsPage() -> impl IntoView {
     view! {
         <PageHeader title="Boards" sub="kanban per flight level — strategy feeds initiatives feed delivery"/>
         {move || match boards.get() {
-            None => view! { <Loading label="Loading boards…"/> }.into_any(),
+            None => view! { <Loading label="Kairos gets the boards."/> }.into_any(),
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| boards.refetch())/>
             }.into_any(),
@@ -1148,7 +1148,7 @@ pub fn BoardPage() -> impl IntoView {
                 <ErrorState error on_retry=Callback::new(move |_| refetch())/>
             }.into_any()),
             None if model.with_untracked(|m| m.is_none()) => Some(view! {
-                <Loading label="Loading board…"/>
+                <Loading label="Kairos gets the board."/>
             }.into_any()),
             _ => None,
         }}
@@ -2348,7 +2348,7 @@ fn CreateDocumentModal(
             <Stack gap="sm">
                 <TextInput label="Title" value=title placeholder="e.g. PRD: …"/>
                 {move || match templates.get() {
-                    None => view! { <Text dimmed=true size="xs">"Loading templates…"</Text> }.into_any(),
+                    None => view! { <Text dimmed=true size="xs">"Kairos gets the templates."</Text> }.into_any(),
                     Some(Err(e)) => view! {
                         <Alert title="Templates unavailable" color=token::GOLD>
                             <Text size="sm">{describe(&e)}</Text>

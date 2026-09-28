@@ -108,11 +108,11 @@ pub enum Error {
     },
 
     /// The request never produced an HTTP response (connect/timeout/TLS).
-    #[error("transport error: {0}")]
+    #[error("The client cannot connect to the server: {0}.")]
     Transport(#[from] reqwest::Error),
 
     /// A 2xx body did not deserialize into the expected DTO.
-    #[error("decoding {context}: {source}")]
+    #[error("The client cannot read the response of {context}: {source}.")]
     Decode {
         /// What was being decoded (method + path).
         context: String,
@@ -121,15 +121,15 @@ pub enum Error {
     },
 
     /// A non-2xx response without a parseable S-0005 envelope.
-    #[error("{status} response without an S-0005 error envelope: {body}")]
+    #[error("The response has the status {status} and no error envelope: {body}")]
     UnexpectedResponse { status: u16, body: String },
 
     /// The [`crate::TokenProvider`] could not produce a bearer token.
-    #[error("token provider: {0}")]
+    #[error("The token provider gave an error: {0}")]
     Token(String),
 
     /// A WebSocket-level failure on the `/ws/events` helper.
-    #[error("websocket: {0}")]
+    #[error("The WebSocket gave an error: {0}")]
     WebSocket(String),
 }
 

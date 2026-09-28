@@ -176,7 +176,7 @@ fn GuardFallback() -> impl IntoView {
             when=move || !auth.restoring()
             fallback=|| view! {
                 <div class="kairos-center-screen">
-                    <Loading label="Restoring session…"/>
+                    <Loading label="Kairos restores the session."/>
                 </div>
             }
         >
@@ -239,7 +239,7 @@ fn RedirectToIssuer() -> impl IntoView {
                 view! { <Redirect path="/login"/> }.into_any()
             } else {
                 match error.get() {
-                    None => view! { <Loading label="Redirecting to sign-in…"/> }.into_any(),
+                    None => view! { <Loading label="Kairos opens the sign-in page."/> }.into_any(),
                     Some(message) => view! {
                         <Stack gap="sm" center=true>
                             <Text bright=true bold=true>"Sign-in unavailable"</Text>

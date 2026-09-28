@@ -296,7 +296,7 @@ async fn login_with_a_password_then_whoami_then_logout() {
     assert!(
         logged_in
             .stdout
-            .contains(&format!("Logged in to {base_url} as {EMAIL}.")),
+            .contains(&format!("You are logged in to {base_url} as {EMAIL}.")),
         "{}",
         logged_in.stdout
     );
@@ -372,14 +372,12 @@ async fn login_with_a_password_then_whoami_then_logout() {
     assert!(
         logout
             .stdout
-            .contains(&format!("Logged out of {base_url}.")),
+            .contains(&format!("You are logged out of {base_url}.")),
         "{}",
         logout.stdout
     );
     assert!(
-        logout
-            .stdout
-            .contains("The session is ended on the server."),
+        logout.stdout.contains("The server ended the session."),
         "{}",
         logout.stdout
     );
@@ -591,7 +589,7 @@ async fn a_failed_login_does_not_say_which_part_was_wrong() {
     assert!(
         wrong_password
             .stderr
-            .contains("the deployment did not accept the email and password"),
+            .contains("The deployment did not accept the email and the password"),
         "{}",
         wrong_password.stderr
     );
@@ -650,7 +648,8 @@ async fn a_throttled_login_says_to_wait() {
     let run = login(config_dir.path(), &deployment.base_url, EMAIL, PASSWORD).await;
     assert_eq!(run.code, 1, "{}", run.all());
     assert!(
-        run.stderr.contains("too many failed login attempts"),
+        run.stderr
+            .contains("The number of incorrect logins is too large"),
         "{}",
         run.stderr
     );
@@ -686,7 +685,7 @@ async fn login_with_email_on_a_deployment_with_local_accounts_off() {
     assert_eq!(run.code, 1, "{}", run.all());
     assert!(
         run.stderr
-            .contains("local accounts are off on this deployment"),
+            .contains("Local accounts are off on this deployment"),
         "{}",
         run.stderr
     );
@@ -762,7 +761,7 @@ async fn a_deployment_with_both_offers_both() {
     assert!(started, "the device flow must start: {seen:#?}");
     assert!(
         seen.iter()
-            .any(|line| line == &format!("Discovered OIDC issuer: {ISSUER}")),
+            .any(|line| line == &format!("The OIDC issuer of the deployment is: {ISSUER}")),
         "{seen:#?}"
     );
 
@@ -831,7 +830,7 @@ async fn an_expired_session_names_the_login_command_and_sends_nothing() {
         assert_eq!(run.code, 2, "{args:?}: {}", run.all());
         assert!(
             run.stderr
-                .contains(&format!("the session for {url} has expired")),
+                .contains(&format!("The session for {url} expired.")),
             "{args:?}: {}",
             run.stderr
         );
@@ -878,13 +877,13 @@ async fn logout_removes_the_entry_when_the_server_does_not_answer() {
     assert_eq!(run.code, 1, "{}", run.all());
     assert!(
         run.stderr
-            .contains("the deployment did not end the session"),
+            .contains("The deployment did not end the session"),
         "{}",
         run.stderr
     );
     assert!(
         run.stderr
-            .contains("The local entry is removed from the cache"),
+            .contains("The CLI removed the local entry from the cache"),
         "{}",
         run.stderr
     );
@@ -1005,7 +1004,10 @@ sys.stdout.write("\nSENT=%s EXIT=%d\n" % (sent, os.waitstatus_to_exitcode(status
         "the login succeeds:\n{terminal}\n{driver_errors}"
     );
     assert!(
-        terminal.contains(&format!("Logged in to {} as {EMAIL}.", deployment.base_url)),
+        terminal.contains(&format!(
+            "You are logged in to {} as {EMAIL}.",
+            deployment.base_url
+        )),
         "{terminal}"
     );
     // The point of the test. Everything that the terminal showed is in

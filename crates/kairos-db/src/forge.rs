@@ -32,10 +32,10 @@ use crate::models::repositories::Repository;
 #[derive(Debug, thiserror::Error)]
 pub enum ForgeError {
     /// No live connection with this id.
-    #[error("forge connection {0} does not exist")]
+    #[error("The forge connection {0} does not exist.")]
     ConnectionNotFound(Uuid),
     /// A live connection already covers this repository.
-    #[error("repository {repo:?} already has a live connection")]
+    #[error("The repository {repo:?} has a live connection already.")]
     RepoAlreadyConnected { repo: String },
     /// The repository lookup failed (not found, or a database error) —
     /// carried whole so the API maps it precisely (KAIROS-T-0116).
@@ -43,12 +43,14 @@ pub enum ForgeError {
     Repository(#[from] crate::repositories::RepositoryError),
     /// The connection's forge must match its repository's (`other` repos
     /// have no webhook dialect at all).
-    #[error("connection forge {connection} does not match repository forge {repository}")]
+    #[error(
+        "The forge {connection} of the connection is not the forge {repository} of the repository."
+    )]
     ForgeMismatch {
         connection: Forge,
         repository: Forge,
     },
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

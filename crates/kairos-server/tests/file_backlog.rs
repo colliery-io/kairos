@@ -908,7 +908,7 @@ async fn file_backlog_against_live_stack() {
         )
         .await;
     assert!(!is_error, "she creates the target of the edge: {text}");
-    assert!(text.contains("parent edge created"), "{text}");
+    assert!(text.contains("Kairos made the parent edge"), "{text}");
     let tasks_before = tasks_before + 1;
     let (is_error, text) = mcp
         .call(
@@ -973,7 +973,7 @@ async fn file_backlog_against_live_stack() {
         )
         .await;
     assert!(!is_error, "a parent that she created: {text}");
-    assert!(text.contains("parent edge created"), "{text}");
+    assert!(text.contains("Kairos made the parent edge"), "{text}");
     let (is_error, text) = mcp
         .call(
             "link_items",
@@ -1168,7 +1168,7 @@ async fn file_backlog_against_live_stack() {
     assert!(
         is_error
             && text.contains("FORBIDDEN")
-            && text.contains("is a request in the entry column of the board of team platform")
+            && text.contains("is a request in the entry column of the board of the team platform")
             && text.contains("file_backlog"),
         "{text}"
     );

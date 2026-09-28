@@ -49,12 +49,6 @@ pub struct BoardDetail {
     pub transitions: Vec<BoardTransition>,
 }
 
-/// mirror of: `kairos_client::types::ListEnvelope<Board>` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct BoardListEnvelope {
-    pub items: Vec<Board>,
-}
-
 // ---- mirrors: the grouped items view --------------------------------------
 
 /// mirror of: `kairos_client::types::Strategy` (partial — card fields).
@@ -155,12 +149,6 @@ pub struct Template {
     pub name: String,
 }
 
-/// mirror of: `kairos_client::types::ListEnvelope<Template>` (partial).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct TemplateListEnvelope {
-    pub items: Vec<Template>,
-}
-
 /// mirror of: `kairos_client::types_events::ThinEvent` (partial — the view
 /// only needs to know "something on this board changed" and re-fetches
 /// through REST per A-0005 §5; events carry no payloads).
@@ -187,10 +175,11 @@ pub struct BoardView {
     pub items: BoardItemsResponse,
 }
 
-/// The board list (one page is plenty for v1 — the demo tenant has 5).
+/// The board list: each live board, page after page (COLLIERY-T-0258).
+/// The first 100 boards were the list before, and a board after them had
+/// no card on the overview and no page at `/boards/{slug}`.
 pub async fn list_boards(auth: Auth) -> Result<Vec<Board>, ApiError> {
-    let envelope: BoardListEnvelope = get_json(auth, "/api/boards?limit=100").await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/boards").await
 }
 
 /// Resolve a route param (board slug, or id as a fallback) against the
@@ -202,7 +191,7 @@ pub async fn load_board_view(auth: Auth, param: &str) -> Result<BoardView, ApiEr
         .find(|b| b.slug == param || b.id == param)
         .ok_or(ApiError::Http {
             status: 404,
-            message: format!("no board named {param:?}"),
+            message: format!("No live board has the slug or the id {param:?}."),
             code: Some("NOT_FOUND".to_string()),
         })?;
     let detail: BoardDetail = get_json(auth, &format!("/api/boards/{}", board.id)).await?;
@@ -211,10 +200,10 @@ pub async fn load_board_view(auth: Auth, param: &str) -> Result<BoardView, ApiEr
     Ok(BoardView { detail, items })
 }
 
-/// Templates for the document create flow.
+/// Templates for the document create flow: each template, page after
+/// page (COLLIERY-T-0258).
 pub async fn list_templates(auth: Auth) -> Result<Vec<Template>, ApiError> {
-    let envelope: TemplateListEnvelope = get_json(auth, "/api/templates?limit=100").await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/templates").await
 }
 
 // ---- mutations --------------------------------------------------------------
@@ -596,7 +585,7 @@ mod tests {
     /// The template + event mirrors decode their wire shapes.
     #[test]
     fn template_and_event_mirrors_decode() {
-        let templates: TemplateListEnvelope = serde_json::from_value(serde_json::json!({
+        let templates: crate::api::Page<Template> = serde_json::from_value(serde_json::json!({
             "items": [{"id": "t-1", "name": "PRD", "slug": "prd", "content": "# …",
                        "is_system_default": true}],
             "total": 1, "limit": 100, "offset": 0

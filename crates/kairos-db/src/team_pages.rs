@@ -189,25 +189,25 @@ pub const MAX_CONTENT_BYTES: usize = 256 * 1024;
 #[derive(Debug, thiserror::Error)]
 pub enum TeamPageError {
     /// No live page with this id exists on this team.
-    #[error("team page {0} does not exist")]
+    #[error("The team page {0} does not exist.")]
     PageNotFound(Uuid),
     /// A sibling with this slug already exists.
-    #[error("a sibling with slug {0:?} already exists")]
+    #[error("A page in the same folder has the slug {0:?} already.")]
     SlugConflict(String),
     /// The referenced parent is missing, deleted, on another team, or not
     /// a folder.
-    #[error("parent {0} is not a live folder of this team")]
+    #[error("The parent {0} is not a live folder of this team.")]
     BadParent(Uuid),
     /// The page is protected (the Charter): rename/move/delete refused.
-    #[error("page {0} is protected; it cannot be renamed, moved, or deleted")]
+    #[error("The page {0} is the Charter. You cannot change its slug, move it, or delete it.")]
     ProtectedPage(Uuid),
     /// A folder with live children cannot be deleted.
-    #[error("folder {folder} still contains {children} live page(s)")]
+    #[error("The folder {folder} has live pages. The number of live pages is {children}.")]
     FolderNotEmpty { folder: Uuid, children: i64 },
     /// KAIROS-A-0004-style optimistic-concurrency conflict on content.
     #[error(
-        "version conflict on {page_id}: submitted base version \
-         {expected_version}, current version {current_version}"
+        "The request has the version {expected_version} of the page {page_id}, and the \
+         current version is {current_version}. Make the edit on the current version."
     )]
     VersionConflict {
         page_id: Uuid,
@@ -217,9 +217,9 @@ pub enum TeamPageError {
         current_content: String,
     },
     /// Content exceeds [`MAX_CONTENT_BYTES`].
-    #[error("content is {actual} bytes; the limit is {MAX_CONTENT_BYTES}")]
+    #[error("The content has {actual} bytes. The limit is {MAX_CONTENT_BYTES} bytes.")]
     ContentTooLarge { actual: usize },
-    #[error("database error: {0}")]
+    #[error("The database gave an error: {0}.")]
     Database(#[from] DieselError),
 }
 

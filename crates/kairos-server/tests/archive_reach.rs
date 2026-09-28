@@ -829,16 +829,16 @@ async fn archive_reach_and_proposal_confirm_against_live_stack() {
     );
     checks.check(
         "2 MCP (d, h): the output names the task of bob as not reached, with the reason",
-        reply.1.contains("did not reach 1 item(s)")
+        reply.1.contains("did not reach 1 item.")
             && reply.1.contains(&format!(
-                "- {}: you need `manage_tasks` on board {platform_board}.",
+                "- {}: You need `manage_tasks` on the board {platform_board}.",
                 victim_mcp.short_code
             )),
         &reply.1,
     );
     checks.check(
         "2 MCP: the output does not list the task of bob as deleted",
-        reply.1.contains("Cascade: none."),
+        reply.1.contains("The archive took no descendant."),
         &reply.1,
     );
     checks.check(
@@ -1179,7 +1179,7 @@ async fn archive_reach_and_proposal_confirm_against_live_stack() {
         !reply.0
             && reply.1
                 == format!(
-                    "Deleted {} (soft delete).\nCascade deleted 1 descendant(s): {}\n",
+                    "Kairos archived {}.\nThe archive took 1 descendant: {}.\n",
                     managed.short_code, only.short_code
                 ),
         &reply.1,

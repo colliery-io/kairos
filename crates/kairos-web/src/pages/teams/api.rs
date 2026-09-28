@@ -19,16 +19,6 @@ use serde::{Deserialize, Serialize};
 use crate::api::{delete_json, get_json, post_json};
 use crate::auth::Auth;
 
-/// mirror of: `kairos_client::types::ListEnvelope<T>` (partial — these
-/// views read `items` only).
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-pub struct ListEnvelope<T> {
-    pub items: Vec<T>,
-}
-
-/// Big-enough page for org-scale lists (server clamps to its own max).
-const PAGE: &str = "limit=200";
-
 /// mirror of: `kairos_client::types_org::Team` (partial).
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Team {
@@ -75,11 +65,10 @@ pub async fn team_members(auth: Auth, team_id: &str) -> Result<Vec<TeamMember>, 
     get_json(auth, &format!("/api/teams/{team_id}/members")).await
 }
 
-/// `GET /api/delivery-streams`.
+/// `GET /api/delivery-streams`: each stream, page after page
+/// (COLLIERY-T-0258).
 pub async fn list_streams(auth: Auth) -> Result<Vec<DeliveryStream>, ApiError> {
-    let envelope: ListEnvelope<DeliveryStream> =
-        get_json(auth, &format!("/api/delivery-streams?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/delivery-streams").await
 }
 
 /// `GET /api/delivery-streams/{id}/teams`.
@@ -88,9 +77,9 @@ pub async fn stream_teams(auth: Auth, stream_id: &str) -> Result<Vec<Team>, ApiE
 }
 
 /// `GET /api/boards` — id/name/slug refs (delivery-board link resolution).
+/// Each board, page after page (COLLIERY-T-0258).
 pub async fn list_board_refs(auth: Auth) -> Result<Vec<BoardRef>, ApiError> {
-    let envelope: ListEnvelope<BoardRef> = get_json(auth, &format!("/api/boards?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/boards").await
 }
 
 /// `GET /api/teams/by-slug/{slug}` (KAIROS-T-0083) — kills the

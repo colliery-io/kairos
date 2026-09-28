@@ -111,7 +111,7 @@ async fn middleware_stack_against_live_dex() {
         body["error"]["message"]
             .as_str()
             .expect("message")
-            .contains("request access"),
+            .contains("Ask an organization admin"),
         "{body}"
     );
 

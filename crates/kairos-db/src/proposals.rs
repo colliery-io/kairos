@@ -42,12 +42,12 @@ pub const MAX_PENDING_PER_ITEM: i64 = 10;
 #[derive(Debug, thiserror::Error)]
 pub enum ProposalError {
     /// No proposal with this id.
-    #[error("edge proposal {0} does not exist")]
+    #[error("The edge proposal {0} does not exist.")]
     NotFound(Uuid),
     /// The proposal has already been ruled on. Decisions are not revisited here:
     /// the edge either exists and can be unlinked, or it does not and a fresh
     /// proposal can be made.
-    #[error("edge proposal {id} was already {state}")]
+    #[error("The edge proposal {id} has the state {state} already. A decision does not change.")]
     AlreadyDecided {
         /// The proposal.
         id: Uuid,
@@ -56,12 +56,12 @@ pub enum ProposalError {
     },
     /// An identical proposal is already waiting. Not an error a caller needs to
     /// handle loudly — it means the work was already done.
-    #[error("an identical proposal is already pending")]
+    #[error("The same proposal waits for a decision already.")]
     AlreadyPending,
     /// This item already carries [`MAX_PENDING_PER_ITEM`] undecided proposals.
     #[error(
-        "item already has {count} pending edge proposals (limit {limit}); \
-         decide some before proposing more"
+        "The item has {count} edge proposals that wait for a decision. The limit is {limit}. \
+         Confirm or reject some of them. Then propose the edge again."
     )]
     TooManyPending {
         /// How many are waiting.
@@ -71,12 +71,12 @@ pub enum ProposalError {
     },
     /// A service account tried to rule on a proposal.
     #[error(
-        "a service account may propose an edge but not confirm or reject one — \
-         that is the human in the loop (KAIROS-A-0021 rule 6)"
+        "A service account can propose an edge. Only a person can confirm or reject a \
+         proposal (KAIROS-A-0021 rule 6)."
     )]
     NotHuman,
     /// Only `parent` and `blocks` may be proposed.
-    #[error("only parent and blocks edges may be proposed, not {0:?}")]
+    #[error("You can propose only a parent edge or a blocks edge. {0:?} is not one of them.")]
     NotProposable(String),
     /// Confirming would have created the edge, and the graph refused it.
     #[error(transparent)]

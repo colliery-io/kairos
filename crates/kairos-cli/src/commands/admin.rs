@@ -107,7 +107,7 @@ impl TenantsCommand {
                     return print_json(&report);
                 }
                 println!(
-                    "Provisioned tenant {} (schema {})",
+                    "Kairos made the tenant {} (schema {}).",
                     report.slug, report.schema
                 );
                 println!("  boards created: {}", report.boards_created.join(", "));
@@ -126,13 +126,13 @@ impl TenantsCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("tenant {slug}"))?;
+                require_confirm(confirm, &format!("the tenant {slug}"))?;
                 let client = client(&common)?;
                 let response = client.delete_tenant(&slug, Some(true)).await?;
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Dropped tenant {}", response.slug);
+                println!("Kairos deleted the tenant {}.", response.slug);
                 Ok(())
             }
         }

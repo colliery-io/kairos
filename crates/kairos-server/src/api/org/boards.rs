@@ -302,6 +302,23 @@ pub(crate) async fn get_board(
     Ok(Json(detail))
 }
 
+/// 422 `VALIDATION` for a slug that does not have the form of a board slug
+/// (COLLIERY-T-0258, [`kairos_core::board::is_valid_board_slug`]). The
+/// refusal gives the rule. The check is for a slug that the caller sent:
+/// the server does not apply it to the slug `<team-slug>-delivery` that it
+/// makes with a team.
+fn check_slug_form(slug: &str) -> Result<(), ApiError> {
+    if kairos_core::board::is_valid_board_slug(slug) {
+        return Ok(());
+    }
+    Err(ApiError::validation(format!(
+        "The board slug {slug:?} is not correct. A board slug must match {}, and it cannot \
+         have the form of a UUID. Send a different slug.",
+        kairos_core::board::BOARD_SLUG_RULE
+    ))
+    .with_details(json!({ "field": "slug" })))
+}
+
 /// Create a board seeded with the system default columns/transitions for
 /// its level (KAIROS-A-0002). Org-admin-only: a new board has no capability
 /// context yet (A-0006 tenant-config fallback).
@@ -322,6 +339,10 @@ pub(crate) async fn get_board(
 /// `TEAM_HAS_DELIVERY_BOARD`. The refusal names the board that the team
 /// has. A deleted board does not count.
 ///
+/// A `slug` must have the form of a board slug (COLLIERY-T-0258). It must
+/// match `^[a-z][a-z0-9_-]{1,62}$`, and it cannot have the form of a UUID.
+/// If not, the request is a 422 `VALIDATION` with `details.field` = `slug`.
+///
 /// A live board has its slug alone (COLLIERY-T-0255). A request with the
 /// slug of a live board is a 409 `CONFLICT`. The refusal names the slug
 /// and the board that has it (`details.slug`, `details.board`). A deleted
@@ -335,7 +356,7 @@ pub(crate) async fn get_board(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad level/team reference, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_board(
@@ -350,6 +371,8 @@ pub(crate) async fn create_board(
         .as_deref()
         .map(|v| parse_uuid(v, "team_id"))
         .transpose()?;
+    // COLLIERY-T-0258: the form of the slug that the caller sent.
+    check_slug_form(&body.slug)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let detail = state
@@ -395,6 +418,11 @@ pub(crate) async fn create_board(
 /// changes nothing. A client can thus send back the `team_id` that it
 /// read. That `team_id` is not a field to update: the body must have `name`
 /// or `slug`.
+///
+/// A new `slug` must have the form of a board slug (COLLIERY-T-0258). If
+/// not, the request is a 422 `VALIDATION`, and the update writes nothing.
+/// A board with a slug from before the rule keeps that slug. An update of
+/// the name of that board passes.
 ///
 /// A `slug` that a different live board has is a 409 `CONFLICT`, and the
 /// update writes nothing (COLLIERY-T-0255). The refusal names the slug and
@@ -457,6 +485,14 @@ pub(crate) async fn update_board(
             boards::check_board_team(&board, sent_team).map_err(map_config_error)?;
             if body.name.is_none() && body.slug.is_none() {
                 return Err(nothing_to_update());
+            }
+            // COLLIERY-T-0258: the form of a slug that the caller sent. A
+            // board keeps a slug from before the rule, so a request that
+            // sends the slug that the board has is not a change.
+            if let Some(new_slug) = body.slug.as_deref()
+                && new_slug != board.slug
+            {
+                check_slug_form(new_slug)?;
             }
             // COLLIERY-T-0255: two live boards cannot have the same slug.
             if let Some(new_slug) = body.slug.as_deref() {

@@ -16,7 +16,7 @@ capability grants work on it exactly as they do for a person.
 
 ```sh
 kairos service-accounts create --name ci-deploy
-# → Created service account ci-deploy (a1b2c3…).
+# → Kairos made the service account ci-deploy (a1b2c3…).
 ```
 
 Or `POST /api/service-accounts` with `{"name":"ci-deploy"}`.
@@ -50,7 +50,7 @@ kairos keys create --service-account a1b2c3… --name gha-main \
 #
 #     kairos_sk_acme_9f8e7d6c5b4a…            ← copy it now
 #
-# Store it now — it will NOT be shown again.
+# Keep the key in a safe place now. Kairos does NOT show it again.
 ```
 
 **The raw key is shown exactly once.** Kairos stores only a SHA-256 hash, so there

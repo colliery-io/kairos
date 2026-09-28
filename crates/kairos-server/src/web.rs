@@ -106,8 +106,8 @@ impl WebAuth {
     async fn endpoints(&self) -> Result<&IdpEndpoints, ApiError> {
         let issuer = self.issuer.clone().ok_or_else(|| {
             idp_unreachable(
-                "this deployment has no OIDC issuer configured (KAIROS_LOCAL_AUTH \
-                 only); there is no authorization endpoint to discover"
+                "This deployment has no OIDC issuer, so it has no authorization endpoint. \
+                 Log in with a password."
                     .to_string(),
             )
         })?;
@@ -119,10 +119,14 @@ impl WebAuth {
                     .send()
                     .await
                     .and_then(reqwest::Response::error_for_status)
-                    .map_err(|e| idp_unreachable(format!("fetching {url}: {e}")))?
+                    .map_err(|e| idp_unreachable(format!("The server cannot get {url}: {e}.")))?
                     .json::<IdpEndpoints>()
                     .await
-                    .map_err(|e| idp_unreachable(format!("parsing discovery document: {e}")))
+                    .map_err(|e| {
+                        idp_unreachable(format!(
+                            "The discovery document of the issuer is not correct: {e}."
+                        ))
+                    })
             })
             .await
     }
@@ -251,7 +255,7 @@ fn relay_params<'a>(
         }
         other => {
             return Err(ApiError::validation(format!(
-                "grant_type {other:?} is not relayed; expected authorization_code or refresh_token"
+                "The server does not accept the grant_type {other:?}. Send authorization_code or refresh_token."
             )));
         }
     }
@@ -267,8 +271,9 @@ async fn token_relay(
     Extension(web_auth): Extension<Arc<WebAuth>>,
     form: Result<Form<TokenRelayForm>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, ApiError> {
-    let Form(form) = form
-        .map_err(|rejection| ApiError::validation(format!("malformed form body: {rejection}")))?;
+    let Form(form) = form.map_err(|rejection| {
+        ApiError::validation(format!("The form of the body is not correct: {rejection}."))
+    })?;
     let params = relay_params(
         &web_auth.client_id,
         web_auth.client_secret.as_deref(),
@@ -282,19 +287,28 @@ async fn token_relay(
         .form(&params)
         .send()
         .await
-        .map_err(|e| idp_unreachable(format!("token endpoint: {e}")))?;
+        .map_err(|e| {
+            idp_unreachable(format!(
+                "The server cannot connect to the token endpoint of the issuer: {e}."
+            ))
+        })?;
     let status =
         StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| idp_unreachable(format!("reading token response: {e}")))?;
+    let body = response.bytes().await.map_err(|e| {
+        idp_unreachable(format!(
+            "The server cannot read the response of the token endpoint: {e}."
+        ))
+    })?;
     Ok((status, [(header::CONTENT_TYPE, "application/json")], body).into_response())
 }
 
 /// Builder for the "required form field is missing" error.
 fn missing(field: &'static str) -> impl FnOnce() -> ApiError {
-    move || ApiError::validation(format!("{field} is required for this grant_type"))
+    move || {
+        ApiError::validation(format!(
+            "The request has no {field}. This grant_type must have {field}."
+        ))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +339,7 @@ fn wants_index_fallback(rel: &str) -> bool {
 pub async fn spa_fallback(State(state): State<AppState>, method: Method, uri: Uri) -> Response {
     let path = uri.path();
     if is_reserved(path) {
-        return ApiError::not_found(format!("no route {path}")).into_response();
+        return ApiError::not_found(format!("The server has no route {path}.")).into_response();
     }
     if method != Method::GET && method != Method::HEAD {
         return StatusCode::METHOD_NOT_ALLOWED.into_response();
@@ -333,7 +347,7 @@ pub async fn spa_fallback(State(state): State<AppState>, method: Method, uri: Ur
 
     let rel = path.trim_start_matches('/');
     if rel.split('/').any(|component| component == "..") {
-        return ApiError::not_found("no such asset").into_response();
+        return ApiError::not_found("The server does not have that asset.").into_response();
     }
 
     if let Some(dist) = state.config.web_dist.clone() {
@@ -354,15 +368,15 @@ async fn serve_from_dir(dist: &std::path::Path, rel: &str) -> Response {
                     StatusCode::SERVICE_UNAVAILABLE,
                     "WEB_DIST_MISSING",
                     format!(
-                        "KAIROS_WEB_DIST is set but {}/index.html does not exist — \
-                     run `angreal web build` first",
+                        "KAIROS_WEB_DIST gives a directory, and {}/index.html does not exist. Run \
+                         `angreal web build` first.",
                         dist.display()
                     ),
                 )
                 .into_response(),
             }
         }
-        Err(_) => ApiError::not_found(format!("no such asset: /{rel}")).into_response(),
+        Err(_) => ApiError::not_found(format!("The server has no asset /{rel}.")).into_response(),
     }
 }
 
@@ -379,9 +393,9 @@ fn serve_embedded_or_placeholder(rel: &str) -> Response {
         Some(file) => asset_response(name, Bytes::from(file.data.into_owned())),
         None if wants_index_fallback(name) => match Assets::get("index.html") {
             Some(file) => asset_response("index.html", Bytes::from(file.data.into_owned())),
-            None => ApiError::not_found("embedded GUI has no index.html").into_response(),
+            None => ApiError::not_found("The GUI in the server has no index.html.").into_response(),
         },
-        None => ApiError::not_found(format!("no such asset: /{rel}")).into_response(),
+        None => ApiError::not_found(format!("The server has no asset /{rel}.")).into_response(),
     }
 }
 

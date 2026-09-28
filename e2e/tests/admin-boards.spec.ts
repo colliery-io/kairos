@@ -10,7 +10,7 @@
 //
 //   1. alice (org admin) reads the boards and the teams through the API
 //   2. REAL PKCE login (alice), open /admin/boards
-//   3. Platform Delivery is the only delivery board of team Platform: the
+//   3. Platform Delivery is the only delivery board of the team Platform: the
 //      delete is disabled, the row says why and has a link to the teams
 //   4. a board of the organization has a delete that is enabled
 //   5. the server refuses the delete of Platform Delivery, so the page and

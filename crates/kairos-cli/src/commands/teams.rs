@@ -177,7 +177,7 @@ impl TeamsCommand {
                     return print_json(&team);
                 }
                 println!(
-                    "Created team {} ({}, id {}); delivery board {}",
+                    "Kairos made the team {} ({}, id {}). The delivery board is {}.",
                     team.name,
                     team.slug,
                     team.id,
@@ -194,7 +194,7 @@ impl TeamsCommand {
             } => {
                 if name.is_none() && slug.is_none() && team_type.is_none() {
                     return Err(CliError::Failure(
-                        "nothing to update: pass --name, --slug, or --type".to_string(),
+                        "The command has no change. Use --name, --slug or --type.".to_string(),
                     ));
                 }
                 let client = client(&common)?;
@@ -211,7 +211,10 @@ impl TeamsCommand {
                 if common.json {
                     return print_json(&team);
                 }
-                println!("Updated team {} ({}, id {})", team.name, team.slug, team.id);
+                println!(
+                    "Kairos changed the team {} ({}, id {}).",
+                    team.name, team.slug, team.id
+                );
                 Ok(())
             }
             Self::Delete {
@@ -219,13 +222,13 @@ impl TeamsCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("team {team_id}"))?;
+                require_confirm(confirm, &format!("the team {team_id}"))?;
                 let client = client(&common)?;
                 let response = client.delete_team(&team_id).await?;
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Deleted team {}", response.id);
+                println!("Kairos deleted the team {}.", response.id);
                 Ok(())
             }
             Self::Members(command) => command.run().await,
@@ -262,7 +265,7 @@ impl TeamMembersCommand {
                     return print_json(&member);
                 }
                 println!(
-                    "Added {} ({}) to team {team_id}",
+                    "Kairos added {} ({}) to the team {team_id}.",
                     member.display_name, member.email
                 );
                 Ok(())
@@ -277,7 +280,7 @@ impl TeamMembersCommand {
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Removed user {user} from team {team_id}");
+                println!("Kairos removed the user {user} from the team {team_id}.");
                 Ok(())
             }
         }

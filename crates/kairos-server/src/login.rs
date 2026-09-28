@@ -98,12 +98,14 @@ pub struct LoginUser {
 /// property being protected is that all of them are identical, and identical-by-
 /// construction is the only kind that survives editing.
 fn bad_login() -> ApiError {
-    ApiError::unauthorized("incorrect email or password")
+    ApiError::unauthorized("The email or the password is not correct.")
 }
 
 /// The ONE failure for every way a session bearer can fail.
 fn bad_session() -> ApiError {
-    ApiError::unauthorized("invalid, expired, or revoked session; log in again")
+    ApiError::unauthorized(
+        "The session is not correct, or it expired, or an admin revoked it. Log in again.",
+    )
 }
 
 /// `POST /api/login` — exchange an email and a password for a session bearer.

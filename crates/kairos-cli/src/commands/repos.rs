@@ -223,7 +223,8 @@ impl ReposCommand {
                     return print_json(&repo);
                 }
                 println!(
-                    "Registered {} ({} {}) under team {}; the delivery board of that team is {}",
+                    "Kairos added the repository {} ({} {}) for the team {}. The delivery \
+                     board of that team is {}.",
                     repo.slug,
                     repo.forge,
                     repo.repo_full_name,
@@ -248,8 +249,8 @@ impl ReposCommand {
                     && description.is_none()
                 {
                     return Err(CliError::Failure(
-                        "nothing to update: pass --slug, --repo-url, --default-branch, --team, \
-                         or --description"
+                        "The command has no change. Use --slug, --repo-url, --default-branch, \
+                         --team or --description."
                             .to_string(),
                     ));
                 }
@@ -269,7 +270,10 @@ impl ReposCommand {
                 if common.json {
                     return print_json(&repo);
                 }
-                println!("Updated {} (owner: {})", repo.slug, repo.team.slug);
+                println!(
+                    "Kairos changed the repository {} (owner: {}).",
+                    repo.slug, repo.team.slug
+                );
                 Ok(())
             }
             Self::Delete {
@@ -283,7 +287,7 @@ impl ReposCommand {
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Deleted repository {}", response.id);
+                println!("Kairos deleted the repository {}.", response.id);
                 Ok(())
             }
             Self::Bind {
@@ -299,7 +303,7 @@ impl ReposCommand {
                     return print_json(&task);
                 }
                 println!(
-                    "{} bound to {}",
+                    "Kairos set the repository of {} to {}.",
                     task.short_code,
                     task.repository.as_ref().map_or("-", |r| r.slug.as_str())
                 );
@@ -311,7 +315,7 @@ impl ReposCommand {
                 if common.json {
                     return print_json(&task);
                 }
-                println!("{} unbound", task.short_code);
+                println!("Kairos removed the repository of {}.", task.short_code);
                 Ok(())
             }
         }

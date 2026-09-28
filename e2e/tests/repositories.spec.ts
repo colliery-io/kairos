@@ -477,7 +477,7 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await field('Full name').locator('input').fill(`acme/${notifier}`);
     await field('URL').locator('input').fill(`https://github.com/acme/${notifier}`);
     await field('Slug (optional)').locator('input').fill(notifier);
-    await field('Owning team').locator('select').selectOption({ label: 'web' });
+    await field('Owner team').locator('select').selectOption({ label: 'web' });
     await form.getByRole('button', { name: 'Register repository' }).click();
     const row = page.locator(`[data-repo="${notifier}"]`).first();
     await expect(row).toBeVisible({ timeout: 10_000 });

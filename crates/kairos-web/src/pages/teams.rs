@@ -81,7 +81,7 @@ pub fn TeamsPage() -> impl IntoView {
     view! {
         <PageHeader title="Teams" sub="who does what — the team directory"/>
         {move || match rows.get() {
-            None => view! { <Loading label="Loading teams…"/> }.into_any(),
+            None => view! { <Loading label="Kairos gets the teams."/> }.into_any(),
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| rows.refetch())/>
             }.into_any(),
@@ -253,7 +253,7 @@ pub fn TeamPage() -> impl IntoView {
     });
     view! {
         {move || match team.get() {
-            None => view! { <Loading label="Loading team…"/> }.into_any(),
+            None => view! { <Loading label="Kairos gets the team."/> }.into_any(),
             // Unknown slug: a clean not-found, not a generic error wall.
             Some(Err(aurora_dark::tokens::ApiError::Http { status: 404, .. })) => {
                 let slug = params.read().get("slug").unwrap_or_default();

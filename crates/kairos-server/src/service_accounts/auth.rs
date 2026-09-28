@@ -90,8 +90,8 @@ pub fn is_api_key(token: &str) -> bool {
 /// The uniform 401 for every API-key authentication failure mode.
 fn bad_key() -> ApiError {
     ApiError::unauthorized(
-        "invalid, unknown, expired, or revoked API key; an org admin can mint \
-         one via POST /api/service-accounts/{id}/keys",
+        "The API key is not correct, or it expired, or an admin revoked it. An \
+         organization admin can make a key with POST /api/service-accounts/{id}/keys.",
     )
 }
 

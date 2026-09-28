@@ -96,7 +96,7 @@ impl MembersCommand {
                     return print_json(&member);
                 }
                 println!(
-                    "Added {} ({}) as {} (user id {})",
+                    "Kairos added {} ({}) as {} (user id {}).",
                     member.display_name, member.email, member.role, member.user_id
                 );
                 Ok(())
@@ -114,7 +114,7 @@ impl MembersCommand {
                     return print_json(&member);
                 }
                 println!(
-                    "{} ({}) is now {}",
+                    "{} ({}) has the role {} now.",
                     member.display_name, member.email, member.role
                 );
                 Ok(())
@@ -124,13 +124,16 @@ impl MembersCommand {
                 confirm,
                 common,
             } => {
-                require_confirm(confirm, &format!("membership of user {user_id}"))?;
+                require_confirm(confirm, &format!("the membership of the user {user_id}"))?;
                 let client = client(&common)?;
                 let response = client.remove_org_member(&user_id).await?;
                 if common.json {
                     return print_json(&response);
                 }
-                println!("Removed user {} from the organization", response.user_id);
+                println!(
+                    "Kairos removed the user {} from the organization.",
+                    response.user_id
+                );
                 Ok(())
             }
         }

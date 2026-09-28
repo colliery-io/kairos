@@ -430,6 +430,19 @@ pub struct ActivityEntry {
     pub details: String,
     /// RFC 3339.
     pub occurred_at: String,
+    /// The short code of the item acted on (COLLIERY-T-0262), live or
+    /// archived. Null when the entry is not about an item (a board, a
+    /// team, a member), and when Kairos has no item with the id.
+    #[serde(default)]
+    pub entity_short_code: Option<String>,
+    /// The title of the item acted on, as it is now. Null when
+    /// `entity_short_code` is null.
+    #[serde(default)]
+    pub entity_title: Option<String>,
+    /// When the item acted on was archived (RFC 3339). Null for a live
+    /// item, and when `entity_short_code` is null.
+    #[serde(default)]
+    pub entity_archived_at: Option<String>,
 }
 
 /// Query of `GET /api/activity` (S-0005: all filters combinable).

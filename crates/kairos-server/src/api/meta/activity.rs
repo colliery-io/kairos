@@ -6,18 +6,29 @@
 //! with `limit`/`offset` (S-0005); results are newest first. Malformed
 //! filter values (bad UUID, unknown action, non-RFC-3339 `since`) are 422
 //! `VALIDATION`.
+//!
+//! An entry about an item has the short code and the title of the item
+//! (COLLIERY-T-0262), so that a client can make a link to the item and
+//! does not read the lists of the items. The handler reads the items of
+//! one page with one query for each item type on the page: 5 queries at
+//! most, for a page of each size.
+
+use std::collections::{BTreeSet, HashMap};
 
 use axum::extract::{Extension, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{DateTime, Utc};
+use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use kairos_client::types as dto_base;
 use kairos_client::types_meta as dto;
 use kairos_db::models::enums::ActivityAction;
 use kairos_db::models::graph::ActivityLogEntry;
+use uuid::Uuid;
 
 use crate::api::convert::IntoDto;
+use crate::api::convert_meta::timestamp;
 use crate::api::{clamp_pagination, parse_enum, parse_uuid};
 use crate::app::AppState;
 use crate::error::ApiError;
@@ -28,7 +39,62 @@ pub fn router() -> Router<AppState> {
     Router::new().route("/api/activity", get(get_activity))
 }
 
+/// The short code, the title and the time of the archive of an item.
+type ItemHead = (String, String, Option<DateTime<Utc>>);
+
+/// The items that the entries of one page are about, by id
+/// (COLLIERY-T-0262). An archived item is in the result: a person can
+/// open it. An entry about a board, a team or a member has no item, and
+/// its id is not in the result.
+///
+/// One query for each item type that the page has, and no query for an
+/// entry: the number of queries does not grow with the page.
+fn item_heads(
+    conn: &mut PgConnection,
+    rows: &[ActivityLogEntry],
+) -> Result<HashMap<Uuid, ItemHead>, ApiError> {
+    use kairos_db::schema::{adrs, documents, initiatives, strategies, tasks};
+
+    let mut heads = HashMap::new();
+    /// Read the heads of one item type into `heads`.
+    macro_rules! read_heads {
+        ($table:ident, $entity_type:literal) => {{
+            let ids: BTreeSet<Uuid> = rows
+                .iter()
+                .filter(|row| row.entity_type.as_deref() == Some($entity_type))
+                .filter_map(|row| row.entity_id)
+                .collect();
+            if !ids.is_empty() {
+                let found: Vec<(Uuid, String, String, Option<DateTime<Utc>>)> = $table::table
+                    .filter($table::id.eq_any(ids))
+                    .select((
+                        $table::id,
+                        $table::short_code,
+                        $table::title,
+                        $table::deleted_at,
+                    ))
+                    .load(conn)
+                    .map_err(ApiError::internal)?;
+                for (id, short_code, title, archived_at) in found {
+                    heads.insert(id, (short_code, title, archived_at));
+                }
+            }
+        }};
+    }
+    read_heads!(strategies, "strategy");
+    read_heads!(initiatives, "initiative");
+    read_heads!(tasks, "task");
+    read_heads!(documents, "document");
+    read_heads!(adrs, "adr");
+    Ok(heads)
+}
+
 /// Query the activity log with combinable filters + pagination.
+///
+/// An entry about an item has `entity_short_code`, `entity_title` and
+/// `entity_archived_at` (COLLIERY-T-0262). The three fields are null for
+/// an entry that is not about an item. They are null too for an item
+/// that Kairos does not have.
 #[utoipa::path(
     get,
     path = "/api/activity",
@@ -119,8 +185,25 @@ pub(crate) async fn get_activity(
             .load(conn)
             .map_err(ApiError::internal)?;
 
+            // COLLIERY-T-0262: the short code and the title of each item
+            // of the page.
+            let heads = item_heads(conn, &rows)?;
+            let items = rows
+                .into_iter()
+                .map(|row| {
+                    let head = row.entity_id.and_then(|id| heads.get(&id)).cloned();
+                    let mut entry: dto::ActivityEntry = row.into_dto();
+                    if let Some((short_code, title, archived_at)) = head {
+                        entry.entity_short_code = Some(short_code);
+                        entry.entity_title = Some(title);
+                        entry.entity_archived_at = archived_at.map(timestamp);
+                    }
+                    entry
+                })
+                .collect();
+
             Ok(dto_base::ListEnvelope {
-                items: rows.into_iter().map(IntoDto::into_dto).collect(),
+                items,
                 total,
                 limit,
                 offset,

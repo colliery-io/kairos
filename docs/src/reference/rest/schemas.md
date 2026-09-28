@@ -16,7 +16,10 @@ One `activity_log` row, as returned by `GET /api/activity`.
 | `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config`. |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
+| `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |
 | `entity_id` | `string`, nullable | no | The item acted on (UUID; null for relationship actions). |
+| `entity_short_code` | `string`, nullable | no | The short code of the item acted on (COLLIERY-T-0262), live or archived. Null when the entry is not about an item (a board, a team, a member), and when Kairos has no item with the id. |
+| `entity_title` | `string`, nullable | no | The title of the item acted on, as it is now. Null when `entity_short_code` is null. |
 | `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr` (null for relationship actions). |
 | `id` | `string` | yes | Row id (UUID). |
 | `occurred_at` | `string` | yes | RFC 3339. |

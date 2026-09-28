@@ -24,12 +24,10 @@
 //!   short-code entity filter resolves client-side: the code's type letter
 //!   names the family, `GET /api/{family}/{code}` yields the id. The actor
 //!   filter picks from `GET /api/members` (open tenant-wide).
-//! - Entity *links* need the reverse mapping (id → short code), which the
-//!   API does not expose directly; [`fetch_directory`] builds a best-effort
-//!   map from the five family list endpoints (first page of 200 each,
-//!   failures skipped). Unresolvable ids render as plain text. Follow-up on
-//!   record in KAIROS-T-0044: a server-side `short_code` on
-//!   `ActivityEntry` would retire this.
+//! - Entity *links* come from the entry (COLLIERY-T-0262): the server
+//!   gives the short code and the title of the item of each entry, so the
+//!   page reads no list of items. [`entity_cell`] makes the cell. An entry
+//!   with no item says why it has no link.
 //! - Rollback writes through `api::patch_json` — the standard versioned
 //!   save path (conventions § Data layer), so the A-0004 409 contract is
 //!   handled exactly like any other content edit.
@@ -98,6 +96,17 @@ pub struct ActivityEntry {
     pub entity_type: Option<String>,
     pub details: String,
     pub occurred_at: String,
+    /// The short code of the item of the entry (COLLIERY-T-0262). Absent
+    /// when the entry is not about an item, and when Kairos does not have
+    /// the item.
+    #[serde(default)]
+    pub entity_short_code: Option<String>,
+    /// The title of the item, as it is now.
+    #[serde(default)]
+    pub entity_title: Option<String>,
+    /// When the item was archived (RFC 3339), absent for a live item.
+    #[serde(default)]
+    pub entity_archived_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_org::OrgMember` (partial).
@@ -203,6 +212,61 @@ fn action_color(action: &str) -> &'static str {
     }
 }
 
+/// The entity types of the activity log that are item types
+/// (`kairos_core::items::ItemType::entity_type`).
+const ITEM_TYPES: &[&str] = &["strategy", "initiative", "task", "document", "adr"];
+
+/// What the cell `Entity` of one entry shows (COLLIERY-T-0262).
+#[derive(Clone, Debug, PartialEq)]
+pub enum EntityCell {
+    /// The entry is about an item that a person can open, live or
+    /// archived: a link to `href`.
+    Link {
+        href: String,
+        short_code: String,
+        title: String,
+        archived: bool,
+    },
+    /// The entry has no item that a person can open. `label` is the type
+    /// of the entity, and `reason` says why the cell has no link.
+    NoLink { label: String, reason: &'static str },
+    /// The entry names no entity (a relationship: `details` has the short
+    /// codes).
+    Empty,
+}
+
+/// Why an entry about an item has no link: Kairos does not have the item.
+const REASON_NO_ITEM: &str = "Kairos does not have this item.";
+/// Why an entry about a board, a team or a member has no link.
+const REASON_NOT_AN_ITEM: &str = "This entry is not about an item.";
+
+/// The cell `Entity` of one entry, from the entry only (COLLIERY-T-0262).
+/// The page reads no list of items, so an item after the first 200 of its
+/// type gets its link. Pure, host-tested.
+pub fn entity_cell(entry: &ActivityEntry) -> EntityCell {
+    if let Some(code) = entry.entity_short_code.as_deref().filter(|c| !c.is_empty()) {
+        return EntityCell::Link {
+            href: format!("/items/{code}"),
+            short_code: code.to_string(),
+            title: entry.entity_title.clone().unwrap_or_default(),
+            archived: entry.entity_archived_at.is_some(),
+        };
+    }
+    if entry.entity_id.is_none() {
+        return EntityCell::Empty;
+    }
+    let label = entry
+        .entity_type
+        .clone()
+        .unwrap_or_else(|| "entity".to_string());
+    let reason = if ITEM_TYPES.contains(&label.as_str()) {
+        REASON_NO_ITEM
+    } else {
+        REASON_NOT_AN_ITEM
+    };
+    EntityCell::NoLink { label, reason }
+}
+
 /// One rendered diff line: `+` inserted, `-` deleted, ` ` unchanged.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DiffLine {
@@ -295,23 +359,6 @@ async fn fetch_members(auth: Auth) -> Result<Vec<Member>, ApiError> {
     api::get_all(auth, "/api/members").await
 }
 
-/// Best-effort entity_id → short_code directory from the five family list
-/// endpoints (first 200 each; a failing family is skipped — links are an
-/// enhancement, the feed renders without them).
-async fn fetch_directory(auth: Auth) -> HashMap<String, String> {
-    let mut directory = HashMap::new();
-    for family in ["strategies", "initiatives", "tasks", "documents", "adrs"] {
-        if let Ok(envelope) =
-            api::get_json::<ListEnvelope<ItemHead>>(auth, &format!("/api/{family}?limit=200")).await
-        {
-            for item in envelope.items {
-                directory.insert(item.id, item.short_code);
-            }
-        }
-    }
-    directory
-}
-
 /// The applied activity-feed filters (what the resource fetches for).
 #[derive(Clone, Debug, PartialEq, Default)]
 struct FeedFilters {
@@ -399,10 +446,6 @@ pub fn ActivityPage() -> impl IntoView {
                 }
             }
         }
-    });
-    let directory = LocalResource::new(move || {
-        let _ = auth.token();
-        fetch_directory(auth)
     });
     let feed = LocalResource::new(move || {
         let _ = auth.token();
@@ -512,7 +555,6 @@ pub fn ActivityPage() -> impl IntoView {
                         .into_iter()
                         .map(|m| (m.user_id, m.display_name))
                         .collect::<HashMap<_, _>>();
-                    let codes = directory.get().unwrap_or_default();
                     // The team lens filters THIS PAGE by actor membership
                     // (client-side — the API has no team parameter; see the
                     // KAIROS-I-0006 design decision). The pager stays on
@@ -559,7 +601,7 @@ pub fn ActivityPage() -> impl IntoView {
                                     <Empty message="No entries on this page match the team lens — page through, or clear the team filter."/>
                                 }.into_any()
                             } else {
-                                view! { <FeedTable page=table_page names=names codes=codes/> }
+                                view! { <FeedTable page=table_page names=names/> }
                                     .into_any()
                             }}
                             <FeedPager page=page applied=applied/>
@@ -578,11 +620,7 @@ fn member_option(member: &Member) -> String {
 
 /// The feed table (extracted so the async-state match stays readable).
 #[component]
-fn FeedTable(
-    page: ListEnvelope<ActivityEntry>,
-    names: HashMap<String, String>,
-    codes: HashMap<String, String>,
-) -> impl IntoView {
+fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) -> impl IntoView {
     let rows = page
         .items
         .into_iter()
@@ -590,23 +628,33 @@ fn FeedTable(
             let color = action_color(&entry.action).to_string();
             let actor = actor_label(&names, &entry.actor_id);
             let when = format_when(&entry.occurred_at);
-            let entity = match (entry.entity_id, entry.entity_type) {
-                (Some(id), entity_type) => match codes.get(&id) {
-                    Some(code) => {
-                        let code = code.clone();
-                        view! {
-                            <Anchor href=format!("/items/{code}")>{code.clone()}</Anchor>
-                        }
-                        .into_any()
-                    }
-                    None => view! {
-                        <Text dimmed=true size="xs">
-                            {entity_type.unwrap_or_else(|| "entity".to_string())}
-                        </Text>
-                    }
-                    .into_any(),
-                },
-                (None, _) => view! { <Text dimmed=true size="xs">"—"</Text> }.into_any(),
+            // COLLIERY-T-0262: the link comes from the entry. An entry
+            // with no item says why it has no link.
+            let entity = match entity_cell(&entry) {
+                EntityCell::Link {
+                    href,
+                    short_code,
+                    title,
+                    archived,
+                } => view! {
+                    <Group gap="xs">
+                        <Anchor href=href>{short_code}</Anchor>
+                        {archived.then(|| view! {
+                            <span class="kairos-archived-badge">
+                                <Pill color=token::GOLD>"put away"</Pill>
+                            </span>
+                        })}
+                        <Text dimmed=true size="xs">{title}</Text>
+                    </Group>
+                }
+                .into_any(),
+                EntityCell::NoLink { label, reason } => view! {
+                    <span data-testid="activity-no-link" title=reason>
+                        <Text dimmed=true size="xs">{format!("{label}. {reason}")}</Text>
+                    </span>
+                }
+                .into_any(),
+                EntityCell::Empty => view! { <Text dimmed=true size="xs">"—"</Text> }.into_any(),
             };
             view! {
                 <tr>
@@ -1320,6 +1368,96 @@ mod tests {
         let head: ItemHead =
             serde_json::from_value(task).unwrap_or_else(|e| panic!("mirror decodes: {e}"));
         assert_eq!((head.short_code.as_str(), head.version), ("DEMO-T-0001", 3));
+    }
+
+    /// One entry of the feed, as the server gives it.
+    fn entry(value: serde_json::Value) -> ActivityEntry {
+        serde_json::from_value(value).unwrap_or_else(|e| panic!("mirror decodes: {e}"))
+    }
+
+    /// COLLIERY-T-0262: the link of an entry comes from the entry. The
+    /// function has no list of items, so the position of the item in a
+    /// list (item 1 or item 5000 of its type) cannot change the result.
+    #[test]
+    fn an_entry_for_an_item_gets_a_link_from_the_entry() {
+        let live = entry(serde_json::json!({
+            "id": "0a8e9f7d-58f7-4f6e-9f0f-4dbb1a8f3e21",
+            "actor_id": "6e4ff04d-1c92-4c66-9e46-94e0d9e0f70f",
+            "action": "create",
+            "entity_id": "b7a7f5b6-83fb-46f6-a3ed-9a0d1a11e001",
+            "entity_type": "task",
+            "details": "task:DEMO-T-5000",
+            "occurred_at": "2026-07-14T10:00:00.000000Z",
+            "entity_short_code": "DEMO-T-5000",
+            "entity_title": "Task 5000",
+            "entity_archived_at": null
+        }));
+        assert_eq!(
+            entity_cell(&live),
+            EntityCell::Link {
+                href: "/items/DEMO-T-5000".to_string(),
+                short_code: "DEMO-T-5000".to_string(),
+                title: "Task 5000".to_string(),
+                archived: false,
+            }
+        );
+        // A person can open an archived item, so it has a link.
+        let archived = ActivityEntry {
+            entity_archived_at: Some("2026-07-15T10:00:00.000000Z".to_string()),
+            ..live.clone()
+        };
+        assert_eq!(
+            entity_cell(&archived),
+            EntityCell::Link {
+                href: "/items/DEMO-T-5000".to_string(),
+                short_code: "DEMO-T-5000".to_string(),
+                title: "Task 5000".to_string(),
+                archived: true,
+            }
+        );
+    }
+
+    /// COLLIERY-T-0262: an entry with no item that a person can open says
+    /// why it has no link.
+    #[test]
+    fn an_entry_with_no_item_says_why_it_has_no_link() {
+        let base = entry(serde_json::json!({
+            "id": "0a8e9f7d-58f7-4f6e-9f0f-4dbb1a8f3e21",
+            "actor_id": "6e4ff04d-1c92-4c66-9e46-94e0d9e0f70f",
+            "action": "create",
+            "entity_id": "b7a7f5b6-83fb-46f6-a3ed-9a0d1a11e001",
+            "entity_type": "team",
+            "details": "team:payments",
+            "occurred_at": "2026-07-14T10:00:00.000000Z"
+        }));
+        assert_eq!(
+            entity_cell(&base),
+            EntityCell::NoLink {
+                label: "team".to_string(),
+                reason: "This entry is not about an item.",
+            }
+        );
+        // An item type with no short code: Kairos does not have the item.
+        for item_type in ITEM_TYPES {
+            let gone = ActivityEntry {
+                entity_type: Some(item_type.to_string()),
+                ..base.clone()
+            };
+            assert_eq!(
+                entity_cell(&gone),
+                EntityCell::NoLink {
+                    label: item_type.to_string(),
+                    reason: "Kairos does not have this item.",
+                }
+            );
+        }
+        // No entity: a relationship entry. The details have the short codes.
+        let relationship = ActivityEntry {
+            entity_id: None,
+            entity_type: None,
+            ..base
+        };
+        assert_eq!(entity_cell(&relationship), EntityCell::Empty);
     }
 
     /// Actor labels prefer the members map and degrade to a shortened id.

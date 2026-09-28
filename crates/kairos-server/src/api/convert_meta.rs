@@ -78,6 +78,11 @@ impl IntoDto<dto::ActivityEntry> for ActivityLogEntry {
             entity_type: self.entity_type,
             details: self.details,
             occurred_at: timestamp(self.occurred_at),
+            // COLLIERY-T-0262: the row does not have the item. The
+            // handler reads the items of a page and adds these fields.
+            entity_short_code: None,
+            entity_title: None,
+            entity_archived_at: None,
         }
     }
 }

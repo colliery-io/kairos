@@ -13,6 +13,11 @@ Activity, administration, and what the deployment reports about itself.
 
 Query the activity log with combinable filters + pagination.
 
+An entry about an item has `entity_short_code`, `entity_title` and
+`entity_archived_at` (COLLIERY-T-0262). The three fields are null for
+an entry that is not about an item. They are null too for an item
+that Kairos does not have.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_id` | query | no | `string` | Filter: activity for a specific entity (UUID). |

@@ -72,10 +72,6 @@ against the base tables. [[KAIROS-T-0156]] fixes the view.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `GET /api/{family}/{short_code}` returns an archived item with
       `archived_at` set, for all five families.
 - [ ] `GET /api/{family}/{short_code}/history` returns its versions.

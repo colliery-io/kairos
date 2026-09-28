@@ -94,8 +94,6 @@ found a sweep bug no smaller test could have. If a page cannot be written honest
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] [[KAIROS-A-0016]] amended inline, in A-0021's style, naming what Kairos now owns
 - [x] Explanation, how-to and reference pages, added to `SUMMARY.md`
 - [x] The REST reference regenerated and `--check` passing

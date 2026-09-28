@@ -30,8 +30,6 @@ Turn `~/Desktop/kairos` into a git repository on branch `main` with the entire d
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `git init` complete on branch `main`; root `.gitignore` covers Rust (`target/`), macOS (`.DS_Store`), editor cruft, and env/secret files; `.metis/.gitignore` verified to keep `metis.db` and server logs out of version control
 - [x] Initial commit contains the full design corpus: `.metis/` documents (vision, initiatives, tasks, ADRs, specifications), `.angreal/` (excluding `__pycache__`), and repo assets
 - [x] `git status` clean after commit; `git log --oneline` shows the initial commit

@@ -42,8 +42,6 @@ journey uses (`mobile`, `ios`, `infra` are taken).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green in compose (hand-run): 6 steps, ~1s. Report reads as an hour of reading.
 - [x] Creates nothing — no ledger entries, no teardown.
 - [x] tsc clean; gate unaffected (uses tools and nouns already covered).

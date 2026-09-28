@@ -159,10 +159,6 @@ is two primary vectors agreeing.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] An MCP tool and a REST endpoint that take an item and return related-work
       proposals
 - [x] Lexical and vector results fused by rank position, not by score arithmetic

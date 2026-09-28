@@ -30,10 +30,6 @@ The Leptos GUI foundation per A-0015 (decided): CSR app shell served at `/`, aur
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `kairos-web` builds as a CSR WASM app (trunk or cargo-leptos — pick per current Leptos 0.8 CSR practice, document); server serves it at `/` with static assets embedded (A-0013 single-binary); `cargo build` unaffected for non-GUI work (build integration documented in angreal if a new task is needed)
 - [x] aurora-dark crate wired as the design system: components consume tokens only (no hardcoded colors — enforced by a conventions grep noted below)
 - [x] PKCE login flow against the deployment issuer (discovery from config endpoint the server exposes or build-time env — document choice); access token in memory, silent refresh; unauthenticated → login redirect; logout

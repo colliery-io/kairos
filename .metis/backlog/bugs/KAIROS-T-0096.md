@@ -50,12 +50,6 @@ P2 — silently violates a shipped T-0078 acceptance criterion; agents are a fir
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] MCP `set_metadata` rejects out-of-scope definitions with the same typed 422 as the HTTP path.
 - [x] Clearing a value (null) on an out-of-scope definition stays allowed on both paths (the HTTP path deliberately permits clears).
 - [x] The validation logic is shared between the HTTP and MCP paths, not duplicated.

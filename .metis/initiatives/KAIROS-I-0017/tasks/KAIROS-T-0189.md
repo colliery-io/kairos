@@ -203,10 +203,6 @@ knowing what it wants.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] An embedding trait with local, OpenAI-compatible and deterministic-fake
       implementations — in a new `kairos-embed` crate, **not** `kairos-core`, which
       is pure by [[KAIROS-A-0009]] and may not do I/O

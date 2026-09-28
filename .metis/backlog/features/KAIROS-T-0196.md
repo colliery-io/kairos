@@ -73,12 +73,6 @@ code — which is a real outcome, not a cop-out.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A decision, recorded: export OTLP traces, or state in an ADR that Kairos
       deliberately exposes metrics and logs and not traces
 - [x] If exporting: `KAIROS_OTEL_ENDPOINT` is read by `config.rs`, the chart

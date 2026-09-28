@@ -42,10 +42,6 @@ UAT feedback (Dylan, 2026-08-09): "when I refresh the web UI I immediately go ba
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] `install()` stashes the (possibly rotated) refresh token in `sessionStorage` on every grant; `logout()` removes it; a failed refresh (`expire()` path) removes it so a dead token can't loop

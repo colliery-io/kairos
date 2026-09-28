@@ -34,8 +34,6 @@ a key identically. Depends on [[KAIROS-T-0057]].
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] `require_auth` detects the `kairos_sk_` prefix before OIDC verification.

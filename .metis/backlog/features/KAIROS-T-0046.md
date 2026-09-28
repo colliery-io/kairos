@@ -41,12 +41,6 @@ The A-0012 tier-5 workforce soak harness: a synthetic-organization driver that r
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Driver (Rust bin or crate under crates/, using kairos-client): configurable workforce (N teams, M humans, K agent service-accounts from Dex fixtures), operation mix per A-0012 tier 5 — creates, edits with deliberate 409 collisions, transitions, searches/traversals, MCP sessions, WS subscribers — at a configurable sustained rate for `--duration`
 - [x] Continuous assertions during the run: flat error rate, p95 for common ops within the vision's 50ms budget, stable connection-pool metrics (scraped from /metrics), retention sweeper keeping item_history bounded, tenant-isolation invariants (a second tenant's checksums unchanged)
 - [x] `angreal test soak --duration/--config` wired to the driver; exit non-zero with an attributed report on any assertion breach; a 10-minute smoke profile documented for pre-release use, hours-scale profile for nightly

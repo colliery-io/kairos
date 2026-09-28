@@ -52,8 +52,6 @@ P1 — direct UAT feedback on the primary board surface.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] The Move menu no longer renders on board cards; drag-and-drop is the only pointer-based transition mechanism.
 - [x] A keyboard-accessible transition path still exists — the item detail page's move control, capability-gated exactly as the menu was (`powers.transition` via the shared `board_powers` mirror).
 - [x] `smoke.spec.ts` step 5 transitions the card without the Move menu (atomic-retry drag-and-drop).

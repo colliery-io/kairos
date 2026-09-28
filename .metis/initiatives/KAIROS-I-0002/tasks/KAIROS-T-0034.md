@@ -30,10 +30,6 @@ initiative_id: KAIROS-I-0002
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] /bootstrap: prompts for deployment URL (and optional tenant slug for X-Tenant/dev setups); writes plugin .mcp.json config or guides `claude mcp add` for the /mcp endpoint; connects and calls whoami/my_boards to confirm auth + discover team/boards; writes `.claude/kairos.local.md` (YAML frontmatter: deployment URL, tenant, delivery stream, team board, default initiative board) and gitignores it; idempotent re-run updates in place
 - [x] SessionStart hook (plugin/hooks/): reads kairos.local.md, calls my_boards/board_items for the engineer's delivery board, injects a compact summary (active/todo items, standing buckets); degrades gracefully offline (note, not failure); hook registered in plugin manifest per plugin-dev hook conventions
 - [x] Verified against a live compose Kairos + Dex: bootstrap flow end-to-end, hook injects real context (evidence recorded)

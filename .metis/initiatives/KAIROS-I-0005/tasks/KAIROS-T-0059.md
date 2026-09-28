@@ -33,8 +33,6 @@ keys, all gated by a new `manage_service_accounts` capability. Depends on
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] `manage_service_accounts` added to the capability vocabulary

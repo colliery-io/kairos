@@ -47,8 +47,6 @@ T-0131 (the ALLOW map to edit).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green (hand-run against the kept stack); the report shows the REPOSITORY_OWNER_MISMATCH text, the GUI move to web-delivery, carol's FORBIDDEN, and "Moved …: web-delivery -> platform-delivery / Backlog."
 - [x] `mcp:move_item` deleted from ALLOW (full-run verification in T-0136).
 - [x] Teardown unchanged (both tasks ledgered); no leftovers.

@@ -40,8 +40,6 @@ initiative_id: KAIROS-I-0009
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `GET /api/teams/{id}/links` returns open links for the team by all three qualifying paths (task `team_id`, delivery-board item, repo attributed to the team), DISTINCT, newest first, 404 on unknown team.
 - [x] Default state filter is open+draft; merged/closed reachable via the query param; result cap documented.
 - [x] The team-work predicate is implemented adjacent to `team_work_documents` and the parallel is noted in both, so the definitions cannot drift silently.

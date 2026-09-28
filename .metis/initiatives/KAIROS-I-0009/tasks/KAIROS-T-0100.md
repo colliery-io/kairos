@@ -40,8 +40,6 @@ Surface the links where the work is: `GET /api/{family}/{code}/links` plus a Dev
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `GET /api/{family}/{code}/links` returns the item's branches and PRs with repo/forge context; 404 on family mismatch like its sibling endpoints; open tenant-wide; openapi registered.
 - [x] Ordering is server-side and stable (PRs first, newest first).
 - [x] kairos-client DTOs + method; web mirror with a decode test.

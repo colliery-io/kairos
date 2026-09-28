@@ -100,10 +100,6 @@ reference pages. The OpenAPI drift gate caught the schema page, as designed.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A journey in which one agent works across three repositories, in the
       existing narrated-step shape with a readable report
 - [x] It creates no repositories and no teams; teardown leaves the tenant as it

@@ -42,8 +42,6 @@ The data layer for team pages: three tenant tables, diesel models, the opinionat
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Tenant migration adds the three tables (guarded); documents table untouched; schema.rs regenerated (27 tenant tables).
 - [x] create_team seeds the scaffold in the same transaction as the delivery board (and seed.rs's team helper does the same for reseeded tenants); scaffold pages carry v1 history rows (folders deliberately none).
 - [x] Existing teams backfill via the migration's guarded DO-block (zero-UUID actor, decision recorded); re-runs converge (idempotency asserted in the db test).

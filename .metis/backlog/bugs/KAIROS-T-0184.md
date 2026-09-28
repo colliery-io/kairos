@@ -81,12 +81,6 @@ Both are in `reference/scim.md` as behaviour; neither is obviously intended:
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A decision on `userName` mutability, and either acceptance of the change
       or a refusal message naming the field and the remedy.
 - [x] `teams.slug`'s UNIQUE becomes a partial index on `deleted_at IS NULL`,

@@ -30,10 +30,6 @@ GET /ws/events per A-0005 §5: tenant-scoped WebSocket pushing thin change event
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Mutating services (create/update/transition/delete, relationship + metadata changes) emit NOTIFY kairos_events post-commit with the tenant-tagged thin payload from S-0005 (event, entity_type, short_code, board_id, column_id?, actor, occurred_at)
 - [x] /ws/events upgrades with bearer auth (same middleware), binds to the resolved tenant, supports optional board_id subscription filter; events for other tenants never delivered (integration-tested with two tenants)
 - [x] A dedicated LISTEN connection per server process forwards to connected sockets; client disconnect/reconnect is clean (no leaked tasks — assert via tokio task count or timeout-bounded test)

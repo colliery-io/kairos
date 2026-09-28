@@ -45,10 +45,6 @@ Follow-up authorized by Dylan ("do 0073" → the recorded follow-up).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] Refetches update the mounted board in place: `BoardPage` holds the view in a signal; `BoardBody` is created once per board id and reads through memos; columns and cards render via keyed `<For>`s (column key = id+name+targets fingerprint; card key = content fingerprint) so unchanged nodes keep their DOM

@@ -30,10 +30,6 @@ Stand up the cargo workspace per KAIROS-A-0009 (decided): six crates compiling, 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Workspace `Cargo.toml` with members `crates/kairos-core`, `crates/kairos-db`, `crates/kairos-server`, `crates/kairos-client`, `crates/kairos-cli`, `crates/kairos-web`; shared `[workspace.dependencies]` with pinned versions: axum, tokio, tower, tower-http, diesel, diesel-async, bb8, thiserror, serde, tracing, tracing-subscriber, clap, leptos, aurora-dark (kairos-web only), utoipa, rmcp
 - [x] `rust-toolchain.toml` committed; `rustfmt.toml`/clippy config as needed
 - [x] `cargo build --workspace`, `cargo test --workspace`, `cargo fmt --check`, `cargo clippy --workspace -- -D warnings` all pass (each crate has a placeholder lib/bin + one smoke test)

@@ -71,12 +71,6 @@ IdP configuration is wrong.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `deploy/docker-compose.yaml` forwards `KAIROS_API_BEARER` and
       `KAIROS_WEB_CLIENT_SECRET`, with the same `${VAR:-}` default style the
       other optional variables use.

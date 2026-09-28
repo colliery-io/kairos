@@ -45,12 +45,6 @@ Also check `strategies|initiatives|adrs create --board` for the same wart while 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `kairos tasks create --board platform-delivery --title …` works.
 - [x] A slug that does not exist is a 404/422 naming the slug, not a UUID parse error.
 - [x] Integration coverage for the slug form; the UAT `audit-trail` journey drops its "resolve the id first" workaround and its comment.

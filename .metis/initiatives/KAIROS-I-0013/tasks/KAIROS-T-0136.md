@@ -45,8 +45,6 @@ T-0131, T-0132, T-0133, T-0134, T-0135.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Every one has a persona: ALLOW is `{}` — MCP 17/17, CLI 16/16, 0 allow-listed. No reasons were needed in the end.
 - [x] compose `mudjfjka` 8/8 (17/17, 16/16); server `mudjeuf9` 8/8 with 2 compose-only steps skipped and the gate reporting "Not measured".
 - [x] `README.md` (seven journeys, the gate, the mode rule) and `uat/README.md` updated; `angreal test e2e` 11/11.

@@ -30,10 +30,6 @@ Implement the inbound SCIM 2.0 server per KAIROS-A-0016 (decided): per-tenant `/
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] SCIM token management: org-admin API to create/list/revoke per-tenant SCIM bearer tokens; tokens hashed at rest; SCIM requests authenticate by token only (tenant-scoped by the token, not subdomain); new tenant-schema table via migration
 - [x] `/scim/v2/Users`: POST (create/link user + membership), GET by id, GET list with `filter=userName eq "..."` (the filter subset IdPs actually send), PATCH (RFC 7644 ops incl. `active: false` → membership revoked immediately), PUT replace, DELETE (revoke membership; users row retained for audit integrity); SCIM error envelope (RFC 7644 §3.12) throughout
 - [x] Identity join: SCIM `externalId`/`userName` → `public.users.external_id` (OIDC sub) with email fallback; mapping contract documented in the module docs and operations docs

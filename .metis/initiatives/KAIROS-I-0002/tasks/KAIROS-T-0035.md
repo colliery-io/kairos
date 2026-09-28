@@ -30,8 +30,6 @@ Close the beast-mode loop: implement seed-demo (angreal db seed), sync router/RE
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `angreal db seed` implemented for real (kairos-server subcommand): demo tenant with users matching the Dex fixtures, teams + delivery boards, a strategy → initiatives → tasks tree, buckets, representative documents/ADRs/metadata — the A-0012 fixture both tests and demos consume
 - [x] Router (/kairos), plugin README, and per-skill docs synced against the final skill inventory (a router that lies is a bug — A-0014); `claude plugin validate` + plugin-validator pass on the complete plugin
 - [x] `angreal test e2e`'s golden path replaces its NOT IMPLEMENTED placeholder: compose up → seed → API golden path (create strategy → initiative → decompose → transition → search) → MCP session smoke — exits 0 on success, non-zero on any failure

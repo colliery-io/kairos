@@ -79,8 +79,6 @@ identity for the same address and must not fork it.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] An org admin can create a local user, set a password, and revoke sessions
 - [x] Adding a password to an email that already has an OIDC identity updates that
       row rather than creating a second person

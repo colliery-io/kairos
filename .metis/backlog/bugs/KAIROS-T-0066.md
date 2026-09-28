@@ -44,10 +44,6 @@ UAT feedback (Dylan, 2026-08-09): "task status isn't metadata; status is where i
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [x] 'Status' is removed from the system default metadata definitions (new tenants no longer get it), OR a recorded decision narrows it to a surface where it isn't redundant — NARROWED: the surface exists (document templates declare it; documents are off-board), decision recorded in Status Updates; renamed 'Document status'

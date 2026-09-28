@@ -61,12 +61,6 @@ Add a pre-delete cascade preview so clients can warn users with the AUTHORITATIV
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Endpoint `GET /api/{entity_type}/{short_code}/cascade-preview` returns the transitive descendant set a soft-delete WOULD remove, without deleting (side-effect-free GET chosen over `DELETE ?dry_run=true`; documented in the S-0005 addendum)
 - [x] Reuses `kairos_core::items::cascade_descendants` — the SAME BFS `soft_delete_item` uses (new `kairos_db::items::preview_cascade`; no second traversal)
 - [x] utoipa-annotated (`api/cascade.rs`) + registered in ApiDoc paths (route-vs-spec completeness test passes); `KairosClient::cascade_preview` typed method + `CascadePreviewResponse` DTO; S-0005 addendum recorded

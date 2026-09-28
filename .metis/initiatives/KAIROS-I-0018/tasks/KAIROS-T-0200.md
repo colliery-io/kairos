@@ -79,10 +79,6 @@ same treatment or more, because the failure mode is worse than losing data.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `helm install` with neither `config.oidc.issuerUrl` nor `dex.enabled` set
       renders a Dex and points the server at it
 - [x] `dex.enabled: true` **and** a named issuer is refused at render time, naming

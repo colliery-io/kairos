@@ -30,10 +30,6 @@ The Kairos MCP server per KAIROS-A-0011 (decided) and KAIROS-S-0006 (the frozen 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] /mcp mounted via the rmcp SDK (streamable HTTP) on the axum router behind the same bearer validation as /api; RFC 9728 protected-resource metadata served pointing at the configured issuer; session acts as the authenticated user under full ABAC (no agent identity)
 - [x] Every S-0006 tool implemented with its exact name/inputs/semantics: whoami, my_boards, board_items; get_item, get_history, search; create_item, update_item, edit_item (server-side search/replace with one race retry), transition_item (failure enumerates allowed targets), link_items, unlink_items, set_metadata, delete_item (confirm required; response lists cascade)
 - [x] Tools wrap existing services in-process (no HTTP loopback); responses are compact agent-shaped markdown/text per S-0006 REQ-1.6; errors mirror API codes (REQ-1.1); tenant from connection host only (REQ-1.2); short codes as identifiers (REQ-1.3)

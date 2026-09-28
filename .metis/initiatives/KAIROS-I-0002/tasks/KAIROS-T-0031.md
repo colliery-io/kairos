@@ -30,10 +30,6 @@ Port prototype (LOGIC/UI references), research, domain-modeling (ADR/CONTEXT for
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] prototype + codebase-design ported with all reference files; codebase-design's vocabulary kept exactly (it underpins the shipped architecture-review reference)
 - [x] research: cited findings saved as a Kairos document attached to the initiating item (create_item document with parent) instead of repo markdown
 - [x] domain-modeling + grill-with-docs: CONTEXT.md stays a repo file; ADR side-effects become Kairos ADRs (create_item adr, linked appropriately); grill-with-docs composes grilling + domain-modeling as upstream

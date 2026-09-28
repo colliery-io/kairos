@@ -42,8 +42,6 @@ journey uses (`mobile`, `ios`, `infra` are taken).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green: 7 steps. Report reads as a quarter being closed out.
 - [x] The journey archives and retires everything itself; the ledger tolerates what it already removed.
 - [x] tsc clean; no new tools or nouns.

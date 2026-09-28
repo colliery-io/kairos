@@ -48,8 +48,6 @@ T-0131.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green (hand-run; `--server` parity in T-0136's full runs): 9 steps — columns "…, Completed, Review" with 9 transitions, the field stamped and found by `--metadata`, the stream attached, and the Active → Review drag.
 - [x] `mcp:set_metadata`, `mcp:delete_item`, `cli:boards`, `cli:streams` deleted from ALLOW.
 - [x] Card deleted in-journey (live_cards_left: 0), then the ledger unwinds stream → metadata definition → team.

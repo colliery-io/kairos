@@ -60,10 +60,6 @@ emitting an empty page.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `reference/rest-api.md` is generated from the OpenAPI spec, not
       hand-written.
 - [ ] Generation runs in `angreal docs build` and in the docs workflow, and

@@ -30,8 +30,6 @@ Surface the caller's own teams in the shell navigation: a "My teams" section dri
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 ## Acceptance Criteria **[REQUIRED]**
 
 - [ ] The shell nav (the `Shell` component in `app.rs`) shows a "My teams" section listing the authenticated user's teams from the whoami response

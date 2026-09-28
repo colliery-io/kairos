@@ -42,8 +42,6 @@ journey uses (`mobile`, `ios`, `infra` are taken).
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Green in compose (hand-run): 8 steps. Report shows both keys live during rotation, old key 401 after revoke with the new one still 200, and the account delete killing the last key.
 - [x] Clean: the service-account ledger entry tolerates the 404 from the journey deleting it deliberately in the last step.
 - [x] tsc clean; no new tools or nouns, so the gate is unaffected.

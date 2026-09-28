@@ -30,8 +30,6 @@ OpenAPI per A-0005 §6: aggregate every annotated handler/DTO into /api/openapi.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] GET /api/openapi.json serves a valid OpenAPI 3.x document covering every /api route in the router (assert programmatically: enumerate axum routes vs spec paths — a route missing from the spec fails a test)
 - [x] Swagger UI mounted behind a dev-build flag (cfg or env)
 - [x] Spec validated with a containerized validator (no Homebrew); CI artifact step added to the workflow (upload openapi.json)

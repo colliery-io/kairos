@@ -30,8 +30,6 @@ The A-0013 release artifact: single multi-stage OCI image (Leptos assets + serve
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Multi-stage Dockerfile (repo root): stage 1 builds the Leptos/WASM bundle (trunk) + the release server binary WITH `--features embed-web`; stage 2 = debian:bookworm-slim + libpq5 (documented choice). Serves / (GUI), /api, /mcp, /scim/v2, /healthz. NOTE: /readyz and /metrics are not implemented in the server yet (KAIROS-T-0049) — not served, not claimed.
 - [x] Reference compose (`deploy/docker-compose.yaml`): Caddy + kairos image + postgres:16, external IdP (A-0016); dev profile in .angreal/docker-compose.yaml left untouched; documented in A-0013 terms in README + deploy/.env.example + deploy/Caddyfile.
 - [x] Release workflow: `image` job in release.yml builds+pushes to ghcr.io/colliery-io/kairos tagged {version}, never latest; actionlint clean (containerized).

@@ -30,10 +30,6 @@ initiative_id: KAIROS-I-0003
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Provisioning creates the schema with every S-0004 tenant table, view, index, and sequence; provisioning an existing slug fails cleanly with a typed error
 - [x] Defaults seeded on provision: 4 board default configs (A-0002), system templates and metadata definitions copied from public (A-0003)
 - [x] Fleet operation re-runs pending tenant migrations across all schemas (integration test with 3 tenants); `angreal db create-tenant|drop-tenant|migrate-tenants|list-tenants` wired

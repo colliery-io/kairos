@@ -30,8 +30,6 @@ Extend the angreal harness to the full KAIROS-A-0012 task surface so agents and 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] `angreal test unit` runs `cargo test --workspace` (lib/unit targets); `angreal test integration` brings up services and runs integration targets; both propagate return codes
 - [x] New `angreal test e2e` task: compose lifecycle + golden-path placeholder that fails with NOT IMPLEMENTED (so it can't silently pass)
 - [x] New `angreal test soak` task: accepts `--duration`/`--config`, exits NOT IMPLEMENTED until the workforce harness lands (M5)

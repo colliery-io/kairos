@@ -77,8 +77,6 @@ P1 — UAT feedback; core team-workflow capability.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Tenant migration adds `tasks.work_class` TEXT NOT NULL DEFAULT 'planned' CHECK ('planned'|'support'); existing rows backfill via the default; migration is idempotent (fleet-migration guard, verified by tenant_provisioning upgrade-path test).
 - [x] `task_type` accepts 'support' end-to-end: DDL, TaskType enum, API parsing, search filter, CLI, MCP (all integration-tested).
 - [x] Independence regression-tested at three levels: seeded fixture (DEMO bug in Support lane), API test (bug + work_class=support both preserved), lanes.spec (bug pill visible on a Support-lane card).

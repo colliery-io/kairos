@@ -30,10 +30,6 @@ Retention sweeper per the A-0004 amendment: scheduled in-process task enforcing 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Tiering proven with injected-clock tests: hot-window rows untouched; past-window item_history thinned to first+last per item per month; latest-5 per item always retained; pruned rows byte-identical in the NDJSON archive
 - [x] `KAIROS_RETENTION_MODE=archive` with no `KAIROS_ARCHIVE_TARGET` → nothing deleted, warning logged and metered; `discard` prunes without archive; `off` disables
 - [x] Filesystem archive target implemented; S3-compatible target behind the same trait (implementation may stub with a clear NOT IMPLEMENTED error if out of scope — state which in Status Updates)

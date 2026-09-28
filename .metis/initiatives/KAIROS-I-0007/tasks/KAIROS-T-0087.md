@@ -36,8 +36,6 @@ Make the feature demonstrable and regression-proof: seed-demo team content, a te
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] seed-demo provisions the demo team content above; seed_demo test asserts it.
 - [x] teampages.spec covers scaffold, announcements (one-way, pinned-first, permission), page edit + 409 merge, charter protection, and the work-documents panel — green without retries.
 - [x] Existing specs/tests updated for the new layout; full ladder green (unit, integration, e2e).

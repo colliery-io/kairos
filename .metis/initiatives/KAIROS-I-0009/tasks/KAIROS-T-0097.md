@@ -45,8 +45,6 @@ The persistence and setup half: `forge_connections` + `item_links` tables, model
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Migration pair creates both tables with the partial unique/lookup indexes; `down.sql` drops in FK order; `tenant_provisioning` EXPECTED_TABLES/INDEXES updated (count constant bumped).
 - [x] `text_enum!` types for `forge`, `kind`, and `state` with round-trip tests; models follow the Row/New/Changeset convention.
 - [x] Org-admin CRUD + rotate exist, registered in openapi, with kairos-client DTOs and methods; non-admins get the standard 403 naming the required capability; reads open tenant-wide.

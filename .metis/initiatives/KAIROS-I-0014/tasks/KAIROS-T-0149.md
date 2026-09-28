@@ -31,10 +31,6 @@ initiative_id: KAIROS-I-0014
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Both full runs green; run ids and the coverage line in the initiative log.
 - [x] READMEs describe the arc; `angreal test e2e` 11/11.
 

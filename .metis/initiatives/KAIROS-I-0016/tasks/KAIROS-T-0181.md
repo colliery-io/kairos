@@ -76,10 +76,6 @@ running and `/healthz` answers", and leave signing in to a how-to.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] [[KAIROS-T-0180]] is fixed and the image runs on arm64.
 - [ ] The tutorial exists and states its outcome up front.
 - [ ] **Executed end to end on a clean cluster**, with the result recorded in

@@ -30,10 +30,6 @@ Relationship graph service per A-0001: link/unlink for the five edge types with 
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Five relationship types supported with type-rule validation (e.g. `parent` only along strategy→initiative→task; `supports` only from documents/ADRs; `supersedes` only ADR→ADR) — unit-tested rule matrix
 - [x] Cycle prevention for `parent` and `blocks` (A blocks B blocks A rejected; parent loops rejected) — integration tests
 - [x] Link/unlink write `activity_log` rows; UNIQUE(source,target,relationship) honored; both-direction queries use the S-0004 indexes

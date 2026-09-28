@@ -93,10 +93,6 @@ modules in `.angreal/`.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `docs/book.toml` + `src/` with `SUMMARY.md`, `introduction.md` and the
       four mode directories.
 - [ ] `introduction.md` states what the book covers and that contributor

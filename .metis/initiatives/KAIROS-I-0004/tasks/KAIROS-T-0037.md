@@ -30,10 +30,6 @@ The full `kairos` command tree per A-0015 over kairos-client: nouns mirroring th
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Subcommands: `orgs`, `boards` (list/show incl. items-by-column), `strategies|initiatives|tasks|documents|adrs` (list/get/create/edit/transition/delete with confirm), `search` (the S-0005 body via flags or --query-json), `teams`, `streams`, `members`, `admin tenants` (deployment-admin ops)
 - [x] Human-readable table output by default (aurora-dark-agnostic terminal styling optional), `--json` everywhere; 409 conflicts render current-version guidance; 422 transition errors list allowed targets
 - [x] Every subcommand has help text; `kairos --help` tree is coherent

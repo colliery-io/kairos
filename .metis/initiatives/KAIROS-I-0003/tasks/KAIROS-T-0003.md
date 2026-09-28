@@ -30,8 +30,6 @@ Grow `.angreal/docker-compose.yaml` into the dev/test stack per KAIROS-A-0013 de
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Compose runs `postgres:16` (named volume, healthcheck) and Dex with a committed static config: ≥3 test users, clients `kairos-web` (PKCE), `kairos-cli` (device grant enabled), `kairos-svc` (client credentials), long-lived test token settings
 - [x] `angreal services up|down|reset|clean` manage the stack end to end
 - [x] Dex discovery document reachable (`curl http://localhost:<port>/.well-known/openid-configuration`) and a token obtainable for `kairos-svc` (command documented in the task's Status Updates)

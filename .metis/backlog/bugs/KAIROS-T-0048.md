@@ -43,8 +43,6 @@ Diagnose and fix the intermittent `org_endpoints` integration-test failure obser
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Root cause identified — not reproducible after heavy stress (560 concurrent CREATE DATABASE + 180 concurrent 12-binary runs, all green; PG16's WAL_LOG strategy avoids the classic template-lock race). Diagnosed as test-harness fragility: `recreate_scratch_db` single-shot `.expect()`s every step, so any transient shared-Postgres blip panics before assertions — matching the observed ~0.15s signature. No product race (provisioning is one all-or-nothing transaction).
 - [x] Fix lands — bounded exponential-backoff retry (50ms base, 2s cap) around the transient scratch-DB lifecycle ops in `tests/common/mod.rs` (+73/-16); no assertion weakened, product code untouched.
 - [x] Green streak recorded — agent's 180 concurrent binary runs + orchestrator's 15/15 org_endpoints loop + full `angreal test integration` pass, all green; fmt/clippy clean.

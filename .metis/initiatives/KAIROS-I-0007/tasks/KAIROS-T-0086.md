@@ -38,8 +38,6 @@ initiative_id: KAIROS-I-0007
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Pages render at stable path URLs; folders index their children; breadcrumbs navigate up.
 - [x] Edit/Preview + toolbar; version-checked saves with the 409 merge dialog; history rows written per save.
 - [x] Create page/folder, rename, move, soft-delete from the UI, permission-gated; charter shows no destructive controls.

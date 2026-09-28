@@ -81,12 +81,6 @@ that cannot ask.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] `bucket_type` and `decision_date` are either accepted by `create_item`
       or documented as deliberately excluded, with the reason.
 - [x] `column` is documented as deliberately excluded, with the transition-graph

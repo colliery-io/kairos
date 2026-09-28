@@ -79,10 +79,6 @@ promised outcome, not to hand the learner a decision.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] Both tutorials exist and state their outcome up front.
 - [ ] **Both executed end to end on clean state**, and the transcript or
       result recorded in the Status Update. Not reasoned about.

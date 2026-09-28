@@ -93,10 +93,6 @@ promised to work. It has to be re-run, not just edited.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] A tenant migration creates `item_embeddings` and `item_chunks` with
       provider, model, dimension and content-hash columns
 - [x] `CREATE EXTENSION vector` runs once at database scope, idempotently

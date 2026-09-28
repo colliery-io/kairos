@@ -46,12 +46,6 @@ P3 — pure test-maintenance friction; nothing user-facing.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] The upgrade-path simulation selects the newest tenant migration programmatically; no migration name is hardcoded in the test.
 - [x] Landing a new tenant migration requires NO edit to the upgrade-path portion of tenant_provisioning.rs (table-count constants may still move).
 - [x] The newest migration's `down.sql` is exercised (if option (a) is chosen), or the chosen alternative is recorded here with rationale.

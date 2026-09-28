@@ -83,10 +83,6 @@ None. This is useful on its own and ships alone.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [ ] `q` searches return a relevance score per hit, and `sort.field =
       relevance` orders by it
 - [ ] Relevance is the default ordering when `q` is present and no `sort` was

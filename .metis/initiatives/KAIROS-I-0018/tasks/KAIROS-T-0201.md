@@ -79,10 +79,6 @@ without a database. The storage functions go in `kairos-db`.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Migration adds `users.password_hash` (nullable) and `local_sessions`; `schema.rs`
       regenerated via `angreal db schema-sync`
 - [x] argon2 hash + verify, with the chosen parameters in a named const and the

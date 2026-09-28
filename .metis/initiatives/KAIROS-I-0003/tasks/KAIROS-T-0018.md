@@ -30,10 +30,6 @@ The five entity endpoint families per S-0005 (strategies/initiatives/tasks/docum
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] All S-0005 entity routes implemented with the documented status codes: 200/201, 409 VersionConflict (returns current entity state), 422 invalid transition (returns allowed targets), 403 capability denied, 404
 - [x] ABAC enforced per A-0006 on every write (manage_* per type, transition_items for transitions); reads open tenant-wide
 - [x] DTOs live in the shared client/types crate with utoipa derives; every handler annotated

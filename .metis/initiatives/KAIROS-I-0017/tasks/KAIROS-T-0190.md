@@ -199,10 +199,6 @@ column type to the now-known 384 dimensions. None of it is started.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Heading-boundary chunking with sliding-window fallback, storing ordinal,
       literal heading text and character range
 - [x] No code path keys on a heading's name

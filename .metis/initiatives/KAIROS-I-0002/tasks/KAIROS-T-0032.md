@@ -30,10 +30,6 @@ Port code-review: the two-axis review (Standards + Spec) with the spec axis read
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
-## Acceptance Criteria
-
 - [x] Standards axis: repo conventions + smell baseline per upstream, run as a sub-agent
 - [x] Spec axis: fetches the originating item via get_item (argument or inferred), reviews the diff against its acceptance criteria, run as a parallel sub-agent; findings posted back to the Kairos task via edit_item as a review record
 - [x] Model-invoked per upstream; registered + router; skill-reviewer run — AMENDED per orchestrator lane rules: this lane records the exact plugin.json/router entries in Status Updates instead of editing `.claude-plugin/plugin.json` or the router (orchestrator merges)

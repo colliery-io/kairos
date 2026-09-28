@@ -43,8 +43,6 @@ T-0127.
 
 ## Acceptance Criteria
 
-## Acceptance Criteria
-
 - [x] Item page offers a Board select to callers with `manage_tasks` on ≥2 delivery boards; moving updates the panel without reload.
 - [x] Both boards reflect an `ItemMoved` event live.
 - [x] e2e 11/11 (+ the new step).

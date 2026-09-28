@@ -827,7 +827,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(text.contains("VALIDATION"), "{text}");
-    assert!(text.contains("not found"), "{text}");
+    assert!(text.contains("The text of search is not in"), "{text}");
 
     let text = session
         .call_ok(
@@ -1827,7 +1827,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.contains("VALIDATION") && text.contains("pass `board`"),
+        text.contains("VALIDATION") && text.contains("Send `board`"),
         "{text}"
     );
     // Only tasks: an initiative is told to use transition_item instead.
@@ -2168,7 +2168,7 @@ async fn mcp_endpoint_against_live_stack() {
     assert_eq!(
         text,
         format!(
-            "VALIDATION: initiative {other} is not a task. \
+            "VALIDATION: The initiative {other} is not a task. \
              set_repository applies to tasks only."
         )
     );
@@ -2182,7 +2182,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        "NOT_FOUND: no live item with short code \"ACME-T-9999\""
+        "NOT_FOUND: No live item has the short code \"ACME-T-9999\"."
     );
     let text = session
         .call_err(
@@ -2190,7 +2190,7 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": task_code, "repository": "ledger"}),
         )
         .await;
-    assert!(text.starts_with("NOT_FOUND: no live item"), "{text}");
+    assert!(text.starts_with("NOT_FOUND: No live item"), "{text}");
 
     // bob has no `manage_tasks` on the board. He did not file this task, so
     // the refusal names the capability and no more.

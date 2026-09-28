@@ -96,7 +96,7 @@ pub(crate) async fn related(
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "EMBEDDINGS_DISABLED",
-            "related-work retrieval is not enabled on this deployment; /api/search still works",
+            "This deployment does not have the search for related work. Use /api/search.",
         ));
     };
     let mut config = kairos_core::retrieval::RetrievalConfig::default();
@@ -224,8 +224,12 @@ fn field_invalid(field: &str, message: impl Into<String>) -> ApiError {
 
 /// Parse a UUID-carrying field.
 fn uuid_field(value: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value)
-        .map_err(|_| field_invalid(field, format!("{field} must be a UUID, got {value:?}")))
+    Uuid::parse_str(value).map_err(|_| {
+        field_invalid(
+            field,
+            format!("The value {value:?} of {field} is not a UUID."),
+        )
+    })
 }
 
 /// Parse an RFC 3339 timestamp field.
@@ -235,7 +239,10 @@ fn timestamp_field(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError> 
         .map_err(|_| {
             field_invalid(
                 field,
-                format!("{field} must be an RFC 3339 timestamp, got {value:?}"),
+                format!(
+                    "The value {value:?} of {field} is not a timestamp. Send an RFC 3339 \
+                     timestamp."
+                ),
             )
         })
 }
@@ -250,7 +257,7 @@ fn enum_field<T: serde::de::DeserializeOwned>(
     serde_json::from_value(json!(value)).map_err(|_| {
         field_invalid(
             field,
-            format!("{field} must be one of [{allowed}], got {value:?}"),
+            format!("The value {value:?} is not a value of {field}. The values are: {allowed}."),
         )
     })
 }
@@ -439,9 +446,9 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
 fn map_search_error(e: SearchError) -> ApiError {
     match e {
         SearchError::Invalid(e) => map_validation_error(e),
-        SearchError::TraverseRootNotFound { reference } => {
-            ApiError::not_found(format!("traverse root {reference:?} does not exist"))
-        }
+        SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
+            "The item {reference:?} of traverse.from does not exist."
+        )),
         SearchError::Database(e) => ApiError::internal(e),
     }
 }

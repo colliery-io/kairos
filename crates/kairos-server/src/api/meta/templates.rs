@@ -52,7 +52,7 @@ fn load(conn: &mut PgConnection, id: Uuid) -> Result<Template, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no template {id} exists")))
+        .ok_or_else(|| ApiError::not_found(format!("The template {id} does not exist.")))
 }
 
 /// The template's associated metadata fields, hydrated with their
@@ -108,7 +108,8 @@ fn resolve_entries(
     for entry in entries {
         if seen.contains(&entry.definition_slug.as_str()) {
             return Err(ApiError::validation(format!(
-                "duplicate metadata entry for definition slug {:?}",
+                "The request has the definition slug {:?} two times. Send each definition \
+                 one time.",
                 entry.definition_slug
             )));
         }
@@ -121,7 +122,7 @@ fn resolve_entries(
             .map_err(ApiError::internal)?
             .ok_or_else(|| {
                 ApiError::validation(format!(
-                    "unknown metadata definition slug {:?}",
+                    "No metadata definition has the slug {:?}.",
                     entry.definition_slug
                 ))
             })?;
@@ -167,7 +168,7 @@ fn map_write_error(e: DieselError) -> ApiError {
     match e {
         DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, info) => {
             ApiError::validation(format!(
-                "template conflicts with an existing row: {}",
+                "The template is in conflict with a template that exists: {}.",
                 info.message()
             ))
         }

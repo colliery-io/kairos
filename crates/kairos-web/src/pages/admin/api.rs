@@ -70,10 +70,11 @@ pub struct BoardDetail {
     pub transitions: Vec<BoardTransition>,
 }
 
-/// `GET /api/boards` (first page; admin scale).
+/// `GET /api/boards`: each live board, page after page (COLLIERY-T-0257).
+/// The page of the boards counts the delivery boards of a team, so it
+/// reads the full list.
 pub async fn list_boards(auth: Auth) -> Result<Vec<Board>, ApiError> {
-    let envelope: ListEnvelope<Board> = get_json(auth, &format!("/api/boards?{PAGE}")).await?;
-    Ok(envelope.items)
+    crate::api::get_all(auth, "/api/boards").await
 }
 
 /// `POST /api/boards` — seeded with the level's default columns/transitions.

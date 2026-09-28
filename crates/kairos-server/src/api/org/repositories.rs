@@ -66,33 +66,36 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn map_error(e: RepositoryError) -> ApiError {
     match e {
         RepositoryError::NotFound(id) => {
-            ApiError::not_found(format!("no live repository {id} exists"))
+            ApiError::not_found(format!("No live repository has the id {id}."))
         }
         RepositoryError::SlugNotFound(slug) => {
-            ApiError::not_found(format!("no live repository {slug:?} exists"))
+            ApiError::not_found(format!("No live repository has the slug {slug:?}."))
         }
         RepositoryError::InvalidSlug(slug) => ApiError::validation(format!(
-            "invalid repository slug {slug:?}: expected ^[a-z0-9][a-z0-9-]{{1,62}}$"
+            "The repository slug {slug:?} is not correct. A repository slug must match \
+             ^[a-z0-9][a-z0-9-]{{1,62}}$."
         )),
         RepositoryError::SlugTaken(slug) => {
-            ApiError::conflict(format!("repository slug {slug:?} is already taken"))
+            ApiError::conflict(format!("A repository has the slug {slug:?} already."))
         }
-        RepositoryError::AlreadyRegistered { forge, repo } => {
-            ApiError::conflict(format!("{forge} repository {repo:?} is already registered"))
-        }
+        RepositoryError::AlreadyRegistered { forge, repo } => ApiError::conflict(format!(
+            "The {forge} repository {repo:?} is in the directory already."
+        )),
         RepositoryError::TeamNotFound(id) => {
-            ApiError::validation(format!("team {id} does not exist"))
+            ApiError::validation(format!("The team {id} is not in the organization."))
         }
         RepositoryError::NoDeliveryBoard { team, count } => ApiError::validation(format!(
-            "team {team} has {count} live delivery boards; exactly one is needed"
+            "The team {team} has {count} live delivery boards. A team must have one live \
+             delivery board."
         )),
         RepositoryError::InUse {
             id,
             tasks,
             connections,
         } => ApiError::conflict(format!(
-            "repository {id} is still referenced by {tasks} live task(s) and \
-             {connections} live webhook connection(s); unbind them first"
+            "The repository {id} is in use. The number of live tasks that link to it is \
+             {tasks}, and the number of its live webhook connections is {connections}. \
+             Remove each link and each connection. Then delete the repository."
         )),
         RepositoryError::Database(e) => ApiError::internal(e),
         routing
@@ -115,7 +118,12 @@ fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiErr
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::validation(format!("team {reference:?} does not exist")))
+        .ok_or_else(|| {
+            ApiError::validation(format!(
+                "The team {reference:?} is not in the organization. Send the id or the \
+                 slug of a team of the organization."
+            ))
+        })
 }
 
 /// The team's ONE live delivery board, or `None` when it has none or
@@ -268,7 +276,8 @@ pub(crate) async fn list_repositories(
             }
             if query.forge.is_some() != query.name.is_some() {
                 return Err(ApiError::validation(
-                    "forge and name are looked up together; pass both or neither",
+                    "The parameters forge and name go together. Send the two, or send \
+                     none of them.",
                 ));
             }
             let team_id = query

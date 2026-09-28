@@ -30,7 +30,8 @@ const DELIVERY: &str = "delivery";
 /// What the create form says when a delivery board has no team
 /// (COLLIERY-T-0230). The server refuses the same request with a 422. The
 /// form says it first, in the words of the form, and sends nothing.
-const SELECT_TEAM: &str = "Select the owning team. A delivery board needs a team.";
+const SELECT_TEAM: &str = "Select the team that owns the board. A delivery board must \
+                           have a team.";
 
 /// Why the create form cannot send this board, or `None` when it can
 /// (COLLIERY-T-0230). A delivery board needs a team. A board of the
@@ -57,12 +58,13 @@ fn members_panel_words(level: &str) -> (&'static str, &'static str) {
     if level == DELIVERY {
         (
             "Members and capabilities",
-            "write access is whitelist-only (A-0006); reads are open tenant-wide",
+            "A person can write only with a capability grant (A-0006). Each member can read.",
         )
     } else {
         (
             "Team of this board",
-            "the members of this board are its team; add a person to the board to admit them",
+            "The members of this board are its team. To put a person in the team, add the \
+             person to the board.",
         )
     }
 }
@@ -71,9 +73,9 @@ fn members_panel_words(level: &str) -> (&'static str, &'static str) {
 /// (COLLIERY-T-0230). Pure, host-tested.
 fn no_members_message(level: &str) -> &'static str {
     if level == DELIVERY {
-        "No capability grants on this board yet — add a member below."
+        "This board has no capability grants. Add a member below."
     } else {
-        "This board has no team members yet — add a member below."
+        "This board has no team members. Add a member below."
     }
 }
 
@@ -172,7 +174,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("Board \"{n}\" created with the {l} default columns."),
+            format!("Kairos made the board \"{n}\" with the default columns of the level {l}."),
             async move {
                 api::create_board(auth, &n, &s, &l, team_id.as_deref())
                     .await
@@ -182,17 +184,17 @@ pub fn AdminBoardsPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Boards" sub="create, delete, configure"/>
+        <PageHeader title="Boards" sub="Make, delete, and configure the boards."/>
         <Stack gap="md">
             <MutationNotice outcome/>
-            <Panel title="All boards" caption="click a board to configure it">
+            <Panel title="All boards" caption="Click a board to configure it.">
                 {move || match boards.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="No boards yet — create one below."/>
+                        <Empty message="The organization has no boards. Make one below."/>
                     }.into_any(),
                     Some(Ok(items)) => {
                         let live_teams = teams.get().and_then(|result| result.ok()).unwrap_or_default();
@@ -224,7 +226,8 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                             let board_name = board_name.get_value();
                                             run_mutation(
                                                 busy, outcome, reload,
-                                                format!("Board \"{board_name}\" deleted."),
+                                                format!("Kairos deleted the board \
+                                                         \"{board_name}\"."),
                                                 async move {
                                                     api::delete_board(auth, &board_id).await.map(|_| ())
                                                 },
@@ -262,7 +265,8 @@ pub fn AdminBoardsPage() -> impl IntoView {
             // capability holders configure existing boards but do not create
             // them (KAIROS-T-0052).
             <Show when=move || is_admin()>
-                <Panel title="Create board" caption="seeded with the level's default columns and transitions">
+                <Panel title="Create board" caption="A new board has the default columns \
+                                                     and transitions of its level.">
                     <Stack gap="sm">
                         <Group gap="sm" wrap=true top=true>
                             <TextInput label="Name" value=name placeholder="e.g. Platform Initiatives"/>
@@ -380,7 +384,7 @@ fn ColumnsPanel(
             busy,
             outcome,
             reload,
-            format!("Column \"{name}\" added."),
+            format!("Kairos added the column \"{name}\"."),
             async move {
                 api::add_column(auth, &board_id, &name, position)
                     .await
@@ -408,7 +412,7 @@ fn ColumnsPanel(
                     outcome,
                     reload,
                     format!(
-                        "Column marked {}.",
+                        "Kairos marked the column as {}.",
                         if is_done { "not done" } else { "done" }
                     ),
                     async move {
@@ -426,7 +430,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Column renamed to \"{name}\"."),
+                    format!("Kairos changed the name of the column to \"{name}\"."),
                     async move {
                         api::update_column(auth, &board_id, &column_id, Some(&name), None, None)
                             .await
@@ -444,7 +448,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Column moved to position {target}."),
+                    format!("Kairos moved the column to the position {target}."),
                     async move {
                         api::update_column(auth, &board_id, &column_id, None, Some(target), None)
                             .await
@@ -459,7 +463,7 @@ fn ColumnsPanel(
                     busy,
                     outcome,
                     reload,
-                    "Column removed.".to_string(),
+                    "Kairos removed the column.".to_string(),
                     async move {
                         api::remove_column(auth, &board_id, &column_id)
                             .await
@@ -505,7 +509,8 @@ fn ColumnsPanel(
         .collect_view();
 
     view! {
-        <Panel title="Columns" caption="ordered left to right on the board">
+        <Panel title="Columns" caption="The board shows the columns in this order, from \
+                                        left to right.">
             <Stack gap="sm">
                 {rows}
                 <Divider/>
@@ -590,7 +595,7 @@ fn TransitionsPanel(
             busy,
             outcome,
             reload,
-            format!("Transition {from} → {to} added."),
+            format!("Kairos added the transition from {from} to {to}."),
             async move {
                 api::add_transition(auth, &board_id, &from_id, &to_id)
                     .await
@@ -615,7 +620,7 @@ fn TransitionsPanel(
                     busy,
                     outcome,
                     reload,
-                    format!("Transition {done} removed."),
+                    format!("Kairos removed the transition {done}."),
                     async move {
                         api::remove_transition(auth, &board_id, &transition_id)
                             .await
@@ -636,7 +641,8 @@ fn TransitionsPanel(
         .collect_view();
 
     view! {
-        <Panel title="Transitions" caption="allowed column-to-column moves (anything absent is not offered on the board)">
+        <Panel title="Transitions" caption="A card can move only along a transition of \
+                                            this list.">
             <Stack gap="sm">
                 {rows}
                 <Divider/>
@@ -697,14 +703,16 @@ fn MembersPanel(
             });
         let Some(user_id) = user_id else {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Pick an organization member to add.".to_string(),
+                "Select a member of the organization.".to_string(),
             ))));
             return;
         };
         let capabilities = add_editor.selection();
         if capabilities.is_empty() {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Select at least one capability — grants are whitelist-only (A-0006).".to_string(),
+                "Select one capability or more. A person can write only with a capability \
+                 grant (A-0006)."
+                    .to_string(),
             ))));
             return;
         }
@@ -713,7 +721,10 @@ fn MembersPanel(
             busy,
             outcome,
             reload,
-            format!("{email} added with: {}.", capabilities.join(", ")),
+            format!(
+                "Kairos added {email} with these capabilities: {}.",
+                capabilities.join(", ")
+            ),
             async move {
                 api::add_board_member(auth, &board_id, &user_id, &capabilities)
                     .await
@@ -748,7 +759,8 @@ fn MembersPanel(
                             let capabilities = editor.selection();
                             if capabilities.is_empty() {
                                 outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                                    "A member needs at least one capability — use Remove to revoke membership."
+                                    "A member must have one capability or more. To remove \
+                                     the member from the board, use Remove."
                                         .to_string(),
                                 ))));
                                 return;
@@ -758,7 +770,7 @@ fn MembersPanel(
                             let saved_email = member_email.get_value();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{saved_email} now has: {}.", capabilities.join(", ")),
+                                format!("{saved_email} has these capabilities: {}.", capabilities.join(", ")),
                                 async move {
                                     api::replace_capabilities(auth, &board_id, &user_id, &capabilities)
                                         .await
@@ -772,7 +784,8 @@ fn MembersPanel(
                             let removed_email = member_email.get_value();
                             run_mutation(
                                 busy, outcome, reload,
-                                format!("{removed_email} removed from the board (all grants revoked)."),
+                                format!("Kairos removed {removed_email} from the board. \
+                                         The person has no grants on the board."),
                                 async move {
                                     api::remove_board_member(auth, &board_id, &user_id)
                                         .await
@@ -888,10 +901,13 @@ mod tests {
         }
         let (title, caption) = members_panel_words("delivery");
         assert_eq!(title, "Members and capabilities");
-        assert!(caption.contains("whitelist-only"), "{caption}");
+        assert!(
+            caption.contains("only with a capability grant"),
+            "{caption}"
+        );
         assert_eq!(
             no_members_message("delivery"),
-            "No capability grants on this board yet — add a member below."
+            "This board has no capability grants. Add a member below."
         );
     }
 

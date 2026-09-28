@@ -70,7 +70,7 @@ fn load_team(conn: &mut PgConnection, team_id: Uuid) -> Result<Team, ApiError> {
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live team {team_id}")))
+        .ok_or_else(|| ApiError::not_found(format!("No live team has the id {team_id}.")))
 }
 
 /// The team's ONE live delivery board, if any (exactly-one semantics,
@@ -212,7 +212,7 @@ pub(crate) async fn get_team_by_slug(
                 .optional()
                 .map_err(ApiError::internal)?;
             let team =
-                team.ok_or_else(|| ApiError::not_found(format!("no team with slug {slug:?}")))?;
+                team.ok_or_else(|| ApiError::not_found(format!("No team has the slug {slug:?}.")))?;
             let board = delivery_board_of(conn, team.id)?;
             Ok(team_to_dto(team, board))
         })
@@ -382,7 +382,7 @@ pub(crate) async fn create_team(
                     .map_err(|e| {
                         if is_unique_violation(&e) {
                             ApiError::conflict(format!(
-                                "a team with slug {:?} already exists",
+                                "A live team has the slug {:?} already.",
                                 body.slug
                             ))
                         } else {
@@ -453,7 +453,7 @@ pub(crate) async fn update_team(
     let team_id = parse_uuid(&id, "id")?;
     if body.name.is_none() && body.slug.is_none() && body.team_type.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, slug, team_type is required",
+            "The request has no field to change. Send one or more of name, slug and team_type.",
         ));
     }
     let team_type = body
@@ -483,7 +483,7 @@ pub(crate) async fn update_team(
                 .get_result(conn)
                 .map_err(|e| {
                     if is_unique_violation(&e) {
-                        ApiError::conflict("a team with that slug already exists")
+                        ApiError::conflict("A live team has that slug already.")
                     } else {
                         ApiError::internal(e)
                     }
@@ -543,7 +543,8 @@ pub(crate) async fn delete_team(
             if !owned.is_empty() {
                 let slugs: Vec<&str> = owned.iter().map(|r| r.slug.as_str()).collect();
                 return Err(ApiError::conflict(format!(
-                    "team {:?} still owns {} repositor{}: [{}]; re-home them before removing the team",
+                    "The team {:?} has {} repositor{}: [{}]. Give each repository to a \
+                     different team. Then delete the team.",
                     team.name,
                     owned.len(),
                     if owned.len() == 1 { "y" } else { "ies" },
@@ -724,7 +725,7 @@ pub(crate) async fn add_member(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "user {target} is already a member of team {team_id}"
+                            "The user {target} is a member of the team {team_id} already."
                         ))
                     } else {
                         ApiError::internal(e)
@@ -796,7 +797,7 @@ pub(crate) async fn remove_member(
             .map_err(ApiError::internal)?;
             if deleted == 0 {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of team {team_id}"
+                    "The user {target} is not a member of the team {team_id}."
                 )));
             }
             log_team_activity(

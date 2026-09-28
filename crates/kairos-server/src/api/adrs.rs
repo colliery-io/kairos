@@ -168,7 +168,10 @@ pub(crate) async fn create_adr(
         .as_deref()
         .map(|value| {
             value.parse::<NaiveDate>().map_err(|_| {
-                ApiError::validation(format!("decision_date must be YYYY-MM-DD, got {value:?}"))
+                ApiError::validation(format!(
+                    "The value {value:?} of decision_date is not a date. Send the date as \
+                     YYYY-MM-DD."
+                ))
             })
         })
         .transpose()?;
@@ -244,7 +247,9 @@ pub(crate) async fn update_adr(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }

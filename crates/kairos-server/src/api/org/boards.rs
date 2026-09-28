@@ -181,7 +181,9 @@ fn load_column_of_board(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no column {column_id} on board {board_id}")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!("The board {board_id} has no column {column_id}."))
+        })
 }
 
 /// Insert one `activity_log` row (same shape as the kairos-db services).
@@ -430,8 +432,11 @@ pub(crate) async fn update_board(
                 .transpose()
         })
         .transpose()?;
-    let nothing_to_update =
-        || ApiError::validation("The request has no field to change. Send name, slug, or the two.");
+    let nothing_to_update = || {
+        ApiError::validation(
+            "The request has no field to change. Send one or more of name, slug and team_id.",
+        )
+    };
     if body.name.is_none() && body.slug.is_none() && sent_team.is_none() {
         return Err(nothing_to_update());
     }
@@ -904,7 +909,8 @@ pub(crate) async fn update_column(
     let column_id = parse_uuid(&col_id, "col_id")?;
     if body.name.is_none() && body.position.is_none() && body.is_done.is_none() {
         return Err(ApiError::validation(
-            "at least one of name, position, is_done is required",
+            "The request has no field to change. Send one or more of name, position and \
+             is_done.",
         ));
     }
     let user = auth.user_id;
@@ -926,7 +932,7 @@ pub(crate) async fn update_column(
             if let Some(position) = body.position {
                 if position < 0 {
                     return Err(ApiError::validation(format!(
-                        "position must be >= 0, got {position}"
+                        "The position {position} is not correct. A position is 0 or more."
                     )));
                 }
                 let mut order: Vec<Uuid> = load_columns(conn, board_id)?
@@ -1109,7 +1115,9 @@ pub(crate) async fn remove_transition(
                 .optional()
                 .map_err(ApiError::internal)?;
             let edge = edge.ok_or_else(|| {
-                ApiError::not_found(format!("no transition {transition_id} on board {board_id}"))
+                ApiError::not_found(format!(
+                    "The board {board_id} has no transition {transition_id}."
+                ))
             })?;
             boards::remove_transition(conn, board_id, edge.from_column_id, edge.to_column_id, user)
                 .map_err(map_config_error)?;
@@ -1309,7 +1317,7 @@ pub(crate) async fn replace_capabilities(
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of board {board_id}"
+                    "The user {target} is not a member of the board {board_id}."
                 )));
             }
             let desired: BTreeSet<&str> = body.capabilities.iter().map(String::as_str).collect();
@@ -1363,7 +1371,7 @@ pub(crate) async fn remove_board_member(
             let current = capabilities_of(conn, board_id, target)?;
             if current.is_empty() {
                 return Err(ApiError::not_found(format!(
-                    "user {target} is not a member of board {board_id}"
+                    "The user {target} is not a member of the board {board_id}."
                 )));
             }
             for capability in &current {

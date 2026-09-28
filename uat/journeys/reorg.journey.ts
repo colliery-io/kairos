@@ -134,7 +134,7 @@ journey(
       const refused = await cli.run(['teams', 'delete', oldTeamId, '--confirm']);
       expect(refused.code).not.toBe(0);
       const said = `${refused.stderr}${refused.stdout}`;
-      expect(said).toContain('still owns');
+      expect(said).toContain('Give each repository to a different team');
       // The refusal names WHAT is in the way, which is the difference
       // between a guard and an obstacle.
       expect(said).toContain(repoSlug);

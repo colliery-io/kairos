@@ -249,8 +249,9 @@ pub(crate) async fn create_document(
 ) -> Result<(StatusCode, Json<dto::Document>), ApiError> {
     let parent_short_code = body.parent_short_code.clone().ok_or_else(|| {
         ApiError::validation(
-            "parent_short_code is required: documents attach to a strategy, initiative, \
-             or task via a supports edge (KAIROS-A-0006)",
+            "The request has no parent_short_code. A document must have a parent: a \
+             strategy, an initiative, or a task. A supports edge links the document to \
+             the parent (KAIROS-A-0006).",
         )
     })?;
     let template_id = parse_opt_uuid(body.template_id.as_deref(), "template_id")?;
@@ -263,7 +264,8 @@ pub(crate) async fn create_document(
                 resolve_short_code(conn, &parent_short_code, Liveness::LiveOnly)?.ok_or_else(
                     || {
                         ApiError::validation(format!(
-                            "parent_short_code {parent_short_code:?} does not name a live item"
+                            "The parent_short_code {parent_short_code:?} is not the short \
+                             code of a live item."
                         ))
                     },
                 )?;
@@ -272,8 +274,9 @@ pub(crate) async fn create_document(
                 ItemType::Strategy | ItemType::Initiative | ItemType::Task
             ) {
                 return Err(ApiError::validation(format!(
-                    "parent_short_code {parent_short_code:?} is a {parent_type}; documents \
-                     attach to a strategy, initiative, or task"
+                    "The item {parent_short_code:?} of parent_short_code has the type \
+                     {parent_type}. The parent of a document is a strategy, an \
+                     initiative, or a task."
                 )));
             }
             let board =
@@ -352,7 +355,9 @@ pub(crate) async fn update_document(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }

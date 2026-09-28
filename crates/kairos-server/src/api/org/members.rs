@@ -79,7 +79,7 @@ fn load_membership(
         .map_err(ApiError::internal)?
         .ok_or_else(|| {
             ApiError::not_found(format!(
-                "user {user_id} is not a member of this organization"
+                "The user {user_id} is not a member of this organization."
             ))
         })
 }
@@ -99,8 +99,8 @@ fn admin_count(conn: &mut PgConnection, org_id: Uuid) -> Result<i64, ApiError> {
 fn last_admin_error() -> ApiError {
     ApiError::unprocessable(
         "LAST_ADMIN",
-        "this organization must retain at least one admin; \
-         promote another member before demoting or removing this one",
+        "An organization must have one admin or more. Make a different member an admin. \
+         Then change or remove this member.",
     )
 }
 
@@ -221,8 +221,8 @@ pub(crate) async fn add_member(
                 .map_err(ApiError::internal)?;
             let target = target.ok_or_else(|| {
                 ApiError::not_found(format!(
-                    "no user with email {:?} exists yet; users are provisioned at first \
-                     login, so ask them to log in once, then add them",
+                    "No user has the email {:?}. The server makes a user at the first \
+                     login. Tell the person to log in one time. Then add the person.",
                     body.email
                 ))
             })?;
@@ -236,7 +236,7 @@ pub(crate) async fn add_member(
                 .map_err(|e| {
                     if is_unique_violation(&e) {
                         ApiError::conflict(format!(
-                            "{:?} is already a member of this organization",
+                            "{:?} is a member of this organization already.",
                             body.email
                         ))
                     } else {

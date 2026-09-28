@@ -242,8 +242,13 @@ pub(crate) async fn update_initiative(
                 new_content: &body.content,
                 expected_version: body.version,
             };
-            match items::update_item_content(conn, ItemType::Initiative, initiative.id, update, user)
-            {
+            match items::update_item_content(
+                conn,
+                ItemType::Initiative,
+                initiative.id,
+                update,
+                user,
+            ) {
                 Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
                 Err(items::ItemError::VersionConflict {
                     expected_version,
@@ -252,7 +257,9 @@ pub(crate) async fn update_initiative(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }

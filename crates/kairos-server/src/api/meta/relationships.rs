@@ -436,7 +436,8 @@ pub(crate) async fn create_relationship(
                     resolve_short_code(conn, &body.source_short_code, Liveness::LiveOnly)?
                         .ok_or_else(|| {
                             ApiError::validation(format!(
-                                "source_short_code {:?} does not name a live item",
+                                "The source_short_code {:?} is not the short code of a \
+                                 live item.",
                                 body.source_short_code
                             ))
                         })?;
@@ -444,7 +445,8 @@ pub(crate) async fn create_relationship(
                     resolve_short_code(conn, &body.target_short_code, Liveness::LiveOnly)?
                         .ok_or_else(|| {
                             ApiError::validation(format!(
-                                "target_short_code {:?} does not name a live item",
+                                "The target_short_code {:?} is not the short code of a \
+                                 live item.",
                                 body.target_short_code
                             ))
                         })?;
@@ -509,14 +511,20 @@ pub(crate) async fn delete_relationship(
                 .first(conn)
                 .optional()
                 .map_err(ApiError::internal)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
+                .ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
             // KAIROS-T-0111: removing an edge is gated exactly like writing
             // it. COLLIERY-T-0228: by the link rule. COLLIERY-T-0235: but
             // for the `supports` edge of a document.
-            let source_type = crate::api::resolve_item_type(conn, edge.source_id)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
-            let target_type = crate::api::resolve_item_type(conn, edge.target_id)?
-                .ok_or_else(|| ApiError::not_found(format!("no relationship {id} exists")))?;
+            let source_type =
+                crate::api::resolve_item_type(conn, edge.source_id)?.ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
+            let target_type =
+                crate::api::resolve_item_type(conn, edge.target_id)?.ok_or_else(|| {
+                    ApiError::not_found(format!("The relationship {id} does not exist."))
+                })?;
             // COLLIERY-T-0235: the rule of the remove and the delete, in
             // one transaction, by the ONE function that MCP
             // `unlink_items` calls.

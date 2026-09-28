@@ -1063,7 +1063,7 @@ async fn file_backlog_against_live_stack() {
         )
         .await;
     assert!(
-        is_error && text.contains("pass `board`"),
+        is_error && text.contains("Send `board`"),
         "a repository alone does not choose the board: {text}"
     );
     // No repository: the request is created (COLLIERY-T-0218). Until then

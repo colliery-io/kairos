@@ -41,7 +41,7 @@ pub fn AdminStreamsPage() -> impl IntoView {
             busy,
             outcome,
             reload,
-            format!("Delivery stream \"{n}\" created."),
+            format!("Kairos made the delivery stream \"{n}\"."),
             async move {
                 api::create_stream(auth, &n, &s, d.as_deref())
                     .await
@@ -51,17 +51,19 @@ pub fn AdminStreamsPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Delivery streams" sub="value streams and the teams feeding them"/>
+        <PageHeader title="Delivery streams" sub="The delivery streams, and the teams of \
+                                                  each stream."/>
         <Stack gap="md">
             <MutationNotice outcome/>
-            <Panel title="All streams" caption="expand a stream to manage its teams">
+            <Panel title="All streams" caption="Open a stream to manage its teams.">
                 {move || match streams.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="No delivery streams yet — create one below."/>
+                        <Empty message="The organization has no delivery streams. Make \
+                                        one below."/>
                     }.into_any(),
                     Some(Ok(items)) => items.into_iter().map(|stream| {
                         view! { <StreamRow stream busy outcome reload expanded/> }
@@ -114,7 +116,7 @@ fn StreamRow(
             busy,
             outcome,
             reload,
-            format!("Stream \"{n}\" updated."),
+            format!("Kairos changed the stream \"{n}\"."),
             async move {
                 api::update_stream(auth, &id, &n, &s, d.as_deref())
                     .await
@@ -129,7 +131,7 @@ fn StreamRow(
             busy,
             outcome,
             reload,
-            format!("Stream \"{deleted_name}\" deleted."),
+            format!("Kairos deleted the stream \"{deleted_name}\"."),
             async move { api::delete_stream(auth, &id).await.map(|_| ()) },
         );
     };
@@ -219,7 +221,7 @@ fn StreamTeamsPanel(
             });
         let Some(team_id) = team_id else {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Pick a team to add.".to_string(),
+                "Select a team.".to_string(),
             ))));
             return;
         };
@@ -228,7 +230,7 @@ fn StreamTeamsPanel(
             busy,
             outcome,
             reload,
-            format!("Team \"{slug}\" added to the stream."),
+            format!("Kairos added the team \"{slug}\" to the stream."),
             async move { api::add_stream_team(auth, &id, &team_id).await.map(|_| ()) },
         );
     };
@@ -241,7 +243,7 @@ fn StreamTeamsPanel(
                     <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                 }.into_any(),
                 Some(Ok(list)) if list.is_empty() => view! {
-                    <Empty message="No teams in this stream yet — add one below."/>
+                    <Empty message="This stream has no teams. Add one below."/>
                 }.into_any(),
                 Some(Ok(list)) => list.into_iter().map(|team| {
                     let team_id = StoredValue::new(team.id);
@@ -252,7 +254,7 @@ fn StreamTeamsPanel(
                         let team_name = team_name.clone();
                         run_mutation(
                             busy, outcome, reload,
-                            format!("Team \"{team_name}\" removed from the stream."),
+                            format!("Kairos removed the team \"{team_name}\" from the stream."),
                             async move {
                                 api::remove_stream_team(auth, &id, &team_id).await.map(|_| ())
                             },

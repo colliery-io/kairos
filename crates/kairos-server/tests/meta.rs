@@ -699,7 +699,7 @@ async fn meta_endpoints_against_live_stack() {
         } => {
             assert_eq!(*status, 422);
             assert!(
-                message.contains("does not apply to task items"),
+                message.contains("does not apply to an item of the type task"),
                 "{message}"
             );
         }

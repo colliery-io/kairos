@@ -1085,7 +1085,8 @@ mod tests {
         let full = serde_json::json!({
             "error": {
                 "code": "CONFLICT",
-                "message": "version mismatch: expected 2, current is 4",
+                "message": "The request has the version 2, and the current version is 4. \
+                            Get the item again, and make the edit on the current version.",
                 "details": { "current": {
                     "id": "x", "short_code": "DEMO-T-0002",
                     "title": "Their title", "content": "their content",
@@ -1103,7 +1104,7 @@ mod tests {
 
         let minimal = serde_json::json!({
             "error": {
-                "code": "CONFLICT", "message": "version mismatch",
+                "code": "CONFLICT", "message": "The request has the version 2.",
                 "details": { "current": {"version": 7, "title": "t", "content": "c"} }
             }
         });
@@ -1270,8 +1271,9 @@ mod tests {
         let blocked = serde_json::json!({
             "error": {
                 "code": "RESTORE_BLOCKED",
-                "message": "DEMO-S-0002 cannot be restored because its board column \
-                            (removed) is gone; move it somewhere that still exists",
+                "message": "The server cannot restore DEMO-S-0002. The item needs its board \
+                            column (removed). Move the item to a place that exists, or \
+                            first restore the thing that the item needs.",
                 "details": {"missing": ["its board column (removed)"]}
             }
         });

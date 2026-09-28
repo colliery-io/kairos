@@ -969,7 +969,7 @@ impl KairosMcp {
                     .map_err(ApiError::internal)?;
                 let (title, content) = snapshot.ok_or_else(|| {
                     ApiError::not_found(format!(
-                        "no history snapshot for {} at version {version}",
+                        "{} has no version {version} in its history.",
                         item.short_code
                     ))
                 })?;
@@ -1040,7 +1040,8 @@ impl KairosMcp {
                 "blocks" => kairos_db::models::enums::RelationshipType::Blocks,
                 other => {
                     return Err(ApiError::validation(format!(
-                        "only parent and blocks may be proposed, not {other:?}"
+                        "You can propose only a parent edge or a blocks edge. {other:?} \
+                         is not one of them."
                     )));
                 }
             };
@@ -1209,7 +1210,9 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             if params.search.is_empty() {
-                return Err(ApiError::validation("search must not be empty"));
+                return Err(ApiError::validation(
+                    "The argument search is empty. Send the text to find.",
+                ));
             }
             // One retry on a version race (S-0006 edit_item semantics):
             // the read-modify-write below re-reads on the second attempt.
@@ -1219,14 +1222,15 @@ impl KairosMcp {
                 let occurrences = item.content.matches(&params.search).count();
                 if occurrences == 0 {
                     return Err(ApiError::validation(format!(
-                        "search string not found in {} (version {})",
+                        "The text of search is not in {} (version {}).",
                         item.short_code, item.version
                     )));
                 }
                 if occurrences > 1 && !params.replace_all {
                     return Err(ApiError::validation(format!(
-                        "search string is ambiguous in {}: {occurrences} occurrences; \
-                         pass replace_all=true or a more specific search",
+                        "The text of search is in {} more than one time. The number of \
+                         times is {occurrences}. Send replace_all=true, or send a longer \
+                         text that is there one time.",
                         item.short_code
                     )));
                 }
@@ -1272,15 +1276,16 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
-                    "{} {} is not a task; only tasks live on per-team delivery boards. \
-                     Use transition_item to move an item between columns of its own board",
+                    "The {} {} is not a task. Only a task can move to a different \
+                     delivery board. Use transition_item to move an item between the \
+                     columns of its board.",
                     item.item_type, item.short_code
                 )));
             }
             let from_board_id = item.board_id.ok_or_else(|| {
                 ApiError::unprocessable(
                     "ITEM_NOT_ON_BOARD",
-                    format!("task {} is not placed on a board", item.short_code),
+                    format!("The task {} is not on a board.", item.short_code),
                 )
             })?;
             let target = board_by_ref(conn, &params.to_board)?;
@@ -1346,7 +1351,7 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
-                    "{} {} is not a task. set_repository applies to tasks only.",
+                    "The {} {} is not a task. set_repository applies to tasks only.",
                     item.item_type, item.short_code
                 )));
             }
@@ -1401,7 +1406,7 @@ impl KairosMcp {
                     return Err(ApiError::unprocessable(
                         "ITEM_NOT_ON_BOARD",
                         format!(
-                            "{} {} is not placed on a board, so it cannot be transitioned",
+                            "The {} {} is not on a board, so it cannot move between columns.",
                             item.item_type, item.short_code
                         ),
                     ));
@@ -1617,8 +1622,8 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             if !params.confirm {
                 return Err(ApiError::validation(
-                    "delete_item requires confirm=true: the delete soft-deletes the item \
-                     AND cascades to all descendants reachable via parent edges",
+                    "delete_item must have confirm=true. The delete archives the item and \
+                     each descendant that a parent edge connects to it.",
                 ));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
@@ -1659,7 +1664,7 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::IncludeArchived)?;
             if item.archived_at.is_none() {
                 return Err(ApiError::validation(format!(
-                    "{} is not archived; there is nothing to restore",
+                    "{} is not archived, so the server cannot restore it.",
                     item.short_code
                 )));
             }
@@ -1682,9 +1687,9 @@ impl KairosMcp {
                 Err(blocked) => Err(ApiError::unprocessable(
                     "RESTORE_BLOCKED",
                     format!(
-                        "{} cannot be restored because {} is gone; move it \
-                         somewhere that still exists, or restore what it needs \
-                         first",
+                        "The server cannot restore {}. The item needs {}. Move the item \
+                         to a place that exists, or first restore the thing that the item \
+                         needs.",
                         item.short_code,
                         blocked.missing.join(" and ")
                     ),
@@ -1747,10 +1752,10 @@ fn load_item(
 
     let missing = || match liveness {
         Liveness::LiveOnly => {
-            ApiError::not_found(format!("no live item with short code {short_code:?}"))
+            ApiError::not_found(format!("No live item has the short code {short_code:?}."))
         }
         Liveness::IncludeArchived => {
-            ApiError::not_found(format!("no item with short code {short_code:?}"))
+            ApiError::not_found(format!("No item has the short code {short_code:?}."))
         }
     };
     let (id, item_type) = resolve_short_code(conn, short_code, liveness)?.ok_or_else(missing)?;
@@ -2016,7 +2021,11 @@ fn board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiEr
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "No live board has the slug or the id {reference:?}."
+            ))
+        })
 }
 
 /// Resolve a team by UUID or slug; 422 otherwise (a filter value).
@@ -2038,7 +2047,12 @@ fn team_by_ref(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::validation(format!("team {reference:?} does not exist")))
+        .ok_or_else(|| {
+            ApiError::validation(format!(
+                "The team {reference:?} is not in the organization. Send the id or the \
+                 slug of a team of the organization."
+            ))
+        })
 }
 
 /// A board row by id (must exist — callers hold a FK to it).
@@ -2136,7 +2150,7 @@ fn resolve_column(columns: &[BoardColumn], reference: &str) -> Result<Uuid, ApiE
     }
     let names: Vec<&str> = columns.iter().map(|c| c.name.as_str()).collect();
     Err(ApiError::validation(format!(
-        "no column {reference:?} on this board; columns are [{}]",
+        "This board has no column {reference:?}. The columns are: {}.",
         names.join(", ")
     )))
 }
@@ -2410,7 +2424,9 @@ fn require_live_typed(
     field: &str,
 ) -> Result<(Uuid, ItemType), ApiError> {
     resolve_short_code(conn, short_code, Liveness::LiveOnly)?.ok_or_else(|| {
-        ApiError::validation(format!("{field} {short_code:?} does not name a live item"))
+        ApiError::validation(format!(
+            "The {field} {short_code:?} is not the short code of a live item."
+        ))
     })
 }
 
@@ -2607,7 +2623,8 @@ fn map_update_error(
         } => {
             let _ = conn; // the typed error already carries the current row
             Ok(ApiError::conflict(format!(
-                "version mismatch on {}: expected {expected_version}, current is {current_version}",
+                "The call has the version {expected_version} of {}, and the current \
+                 version is {current_version}. Make the edit on the current version.",
                 item.short_code
             ))
             .with_details(json!({
@@ -2676,12 +2693,12 @@ fn default_board_for(conn: &mut PgConnection, level: BoardLevel) -> Result<Board
     match candidates.len() {
         1 => Ok(candidates.into_iter().next().expect("len checked")),
         0 => Err(ApiError::validation(format!(
-            "no live {level} board exists; pass `board`"
+            "The organization has no live {level} board. Make the board, or send `board`."
         ))),
         _ => {
             let slugs: Vec<&str> = candidates.iter().map(|b| b.slug.as_str()).collect();
             Err(ApiError::validation(format!(
-                "multiple {level} boards exist; pass `board` as one of [{}]",
+                "The organization has more than one {level} board. Send `board` as one of: {}.",
                 slugs.join(", ")
             )))
         }
@@ -2714,10 +2731,11 @@ fn resolve_template(conn: &mut PgConnection, reference: &str) -> Result<Uuid, Ap
     match by_name.len() {
         1 => Ok(by_name.into_iter().next().expect("len checked").id),
         0 => Err(ApiError::validation(format!(
-            "no template {reference:?} (id, slug, or name)"
+            "No template has the id, the slug or the name {reference:?}."
         ))),
         _ => Err(ApiError::validation(format!(
-            "template name {reference:?} is ambiguous; pass its id or slug"
+            "More than one template has the name {reference:?}. Send the id or the slug \
+             of the template."
         ))),
     }
 }
@@ -2732,7 +2750,8 @@ fn reject_field(
 ) -> Result<(), ApiError> {
     match value {
         Some(_) => Err(ApiError::validation(format!(
-            "{field} applies to {applies_to}, not {item_type}"
+            "{field} applies to {applies_to}. It does not apply to an item of the type \
+             {item_type}."
         ))),
         None => Ok(()),
     }
@@ -2764,8 +2783,8 @@ fn create_item_impl(
         "adr" => ItemType::Adr,
         other => {
             return Err(ApiError::validation(format!(
-                "item_type must be one of [strategy, initiative, task, document, adr], \
-                 got {other:?}"
+                "{other:?} is not an item type. The item types are: strategy, initiative, \
+                 task, document, adr."
             )));
         }
     };
@@ -2820,21 +2839,24 @@ fn create_item_impl(
     if item_type == ItemType::Document {
         let parent_code = params.parent.as_deref().ok_or_else(|| {
             ApiError::validation(
-                "documents require `parent` (a strategy, initiative, or task short code); \
-                 the document is attached via a supports edge",
+                "The call has no `parent`. A document must have a parent: the short code \
+                 of a strategy, an initiative, or a task. A supports edge links the \
+                 document to the parent.",
             )
         })?;
         let (parent_id, parent_type) = resolve_short_code(conn, parent_code, Liveness::LiveOnly)?
             .ok_or_else(|| {
-            ApiError::validation(format!("parent {parent_code:?} does not name a live item"))
+            ApiError::validation(format!(
+                "The parent {parent_code:?} is not the short code of a live item."
+            ))
         })?;
         if !matches!(
             parent_type,
             ItemType::Strategy | ItemType::Initiative | ItemType::Task
         ) {
             return Err(ApiError::validation(format!(
-                "parent {parent_code:?} is a {parent_type}; documents attach to a \
-                 strategy, initiative, or task"
+                "The parent {parent_code:?} has the type {parent_type}. The parent of a \
+                 document is a strategy, an initiative, or a task."
             )));
         }
         let board = abac::resolve_authorization_board(conn, parent_id).map_err(map_abac_error)?;
@@ -2971,7 +2993,7 @@ fn create_item_impl(
             let (parent_id, parent_type) =
                 resolve_short_code(conn, parent_code, Liveness::LiveOnly)?.ok_or_else(|| {
                     ApiError::validation(format!(
-                        "parent {parent_code:?} does not name a live item"
+                        "The parent {parent_code:?} is not the short code of a live item."
                     ))
                 })?;
             let relationship = if item_type == ItemType::Adr {
@@ -3061,7 +3083,8 @@ fn create_item_impl(
                 .map(|value| {
                     value.parse::<chrono::NaiveDate>().map_err(|_| {
                         ApiError::validation(format!(
-                            "decision_date must be YYYY-MM-DD, got {value:?}"
+                            "The value {value:?} of decision_date is not a date. Send the \
+                             date as YYYY-MM-DD."
                         ))
                     })
                 })
@@ -3120,8 +3143,12 @@ fn field_invalid(field: &str, message: impl Into<String>) -> ApiError {
 }
 
 fn uuid_field(value: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value)
-        .map_err(|_| field_invalid(field, format!("{field} must be a UUID, got {value:?}")))
+    Uuid::parse_str(value).map_err(|_| {
+        field_invalid(
+            field,
+            format!("The value {value:?} of {field} is not a UUID."),
+        )
+    })
 }
 
 fn timestamp_field(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError> {
@@ -3130,7 +3157,10 @@ fn timestamp_field(value: &str, field: &str) -> Result<DateTime<Utc>, ApiError> 
         .map_err(|_| {
             field_invalid(
                 field,
-                format!("{field} must be an RFC 3339 timestamp, got {value:?}"),
+                format!(
+                    "The value {value:?} of {field} is not a timestamp. Send an RFC 3339 \
+                     timestamp."
+                ),
             )
         })
 }
@@ -3145,7 +3175,7 @@ fn enum_field<T: serde::de::DeserializeOwned>(
     serde_json::from_value(json!(value)).map_err(|_| {
         field_invalid(
             field,
-            format!("{field} must be one of [{allowed}], got {value:?}"),
+            format!("The value {value:?} is not a value of {field}. The values are: {allowed}."),
         )
     })
 }
@@ -3323,9 +3353,9 @@ fn search_to_core(params: &SearchParams) -> Result<core_search::SearchRequest, A
 fn map_search_error(e: SearchError) -> ApiError {
     match e {
         SearchError::Invalid(e) => ApiError::validation(e.to_string()),
-        SearchError::TraverseRootNotFound { reference } => {
-            ApiError::not_found(format!("traverse root {reference:?} does not exist"))
-        }
+        SearchError::TraverseRootNotFound { reference } => ApiError::not_found(format!(
+            "The item {reference:?} of traverse.from does not exist."
+        )),
         SearchError::Database(e) => ApiError::internal(e),
     }
 }

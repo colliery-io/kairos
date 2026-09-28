@@ -73,8 +73,8 @@ fn require_deployment_admin(state: &AppState, auth: &AuthContext) -> Result<(), 
         Ok(())
     } else {
         Err(ApiError::forbidden(
-            "this action requires deployment-admin privileges \
-             (the caller's OIDC sub must be listed in KAIROS_DEPLOYMENT_ADMINS)",
+            "This action requires a deployment admin. The OIDC sub of the caller must be \
+             in KAIROS_DEPLOYMENT_ADMINS.",
         )
         .with_details(serde_json::json!({ "required": "deployment_admin" })))
     }
@@ -102,19 +102,21 @@ where
 fn map_tenant_error(e: TenantError) -> ApiError {
     match e {
         TenantError::InvalidSlug(slug) => ApiError::validation(format!(
-            "invalid tenant slug {slug:?}: must match ^[a-z][a-z0-9_-]{{1,62}}$"
+            "The tenant slug {slug:?} is not correct. A tenant slug must match \
+             ^[a-z][a-z0-9_-]{{1,62}}$."
         )),
         TenantError::AlreadyExists(slug) => {
-            ApiError::conflict(format!("tenant {slug:?} already exists"))
+            ApiError::conflict(format!("The tenant {slug:?} exists already."))
         }
         TenantError::NotFound(slug) => {
-            ApiError::not_found(format!("tenant {slug:?} does not exist"))
+            ApiError::not_found(format!("The tenant {slug:?} does not exist."))
         }
         TenantError::ConfirmationRequired(slug) => ApiError::unprocessable(
             "CONFIRMATION_REQUIRED",
             format!(
-                "dropping tenant {slug:?} is destructive and unrecoverable; \
-                 repeat the request with ?confirm=true"
+                "The delete of the tenant {slug:?} removes all its data, and you cannot \
+                 get the data back. To delete the tenant, send the request again with \
+                 ?confirm=true."
             ),
         ),
         e @ (TenantError::Migration { .. } | TenantError::Board(_) | TenantError::Database(_)) => {
@@ -162,9 +164,9 @@ pub(crate) async fn create_tenant(
             .map_err(ApiError::internal)?;
         let admin = admin.ok_or_else(|| {
             ApiError::validation(format!(
-                "no user with external_id {admin_sub:?} exists yet; users are \
-                 provisioned at first login, so the initial admin must authenticate \
-                 once first"
+                "No user has the external_id {admin_sub:?}. The server makes a user at \
+                 the first login. The first admin must log in one time. Then send this \
+                 request again."
             ))
         })?;
 

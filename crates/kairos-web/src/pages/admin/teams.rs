@@ -68,15 +68,16 @@ pub fn AdminTeamsPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Teams" sub="each team owns a delivery board"/>
+        <PageHeader title="Teams" sub="Each team has a delivery board."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             {move || created.get().map(|team| view! {
-                <Alert title="Team created" color=token::OK>
+                <Alert title="New team" color=token::OK>
                     <Stack gap="xs">
                         <Text size="sm">
                             {format!(
-                                "\"{}\" is ready — its delivery board \"{}-delivery\" was created with it.",
+                                "The team \"{}\" is ready. Kairos made its delivery board \
+                                 \"{}-delivery\" with it.",
                                 team.name, team.slug
                             )}
                         </Text>
@@ -94,14 +95,15 @@ pub fn AdminTeamsPage() -> impl IntoView {
                     </Stack>
                 </Alert>
             })}
-            <Panel title="All teams" caption="expand a team to manage its members">
+            <Panel title="All teams" caption="Open a team to manage its members.">
                 {move || match teams.get() {
                     None => view! { <Loading/> }.into_any(),
                     Some(Err(error)) => view! {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="No teams yet — create one below (its delivery board comes with it)."/>
+                        <Empty message="The organization has no teams. Make one below. \
+                                        Kairos makes its delivery board with it."/>
                     }.into_any(),
                     Some(Ok(items)) => items.into_iter().map(|team| {
                         view! { <TeamRow team busy outcome reload expanded/> }
@@ -109,7 +111,8 @@ pub fn AdminTeamsPage() -> impl IntoView {
                 }}
             </Panel>
             <Panel title="Create team"
-                caption="also creates the team's delivery board from the system defaults">
+                caption="Kairos also makes the delivery board of the team, from the \
+                         system defaults.">
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Payments"/>
@@ -158,7 +161,7 @@ fn TeamRow(
             busy,
             outcome,
             reload,
-            format!("Team \"{n}\" updated."),
+            format!("Kairos changed the team \"{n}\"."),
             async move { api::update_team(auth, &id, &n, &s, &t).await.map(|_| ()) },
         );
     };
@@ -169,7 +172,7 @@ fn TeamRow(
             busy,
             outcome,
             reload,
-            format!("Team \"{deleted_name}\" deleted."),
+            format!("Kairos deleted the team \"{deleted_name}\"."),
             async move { api::delete_team(auth, &id).await.map(|_| ()) },
         );
     };
@@ -261,7 +264,7 @@ fn TeamMembersPanel(
             });
         let Some(user_id) = user_id else {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
-                "Pick an organization member to add.".to_string(),
+                "Select a member of the organization.".to_string(),
             ))));
             return;
         };
@@ -270,7 +273,7 @@ fn TeamMembersPanel(
             busy,
             outcome,
             reload,
-            format!("{email} added to the team."),
+            format!("Kairos added {email} to the team."),
             async move { api::add_team_member(auth, &id, &user_id).await.map(|_| ()) },
         );
     };
@@ -283,7 +286,7 @@ fn TeamMembersPanel(
                     <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                 }.into_any(),
                 Some(Ok(list)) if list.is_empty() => view! {
-                    <Empty message="No members yet — add one below."/>
+                    <Empty message="This team has no members. Add one below."/>
                 }.into_any(),
                 Some(Ok(list)) => list.into_iter().map(|member| {
                     let user_id = StoredValue::new(member.user_id);
@@ -294,7 +297,7 @@ fn TeamMembersPanel(
                         let email = email.clone();
                         run_mutation(
                             busy, outcome, reload,
-                            format!("{email} removed from the team."),
+                            format!("Kairos removed {email} from the team."),
                             async move {
                                 api::remove_team_member(auth, &id, &user_id).await.map(|_| ())
                             },

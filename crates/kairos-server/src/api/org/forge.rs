@@ -58,17 +58,18 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn map_error(e: ForgeError) -> ApiError {
     match e {
         ForgeError::ConnectionNotFound(id) => {
-            ApiError::not_found(format!("no live forge connection {id} exists"))
+            ApiError::not_found(format!("No live forge connection has the id {id}."))
         }
-        ForgeError::RepoAlreadyConnected { repo } => {
-            ApiError::conflict(format!("repository {repo:?} already has a live connection"))
-        }
+        ForgeError::RepoAlreadyConnected { repo } => ApiError::conflict(format!(
+            "The repository {repo:?} has a live connection already."
+        )),
         ForgeError::Repository(e) => super::repositories::map_error(e),
         ForgeError::ForgeMismatch {
             connection,
             repository,
         } => ApiError::validation(format!(
-            "connection forge {connection} does not match the repository's forge {repository}"
+            "The forge {connection} of the connection is not the forge {repository} of \
+             the repository."
         )),
         ForgeError::Database(e) => ApiError::internal(e),
     }
@@ -91,9 +92,8 @@ fn signing_key(state: &AppState) -> Result<String, ApiError> {
         ApiError::new(
             StatusCode::NOT_IMPLEMENTED,
             "FORGE_NOT_CONFIGURED",
-            "this deployment has no KAIROS_WEBHOOK_SIGNING_KEY set, so forge \
-             webhooks cannot be verified; set it and restart to enable the \
-             integration",
+            "This deployment has no KAIROS_WEBHOOK_SIGNING_KEY, so the server cannot \
+             verify the webhooks of a forge. Set the variable, and start the server again.",
         )
     })
 }
@@ -105,8 +105,8 @@ fn public_url(state: &AppState) -> Result<String, ApiError> {
         ApiError::new(
             StatusCode::NOT_IMPLEMENTED,
             "PUBLIC_URL_NOT_CONFIGURED",
-            "this deployment has no KAIROS_PUBLIC_URL set, so it cannot state \
-             the externally reachable webhook URL; set it and restart",
+            "This deployment has no KAIROS_PUBLIC_URL, so the server cannot give the URL \
+             of the webhook. Set the variable, and start the server again.",
         )
     })
 }
@@ -212,8 +212,8 @@ pub(crate) async fn create_connection(
                 repositories::resolve(conn, &body.repository).map_err(map_repo_error)?;
             if matches!(repository.forge, Forge::Other) {
                 return Err(ApiError::validation(format!(
-                    "repository {} has forge 'other': only github and gitlab repositories \
-                     can receive webhooks",
+                    "The repository {} has the forge `other`. Only a github repository or \
+                     a gitlab repository can receive webhooks.",
                     repository.slug
                 )));
             }

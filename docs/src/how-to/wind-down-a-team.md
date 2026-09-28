@@ -22,8 +22,8 @@ kairos teams delete <team-id> --confirm
 ```
 
 ```text
-409 — team "Mobile" still owns 1 repository: [payments-api];
-re-home them before removing the team
+409 — The team "Mobile" has 1 repository: [payments-api]. Give each
+repository to a different team. Then delete the team.
 ```
 
 The message lists the repositories by slug, and `details.repositories` carries

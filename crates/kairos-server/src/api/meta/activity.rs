@@ -67,7 +67,8 @@ pub(crate) async fn get_activity(
                 .map(|parsed| parsed.with_timezone(&Utc))
                 .map_err(|_| {
                     ApiError::validation(format!(
-                        "since must be an RFC 3339 timestamp, got {value:?}"
+                        "The value {value:?} of since is not a timestamp. Send an RFC \
+                         3339 timestamp."
                     ))
                 })
         })

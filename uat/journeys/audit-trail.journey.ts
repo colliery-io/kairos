@@ -80,7 +80,7 @@ journey(
       });
       expect(refusal).toContain('CONFLICT');
       expect(refusal).toContain('Archive to S3 first.');
-      const currentVersion = Number(refusal.match(/current is (\d+)/)?.[1] ?? '0');
+      const currentVersion = Number(refusal.match(/the current version is (\d+)/)?.[1] ?? '0');
       expect(currentVersion).toBeGreaterThan(goodVersion);
       return { refused_at: goodVersion, current_version: currentVersion, carried_current_content: true };
     });

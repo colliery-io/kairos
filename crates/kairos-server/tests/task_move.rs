@@ -198,7 +198,7 @@ async fn task_move_and_team_deletion_against_live_stack() {
     // ========================================================================
     let err = rejection(svc.move_task(&task.short_code, &platform_board).await);
     assert!(
-        unprocessable(&err, "SAME_BOARD").contains("already on board"),
+        unprocessable(&err, "SAME_BOARD").contains("is on the board"),
         "{err}"
     );
     let err = rejection(svc.move_task(&task.short_code, "initiatives").await);

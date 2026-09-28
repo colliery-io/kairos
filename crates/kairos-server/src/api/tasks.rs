@@ -427,7 +427,9 @@ pub(crate) async fn update_task(
                 }) => {
                     let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
                     Err(ApiError::conflict(format!(
-                        "version mismatch: expected {expected_version}, current is {current_version}"
+                        "The request has the version {expected_version}, and the current \
+                         version is {current_version}. Get the item again, and make the \
+                         edit on the current version."
                     ))
                     .with_details(json!({ "current": current })))
                 }

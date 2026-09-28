@@ -44,7 +44,7 @@ pub fn router() -> Router<AppState> {
 pub(crate) fn map_proposal_error(e: kairos_db::proposals::ProposalError) -> ApiError {
     use kairos_db::proposals::ProposalError as P;
     match e {
-        P::NotFound(id) => ApiError::not_found(format!("edge proposal {id} does not exist")),
+        P::NotFound(id) => ApiError::not_found(format!("The edge proposal {id} does not exist.")),
         // Not a failure the caller should retry around: the work was done.
         P::AlreadyPending => ApiError::conflict(e.to_string()),
         P::AlreadyDecided { .. } => ApiError::conflict(e.to_string()),

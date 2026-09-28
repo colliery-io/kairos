@@ -72,7 +72,7 @@ pub(crate) async fn get_history(
                     .map_err(ApiError::internal)?
                     .ok_or_else(|| {
                         ApiError::not_found(format!(
-                            "no history snapshot for {short_code} at version {version}"
+                            "{short_code} has no version {version} in its history."
                         ))
                     })?;
                 let snapshot: dto::HistorySnapshot = snapshot.into_dto();

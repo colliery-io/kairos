@@ -83,9 +83,9 @@ pub(crate) async fn restore_item(
                 Err(blocked) => Err(ApiError::unprocessable(
                     "RESTORE_BLOCKED",
                     format!(
-                        "{short_code} cannot be restored because {} is gone; \
-                         move it somewhere that still exists, or restore what \
-                         it needs first",
+                        "The server cannot restore {short_code}. The item needs {}. Move \
+                         the item to a place that exists, or first restore the thing that \
+                         the item needs.",
                         blocked.missing.join(" and ")
                     ),
                 )

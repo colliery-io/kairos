@@ -57,7 +57,7 @@ fn require_team(conn: &mut PgConnection, team_id: Uuid) -> Result<(), ApiError> 
         .map_err(ApiError::internal)?;
     exists
         .map(|_| ())
-        .ok_or_else(|| ApiError::not_found(format!("no team {team_id} exists")))
+        .ok_or_else(|| ApiError::not_found(format!("The team {team_id} does not exist.")))
 }
 
 /// Team-page writes require team membership or org admin (the
@@ -83,7 +83,8 @@ fn require_team_member_or_admin(
         ApiError::new(
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
-            "editing this team's pages requires team membership (or org admin)",
+            "Only a member of the team or an organization admin can edit the pages of \
+             this team.",
         )
     })
 }
@@ -118,28 +119,30 @@ fn log_page_activity(
 fn map_page_error(e: TeamPageError) -> ApiError {
     match e {
         TeamPageError::PageNotFound(id) => {
-            ApiError::not_found(format!("no live team page {id} exists"))
+            ApiError::not_found(format!("No live team page has the id {id}."))
         }
         TeamPageError::SlugConflict(slug) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "SLUG_CONFLICT",
-            format!("a sibling with slug {slug:?} already exists"),
+            format!("A page in the same folder has the slug {slug:?} already."),
         ),
-        TeamPageError::BadParent(id) => {
-            ApiError::validation(format!("parent {id} is not a live folder of this team"))
-        }
+        TeamPageError::BadParent(id) => ApiError::validation(format!(
+            "The parent {id} is not a live folder of this team."
+        )),
         TeamPageError::ProtectedPage(id) => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "PROTECTED_PAGE",
             format!(
-                "page {id} is protected (the Charter): it cannot be renamed, moved, or deleted"
+                "The page {id} is the Charter. You cannot change its slug, move it, or \
+                 delete it."
             ),
         ),
         TeamPageError::FolderNotEmpty { folder, children } => ApiError::new(
             StatusCode::UNPROCESSABLE_ENTITY,
             "FOLDER_NOT_EMPTY",
             format!(
-                "folder {folder} still contains {children} live page(s); move or delete them first"
+                "The folder {folder} has live pages. The number of live pages is \
+                 {children}. Move or delete each page. Then delete the folder."
             ),
         ),
         TeamPageError::VersionConflict {
@@ -149,7 +152,9 @@ fn map_page_error(e: TeamPageError) -> ApiError {
             current_content,
             ..
         } => ApiError::conflict(format!(
-            "version mismatch: expected {expected_version}, current is {current_version}"
+            "The request has the version {expected_version}, and the current version is \
+             {current_version}. Get the page again, and make the edit on the current \
+             version."
         ))
         .with_details(json!({
             "current": {
@@ -159,7 +164,7 @@ fn map_page_error(e: TeamPageError) -> ApiError {
             }
         })),
         TeamPageError::ContentTooLarge { actual } => ApiError::validation(format!(
-            "content is {actual} bytes; the limit is {} bytes",
+            "The content has {actual} bytes. The limit is {} bytes.",
             team_pages::MAX_CONTENT_BYTES
         )),
         TeamPageError::Database(e) => ApiError::internal(e),
@@ -348,18 +353,21 @@ pub(crate) async fn update_page(
         || body.position.is_some();
     if is_content_edit && is_structure_edit {
         return Err(ApiError::validation(
-            "a content edit (content/version) and a rename/move (slug/parent_id/position) \
-             cannot be combined in one call",
+            "One request cannot edit the content and move the page. Send content and \
+             version in one request. Send slug, parent_id, move_to_root or position in a \
+             different request.",
         ));
     }
     if !is_content_edit && !is_structure_edit {
         return Err(ApiError::validation(
-            "nothing to do: provide content (+version) or slug/parent_id/move_to_root/position",
+            "The request has no field to change. Send content and version, or send one or \
+             more of slug, parent_id, move_to_root and position.",
         ));
     }
     if is_content_edit && body.version.is_none() {
         return Err(ApiError::validation(
-            "content edits are version-checked: version is required",
+            "The request has content and no version. An edit of the content must have the \
+             version.",
         ));
     }
     let new_parent = if body.move_to_root {
@@ -505,7 +513,7 @@ pub(crate) async fn create_announcement(
     let team_id = parse_uuid(&id, "id")?;
     if body.body.len() > team_pages::MAX_CONTENT_BYTES {
         return Err(ApiError::validation(format!(
-            "body is {} bytes; the limit is {} bytes",
+            "The body has {} bytes. The limit is {} bytes.",
             body.body.len(),
             team_pages::MAX_CONTENT_BYTES
         )));
@@ -582,14 +590,15 @@ pub(crate) async fn delete_announcement(
                 .map_err(ApiError::internal)?;
             let Some(author) = author else {
                 return Err(ApiError::not_found(format!(
-                    "no announcement {announcement_uuid} exists on this team"
+                    "This team has no announcement {announcement_uuid}."
                 )));
             };
             if author != user && !is_admin {
                 return Err(ApiError::new(
                     StatusCode::FORBIDDEN,
                     "FORBIDDEN",
-                    "announcements can be deleted by their author or an org admin",
+                    "Only the author of an announcement or an organization admin can \
+                     delete it.",
                 ));
             }
             diesel::delete(dsl::team_announcements.filter(dsl::id.eq(announcement_uuid)))

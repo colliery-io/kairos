@@ -11,7 +11,7 @@ Every `/api` error has the same shape:
 {
   "error": {
     "code": "RESTORE_BLOCKED",
-    "message": "DEMO-T-0012 cannot be restored because its board column (removed) is gone; …",
+    "message": "The server cannot restore DEMO-T-0012. The item needs its board column (removed). …",
     "details": { "missing": ["its board column (removed)"] }
   }
 }

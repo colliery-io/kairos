@@ -214,7 +214,7 @@ journey(
       });
       await row.getByRole('button', { name: 'Remove field', exact: true }).click();
       await row.getByRole('button', { name: 'Save template', exact: true }).click();
-      await expect(page.getByText(`Template "UAT Support request" updated.`)).toBeVisible({
+      await expect(page.getByText(`Kairos changed the template "UAT Support request".`)).toBeVisible({
         timeout: 15_000,
       });
       const detail = await api.get(`/api/templates/${templateId}`);

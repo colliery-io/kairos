@@ -605,7 +605,7 @@ async fn entity_endpoints_against_live_stack() {
             // UUIDs, and should — it is telling the reader both forms are
             // accepted, which is the opposite of sending them to look one up.
             assert!(
-                message.contains("slug or UUID"),
+                message.contains("the slug or the id"),
                 "the refusal should say both forms are accepted: {message}"
             );
         }

@@ -132,8 +132,8 @@ pub fn resolve_family_item(
 ) -> Result<(Uuid, ItemType), ApiError> {
     let item_type = item_type_of_family(family).ok_or_else(|| {
         ApiError::not_found(format!(
-            "unknown entity family {family:?}; expected one of \
-             strategies, initiatives, tasks, documents, adrs"
+            "{family:?} is not an entity family. The entity families are: strategies, \
+             initiatives, tasks, documents, adrs."
         ))
     })?;
     resolve_short_code(conn, short_code, liveness)?
@@ -171,8 +171,8 @@ pub fn validate_metadata_value(
             .map(|_| ())
             .map_err(|_| {
                 ApiError::validation(format!(
-                    "metadata {:?} is a date field; {value:?} is not a valid \
-                     YYYY-MM-DD date",
+                    "The metadata {:?} is a date. The value {value:?} is not a date. Send \
+                     the date as YYYY-MM-DD.",
                     definition.slug
                 ))
             }),
@@ -182,7 +182,8 @@ pub fn validate_metadata_value(
                 Ok(())
             } else {
                 Err(ApiError::validation(format!(
-                    "metadata {:?} must be one of [{}], got {value:?}",
+                    "The value {value:?} is not a value of the metadata {:?}. The values \
+                     are: {}.",
                     definition.slug,
                     allowed.join(", ")
                 )))
@@ -224,7 +225,7 @@ pub fn validated_metadata_ops(
             .map_err(ApiError::internal)?
             .ok_or_else(|| {
                 ApiError::validation(format!(
-                    "unknown metadata definition slug {definition_slug:?}"
+                    "No metadata definition has the slug {definition_slug:?}."
                 ))
             })?;
 
@@ -242,7 +243,8 @@ pub fn validated_metadata_ops(
             .map_err(ApiError::internal)?
         {
             return Err(ApiError::validation(format!(
-                "metadata definition {definition_slug:?} does not apply to {} items",
+                "The metadata definition {definition_slug:?} does not apply to an item of \
+                 the type {}.",
                 item_type.entity_type()
             )));
         }

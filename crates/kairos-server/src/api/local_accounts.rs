@@ -169,7 +169,7 @@ pub async fn create_local_account(
     let email = body.email.trim().to_lowercase();
     if email.is_empty() || !email.contains('@') {
         return Err(ApiError::validation(
-            "email must be an address; it is the login identifier",
+            "The email is not an address. A person uses the email to log in.",
         ));
     }
     let display_name = body
@@ -199,8 +199,8 @@ pub async fn create_local_account(
             // password would make it a person that nobody is.
             if user.is_service_account() {
                 return Err(ApiError::conflict(format!(
-                    "{email:?} is a service account; service accounts authenticate \
-                     with API keys, not passwords"
+                    "{email:?} is a service account. A service account uses an API key, \
+                     and it has no password."
                 )));
             }
 
@@ -397,5 +397,7 @@ fn require_member_of(
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?;
-    row.ok_or_else(|| ApiError::not_found(format!("no user {user_id} in this organization")))
+    row.ok_or_else(|| {
+        ApiError::not_found(format!("The user {user_id} is not in this organization."))
+    })
 }

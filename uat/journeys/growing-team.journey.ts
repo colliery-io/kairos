@@ -73,7 +73,7 @@ journey(
       // Identities are JIT-provisioned at first login, so "add the person"
       // is always second: the product says so instead of inventing a row.
       const said = `${result.stderr}${result.stdout}`;
-      expect(said).toContain('log in once');
+      expect(said).toContain('log in one time');
       return { email, exit_code: result.code, told: said.replace(/\s+/g, ' ').trim().slice(0, 140) };
     });
 
@@ -139,7 +139,7 @@ journey(
           .locator('.cl-switch').first().click();
       }
       await members.getByRole('button', { name: 'Add member with grants' }).click();
-      await expect(page.getByText(`${joiner.credentials.email} added with`)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(`Kairos added ${joiner.credentials.email} with`)).toBeVisible({ timeout: 10_000 });
       const api = await alice.api();
       ledger.add({
         kind: 'board-grant',

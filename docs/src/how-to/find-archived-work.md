@@ -97,7 +97,7 @@ put it away too, ask a person who can edit it.
 ## When a restore is refused
 
 A write to put-away work is refused as if the item were not there — `NOT_FOUND`,
-with the message `no live item with short code …`. That is the read-only rule,
+with the message `No live item has the short code …`. That is the read-only rule,
 not a missing item; read it, or restore it first.
 
 A restore itself is refused with 422 `RESTORE_BLOCKED` when the item's **board,

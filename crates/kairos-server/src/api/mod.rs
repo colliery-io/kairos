@@ -119,7 +119,7 @@ pub fn clamp_list(query: &dto::ListQuery) -> (i64, i64, Liveness) {
 /// crate carries ids as strings, see `kairos_client::types`).
 pub fn parse_uuid(value: &str, field: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value)
-        .map_err(|_| ApiError::validation(format!("{field} must be a UUID, got {value:?}")))
+        .map_err(|_| ApiError::validation(format!("The value {value:?} of {field} is not a UUID.")))
 }
 
 /// [`parse_uuid`] over an optional field.
@@ -158,7 +158,11 @@ pub fn board_id_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Uuid,
         .first(conn)
         .optional()
         .map_err(ApiError::internal)?
-        .ok_or_else(|| ApiError::not_found(format!("no live board {reference:?} (slug or UUID)")))
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "No live board has the slug or the id {reference:?}."
+            ))
+        })
 }
 
 /// [`board_id_by_ref`] for an optional reference.
@@ -178,7 +182,7 @@ where
     value.parse::<T>().map_err(|_| {
         let allowed: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
         ApiError::validation(format!(
-            "{field} must be one of [{}], got {value:?}",
+            "The value {value:?} is not a value of {field}. The values are: {}.",
             allowed.join(", ")
         ))
     })
@@ -739,7 +743,9 @@ pub fn resolve_item_type(conn: &mut PgConnection, id: Uuid) -> Result<Option<Ite
 /// work, so a 404 now means the code is unknown outright — claiming
 /// otherwise would send someone looking for an item that never existed.
 pub fn short_code_not_found(entity_type: &str, short_code: &str) -> ApiError {
-    ApiError::not_found(format!("no {entity_type} with short code {short_code:?}"))
+    ApiError::not_found(format!(
+        "No {entity_type} has the short code {short_code:?}."
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -760,10 +766,10 @@ pub fn map_abac_error(e: AbacError) -> ApiError {
 pub fn map_item_error(e: ItemError) -> ApiError {
     match e {
         ItemError::ItemNotFound { entity_type, id } => {
-            ApiError::not_found(format!("{entity_type} {id} does not exist"))
+            ApiError::not_found(format!("The {entity_type} {id} does not exist."))
         }
         ItemError::HistoryNotFound { item_id, version } => ApiError::not_found(format!(
-            "no history snapshot for item {item_id} at version {version}"
+            "The item {item_id} has no version {version} in its history."
         )),
         ItemError::VersionConflict {
             expected_version,
@@ -772,7 +778,9 @@ pub fn map_item_error(e: ItemError) -> ApiError {
             current_content,
             ..
         } => ApiError::conflict(format!(
-            "version mismatch: expected {expected_version}, current is {current_version}"
+            "The request has the version {expected_version}, and the current version is \
+             {current_version}. Get the item again, and make the edit on the current \
+             version."
         ))
         .with_details(json!({
             "current": {
@@ -781,21 +789,24 @@ pub fn map_item_error(e: ItemError) -> ApiError {
                 "content": current_content,
             }
         })),
-        ItemError::BoardNotFound(id) => ApiError::validation(format!("board {id} does not exist")),
-        ItemError::BoardHasNoColumns(id) => {
-            ApiError::validation(format!("board {id} has no columns to place the item in"))
+        ItemError::BoardNotFound(id) => {
+            ApiError::validation(format!("The board {id} does not exist."))
         }
+        ItemError::BoardHasNoColumns(id) => ApiError::validation(format!(
+            "The board {id} has no columns, so the item has no place on it. Add a column \
+             to the board."
+        )),
         ItemError::ColumnNotOnBoard {
             board_id,
             column_id,
         } => ApiError::validation(format!(
-            "column {column_id} is not a column of board {board_id}"
+            "The column {column_id} is not a column of the board {board_id}."
         )),
         ItemError::TemplateNotFound(id) => {
-            ApiError::validation(format!("template {id} does not exist"))
+            ApiError::validation(format!("The template {id} does not exist."))
         }
         ItemError::RepositoryNotFound(id) => {
-            ApiError::validation(format!("repository {id} does not exist"))
+            ApiError::validation(format!("The repository {id} does not exist."))
         }
         ItemError::Database(e) => ApiError::internal(e),
     }
@@ -808,11 +819,13 @@ pub fn map_item_error(e: ItemError) -> ApiError {
 pub fn map_board_error(e: BoardError) -> ApiError {
     match e {
         BoardError::ItemNotFound { entity_type, id } => {
-            ApiError::not_found(format!("{entity_type} {id} does not exist"))
+            ApiError::not_found(format!("The {entity_type} {id} does not exist."))
         }
         BoardError::ItemNotOnBoard { entity_type, id } => ApiError::unprocessable(
             "ITEM_NOT_ON_BOARD",
-            format!("{entity_type} {id} is not placed on a board, so it cannot be transitioned"),
+            format!(
+                "The {entity_type} {id} is not on a board, so it cannot move between columns."
+            ),
         ),
         BoardError::Transition(TransitionError::NotAllowed {
             from,
@@ -821,7 +834,7 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         }) => ApiError::unprocessable(
             "INVALID_TRANSITION",
             format!(
-                "transition {:?} -> {:?} is not allowed by this board",
+                "This board does not permit the transition from {:?} to {:?}.",
                 from.name, to.name
             ),
         )
@@ -835,20 +848,31 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         })),
         BoardError::Transition(e) => ApiError::unprocessable("INVALID_TRANSITION", e.to_string()),
         BoardError::ColumnNotFound(id) => {
-            ApiError::validation(format!("column {id} does not exist"))
+            ApiError::validation(format!("The column {id} does not exist."))
         }
-        BoardError::BoardNotFound(id) => ApiError::validation(format!("board {id} does not exist")),
+        BoardError::BoardNotFound(id) => {
+            ApiError::validation(format!("The board {id} does not exist."))
+        }
         // KAIROS-I-0012: moving a task between delivery boards.
         BoardError::SameBoard(id) => {
-            ApiError::unprocessable("SAME_BOARD", format!("the task is already on board {id}"))
+            ApiError::unprocessable(
+                "SAME_BOARD",
+                format!("The task is on the board {id} already."),
+            )
         }
         BoardError::NotDeliveryBoard(id) => ApiError::unprocessable(
             "NOT_DELIVERY_BOARD",
-            format!("board {id} is not a delivery board; tasks move between delivery boards only"),
+            format!(
+                "The board {id} is not a delivery board. A task moves between delivery \
+                 boards only."
+            ),
         ),
         BoardError::NoEntryColumn(id) => ApiError::unprocessable(
             "NO_ENTRY_COLUMN",
-            format!("board {id} has no columns to land in"),
+            format!(
+                "The board {id} has no columns, so the task has no place on it. Add a \
+                 column to the board."
+            ),
         ),
         // Board-configuration errors cannot arise from the entity routes;
         // reaching one here is a bug, not a client mistake.
@@ -876,7 +900,7 @@ pub fn map_graph_error(e: GraphError) -> ApiError {
     match e {
         GraphError::Rule(e) => ApiError::validation(e.to_string()),
         GraphError::ItemNotFound(id) => {
-            ApiError::validation(format!("related item {id} does not exist"))
+            ApiError::validation(format!("The related item {id} does not exist."))
         }
         e @ (GraphError::SelfLink(_)
         | GraphError::CycleDetected { .. }

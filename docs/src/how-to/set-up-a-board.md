@@ -10,6 +10,12 @@ them reachable, and give them the fields they fill in.
 - A delivery board needs a team. If you create a delivery board, select the
   owning team. With the API, send `team_id` to `POST /api/boards`. A request
   with no team returns 422 `VALIDATION`.
+- A team has one delivery board. A second delivery board for the same team
+  returns 422 `TEAM_HAS_DELIVERY_BOARD`, and the response names the board that
+  the team has. You cannot delete the only delivery board of a team, and you
+  cannot change the team of a board.
+- A strategy, initiative or ADR board has no team. Do not send `team_id` for
+  these boards.
 - You hold `configure_boards` on that board, or you are an org admin. Steps 1
   to 3 return 403 without it.
 - **Step 4 needs org admin specifically.** Metadata definitions are

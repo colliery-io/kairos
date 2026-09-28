@@ -287,9 +287,9 @@ test('requests: a member who does not manage a delivery board sends a request to
   });
 
   // carol archives her two requests: she created them (COLLIERY-T-0228).
-  // It also leaves the board as the specs that run after this one expect
-  // it. Their drag helper needs the two ends of a drag in one viewport,
-  // and each card that stays in Backlog makes that column longer.
+  // This step is an assertion of that rule. It is not there for the drag
+  // helper: since COLLIERY-T-0239 the helper moves a card when the column
+  // is long (drag-long-column.spec.ts).
   await test.step('carol archives her requests', async () => {
     for (const code of [plain, linked]) {
       const status = await tryArchiveTask(GUI, carolToken, code);

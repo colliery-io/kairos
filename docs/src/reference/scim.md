@@ -149,7 +149,7 @@ way. Rename teams via `/api/teams`.
 | Condition | Response |
 |---|---|
 | `DELETE` of `kairos-admins` | 400 `mutability` — it is built in and always exists |
-| `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the count. Move or delete the items through `/api` first; until then the issuer's delete will never succeed |
+| `DELETE` of a team group whose delivery board still holds live items | 400 `mutability`, naming the board and the count. Move or delete the items through `/api` first; until then the issuer's delete will never succeed |
 | `POST` of `kairos-admins` | 409 `uniqueness` — it always exists |
 | `POST` of a team slug that already exists **and is live** | 409 `uniqueness` |
 | `POST` where the `<slug>-delivery` board slug collides | 409 `uniqueness` |

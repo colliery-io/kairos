@@ -449,7 +449,7 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
             <Panel title="Repositories" caption="the codebases this team owns; open counts cover all boards">
                 {if repositories.is_empty() {
                     view! {
-                        <Empty message="No repositories registered for this team yet. Any member can register one (kairos repos create), or an org admin from Admin → Repositories."/>
+                        <Empty message="This team has no repositories. An organization admin adds one on the page Admin, Repositories. A member of this team adds one with the CLI (kairos repos create). An agent adds one with the MCP tool add_repository."/>
                     }.into_any()
                 } else {
                     view! {

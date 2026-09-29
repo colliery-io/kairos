@@ -34,6 +34,7 @@ use kairos_db::models::enums::{BoardLevel, Forge};
 use kairos_db::models::repositories::{NewRepository, Repository, RepositoryChangeset};
 use kairos_db::models::teams::Team;
 use kairos_db::repositories::{self, RepositoryError};
+use serde_json::json;
 use uuid::Uuid;
 
 use super::super::{parse_enum, require_capability};
@@ -75,6 +76,12 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
             "The repository slug {slug:?} is not correct. A repository slug must match \
              ^[a-z0-9][a-z0-9-]{{1,62}}$."
         )),
+        // COLLIERY-T-0267: the text and the name of the field come from
+        // the function that has the rule of the field.
+        RepositoryError::InvalidField(fault) => {
+            let field = fault.field;
+            ApiError::validation(fault.message).with_details(json!({ "field": field }))
+        }
         RepositoryError::SlugTaken(slug) => {
             ApiError::conflict(format!("A repository has the slug {slug:?} already."))
         }
@@ -221,10 +228,9 @@ pub(crate) fn add(
 }
 
 /// The repository that `reference` names (slug or UUID), when `user` can
-/// change it: the gate of [`change`], evaluated against the CURRENT owner.
-/// The MCP tool `update_repository` calls it first, to compare the values
-/// of the call with the row before it writes (COLLIERY-T-0266).
-pub(crate) fn changeable(
+/// change it: the gate of [`change`], evaluated against the CURRENT owner
+/// (COLLIERY-T-0266).
+fn changeable(
     conn: &mut PgConnection,
     tenant_slug: &str,
     user: Uuid,
@@ -235,45 +241,87 @@ pub(crate) fn changeable(
     Ok(current)
 }
 
+/// What [`change`] did (COLLIERY-T-0267).
+pub(crate) struct Change {
+    /// The repository after the call.
+    pub repository: dto::Repository,
+    /// The names of the fields that have a new value, in the sequence of
+    /// the body. It is empty when the call changed nothing.
+    pub changed: Vec<&'static str>,
+}
+
 /// Change a repository as `user`: the ONE implementation of
 /// `PATCH /api/repositories/{slug}` and of the MCP tool `update_repository`
 /// (COLLIERY-T-0266). The activity row comes from [`repositories::update`],
 /// with `user` as the actor.
+///
+/// COLLIERY-T-0267: only a value that is different from the value of the
+/// row goes to the write. When no value is different, the function writes
+/// nothing: `updated_at` stays, and the activity log gets no row. Until
+/// then the MCP tool made the comparison and REST made none, so a PATCH
+/// with the values of the row wrote a new `updated_at` and an activity row.
 pub(crate) fn change(
     conn: &mut PgConnection,
     tenant_slug: &str,
     user: Uuid,
     reference: &str,
     body: dto::UpdateRepositoryRequest,
-) -> Result<dto::Repository, ApiError> {
+) -> Result<Change, ApiError> {
     let current = changeable(conn, tenant_slug, user, reference)?;
+    // COLLIERY-T-0267: a body with no field is an input that does nothing.
+    // The routes of boards, teams and streams refuse it, and this route
+    // does the same. A body whose values are equal to the stored values is
+    // a success that writes nothing: a client can send back what it read.
+    if body.slug.is_none()
+        && body.repo_url.is_none()
+        && body.default_branch.is_none()
+        && body.team.is_none()
+        && body.description.is_none()
+    {
+        return Err(ApiError::validation(
+            "The request has no field to change. Send one or more of slug, repo_url, \
+             default_branch, team and description.",
+        ));
+    }
     let team_id = body
         .team
         .as_deref()
         .map(|reference| resolve_team(conn, reference).map(|t| t.id))
-        .transpose()?;
+        .transpose()?
+        .filter(|team| *team != current.team_id);
     // KAIROS-T-0112: re-homing needs the NEW owner's consent too —
     // manage on both delivery boards (org admin bypasses both).
-    if let Some(new_team) = team_id
-        && new_team != current.team_id
-    {
+    if let Some(new_team) = team_id {
         require_manage_for_team(conn, tenant_slug, user, new_team)?;
     }
-    let updated = repositories::update(
-        conn,
-        current.id,
-        RepositoryChangeset {
-            slug: body.slug,
-            repo_url: body.repo_url,
-            default_branch: body.default_branch,
-            team_id,
-            description: body.description,
-            ..Default::default()
-        },
-        user,
-    )
-    .map_err(map_error)?;
-    render_one(conn, updated)
+    let different = |new: Option<String>, old: &str| new.filter(|new| new != old);
+    let changes = RepositoryChangeset {
+        slug: different(body.slug, &current.slug),
+        repo_url: different(body.repo_url, &current.repo_url),
+        default_branch: different(body.default_branch, &current.default_branch),
+        team_id,
+        description: different(body.description, &current.description),
+        ..Default::default()
+    };
+    let changed: Vec<&'static str> = [
+        ("slug", changes.slug.is_some()),
+        ("repo_url", changes.repo_url.is_some()),
+        ("default_branch", changes.default_branch.is_some()),
+        ("team", changes.team_id.is_some()),
+        ("description", changes.description.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(name, changed)| changed.then_some(name))
+    .collect();
+    let repository = if changed.is_empty() {
+        current
+    } else {
+        repositories::update(conn, current.id, changes, user).map_err(map_error)?
+    };
+    Ok(Change {
+        repository: render_one(conn, repository)?,
+        changed,
+    })
 }
 
 /// Render repositories with their team, delivery board and counts — two
@@ -482,7 +530,7 @@ pub(crate) async fn get_repository(
         (status = 201, description = "Registered", body = dto::Repository),
         (status = 403, description = "Neither org admin nor the owning team", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug or (forge, name) already registered", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad slug/forge or unknown team", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad slug/forge, unknown team, or a field that does not have its form", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_repository(
@@ -503,6 +551,10 @@ pub(crate) async fn create_repository(
 /// Edit a repository (same gate as create, evaluated against the CURRENT
 /// owner). Re-homing to another team does not touch the tasks that link to
 /// the repository.
+///
+/// A body can have only the values that the repository has. That request
+/// gets 200 with the repository, and the server writes nothing
+/// (COLLIERY-T-0267).
 #[utoipa::path(
     patch,
     path = "/api/repositories/{slug}",
@@ -514,7 +566,7 @@ pub(crate) async fn create_repository(
         (status = 403, description = "Neither org admin nor the owning team", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "Slug already taken", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad slug or unknown team", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad slug, unknown team, or a field that does not have its form", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_repository(
@@ -532,7 +584,7 @@ pub(crate) async fn update_repository(
             change(conn, &tenant_slug, user, &slug, body)
         })
         .await?;
-    Ok(Json(updated))
+    Ok(Json(updated.repository))
 }
 
 /// Remove a repository (org admin). Refused with 409 while live tasks or a

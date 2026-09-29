@@ -96,7 +96,9 @@ impl ServerHandler for KairosMcp {
                  items, `get_item` for full content, and the write tools \
                  (create/update/edit/transition/link/set_metadata/delete) to work \
                  them; writes require board capabilities and edits use optimistic \
-                 versioning.",
+                 versioning. Repositories: `list_repositories` and `get_repository` \
+                 read the directory, `add_repository` and `update_repository` write \
+                 it, and `set_repository` links a task to one.",
             )
     }
 }

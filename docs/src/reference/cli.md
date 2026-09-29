@@ -684,14 +684,18 @@ kairos repos create --forge <FORGE> --name <FULL_NAME> --repo-url <URL> --team <
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--forge <FORGE>` | `github` \| `gitlab` \| `other` | required | The forge. |
-| `--name <FULL_NAME>` | `owner/repo` | required | Must match what the forge sends in webhooks. |
-| `--repo-url <URL>` | string | required | Browser URL of the repository. |
+| `--name <FULL_NAME>` | `owner/repo` | required | The name on the forge, as the forge sends it in webhooks. |
+| `--repo-url <URL>` | string | required | Browser URL of the repository: `http` or `https`. |
 | `--team <TEAM>` | slug or UUID | required | Owning team. |
 | `--slug <SLUG>` | string | derived from `--name` | Slug. |
-| `--default-branch <BRANCH>` | string | `main` | Default branch. |
+| `--default-branch <BRANCH>` | string | `main` | Default branch: a branch name that git accepts. |
 | `--description <DESCRIPTION>` | string | none | Short "how to work here" blurb for agents. |
 
 Permitted to an organization admin or a member of the owning team.
+
+The server refuses a `--name`, a `--repo-url` or a `--default-branch` that does
+not have the form of its field. The glossary gives the rules: see
+[the form of the fields](glossary.md#the-form-of-the-fields-of-a-repository).
 
 ### `kairos repos update`
 
@@ -708,7 +712,16 @@ kairos repos update <REPOSITORY> [OPTIONS]
 | `--team <TEAM>` | slug or UUID | unchanged | New owning team. Re-homes the repository. |
 | `--description <DESCRIPTION>` | string | unchanged | New description. |
 
-Same permission gate as `create`.
+Same permission gate as `create`. The rules of `--repo-url` and
+`--default-branch` are those of `create`. They apply to a value that is
+different from the value of the repository.
+
+When each value is the value that the repository has, the server writes
+nothing. The command prints this line:
+
+```text
+Kairos did not change the repository payments-api. It has these values already.
+```
 
 ### `kairos repos delete`
 

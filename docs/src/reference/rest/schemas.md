@@ -381,11 +381,11 @@ Body of `POST /api/repositories`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `default_branch` | `string`, nullable | no | Defaults to `main`. |
+| `default_branch` | `string`, nullable | no | A branch name that git accepts, 255 characters at most. Defaults to `main`. |
 | `description` | `string`, nullable | no | Short "how to work here" blurb for agents. |
 | `forge` | `string` | yes | `github|gitlab|other`. |
-| `repo_full_name` | `string` | yes | `owner/repo` — must match what the forge sends in webhook payloads. |
-| `repo_url` | `string` | yes | Browser URL of the repository. |
+| `repo_full_name` | `string` | yes | The name on the forge — must match what the forge sends in webhook payloads. `github`: 2 parts (`owner/repo`). `gitlab`: 2 or more parts (`group/subgroup/project`). `other`: 1 or more parts. No space, no `.git` at the end, 255 characters at most. |
+| `repo_url` | `string` | yes | Browser URL of the repository: an absolute `http` or `https` URL with a host, no space, and no user name or password (each member can read it). 2048 characters at most. |
 | `slug` | `string`, nullable | no | Tenant-unique slug; defaults to one derived from `repo_full_name` (`acme/payments-api` → `acme-payments-api`). |
 | `team` | `string` | yes | The owning team (UUID or slug). Exactly one (KAIROS-A-0019). |
 
@@ -1685,13 +1685,13 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 
 ## UpdateRepositoryRequest
 
-Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes the repository. The tasks that link to it do not change: each stays on its board and keeps its link (COLLIERY-T-0219, COLLIERY-A-0023).
+Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes the repository. The tasks that link to it do not change: each stays on its board and keeps its link (COLLIERY-T-0219, COLLIERY-A-0023). A field with the value of the repository changes nothing. The server does not examine the form of that value (COLLIERY-T-0267).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `default_branch` | `string`, nullable | no |  |
+| `default_branch` | `string`, nullable | no | The form is that of `default_branch` in `CreateRepositoryRequest`. |
 | `description` | `string`, nullable | no |  |
-| `repo_url` | `string`, nullable | no |  |
+| `repo_url` | `string`, nullable | no | The form is that of `repo_url` in `CreateRepositoryRequest`. |
 | `slug` | `string`, nullable | no |  |
 | `team` | `string`, nullable | no | New owning team (UUID or slug). |
 

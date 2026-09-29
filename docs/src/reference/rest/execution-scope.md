@@ -38,7 +38,7 @@ Request body (required): `application/json`, [`CreateRepositoryRequest`](schemas
 | `201` | [`Repository`](schemas.md#repository) | Registered |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Neither org admin nor the owning team |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug or (forge, name) already registered |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad slug/forge or unknown team |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad slug/forge, unknown team, or a field that does not have its form |
 
 ### `GET /api/repositories/{slug}`
 
@@ -77,6 +77,10 @@ Edit a repository (same gate as create, evaluated against the CURRENT
 owner). Re-homing to another team does not touch the tasks that link to
 the repository.
 
+A body can have only the values that the repository has. That request
+gets 200 with the repository, and the server writes nothing
+(COLLIERY-T-0267).
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `slug` | path | yes | `string` | Repository slug (or UUID) |
@@ -89,7 +93,7 @@ Request body (required): `application/json`, [`UpdateRepositoryRequest`](schemas
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Neither org admin nor the owning team |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already taken |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad slug or unknown team |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad slug, unknown team, or a field that does not have its form |
 
 ## forge
 

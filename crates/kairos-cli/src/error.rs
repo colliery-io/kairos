@@ -55,10 +55,25 @@ impl From<ApiError> for CliError {
             } => {
                 let mut text = format!("The deployment refused the request (403): {message}");
                 if let Some(capability) = capability {
-                    text.push_str(&format!(
-                        "\nThis action requires the capability {capability:?} on the board of \
-                         the item. Ask an organization admin for the capability."
-                    ));
+                    // COLLIERY-T-0267: the message of the server says what
+                    // the action requires, so the CLI adds only what to do
+                    // next, and only when the message does not say it. The
+                    // CLI does not name "the board of the item": a
+                    // repository and a board have no item.
+                    let advice = if details["board_id"].is_null() {
+                        format!(
+                            "\nThe capability {capability:?} is not sufficient here. Ask an \
+                             organization admin to do this."
+                        )
+                    } else {
+                        format!(
+                            "\nAsk an organization admin for the capability {capability:?} on \
+                             the board."
+                        )
+                    };
+                    if !says_who_to_ask(&message) {
+                        text.push_str(&advice);
+                    }
                 } else if details["required"] == "deployment_admin" {
                     text.push_str(
                         "\nOnly a deployment admin can do this. Your OIDC subject must be in \
@@ -130,6 +145,14 @@ impl From<ApiError> for CliError {
     }
 }
 
+/// Whether the message of a 403 tells the user who can help
+/// (COLLIERY-T-0267): it has a sentence that starts with `Ask`. The server
+/// writes such a sentence when it knows more than the capability, for
+/// example the owner team of a repository.
+fn says_who_to_ask(message: &str) -> bool {
+    message.starts_with("Ask ") || message.contains(". Ask ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,6 +206,76 @@ mod tests {
         .into();
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         assert!(err.to_string().contains("\"manage_tasks\""), "{err}");
+    }
+
+    /// COLLIERY-T-0267: the CLI adds what to do next, and no more. It does
+    /// not name "the board of the item".
+    #[test]
+    fn forbidden_adds_only_what_to_do_next() {
+        let board = "0193a1c2-0000-7000-8000-000000000003";
+        let err: CliError = ApiError::Forbidden {
+            code: "FORBIDDEN".into(),
+            message: format!(
+                "This action requires the capability \"manage_tasks\" on the board {board}."
+            ),
+            capability: Some("manage_tasks".into()),
+            details: serde_json::json!({"required_capability": "manage_tasks", "board_id": board}),
+        }
+        .into();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "The deployment refused the request (403): This action requires the \
+                 capability \"manage_tasks\" on the board {board}.\nAsk an organization admin \
+                 for the capability \"manage_tasks\" on the board."
+            )
+        );
+
+        // No board: the action requires the organization admin role (the
+        // delete of a repository).
+        let err: CliError = ApiError::Forbidden {
+            code: "FORBIDDEN".into(),
+            message: "This action requires the organization admin role.".into(),
+            capability: Some("manage_tasks".into()),
+            details: serde_json::json!({"required_capability": "manage_tasks", "board_id": null}),
+        }
+        .into();
+        assert_eq!(
+            err.to_string(),
+            "The deployment refused the request (403): This action requires the organization \
+             admin role.\nThe capability \"manage_tasks\" is not sufficient here. Ask an \
+             organization admin to do this."
+        );
+    }
+
+    /// COLLIERY-T-0267: the refusal of `kairos repos create` and of `kairos
+    /// repos update` says who can do the action (COLLIERY-T-0266). The CLI
+    /// adds nothing to it.
+    #[test]
+    fn forbidden_with_advice_of_the_server_gets_no_more() {
+        let message = "This action requires the capability \"manage_tasks\" on the delivery \
+                       board of the team \"platform\", the owner team of the repository. You \
+                       do not have that capability. Each member of the team has it, and an \
+                       organization admin has each capability. Ask a member of the team \
+                       \"platform\" or an organization admin to do this.";
+        for board in [
+            serde_json::json!("0193a1c2-0000-7000-8000-000000000003"),
+            Value::Null,
+        ] {
+            let err: CliError = ApiError::Forbidden {
+                code: "FORBIDDEN".into(),
+                message: message.into(),
+                capability: Some("manage_tasks".into()),
+                details: serde_json::json!({"required_capability": "manage_tasks", "board_id": board}),
+            }
+            .into();
+            let text = err.to_string();
+            assert_eq!(
+                text,
+                format!("The deployment refused the request (403): {message}")
+            );
+            assert!(!text.contains("the board of the item"), "{text}");
+        }
     }
 
     /// The deployment-admin gate's 403 points at KAIROS_DEPLOYMENT_ADMINS

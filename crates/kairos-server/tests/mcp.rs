@@ -535,6 +535,18 @@ async fn mcp_endpoint_against_live_stack() {
         env!("CARGO_PKG_VERSION"),
         "initialize reports the server version"
     );
+    // COLLIERY-T-0267: the instructions name the repository tools.
+    assert_eq!(
+        init["result"]["instructions"],
+        "Kairos work-item tools. Start with `whoami` (identity, teams, board capabilities) \
+         and `my_boards` (boards + columns). Items are identified by short code (e.g. \
+         ACME-T-0012) everywhere. Use `search` to find items, `get_item` for full content, \
+         and the write tools (create/update/edit/transition/link/set_metadata/delete) to \
+         work them; writes require board capabilities and edits use optimistic versioning. \
+         Repositories: `list_repositories` and `get_repository` read the directory, \
+         `add_repository` and `update_repository` write it, and `set_repository` links a \
+         task to one."
+    );
 
     // --- tools/list: EXACTLY the S-0006 inventory ----------------------------
     let listed = session.request("tools/list", json!({})).await;
@@ -3133,6 +3145,197 @@ async fn repository_tools_against_live_stack() {
         repository_row(&mut conn, "acme-fidius").unwrap().team,
         platform.id
     );
+
+    // --- COLLIERY-T-0267: the form of the fields -----------------------------
+    // Until COLLIERY-T-0267 the two tools accepted an empty value and a blank
+    // value for the full name, the URL and the default branch. The rules are
+    // those of REST (`tests/repository_fields.rs`), from the same functions.
+    let count = repository_count(&mut conn);
+    let audit_rows = activity_count(&mut conn, alice, "repository");
+    let refused: &[(&str, &str, &str)] = &[
+        ("repo_full_name", "", "github"),
+        ("repo_full_name", "   ", "github"),
+        ("repo_full_name", " acme/form", "github"),
+        ("repo_full_name", "acme/form ", "github"),
+        ("repo_full_name", "acme/form.git", "github"),
+        ("repo_full_name", "form", "github"),
+        ("repo_full_name", "acme/form/web", "github"),
+        ("repo_full_name", "form", "gitlab"),
+        ("repo_full_name", "acme//form", "other"),
+        ("repo_url", "", "github"),
+        ("repo_url", "  ", "github"),
+        ("repo_url", " https://github.com/acme/form", "github"),
+        ("repo_url", "github.com/acme/form", "github"),
+        ("repo_url", "git@github.com:acme/form.git", "github"),
+        ("repo_url", "https://", "github"),
+        (
+            "repo_url",
+            "https://alice:s3cret@github.com/acme/form",
+            "github",
+        ),
+        ("default_branch", "", "github"),
+        ("default_branch", "  ", "github"),
+        ("default_branch", "main ", "github"),
+        ("default_branch", "-main", "github"),
+        ("default_branch", "release..1", "github"),
+        ("default_branch", "main/", "github"),
+        ("default_branch", "main.lock", "github"),
+    ];
+    for (field, value, forge) in refused {
+        let mut arguments = json!({
+            "slug": "form",
+            "forge": forge,
+            "repo_full_name": "acme/form",
+            "repo_url": "https://github.com/acme/form",
+            "team": "platform",
+        });
+        arguments[*field] = json!(value);
+        let text = alice_session.call_err("add_repository", arguments).await;
+        let (message, details) = text.split_once("\ndetails: ").expect("details");
+        assert!(
+            message.starts_with(&format!("VALIDATION: The {field}")),
+            "{field} = {value:?}: {text}"
+        );
+        assert_eq!(
+            serde_json::from_str::<Value>(details).expect("JSON"),
+            json!({ "field": field }),
+            "{field} = {value:?}"
+        );
+        assert!(!text.contains("s3cret"), "{text}");
+        if *field == "repo_full_name" {
+            continue;
+        }
+        let text = alice_session
+            .call_err(
+                "update_repository",
+                json!({"repository": "acme-fidius", *field: value}),
+            )
+            .await;
+        let (update_message, details) = text.split_once("\ndetails: ").expect("details");
+        assert_eq!(update_message, message, "the two tools give the same text");
+        assert_eq!(
+            serde_json::from_str::<Value>(details).expect("JSON"),
+            json!({ "field": field })
+        );
+    }
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/form",
+                "repo_url": "https://alice:s3cret@github.com/acme/form",
+                "team": "platform",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "VALIDATION: The repo_url has a user name or a password in it. Each member of the \
+         organization can read the URL. Remove the user name and the password.\ndetails: \
+         {\"field\":\"repo_url\"}"
+    );
+    // REST gives the same text.
+    let (status, _, body) = raw_request(
+        &router,
+        Method::PATCH,
+        "/api/repositories/acme-fidius",
+        Some(&alice_token),
+        None,
+        Some(json!({"default_branch": ""})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let rest: Value = serde_json::from_str(&body).expect("JSON");
+    let text = alice_session
+        .call_err(
+            "update_repository",
+            json!({"repository": "acme-fidius", "default_branch": ""}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        format!(
+            "VALIDATION: {}\ndetails: {{\"field\":\"default_branch\"}}",
+            rest["error"]["message"].as_str().expect("message")
+        )
+    );
+    assert_eq!(
+        text,
+        "VALIDATION: The default_branch is empty. Send a value, for example main.\ndetails: \
+         {\"field\":\"default_branch\"}"
+    );
+    assert_eq!(repository_count(&mut conn), count);
+    assert_eq!(
+        repository_row(&mut conn, "acme-fidius").expect("the row"),
+        before
+    );
+    assert_eq!(activity_count(&mut conn, alice, "repository"), audit_rows);
+
+    // A repository from before the rule: the tools read it, and
+    // `update_repository` changes a different field of it.
+    sql_query(
+        "INSERT INTO repositories \
+            (slug, forge, repo_full_name, repo_url, default_branch, team_id, description, \
+             created_by, updated_by) \
+         VALUES ('old-one', 'github', 'Old One.git', '', ' ', $1, '', $2, $2)",
+    )
+    .bind::<SqlUuid, _>(platform.id)
+    .bind::<SqlUuid, _>(svc)
+    .execute(&mut conn)
+    .expect("the old row");
+    let text = alice_session
+        .call_ok("get_repository", json!({"repository": "old-one"}))
+        .await;
+    assert!(text.contains("github Old One.git"), "{text}");
+    let text = alice_session
+        .call_ok("list_repositories", json!({"team": "platform"}))
+        .await;
+    assert!(text.contains("old-one"), "{text}");
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({
+                "repository": "old-one",
+                "description": "Ask the platform team.",
+                "repo_url": "",
+                "default_branch": " ",
+            }),
+        )
+        .await;
+    assert_eq!(text, "Updated repository old-one: description.");
+    let old = repository_row(&mut conn, "old-one").expect("the row");
+    assert_eq!(old.repo_url, "");
+    assert_eq!(old.default_branch, " ");
+    assert_eq!(old.description, "Ask the platform team.");
+    // The values of the row: no change, and nothing written.
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({"repository": "old-one", "repo_url": "", "default_branch": " "}),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "No change to repository old-one: it has these values already."
+    );
+    assert_eq!(repository_row(&mut conn, "old-one").expect("the row"), old);
+    // REST does the same with the same body: 200, and nothing written.
+    let audit_rows = activity_count(&mut conn, alice, "repository");
+    let (status, _, body) = raw_request(
+        &router,
+        Method::PATCH,
+        "/api/repositories/old-one",
+        Some(&alice_token),
+        None,
+        Some(json!({"repo_url": "", "default_branch": " "})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let rest: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(rest["slug"], "old-one", "{rest}");
+    assert_eq!(repository_row(&mut conn, "old-one").expect("the row"), old);
+    assert_eq!(activity_count(&mut conn, alice, "repository"), audit_rows);
 
     // --- teardown ------------------------------------------------------------
     drop(conn);

@@ -161,12 +161,16 @@ are those of `POST /api/repositories`.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `forge` | string | yes | — | `github`, `gitlab` or `other`. |
-| `repo_full_name` | string | yes | — | The name on the forge: `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
-| `repo_url` | string | yes | — | The URL of the repository for a browser. |
+| `repo_full_name` | string | yes | — | The name on the forge: 2 parts for `github` (`owner/repo`), 2 or more for `gitlab`, 1 or more for `other`. |
+| `repo_url` | string | yes | — | The URL of the repository for a browser: `http` or `https`, with no user name and no password. |
 | `team` | string | yes | — | The one owner team. Slug or UUID. |
 | `slug` | string | no | made from `repo_full_name` | The slug of the repository in Kairos. `acme/payments-api` gives `acme-payments-api`. It must match `^[a-z0-9][a-z0-9-]{1,62}$`. |
-| `default_branch` | string | no | `main` | The default branch. |
+| `default_branch` | string | no | `main` | The default branch: a branch name that git accepts. |
 | `description` | string | no | empty | How to work in the repository. `get_repository` shows it to each agent. |
+
+The glossary gives the full rule of `repo_full_name`, `repo_url` and
+`default_branch`: see
+[the form of the fields](glossary.md#the-form-of-the-fields-of-a-repository).
 
 Requires membership of the owner team, or the organization admin role. The
 condition is `manage_tasks` on the delivery board of the owner team, and each
@@ -184,7 +188,13 @@ unknown `team`. `VALIDATION` for a `slug` that does not match the form.
 `FORBIDDEN` when the caller is not a member of the owner team and is not an
 organization admin. `CONFLICT` when a repository has the slug already.
 `CONFLICT` when the directory has the pair of `forge` and `repo_full_name`
-already.
+already. `VALIDATION` with `details.field` for a `repo_full_name`, a `repo_url`
+or a `default_branch` that does not have the form of its field:
+
+```text
+VALIDATION: The repo_full_name "acme/fidius.git" ends with .git. Remove .git from the end. For the forge github, the name has 2 parts, for example acme/payments-api.
+details: {"field":"repo_full_name"}
+```
 
 ### `update_repository`
 
@@ -195,8 +205,8 @@ rule is that of `PATCH /api/repositories/{slug}`, for the current owner team.
 |---|---|---|---|---|
 | `repository` | string | yes | — | Slug or UUID. |
 | `description` | string | no | no change | The new text on how to work in the repository. It replaces the full text. An empty string removes the text. |
-| `default_branch` | string | no | no change | The new default branch. |
-| `repo_url` | string | no | no change | The new URL for a browser. |
+| `default_branch` | string | no | no change | The new default branch: a branch name that git accepts. |
+| `repo_url` | string | no | no change | The new URL for a browser: `http` or `https`, with no user name and no password. |
 
 The call must have one or more of `description`, `default_branch` and
 `repo_url`. The tool has no `slug` argument and no `team` argument. Each
@@ -213,6 +223,14 @@ Updated repository fidius: description, default_branch.
 
 The tool writes only when a value is different. A call can have only the
 values that the repository has. That call is a success and it writes nothing.
+`PATCH /api/repositories/{slug}` does the same.
+
+```text
+No change to repository fidius: it has these values already.
+```
+
+Refuses: `VALIDATION` with `details.field` for a new value that does not have
+[the form of its field](glossary.md#the-form-of-the-fields-of-a-repository).
 Its result is `No change to repository fidius: it has these values already.`
 
 Refuses: `VALIDATION` when the call has none of the three arguments.

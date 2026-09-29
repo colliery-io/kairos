@@ -104,11 +104,17 @@ pub struct CreateRepositoryRequest {
     pub slug: Option<String>,
     /// `github|gitlab|other`.
     pub forge: String,
-    /// `owner/repo` — must match what the forge sends in webhook payloads.
+    /// The name on the forge — must match what the forge sends in webhook
+    /// payloads. `github`: 2 parts (`owner/repo`). `gitlab`: 2 or more
+    /// parts (`group/subgroup/project`). `other`: 1 or more parts. No
+    /// space, no `.git` at the end, 255 characters at most.
     pub repo_full_name: String,
-    /// Browser URL of the repository.
+    /// Browser URL of the repository: an absolute `http` or `https` URL
+    /// with a host, no space, and no user name or password (each member
+    /// can read it). 2048 characters at most.
     pub repo_url: String,
-    /// Defaults to `main`.
+    /// A branch name that git accepts, 255 characters at most. Defaults to
+    /// `main`.
     #[serde(default)]
     pub default_branch: Option<String>,
     /// The owning team (UUID or slug). Exactly one (KAIROS-A-0019).
@@ -121,14 +127,18 @@ pub struct CreateRepositoryRequest {
 /// Body of `PATCH /api/repositories/{slug}` — every field optional;
 /// `team` re-homes the repository. The tasks that link to it do not
 /// change: each stays on its board and keeps its link (COLLIERY-T-0219,
-/// COLLIERY-A-0023).
+/// COLLIERY-A-0023). A field with the value of the repository changes
+/// nothing. The server does not examine the form of that value
+/// (COLLIERY-T-0267).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateRepositoryRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slug: Option<String>,
+    /// The form is that of `repo_url` in `CreateRepositoryRequest`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_url: Option<String>,
+    /// The form is that of `default_branch` in `CreateRepositoryRequest`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_branch: Option<String>,
     /// New owning team (UUID or slug).

@@ -13,7 +13,10 @@ use aurora_dark::tokens::ApiError;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::api::{delete_json, get_json, patch_json, post_json};
+pub use crate::api::Refusal;
+use crate::api::{
+    delete_json, get_json, patch_json, patch_json_refusal, post_json, post_json_refusal,
+};
 use crate::auth::Auth;
 
 // ---------------------------------------------------------------------------
@@ -679,7 +682,8 @@ pub struct RepositoryDetail {
     pub connection_id: Option<String>,
 }
 
-/// `POST /api/repositories`.
+/// `POST /api/repositories`. A refusal keeps the field that the server
+/// names, for the form (COLLIERY-T-0267).
 #[allow(clippy::too_many_arguments)]
 pub async fn create_repository(
     auth: Auth,
@@ -690,8 +694,8 @@ pub async fn create_repository(
     team: &str,
     default_branch: Option<&str>,
     description: Option<&str>,
-) -> Result<Repository, ApiError> {
-    post_json(
+) -> Result<Repository, Refusal> {
+    post_json_refusal(
         auth,
         "/api/repositories",
         &json!({
@@ -708,6 +712,8 @@ pub async fn create_repository(
 }
 
 /// `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes.
+/// A refusal keeps the field that the server names, for the form
+/// (COLLIERY-T-0267).
 pub async fn update_repository(
     auth: Auth,
     reference: &str,
@@ -716,7 +722,7 @@ pub async fn update_repository(
     default_branch: Option<&str>,
     team: Option<&str>,
     description: Option<&str>,
-) -> Result<Repository, ApiError> {
+) -> Result<Repository, Refusal> {
     let mut body = serde_json::Map::new();
     for (key, value) in [
         ("slug", slug),
@@ -729,7 +735,7 @@ pub async fn update_repository(
             body.insert(key.to_string(), Value::String(value.to_string()));
         }
     }
-    patch_json(
+    patch_json_refusal(
         auth,
         &format!("/api/repositories/{reference}"),
         &Value::Object(body),

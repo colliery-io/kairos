@@ -169,6 +169,18 @@ text_enum! {
     }
 }
 
+/// COLLIERY-T-0267: the rule of the full name of a repository is in
+/// `kairos_core`, and it is different for each forge.
+impl From<Forge> for kairos_core::repositories::ForgeKind {
+    fn from(forge: Forge) -> Self {
+        match forge {
+            Forge::Github => Self::Github,
+            Forge::Gitlab => Self::Gitlab,
+            Forge::Other => Self::Other,
+        }
+    }
+}
+
 text_enum! {
     /// `item_links.kind` (KAIROS-T-0097): what the link points at. A
     /// pull request and a merge request are the same thing under

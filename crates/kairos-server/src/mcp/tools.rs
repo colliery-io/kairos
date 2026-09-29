@@ -396,13 +396,17 @@ pub struct AddRepositoryParams {
     pub slug: Option<String>,
     /// github | gitlab | other.
     pub forge: String,
-    /// The name of the repository on the forge: "owner/repo" on GitHub,
-    /// "group/subgroup/project" on GitLab.
+    /// The name of the repository on the forge, as the forge sends it in
+    /// a webhook. github: 2 parts ("owner/repo"). gitlab: 2 or more parts
+    /// ("group/subgroup/project"). other: 1 or more parts. It has no
+    /// space, and it does not end with ".git".
     pub repo_full_name: String,
-    /// The URL of the repository for a browser
-    /// (e.g. "https://github.com/acme/payments-api").
+    /// The URL of the repository for a browser: an absolute http or https
+    /// URL (e.g. "https://github.com/acme/payments-api"). It has no user
+    /// name and no password, because each member can read it.
     pub repo_url: String,
-    /// The default branch. Omit it and the default branch is "main".
+    /// The default branch: a branch name that git accepts. Omit it and
+    /// the default branch is "main".
     pub default_branch: Option<String>,
     /// The ONE owner team (slug or UUID).
     pub team: String,
@@ -423,9 +427,10 @@ pub struct UpdateRepositoryParams {
     /// The new text on how to work in the repository. It replaces the
     /// full text. An empty string removes the text.
     pub description: Option<String>,
-    /// The new default branch.
+    /// The new default branch: a branch name that git accepts.
     pub default_branch: Option<String>,
-    /// The new URL of the repository for a browser.
+    /// The new URL of the repository for a browser: an absolute http or
+    /// https URL, with no user name and no password.
     pub repo_url: Option<String>,
 }
 
@@ -1509,7 +1514,7 @@ impl KairosMcp {
     // `POST /api/repositories`: the two call one function
     // (`crate::api::org::repositories::add`).
     #[tool(
-        description = "Add a repository to the directory of the organization. This tool does not link a task to a repository: `set_repository` does that. A repository can be in the directory only one time, so call `list_repositories` first. `forge` is github, gitlab or other. `repo_full_name` is the name on the forge (owner/repo). `repo_url` is the URL for a browser. `team` (slug or UUID) is the ONE owner team. Optional: `slug` (the default is made from the full name: acme/payments-api gives acme-payments-api), `default_branch` (the default is main), and `description`. The description tells an agent how to work in the repository: the task runner, the tests, the rules for a branch. You must be a member of the owner team, or an organization admin. No tool deletes a repository, and no tool changes its owner team or its slug. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
+        description = "Add a repository to the directory of the organization. This tool does not link a task to a repository: `set_repository` does that. A repository can be in the directory only one time, so call `list_repositories` first. `forge` is github, gitlab or other. `repo_full_name` is the name on the forge, as the forge sends it in a webhook: 2 parts for github (owner/repo), 2 or more for gitlab (group/subgroup/project), 1 or more for other. It does not end with .git. `repo_url` is the URL for a browser: an absolute http or https URL, with no user name and no password in it. No value can be empty or have a space. `team` (slug or UUID) is the ONE owner team. Optional: `slug` (the default is made from the full name: acme/payments-api gives acme-payments-api), `default_branch` (a branch name that git accepts; the default is main), and `description`. The description tells an agent how to work in the repository: the task runner, the tests, the rules for a branch. You must be a member of the owner team, or an organization admin. No tool deletes a repository, and no tool changes its owner team or its slug. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
     )]
     pub async fn add_repository(
         &self,
@@ -1552,13 +1557,14 @@ impl KairosMcp {
     // owner team is a decision of the two teams. A person does these.
     //
     // The gate and the write are those of `PATCH /api/repositories/{slug}`
-    // (`crate::api::org::repositories::change`). One thing is different: the
-    // tool compares the values of the call with the row, and it writes only
-    // when a value is different. The REST route always writes. An agent
-    // sends the same description again more often than a person does, and
-    // each write is a row in the activity log.
+    // (`crate::api::org::repositories::change`). That function compares the
+    // values of the call with the row, and it writes only when a value is
+    // different. An agent sends the same description again more often than
+    // a person does, and each write is a row in the activity log. Until
+    // COLLIERY-T-0267 the tool made the comparison, and the REST route
+    // always wrote.
     #[tool(
-        description = "Change a repository of the directory: its `description` (how to work in the repository), its `default_branch` and its `repo_url`. Send one or more of them. `repository` is a slug or UUID. `description` replaces the full text, so read the text with `get_repository` first. This tool does not link a task to a repository: `set_repository` does that. You must be a member of the owner team, or an organization admin. This tool does not change the slug: each checkout keeps the slug in `.claude/kairos.local.md`, and a new slug breaks that reference. This tool does not change the owner team, and no tool deletes a repository. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
+        description = "Change a repository of the directory: its `description` (how to work in the repository), its `default_branch` and its `repo_url`. Send one or more of them. `default_branch` is a branch name that git accepts. `repo_url` is an absolute http or https URL, with no user name and no password in it. The two cannot be empty or have a space. A value that the repository has already changes nothing. `repository` is a slug or UUID. `description` replaces the full text, so read the text with `get_repository` first. This tool does not link a task to a repository: `set_repository` does that. You must be a member of the owner team, or an organization admin. This tool does not change the slug: each checkout keeps the slug in `.claude/kairos.local.md`, and a new slug breaks that reference. This tool does not change the owner team, and no tool deletes a repository. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
     )]
     pub async fn update_repository(
         &self,
@@ -1580,41 +1586,35 @@ impl KairosMcp {
                      description, default_branch, repo_url.",
                 ));
             }
-            let current =
-                crate::api::org::repositories::changeable(conn, &slug, user, &params.repository)?;
-            // Only the values that are different go to the write, and the
-            // result names them.
-            let different = |new: Option<String>, old: &str| new.filter(|new| new != old);
-            let body = kairos_client::types_repositories::UpdateRepositoryRequest {
-                description: different(params.description, &current.description),
-                default_branch: different(params.default_branch, &current.default_branch),
-                repo_url: different(params.repo_url, &current.repo_url),
-                ..Default::default()
-            };
-            let changed: Vec<&str> = [
-                ("description", body.description.is_some()),
-                ("default_branch", body.default_branch.is_some()),
-                ("repo_url", body.repo_url.is_some()),
-            ]
-            .into_iter()
-            .filter_map(|(name, changed)| changed.then_some(name))
-            .collect();
-            if changed.is_empty() {
-                return Ok(format!(
-                    "No change to repository {}: it has these values already.",
-                    current.slug
-                ));
-            }
-            let updated = crate::api::org::repositories::change(
+            // COLLIERY-T-0267: the comparison with the values of the row is
+            // in `change`, so REST and this tool do the same.
+            let change = crate::api::org::repositories::change(
                 conn,
                 &slug,
                 user,
-                &current.id.to_string(),
-                body,
+                &params.repository,
+                kairos_client::types_repositories::UpdateRepositoryRequest {
+                    description: params.description,
+                    default_branch: params.default_branch,
+                    repo_url: params.repo_url,
+                    ..Default::default()
+                },
             )?;
+            if change.changed.is_empty() {
+                return Ok(format!(
+                    "No change to repository {}: it has these values already.",
+                    change.repository.slug
+                ));
+            }
+            // The sequence of the names is that of the result text of
+            // COLLIERY-T-0266.
+            let changed: Vec<&str> = ["description", "default_branch", "repo_url"]
+                .into_iter()
+                .filter(|name| change.changed.contains(name))
+                .collect();
             Ok(format!(
                 "Updated repository {}: {}.",
-                updated.slug,
+                change.repository.slug,
                 changed.join(", ")
             ))
         })

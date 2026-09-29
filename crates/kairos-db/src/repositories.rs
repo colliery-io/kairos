@@ -38,6 +38,11 @@ pub enum RepositoryError {
         "The repository slug {0:?} is not correct. A repository slug must match ^[a-z0-9][a-z0-9-]{{1,62}}$."
     )]
     InvalidSlug(String),
+    /// The full name, the URL or the default branch does not have the form
+    /// of its field (COLLIERY-T-0267). The fault has the text and the name
+    /// of the field.
+    #[error(transparent)]
+    InvalidField(#[from] kairos_core::repositories::FieldFault),
     /// A live repository already carries this slug.
     #[error("A repository has the slug {0:?} already.")]
     SlugTaken(String),
@@ -253,11 +258,17 @@ pub fn find_by_forge_name(
 }
 
 /// Register a repository. The slug must be valid and free, the
-/// `(forge, full name)` pair free, and the owning team live.
+/// `(forge, full name)` pair free, and the owning team live. The full
+/// name, the URL and the default branch must have the form of their field
+/// (COLLIERY-T-0267). The full name goes first, because the default slug
+/// comes from it: an empty name gives an empty slug.
 pub fn create(
     conn: &mut PgConnection,
     input: NewRepository,
 ) -> Result<Repository, RepositoryError> {
+    kairos_core::repositories::check_full_name(input.forge.into(), &input.repo_full_name)?;
+    kairos_core::repositories::check_url(&input.repo_url)?;
+    kairos_core::repositories::check_default_branch(&input.default_branch)?;
     if !kairos_core::repositories::is_valid_slug(&input.slug) {
         return Err(RepositoryError::InvalidSlug(input.slug));
     }
@@ -288,6 +299,11 @@ pub fn create(
 /// its board and keeps its link (COLLIERY-T-0219, COLLIERY-A-0023). Until
 /// COLLIERY-T-0217 the owner chose the board, and the next write of such a
 /// task checked it against the new owner.
+///
+/// COLLIERY-T-0267: a URL or a default branch must have the form of its
+/// field only when it is different from the value of the row. A repository
+/// from before the rule can have a value that the rule refuses, and a
+/// caller that sends that value again changes nothing.
 pub fn update(
     conn: &mut PgConnection,
     id: Uuid,
@@ -299,6 +315,16 @@ pub fn update(
         && !kairos_core::repositories::is_valid_slug(slug)
     {
         return Err(RepositoryError::InvalidSlug(slug.clone()));
+    }
+    if let Some(url) = &changes.repo_url
+        && url != &current.repo_url
+    {
+        kairos_core::repositories::check_url(url)?;
+    }
+    if let Some(branch) = &changes.default_branch
+        && branch != &current.default_branch
+    {
+        kairos_core::repositories::check_default_branch(branch)?;
     }
     if let Some(team) = changes.team_id {
         require_team(conn, team)?;

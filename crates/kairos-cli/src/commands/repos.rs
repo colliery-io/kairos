@@ -45,10 +45,13 @@ pub enum ReposCommand {
         /// `github|gitlab|other`
         #[arg(long)]
         forge: String,
-        /// `owner/repo` — must match what the forge sends in webhooks
+        /// The name on the forge, as the forge sends it in webhooks: 2 parts
+        /// for github (owner/repo), 2 or more for gitlab, 1 or more for
+        /// other. No space, and no .git at the end
         #[arg(long, value_name = "FULL_NAME")]
         name: String,
-        /// Browser URL of the repository
+        /// Browser URL of the repository: an absolute http or https URL,
+        /// with no user name and no password
         #[arg(long = "repo-url", value_name = "URL")]
         repo_url: String,
         /// Owning team (slug or UUID)
@@ -57,7 +60,7 @@ pub enum ReposCommand {
         /// Slug (defaults to one derived from --name)
         #[arg(long)]
         slug: Option<String>,
-        /// Default branch (defaults to main)
+        /// Default branch: a branch name that git accepts (defaults to main)
         #[arg(long = "default-branch", value_name = "BRANCH")]
         default_branch: Option<String>,
         /// Short "how to work here" blurb for agents
@@ -72,8 +75,11 @@ pub enum ReposCommand {
         repository: String,
         #[arg(long)]
         slug: Option<String>,
+        /// New browser URL: an absolute http or https URL, with no user
+        /// name and no password
         #[arg(long = "repo-url", value_name = "URL")]
         repo_url: Option<String>,
+        /// New default branch: a branch name that git accepts
         #[arg(long = "default-branch", value_name = "BRANCH")]
         default_branch: Option<String>,
         /// New owning team (slug or UUID)
@@ -255,6 +261,10 @@ impl ReposCommand {
                     ));
                 }
                 let client = client(&common)?;
+                // COLLIERY-T-0267: a PATCH with the values of the
+                // repository changes nothing, and the response is a normal
+                // 200. `updated_at` tells the two apart.
+                let before = client.get_repository(&repository).await?;
                 let repo = client
                     .update_repository(
                         &repository,
@@ -269,6 +279,14 @@ impl ReposCommand {
                     .await?;
                 if common.json {
                     return print_json(&repo);
+                }
+                if repo.updated_at == before.repository.updated_at {
+                    println!(
+                        "Kairos did not change the repository {}. It has these values \
+                         already.",
+                        repo.slug
+                    );
+                    return Ok(());
                 }
                 println!(
                     "Kairos changed the repository {} (owner: {}).",

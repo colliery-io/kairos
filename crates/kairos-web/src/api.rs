@@ -262,16 +262,113 @@ async fn decode_response<T: DeserializeOwned>(
 /// (`{"error": {"code", "message", …}}`), falling back to the raw body.
 async fn error_from_response(status: u16, response: gloo_net::http::Response) -> ApiError {
     let body = response.text().await.unwrap_or_default();
-    let envelope: Option<ErrorEnvelope> = serde_json::from_str(&body).ok();
-    let (message, code) = match envelope {
-        Some(envelope) => (envelope.error.message, Some(envelope.error.code)),
-        None => (body, None),
-    };
-    ApiError::Http {
-        status,
-        message,
-        code,
+    refusal_from_body(status, body).error
+}
+
+/// A refusal of a write, with the field that it is about
+/// (COLLIERY-T-0267). A form shows the message next to that field.
+#[derive(Clone, PartialEq)]
+pub struct Refusal {
+    pub error: ApiError,
+    /// `details.field` of the envelope: the name of the field in the
+    /// request. `None` when the refusal is not about one field.
+    pub field: Option<String>,
+}
+
+impl Refusal {
+    /// A refusal that is not about a field.
+    fn of(error: ApiError) -> Self {
+        Self { error, field: None }
     }
+
+    /// The message of the server, when the refusal is about `field`.
+    pub fn message_for(&self, field: &str) -> Option<String> {
+        match &self.error {
+            ApiError::Http { message, .. } if self.field.as_deref() == Some(field) => {
+                Some(message.clone())
+            }
+            _ => None,
+        }
+    }
+}
+
+/// The body of a non-2xx response as a [`Refusal`].
+fn refusal_from_body(status: u16, body: String) -> Refusal {
+    let envelope: Option<ErrorEnvelope> = serde_json::from_str(&body).ok();
+    let (message, code, field) = match envelope {
+        Some(envelope) => (
+            envelope.error.message,
+            Some(envelope.error.code),
+            envelope.error.details["field"].as_str().map(str::to_string),
+        ),
+        None => (body, None, None),
+    };
+    Refusal {
+        error: ApiError::Http {
+            status,
+            message,
+            code,
+        },
+        field,
+    }
+}
+
+/// Send `request` with a JSON body and the bearer token. A refusal keeps
+/// the field that the server names (COLLIERY-T-0267). The 401 rule is that
+/// of [`decode_response`].
+async fn write_json_refusal<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    mut request: gloo_net::http::RequestBuilder,
+    path: &str,
+    body: &B,
+) -> Result<T, Refusal> {
+    let token = auth.token();
+    if let Some(token) = &token {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    let response = request
+        .json(body)
+        .map_err(|e| {
+            Refusal::of(ApiError::Unknown(format!(
+                "The page cannot write the request for {path}: {e}."
+            )))
+        })?
+        .send()
+        .await
+        .map_err(|_| Refusal::of(ApiError::Network))?;
+    let status = response.status();
+    if status == 401 && token.is_some() && auth.token() == token {
+        auth.expire();
+    }
+    if !(200..300).contains(&status) {
+        return Err(refusal_from_body(
+            status,
+            response.text().await.unwrap_or_default(),
+        ));
+    }
+    response.json::<T>().await.map_err(|e| {
+        Refusal::of(ApiError::Unknown(format!(
+            "The page cannot read the response of {path}: {e}."
+        )))
+    })
+}
+
+/// [`post_json`], with the field of a refusal.
+pub async fn post_json_refusal<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    path: &str,
+    body: &B,
+) -> Result<T, Refusal> {
+    write_json_refusal(auth, gloo_net::http::Request::post(path), path, body).await
+}
+
+/// [`patch_json`], with the field of a refusal.
+pub async fn patch_json_refusal<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    path: &str,
+    body: &B,
+) -> Result<T, Refusal> {
+    write_json_refusal(auth, gloo_net::http::Request::patch(path), path, body).await
 }
 
 /// mirror of: `kairos_client::types::ErrorEnvelope` (S-0005).
@@ -285,6 +382,9 @@ struct ErrorEnvelope {
 struct ErrorBody {
     code: String,
     message: String,
+    /// `{}` when the refusal has no structured extras.
+    #[serde(default)]
+    details: serde_json::Value,
 }
 
 // ---- whoami (the shell's only data need) --------------------------------
@@ -355,6 +455,39 @@ pub struct WhoamiTeam {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// COLLIERY-T-0267: a refusal keeps the field that the server names.
+    #[test]
+    fn a_refusal_keeps_the_field_of_the_server() {
+        let body = serde_json::json!({"error": {
+            "code": "VALIDATION",
+            "message": "The default_branch is empty. Send a value, for example main.",
+            "details": {"field": "default_branch"},
+        }})
+        .to_string();
+        let refusal = refusal_from_body(422, body);
+        assert_eq!(refusal.field.as_deref(), Some("default_branch"));
+        assert_eq!(
+            refusal.message_for("default_branch").as_deref(),
+            Some("The default_branch is empty. Send a value, for example main.")
+        );
+        assert_eq!(refusal.message_for("repo_url"), None);
+
+        // No details, and a body that is not the envelope.
+        let body = serde_json::json!({"error": {"code": "CONFLICT", "message": "Taken."}});
+        let refusal = refusal_from_body(409, body.to_string());
+        assert_eq!(refusal.field, None);
+        assert!(matches!(
+            refusal.error,
+            ApiError::Http { status: 409, ref message, .. } if message == "Taken."
+        ));
+        let refusal = refusal_from_body(502, "Bad Gateway".to_string());
+        assert_eq!(refusal.field, None);
+        assert!(matches!(
+            refusal.error,
+            ApiError::Http { status: 502, ref message, code: None } if message == "Bad Gateway"
+        ));
+    }
 
     /// The mirror decodes a real WhoamiResponse body (field-name lock).
     #[test]

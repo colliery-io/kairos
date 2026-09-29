@@ -9,6 +9,10 @@
 //! connect time (KAIROS-T-0097) — this page renders it in a notice the
 //! operator copies into the forge and never re-reads. Rotation is
 //! disconnect + connect (a new connection id = a new URL and secret).
+//!
+//! COLLIERY-T-0267: the two forms give the rule of the full name, of the
+//! URL and of the default branch before the user sends them. A refusal of
+//! the server about one of these fields shows next to that field.
 
 use aurora_dark::components::{
     Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
@@ -29,6 +33,85 @@ struct Secret {
     webhook_secret: String,
 }
 
+/// The rule of the full name for `forge`. A mirror of
+/// `kairos_core::repositories::full_name_rule`: this crate does not depend
+/// on `kairos-core`.
+fn full_name_hint(forge: &str) -> &'static str {
+    match forge {
+        "github" => {
+            "Full name: 2 parts for the forge github, for example acme/payments-api. It \
+             has no space, and it does not end with .git."
+        }
+        "gitlab" => {
+            "Full name: 2 or more parts for the forge gitlab, for example \
+             acme/portal/web. It has no space, and it does not end with .git."
+        }
+        _ => {
+            "Full name: 1 or more parts for the forge other, for example acme/site. It has \
+             no space, and it does not end with .git."
+        }
+    }
+}
+
+/// The rule of the URL.
+const URL_HINT: &str = "URL: an absolute http or https URL, with no space. Do not put a user \
+                        name or a password in it, because each member can read it.";
+
+/// The rule of the default branch.
+const BRANCH_HINT: &str = "Default branch: a branch name that git accepts, with no space.";
+
+/// The fields that have a refusal next to them.
+const FORM_FIELDS: [&str; 3] = ["repo_full_name", "repo_url", "default_branch"];
+
+/// [`run_mutation`] for a form of this page (COLLIERY-T-0267). A refusal
+/// about a field of [`FORM_FIELDS`] goes to `refused`, and the form shows it
+/// next to the field. Each other refusal goes to `outcome`.
+fn run_form_mutation<F>(
+    busy: RwSignal<bool>,
+    outcome: RwSignal<MutationOutcome>,
+    reload: RwSignal<u32>,
+    refused: RwSignal<Option<api::Refusal>>,
+    success: String,
+    fut: F,
+) where
+    F: std::future::Future<Output = Result<(), api::Refusal>> + 'static,
+{
+    if busy.get_untracked() {
+        return;
+    }
+    busy.set(true);
+    leptos::task::spawn_local(async move {
+        let result = fut.await;
+        busy.set(false);
+        match result {
+            Ok(()) => {
+                refused.set(None);
+                outcome.set(Some(Ok(success)));
+                reload.update(|n| *n += 1);
+            }
+            Err(refusal)
+                if FORM_FIELDS
+                    .iter()
+                    .any(|f| refusal.field.as_deref() == Some(f)) =>
+            {
+                outcome.set(None);
+                refused.set(Some(refusal));
+            }
+            Err(refusal) => {
+                refused.set(None);
+                outcome.set(Some(Err(refusal.error)));
+            }
+        }
+    });
+}
+
+/// The message of the refusal in `refused` for `field`, or an empty text.
+fn refusal_for(refused: RwSignal<Option<api::Refusal>>, field: &str) -> String {
+    refused
+        .with(|refusal| refusal.as_ref().and_then(|r| r.message_for(field)))
+        .unwrap_or_default()
+}
+
 /// `/admin/repositories`.
 #[component]
 pub fn AdminRepositoriesPage() -> impl IntoView {
@@ -37,6 +120,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
     let outcome: RwSignal<MutationOutcome> = RwSignal::new(None);
     let busy = RwSignal::new(false);
     let secret: RwSignal<Option<Secret>> = RwSignal::new(None);
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let repos = LocalResource::new(move || {
         let _ = auth.token();
@@ -88,11 +172,12 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
         let s = (!s.is_empty()).then_some(s);
         let b = (!b.is_empty()).then_some(b);
         let d = (!d.is_empty()).then_some(d);
-        run_mutation(
+        run_form_mutation(
             busy,
             outcome,
             reload,
-            format!("Kairos registered the repository \"{n}\"."),
+            refused,
+            format!("Kairos added the repository \"{n}\"."),
             async move {
                 api::create_repository(
                     auth,
@@ -152,8 +237,8 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
                     }.into_any(),
                     Some(Ok(items)) if items.is_empty() => view! {
-                        <Empty message="The organization has no repositories. Register \
-                                        one below."/>
+                        <Empty message="The organization has no repositories. Add one \
+                                        below."/>
                     }.into_any(),
                     Some(Ok(items)) => {
                         let team_options = teams.get().and_then(|t| t.ok()).unwrap_or_default();
@@ -164,16 +249,26 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                     }
                 }}
             </Panel>
-            <Panel title="Register repository" caption="A member of the team that owns \
-                                                        the repository can also do this \
-                                                        from the CLI (kairos repos \
-                                                        create).">
+            <Panel title="Register repository" caption="An organization admin adds a \
+                                                        repository here. A member of the \
+                                                        owner team adds one with the CLI \
+                                                        (kairos repos create). An agent \
+                                                        adds one with the MCP tool \
+                                                        add_repository.">
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <Select label="Forge" value=forge
                             options=vec!["github".to_string(), "gitlab".to_string(), "other".to_string()]/>
-                        <TextInput label="Full name" value=name placeholder="e.g. acme/payments-api"/>
-                        <TextInput label="URL" value=url placeholder="https://github.com/acme/payments-api"/>
+                        {move || view! {
+                            <TextInput label="Full name" value=name
+                                placeholder="e.g. acme/payments-api"
+                                error=refusal_for(refused, "repo_full_name")/>
+                        }}
+                        {move || view! {
+                            <TextInput label="URL" value=url
+                                placeholder="https://github.com/acme/payments-api"
+                                error=refusal_for(refused, "repo_url")/>
+                        }}
                         {move || view! {
                             <Select label="Owner team" value=team options=team_slugs.get()/>
                         }}
@@ -186,11 +281,22 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                                                                                    the \
                                                                                    full \
                                                                                    name"/>
-                        <TextInput label="Default branch (optional)" value=branch placeholder="main"/>
+                        {move || view! {
+                            <TextInput label="Default branch (optional)" value=branch
+                                placeholder="main"
+                                error=refusal_for(refused, "default_branch")/>
+                        }}
                         <TextInput label="How to work here (optional)" value=description
                             placeholder="What an agent must know before it works in this \
                                          repository"/>
                     </Group>
+                    <Stack gap="xs" attr:data-testid="repository-rules">
+                        <Text dimmed=true size="xs">{move || full_name_hint(&forge.get())}</Text>
+                        <Text dimmed=true size="xs">{URL_HINT}</Text>
+                        <Text dimmed=true size="xs">
+                            {format!("{BRANCH_HINT} The default is main.")}
+                        </Text>
+                    </Stack>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Register repository"</Button>
                     </Group>
@@ -226,6 +332,7 @@ fn RepositoryRow(
             .map(|t| t.slug)
             .collect::<Vec<String>>(),
     );
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
     let has_webhook = repo.has_webhook;
     let connectable = repo.forge != "other";
     let name = format!("{} · {}", repo.forge, repo.repo_full_name);
@@ -245,11 +352,14 @@ fn RepositoryRow(
             edit_team.get_untracked(),
             edit_description.get_untracked(),
         );
-        editing.set(false);
-        run_mutation(
+        // The editor stays open: a refusal shows next to its field
+        // (COLLIERY-T-0267). A success reads the list again, and the new
+        // row has a closed editor.
+        run_form_mutation(
             busy,
             outcome,
             reload,
+            refused,
             format!("Kairos changed the repository \"{s}\"."),
             async move {
                 api::update_repository(
@@ -357,14 +467,22 @@ fn RepositoryRow(
                 <Stack gap="xs">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Slug" value=edit_slug/>
-                        <TextInput label="URL" value=edit_url/>
-                        <TextInput label="Default branch" value=edit_branch/>
+                        {move || view! {
+                            <TextInput label="URL" value=edit_url
+                                error=refusal_for(refused, "repo_url")/>
+                        }}
+                        {move || view! {
+                            <TextInput label="Default branch" value=edit_branch
+                                error=refusal_for(refused, "default_branch")/>
+                        }}
                         <Select label="Owner team" value=edit_team options=team_slugs.get_value()/>
                     </Group>
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="How to work here" value=edit_description/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
+                    <Text dimmed=true size="xs">{URL_HINT}</Text>
+                    <Text dimmed=true size="xs">{BRANCH_HINT}</Text>
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>

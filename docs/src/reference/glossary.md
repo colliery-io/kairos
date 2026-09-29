@@ -361,6 +361,48 @@ choose the board or the team of the task, and a task on the board of any team
 can link to any live repository. A null, empty or blank repository clears the
 link.
 
+### The form of the fields of a repository
+
+The create and the update of a repository refuse a value that does not have
+the form of its field. The refusal is `422 VALIDATION`, and `details.field`
+names the field. REST, the CLI, the GUI and the MCP tools have the same rules.
+
+Kairos does not remove spaces from a value. It refuses a value that is empty.
+It refuses a value that has a space, a tab, a line break or a control
+character.
+
+| Field | Form | Maximum |
+|---|---|---|
+| `repo_full_name` | The name on the forge, as the forge sends it in a webhook. The parts have `/` between them, and each part has text. The name does not end with `.git`. | 255 characters |
+| `repo_url` | An absolute `http` or `https` URL with a host. It has no user name and no password. | 2048 characters |
+| `default_branch` | A branch name that git accepts. The default is `main`. | 255 characters |
+
+The number of parts of `repo_full_name` comes from the forge:
+
+| Forge | Parts | Example |
+|---|---|---|
+| `github` | 2 | `acme/payments-api` |
+| `gitlab` | 2 or more | `acme/portal/web` |
+| `other` | 1 or more | `acme/site` |
+
+Each member of the organization can read `repo_url`. Thus Kairos refuses a URL
+such as `https://user:token@host/acme/site`, and the refusal does not show the
+value.
+
+A `default_branch` follows these rules of `git check-ref-format`:
+
+- It does not start with `-` or `/`.
+- It does not end with `/`, `.` or `.lock`.
+- It does not have `..`, `//` or `@{`, and it is not `@`.
+- No part between two `/` starts with `.`.
+- It has none of the characters `~`, `^`, `:`, `?`, `*`, `[` and `\`.
+
+An update examines a field only when its value is different from the value of
+the repository. A repository from before these rules keeps its values. You can
+read it, change its other fields, and delete it.
+
+An update with no different value is a success, and Kairos writes nothing.
+
 See [Repositories as execution scope](../explanation/repositories-as-execution-scope.md).
 
 ## request

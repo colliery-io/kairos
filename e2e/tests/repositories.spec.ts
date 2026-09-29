@@ -474,7 +474,25 @@ test('repositories: team panel → board lens → cross-team filing → any repo
         has: page.locator('.cl-field__label', { hasText: label }),
       });
     const notifier = `notifier-${RUN}`;
+    // COLLIERY-T-0267: the form gives the rule of each field, and the rule
+    // of the full name is that of the forge.
+    const rules = form.locator('[data-testid="repository-rules"]');
+    await expect(rules).toContainText('Full name: 2 parts for the forge github');
+    await expect(rules).toContainText('URL: an absolute http or https URL');
+    await expect(rules).toContainText('Default branch: a branch name that git accepts');
     await field('Full name').locator('input').fill(`acme/${notifier}`);
+    // A refusal of the server shows next to its field, and the form keeps
+    // the values.
+    await field('URL').locator('input').fill(`https://bot:s3cret@github.com/acme/${notifier}`);
+    await form.getByRole('button', { name: 'Register repository' }).click();
+    await expect(field('URL').locator('.cl-field__error')).toHaveText(
+      'The repo_url has a user name or a password in it. Each member of the ' +
+        'organization can read the URL. Remove the user name and the password.',
+      { timeout: 10_000 },
+    );
+    await expect(field('Full name').locator('.cl-field__error')).toHaveCount(0);
+    await expect(field('Full name').locator('input')).toHaveValue(`acme/${notifier}`);
+    await expect(page.locator(`[data-repo="${notifier}"]`)).toHaveCount(0);
     await field('URL').locator('input').fill(`https://github.com/acme/${notifier}`);
     await field('Slug (optional)').locator('input').fill(notifier);
     await field('Owner team').locator('select').selectOption({ label: 'web' });
@@ -482,6 +500,7 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     const row = page.locator(`[data-repo="${notifier}"]`).first();
     await expect(row).toBeVisible({ timeout: 10_000 });
     await expect(row).toContainText('owner: web');
+    await expect(field('URL').locator('.cl-field__error')).toHaveCount(0);
     await row.getByRole('button', { name: 'Connect webhook' }).click();
     const secret = page.locator('[data-testid="webhook-secret"]');
     await expect(secret).toBeVisible({ timeout: 10_000 });

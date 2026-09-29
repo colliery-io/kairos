@@ -23,7 +23,7 @@ use diesel::prelude::*;
 use diesel_async::RunQueryDsl;
 use kairos_db::models::{OrgRole, Organization};
 use kairos_db::schema::{organization_members, organizations};
-use kairos_db::tenant::is_valid_slug;
+use kairos_db::tenant::is_valid_tenant_slug;
 use kairos_db::{TenantConnection, TenantPool};
 use uuid::Uuid;
 
@@ -133,7 +133,7 @@ pub async fn require_tenant(
         Some(pinned) => pinned.0.clone(),
         None => resolve_slug(&state.config, req.headers())?,
     };
-    if !is_valid_slug(&slug) {
+    if !is_valid_tenant_slug(&slug) {
         return Err(ApiError::tenant_not_found(format!(
             "{slug:?} is not the slug of an organization. A slug must match ^[a-z][a-z0-9_-]{{1,62}}$."
         )));

@@ -201,17 +201,11 @@ task is on the Platform team's board, so it is the Platform team's task. The
 **repository** says where the code is, and it is only a link. That is
 [repositories as execution scope](../explanation/repositories-as-execution-scope.md).
 
-Now look at the board the task is on. `boards show` takes the board's id, so
-list the boards first:
+Now look at the board the task is on. `boards show` takes the slug of the
+board:
 
 ```sh
-./target/debug/kairos boards list
-```
-
-Copy the id on the **Platform Delivery** row, and use it:
-
-```sh
-./target/debug/kairos boards show <the id you copied>
+./target/debug/kairos boards show platform-delivery
 ```
 
 ```

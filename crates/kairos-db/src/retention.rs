@@ -302,7 +302,7 @@ pub fn sweep_tenant(
         // Disabled: full no-op — not even the audit row.
         return Ok(SweepReport::new(slug, RetentionMode::Off));
     }
-    if !tenant::is_valid_slug(slug) {
+    if !tenant::is_valid_tenant_slug(slug) {
         return Err(RetentionError::InvalidSlug(slug.to_string()));
     }
     let schema = tenant::tenant_schema_name(slug);

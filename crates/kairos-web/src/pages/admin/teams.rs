@@ -1,6 +1,10 @@
 //! `/admin/teams` — teams CRUD + membership (KAIROS-T-0043). Creating a
 //! team also creates its delivery board (`{slug}-delivery`, KAIROS-A-0002);
 //! the success notice surfaces it with a link into board configuration.
+//!
+//! COLLIERY-T-0265: the two forms give the rule of the slug before the
+//! user sends it. A refusal of the server about the slug shows below the
+//! field `Slug`.
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel,
@@ -10,7 +14,10 @@ use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
 use super::api;
-use super::{MutationNotice, MutationOutcome, run_mutation};
+use super::{
+    MutationNotice, MutationOutcome, SLUG_FIELD, SLUG_HINT, is_form_refusal, refusal_for,
+    run_form_mutation, run_mutation,
+};
 use crate::auth::use_auth;
 
 const TEAM_TYPES: [&str; 4] = [
@@ -32,6 +39,8 @@ pub fn AdminTeamsPage() -> impl IntoView {
     let created = RwSignal::new(None::<api::Team>);
     // Which team's member panel is expanded.
     let expanded = RwSignal::new(None::<String>);
+    // The refusal of the create form that is about a field.
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let teams = LocalResource::new(move || {
         let _ = auth.token();
@@ -59,10 +68,20 @@ pub fn AdminTeamsPage() -> impl IntoView {
             match result {
                 Ok(team) => {
                     created.set(Some(team));
+                    refused.set(None);
                     outcome.set(None);
                     reload.update(|count| *count += 1);
                 }
-                Err(error) => outcome.set(Some(Err(error))),
+                // COLLIERY-T-0265: a refusal about the slug shows below
+                // the field, and the form keeps its values.
+                Err(refusal) if is_form_refusal(&refusal, &SLUG_FIELD) => {
+                    outcome.set(None);
+                    refused.set(Some(refusal));
+                }
+                Err(refusal) => {
+                    refused.set(None);
+                    outcome.set(Some(Err(refusal.error)));
+                }
             }
         });
     };
@@ -116,11 +135,15 @@ pub fn AdminTeamsPage() -> impl IntoView {
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Payments"/>
-                        <TextInput label="Slug" value=slug placeholder="e.g. payments"/>
+                        {move || view! {
+                            <TextInput label="Slug" value=slug placeholder="e.g. payments"
+                                error=refusal_for(refused, "slug")/>
+                        }}
                         <Select label="Type"
                             options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
                             value=team_type/>
                     </Group>
+                    <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Create team"</Button>
                     </Group>
@@ -148,6 +171,7 @@ fn TeamRow(
     let edit_type = RwSignal::new(team.team_type.clone());
     let team_name = team.name.clone();
     let deleted_name = team.name.clone();
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let on_save = move |_| {
         let id = team_id.get_value();
@@ -156,11 +180,15 @@ fn TeamRow(
             edit_slug.get_untracked(),
             edit_type.get_untracked(),
         );
-        editing.set(false);
-        run_mutation(
+        // The editor stays open: a refusal about the slug shows below the
+        // field (COLLIERY-T-0265). A success reads the list again, and the
+        // new row has a closed editor.
+        run_form_mutation(
             busy,
             outcome,
             reload,
+            refused,
+            &SLUG_FIELD,
             format!("Kairos changed the team \"{n}\"."),
             async move { api::update_team(auth, &id, &n, &s, &t).await.map(|_| ()) },
         );
@@ -213,14 +241,20 @@ fn TeamRow(
                 </Group>
             </Group>
             <Show when=move || editing.get()>
-                <Group gap="sm" wrap=true top=true>
-                    <TextInput label="Name" value=edit_name/>
-                    <TextInput label="Slug" value=edit_slug/>
-                    <Select label="Type"
-                        options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
-                        value=edit_type/>
-                    <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
-                </Group>
+                <Stack gap="xs">
+                    <Group gap="sm" wrap=true top=true>
+                        <TextInput label="Name" value=edit_name/>
+                        {move || view! {
+                            <TextInput label="Slug" value=edit_slug
+                                error=refusal_for(refused, "slug")/>
+                        }}
+                        <Select label="Type"
+                            options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
+                            value=edit_type/>
+                        <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
+                    </Group>
+                    <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
+                </Stack>
             </Show>
             <Show when=is_expanded>
                 <TeamMembersPanel team_id=team_id.get_value() busy outcome reload/>

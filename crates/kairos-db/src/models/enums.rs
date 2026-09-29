@@ -254,7 +254,10 @@ text_enum! {
     /// so this enum is the enforcement point. `board_config` extends the
     /// documented set for board configuration changes (column add/rename/
     /// remove/reorder, transition add/remove — KAIROS-T-0010; A-0004 itself
-    /// already extends the set with `retention_sweep`).
+    /// already extends the set with `retention_sweep`). `update` is the
+    /// action of a change to a team, a delivery stream, a membership or a
+    /// user (COLLIERY-T-0265). Before that ticket, such a change had the
+    /// action `create`.
     ActivityAction {
         Transition => "transition",
         Create => "create",
@@ -269,6 +272,7 @@ text_enum! {
         Repository => "repository",
         BoardMove => "board_move",
         Restore => "restore",
+        Update => "update",
     }
 }
 
@@ -405,6 +409,7 @@ mod tests {
                 "repository",
                 "board_move",
                 "restore",
+                "update",
             ]
         );
     }

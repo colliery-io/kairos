@@ -572,6 +572,8 @@ async fn a_known_input_passes_and_a_refusal_writes_nothing_against_live_stack() 
             "actor_id",
             "action",
             "since",
+            // COLLIERY-T-0265: the filter by team.
+            "team",
             "limit",
             "offset"
         ]

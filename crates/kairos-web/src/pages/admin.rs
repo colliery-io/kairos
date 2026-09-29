@@ -295,6 +295,80 @@ pub(crate) fn MutationNotice(outcome: RwSignal<MutationOutcome>) -> impl IntoVie
     }
 }
 
+/// The rule of the slug of a board, a team or a delivery stream, below the
+/// field `Slug` of a form (COLLIERY-T-0265). A mirror of
+/// `kairos_core::slug::is_valid_slug`: this crate does not depend on
+/// `kairos-core`.
+pub(crate) const SLUG_HINT: &str = "Slug: 2 to 63 characters. The first character is a lowercase \
+                                    letter. Each other character is a lowercase letter, a \
+                                    digit, - or _. The slug cannot have the form of a UUID.";
+
+/// The rule of the slug of a repository (COLLIERY-T-0265). A mirror of
+/// `kairos_core::repositories::is_valid_slug`. The slug comes from the
+/// name on the forge, and that name can start with a digit.
+pub(crate) const REPOSITORY_SLUG_HINT: &str = "Slug: 2 to 63 characters. The first character is \
+                                               a lowercase letter or a digit. Each other \
+                                               character is a lowercase letter, a digit or -. \
+                                               The slug cannot have the form of a UUID.";
+
+/// The fields of a form that has a slug only.
+pub(crate) const SLUG_FIELD: [&str; 1] = ["slug"];
+
+/// Whether a form with the fields `fields` shows `refusal` below one of
+/// them (COLLIERY-T-0265). Each other refusal goes to the notice of the
+/// page. Pure, host-tested.
+pub(crate) fn is_form_refusal(refusal: &api::Refusal, fields: &[&str]) -> bool {
+    fields
+        .iter()
+        .any(|field| refusal.message_for(field).is_some())
+}
+
+/// [`run_mutation`] for a form (COLLIERY-T-0267, COLLIERY-T-0265). A
+/// refusal about a field of `fields` goes to `refused`, and the form shows
+/// it below the field. Each other refusal goes to `outcome`.
+pub(crate) fn run_form_mutation<F>(
+    busy: RwSignal<bool>,
+    outcome: RwSignal<MutationOutcome>,
+    reload: RwSignal<u32>,
+    refused: RwSignal<Option<api::Refusal>>,
+    fields: &'static [&'static str],
+    success: String,
+    fut: F,
+) where
+    F: std::future::Future<Output = Result<(), api::Refusal>> + 'static,
+{
+    if busy.get_untracked() {
+        return;
+    }
+    busy.set(true);
+    leptos::task::spawn_local(async move {
+        let result = fut.await;
+        busy.set(false);
+        match result {
+            Ok(()) => {
+                refused.set(None);
+                outcome.set(Some(Ok(success)));
+                reload.update(|n| *n += 1);
+            }
+            Err(refusal) if is_form_refusal(&refusal, fields) => {
+                outcome.set(None);
+                refused.set(Some(refusal));
+            }
+            Err(refusal) => {
+                refused.set(None);
+                outcome.set(Some(Err(refusal.error)));
+            }
+        }
+    });
+}
+
+/// The message of the refusal in `refused` for `field`, or an empty text.
+pub(crate) fn refusal_for(refused: RwSignal<Option<api::Refusal>>, field: &str) -> String {
+    refused
+        .with(|refusal| refusal.as_ref().and_then(|r| r.message_for(field)))
+        .unwrap_or_default()
+}
+
 /// Run one admin mutation: guard against double-submit with `busy`, record
 /// the outcome (success message or API error) in `outcome`, and bump
 /// `reload` on success so the owning `LocalResource` refetches (server
@@ -323,4 +397,66 @@ pub(crate) fn run_mutation<F>(
             Err(error) => outcome.set(Some(Err(error))),
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aurora_dark::tokens::ApiError;
+
+    fn refusal(status: u16, field: Option<&str>) -> api::Refusal {
+        api::Refusal {
+            error: ApiError::Http {
+                status,
+                message: "The team slug \"Road Map\" is not correct.".to_string(),
+                code: Some("VALIDATION".to_string()),
+            },
+            field: field.map(str::to_string),
+        }
+    }
+
+    /// COLLIERY-T-0265: a refusal about the slug shows below the field
+    /// `Slug`. Each other refusal goes to the notice of the page.
+    #[test]
+    fn a_refusal_about_the_slug_goes_to_the_field() {
+        let about_slug = refusal(422, Some("slug"));
+        assert!(is_form_refusal(&about_slug, &SLUG_FIELD));
+        assert_eq!(
+            about_slug.message_for("slug").as_deref(),
+            Some("The team slug \"Road Map\" is not correct.")
+        );
+        // A conflict names no field: the slug of a live team.
+        assert!(!is_form_refusal(&refusal(409, None), &SLUG_FIELD));
+        // A field that the form does not have.
+        assert!(!is_form_refusal(
+            &refusal(422, Some("team_type")),
+            &SLUG_FIELD
+        ));
+        assert!(is_form_refusal(
+            &refusal(422, Some("slug")),
+            &["repo_url", "slug"]
+        ));
+        // An error with no message of the server.
+        let network = api::Refusal {
+            error: ApiError::Network,
+            field: Some("slug".to_string()),
+        };
+        assert!(!is_form_refusal(&network, &SLUG_FIELD));
+    }
+
+    /// COLLIERY-T-0265: the two rules of a slug are different, and each
+    /// form gives the rule of its slug. The texts are mirrors of
+    /// `kairos_core::slug` and `kairos_core::repositories`.
+    #[test]
+    fn each_form_gives_the_rule_of_its_slug() {
+        assert!(SLUG_HINT.contains("The first character is a lowercase letter."));
+        assert!(SLUG_HINT.contains("a digit, - or _."));
+        assert!(REPOSITORY_SLUG_HINT.contains("a lowercase letter or a digit."));
+        assert!(REPOSITORY_SLUG_HINT.contains("a digit or -."));
+        assert!(!REPOSITORY_SLUG_HINT.contains('_'));
+        for hint in [SLUG_HINT, REPOSITORY_SLUG_HINT] {
+            assert!(hint.contains("2 to 63 characters"));
+            assert!(hint.contains("cannot have the form of a UUID"));
+        }
+    }
 }

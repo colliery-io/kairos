@@ -527,7 +527,8 @@ pub(crate) async fn update_team(
             log_team_activity(
                 conn,
                 user,
-                ActivityAction::Create,
+                // COLLIERY-T-0265: a change is an update, not a create.
+                ActivityAction::Update,
                 team_id,
                 format!("team_settings:{}", updated.slug),
             )?;

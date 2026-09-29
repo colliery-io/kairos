@@ -72,10 +72,13 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
         RepositoryError::SlugNotFound(slug) => {
             ApiError::not_found(format!("No live repository has the slug {slug:?}."))
         }
+        // COLLIERY-T-0265: the refusal names the field, so that a form
+        // shows it below the field `Slug`.
         RepositoryError::InvalidSlug(slug) => ApiError::validation(format!(
             "The repository slug {slug:?} is not correct. A repository slug must match \
              ^[a-z0-9][a-z0-9-]{{1,62}}$."
-        )),
+        ))
+        .with_details(json!({ "field": "slug" })),
         // COLLIERY-T-0267: the text and the name of the field come from
         // the function that has the rule of the field.
         RepositoryError::InvalidField(fault) => {
@@ -113,7 +116,7 @@ pub(crate) fn map_error(e: RepositoryError) -> ApiError {
 }
 
 /// Resolve a team reference (UUID or slug) to its live row, or 422.
-fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiError> {
+pub(crate) fn resolve_team(conn: &mut PgConnection, reference: &str) -> Result<Team, ApiError> {
     use kairos_db::schema::teams::dsl;
     let mut query = dsl::teams.filter(dsl::deleted_at.is_null()).into_boxed();
     query = match reference.parse::<Uuid>() {

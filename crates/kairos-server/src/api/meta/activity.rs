@@ -1,11 +1,17 @@
 //! `GET /api/activity` (KAIROS-S-0005, model per KAIROS-A-0004): the
 //! audit-trail query endpoint.
 //!
-//! Open tenant-wide (A-0006 reads). The four filters — `entity_id`,
-//! `actor_id`, `action`, `since` — are freely combinable and paginate
-//! with `limit`/`offset` (S-0005); results are newest first. Malformed
-//! filter values (bad UUID, unknown action, non-RFC-3339 `since`) are 422
-//! `VALIDATION`.
+//! Open tenant-wide (A-0006 reads). The five filters — `entity_id`,
+//! `actor_id`, `action`, `since`, `team` — are freely combinable and
+//! paginate with `limit`/`offset` (S-0005); results are newest first.
+//! Malformed filter values (bad UUID, unknown action, non-RFC-3339 `since`,
+//! unknown team) are 422 `VALIDATION`.
+//!
+//! The filter `team` (COLLIERY-T-0265) keeps the entries whose actor is a
+//! member of the team at the time of the request. That is the meaning
+//! that the filter of the activity page had (KAIROS-T-0069), when the page
+//! applied it to the one page that it read. The server applies it before
+//! the page, so `total` is the count after the filter.
 //!
 //! An entry about an item has the short code and the title of the item
 //! (COLLIERY-T-0262), so that a client can make a link to the item and
@@ -95,6 +101,12 @@ fn item_heads(
 /// `entity_archived_at` (COLLIERY-T-0262). The three fields are null for
 /// an entry that is not about an item. They are null too for an item
 /// that Kairos does not have.
+///
+/// `team` is the slug or the id of a live team (COLLIERY-T-0265). An entry
+/// passes the filter when its actor is a member of the team at the time
+/// of the request. The entity of the entry does not change the result.
+/// The server applies each filter before the page, so `total` is the
+/// count after the filters. An unknown team is a 422 `VALIDATION`.
 #[utoipa::path(
     get,
     path = "/api/activity",
@@ -148,6 +160,18 @@ pub(crate) async fn get_activity(
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::activity_log as log;
+            use kairos_db::schema::team_members;
+
+            // COLLIERY-T-0265: the team of the filter, by slug or by id.
+            let team_id = query
+                .team
+                .as_deref()
+                .map(|reference| {
+                    crate::api::org::repositories::resolve_team(conn, reference)
+                        .map(|team| team.id)
+                        .map_err(|e| e.with_details(serde_json::json!({ "field": "team" })))
+                })
+                .transpose()?;
 
             /// Apply the combinable S-0005 filters to any boxed
             /// `activity_log` query (used for both the count and the
@@ -166,6 +190,16 @@ pub(crate) async fn get_activity(
                     }
                     if let Some(since) = since {
                         query = query.filter(log::occurred_at.ge(since));
+                    }
+                    if let Some(team_id) = team_id {
+                        // The actor is a member of the team now.
+                        query = query.filter(
+                            log::actor_id.eq_any(
+                                team_members::table
+                                    .filter(team_members::team_id.eq(team_id))
+                                    .select(team_members::user_id),
+                            ),
+                        );
                     }
                     query
                 }};

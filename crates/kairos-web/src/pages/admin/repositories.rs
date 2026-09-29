@@ -13,6 +13,7 @@
 //! COLLIERY-T-0267: the two forms give the rule of the full name, of the
 //! URL and of the default branch before the user sends them. A refusal of
 //! the server about one of these fields shows next to that field.
+//! COLLIERY-T-0265: the slug has its rule and its refusal too.
 
 use aurora_dark::components::{
     Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
@@ -22,7 +23,10 @@ use aurora_dark::tokens::ApiError;
 use leptos::prelude::*;
 
 use super::api;
-use super::{MutationNotice, MutationOutcome, run_mutation};
+use super::{
+    MutationNotice, MutationOutcome, REPOSITORY_SLUG_HINT, refusal_for, run_form_mutation,
+    run_mutation,
+};
 use crate::auth::use_auth;
 
 /// What the operator pastes into the forge — shown once, then gone.
@@ -60,57 +64,9 @@ const URL_HINT: &str = "URL: an absolute http or https URL, with no space. Do no
 /// The rule of the default branch.
 const BRANCH_HINT: &str = "Default branch: a branch name that git accepts, with no space.";
 
-/// The fields that have a refusal next to them.
-const FORM_FIELDS: [&str; 3] = ["repo_full_name", "repo_url", "default_branch"];
-
-/// [`run_mutation`] for a form of this page (COLLIERY-T-0267). A refusal
-/// about a field of [`FORM_FIELDS`] goes to `refused`, and the form shows it
-/// next to the field. Each other refusal goes to `outcome`.
-fn run_form_mutation<F>(
-    busy: RwSignal<bool>,
-    outcome: RwSignal<MutationOutcome>,
-    reload: RwSignal<u32>,
-    refused: RwSignal<Option<api::Refusal>>,
-    success: String,
-    fut: F,
-) where
-    F: std::future::Future<Output = Result<(), api::Refusal>> + 'static,
-{
-    if busy.get_untracked() {
-        return;
-    }
-    busy.set(true);
-    leptos::task::spawn_local(async move {
-        let result = fut.await;
-        busy.set(false);
-        match result {
-            Ok(()) => {
-                refused.set(None);
-                outcome.set(Some(Ok(success)));
-                reload.update(|n| *n += 1);
-            }
-            Err(refusal)
-                if FORM_FIELDS
-                    .iter()
-                    .any(|f| refusal.field.as_deref() == Some(f)) =>
-            {
-                outcome.set(None);
-                refused.set(Some(refusal));
-            }
-            Err(refusal) => {
-                refused.set(None);
-                outcome.set(Some(Err(refusal.error)));
-            }
-        }
-    });
-}
-
-/// The message of the refusal in `refused` for `field`, or an empty text.
-fn refusal_for(refused: RwSignal<Option<api::Refusal>>, field: &str) -> String {
-    refused
-        .with(|refusal| refusal.as_ref().and_then(|r| r.message_for(field)))
-        .unwrap_or_default()
-}
+/// The fields that have a refusal next to them. The slug is one of them
+/// since COLLIERY-T-0265.
+const FORM_FIELDS: [&str; 4] = ["repo_full_name", "repo_url", "default_branch", "slug"];
 
 /// `/admin/repositories`.
 #[component]
@@ -177,6 +133,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
             outcome,
             reload,
             refused,
+            &FORM_FIELDS,
             format!("Kairos added the repository \"{n}\"."),
             async move {
                 api::create_repository(
@@ -274,13 +231,11 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         }}
                     </Group>
                     <Group gap="sm" wrap=true top=true>
-                        <TextInput label="Slug (optional)" value=slug placeholder="Kairos \
-                                                                                   makes \
-                                                                                   it \
-                                                                                   from \
-                                                                                   the \
-                                                                                   full \
-                                                                                   name"/>
+                        {move || view! {
+                            <TextInput label="Slug (optional)" value=slug
+                                placeholder="Kairos makes it from the full name"
+                                error=refusal_for(refused, "slug")/>
+                        }}
                         {move || view! {
                             <TextInput label="Default branch (optional)" value=branch
                                 placeholder="main"
@@ -296,6 +251,7 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         <Text dimmed=true size="xs">
                             {format!("{BRANCH_HINT} The default is main.")}
                         </Text>
+                        <Text dimmed=true size="xs">{REPOSITORY_SLUG_HINT}</Text>
                     </Stack>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Register repository"</Button>
@@ -360,6 +316,7 @@ fn RepositoryRow(
             outcome,
             reload,
             refused,
+            &FORM_FIELDS,
             format!("Kairos changed the repository \"{s}\"."),
             async move {
                 api::update_repository(
@@ -466,7 +423,10 @@ fn RepositoryRow(
             <Show when=move || editing.get()>
                 <Stack gap="xs">
                     <Group gap="sm" wrap=true top=true>
-                        <TextInput label="Slug" value=edit_slug/>
+                        {move || view! {
+                            <TextInput label="Slug" value=edit_slug
+                                error=refusal_for(refused, "slug")/>
+                        }}
                         {move || view! {
                             <TextInput label="URL" value=edit_url
                                 error=refusal_for(refused, "repo_url")/>
@@ -483,6 +443,7 @@ fn RepositoryRow(
                     </Group>
                     <Text dimmed=true size="xs">{URL_HINT}</Text>
                     <Text dimmed=true size="xs">{BRANCH_HINT}</Text>
+                    <Text dimmed=true size="xs">{REPOSITORY_SLUG_HINT}</Text>
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>

@@ -30,7 +30,7 @@ use diesel_async::RunQueryDsl;
 use kairos_db::models::Organization;
 use kairos_db::schema::{organizations, scim_tokens};
 use kairos_db::scim::ScimToken;
-use kairos_db::tenant::is_valid_slug;
+use kairos_db::tenant::is_valid_tenant_slug;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -91,7 +91,7 @@ pub fn parse_token(token: &str) -> Option<(&str, &str)> {
         && secret
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    (secret_ok && is_valid_slug(slug)).then_some((slug, secret))
+    (secret_ok && is_valid_tenant_slug(slug)).then_some((slug, secret))
 }
 
 /// The uniform 401 for every authentication failure mode.

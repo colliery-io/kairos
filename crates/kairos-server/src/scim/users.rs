@@ -523,7 +523,8 @@ pub(crate) async fn patch_user(
                             conn,
                             ctx.actor_id,
                             &ctx.token_name,
-                            ActivityAction::Create,
+                            // COLLIERY-T-0265: a change is an update.
+                            ActivityAction::Update,
                             user.id,
                             "user",
                             format!("user_profile:display_name user:{}", user.id),
@@ -613,7 +614,8 @@ pub(crate) async fn replace_user(
                     conn,
                     ctx.actor_id,
                     &ctx.token_name,
-                    ActivityAction::Create,
+                    // COLLIERY-T-0265: a change is an update.
+                    ActivityAction::Update,
                     user.id,
                     "user",
                     format!("user_profile:replace user:{}", user.id),

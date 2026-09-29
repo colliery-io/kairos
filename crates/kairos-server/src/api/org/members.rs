@@ -11,9 +11,9 @@
 //!
 //! Activity rows (vocabulary decision recorded in the task doc): add →
 //! `create`, remove → `delete`, both `entity_type='membership'`; role
-//! changes log `create` with details `membership_role:{old}->{new}
-//! user:{id}` (the existing ActivityAction vocabulary has no generic
-//! update action).
+//! changes log `update` with details `membership_role:{old}->{new}
+//! user:{id}` (COLLIERY-T-0265; before that ticket the action was
+//! `create`).
 
 use axum::extract::{Extension, Path, State};
 use axum::http::StatusCode;
@@ -309,7 +309,8 @@ pub(crate) async fn update_member(
                 log_membership_activity(
                     conn,
                     user,
-                    ActivityAction::Create,
+                    // COLLIERY-T-0265: a change is an update, not a create.
+                    ActivityAction::Update,
                     target,
                     format!(
                         "membership_role:{}->{new_role} user:{target}",

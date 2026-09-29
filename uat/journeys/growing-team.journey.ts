@@ -232,7 +232,7 @@ journey(
       const mcp = await joiner.mcp();
       await mcp.call('delete_item', { short_code: work, confirm: true });
       const api = await alice.api();
-      const board = await api.get(`/api/boards/${team.fixture.boardId}/items`);
+      const board = await api.boardItems(team.fixture.boardId!);
       const remaining = (board.columns ?? []).flatMap((c: any) => c.tasks ?? []);
       expect(remaining.map((t: any) => t.short_code)).not.toContain(work);
       return { deleted: work, live_cards_left: remaining.length };

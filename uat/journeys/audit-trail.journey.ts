@@ -131,7 +131,9 @@ journey(
       await row.getByRole('button', { name: 'Roll back', exact: true }).click();
       const modal = page.locator('.cl-modal');
       await modal.getByRole('button', { name: 'Roll back', exact: true }).click();
-      const notice = page.getByText(/Rolled back: the v\d+ snapshot/);
+      // The text of the notice is Simplified Technical English
+      // (COLLIERY-T-0265).
+      const notice = page.getByText(/Kairos copied version v\d+ to the new version v\d+/);
       await expect(notice).toBeVisible({ timeout: 15_000 });
       const text = await notice.innerText();
       const newVersion = Number(text.match(/new version v(\d+)/)?.[1] ?? '0');

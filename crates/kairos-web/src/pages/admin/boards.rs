@@ -18,7 +18,10 @@ use leptos_router::hooks::use_params_map;
 use super::api;
 use super::capabilities::{CapabilityEditor, CapabilityPills, EditorState};
 use super::gating;
-use super::{MutationNotice, MutationOutcome, run_mutation};
+use super::{
+    MutationNotice, MutationOutcome, SLUG_FIELD, SLUG_HINT, refusal_for, run_form_mutation,
+    run_mutation,
+};
 use crate::auth::use_auth;
 
 const LEVELS: [&str; 4] = ["strategy", "initiative", "delivery", "adr"];
@@ -145,6 +148,9 @@ pub fn AdminBoardsPage() -> impl IntoView {
     let slug = RwSignal::new(String::new());
     let level = RwSignal::new("initiative".to_string());
     let team_slug = RwSignal::new(String::new());
+    // COLLIERY-T-0265: the refusal of the create form that is about a
+    // field. It shows below the field.
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let on_create = move |_| {
         let team_id = teams
@@ -170,10 +176,12 @@ pub fn AdminBoardsPage() -> impl IntoView {
             ))));
             return;
         }
-        run_mutation(
+        run_form_mutation(
             busy,
             outcome,
             reload,
+            refused,
+            &SLUG_FIELD,
             format!("Kairos made the board \"{n}\" with the default columns of the level {l}."),
             async move {
                 api::create_board(auth, &n, &s, &l, team_id.as_deref())
@@ -270,9 +278,14 @@ pub fn AdminBoardsPage() -> impl IntoView {
                     <Stack gap="sm">
                         <Group gap="sm" wrap=true top=true>
                             <TextInput label="Name" value=name placeholder="e.g. Platform Initiatives"/>
-                            <TextInput label="Slug" value=slug placeholder="e.g. platform-initiatives"/>
+                            {move || view! {
+                                <TextInput label="Slug" value=slug
+                                    placeholder="e.g. platform-initiatives"
+                                    error=refusal_for(refused, "slug")/>
+                            }}
                             <Select label="Level" options=LEVELS.iter().map(|l| l.to_string()).collect() value=level/>
                         </Group>
+                        <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
                         <Show when=move || level.get() == "delivery">
                             {move || {
                                 let options = match teams.get() {

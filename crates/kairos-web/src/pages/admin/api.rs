@@ -71,14 +71,17 @@ pub async fn list_boards(auth: Auth) -> Result<Vec<Board>, ApiError> {
 }
 
 /// `POST /api/boards` — seeded with the level's default columns/transitions.
+///
+/// A refusal keeps the field that the server names, for the form
+/// (COLLIERY-T-0265).
 pub async fn create_board(
     auth: Auth,
     name: &str,
     slug: &str,
     board_level: &str,
     team_id: Option<&str>,
-) -> Result<Board, ApiError> {
-    post_json(
+) -> Result<Board, Refusal> {
+    post_json_refusal(
         auth,
         "/api/boards",
         &json!({
@@ -236,13 +239,16 @@ pub use crate::pages::teams::api::{Team, list_teams, team_members};
 
 /// `POST /api/teams` — also creates the team's delivery board
 /// (`{slug}-delivery`); the returned `delivery_board_id` names it.
+///
+/// A refusal keeps the field that the server names, for the form
+/// (COLLIERY-T-0265).
 pub async fn create_team(
     auth: Auth,
     name: &str,
     slug: &str,
     team_type: &str,
-) -> Result<Team, ApiError> {
-    post_json(
+) -> Result<Team, Refusal> {
+    post_json_refusal(
         auth,
         "/api/teams",
         &json!({ "name": name, "slug": slug, "team_type": team_type }),
@@ -250,15 +256,16 @@ pub async fn create_team(
     .await
 }
 
-/// `PATCH /api/teams/{id}`.
+/// `PATCH /api/teams/{id}`. A refusal keeps the field that the server
+/// names, for the form (COLLIERY-T-0265).
 pub async fn update_team(
     auth: Auth,
     team_id: &str,
     name: &str,
     slug: &str,
     team_type: &str,
-) -> Result<Value, ApiError> {
-    patch_json(
+) -> Result<Value, Refusal> {
+    patch_json_refusal(
         auth,
         &format!("/api/teams/{team_id}"),
         &json!({ "name": name, "slug": slug, "team_type": team_type }),
@@ -296,14 +303,15 @@ pub async fn remove_team_member(
 
 pub use crate::pages::teams::api::{DeliveryStream, list_streams, stream_teams};
 
-/// `POST /api/delivery-streams`.
+/// `POST /api/delivery-streams`. A refusal keeps the field that the server
+/// names, for the form (COLLIERY-T-0265).
 pub async fn create_stream(
     auth: Auth,
     name: &str,
     slug: &str,
     description: Option<&str>,
-) -> Result<Value, ApiError> {
-    post_json(
+) -> Result<Value, Refusal> {
+    post_json_refusal(
         auth,
         "/api/delivery-streams",
         &json!({ "name": name, "slug": slug, "description": description }),
@@ -311,15 +319,16 @@ pub async fn create_stream(
     .await
 }
 
-/// `PATCH /api/delivery-streams/{id}`.
+/// `PATCH /api/delivery-streams/{id}`. A refusal keeps the field that the
+/// server names, for the form (COLLIERY-T-0265).
 pub async fn update_stream(
     auth: Auth,
     stream_id: &str,
     name: &str,
     slug: &str,
     description: Option<&str>,
-) -> Result<Value, ApiError> {
-    patch_json(
+) -> Result<Value, Refusal> {
+    patch_json_refusal(
         auth,
         &format!("/api/delivery-streams/{stream_id}"),
         &json!({ "name": name, "slug": slug, "description": description }),

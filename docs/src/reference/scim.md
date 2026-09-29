@@ -131,8 +131,9 @@ deprovisioned user's still-valid OIDC token receives 403
 No other `displayName` is meaningful, and Kairos accepts no other `displayName`.
 `POST` of one is **400 `invalidValue`**, not a silent skip. The slug after
 `kairos-team-` must match `^[a-z][a-z0-9_-]{1,62}$`, so Kairos refuses
-`kairos-team-Platform` and `kairos-team-x` too. `GET /scim/v2/Groups` lists every
-live team, not only the SCIM-created ones.
+`kairos-team-Platform` and `kairos-team-x` too. The slug cannot have the form of
+a UUID. This is the rule of a team [slug](glossary.md#slug) of the REST API.
+`GET /scim/v2/Groups` lists every live team, not only the SCIM-created ones.
 
 Group members must already be provisioned Users of *this* tenant. A
 `public.users` row is not enough. A member who is not one is 400

@@ -3,6 +3,7 @@
 // typed helpers below are the handful every journey needs. Task-specific
 // calls live next to the journey that makes them.
 import { runContext } from '../run/context';
+import { readEachBoardPage } from './board-items';
 
 export class ApiError extends Error {
   constructor(
@@ -63,10 +64,21 @@ export class Api {
   async boards(): Promise<any[]> {
     return (await this.get('/api/boards?limit=100')).items;
   }
-  async boardBySlug(slug: string): Promise<any> {
-    const board = (await this.boards()).find((b) => b.slug === slug);
-    if (!board) throw new Error(`no board with slug ${slug}`);
-    return this.get(`/api/boards/${board.id}`);
+  /** One board by its slug: the read routes take a slug (COLLIERY-T-0265). */
+  boardBySlug(slug: string): Promise<any> {
+    return this.get(`/api/boards/${encodeURIComponent(slug)}`);
+  }
+  /**
+   * Each item of a board, page after page (COLLIERY-T-0265). The route
+   * gives 200 items by default, so one read is a part of a large board.
+   * `board` is the slug or the id. `query` has the filters of the route,
+   * without `limit` and `offset`.
+   */
+  boardItems(board: string, query: Record<string, string> = {}): Promise<any> {
+    return readEachBoardPage((limit, offset) => {
+      const params = new URLSearchParams({ ...query, limit: String(limit), offset: String(offset) });
+      return this.get(`/api/boards/${encodeURIComponent(board)}/items?${params}`);
+    });
   }
   teamBySlug(slug: string) { return this.get(`/api/teams/by-slug/${slug}`); }
   task(code: string) { return this.get(`/api/tasks/${code}`); }

@@ -5,6 +5,7 @@
 // PATCH /api/{family}/{code} carrying {title,content,version}).
 
 import crypto from 'node:crypto';
+import { boardItems } from './board-items';
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
@@ -21,16 +22,18 @@ export interface BoardSnapshot {
   tasksByColumnName: Map<string, { code: string; columnId: string }[]>;
 }
 
-/** Load platform-delivery's config + grouped items in one shot. */
+/**
+ * Load platform-delivery's config + grouped items in one shot. The read
+ * routes of a board take its slug, and the items come page after page
+ * (COLLIERY-T-0265).
+ */
 export async function loadPlatformDelivery(
   server: string,
   token: string,
 ): Promise<BoardSnapshot> {
-  const boards = (await json(server, token, '/api/boards?limit=100')).items as any[];
-  const pd = boards.find((b) => b.slug === 'platform-delivery');
-  if (!pd) throw new Error('platform-delivery board not found');
-  const detail = await json(server, token, `/api/boards/${pd.id}`);
-  const items = await json(server, token, `/api/boards/${pd.id}/items`);
+  const detail = await json(server, token, '/api/boards/platform-delivery');
+  const pd = { id: detail.id as string };
+  const items = await boardItems(server, token, pd.id);
 
   const columnName = new Map<string, string>();
   for (const c of detail.columns) columnName.set(c.id, c.name);

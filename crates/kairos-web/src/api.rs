@@ -70,6 +70,23 @@ pub fn next_offset(fetched: usize, last_page: usize, total: i64) -> Option<i64> 
     (last_page > 0 && fetched < total).then_some(fetched)
 }
 
+/// One value of a URL, with each character that is not unreserved as a
+/// percent code (COLLIERY-T-0265): a value of a query, or one part of a
+/// path. A slug from before the rule of a slug can have a space or a `/`.
+/// Pure, host-tested.
+pub fn encode_component(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
 /// The URL of one page of a list route (COLLIERY-T-0258). `path` can have
 /// a query (`/api/metadata-definitions?entity_type=task`): the page
 /// parameters go after it. Pure, host-tested.

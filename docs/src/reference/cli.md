@@ -418,12 +418,12 @@ kairos boards list [OPTIONS]
 ### `kairos boards show`
 
 ```
-kairos boards show <BOARD_ID> [OPTIONS]
+kairos boards show <BOARD> [OPTIONS]
 ```
 
 | Argument | Type | Default | Description |
 |---|---|---|---|
-| `<BOARD_ID>` | UUID | required | Board to show. |
+| `<BOARD>` | slug or UUID | required | Board to show. |
 | `--limit <LIMIT>` | integer | server default 200, maximum 1000 | Page size. |
 | `--offset <OFFSET>` | integer | 0 | Items to skip. |
 

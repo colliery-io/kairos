@@ -13,7 +13,7 @@ One `activity_log` row, as returned by `GET /api/activity`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config`. |
+| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
 | `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |

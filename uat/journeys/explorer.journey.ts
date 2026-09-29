@@ -68,7 +68,7 @@ journey(
     const teamSlug = (me.teams ?? [])[0]?.slug as string;
     expect(teamSlug, 'carol is on a team').toBeTruthy();
     const board = await api.boardBySlug(`${teamSlug}-delivery`);
-    const onBoard: any[] = ((await api.get(`/api/boards/${board.id}/items`)).columns ?? []).flatMap(
+    const onBoard: any[] = ((await api.boardItems(board.id)).columns ?? []).flatMap(
       (c: any) => c.tasks ?? [],
     );
     let subject = '';

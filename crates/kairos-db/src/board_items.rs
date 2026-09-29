@@ -141,3 +141,66 @@ pub fn board_item_page(
             .collect(),
     })
 }
+
+/// One live column of a board, with the number of live cards in it.
+#[derive(Debug, Clone, PartialEq, Eq, QueryableByName)]
+pub struct ColumnCardCount {
+    /// The board of the column.
+    #[diesel(sql_type = SqlUuid)]
+    pub board_id: Uuid,
+    /// The column.
+    #[diesel(sql_type = SqlUuid)]
+    pub column_id: Uuid,
+    /// The name of the column.
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub name: String,
+    /// The number of live cards in the column, of the four types.
+    #[diesel(sql_type = BigInt)]
+    pub count: i64,
+}
+
+/// The live columns of the boards `$1`, each with the count of its live
+/// cards. The database counts the cards (`GROUP BY`), and no row of a card
+/// comes to the server.
+const COLUMN_COUNTS_SQL: &str = "\
+    SELECT c.board_id, c.id AS column_id, c.name, \
+           COALESCE(n.count, 0)::bigint AS count \
+    FROM board_columns c \
+    LEFT JOIN ( \
+        SELECT card.column_id, COUNT(*) AS count \
+        FROM ( \
+            SELECT column_id FROM strategies \
+             WHERE board_id = ANY($1) AND deleted_at IS NULL \
+            UNION ALL \
+            SELECT column_id FROM initiatives \
+             WHERE board_id = ANY($1) AND deleted_at IS NULL \
+            UNION ALL \
+            SELECT column_id FROM tasks \
+             WHERE board_id = ANY($1) AND deleted_at IS NULL \
+            UNION ALL \
+            SELECT column_id FROM adrs \
+             WHERE board_id = ANY($1) AND deleted_at IS NULL \
+        ) card \
+        GROUP BY card.column_id \
+    ) n ON n.column_id = c.id \
+    WHERE c.board_id = ANY($1) AND c.deleted_at IS NULL \
+    ORDER BY c.board_id, c.position, c.id";
+
+/// The live columns of `board_ids` in position order, each with the count
+/// of its live cards (COLLIERY-T-0265): 1 query, for each number of boards
+/// and for a board of each size. An archived card does not count (ADR-20
+/// rule 5), and a removed column is not in the result.
+///
+/// The MCP tool `my_boards` prints the counts. Before this function it
+/// read each row of each board to count them.
+pub fn live_column_counts(
+    conn: &mut PgConnection,
+    board_ids: &[Uuid],
+) -> Result<Vec<ColumnCardCount>, DieselError> {
+    if board_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    sql_query(COLUMN_COUNTS_SQL)
+        .bind::<Array<SqlUuid>, _>(board_ids)
+        .load(conn)
+}

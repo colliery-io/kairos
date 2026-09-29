@@ -618,6 +618,9 @@ impl KairosClient {
     }
 
     /// `GET /api/boards/{id}` — board + columns + transition graph.
+    /// `board_id` is the slug or the id of the board (COLLIERY-T-0265), as
+    /// for each function that reads a board. A function that changes a
+    /// board takes the id only.
     pub async fn get_board(&self, board_id: &str) -> Result<BoardDetail, Error> {
         self.get(&format!("/api/boards/{board_id}")).await
     }
@@ -641,7 +644,8 @@ impl KairosClient {
     /// column (COLLIERY-T-0261). The default of `limit` is 200 and the
     /// maximum is 1000. `total` of the response is the number of items on
     /// all pages. For each item of the board, use
-    /// [`Client::board_items_all`].
+    /// [`Client::board_items_all`]. `board_id` is the slug or the id of
+    /// the board (COLLIERY-T-0265).
     pub async fn board_items(
         &self,
         board_id: &str,
@@ -705,7 +709,7 @@ impl KairosClient {
         .await
     }
 
-    /// `GET /api/boards/{id}/columns`.
+    /// `GET /api/boards/{id}/columns`. `board_id` is the slug or the id.
     pub async fn list_columns(&self, board_id: &str) -> Result<Vec<BoardColumn>, Error> {
         self.get(&format!("/api/boards/{board_id}/columns")).await
     }
@@ -744,7 +748,8 @@ impl KairosClient {
             .await
     }
 
-    /// `GET /api/boards/{id}/transitions`.
+    /// `GET /api/boards/{id}/transitions`. `board_id` is the slug or the
+    /// id.
     pub async fn list_transitions(&self, board_id: &str) -> Result<Vec<BoardTransition>, Error> {
         self.get(&format!("/api/boards/{board_id}/transitions"))
             .await
@@ -773,6 +778,7 @@ impl KairosClient {
     }
 
     /// `GET /api/boards/{id}/members` — members + capability grants.
+    /// `board_id` is the slug or the id.
     pub async fn list_board_members(&self, board_id: &str) -> Result<Vec<BoardMember>, Error> {
         self.get(&format!("/api/boards/{board_id}/members")).await
     }

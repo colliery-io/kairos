@@ -29,8 +29,8 @@ use uuid::Uuid;
 use super::super::convert::{IntoDto, attach_repositories};
 use super::super::{clamp_pagination, parse_enum, parse_uuid, require_capability};
 use super::{
-    check_slug_form, count_live_board_items, load_board, map_config_error, map_grant_error,
-    require_user_exists, run_in_transaction, validate_capabilities,
+    check_slug_form, count_live_board_items, load_board, load_board_by_ref, map_config_error,
+    map_grant_error, require_user_exists, run_in_transaction, validate_capabilities,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -275,11 +275,14 @@ pub(crate) struct BoardDetailQuery {
 
 /// Board detail: the board plus its columns and transitions (open
 /// tenant-wide).
+///
+/// The path takes the slug or the id of the board (COLLIERY-T-0265). An
+/// unknown slug and an unknown id are a 404.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)"), BoardDetailQuery),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board"), BoardDetailQuery),
     responses(
         (status = 200, description = "The board with columns and transitions", body = dto::BoardDetail),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -291,11 +294,10 @@ pub(crate) async fn get_board(
     Path(id): Path<String>,
     ApiQuery(query): ApiQuery<BoardDetailQuery>,
 ) -> Result<Json<dto::BoardDetail>, ApiError> {
-    let board_id = parse_uuid(&id, "id")?;
     let detail = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let board = load_board(conn, board_id)?;
+            let board = load_board_by_ref(conn, &id)?;
             board_detail(conn, board, query.include_removed_columns)
         })
         .await?;
@@ -658,11 +660,14 @@ macro_rules! rows_by_id {
 /// work. An edge with either end in a terminal column (`is_done`) adds to
 /// neither card. The edge stays on the relationship list of each item,
 /// with a mark on the done end.
+///
+/// The path takes the slug or the id of the board (COLLIERY-T-0265). An
+/// unknown slug and an unknown id are a 404.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/items",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)"), dto::BoardItemsQuery),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board"), dto::BoardItemsQuery),
     responses(
         (status = 200, description = "One page of the items, grouped by column", body = dto::BoardItemsResponse),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -674,7 +679,6 @@ pub(crate) async fn board_items(
     Path(id): Path<String>,
     ApiQuery(query): ApiQuery<dto::BoardItemsQuery>,
 ) -> Result<Json<dto::BoardItemsResponse>, ApiError> {
-    let board_id = parse_uuid(&id, "id")?;
     let (limit, offset) = clamp_board_items_page(&query);
     let response = state
         .blocking
@@ -682,7 +686,8 @@ pub(crate) async fn board_items(
             use kairos_db::board_items::{BoardItemFilter, CardKind, board_item_page};
             use kairos_db::schema::{adrs, initiatives, strategies, tasks};
 
-            let board = load_board(conn, board_id)?;
+            let board = load_board_by_ref(conn, &id)?;
+            let board_id = board.id;
             // An archived card keeps a NOT NULL FK to the column it was
             // put away in, and that column may itself have been removed
             // since (KAIROS-T-0161). Widening the cards without widening
@@ -872,11 +877,14 @@ pub(crate) async fn board_items(
 // ---------------------------------------------------------------------------
 
 /// List a board's columns in position order (open tenant-wide).
+///
+/// The path takes the slug or the id of the board (COLLIERY-T-0265). An
+/// unknown slug and an unknown id are a 404.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/columns",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board")),
     responses(
         (status = 200, description = "Columns in position order", body = [dto::BoardColumn]),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -887,11 +895,10 @@ pub(crate) async fn list_columns(
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<dto::BoardColumn>>, ApiError> {
-    let board_id = parse_uuid(&id, "id")?;
     let columns = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            load_board(conn, board_id)?;
+            let board_id = load_board_by_ref(conn, &id)?.id;
             Ok(load_columns(conn, board_id)?
                 .into_iter()
                 .map(IntoDto::into_dto)
@@ -1059,11 +1066,14 @@ pub(crate) async fn remove_column(
 // ---------------------------------------------------------------------------
 
 /// List a board's allowed transitions (open tenant-wide).
+///
+/// The path takes the slug or the id of the board (COLLIERY-T-0265). An
+/// unknown slug and an unknown id are a 404.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/transitions",
     tag = "boards",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board")),
     responses(
         (status = 200, description = "Transition edges", body = [dto::BoardTransition]),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -1074,11 +1084,10 @@ pub(crate) async fn list_transitions(
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<dto::BoardTransition>>, ApiError> {
-    let board_id = parse_uuid(&id, "id")?;
     let transitions = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            load_board(conn, board_id)?;
+            let board_id = load_board_by_ref(conn, &id)?.id;
             Ok(load_transitions(conn, board_id)?
                 .into_iter()
                 .map(IntoDto::into_dto)
@@ -1226,11 +1235,14 @@ fn board_member_view(
 
 /// List a board's members and their capability grants (open tenant-wide —
 /// A-0006 auditability).
+///
+/// The path takes the slug or the id of the board (COLLIERY-T-0265). An
+/// unknown slug and an unknown id are a 404.
 #[utoipa::path(
     get,
     path = "/api/boards/{id}/members",
     tag = "board-members",
-    params(("id" = String, Path, description = "Board id (UUID)")),
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board")),
     responses(
         (status = 200, description = "Members with their capabilities", body = [dto::BoardMember]),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
@@ -1241,13 +1253,12 @@ pub(crate) async fn list_board_members(
     Extension(tenant): Extension<TenantContext>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<dto::BoardMember>>, ApiError> {
-    let board_id = parse_uuid(&id, "id")?;
     let members = state
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::board_member_capabilities::dsl;
             use kairos_db::schema::users;
-            load_board(conn, board_id)?;
+            let board_id = load_board_by_ref(conn, &id)?.id;
             let grants: Vec<(Uuid, String)> = dsl::board_member_capabilities
                 .filter(dsl::board_id.eq(board_id))
                 .order((dsl::user_id.asc(), dsl::capability.asc()))

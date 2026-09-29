@@ -616,6 +616,39 @@ async fn repository_fields_against_live_stack() {
     let (status, response) = patch(&bob, "old-one", &json!({"repo_url": ""})).await;
     assert_refusal(status, &response, "repo_url", "old-one to its old URL");
 
+    // =======================================================================
+    // COLLIERY-T-0265: the refusal of a slug names the field
+    // =======================================================================
+    // The GUI shows a refusal with `details.field` below that field.
+    let count_before = repository_count(&mut conn);
+    for slug in ["under_score", "Upper", "k", "-leading"] {
+        let body = create_body("slug-case", json!({"slug": slug}));
+        let (status, response) = post(&bob, &body).await;
+        assert_eq!(status, 422, "create with the slug {slug:?}: {response}");
+        assert_eq!(response["error"]["code"], "VALIDATION", "{response}");
+        assert_eq!(
+            response["error"]["details"],
+            json!({"field": "slug"}),
+            "create with the slug {slug:?}: {response}"
+        );
+        assert_eq!(
+            response["error"]["message"],
+            format!(
+                "The repository slug {slug:?} is not correct. A repository slug must match \
+                 ^[a-z0-9][a-z0-9-]{{1,62}}$."
+            ),
+        );
+        let (status, response) = patch(&bob, "old-one", &json!({"slug": slug})).await;
+        assert_eq!(status, 422, "update to the slug {slug:?}: {response}");
+        assert_eq!(
+            response["error"]["details"],
+            json!({"field": "slug"}),
+            "update to the slug {slug:?}: {response}"
+        );
+    }
+    assert_eq!(repository_count(&mut conn), count_before);
+    assert_eq!(stored(&mut conn, "old-one").repo_full_name, "Old One.git");
+
     // Delete (an organization admin).
     let (status, response) = svc
         .raw_request(Method::DELETE, "/api/repositories/old-one", None)

@@ -7,6 +7,48 @@ Three collisions account for most confusion, and each has a full entry below:
 **archived** names two unrelated states; **board** names three different kinds
 of board; **delete** and **archive** name the same act.
 
+## activity log
+
+The record of the changes in an organization. Each entry has an actor, an
+action, a time, and details. An entry can name an entity: an item, a board, a
+team, a delivery stream, a membership or a repository. `GET /api/activity` and
+the Activity page of the GUI show the entries. The newest entry is first.
+
+An entry has one of these actions:
+
+| Action | The change |
+|---|---|
+| `create` | A person made an item, a board, a team, a delivery stream, a team page, a membership, an API key or a SCIM token. |
+| `update` | A person changed a team, a delivery stream, the role of a member, or the profile of a user. |
+| `delete` | A person deleted or archived one of them. |
+| `restore` | A person restored an archived item. |
+| `transition` | An item moved to a different column of its board. |
+| `board_move` | A task moved to a different board. |
+| `board_config` | A person changed the name, the slug, a column or a transition of a board. |
+| `work_class` | A task changed its lane. |
+| `lifecycle` | A document changed its [editorial lifecycle](#editorial-lifecycle). |
+| `repository` | A person added, changed or deleted a repository, or changed the repository of a task. |
+| `relationship_add` | A person added an edge between two items. |
+| `relationship_remove` | A person removed an edge between two items. |
+| `capability_grant` | A person gave a capability on a board to a user. |
+| `capability_revoke` | A person removed a capability on a board from a user. |
+
+Before COLLIERY-T-0265, a change to a team, a delivery stream, a role or a user
+had the action `create`. Kairos does not change old entries.
+
+The filters of the feed are the entity, the actor, the action, the start time
+and the team. You can use 2 or more filters at the same time. The server
+applies the filters, and `total` is the count after the filters.
+
+The filter by team (`team`, a slug or an id) shows the entries by the members
+of the team. The members are those that the team has at the time of the
+request. The entity of the entry has no effect on the filter.
+
+- The filter shows the work of a member on the board of a different team.
+- The filter does not show the work of other persons on the board of the team.
+
+To see the entries about one item, use the filter by entity.
+
 ## ADR
 
 Architecture Decision Record. One of the five work-item types, letter `A` in a
@@ -361,6 +403,21 @@ choose the board or the team of the task, and a task on the board of any team
 can link to any live repository. A null, empty or blank repository clears the
 link.
 
+### The slug of a repository
+
+The slug of a repository must match `^[a-z0-9][a-z0-9-]{1,62}$`, and it cannot
+have the form of a UUID. The slug has 2 to 63 characters. The first character
+is a lowercase letter or a digit. Each other character is a lowercase letter,
+a digit or `-`.
+
+This rule is different from the rule of a [slug](#slug) of a board, a team or
+a delivery stream. The slug of a repository comes from the name of the
+repository on the forge. That name can start with a digit. The slug of a
+repository cannot have the character `_`.
+
+A slug that does not agree with the rule gets the refusal 422 `VALIDATION`
+with `details.field` = `slug`. Send a different slug.
+
 ### The form of the fields of a repository
 
 The create and the update of a repository refuse a value that does not have
@@ -457,9 +514,21 @@ Send a different slug.
   read it, change its other fields and delete it.
 - The rule does not apply to the slug `{team-slug}-delivery` that Kairos makes
   for the delivery board of a team. That slug can have more than 63 characters.
-- A [repository](#repository) and an [organization](#organization) have
-  different rules. The slug of a repository must match
-  `^[a-z0-9][a-z0-9-]{1,62}$`.
+- SCIM applies the rule to the slug of the group `kairos-team-<slug>`.
+- An [organization](#organization) has a different rule.
+
+A [repository](#repository) has a different rule. The table shows the two
+rules.
+
+| Slug of | Rule | First character | `_` |
+|---|---|---|---|
+| A board, a team or a delivery stream | `^[a-z][a-z0-9_-]{1,62}$` | A lowercase letter | Permitted |
+| A repository | `^[a-z0-9][a-z0-9-]{1,62}$` | A lowercase letter or a digit | Not permitted |
+
+The slug of a repository comes from the name of the repository on the forge.
+That name can start with a digit, such as `3scale-apicast`. Thus the first
+character of the slug of a repository can be a digit. The two rules refuse a
+slug with the form of a UUID.
 
 ## strategy
 

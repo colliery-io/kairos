@@ -4,7 +4,9 @@
 //!
 //! A repository has a different rule
 //! ([`crate::repositories::is_valid_slug`]), and an organization has the
-//! rule of its schema name (`kairos_db::tenant::is_valid_slug`).
+//! rule of its schema name (`kairos_db::tenant::is_valid_tenant_slug`).
+//! SCIM makes a team from the group `kairos-team-<slug>`, and that slug
+//! has the rule of this module (COLLIERY-T-0265).
 
 /// The form of a slug, as the refusal gives it.
 pub const SLUG_RULE: &str = "^[a-z][a-z0-9_-]{1,62}$";

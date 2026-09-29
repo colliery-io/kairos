@@ -171,7 +171,7 @@ journey(
       await mcp.call('set_metadata', { short_code: code, values: { [fieldSlug]: null } });
       await mcp.call('delete_item', { short_code: code, confirm: true });
       const api = await alice.api();
-      const board = await api.get(`/api/boards/${team.fixture.boardId}/items`);
+      const board = await api.boardItems(team.fixture.boardId!);
       const remaining = (board.columns ?? []).flatMap((c: any) => c.tasks ?? []);
       expect(remaining.map((t: any) => t.short_code)).not.toContain(code);
       return { deleted: code, live_cards_left: remaining.length };

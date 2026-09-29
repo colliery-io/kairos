@@ -1,5 +1,9 @@
 //! `/admin/streams` — delivery streams CRUD + team membership
 //! (KAIROS-T-0043).
+//!
+//! COLLIERY-T-0265: the two forms give the rule of the slug before the
+//! user sends it. A refusal of the server about the slug shows below the
+//! field `Slug`.
 
 use aurora_dark::components::{
     Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
@@ -8,7 +12,10 @@ use aurora_dark::components::{
 use leptos::prelude::*;
 
 use super::api;
-use super::{MutationNotice, MutationOutcome, run_mutation};
+use super::{
+    MutationNotice, MutationOutcome, SLUG_FIELD, SLUG_HINT, refusal_for, run_form_mutation,
+    run_mutation,
+};
 use crate::auth::use_auth;
 
 /// `/admin/streams`.
@@ -19,6 +26,8 @@ pub fn AdminStreamsPage() -> impl IntoView {
     let outcome: RwSignal<MutationOutcome> = RwSignal::new(None);
     let busy = RwSignal::new(false);
     let expanded = RwSignal::new(None::<String>);
+    // The refusal of the create form that is about a field.
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let streams = LocalResource::new(move || {
         let _ = auth.token();
@@ -37,10 +46,12 @@ pub fn AdminStreamsPage() -> impl IntoView {
             description.get_untracked(),
         );
         let d = (!d.is_empty()).then_some(d);
-        run_mutation(
+        run_form_mutation(
             busy,
             outcome,
             reload,
+            refused,
+            &SLUG_FIELD,
             format!("Kairos made the delivery stream \"{n}\"."),
             async move {
                 api::create_stream(auth, &n, &s, d.as_deref())
@@ -74,9 +85,13 @@ pub fn AdminStreamsPage() -> impl IntoView {
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Checkout"/>
-                        <TextInput label="Slug" value=slug placeholder="e.g. checkout"/>
+                        {move || view! {
+                            <TextInput label="Slug" value=slug placeholder="e.g. checkout"
+                                error=refusal_for(refused, "slug")/>
+                        }}
                         <TextInput label="Description (optional)" value=description/>
                     </Group>
+                    <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Create stream"</Button>
                     </Group>
@@ -102,6 +117,7 @@ fn StreamRow(
     let edit_slug = RwSignal::new(stream.slug.clone());
     let edit_description = RwSignal::new(stream.description.clone().unwrap_or_default());
     let deleted_name = stream.name.clone();
+    let refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let on_save = move |_| {
         let id = stream_id.get_value();
@@ -111,11 +127,15 @@ fn StreamRow(
             edit_description.get_untracked(),
         );
         let d = (!d.is_empty()).then_some(d);
-        editing.set(false);
-        run_mutation(
+        // The editor stays open: a refusal about the slug shows below the
+        // field (COLLIERY-T-0265). A success reads the list again, and the
+        // new row has a closed editor.
+        run_form_mutation(
             busy,
             outcome,
             reload,
+            refused,
+            &SLUG_FIELD,
             format!("Kairos changed the stream \"{n}\"."),
             async move {
                 api::update_stream(auth, &id, &n, &s, d.as_deref())
@@ -171,12 +191,18 @@ fn StreamRow(
                 </Group>
             </Group>
             <Show when=move || editing.get()>
-                <Group gap="sm" wrap=true top=true>
-                    <TextInput label="Name" value=edit_name/>
-                    <TextInput label="Slug" value=edit_slug/>
-                    <TextInput label="Description" value=edit_description/>
-                    <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
-                </Group>
+                <Stack gap="xs">
+                    <Group gap="sm" wrap=true top=true>
+                        <TextInput label="Name" value=edit_name/>
+                        {move || view! {
+                            <TextInput label="Slug" value=edit_slug
+                                error=refusal_for(refused, "slug")/>
+                        }}
+                        <TextInput label="Description" value=edit_description/>
+                        <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
+                    </Group>
+                    <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
+                </Stack>
             </Show>
             <Show when=is_expanded>
                 <StreamTeamsPanel stream_id=stream_id.get_value() busy outcome reload/>

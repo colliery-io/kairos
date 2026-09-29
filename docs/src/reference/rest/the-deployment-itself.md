@@ -18,12 +18,19 @@ An entry about an item has `entity_short_code`, `entity_title` and
 an entry that is not about an item. They are null too for an item
 that Kairos does not have.
 
+`team` is the slug or the id of a live team (COLLIERY-T-0265). An entry
+passes the filter when its actor is a member of the team at the time
+of the request. The entity of the entry does not change the result.
+The server applies each filter before the page, so `total` is the
+count after the filters. An unknown team is a 422 `VALIDATION`.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `entity_id` | query | no | `string` | Filter: activity for a specific entity (UUID). |
 | `actor_id` | query | no | `string` | Filter: activity by a specific user (UUID). |
 | `action` | query | no | `string` | Filter: activity by action type. |
 | `since` | query | no | `string` | Filter: activity at or after this RFC 3339 timestamp. |
+| `team` | query | no | `string` | Filter: activity by the members of a team (COLLIERY-T-0265). The value is the slug or the id (UUID) of a live team. An entry passes when its actor is a member of the team at the time of the request. |
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
 

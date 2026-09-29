@@ -161,6 +161,35 @@ fn activity_count(conn: &mut PgConnection, entity_type: &str, details_like: &str
     .count
 }
 
+/// Count acme activity rows with an action, an entity type and a details
+/// pattern (COLLIERY-T-0265).
+fn activity_action_count(
+    conn: &mut PgConnection,
+    action: &str,
+    entity_type: &str,
+    details_like: &str,
+) -> i64 {
+    sql_query(
+        "SELECT count(*) FROM org_acme.activity_log \
+         WHERE action = $1 AND entity_type = $2 AND details LIKE $3",
+    )
+    .bind::<diesel::sql_types::Text, _>(action)
+    .bind::<diesel::sql_types::Text, _>(entity_type)
+    .bind::<diesel::sql_types::Text, _>(details_like)
+    .get_result::<CountRow>(conn)
+    .expect("activity query")
+    .count
+}
+
+/// Count the acme teams with a slug, live or not.
+fn team_count(conn: &mut PgConnection, slug: &str) -> i64 {
+    sql_query("SELECT count(*) FROM org_acme.teams WHERE slug = $1")
+        .bind::<diesel::sql_types::Text, _>(slug)
+        .get_result::<CountRow>(conn)
+        .expect("team query")
+        .count
+}
+
 #[tokio::test]
 async fn scim_provisioning_against_live_stack() {
     // --- scratch database + tenant -----------------------------------------
@@ -901,6 +930,51 @@ async fn scim_provisioning_against_live_stack() {
     )
     .await;
     assert_scim_error(status, &body, StatusCode::BAD_REQUEST, Some("invalidValue"));
+    // COLLIERY-T-0265: the slug of a team group has the rule of a team slug
+    // of REST, so a slug with the form of a UUID is refused. A reference to
+    // a board is read as an id first, and the delivery board of such a team
+    // gets its slug from the slug of the team. The text of the refusal is
+    // the text of each refusal of a name.
+    let uuid_slug = "abcdef12-0000-7000-8000-000000000003";
+    let (status, body) = scim(
+        &router,
+        Method::POST,
+        "/scim/v2/Groups",
+        Some(&scim_token),
+        Some(json!({"displayName": format!("kairos-team-{uuid_slug}")})),
+    )
+    .await;
+    assert_scim_error(status, &body, StatusCode::BAD_REQUEST, Some("invalidValue"));
+    assert_eq!(
+        body["detail"],
+        format!(
+            "unsupported group displayName \"kairos-team-{uuid_slug}\": Kairos maps \
+             \"kairos-admins\" to the org-admin role and \"kairos-team-<slug>\" to teams \
+             (slug: ^[a-z][a-z0-9_-]{{1,62}}$)"
+        ),
+    );
+    assert_eq!(team_count(&mut conn, uuid_slug), 0, "no team is written");
+    // A slug that is near the form of a UUID passes, as for REST.
+    let (status, body) = scim(
+        &router,
+        Method::POST,
+        "/scim/v2/Groups",
+        Some(&scim_token),
+        Some(json!({"displayName": "kairos-team-abcdef12-0000-7000-8000-00000000000x"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    // The group goes away again: the assertions below count the groups.
+    let near_uuid_group = body["id"].as_str().expect("group id").to_string();
+    let (status, _) = scim(
+        &router,
+        Method::DELETE,
+        &format!("/scim/v2/Groups/{near_uuid_group}"),
+        Some(&scim_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
     let (status, body) = scim(
         &router,
         Method::POST,
@@ -1121,6 +1195,25 @@ async fn scim_provisioning_against_live_stack() {
         Some("member")
     );
     assert!(activity_count(&mut conn, "membership", "%membership_role:%") >= 3);
+    // COLLIERY-T-0265: a change has the action `update`, not `create`.
+    assert_eq!(
+        activity_action_count(&mut conn, "update", "membership", "%membership_role:%"),
+        activity_count(&mut conn, "membership", "%membership_role:%"),
+        "each change of a role is an update"
+    );
+    assert!(
+        activity_action_count(&mut conn, "update", "user", "%user_profile:display_name%") >= 1,
+        "the PATCH of a display name is an update"
+    );
+    assert!(
+        activity_action_count(&mut conn, "update", "user", "%user_profile:replace%") >= 1,
+        "the PUT of a user is an update"
+    );
+    assert_eq!(
+        activity_action_count(&mut conn, "create", "user", "%user_profile:%"),
+        0,
+        "no change of a user is a create"
+    );
 
     // The built-in admins group cannot be deleted; team groups can.
     let (status, body) = scim(

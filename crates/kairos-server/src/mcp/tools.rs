@@ -763,6 +763,29 @@ impl KairosMcp {
                 .load(conn)
                 .map_err(ApiError::internal)?;
 
+            let is_mine = |board: &Board| {
+                board.board_level == BoardLevel::Delivery
+                    && (board.team_id.is_some_and(|t| my_teams.contains(&t))
+                        || my_grant_boards.contains(&board.id))
+            };
+            // COLLIERY-T-0265: the columns and the counts of all my boards
+            // come from 1 query, and the database counts the cards. Before,
+            // the tool read each row of each board (5 queries for a board).
+            let mine: Vec<Uuid> = all_boards
+                .iter()
+                .filter(|board| is_mine(board))
+                .map(|board| board.id)
+                .collect();
+            let mut columns_of: HashMap<Uuid, Vec<String>> = HashMap::new();
+            for column in kairos_db::board_items::live_column_counts(conn, &mine)
+                .map_err(ApiError::internal)?
+            {
+                columns_of
+                    .entry(column.board_id)
+                    .or_default()
+                    .push(format!("{} ({})", column.name, column.count));
+            }
+
             let mut out = String::from("# Boards\n");
             let mut current_level: Option<BoardLevel> = None;
             if all_boards.is_empty() {
@@ -774,19 +797,9 @@ impl KairosMcp {
                     current_level = Some(board.board_level);
                 }
                 out.push_str(&format!("- {} — {}", board.slug, board.name));
-                let mine = board.board_level == BoardLevel::Delivery
-                    && (board.team_id.is_some_and(|t| my_teams.contains(&t))
-                        || my_grant_boards.contains(&board.id));
-                if mine {
+                if is_mine(&board) {
                     out.push_str(" [mine]\n");
-                    let columns = board_columns(conn, board.id)?;
-                    let counts = column_item_counts(conn, board.id)?;
-                    let rendered: Vec<String> = columns
-                        .iter()
-                        .map(|c| {
-                            format!("{} ({})", c.name, counts.get(&c.id).copied().unwrap_or(0))
-                        })
-                        .collect();
+                    let rendered = columns_of.remove(&board.id).unwrap_or_default();
                     out.push_str(&format!("  columns: {}\n", rendered.join(" | ")));
                 } else {
                     out.push('\n');
@@ -2437,9 +2450,9 @@ type BoardAdrSelect = (Uuid, Option<Uuid>, String, String, Option<DateTime<Utc>>
 ///
 /// `liveness` is a parameter rather than a constant so that the one caller
 /// that wants the audit view — MCP `board_items` with `include_deleted` —
-/// can have it without `list_boards`' per-column counts silently widening
-/// too: those count live work (ADR-20 rule 5) and pass
-/// [`Liveness::LiveOnly`].
+/// can have it. The per-column counts of `my_boards` do not come from this
+/// function (COLLIERY-T-0265): `kairos_db::board_items::live_column_counts`
+/// counts live work in the database (ADR-20 rule 5).
 ///
 /// `only` narrows the rows to the items with these ids
 /// (COLLIERY-T-0261): the items of one page of the board.
@@ -2617,20 +2630,6 @@ fn blocks_marker(counts: graph::BlocksCounts) -> String {
         out.push_str(&format!(" [blocks {}]", counts.blocks));
     }
     out
-}
-
-/// Per-column LIVE item counts for one board — what `list_boards` prints
-/// beside each column name. Archived work is not live work (ADR-20 rule
-/// 5), so this stays live-only however `board_items` is asked for.
-fn column_item_counts(
-    conn: &mut PgConnection,
-    board_id: Uuid,
-) -> Result<HashMap<Uuid, i64>, ApiError> {
-    let mut counts: HashMap<Uuid, i64> = HashMap::new();
-    for row in board_item_rows(conn, board_id, None, Liveness::LiveOnly, None)? {
-        *counts.entry(row.column_id).or_default() += 1;
-    }
-    Ok(counts)
 }
 
 /// Slugs for a set of repository ids, one query (KAIROS-T-0111): what the

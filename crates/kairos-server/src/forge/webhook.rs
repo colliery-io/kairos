@@ -37,7 +37,7 @@ use kairos_db::events::{EventKind, ThinEvent, emit_event};
 use kairos_db::forge::{self, ForgeError};
 use kairos_db::models::enums::{Forge, LinkKind, LinkState};
 use kairos_db::models::forge::NewItemLink;
-use kairos_db::tenant::is_valid_slug;
+use kairos_db::tenant::is_valid_tenant_slug;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -105,7 +105,7 @@ pub(crate) async fn receive(
     else {
         return rejected();
     };
-    if !is_valid_slug(&tenant) {
+    if !is_valid_tenant_slug(&tenant) {
         return rejected();
     }
     let Ok(connection_uuid) = connection_id.parse::<Uuid>() else {

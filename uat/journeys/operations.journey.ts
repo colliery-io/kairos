@@ -196,7 +196,7 @@ journey(
       }
       expect(new Set(served)).toEqual(new Set([200]));
       const board = await api.boardBySlug(`${process.env.UAT_TEAM ?? 'platform'}-delivery`);
-      const contents = await api.get(`/api/boards/${board.id}/items`);
+      const contents = await api.boardItems(board.id);
       const live = (contents.columns ?? []).flatMap((c: any) => (c.tasks ?? []).map((t: any) => t.short_code));
       for (const code of tasks) expect(live).not.toContain(code);
       // Soft delete, not destruction: an operator who removes the wrong

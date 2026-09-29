@@ -27,6 +27,7 @@ import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mintToken } from '../helpers/auth';
+import { boardItems } from '../helpers/board-items';
 
 // The suite is an ES module, so __dirname is not defined here.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -68,7 +69,8 @@ test('capture the documentation screenshots @docs', async ({ page }) => {
   const boards = (await (await api('GET', '/api/boards?limit=100')).json()).items as any[];
   const platform = boards.find((b) => b.slug === 'platform-delivery');
   if (!platform) throw new Error('the demo seed has no board platform-delivery');
-  const items = await (await api('GET', `/api/boards/${platform.id}/items`)).json();
+  // Each item of the board, page after page (COLLIERY-T-0265).
+  const items = await boardItems(GUI, alice, platform.id);
   const cards = (items.columns as any[]).reduce((n, group) => n + group.tasks.length, 0);
   let archived = false;
 

@@ -68,9 +68,12 @@ Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#c
 Board detail: the board plus its columns and transitions (open
 tenant-wide).
 
+The path takes the slug or the id of the board (COLLIERY-T-0265). An
+unknown slug and an unknown id are a 404.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `id` | path | yes | `string` | Board id (UUID) |
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
 | `include_removed_columns` | query | no | `boolean` | Also return the columns that have been REMOVED from this board, each carrying `removed_at` (default `false` — a removed column is not part of the board and must not render on one, KAIROS-T-0161).  The one legitimate caller is a reader holding an ARCHIVED item that still points at such a column: "which column was this put away in?" has to stay answerable (KAIROS-A-0020, KAIROS-T-0164). |
 
 | Response | Body | Meaning |
@@ -147,9 +150,12 @@ Request body (required): `application/json`, [`UpdateBoardRequest`](schemas.md#u
 
 List a board's columns in position order (open tenant-wide).
 
+The path takes the slug or the id of the board (COLLIERY-T-0265). An
+unknown slug and an unknown id are a 404.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `id` | path | yes | `string` | Board id (UUID) |
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -242,9 +248,12 @@ work. An edge with either end in a terminal column (`is_done`) adds to
 neither card. The edge stays on the relationship list of each item,
 with a mark on the done end.
 
+The path takes the slug or the id of the board (COLLIERY-T-0265). An
+unknown slug and an unknown id are a 404.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `id` | path | yes | `string` | Board id (UUID) |
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
 | `repository` | query | no | `string` | Narrow the TASKS to those bound to this repository (slug or UUID). Other entity types are unaffected. Unknown repository → 422. |
 | `include_deleted` | query | no | `boolean` | Include archived (put-away) cards, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — a board is a live board unless the reader says otherwise (rule 3). |
 | `limit` | query | no | `integer` | The number of items on a page (default 200, maximum 1000). The server changes a larger value to 1000. |
@@ -259,9 +268,12 @@ with a mark on the done end.
 
 List a board's allowed transitions (open tenant-wide).
 
+The path takes the slug or the id of the board (COLLIERY-T-0265). An
+unknown slug and an unknown id are a 404.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `id` | path | yes | `string` | Board id (UUID) |
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
 
 | Response | Body | Meaning |
 |---|---|---|
@@ -308,9 +320,12 @@ Remove a transition edge by id. Requires `configure_boards`.
 List a board's members and their capability grants (open tenant-wide —
 A-0006 auditability).
 
+The path takes the slug or the id of the board (COLLIERY-T-0265). An
+unknown slug and an unknown id are a 404.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
-| `id` | path | yes | `string` | Board id (UUID) |
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
 
 | Response | Body | Meaning |
 |---|---|---|

@@ -296,7 +296,8 @@ pub(crate) async fn update_stream(
             log_stream_activity(
                 conn,
                 user,
-                ActivityAction::Create,
+                // COLLIERY-T-0265: a change is an update, not a create.
+                ActivityAction::Update,
                 stream_id,
                 format!("delivery_stream_settings:{}", updated.slug),
             )?;

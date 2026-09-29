@@ -467,6 +467,7 @@ pub async fn snapshot(client: &KairosClient) -> Result<BTreeMap<String, String>,
             actor_id: None,
             action: None,
             since: None,
+            team: None,
             limit: Some(200),
             offset: None,
         })

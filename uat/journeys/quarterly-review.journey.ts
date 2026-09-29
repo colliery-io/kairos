@@ -151,7 +151,7 @@ journey(
       const seen = new Set<string>();
       const boardNames: string[] = [];
       for (const boardId of boards) {
-        const contents = await api.get(`/api/boards/${boardId}/items`);
+        const contents = await api.boardItems(boardId);
         boardNames.push(contents.board.slug);
         for (const column of contents.columns ?? []) {
           for (const task of column.tasks ?? []) {
@@ -181,7 +181,7 @@ journey(
       const delivery = (await api.boards()).filter((b: any) => b.board_level === 'delivery');
       let boardSlug = '';
       for (const board of delivery) {
-        const contents = await api.get(`/api/boards/${board.id}/items`);
+        const contents = await api.boardItems(board.id);
         const summary = contents.blocks_summary ?? {};
         const entry = Object.entries(summary).find(([, v]: any) => v.blocked_by > 0);
         if (!entry) continue;

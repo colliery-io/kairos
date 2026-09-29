@@ -14,7 +14,7 @@
 use diesel::connection::SimpleConnection;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{ConnectionManager, Pool};
-use kairos_db::tenant::{is_valid_slug, tenant_schema_name};
+use kairos_db::tenant::{is_valid_tenant_slug, tenant_schema_name};
 use tracing::Instrument as _;
 
 use crate::error::ApiError;
@@ -90,7 +90,7 @@ impl BlockingTenantPool {
 
         // The tenant middleware already validated the slug; this guard is
         // what makes interpolating the schema name safe by construction.
-        let invalid = (!is_valid_slug(slug))
+        let invalid = (!is_valid_tenant_slug(slug))
             .then(|| format!("invalid tenant slug {slug:?} reached the blocking pool"));
         let schema = tenant_schema_name(slug);
         let pool = self.pool.clone();

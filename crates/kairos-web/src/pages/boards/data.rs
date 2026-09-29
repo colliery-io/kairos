@@ -253,9 +253,10 @@ pub fn board_cap_note(shown: usize, total: i64) -> Option<String> {
 
 /// Each card of a board, page after page, up to [`BOARD_CARD_CAP`] cards:
 /// `GET /api/boards/{id}/items?limit=&offset=`. `total` of the result is
-/// the number of cards of the board.
-pub async fn load_board_items(auth: Auth, board_id: &str) -> Result<BoardItemsResponse, ApiError> {
-    let path = format!("/api/boards/{board_id}/items");
+/// the number of cards of the board. `board` is the slug or the id of the
+/// board (COLLIERY-T-0265).
+pub async fn load_board_items(auth: Auth, board: &str) -> Result<BoardItemsResponse, ApiError> {
+    let path = format!("{}/items", board_path(board));
     let mut items: BoardItemsResponse =
         get_json(auth, &crate::api::page_url(&path, BOARD_PAGE_LIMIT, 0)).await?;
     let mut last_page = items.card_count();
@@ -321,21 +322,25 @@ pub async fn list_boards(auth: Auth) -> Result<Vec<Board>, ApiError> {
     crate::api::get_all(auth, "/api/boards").await
 }
 
-/// Resolve a route param (board slug, or id as a fallback) against the
-/// board list, then load the full [`BoardView`].
+/// The path of the read routes of one board (COLLIERY-T-0265). `param` is
+/// the route param of `/boards/:board`: the slug of the board, or its id.
+/// The server takes the two, so the path comes from the param only. Pure,
+/// host-tested.
+pub fn board_path(param: &str) -> String {
+    format!("/api/boards/{}", crate::api::encode_component(param))
+}
+
+/// The full [`BoardView`] of the board of a route param (the slug of the
+/// board, or its id).
+///
+/// COLLIERY-T-0265: the view reads the one board that it shows. Before,
+/// each read of the view (and each live re-fetch) read the full list of the
+/// boards to get the id of the board. The server gives the 404 for a param
+/// that no live board has.
 pub async fn load_board_view(auth: Auth, param: &str) -> Result<BoardView, ApiError> {
-    let boards = list_boards(auth).await?;
-    let board = boards
-        .into_iter()
-        .find(|b| b.slug == param || b.id == param)
-        .ok_or(ApiError::Http {
-            status: 404,
-            message: format!("No live board has the slug or the id {param:?}."),
-            code: Some("NOT_FOUND".to_string()),
-        })?;
-    let detail: BoardDetail = get_json(auth, &format!("/api/boards/{}", board.id)).await?;
+    let detail: BoardDetail = get_json(auth, &board_path(param)).await?;
     // COLLIERY-T-0261: the items come in pages.
-    let items = load_board_items(auth, &board.id).await?;
+    let items = load_board_items(auth, param).await?;
     Ok(BoardView { detail, items })
 }
 
@@ -770,6 +775,23 @@ mod tests {
         assert_eq!(board_cap_note(2000, 2000), None);
         assert_eq!(board_cap_note(1000, 1000), None);
         assert_eq!(board_cap_note(0, 0), None);
+    }
+
+    /// COLLIERY-T-0265: the paths of the board view come from the route
+    /// param only. No list of the boards is necessary to make them.
+    #[test]
+    fn the_board_view_reads_the_board_of_the_route_param() {
+        assert_eq!(
+            board_path("platform-delivery"),
+            "/api/boards/platform-delivery"
+        );
+        assert_eq!(
+            board_path("6f1a1f9e-0000-7000-8000-000000000001"),
+            "/api/boards/6f1a1f9e-0000-7000-8000-000000000001"
+        );
+        // A slug from before the rule of a slug.
+        assert_eq!(board_path("Road Map"), "/api/boards/Road%20Map");
+        assert_eq!(board_path("a/b?c"), "/api/boards/a%2Fb%3Fc");
     }
 
     /// COLLIERY-T-0261: the events that come during a read of the board

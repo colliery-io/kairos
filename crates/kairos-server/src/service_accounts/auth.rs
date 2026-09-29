@@ -25,7 +25,7 @@ use diesel_async::RunQueryDsl;
 use kairos_db::api_keys::ApiKey;
 use kairos_db::models::{Organization, User};
 use kairos_db::schema::{api_keys, organizations, users};
-use kairos_db::tenant::is_valid_slug;
+use kairos_db::tenant::is_valid_tenant_slug;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 
@@ -77,7 +77,7 @@ pub fn parse_key(key: &str) -> Option<(&str, &str)> {
         && secret
             .bytes()
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
-    (secret_ok && is_valid_slug(slug)).then_some((slug, secret))
+    (secret_ok && is_valid_tenant_slug(slug)).then_some((slug, secret))
 }
 
 /// True if the bearer looks like an API key (so `require_auth` takes the

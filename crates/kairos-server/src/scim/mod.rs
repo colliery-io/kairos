@@ -118,7 +118,7 @@ use diesel::prelude::*;
 use kairos_db::models::enums::{ActivityAction, OrgRole};
 use kairos_db::models::graph::NewActivityLogEntry;
 use kairos_db::models::{OrganizationMember, User};
-use kairos_db::tenant::{is_valid_slug, tenant_schema_name};
+use kairos_db::tenant::{is_valid_tenant_slug, tenant_schema_name};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -198,7 +198,7 @@ where
 {
     // The slug came from a validated ScimContext; this guard is what makes
     // interpolating the schema name safe by construction.
-    if !is_valid_slug(slug) {
+    if !is_valid_tenant_slug(slug) {
         return Err(ScimError::internal(format!(
             "invalid tenant slug {slug:?} reached the scim runner"
         )));

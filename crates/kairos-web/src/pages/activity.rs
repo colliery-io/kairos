@@ -3,9 +3,9 @@
 //! Two pages, both under this task's `/activity` route segment:
 //!
 //! - [`ActivityPage`] (`/activity`) — the tenant-wide `activity_log` feed
-//!   (KAIROS-A-0004): filterable by entity short code, actor, action, and
-//!   `since` timestamp (all combinable, S-0005), paginated, entity cells
-//!   linking to the `/items/{short_code}` detail route.
+//!   (KAIROS-A-0004): filterable by entity short code, actor, action, team
+//!   and `since` timestamp (all combinable, S-0005), paginated, entity
+//!   cells linking to the `/items/{short_code}` detail route.
 //! - [`ItemHistoryPage`] (`/activity/history/:code`) — one item's
 //!   append-only content history: the version list (version / editor /
 //!   edited-at), any version's full snapshot, a client-side line diff
@@ -24,6 +24,10 @@
 //!   short-code entity filter resolves client-side: the code's type letter
 //!   names the family, `GET /api/{family}/{code}` yields the id. The actor
 //!   filter picks from `GET /api/members` (open tenant-wide).
+//! - The SERVER applies each filter (COLLIERY-T-0265), so the pager and the
+//!   count are those of the entries after the filters. The filter `team`
+//!   was a filter of the page that the browser had: a page of 25 entries
+//!   could show no entry of a team that had entries on the next page.
 //! - Entity *links* come from the entry (COLLIERY-T-0262): the server
 //!   gives the short code and the title of the item of each entry, so the
 //!   page reads no list of items. [`entity_cell`] makes the cell. An entry
@@ -139,7 +143,10 @@ pub struct ItemHead {
 // ---------------------------------------------------------------------------
 
 /// The `activity_log.action` vocabulary (KAIROS-A-0004; enforcement point
-/// is `kairos_db::models::enums::ActivityAction`).
+/// is `kairos_db::models::enums::ActivityAction`). COLLIERY-T-0265: the
+/// list has each action of the server, in the order of the server, so the
+/// filter can select each of them. `update` is the action of a change to a
+/// team, a delivery stream, a membership or a user.
 const ACTIONS: &[&str] = &[
     "transition",
     "create",
@@ -149,6 +156,12 @@ const ACTIONS: &[&str] = &[
     "capability_grant",
     "capability_revoke",
     "board_config",
+    "work_class",
+    "lifecycle",
+    "repository",
+    "board_move",
+    "restore",
+    "update",
 ];
 
 /// Map a `{PREFIX}-{LETTER}-{NNNN}` short code (S-0004) onto its API
@@ -175,16 +188,7 @@ fn family_of_short_code(code: &str) -> Option<&'static str> {
 /// unreserved). RFC 3339 timestamps carry `:`/`+` which serde_urlencoded
 /// on the server would otherwise mis-decode (`+` → space).
 fn encode_query(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(byte as char);
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
+    api::encode_component(value)
 }
 
 /// `2026-07-14T23:10:11.123456Z` → `2026-07-14 23:10:11` (display only;
@@ -203,9 +207,10 @@ fn format_when(rfc3339: &str) -> String {
 /// aurora token rule).
 fn action_color(action: &str) -> &'static str {
     match action {
-        "create" => token::OK,
+        "create" | "restore" => token::OK,
         "delete" => token::BAD,
-        "transition" => token::ICE,
+        "transition" | "board_move" => token::ICE,
+        "update" => token::GOLD,
         "relationship_add" | "relationship_remove" => token::VIOLET,
         "capability_grant" | "capability_revoke" => token::GOLD,
         _ => token::MUTED,
@@ -366,19 +371,58 @@ struct FeedFilters {
     actor_id: String,
     action: String,
     since: String,
+    /// The slug of the team of the filter `team` (COLLIERY-T-0265), or an
+    /// empty text.
+    team_slug: String,
+    /// The name of that team, for the note above the table.
+    team_name: String,
     offset: i64,
 }
 
-/// `GET /api/activity` with the S-0005 filters. The entity short code is
-/// resolved to its UUID here (letter → family → GET the item).
-async fn fetch_feed(
-    auth: Auth,
-    filters: FeedFilters,
-) -> Result<ListEnvelope<ActivityEntry>, ApiError> {
+impl FeedFilters {
+    /// The person set no filter.
+    fn is_clear(&self) -> bool {
+        self.entity_code.is_empty()
+            && self.actor_id.is_empty()
+            && self.action.is_empty()
+            && self.since.is_empty()
+            && self.team_slug.is_empty()
+    }
+}
+
+/// The meaning of the filter `team`, below the filters (COLLIERY-T-0265).
+const TEAM_FILTER_RULE: &str = "The filter Team shows the entries by the members of the team. \
+                                The members are those that the team has now.";
+
+/// What the page says when the feed has no entry. Pure, host-tested.
+fn empty_feed_message(filters: &FeedFilters) -> &'static str {
+    if filters.is_clear() {
+        "The organization has no activity. Make a change, then open this page again."
+    } else {
+        "No entry agrees with the filters. Change a filter, or select Clear."
+    }
+}
+
+/// The note above the table when the filter `team` applies
+/// (COLLIERY-T-0265). It gives the meaning of the filter. Pure,
+/// host-tested.
+fn team_filter_note(filters: &FeedFilters) -> Option<String> {
+    (!filters.team_slug.is_empty()).then(|| {
+        format!(
+            "The list shows the entries by the members of {}.",
+            filters.team_name
+        )
+    })
+}
+
+/// The query of `GET /api/activity` for `filters` (COLLIERY-T-0265).
+/// `entity_id` is the id of the item of the filter by short code. Each
+/// filter of the page is a parameter of the route: the server applies
+/// it, and the page applies none. Pure, host-tested.
+fn feed_query(filters: &FeedFilters, entity_id: Option<&str>) -> String {
     let mut query = format!("limit={PAGE_SIZE}&offset={}", filters.offset);
-    if !filters.entity_code.is_empty() {
-        let (head, _) = fetch_item_head(auth, filters.entity_code.trim().to_string()).await?;
-        query.push_str(&format!("&entity_id={}", encode_query(&head.id)));
+    if let Some(entity_id) = entity_id {
+        query.push_str(&format!("&entity_id={}", encode_query(entity_id)));
     }
     if !filters.actor_id.is_empty() {
         query.push_str(&format!("&actor_id={}", encode_query(&filters.actor_id)));
@@ -389,6 +433,25 @@ async fn fetch_feed(
     if !filters.since.is_empty() {
         query.push_str(&format!("&since={}", encode_query(filters.since.trim())));
     }
+    if !filters.team_slug.is_empty() {
+        query.push_str(&format!("&team={}", encode_query(&filters.team_slug)));
+    }
+    query
+}
+
+/// `GET /api/activity` with the S-0005 filters. The entity short code is
+/// resolved to its UUID here (letter → family → GET the item).
+async fn fetch_feed(
+    auth: Auth,
+    filters: FeedFilters,
+) -> Result<ListEnvelope<ActivityEntry>, ApiError> {
+    let entity_id = if filters.entity_code.is_empty() {
+        None
+    } else {
+        let (head, _) = fetch_item_head(auth, filters.entity_code.trim().to_string()).await?;
+        Some(head.id)
+    };
+    let query = feed_query(&filters, entity_id.as_deref());
     api::get_json(auth, &format!("/api/activity?{query}")).await
 }
 
@@ -410,12 +473,6 @@ pub fn ActivityPage() -> impl IntoView {
     let team_input = RwSignal::new(ALL.to_string());
     let applied = RwSignal::new(FeedFilters::default());
 
-    // The team lens (KAIROS-T-0069, initiative design decision): the
-    // activity API has no team parameter, so a selected team resolves to
-    // its member set and the FETCHED PAGE filters client-side by actor.
-    // `(team name, team id)` once applied.
-    let applied_team = RwSignal::new(None::<(String, String)>);
-
     let members = LocalResource::new(move || {
         let _ = auth.token();
         fetch_members(auth)
@@ -424,29 +481,9 @@ pub fn ActivityPage() -> impl IntoView {
         let _ = auth.token();
         teams_api::list_teams(auth)
     });
-    // The applied team's member ids (None = lens off). A failed roster
-    // read surfaces through the feed area rather than silently unfiltering.
-    let team_lens = LocalResource::new(move || {
-        let _ = auth.token();
-        let team = applied_team.get();
-        async move {
-            match team {
-                None => Ok(None),
-                Some((_, team_id)) => {
-                    teams_api::team_members(auth, &team_id)
-                        .await
-                        .map(|members| {
-                            Some(
-                                members
-                                    .into_iter()
-                                    .map(|member| member.user_id)
-                                    .collect::<std::collections::HashSet<_>>(),
-                            )
-                        })
-                }
-            }
-        }
-    });
+    // COLLIERY-T-0265: the team is a filter of the route, as each other
+    // filter. The page reads the entries after the filters, and it removes
+    // none.
     let feed = LocalResource::new(move || {
         let _ = auth.token();
         let filters = applied.get();
@@ -471,6 +508,16 @@ pub fn ActivityPage() -> impl IntoView {
             .unwrap_or_default()
     };
     let apply = move || {
+        // Team option labels are team names; resolve to the slug from the
+        // loaded list (the option only exists once teams have loaded).
+        let team = match team_input.get() {
+            label if label == ALL => None,
+            label => teams
+                .get()
+                .and_then(|r| r.ok())
+                .and_then(|list| list.into_iter().find(|team| team.name == label)),
+        };
+        let (team_slug, team_name) = team.map(|team| (team.slug, team.name)).unwrap_or_default();
         applied.set(FeedFilters {
             entity_code: entity_input.get().trim().to_string(),
             actor_id: actor_id_of(&actor_input.get()),
@@ -479,17 +526,9 @@ pub fn ActivityPage() -> impl IntoView {
                 a => a,
             },
             since: since_input.get().trim().to_string(),
+            team_slug,
+            team_name,
             offset: 0,
-        });
-        // Team option labels are team names; resolve to the id from the
-        // loaded list (the option only exists once teams have loaded).
-        applied_team.set(match team_input.get() {
-            label if label == ALL => None,
-            label => teams
-                .get()
-                .and_then(|r| r.ok())
-                .and_then(|list| list.into_iter().find(|team| team.name == label))
-                .map(|team| (team.name, team.id)),
         });
     };
     let clear = move || {
@@ -499,7 +538,6 @@ pub fn ActivityPage() -> impl IntoView {
         since_input.set(String::new());
         team_input.set(ALL.to_string());
         applied.set(FeedFilters::default());
-        applied_team.set(None);
     };
 
     let retry = Callback::new(move |()| applied.set(applied.get_untracked()));
@@ -508,45 +546,54 @@ pub fn ActivityPage() -> impl IntoView {
     action_options.extend(ACTIONS.iter().map(|a| a.to_string()));
 
     view! {
-        <PageHeader title="Activity" sub="who changed what, when — the tenant audit trail"/>
+        <PageHeader
+            title="Activity"
+            sub="The changes in the organization, with the person and the time of each change."
+        />
         <Stack gap="md">
-            <Panel title="Filters" caption="combinable (S-0005)">
-                <Group gap="sm" top=true wrap=true>
-                    <TextInput
-                        label="Entity short code"
-                        placeholder="e.g. DEMO-T-0001"
-                        value=entity_input
-                    />
-                    {move || {
-                        let loaded = members.get().and_then(|r| r.ok()).unwrap_or_default();
-                        let mut options = vec![ALL.to_string()];
-                        options.extend(loaded.iter().map(member_option));
-                        view! { <Select label="Actor" options=options value=actor_input/> }
-                    }}
-                    <Select label="Action" options=action_options value=action_input/>
-                    {move || {
-                        let loaded = teams.get().and_then(|r| r.ok()).unwrap_or_default();
-                        let mut options = vec![ALL.to_string()];
-                        options.extend(loaded.into_iter().map(|team| team.name));
-                        view! { <Select label="Team (by members)" options=options value=team_input/> }
-                    }}
-                    <TextInput
-                        label="Since (RFC 3339)"
-                        placeholder="2026-07-14T00:00:00Z"
-                        value=since_input
-                    />
-                    <Button on_click=Callback::new(move |()| apply())>"Apply"</Button>
-                    <Button variant="default" on_click=Callback::new(move |()| clear())>
-                        "Clear"
-                    </Button>
-                </Group>
+            <Panel title="Filters" caption="You can use 2 or more filters at the same time.">
+                <Stack gap="xs">
+                    <Group gap="sm" top=true wrap=true>
+                        <TextInput
+                            label="Entity short code"
+                            placeholder="e.g. DEMO-T-0001"
+                            value=entity_input
+                        />
+                        {move || {
+                            let loaded = members.get().and_then(|r| r.ok()).unwrap_or_default();
+                            let mut options = vec![ALL.to_string()];
+                            options.extend(loaded.iter().map(member_option));
+                            view! { <Select label="Actor" options=options value=actor_input/> }
+                        }}
+                        <Select label="Action" options=action_options value=action_input/>
+                        {move || {
+                            let loaded = teams.get().and_then(|r| r.ok()).unwrap_or_default();
+                            let mut options = vec![ALL.to_string()];
+                            options.extend(loaded.into_iter().map(|team| team.name));
+                            view! { <Select label="Team (by members)" options=options value=team_input/> }
+                        }}
+                        <TextInput
+                            label="Since (RFC 3339)"
+                            placeholder="2026-07-14T00:00:00Z"
+                            value=since_input
+                        />
+                        <Button on_click=Callback::new(move |()| apply())>"Apply"</Button>
+                        <Button variant="default" on_click=Callback::new(move |()| clear())>
+                            "Clear"
+                        </Button>
+                    </Group>
+                    <Text dimmed=true size="xs" attr:data-testid="activity-team-rule">
+                        {TEAM_FILTER_RULE}
+                    </Text>
+                </Stack>
             </Panel>
             {move || match feed.get() {
                 None => view! { <Loading label="Loading activity…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
-                Some(Ok(page)) if page.items.is_empty() => view! {
-                    <Empty message="No activity matches these filters — clear them, or make a change somewhere and come back."/>
-                }.into_any(),
+                Some(Ok(page)) if page.items.is_empty() => {
+                    let message = empty_feed_message(&applied.get());
+                    view! { <Empty message=message/> }.into_any()
+                }
                 Some(Ok(page)) => {
                     let names = members
                         .get()
@@ -555,55 +602,15 @@ pub fn ActivityPage() -> impl IntoView {
                         .into_iter()
                         .map(|m| (m.user_id, m.display_name))
                         .collect::<HashMap<_, _>>();
-                    // The team lens filters THIS PAGE by actor membership
-                    // (client-side — the API has no team parameter; see the
-                    // KAIROS-I-0006 design decision). The pager stays on
-                    // the server page so navigation is unaffected.
-                    let (table_page, lens_note, lens_error) = match team_lens.get() {
-                        Some(Err(error)) => (page.clone(), None, Some(error)),
-                        Some(Ok(Some(member_ids))) => {
-                            let team_name = applied_team
-                                .get()
-                                .map(|(name, _)| name)
-                                .unwrap_or_default();
-                            let mut filtered = page.clone();
-                            filtered
-                                .items
-                                .retain(|entry| member_ids.contains(&entry.actor_id));
-                            let note = format!(
-                                "{} of {} entries on this page are by members of {} \
-                                 (team lens filters the fetched page)",
-                                filtered.items.len(),
-                                page.items.len(),
-                                team_name,
-                            );
-                            (filtered, Some(note), None)
-                        }
-                        _ => (page.clone(), None, None),
-                    };
-                    let table_empty = table_page.items.is_empty();
+                    let team_note = team_filter_note(&applied.get());
                     view! {
-                        <Panel title="Feed" caption="newest first">
-                            {lens_error.map(|error| view! {
-                                <Banner color=token::BAD icon="✕">
-                                    {format!("The page cannot show the team lens. {}", match &error {
-                                        ApiError::Http { message, .. } => message.clone(),
-                                        ApiError::Network => "The page cannot connect to the server.".to_string(),
-                                        ApiError::Unknown(message) => message.clone(),
-                                    })}
-                                </Banner>
+                        <Panel title="Feed" caption="The newest entry is first.">
+                            {team_note.map(|note| view! {
+                                <Text dimmed=true size="xs" attr:data-testid="activity-team-note">
+                                    {note}
+                                </Text>
                             })}
-                            {lens_note.map(|note| view! {
-                                <Text dimmed=true size="xs">{note}</Text>
-                            })}
-                            {if table_empty {
-                                view! {
-                                    <Empty message="No entries on this page match the team lens — page through, or clear the team filter."/>
-                                }.into_any()
-                            } else {
-                                view! { <FeedTable page=table_page names=names/> }
-                                    .into_any()
-                            }}
+                            <FeedTable page=page.clone() names=names/>
                             <FeedPager page=page applied=applied/>
                         </Panel>
                     }.into_any()
@@ -866,7 +873,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
         {move || view! {
             <PageHeader
                 title=code.get()
-                sub="content history (KAIROS-A-0004): every version, who, when"
+                sub="The history of the content: each version, its editor and its time."
             />
         }}
         <Stack gap="md">
@@ -887,7 +894,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                                     </span>
                                 })}
                             </Group>
-                            <Anchor href=format!("/items/{}", item.short_code)>"Open item detail"</Anchor>
+                            <Anchor href=format!("/items/{}", item.short_code)>"Open the item"</Anchor>
                         </Group>
                         // KAIROS-T-0164 / ADR-20: an archived item's history
                         // is the audit answer this initiative exists for, and
@@ -905,11 +912,12 @@ pub fn ItemHistoryPage() -> impl IntoView {
                                             {format!("Put away on {}", format_when(&when))}
                                         </Text>
                                         <Text size="sm">
-                                            "This item is archived: hidden from boards, queues \
-                                             and default searches, and read-only. Its history \
-                                             is intact — every version below is what it said \
-                                             at the time. Restore it from the item page to \
-                                             edit or roll back."
+                                            "This item is archived. The boards, the queues and \
+                                             the default searches do not show it, and you \
+                                             cannot change it. The history is complete: each \
+                                             version below shows the content at that time. To \
+                                             edit the item or to roll back, restore it from \
+                                             the item page."
                                         </Text>
                                     </Stack>
                                 </Banner>
@@ -922,7 +930,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 RollbackNotice::Done { from, new_version } => view! {
                     <Banner color=token::OK icon="✓">
                         {format!(
-                            "Rolled back: the v{from} snapshot was copied forward as new version v{new_version}."
+                            "Kairos copied version v{from} to the new version v{new_version}."
                         )}
                     </Banner>
                 }.into_any(),
@@ -930,8 +938,9 @@ pub fn ItemHistoryPage() -> impl IntoView {
                     <Alert title="Version conflict (409)" color=token::GOLD>
                         <Text size="sm">
                             {format!(
-                                "Someone saved a newer version while rolling back: {message}. \
-                                 The list below has been refreshed — pick a version and try again."
+                                "A person saved a newer version during the rollback. {message} \
+                                 The list below has the new versions. Select a version and \
+                                 roll back again."
                             )}
                         </Text>
                     </Alert>
@@ -946,7 +955,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 None => view! { <Loading label="Loading history…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(page)) if page.items.is_empty() => view! {
-                    <Empty message="No history yet — every item gets a v1 snapshot at creation, so this usually means the item was just created by an older data set."/>
+                    <Empty message="This item has no version in its history. An item from an old data set can have no version."/>
                 }.into_any(),
                 Some(Ok(page)) => {
                     let names = members
@@ -969,7 +978,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                     // not complete.
                     let incomplete = api::incomplete_list_note(page.items.len(), page.total);
                     view! {
-                        <Panel title="Versions" caption="newest first — pick A and B to diff">
+                        <Panel title="Versions" caption="The newest version is first. Select A and B to compare 2 versions.">
                             {incomplete.map(|note| view! {
                                 <Text size="xs" dimmed=true>
                                     {format!("{note} The list has the newest versions.")}
@@ -977,8 +986,8 @@ pub fn ItemHistoryPage() -> impl IntoView {
                             })}
                             {archived.then(|| view! {
                                 <Text size="xs" dimmed=true>
-                                    "Reading and diffing work as usual. Rolling back does not: \
-                                     restore the item first."
+                                    "You can read and compare the versions. You cannot roll back \
+                                     an archived item. Restore the item first."
                                 </Text>
                             })}
                             <VersionsTable
@@ -1010,12 +1019,12 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 Some(Ok(None)) => ().into_any(),
                 Some(Ok(Some(snap))) => {
                     let caption = format!(
-                        "as of {} by {}",
+                        "The version of {} by {}.",
                         format_when(&snap.edited_at),
                         snap.edited_by
                     );
                     view! {
-                        <Panel title=format!("Snapshot v{} — {}", snap.version, snap.title) caption=caption>
+                        <Panel title=format!("Snapshot v{}: {}", snap.version, snap.title) caption=caption>
                             <pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono);font-size:var(--fs-sm);color:var(--fg);">
                                 {snap.content.clone()}
                             </pre>
@@ -1028,9 +1037,8 @@ pub fn ItemHistoryPage() -> impl IntoView {
             <Stack gap="sm">
                 <Text size="sm">
                     {move || format!(
-                        "Rolling back copies the v{} snapshot forward as a NEW version through \
-                         the standard versioned save (KAIROS-A-0004) — history is append-only, \
-                         nothing is destroyed.",
+                        "A rollback copies the snapshot v{} to a new version. The history \
+                         keeps each version, and Kairos deletes nothing.",
                         rollback_target.get().unwrap_or_default()
                     )}
                 </Text>
@@ -1176,11 +1184,11 @@ fn DiffPanel(view_model: DiffView) -> impl IntoView {
     view! {
         <Panel
             title=format!("Diff v{from} → v{to}")
-            caption="client-side line diff over full snapshots"
+            caption="The differences between the 2 versions, line by line."
         >
             <Stack gap="sm">
                 {(!changed).then(|| view! {
-                    <Text dimmed=true size="sm">"These versions have identical title and content."</Text>
+                    <Text dimmed=true size="sm">"The 2 versions have the same title and the same content."</Text>
                 })}
                 {(!title_lines.is_empty()).then(|| view! {
                     <Stack gap="xs">
@@ -1246,6 +1254,77 @@ mod tests {
             "2026-07-14T00%3A00%3A00%2B02%3A00"
         );
         assert_eq!(encode_query("abc-._~XYZ09"), "abc-._~XYZ09");
+    }
+
+    /// COLLIERY-T-0265: each filter of the page is a parameter of the
+    /// route, the team too. The page has no filter of its own.
+    #[test]
+    fn each_filter_is_a_parameter_of_the_route() {
+        assert_eq!(
+            feed_query(&FeedFilters::default(), None),
+            "limit=25&offset=0"
+        );
+        let filters = FeedFilters {
+            entity_code: "DEMO-T-0001".to_string(),
+            actor_id: "6e4ff04d-1c92-4c66-9e46-94e0d9e0f70f".to_string(),
+            action: "update".to_string(),
+            since: "2026-07-14T00:00:00Z".to_string(),
+            team_slug: "platform".to_string(),
+            team_name: "Platform".to_string(),
+            offset: 50,
+        };
+        assert_eq!(
+            feed_query(&filters, Some("b7a7f5b6-83fb-46f6-a3ed-9a0d1a11e001")),
+            "limit=25&offset=50&entity_id=b7a7f5b6-83fb-46f6-a3ed-9a0d1a11e001\
+             &actor_id=6e4ff04d-1c92-4c66-9e46-94e0d9e0f70f&action=update\
+             &since=2026-07-14T00%3A00%3A00Z&team=platform"
+        );
+        // A slug from before the rule of a slug.
+        let old = FeedFilters {
+            team_slug: "Road Map".to_string(),
+            ..FeedFilters::default()
+        };
+        assert_eq!(feed_query(&old, None), "limit=25&offset=0&team=Road%20Map");
+    }
+
+    /// COLLIERY-T-0265: the texts of the page about the filters.
+    #[test]
+    fn the_page_says_what_the_filters_do() {
+        let clear = FeedFilters::default();
+        assert_eq!(
+            empty_feed_message(&clear),
+            "The organization has no activity. Make a change, then open this page again."
+        );
+        assert_eq!(team_filter_note(&clear), None);
+        // The offset is not a filter.
+        let next_page = FeedFilters {
+            offset: 25,
+            ..FeedFilters::default()
+        };
+        assert!(next_page.is_clear());
+        let team = FeedFilters {
+            team_slug: "platform".to_string(),
+            team_name: "Platform".to_string(),
+            ..FeedFilters::default()
+        };
+        assert_eq!(
+            empty_feed_message(&team),
+            "No entry agrees with the filters. Change a filter, or select Clear."
+        );
+        assert_eq!(
+            team_filter_note(&team).as_deref(),
+            Some("The list shows the entries by the members of Platform.")
+        );
+    }
+
+    /// COLLIERY-T-0265: the filter by action has each action of the
+    /// server (`kairos_db::models::enums::ActivityAction`).
+    #[test]
+    fn the_filter_has_each_action() {
+        assert_eq!(ACTIONS.len(), 14);
+        for action in ["update", "restore", "board_move", "repository"] {
+            assert!(ACTIONS.contains(&action), "{action}");
+        }
     }
 
     /// Timestamps render as date + clock; non-timestamps pass through.

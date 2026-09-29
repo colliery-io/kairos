@@ -246,7 +246,12 @@ struct TenantRow {
 ///
 /// Validated slugs contain no quoting metacharacters, which is what makes
 /// interpolating `org_{slug}` into DDL identifiers safe.
-pub fn is_valid_slug(slug: &str) -> bool {
+///
+/// This rule is for the slug of an organization ONLY (COLLIERY-T-0265).
+/// A board, a team and a delivery stream have the rule of
+/// `kairos_core::slug::is_valid_slug`, which refuses a slug with the form
+/// of a UUID too. A repository has `kairos_core::repositories::is_valid_slug`.
+pub fn is_valid_tenant_slug(slug: &str) -> bool {
     let bytes = slug.as_bytes();
     (2..=63).contains(&bytes.len())
         && bytes[0].is_ascii_lowercase()
@@ -256,7 +261,7 @@ pub fn is_valid_slug(slug: &str) -> bool {
 }
 
 fn validated_slug(slug: &str) -> Result<(), TenantError> {
-    if is_valid_slug(slug) {
+    if is_valid_tenant_slug(slug) {
         Ok(())
     } else {
         Err(TenantError::InvalidSlug(slug.to_string()))
@@ -497,10 +502,10 @@ mod tests {
     fn slug_validation_matches_s0004_pattern() {
         // valid: starts lowercase, then [a-z0-9_-], total length 2..=63
         for slug in ["acme", "a1", "acme-co", "acme_co", "a23456789"] {
-            assert!(is_valid_slug(slug), "{slug:?} should be valid");
+            assert!(is_valid_tenant_slug(slug), "{slug:?} should be valid");
         }
         let max = format!("a{}", "b".repeat(62));
-        assert!(is_valid_slug(&max), "63 chars is valid");
+        assert!(is_valid_tenant_slug(&max), "63 chars is valid");
 
         // invalid
         let too_long = format!("a{}", "b".repeat(63));
@@ -518,7 +523,7 @@ mod tests {
             "acme;drop",
             too_long.as_str(),
         ] {
-            assert!(!is_valid_slug(slug), "{slug:?} should be invalid");
+            assert!(!is_valid_tenant_slug(slug), "{slug:?} should be invalid");
         }
     }
 

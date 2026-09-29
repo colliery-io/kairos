@@ -166,13 +166,13 @@ journey(
       // The closing claim, and the one that makes this initiative worth the
       // work: nothing has to be guessed at. The put-away card is in the
       // listing when asked for, marked, and absent when not.
-      const wide = await api.get(`/api/boards/${team.fixture.boardId}/items?include_deleted=true`);
+      const wide = await api.boardItems(team.fixture.boardId!, { include_deleted: 'true' });
       const wideCodes = (wide.columns ?? []).flatMap((c: any) => [
         ...(c.tasks ?? []), ...(c.strategies ?? []), ...(c.initiatives ?? []), ...(c.adrs ?? []),
       ]).map((t: any) => t.short_code);
       expect(wideCodes, 'the put-away card is there when asked for').toContain(orphan);
 
-      const narrow = await api.get(`/api/boards/${team.fixture.boardId}/items`);
+      const narrow = await api.boardItems(team.fixture.boardId!);
       const narrowCodes = (narrow.columns ?? []).flatMap((c: any) => c.tasks ?? []).map((t: any) => t.short_code);
       expect(narrowCodes, 'and out of the way when not').not.toContain(orphan);
       expect(narrowCodes, 'while the restored card is simply live').toContain(shelved);

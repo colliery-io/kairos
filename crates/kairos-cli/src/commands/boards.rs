@@ -16,7 +16,8 @@ pub enum BoardsCommand {
     List(ListArgs),
     /// Show a board's live items grouped by column (one page)
     Show {
-        /// Board id (UUID)
+        /// Board slug or id (UUID)
+        #[arg(value_name = "BOARD")]
         board_id: String,
         /// Page size (server default 200, max 1000)
         #[arg(long)]

@@ -2848,11 +2848,13 @@ async fn repository_tools_against_live_stack() {
                 }),
             )
             .await;
+        // COLLIERY-T-0265: the refusal names the field, as the refusal of
+        // each other field of a repository.
         assert_eq!(
             text,
             format!(
                 "VALIDATION: The repository slug {slug:?} is not correct. A repository slug \
-                 must match ^[a-z0-9][a-z0-9-]{{1,62}}$."
+                 must match ^[a-z0-9][a-z0-9-]{{1,62}}$.\ndetails: {{\"field\":\"slug\"}}"
             )
         );
     }

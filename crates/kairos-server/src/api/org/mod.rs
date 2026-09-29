@@ -121,6 +121,32 @@ pub fn load_board(conn: &mut PgConnection, board_id: Uuid) -> Result<Board, ApiE
         .ok_or_else(|| ApiError::not_found(format!("No live board has the id {board_id}.")))
 }
 
+/// Load a live board by a reference, or 404 (COLLIERY-T-0265). The
+/// reference is the slug or the id of the board, as for
+/// [`crate::api::board_id_by_ref`]: the function reads a reference with the
+/// form of a UUID as an id, and each other reference as a slug. The READ
+/// routes of a board use it, so that a client that has the slug of a board
+/// does not read the list of the boards. The write routes take the id only:
+/// a write can change the slug.
+pub fn load_board_by_ref(conn: &mut PgConnection, reference: &str) -> Result<Board, ApiError> {
+    use kairos_db::schema::boards::dsl;
+    if let Ok(board_id) = Uuid::parse_str(reference) {
+        return load_board(conn, board_id);
+    }
+    dsl::boards
+        .filter(dsl::slug.eq(reference))
+        .filter(dsl::deleted_at.is_null())
+        .select(Board::as_select())
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "No live board has the slug or the id {reference:?}."
+            ))
+        })
+}
+
 /// How many LIVE workflow items (strategies/initiatives/tasks/ADRs) sit on
 /// `board_id`. Non-zero blocks team and board deletion (422
 /// `BOARD_NOT_EMPTY`).

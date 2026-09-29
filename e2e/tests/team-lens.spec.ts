@@ -10,7 +10,9 @@
 //      customer-portal stream — reachable without any admin capability
 //   5. the delivery board link lands on the platform-delivery board
 //   6. /teams directory lists both seeded teams
-//   7. /activity: the team lens filters the fetched page by team members
+//   7. /activity: the filter by team is a filter of the server
+//      (COLLIERY-T-0265), so the count below the table is the count of the
+//      entries by the members of the team
 //
 // Conventions match smoke.spec.ts: visible-text/role selectors plus the
 // stable `.kairos-*`/`.cl-*` class names (aurora Select renders
@@ -20,12 +22,19 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { dragTo } from '../helpers/drag';
+import { mintToken } from '../helpers/auth';
+
+const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
 const navbar = (page: Page) => page.locator('.cl-appshell__navbar');
 
 test('team lens: bob → my teams → roster/board/stream → directory → activity filter', async ({
   page,
 }) => {
+  // The API token of step 7, and FIRST (see repositories.spec.ts). It is
+  // the token of alice: a token of bob stops the session of the browser.
+  const alice = await mintToken({ server: GUI, email: 'alice@kairos.test' });
+
   // 1. Real in-browser PKCE login via the Dex form (bob, non-admin) --------
   await test.step('login via Dex as bob (non-admin)', async () => {
     await page.goto('/');
@@ -185,14 +194,19 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     await expect(tiles).toHaveCount(2);
   });
 
-  // 7. Activity: the team lens filters by team membership ------------------
-  await test.step('activity team lens filters the page', async () => {
+  // 7. Activity: the server filters by the members of the team ------------
+  await test.step('the activity filter by team is a filter of the server', async () => {
     await navbar(page)
       .getByRole('link', { name: 'Activity', exact: true })
       .click();
     await page.waitForURL(/\/activity$/);
 
-    // Apply the Platform team lens (aurora Select: label + sibling select
+    // The page gives the meaning of the filter before the person uses it.
+    await expect(page.getByTestId('activity-team-rule')).toHaveText(
+      'The filter Team shows the entries by the members of the team. ' +
+        'The members are those that the team has now.',
+    );
+    // Apply the filter for Platform (aurora Select: label + sibling select
     // inside one .cl-field).
     const filters = page.locator('.cl-panel', {
       has: page.locator('.cl-panel__title', { hasText: 'Filters' }),
@@ -203,10 +217,49 @@ test('team lens: bob → my teams → roster/board/stream → directory → acti
     await teamField.locator('select').selectOption({ label: 'Platform' });
     await filters.getByRole('button', { name: 'Apply' }).click();
 
-    // The lens note names the team and admits it filters the fetched page.
+    // The note names the team.
+    await expect(page.getByTestId('activity-team-note')).toHaveText(
+      'The list shows the entries by the members of Platform.',
+      { timeout: 15_000 },
+    );
+
+    // The count of the pager is the count of the server after the filter,
+    // and it is smaller than the count of the full feed.
+    const get = async (query: string): Promise<any> => {
+      const res = await fetch(`${GUI}/api/activity?${query}`, {
+        headers: { authorization: `Bearer ${alice}` },
+      });
+      expect(res.status, `GET /api/activity?${query}`).toBe(200);
+      return res.json();
+    };
+    const ofTeam = await get('team=platform&limit=25');
+    const all = await get('limit=1');
+    expect(ofTeam.total).toBeGreaterThan(0);
+    expect(ofTeam.total).toBeLessThan(all.total);
+    const shown = Math.min(25, ofTeam.total);
+    const feed = page.locator('.cl-panel', {
+      has: page.locator('.cl-panel__title', { hasText: 'Feed' }),
+    });
     await expect(
-      page.getByText(/by members of Platform/, { exact: false }),
-    ).toBeVisible({ timeout: 15_000 });
+      feed.getByText(`The list shows items 1 to ${shown} of ${ofTeam.total}.`),
+    ).toBeVisible();
+    await expect(feed.locator('tbody tr')).toHaveCount(shown);
+    // Each entry of the page is by a member of the team.
+    const members = new Set<string>(
+      (ofTeam.items as any[]).map((entry) => entry.actor_id as string),
+    );
+    const roster = await (
+      await fetch(`${GUI}/api/teams/by-slug/platform`, {
+        headers: { authorization: `Bearer ${alice}` },
+      })
+    ).json();
+    const team = await (
+      await fetch(`${GUI}/api/teams/${roster.id}/members`, {
+        headers: { authorization: `Bearer ${alice}` },
+      })
+    ).json();
+    const ids = new Set<string>((team as any[]).map((member) => member.user_id as string));
+    for (const actor of members) expect(ids.has(actor), `${actor} is a member`).toBe(true);
   });
 
   // 8. Logout then reload must NOT silently sign back in (KAIROS-T-0071:

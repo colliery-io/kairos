@@ -21,7 +21,6 @@ use diesel::prelude::*;
 use kairos_db::boards;
 use kairos_db::models::enums::{ActivityAction, BoardLevel, OrgRole, TeamType};
 use kairos_db::models::{NewTeam, NewTeamMember, Team, User};
-use kairos_db::tenant::is_valid_slug;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -314,7 +313,8 @@ fn set_org_role(
         conn,
         ctx.actor_id,
         &ctx.token_name,
-        ActivityAction::Create,
+        // COLLIERY-T-0265: a change is an update, not a create.
+        ActivityAction::Update,
         user.id,
         "membership",
         format!("membership_role:->{role} user:{}", user.id),
@@ -597,7 +597,10 @@ pub(crate) async fn create_group(
     }
     let team_slug = display_name
         .strip_prefix(TEAM_GROUP_PREFIX)
-        .filter(|slug| is_valid_slug(slug))
+        // COLLIERY-T-0265: the rule of a team slug of REST, which refuses
+        // a slug with the form of a UUID. The text of the refusal stays as
+        // it was: the reader is the identity provider.
+        .filter(|slug| kairos_core::slug::is_valid_slug(slug))
         .ok_or_else(|| {
             ScimError::invalid_value(format!(
                 "unsupported group displayName {display_name:?}: Kairos maps \

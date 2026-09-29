@@ -419,7 +419,9 @@ pub struct ActivityEntry {
     pub id: String,
     /// Who did it (user UUID).
     pub actor_id: String,
-    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config`.
+    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update`.
+    /// A change to a team, a delivery stream, a membership or a user has
+    /// the action `update` (COLLIERY-T-0265).
     pub action: String,
     /// The item acted on (UUID; null for relationship actions).
     pub entity_id: Option<String>,
@@ -462,6 +464,11 @@ pub struct ActivityQuery {
     /// Filter: activity at or after this RFC 3339 timestamp.
     #[serde(default)]
     pub since: Option<String>,
+    /// Filter: activity by the members of a team (COLLIERY-T-0265). The
+    /// value is the slug or the id (UUID) of a live team. An entry passes
+    /// when its actor is a member of the team at the time of the request.
+    #[serde(default)]
+    pub team: Option<String>,
     /// Page size (default 50, max 200).
     #[serde(default)]
     pub limit: Option<i64>,

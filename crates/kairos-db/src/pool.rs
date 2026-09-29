@@ -42,7 +42,7 @@ use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
 use diesel_async::{AsyncPgConnection, SimpleAsyncConnection};
 
-use crate::tenant::{is_valid_slug, tenant_schema_name};
+use crate::tenant::{is_valid_tenant_slug, tenant_schema_name};
 
 /// The shared async pool type (bb8 over diesel-async's manager).
 pub type PgPool = Pool<AsyncPgConnection>;
@@ -104,7 +104,7 @@ impl TenantPool {
     /// checkout is deterministic regardless of what previously ran on the
     /// underlying connection.
     pub async fn tenant(&self, slug: &str) -> Result<TenantConnection, PoolError> {
-        if !is_valid_slug(slug) {
+        if !is_valid_tenant_slug(slug) {
             return Err(PoolError::InvalidSlug(slug.to_string()));
         }
         let schema = tenant_schema_name(slug);

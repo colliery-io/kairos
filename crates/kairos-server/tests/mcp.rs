@@ -5,7 +5,8 @@
 //!
 //! Runs against the LIVE compose stack (`angreal services up`): real
 //! Postgres and the real Dex issuer. For isolation the test owns the
-//! uniquely named scratch database (`kairos_mcp_t0026_test`); the shared
+//! uniquely named scratch databases (`kairos_mcp_t0026_test`,
+//! `kairos_mcp_t0266_test`); the shared
 //! `kairos` database is never touched (shared-services discipline).
 //!
 //! Transport: the raw streamable-HTTP protocol — JSON-RPC over POST with
@@ -18,14 +19,18 @@
 //! - initialize reports the server version (REQ-1.7); 401 pre-session
 //!   without a token (with the RFC 9728 WWW-Authenticate challenge) and
 //!   403 for an authenticated non-member — the SAME middleware as /api;
-//! - tools/list is EXACTLY the 21-tool inventory: 14 from S-0006, the two
+//! - tools/list is EXACTLY the 23-tool inventory: 14 from S-0006, the two
 //!   repository tools of KAIROS-T-0107, `move_item` (KAIROS-I-0012),
 //!   `restore_item` (KAIROS-A-0020), `related_work` (KAIROS-T-0191),
-//!   `propose_edge` (KAIROS-T-0192) and `set_repository` (COLLIERY-T-0220);
+//!   `propose_edge` (KAIROS-T-0192), `set_repository` (COLLIERY-T-0220),
+//!   and `add_repository` and `update_repository` (COLLIERY-T-0266);
 //!   the reference page and the how-to give the same count, and the
 //!   reference page has one section for each tool;
 //! - `set_repository` (COLLIERY-T-0220): set, clear, the board and the team
 //!   do not change, the refusals, and agreement with the REST route;
+//! - `add_repository` and `update_repository` (COLLIERY-T-0266), in a test
+//!   of their own: a member of the owner team, an organization admin, each
+//!   refusal, the activity rows, and agreement with the REST routes;
 //! - golden path: whoami → my_boards → create_item(initiative) →
 //!   create_item(task, parent) → get_item → edit_item → transition_item
 //!   (invalid first: INVALID_TRANSITION enumerating allowed targets,
@@ -68,13 +73,18 @@ use kairos_server::middleware::auth::Authenticator;
 /// Uniquely named scratch database for this test binary.
 const SCRATCH_DB: &str = "kairos_mcp_t0026_test";
 
+/// The scratch database of the test of `add_repository` and
+/// `update_repository` (COLLIERY-T-0266). The two tests of this file run at
+/// the same time, so each has a database of its own.
+const REPOSITORY_TOOLS_DB: &str = "kairos_mcp_t0266_test";
+
 /// The tenant slug.
 const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
-/// use for that number (COLLIERY-T-0220).
-const TOOL_COUNT: usize = 21;
-const TOOL_COUNT_WORD: &str = "twenty-one";
+/// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
+const TOOL_COUNT: usize = 23;
+const TOOL_COUNT_WORD: &str = "twenty-three";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -566,6 +576,11 @@ async fn mcp_endpoint_against_live_stack() {
         // COLLIERY-T-0220 (COLLIERY-A-0023): set or clear the repository of
         // a task. A tool of its own, not an argument of `update_item`.
         "set_repository",
+        // COLLIERY-T-0266: an agent adds a repository to the directory, and
+        // changes its description, its default branch and its URL. No tool
+        // deletes a repository, and no tool changes its owner or its slug.
+        "add_repository",
+        "update_repository",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");
@@ -598,7 +613,7 @@ async fn mcp_endpoint_against_live_stack() {
                 && reference.contains(&format!("returns these {TOOL_COUNT_WORD} and no others")),
             "reference/mcp-tools.md gives the count {TOOL_COUNT_WORD}"
         );
-        for stale in ["eighteen", "nineteen", "twenty tools"] {
+        for stale in ["eighteen", "nineteen", "twenty tools", "twenty-one"] {
             assert!(
                 !reference.contains(stale),
                 "reference/mcp-tools.md: {stale:?}"
@@ -634,7 +649,12 @@ async fn mcp_endpoint_against_live_stack() {
             3,
             "how-to/connect-over-mcp.md gives the count in three places"
         );
-        assert!(!how_to.contains("eighteen"), "how-to/connect-over-mcp.md");
+        for stale in ["eighteen", "twenty-one"] {
+            assert!(
+                !how_to.contains(stale),
+                "how-to/connect-over-mcp.md: {stale:?}"
+            );
+        }
     }
 
     // --- whoami: identity, org, capability grants ----------------------------
@@ -2341,4 +2361,780 @@ async fn mcp_endpoint_against_live_stack() {
     // --- teardown ------------------------------------------------------------
     drop(conn);
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);
+}
+
+// ---------------------------------------------------------------------------
+// COLLIERY-T-0266: add_repository and update_repository
+// ---------------------------------------------------------------------------
+
+/// The row of a repository, as the tools can change it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RepositoryRow {
+    forge: String,
+    repo_full_name: String,
+    repo_url: String,
+    default_branch: String,
+    description: String,
+    team: Uuid,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The live repository with `slug`, or `None`.
+fn repository_row(conn: &mut PgConnection, slug: &str) -> Option<RepositoryRow> {
+    kairos_db::repositories::load_by_slug(conn, slug)
+        .ok()
+        .map(|row| RepositoryRow {
+            forge: row.forge.to_string(),
+            repo_full_name: row.repo_full_name,
+            repo_url: row.repo_url,
+            default_branch: row.default_branch,
+            description: row.description,
+            team: row.team_id,
+            updated_at: row.updated_at,
+        })
+}
+
+/// The number of live repositories of the tenant.
+fn repository_count(conn: &mut PgConnection) -> usize {
+    kairos_db::repositories::list(conn, None)
+        .expect("the directory")
+        .len()
+}
+
+#[derive(QueryableByName)]
+struct DetailsRow {
+    #[diesel(sql_type = SqlText)]
+    details: String,
+}
+
+/// The `details` of the `repository` rows of the activity log of one
+/// actor, oldest first.
+fn repository_activity(conn: &mut PgConnection, actor: Uuid) -> Vec<String> {
+    sql_query(
+        "SELECT details FROM org_acme.activity_log \
+         WHERE actor_id = $1 AND action = 'repository' ORDER BY occurred_at ASC, id ASC",
+    )
+    .bind::<SqlUuid, _>(actor)
+    .load::<DetailsRow>(conn)
+    .expect("activity rows")
+    .into_iter()
+    .map(|row| row.details)
+    .collect()
+}
+
+/// A team, with a delivery board when `board` is true, in the current
+/// `search_path`.
+fn team_with_board(
+    conn: &mut PgConnection,
+    name: &str,
+    slug: &str,
+    board: bool,
+) -> kairos_db::models::teams::Team {
+    let team: kairos_db::models::teams::Team = diesel::insert_into(kairos_db::schema::teams::table)
+        .values(kairos_db::models::teams::NewTeam {
+            name: name.into(),
+            slug: slug.into(),
+            team_type: kairos_db::models::enums::TeamType::StreamAligned,
+        })
+        .returning(kairos_db::models::teams::Team::as_returning())
+        .get_result(conn)
+        .expect("team");
+    if board {
+        kairos_db::boards::create_board(
+            conn,
+            BoardLevel::Delivery,
+            &format!("{name} Delivery"),
+            &format!("{slug}-delivery"),
+            Some(team.id),
+            None,
+        )
+        .expect("creating the delivery board");
+    }
+    team
+}
+
+/// Cast: `svc` is an organization admin and is in no team. `alice` is a
+/// member of `platform` and of `guild`, a team with no delivery board. `bob`
+/// is a member of `web`.
+#[tokio::test]
+async fn repository_tools_against_live_stack() {
+    let mut admin_conn = recreate_scratch_db(REPOSITORY_TOOLS_DB);
+    let scratch_url = with_database(&common::admin_database_url(), REPOSITORY_TOOLS_DB);
+    let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
+    run_public_migrations(&mut conn).expect("running public migrations");
+    provision_tenant(&mut conn, TENANT, "Acme Inc").expect("provisioning acme");
+    let org_id: Uuid = organizations::table
+        .filter(organizations::slug.eq(TENANT))
+        .select(organizations::id)
+        .first(&mut conn)
+        .expect("acme org row");
+
+    let http = reqwest::Client::new();
+    let pool = TenantPool::new(&scratch_url, 4).await.expect("pool");
+    let auth = Arc::new(
+        Authenticator::discover(ISSUER, AUDIENCE)
+            .await
+            .expect("OIDC discovery against live Dex"),
+    );
+    let router = app::router(app::state_with(
+        base_config(&scratch_url),
+        pool.clone(),
+        auth.clone(),
+    ));
+
+    // A first authenticated call JIT-provisions the users row (403 until the
+    // user is a member). Only then can the membership be granted.
+    let mut cast = Vec::new();
+    for (name, role) in [
+        ("svc", OrgRole::Admin),
+        ("alice", OrgRole::Member),
+        ("bob", OrgRole::Member),
+    ] {
+        let token = user_token(&http, name).await;
+        let (status, _, _) = raw_request(
+            &router,
+            Method::POST,
+            "/mcp",
+            Some(&token),
+            None,
+            Some(
+                json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "t", "version": "0"}}}),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{name}");
+        let id = user_id(&mut conn, &format!("{name}@kairos.test"));
+        diesel::insert_into(organization_members::table)
+            .values(NewOrganizationMember {
+                organization_id: org_id,
+                user_id: id,
+                role,
+            })
+            .execute(&mut conn)
+            .unwrap_or_else(|e| panic!("granting {name} membership: {e}"));
+        cast.push((token, id));
+    }
+    let [(svc_token, svc), (alice_token, alice), (bob_token, bob)] =
+        <[(String, Uuid); 3]>::try_from(cast).expect("three users");
+
+    sql_query("SET search_path TO org_acme, public")
+        .execute(&mut conn)
+        .expect("pinning search_path");
+    let platform = team_with_board(&mut conn, "Platform", "platform", true);
+    let web = team_with_board(&mut conn, "Web", "web", true);
+    let guild = team_with_board(&mut conn, "Guild", "guild", false);
+    for (team, user) in [(&platform, alice), (&guild, alice), (&web, bob)] {
+        diesel::insert_into(kairos_db::schema::team_members::table)
+            .values(kairos_db::models::teams::NewTeamMember {
+                team_id: team.id,
+                user_id: user,
+            })
+            .execute(&mut conn)
+            .expect("team member");
+    }
+
+    let (mut svc_session, _) = McpSession::connect(&router, &svc_token).await;
+    let (mut alice_session, _) = McpSession::connect(&router, &alice_token).await;
+    let (mut bob_session, _) = McpSession::connect(&router, &bob_token).await;
+
+    // --- the schema: what the tools have, and what they do not have ----------
+    let listed = alice_session.request("tools/list", json!({})).await;
+    let tools = listed["tools"].as_array().expect("tools array").clone();
+    let tool = |name: &str| {
+        tools
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("no tool {name}"))
+            .clone()
+    };
+    let arguments_of = |name: &str| {
+        let mut names: Vec<String> = tool(name)["inputSchema"]["properties"]
+            .as_object()
+            .expect("properties")
+            .keys()
+            .cloned()
+            .collect();
+        names.sort();
+        names
+    };
+    assert_eq!(
+        arguments_of("add_repository"),
+        [
+            "default_branch",
+            "description",
+            "forge",
+            "repo_full_name",
+            "repo_url",
+            "slug",
+            "team"
+        ]
+    );
+    // No `slug` and no `team`: the tool changes neither.
+    assert_eq!(
+        arguments_of("update_repository"),
+        ["default_branch", "description", "repo_url", "repository"]
+    );
+    for name in ["add_repository", "update_repository"] {
+        let tool = tool(name);
+        assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{name}");
+        let description = tool["description"].as_str().expect("description");
+        // The description says what no tool does, who does it, and where.
+        for needed in [
+            "o tool deletes a repository",
+            "owner team",
+            "slug",
+            "A person does these",
+            "Admin, Repositories",
+            "`kairos repos update`",
+            "`kairos repos delete`",
+            "/api/repositories/{slug}",
+            "`set_repository`",
+        ] {
+            assert!(description.contains(needed), "{name} lacks {needed:?}");
+        }
+    }
+    // No tool deletes a repository.
+    for t in &tools {
+        let name = t["name"].as_str().expect("name");
+        assert!(
+            !(name.contains("repositor") && (name.contains("delete") || name.contains("remove"))),
+            "{name}"
+        );
+    }
+    assert_eq!(repository_count(&mut conn), 0);
+
+    // --- add_repository: a member of the owner team --------------------------
+    // The least that a call can have. The slug comes from the full name and
+    // the default branch is `main`, as in POST /api/repositories.
+    let text = alice_session
+        .call_ok(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/fidius",
+                "repo_url": "https://github.com/acme/fidius",
+                "team": "platform",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "Added repository acme-fidius: github acme/fidius (owner: platform, default branch main)."
+    );
+    let row = repository_row(&mut conn, "acme-fidius").expect("the row");
+    assert_eq!(row.forge, "github");
+    assert_eq!(row.repo_full_name, "acme/fidius");
+    assert_eq!(row.repo_url, "https://github.com/acme/fidius");
+    assert_eq!(row.default_branch, "main");
+    assert_eq!(row.description, "");
+    assert_eq!(row.team, platform.id);
+    // The activity log has the action, and alice is the actor.
+    assert_eq!(
+        repository_activity(&mut conn, alice),
+        ["repository_created:acme-fidius"]
+    );
+    // Each argument, and the team by UUID.
+    let text = alice_session
+        .call_ok(
+            "add_repository",
+            json!({
+                "slug": "portal",
+                "forge": "gitlab",
+                "repo_full_name": "acme/portal/web",
+                "repo_url": "https://gitlab.com/acme/portal/web",
+                "default_branch": "trunk",
+                "team": platform.id.to_string(),
+                "description": "Run `angreal test unit` before each pull request.",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "Added repository portal: gitlab acme/portal/web (owner: platform, default branch trunk)."
+    );
+    // The other tools and the REST route see it.
+    let text = alice_session
+        .call_ok("get_repository", json!({"repository": "portal"}))
+        .await;
+    assert!(text.contains("- default branch: trunk"), "{text}");
+    assert!(
+        text.contains("Run `angreal test unit` before each pull request."),
+        "{text}"
+    );
+    let (status, _, body) = raw_request(
+        &router,
+        Method::GET,
+        "/api/repositories/portal",
+        Some(&bob_token),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let rest: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(rest["repo_full_name"], "acme/portal/web", "{rest}");
+    assert_eq!(rest["team"]["slug"], "platform", "{rest}");
+
+    // --- add_repository: an organization admin -------------------------------
+    // svc is in no team.
+    let text = svc_session
+        .call_ok(
+            "add_repository",
+            json!({
+                "slug": "site",
+                "forge": "other",
+                "repo_full_name": "acme/site",
+                "repo_url": "https://git.acme.example/acme/site",
+                "team": "web",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "Added repository site: other acme/site (owner: web, default branch main)."
+    );
+    assert_eq!(
+        repository_activity(&mut conn, svc),
+        ["repository_created:site"]
+    );
+    assert_eq!(repository_count(&mut conn), 3);
+
+    // --- add_repository: the refusals ----------------------------------------
+    let forbidden = "FORBIDDEN: This action requires the capability \"manage_tasks\" on the \
+         delivery board of the team \"platform\", the owner team of the repository. You do not \
+         have that capability. Each member of the team has it, and an organization admin has \
+         each capability. Ask a member of the team \"platform\" or an organization admin to do \
+         this.";
+    // bob is a member of the organization and of `web`. He is not in
+    // `platform`.
+    let text = bob_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/not-for-bob",
+                "repo_url": "https://github.com/acme/not-for-bob",
+                "team": "platform",
+            }),
+        )
+        .await;
+    let (message, details) = text.split_once("\ndetails: ").expect("details");
+    assert_eq!(message, forbidden);
+    let details: Value = serde_json::from_str(details).expect("details are JSON");
+    assert_eq!(details["required_capability"], "manage_tasks", "{details}");
+    assert!(details["board_id"].is_string(), "{details}");
+    // The REST route gives the same refusal: it is the same function.
+    let (status, _, body) = raw_request(
+        &router,
+        Method::POST,
+        "/api/repositories",
+        Some(&bob_token),
+        None,
+        Some(json!({
+            "forge": "github",
+            "repo_full_name": "acme/not-for-bob",
+            "repo_url": "https://github.com/acme/not-for-bob",
+            "team": "platform",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    let rest: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        format!("FORBIDDEN: {}", rest["error"]["message"].as_str().unwrap()),
+        forbidden
+    );
+    // A team with no delivery board: membership gives no capability, so the
+    // member is refused and the admin is not.
+    let guild_repository = json!({
+        "forge": "github",
+        "repo_full_name": "acme/guild-notes",
+        "repo_url": "https://github.com/acme/guild-notes",
+        "team": "guild",
+    });
+    let text = alice_session
+        .call_err("add_repository", guild_repository.clone())
+        .await;
+    assert!(
+        text.starts_with(
+            "FORBIDDEN: The team \"guild\", the owner team of the repository, does not have \
+             one live delivery board. Thus this action requires the organization admin role. \
+             Ask an organization admin to do this."
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        repository_count(&mut conn),
+        3,
+        "a refused call adds nothing"
+    );
+    assert_eq!(repository_activity(&mut conn, bob), Vec::<String>::new());
+    svc_session
+        .call_ok("add_repository", guild_repository)
+        .await;
+
+    // A slug that a repository has already: 409 from REST, CONFLICT here.
+    let duplicate = json!({
+        "slug": "portal",
+        "forge": "github",
+        "repo_full_name": "acme/second-portal",
+        "repo_url": "https://github.com/acme/second-portal",
+        "team": "platform",
+    });
+    let text = alice_session
+        .call_err("add_repository", duplicate.clone())
+        .await;
+    assert_eq!(
+        text,
+        "CONFLICT: A repository has the slug \"portal\" already."
+    );
+    let (status, _, body) = raw_request(
+        &router,
+        Method::POST,
+        "/api/repositories",
+        Some(&alice_token),
+        None,
+        Some(duplicate),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let rest: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        rest["error"]["message"],
+        "A repository has the slug \"portal\" already."
+    );
+    // The same repository of the forge, with a different slug.
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "slug": "fidius-again",
+                "forge": "github",
+                "repo_full_name": "acme/fidius",
+                "repo_url": "https://github.com/acme/fidius",
+                "team": "platform",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "CONFLICT: The github repository \"acme/fidius\" is in the directory already."
+    );
+    // The form of the slug.
+    for slug in ["Upper", "under_score", "x", "-first"] {
+        let text = alice_session
+            .call_err(
+                "add_repository",
+                json!({
+                    "slug": slug,
+                    "forge": "github",
+                    "repo_full_name": "acme/form",
+                    "repo_url": "https://github.com/acme/form",
+                    "team": "platform",
+                }),
+            )
+            .await;
+        assert_eq!(
+            text,
+            format!(
+                "VALIDATION: The repository slug {slug:?} is not correct. A repository slug \
+                 must match ^[a-z0-9][a-z0-9-]{{1,62}}$."
+            )
+        );
+    }
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "bitbucket",
+                "repo_full_name": "acme/form",
+                "repo_url": "https://bitbucket.org/acme/form",
+                "team": "platform",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "VALIDATION: The value \"bitbucket\" is not a value of forge. The values are: \
+         github, gitlab, other."
+    );
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/form",
+                "repo_url": "https://github.com/acme/form",
+                "team": "nobody",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "VALIDATION: The team \"nobody\" is not in the organization. Send the id or the \
+         slug of a team of the organization."
+    );
+    // An argument that the tool does not know. `owner` is a probable guess
+    // for `team`.
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/form",
+                "repo_url": "https://github.com/acme/form",
+                "team": "platform",
+                "owner": "platform",
+            }),
+        )
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call has the argument \"owner\". This tool does not accept \
+             that argument. The arguments of this tool are: slug, forge, repo_full_name, \
+             repo_url, default_branch, team, description.\ndetails: "
+        ),
+        "{text}"
+    );
+    // An argument that the tool must have.
+    let text = alice_session
+        .call_err(
+            "add_repository",
+            json!({
+                "forge": "github",
+                "repo_full_name": "acme/form",
+                "repo_url": "https://github.com/acme/form",
+            }),
+        )
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call does not have the argument \"team\". This tool must have \
+             that argument."
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        repository_count(&mut conn),
+        4,
+        "a refused call adds nothing"
+    );
+    assert!(repository_row(&mut conn, "acme-form").is_none());
+    assert_eq!(repository_activity(&mut conn, alice).len(), 2);
+
+    // --- update_repository: a member of the owner team -----------------------
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({
+                "repository": "acme-fidius",
+                "description": "Run `cargo test` before each pull request.",
+                "default_branch": "trunk",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "Updated repository acme-fidius: description, default_branch."
+    );
+    let changed = repository_row(&mut conn, "acme-fidius").expect("the row");
+    assert_eq!(
+        changed,
+        RepositoryRow {
+            description: "Run `cargo test` before each pull request.".into(),
+            default_branch: "trunk".into(),
+            updated_at: changed.updated_at,
+            ..row.clone()
+        },
+        "the two values change, and no other"
+    );
+    assert!(changed.updated_at > row.updated_at);
+    assert_eq!(
+        repository_activity(&mut conn, alice),
+        [
+            "repository_created:acme-fidius",
+            "repository_created:portal",
+            "repository_updated:acme-fidius"
+        ]
+    );
+    // Only the values that are different are in the result. The default
+    // branch of the call is the one that the repository has.
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({
+                "repository": "acme-fidius",
+                "default_branch": "trunk",
+                "repo_url": "https://github.com/acme/fidius-rs",
+            }),
+        )
+        .await;
+    assert_eq!(text, "Updated repository acme-fidius: repo_url.");
+    // An empty string removes the description.
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({"repository": "acme-fidius", "description": ""}),
+        )
+        .await;
+    assert_eq!(text, "Updated repository acme-fidius: description.");
+    let text = alice_session
+        .call_ok("get_repository", json!({"repository": "acme-fidius"}))
+        .await;
+    assert!(text.contains("(no description yet)"), "{text}");
+    assert!(
+        text.contains("- url: https://github.com/acme/fidius-rs"),
+        "{text}"
+    );
+
+    // --- update_repository: an organization admin, by UUID -------------------
+    let fidius = kairos_db::repositories::load_by_slug(&mut conn, "acme-fidius").expect("row");
+    let text = svc_session
+        .call_ok(
+            "update_repository",
+            json!({"repository": fidius.id.to_string(), "description": "Read CONTRIBUTING.md."}),
+        )
+        .await;
+    assert_eq!(text, "Updated repository acme-fidius: description.");
+    assert_eq!(
+        repository_activity(&mut conn, svc),
+        [
+            "repository_created:site",
+            "repository_created:acme-guild-notes",
+            "repository_updated:acme-fidius"
+        ]
+    );
+
+    // --- update_repository: the refusals -------------------------------------
+    let before = repository_row(&mut conn, "acme-fidius").expect("the row");
+    let audit_rows = activity_count(&mut conn, alice, "repository");
+    // bob is not in the owner team.
+    let text = bob_session
+        .call_err(
+            "update_repository",
+            json!({"repository": "acme-fidius", "description": "bob was here"}),
+        )
+        .await;
+    let (message, _) = text.split_once("\ndetails: ").expect("details");
+    assert_eq!(message, forbidden);
+    // He is refused also when the call has the values of the repository: the
+    // gate comes before the comparison.
+    let text = bob_session
+        .call_err(
+            "update_repository",
+            json!({"repository": "acme-fidius", "description": "Read CONTRIBUTING.md."}),
+        )
+        .await;
+    assert!(text.starts_with("FORBIDDEN: "), "{text}");
+    let (status, _, body) = raw_request(
+        &router,
+        Method::PATCH,
+        "/api/repositories/acme-fidius",
+        Some(&bob_token),
+        None,
+        Some(json!({"description": "bob was here"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "REST agrees: {body}");
+    // He can change a repository of his team.
+    let text = bob_session
+        .call_ok(
+            "update_repository",
+            json!({"repository": "site", "default_branch": "release"}),
+        )
+        .await;
+    assert_eq!(text, "Updated repository site: default_branch.");
+    // A repository that does not exist.
+    let text = alice_session
+        .call_err(
+            "update_repository",
+            json!({"repository": "nope", "description": "x"}),
+        )
+        .await;
+    assert_eq!(text, "NOT_FOUND: No live repository has the slug \"nope\".");
+    let text = alice_session
+        .call_err(
+            "update_repository",
+            json!({"repository": Uuid::new_v4().to_string(), "description": "x"}),
+        )
+        .await;
+    assert!(
+        text.starts_with("NOT_FOUND: No live repository has the id "),
+        "{text}"
+    );
+    // Nothing to change: no argument, and null for each.
+    for arguments in [
+        json!({"repository": "acme-fidius"}),
+        json!({"repository": "acme-fidius", "description": null, "default_branch": null, "repo_url": null}),
+    ] {
+        let text = alice_session.call_err("update_repository", arguments).await;
+        assert_eq!(
+            text,
+            "VALIDATION: The call has nothing to change. Send one or more of these \
+             arguments: description, default_branch, repo_url."
+        );
+    }
+    // The values that the repository has: a success that writes nothing.
+    let text = alice_session
+        .call_ok(
+            "update_repository",
+            json!({
+                "repository": "acme-fidius",
+                "description": "Read CONTRIBUTING.md.",
+                "default_branch": "trunk",
+                "repo_url": "https://github.com/acme/fidius-rs",
+            }),
+        )
+        .await;
+    assert_eq!(
+        text,
+        "No change to repository acme-fidius: it has these values already."
+    );
+    // The slug and the owner team: the tool does not know the arguments.
+    for (argument, value) in [("slug", "fidius"), ("team", "web")] {
+        let text = alice_session
+            .call_err(
+                "update_repository",
+                json!({"repository": "acme-fidius", "description": "x", argument: value}),
+            )
+            .await;
+        assert!(
+            text.starts_with(&format!(
+                "VALIDATION: The call has the argument {argument:?}. This tool does not \
+                 accept that argument. The arguments of this tool are: repository, \
+                 description, default_branch, repo_url."
+            )),
+            "{text}"
+        );
+    }
+    let text = alice_session
+        .call_err("update_repository", json!({"description": "x"}))
+        .await;
+    assert!(
+        text.starts_with(
+            "VALIDATION: The call does not have the argument \"repository\". This tool must \
+             have that argument."
+        ),
+        "{text}"
+    );
+    assert_eq!(
+        repository_row(&mut conn, "acme-fidius").expect("the row"),
+        before,
+        "a refused call changes nothing, and `updated_at` is as it was"
+    );
+    assert_eq!(
+        activity_count(&mut conn, alice, "repository"),
+        audit_rows,
+        "a refused call and a call with no change write no activity row"
+    );
+    assert_eq!(
+        repository_row(&mut conn, "acme-fidius").unwrap().team,
+        platform.id
+    );
+
+    // --- teardown ------------------------------------------------------------
+    drop(conn);
+    drop_scratch_db(&mut admin_conn, REPOSITORY_TOOLS_DB);
 }

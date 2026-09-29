@@ -1,8 +1,9 @@
-//! The S-0006 tool surface (KAIROS-T-0026): 21 tools — the 14 frozen by
+//! The S-0006 tool surface (KAIROS-T-0026): 23 tools — the 14 frozen by
 //! S-0006, plus the two repository tools (KAIROS-T-0107), `move_item`
 //! (KAIROS-I-0012), `restore_item` (KAIROS-A-0020), `related_work`
-//! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192) and `set_repository`
-//! (COLLIERY-T-0220) — each a
+//! (KAIROS-T-0191), `propose_edge` (KAIROS-T-0192), `set_repository`
+//! (COLLIERY-T-0220), and `add_repository` and `update_repository`
+//! (COLLIERY-T-0266) — each a
 //! thin wrapper over the same `kairos-core`/`kairos-db` services the REST
 //! handlers call — through [`crate::blocking::BlockingTenantPool`], never
 //! HTTP (A-0011). Contracts:
@@ -382,6 +383,52 @@ pub struct SetRepositoryParams {
     pub repository: Option<String>,
 }
 
+/// Parameters for `add_repository` (COLLIERY-T-0266). The names are those
+/// of the body of `POST /api/repositories`.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct AddRepositoryParams {
+    /// The slug of the repository in Kairos (e.g. "payments-api"):
+    /// lowercase letters, digits and hyphens, 2 to 63 characters. Omit it
+    /// and Kairos makes the slug from `repo_full_name`
+    /// ("acme/payments-api" gives "acme-payments-api").
+    pub slug: Option<String>,
+    /// github | gitlab | other.
+    pub forge: String,
+    /// The name of the repository on the forge: "owner/repo" on GitHub,
+    /// "group/subgroup/project" on GitLab.
+    pub repo_full_name: String,
+    /// The URL of the repository for a browser
+    /// (e.g. "https://github.com/acme/payments-api").
+    pub repo_url: String,
+    /// The default branch. Omit it and the default branch is "main".
+    pub default_branch: Option<String>,
+    /// The ONE owner team (slug or UUID).
+    pub team: String,
+    /// How to work in the repository, for the agents that read it with
+    /// `get_repository`: the task runner, the tests, the rules for a
+    /// branch.
+    pub description: Option<String>,
+}
+
+/// Parameters for `update_repository` (COLLIERY-T-0266). There is no `slug`
+/// and no `team`: see the description of the tool.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRepositoryParams {
+    /// The repository, by slug (e.g. "payments-api") or UUID.
+    pub repository: String,
+    /// The new text on how to work in the repository. It replaces the
+    /// full text. An empty string removes the text.
+    pub description: Option<String>,
+    /// The new default branch.
+    pub default_branch: Option<String>,
+    /// The new URL of the repository for a browser.
+    pub repo_url: Option<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
@@ -438,7 +485,7 @@ pub struct DeleteItemParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (21; the count is asserted in tests/mcp.rs)
+// The tools (23; the count is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -567,8 +614,8 @@ impl KairosMcp {
             let mut out = String::from("# Repositories\n");
             if rendered.is_empty() {
                 out.push_str(
-                    "(none. An organization admin or a team member adds a repository with \
-                     POST /api/repositories or `kairos repos create`.)\n",
+                    "(none. An organization admin or a member of the owner team adds a \
+                     repository with add_repository.)\n",
                 );
             }
             for repo in rendered {
@@ -1403,7 +1450,7 @@ impl KairosMcp {
     // tool replaces content under a version check. A link is not content: it
     // writes no new version, and it must not fail on a stale one.
     #[tool(
-        description = "Set or clear the repository of a TASK. The repository is a link: it says where the code is. It does not change the board or the team of the task. `repository` is a slug or UUID of any live repository, of any team. To clear the link, omit `repository`, or send null or an empty string. The tool applies to tasks only. You can set it on a task that you created, or with `manage_tasks` on its board."
+        description = "Set or clear the repository of a TASK. This tool links a task to a repository of the directory. It does not add a repository to the directory (`add_repository`) and it does not change a repository (`update_repository`). The repository is a link: it says where the code is. It does not change the board or the team of the task. `repository` is a slug or UUID of any live repository, of any team. To clear the link, omit `repository`, or send null or an empty string. The tool applies to tasks only. You can set it on a task that you created, or with `manage_tasks` on its board."
     )]
     pub async fn set_repository(
         &self,
@@ -1449,6 +1496,127 @@ impl KairosMcp {
                     updated.short_code
                 ),
             })
+        })
+        .await
+    }
+
+    // COLLIERY-T-0266: REST, the CLI and the GUI could add a repository to
+    // the directory while MCP could not. The bootstrap of a checkout found
+    // that the tenant did not have its repository, and it had to leave MCP
+    // for `kairos repos create`.
+    //
+    // The rule, the defaults and the refusals are those of
+    // `POST /api/repositories`: the two call one function
+    // (`crate::api::org::repositories::add`).
+    #[tool(
+        description = "Add a repository to the directory of the organization. This tool does not link a task to a repository: `set_repository` does that. A repository can be in the directory only one time, so call `list_repositories` first. `forge` is github, gitlab or other. `repo_full_name` is the name on the forge (owner/repo). `repo_url` is the URL for a browser. `team` (slug or UUID) is the ONE owner team. Optional: `slug` (the default is made from the full name: acme/payments-api gives acme-payments-api), `default_branch` (the default is main), and `description`. The description tells an agent how to work in the repository: the task runner, the tests, the rules for a branch. You must be a member of the owner team, or an organization admin. No tool deletes a repository, and no tool changes its owner team or its slug. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
+    )]
+    pub async fn add_repository(
+        &self,
+        Parameters(params): Parameters<AddRepositoryParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let added = crate::api::org::repositories::add(
+                conn,
+                &slug,
+                user,
+                kairos_client::types_repositories::CreateRepositoryRequest {
+                    slug: params.slug,
+                    forge: params.forge,
+                    repo_full_name: params.repo_full_name,
+                    repo_url: params.repo_url,
+                    default_branch: params.default_branch,
+                    team: params.team,
+                    description: params.description,
+                },
+            )?;
+            Ok(format!(
+                "Added repository {}: {} {} (owner: {}, default branch {}).",
+                added.slug,
+                added.forge,
+                added.repo_full_name,
+                added.team.slug,
+                added.default_branch
+            ))
+        })
+        .await
+    }
+
+    // COLLIERY-T-0266. The tool has no `slug` and no `team`, and the REST
+    // route has the two. A checkout keeps the slug in
+    // `.claude/kairos.local.md`, so a new slug breaks each checkout. A new
+    // owner team is a decision of the two teams. A person does these.
+    //
+    // The gate and the write are those of `PATCH /api/repositories/{slug}`
+    // (`crate::api::org::repositories::change`). One thing is different: the
+    // tool compares the values of the call with the row, and it writes only
+    // when a value is different. The REST route always writes. An agent
+    // sends the same description again more often than a person does, and
+    // each write is a row in the activity log.
+    #[tool(
+        description = "Change a repository of the directory: its `description` (how to work in the repository), its `default_branch` and its `repo_url`. Send one or more of them. `repository` is a slug or UUID. `description` replaces the full text, so read the text with `get_repository` first. This tool does not link a task to a repository: `set_repository` does that. You must be a member of the owner team, or an organization admin. This tool does not change the slug: each checkout keeps the slug in `.claude/kairos.local.md`, and a new slug breaks that reference. This tool does not change the owner team, and no tool deletes a repository. A person does these on the GUI page Admin, Repositories, with the CLI (`kairos repos update`, `kairos repos delete`) or with the REST API (PATCH or DELETE /api/repositories/{slug})."
+    )]
+    pub async fn update_repository(
+        &self,
+        Parameters(params): Parameters<UpdateRepositoryParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            // Before the gate: the fault is in the call, and the answer is
+            // the same for each caller and each repository.
+            if params.description.is_none()
+                && params.default_branch.is_none()
+                && params.repo_url.is_none()
+            {
+                return Err(ApiError::validation(
+                    "The call has nothing to change. Send one or more of these arguments: \
+                     description, default_branch, repo_url.",
+                ));
+            }
+            let current =
+                crate::api::org::repositories::changeable(conn, &slug, user, &params.repository)?;
+            // Only the values that are different go to the write, and the
+            // result names them.
+            let different = |new: Option<String>, old: &str| new.filter(|new| new != old);
+            let body = kairos_client::types_repositories::UpdateRepositoryRequest {
+                description: different(params.description, &current.description),
+                default_branch: different(params.default_branch, &current.default_branch),
+                repo_url: different(params.repo_url, &current.repo_url),
+                ..Default::default()
+            };
+            let changed: Vec<&str> = [
+                ("description", body.description.is_some()),
+                ("default_branch", body.default_branch.is_some()),
+                ("repo_url", body.repo_url.is_some()),
+            ]
+            .into_iter()
+            .filter_map(|(name, changed)| changed.then_some(name))
+            .collect();
+            if changed.is_empty() {
+                return Ok(format!(
+                    "No change to repository {}: it has these values already.",
+                    current.slug
+                ));
+            }
+            let updated = crate::api::org::repositories::change(
+                conn,
+                &slug,
+                user,
+                &current.id.to_string(),
+                body,
+            )?;
+            Ok(format!(
+                "Updated repository {}: {}.",
+                updated.slug,
+                changed.join(", ")
+            ))
         })
         .await
     }

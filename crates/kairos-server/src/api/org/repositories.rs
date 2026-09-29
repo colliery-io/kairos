@@ -140,16 +140,140 @@ fn delivery_board_of(conn: &mut PgConnection, team_id: Uuid) -> Result<Option<Uu
 
 /// Org admin, or `manage_tasks` on the team's delivery board (team
 /// membership implies it). A team with no delivery board is admin-only.
+///
+/// COLLIERY-T-0266: the refusal names the team, and it says who can do the
+/// action. Until then it was the refusal of [`require_capability`], which
+/// gives the id of a board and no more. The code and the `details` are the
+/// same as before.
 fn require_manage_for_team(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     team_id: Uuid,
 ) -> Result<(), ApiError> {
-    match delivery_board_of(conn, team_id)? {
-        Some(board) => require_capability(conn, slug, Some(board), user, MANAGE),
-        None => require_capability(conn, slug, None, user, MANAGE),
+    let board = delivery_board_of(conn, team_id)?;
+    let refusal = match require_capability(conn, slug, board, user, MANAGE) {
+        Ok(()) => return Ok(()),
+        Err(refusal) => refusal,
+    };
+    if refusal.code != "FORBIDDEN" {
+        return Err(refusal);
     }
+    let team: String = {
+        use kairos_db::schema::teams::dsl;
+        dsl::teams
+            .filter(dsl::id.eq(team_id))
+            .select(dsl::slug)
+            .first(conn)
+            .optional()
+            .map_err(ApiError::internal)?
+            .unwrap_or_else(|| team_id.to_string())
+    };
+    let message = match board {
+        Some(_) => format!(
+            "This action requires the capability {MANAGE:?} on the delivery board of the \
+             team {team:?}, the owner team of the repository. You do not have that \
+             capability. Each member of the team has it, and an organization admin has \
+             each capability. Ask a member of the team {team:?} or an organization admin \
+             to do this."
+        ),
+        None => format!(
+            "The team {team:?}, the owner team of the repository, does not have one live \
+             delivery board. Thus this action requires the organization admin role. Ask \
+             an organization admin to do this."
+        ),
+    };
+    Err(ApiError::forbidden(message).with_details(refusal.details))
+}
+
+/// Add a repository to the directory as `user`: the ONE implementation of
+/// `POST /api/repositories` and of the MCP tool `add_repository`
+/// (COLLIERY-T-0266). The rule, the defaults and the refusals are here, so
+/// the two surfaces cannot disagree. The activity row comes from
+/// [`repositories::create`], with `user` as the actor.
+pub(crate) fn add(
+    conn: &mut PgConnection,
+    tenant_slug: &str,
+    user: Uuid,
+    body: dto::CreateRepositoryRequest,
+) -> Result<dto::Repository, ApiError> {
+    let forge: Forge = parse_enum(&body.forge, "forge", Forge::ALL)?;
+    let team = resolve_team(conn, &body.team)?;
+    require_manage_for_team(conn, tenant_slug, user, team.id)?;
+    let created = repositories::create(
+        conn,
+        NewRepository {
+            slug: body.slug.unwrap_or_else(|| {
+                kairos_core::repositories::slug_from_full_name(&body.repo_full_name)
+            }),
+            forge,
+            repo_full_name: body.repo_full_name,
+            repo_url: body.repo_url,
+            default_branch: body.default_branch.unwrap_or_else(|| "main".to_string()),
+            team_id: team.id,
+            description: body.description.unwrap_or_default(),
+            created_by: user,
+            updated_by: user,
+        },
+    )
+    .map_err(map_error)?;
+    render_one(conn, created)
+}
+
+/// The repository that `reference` names (slug or UUID), when `user` can
+/// change it: the gate of [`change`], evaluated against the CURRENT owner.
+/// The MCP tool `update_repository` calls it first, to compare the values
+/// of the call with the row before it writes (COLLIERY-T-0266).
+pub(crate) fn changeable(
+    conn: &mut PgConnection,
+    tenant_slug: &str,
+    user: Uuid,
+    reference: &str,
+) -> Result<Repository, ApiError> {
+    let current = repositories::resolve(conn, reference).map_err(map_error)?;
+    require_manage_for_team(conn, tenant_slug, user, current.team_id)?;
+    Ok(current)
+}
+
+/// Change a repository as `user`: the ONE implementation of
+/// `PATCH /api/repositories/{slug}` and of the MCP tool `update_repository`
+/// (COLLIERY-T-0266). The activity row comes from [`repositories::update`],
+/// with `user` as the actor.
+pub(crate) fn change(
+    conn: &mut PgConnection,
+    tenant_slug: &str,
+    user: Uuid,
+    reference: &str,
+    body: dto::UpdateRepositoryRequest,
+) -> Result<dto::Repository, ApiError> {
+    let current = changeable(conn, tenant_slug, user, reference)?;
+    let team_id = body
+        .team
+        .as_deref()
+        .map(|reference| resolve_team(conn, reference).map(|t| t.id))
+        .transpose()?;
+    // KAIROS-T-0112: re-homing needs the NEW owner's consent too —
+    // manage on both delivery boards (org admin bypasses both).
+    if let Some(new_team) = team_id
+        && new_team != current.team_id
+    {
+        require_manage_for_team(conn, tenant_slug, user, new_team)?;
+    }
+    let updated = repositories::update(
+        conn,
+        current.id,
+        RepositoryChangeset {
+            slug: body.slug,
+            repo_url: body.repo_url,
+            default_branch: body.default_branch,
+            team_id,
+            description: body.description,
+            ..Default::default()
+        },
+        user,
+    )
+    .map_err(map_error)?;
+    render_one(conn, updated)
 }
 
 /// Render repositories with their team, delivery board and counts — two
@@ -367,36 +491,11 @@ pub(crate) async fn create_repository(
     Extension(tenant): Extension<TenantContext>,
     ApiJson(body): ApiJson<dto::CreateRepositoryRequest>,
 ) -> Result<(StatusCode, Json<dto::Repository>), ApiError> {
-    let forge: Forge = parse_enum(&body.forge, "forge", Forge::ALL)?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let created = state
         .blocking
-        .run(&tenant.slug, move |conn| {
-            let team = resolve_team(conn, &body.team)?;
-            require_manage_for_team(conn, &slug, user, team.id)?;
-            let created = repositories::create(
-                conn,
-                NewRepository {
-                    slug: body.slug.clone().unwrap_or_else(|| {
-                        kairos_core::repositories::slug_from_full_name(&body.repo_full_name)
-                    }),
-                    forge,
-                    repo_full_name: body.repo_full_name.clone(),
-                    repo_url: body.repo_url.clone(),
-                    default_branch: body
-                        .default_branch
-                        .clone()
-                        .unwrap_or_else(|| "main".to_string()),
-                    team_id: team.id,
-                    description: body.description.clone().unwrap_or_default(),
-                    created_by: user,
-                    updated_by: user,
-                },
-            )
-            .map_err(map_error)?;
-            render_one(conn, created)
-        })
+        .run(&tenant.slug, move |conn| add(conn, &slug, user, body))
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
@@ -430,35 +529,7 @@ pub(crate) async fn update_repository(
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            let current = repositories::resolve(conn, &slug).map_err(map_error)?;
-            require_manage_for_team(conn, &tenant_slug, user, current.team_id)?;
-            let team_id = body
-                .team
-                .as_deref()
-                .map(|reference| resolve_team(conn, reference).map(|t| t.id))
-                .transpose()?;
-            // KAIROS-T-0112: re-homing needs the NEW owner's consent too —
-            // manage on both delivery boards (org admin bypasses both).
-            if let Some(new_team) = team_id
-                && new_team != current.team_id
-            {
-                require_manage_for_team(conn, &tenant_slug, user, new_team)?;
-            }
-            let updated = repositories::update(
-                conn,
-                current.id,
-                RepositoryChangeset {
-                    slug: body.slug.clone(),
-                    repo_url: body.repo_url.clone(),
-                    default_branch: body.default_branch.clone(),
-                    team_id,
-                    description: body.description.clone(),
-                    ..Default::default()
-                },
-                user,
-            )
-            .map_err(map_error)?;
-            render_one(conn, updated)
+            change(conn, &tenant_slug, user, &slug, body)
         })
         .await?;
     Ok(Json(updated))

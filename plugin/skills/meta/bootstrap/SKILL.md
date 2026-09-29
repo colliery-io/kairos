@@ -91,8 +91,38 @@ Run `git remote get-url origin`. Normalize the remote to `(forge, full_name)`:
 Strip a trailing `.git` and any leading `/`. Then match on `forge` + `full_name` against `list_repositories` (the MCP directory carries both fields; `whoami`'s repository list does not show the forge), or over HTTP with `GET /api/repositories?forge=<forge>&name=<full_name>` (one row or empty).
 
 - **Found** → its `slug` is the repository. The repository is a link: it does not choose the team board. Confirm with the user only if the remote matched more than one entry (it cannot: the pair is unique).
-- **Not found** → there is no MCP tool for registering a repository, so offer to run `kairos repos create --forge <forge> --name <full_name> --repo-url <url> --team <team>` (any member of the owning team may; the CLI must be logged in — `kairos login`) or, headless, `POST /api/repositories`. Use the user's single team as the owner; if they are on several, ask which; if they are on none, say an org admin or a team member must register it and leave `repository:` empty.
+- **Found, with no description** → `get_repository` prints `(no description yet)`. Offer to write one: draft it as in step 3 of "Add this repository", show it to the user, and on a yes call `update_repository` (`repository`, `description`).
+- **Not found** → add it with `add_repository`. See "Add this repository" below.
 - **No remote, or the user declines** → leave `repository:` empty and say what unblocks it. Everything else still works; the session is just board-scoped instead of repo-scoped.
+
+### Add this repository
+
+Do this when the directory does not have the repository of the checkout. `add_repository` is for a member of the owner team or an organization admin.
+
+1. **Owner team.** One team in `whoami` → that team. More than one → ask the user which team owns this repository. No team → do not call the tool. Say that an organization admin must add the principal to a team, or add the repository. Leave `repository:` empty.
+2. **Values from git.**
+
+   | Argument | Source |
+   |---|---|
+   | `forge`, `repo_full_name` | The normalized remote, from the table above. |
+   | `repo_url` | The browser URL of the remote: `https://<host>/<full_name>`, with no `.git` and no credentials. |
+   | `default_branch` | `git symbolic-ref --short refs/remotes/origin/HEAD`, without the `origin/` prefix. If the command fails, ask the user. |
+   | `team` | The slug of the owner team. |
+   | `slug` | Omit it. Kairos makes the slug from the full name (`acme/payments-api` gives `acme-payments-api`). Send a slug only if the user wants a different one. |
+
+3. **Draft the description.** It is the "how to work here" text that each agent reads with `get_repository`. Read the README and the task runner of the checkout (for example `.angreal/`, `Makefile`, `justfile`, the `scripts` of `package.json`). Write a short text: what the repository is, the commands to build, test and lint, and the rules for a branch and a pull request. Write only what the files say.
+4. **Show, then call.** Show the user each argument and the full description. Call `add_repository` only after the user agrees. Use the text that the user agreed to.
+5. **Read the result.** The result gives the slug: `Added repository <slug>: …`. That slug is the `repository:` of step 4.
+
+If the tool refuses, tell the user the message and do not try again with different values of your own:
+
+| Refusal | What to do |
+|---|---|
+| `FORBIDDEN` | The principal is not a member of the owner team. The message names the team. Leave `repository:` empty. |
+| `CONFLICT` | A repository has the slug already. Ask the user for a different `slug`. |
+| `VALIDATION` | The message names the value that is not correct. Correct it with the user. |
+
+`update_repository` changes the description, the default branch and the URL later. No tool changes the slug or the owner team, and no tool deletes a repository. A person does these on the GUI page Admin → Repositories, with `kairos repos update` and `kairos repos delete`, or with the REST API.
 
 ### Find the team board
 
@@ -150,7 +180,7 @@ Then ensure it is gitignored — it is org-specific wiring, not for the repo's h
 
 ## 5. Report
 
-Tell the user: config path(s) written, deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, unregistered remote, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
+Tell the user: config path(s) written, deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
 
 On the service-account path, tell the user these three facts also:
 

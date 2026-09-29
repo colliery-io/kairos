@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-one tools. A drift gate in the test suite
-asserts that `tools/list` returns these twenty-one and no others. The same
+twenty-three tools. A drift gate in the test suite
+asserts that `tools/list` returns these twenty-three and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -34,8 +34,8 @@ Codes an agent can receive, and what each means.
 |---|---|
 | `NOT_FOUND` | A short code, board or repository named as the subject of the call does not exist; an `unlink_items` edge does not exist; or a `search` `traverse.from` does not resolve. On a write tool it also means the item exists but is archived: writes resolve live items only, and the message reads `no live item with short code …`. |
 | `VALIDATION` | An argument is malformed, an enum value is outside its vocabulary, an argument does not apply to the item type, or something named as a *filter or reference* — a team, a repository filter, a parent, a metadata definition, a column — does not exist. A reference that does not resolve is `VALIDATION`; the call's own subject not existing is `NOT_FOUND`. **One exception:** `search`'s `traverse.from` is a reference and still answers `NOT_FOUND`, because a traversal's root is the subject of that traversal. |
-| `FORBIDDEN` | The rule for the write refuses the principal. For an edit, the [edit rule](capabilities.md#the-edit-rule): the principal did not create the item and lacks `manage_<type>` on its board. For an edge, the [link rule](capabilities.md#who-can-write-relationships): the principal can edit neither end. For a move or a create: the principal lacks the board capability. The message names the capability. One case has a longer message: a move (`transition_item`, `move_item`) of a request that the caller created, while the request is in the entry column. That message says that the item is a request, that the team of the board moves it, that the caller can edit, link and archive it, and which capability the move needs. A `create_item` that sends `work_class: planned` to a board that the caller does not manage is also `FORBIDDEN`. |
-| `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. |
+| `FORBIDDEN` | The rule for the write refuses the principal. For an edit, the [edit rule](capabilities.md#the-edit-rule): the principal did not create the item and lacks `manage_<type>` on its board. For an edge, the [link rule](capabilities.md#who-can-write-relationships): the principal can edit neither end. For a move or a create: the principal lacks the board capability. The message names the capability. For `add_repository` and `update_repository`: the principal is not a member of the owner team and is not an organization admin. The message names the team. One case has a longer message: a move (`transition_item`, `move_item`) of a request that the caller created, while the request is in the entry column. That message says that the item is a request, that the team of the board moves it, that the caller can edit, link and archive it, and which capability the move needs. A `create_item` that sends `work_class: planned` to a board that the caller does not manage is also `FORBIDDEN`. |
+| `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. From `add_repository`: the directory has the slug already, or it has the repository already. |
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. |
@@ -137,6 +137,87 @@ tasks that link to the repository.
 | `repository` | string | yes | — | Slug or UUID. |
 
 Refuses: `NOT_FOUND` for an unknown repository.
+
+## The repository directory
+
+`list_repositories` and `get_repository` read the directory. These two tools
+write it. They do not link a task to a repository: `set_repository` does
+that.
+
+No tool deletes a repository. No tool changes the owner team or the slug of a
+repository. A person does these:
+
+| Surface | Where |
+|---|---|
+| GUI | The page Admin → Repositories. |
+| CLI | `kairos repos update` and `kairos repos delete`. See [CLI](cli.md). |
+| REST | `PATCH /api/repositories/{slug}` and `DELETE /api/repositories/{slug}`. |
+
+### `add_repository`
+
+Adds a repository to the directory. The rule, the defaults and the refusals
+are those of `POST /api/repositories`.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `forge` | string | yes | — | `github`, `gitlab` or `other`. |
+| `repo_full_name` | string | yes | — | The name on the forge: `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
+| `repo_url` | string | yes | — | The URL of the repository for a browser. |
+| `team` | string | yes | — | The one owner team. Slug or UUID. |
+| `slug` | string | no | made from `repo_full_name` | The slug of the repository in Kairos. `acme/payments-api` gives `acme-payments-api`. It must match `^[a-z0-9][a-z0-9-]{1,62}$`. |
+| `default_branch` | string | no | `main` | The default branch. |
+| `description` | string | no | empty | How to work in the repository. `get_repository` shows it to each agent. |
+
+Requires membership of the owner team, or the organization admin role. The
+condition is `manage_tasks` on the delivery board of the owner team, and each
+member of the team has it. When the team does not have one live delivery
+board, only an organization admin can add the repository.
+
+The result is one line:
+
+```text
+Added repository fidius: github colliery-io/fidius (owner: colliery-io, default branch main).
+```
+
+Refuses: `VALIDATION` for a `forge` outside that vocabulary, and for an
+unknown `team`. `VALIDATION` for a `slug` that does not match the form.
+`FORBIDDEN` when the caller is not a member of the owner team and is not an
+organization admin. `CONFLICT` when a repository has the slug already.
+`CONFLICT` when the directory has the pair of `forge` and `repo_full_name`
+already.
+
+### `update_repository`
+
+Changes the description, the default branch and the URL of a repository. The
+rule is that of `PATCH /api/repositories/{slug}`, for the current owner team.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `repository` | string | yes | — | Slug or UUID. |
+| `description` | string | no | no change | The new text on how to work in the repository. It replaces the full text. An empty string removes the text. |
+| `default_branch` | string | no | no change | The new default branch. |
+| `repo_url` | string | no | no change | The new URL for a browser. |
+
+The call must have one or more of `description`, `default_branch` and
+`repo_url`. The tool has no `slug` argument and no `team` argument. Each
+checkout keeps the slug in `.claude/kairos.local.md`, and a new slug breaks
+that reference.
+
+Requires membership of the owner team, or the organization admin role.
+
+The result names the arguments that changed the repository:
+
+```text
+Updated repository fidius: description, default_branch.
+```
+
+The tool writes only when a value is different. A call can have only the
+values that the repository has. That call is a success and it writes nothing.
+Its result is `No change to repository fidius: it has these values already.`
+
+Refuses: `VALIDATION` when the call has none of the three arguments.
+`NOT_FOUND` for an unknown repository. `FORBIDDEN` when the caller is not a
+member of the owner team and is not an organization admin.
 
 ## Reading
 

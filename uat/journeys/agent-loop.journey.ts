@@ -6,7 +6,9 @@
 // task and the team goes with it.) The agent makes exactly the MCP/CLI
 // calls the plugin's `implement` skill documents: whoami →
 // list_repositories → get_repository → board_items narrowed to the repo →
-// get_item → transition_item. bob, a human on the team, raises the ticket
+// get_item → transition_item. It also does what the `bootstrap` skill does
+// for a checkout that the directory does not have: add_repository, then
+// update_repository (COLLIERY-T-0266). bob, a human on the team, raises the ticket
 // in the GUI and watches the PR arrive; the forge speaks through signed
 // webhooks on a connection alice creates for the repo.
 import { expect } from '@playwright/test';
@@ -52,6 +54,49 @@ journey(
       expect(repo).toContain('flutter test');
       expect(repo).toContain('(nothing open)');
       return { repository: team.repoSlug, how_to_work_here: 'read', in_flight: 'nothing open' };
+    });
+
+    await step(agent, 'adds a second repository of its team to the directory, then corrects its description', async () => {
+      // COLLIERY-T-0266: the agent stands in a checkout that the directory
+      // does not have. Until `add_repository` it had to leave MCP for
+      // `kairos repos create`.
+      const mcp = await agent.mcp();
+      const slug = named('ios-tools');
+      const fullName = `acme/${slug}`;
+      const absent = await mcp.call('list_repositories', { team: team.teamSlug });
+      expect(absent).not.toContain(fullName);
+      const added = await mcp.call('add_repository', {
+        slug,
+        forge: 'github',
+        repo_full_name: fullName,
+        repo_url: `https://github.com/${fullName}`,
+        team: team.teamSlug,
+        description: 'Build tools. Run `make test`.',
+      });
+      const api = await alice.api();
+      ledger.add({ kind: 'repository', label: slug, delete: async () => { await api.delete(`/api/repositories/${slug}`); } });
+      expect(added).toBe(`Added repository ${slug}: github ${fullName} (owner: ${team.teamSlug}, default branch main).`);
+      const updated = await mcp.call('update_repository', {
+        repository: slug,
+        description: 'Build tools. Run `make test` before each pull request.',
+        default_branch: 'trunk',
+      });
+      expect(updated).toBe(`Updated repository ${slug}: description, default_branch.`);
+      const repo = await mcp.call('get_repository', { repository: slug });
+      expect(repo).toContain('- default branch: trunk');
+      expect(repo).toContain('before each pull request');
+      expect(repo).toContain(`- owner team: ${team.teamSlug}`);
+      // The agent is not in the team `platform`, so it cannot add a
+      // repository for that team. The refusal names the team.
+      const refused = await mcp.refused('add_repository', {
+        forge: 'github',
+        repo_full_name: `acme/${named('not-mine')}`,
+        repo_url: `https://github.com/acme/${named('not-mine')}`,
+        team: 'platform',
+      });
+      expect(refused).toContain('FORBIDDEN');
+      expect(refused).toContain('the team "platform"');
+      return { added: slug, changed: 'description, default_branch', refused_for: 'platform' };
     });
 
     await step(bob, 'raises a task on the team board, binds it to the repository and moves it to Todo', async () => {

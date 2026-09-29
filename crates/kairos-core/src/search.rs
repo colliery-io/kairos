@@ -17,8 +17,10 @@
 //! - `traverse.depth` is required (A-0007) and server-capped at
 //!   [`MAX_TRAVERSE_DEPTH`]; `traverse.from` names exactly one of
 //!   `short_code`/`id`; `traverse.relationships` must be non-empty.
-//! - `limit` is capped at [`MAX_LIMIT`] (default [`DEFAULT_LIMIT`]);
-//!   `offset` must be non-negative.
+//! - `limit` and `offset` have no refusal (COLLIERY-T-0264). A `limit`
+//!   out of `1..=` [`MAX_LIMIT`] becomes the nearest limit of the range
+//!   (default [`DEFAULT_LIMIT`]). An `offset` below 0 becomes 0. Each list
+//!   route does the same, and the response gives the values that were used.
 //! - Date ranges must be sane: `created_after < created_before` when both
 //!   are given.
 //! - Unknown entity types, task types, relationships, directions, and sort
@@ -89,14 +91,17 @@ pub struct SearchRequest {
 }
 
 impl SearchRequest {
-    /// The page size to use: `limit` or [`DEFAULT_LIMIT`].
+    /// The page size to use: `limit` or [`DEFAULT_LIMIT`], in the range
+    /// `1..=` [`MAX_LIMIT`]. A value out of the range becomes the nearest
+    /// limit of the range (COLLIERY-T-0264).
     pub fn effective_limit(&self) -> i64 {
-        self.limit.unwrap_or(DEFAULT_LIMIT)
+        self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
     }
 
-    /// The offset to use: `offset` or 0.
+    /// The offset to use: `offset` or 0. A value below 0 becomes 0
+    /// (COLLIERY-T-0264).
     pub fn effective_offset(&self) -> i64 {
-        self.offset.unwrap_or(0)
+        self.offset.unwrap_or(0).max(0)
     }
 
     /// The sort to use: `sort` if given, else the default for this request.
@@ -455,20 +460,6 @@ pub enum SearchValidationError {
         /// The server cap ([`MAX_TRAVERSE_DEPTH`]).
         cap: u32,
     },
-    /// `limit` is outside `1..=` [`MAX_LIMIT`].
-    #[error("The value {limit} of limit is not correct. The limit is a number from 1 to {cap}.")]
-    LimitOutOfRange {
-        /// The submitted limit.
-        limit: i64,
-        /// The server cap ([`MAX_LIMIT`]).
-        cap: i64,
-    },
-    /// `offset` is negative.
-    #[error("The value {offset} of offset is not correct. The offset is 0 or more.")]
-    NegativeOffset {
-        /// The submitted offset.
-        offset: i64,
-    },
     /// `sort.field` is `relevance` but there is no `q` to be relevant to
     /// (KAIROS-T-0186).
     #[error("The sort field relevance needs q. Send q, or send a different sort field.")]
@@ -539,20 +530,6 @@ pub fn validate(request: &SearchRequest) -> Result<(), SearchValidationError> {
             }
             Some(_) => {}
         }
-    }
-
-    if let Some(limit) = request.limit
-        && !(1..=MAX_LIMIT).contains(&limit)
-    {
-        return Err(SearchValidationError::LimitOutOfRange {
-            limit,
-            cap: MAX_LIMIT,
-        });
-    }
-    if let Some(offset) = request.offset
-        && offset < 0
-    {
-        return Err(SearchValidationError::NegativeOffset { offset });
     }
 
     let has_q = request.q.is_some(); // blank q already rejected above
@@ -868,36 +845,31 @@ mod tests {
 
     // -- limit / offset -----------------------------------------------------------
 
+    /// COLLIERY-T-0264: a `limit` or an `offset` out of the range is not
+    /// refused. It becomes the nearest limit of the range.
     #[test]
-    fn limit_is_capped_and_offset_non_negative() {
+    fn limit_and_offset_out_of_the_range_go_to_the_range() {
         let request = |limit, offset| SearchRequest {
             limit,
             offset,
             ..q("x")
         };
-        assert_eq!(
-            validate(&request(Some(0), None)),
-            Err(SearchValidationError::LimitOutOfRange { limit: 0, cap: 100 })
-        );
-        assert_eq!(
-            validate(&request(Some(MAX_LIMIT + 1), None)),
-            Err(SearchValidationError::LimitOutOfRange {
-                limit: 101,
-                cap: 100
-            })
-        );
-        assert_eq!(
-            validate(&request(Some(-5), None)),
-            Err(SearchValidationError::LimitOutOfRange {
-                limit: -5,
-                cap: 100
-            })
-        );
-        assert_eq!(
-            validate(&request(None, Some(-1))),
-            Err(SearchValidationError::NegativeOffset { offset: -1 })
-        );
-        assert_eq!(validate(&request(Some(MAX_LIMIT), Some(0))), Ok(()));
+        for (limit, used) in [
+            (None, DEFAULT_LIMIT),
+            (Some(0), 1),
+            (Some(-5), 1),
+            (Some(MAX_LIMIT), MAX_LIMIT),
+            (Some(MAX_LIMIT + 1), MAX_LIMIT),
+        ] {
+            let request = request(limit, None);
+            assert_eq!(validate(&request), Ok(()), "{limit:?}");
+            assert_eq!(request.effective_limit(), used, "{limit:?}");
+        }
+        for (offset, used) in [(None, 0), (Some(-1), 0), (Some(40), 40)] {
+            let request = request(None, offset);
+            assert_eq!(validate(&request), Ok(()), "{offset:?}");
+            assert_eq!(request.effective_offset(), used, "{offset:?}");
+        }
     }
 
     #[test]

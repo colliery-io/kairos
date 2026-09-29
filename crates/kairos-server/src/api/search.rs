@@ -429,12 +429,6 @@ fn map_validation_error(e: SearchValidationError) -> ApiError {
         SearchValidationError::TraverseDepthOutOfRange { depth, cap } => {
             json!({"field": "traverse.depth", "depth": depth, "cap": cap})
         }
-        SearchValidationError::LimitOutOfRange { limit, cap } => {
-            json!({"field": "limit", "limit": limit, "cap": cap})
-        }
-        SearchValidationError::NegativeOffset { offset } => {
-            json!({"field": "offset", "offset": offset})
-        }
         SearchValidationError::RelevanceWithoutQuery => {
             json!({"field": "sort.field", "requires": "q"})
         }

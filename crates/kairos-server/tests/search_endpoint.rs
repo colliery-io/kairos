@@ -765,7 +765,7 @@ async fn search_endpoint_against_live_stack() {
     )
     .await;
 
-    // A blank q and a limit over the cap round out the validation surface.
+    // A blank q rounds out the validation surface.
     assert_validation_400(
         &alice,
         SearchRequest {
@@ -775,16 +775,29 @@ async fn search_endpoint_against_live_stack() {
         "q",
     )
     .await;
-    assert_validation_400(
-        &alice,
-        SearchRequest {
+    // COLLIERY-T-0264: a limit or an offset out of the range is not refused.
+    // The server uses the nearest value of the range, and the response
+    // gives the values that it used.
+    let body = alice
+        .search(&SearchRequest {
             q: Some("auth".into()),
             limit: Some(101),
+            offset: Some(-3),
             ..SearchRequest::default()
-        },
-        "limit",
-    )
-    .await;
+        })
+        .await
+        .expect("a limit over the maximum is not refused");
+    assert_eq!(body.limit, 100, "the maximum is used and given");
+    assert_eq!(body.offset, 0, "an offset below 0 becomes 0");
+    let body = alice
+        .search(&SearchRequest {
+            q: Some("auth".into()),
+            limit: Some(0),
+            ..SearchRequest::default()
+        })
+        .await
+        .expect("a limit below 1 is not refused");
+    assert_eq!(body.limit, 1, "a limit below 1 becomes 1");
 
     // Unknown fields are typos, not silently ignored (mirrors the core
     // request model): 400 VALIDATION. Not expressible in the typed request

@@ -200,6 +200,17 @@ There is **one exception**: `search` refuses an unresolvable `traverse.from`
 with `NOT_FOUND`, not `VALIDATION`, even though it is a reference in the body.
 A client applying the general rule would branch wrongly here.
 
+### A `limit` or an `offset` that is out of the range
+
+The server does not refuse a `limit` or an `offset` that is out of the range.
+It uses the nearest value of the range. A `limit` above the maximum becomes
+the maximum. A `limit` below 1 becomes 1. An `offset` below 0 becomes 0. The
+response gives the `limit` and the `offset` that the server used.
+
+This rule applies to each list route and to `POST /api/search`. It also
+applies to the MCP tools and the CLI commands that have these arguments. The
+server refuses a value that is not an integer, with `VALIDATION`.
+
 ### Board and column configuration
 
 | Code | Status | Meaning | `details` |

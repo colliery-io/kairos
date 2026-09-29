@@ -930,15 +930,11 @@ fn unified_search_pipeline() {
         ))
     ));
 
-    // Validation errors surface typed through execute_search.
+    // COLLIERY-T-0264: a limit out of the range is not refused. The search
+    // uses the nearest limit of the range.
     let over_limit: SearchRequest =
         serde_json::from_value(json!({"q": "auth", "limit": 101})).unwrap();
-    assert!(matches!(
-        execute_search(&mut conn, &over_limit),
-        Err(SearchError::Invalid(
-            SearchValidationError::LimitOutOfRange { limit: 101, .. }
-        ))
-    ));
+    assert!(execute_search(&mut conn, &over_limit).is_ok());
 
     // ==========================================================================
     // Depth cap: a 12-deep blocks chain truncates at the traversal depth

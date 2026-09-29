@@ -9,7 +9,7 @@ The promise is for one release: this page agrees with `tools/list`. The count
 is not a promise for later releases. A later release can add a tool or an
 argument.
 
-This page describes Kairos 0.4.0. Argument names, types and defaults are those
+This page describes Kairos 0.5.0. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
 
 ## Conventions
@@ -270,7 +270,7 @@ are compact and grouped by type.
 | `order` | string | yes | `asc`, `desc`. |
 
 Refuses: `VALIDATION` for a blank `q`, an empty enum array, a blank metadata
-key, an inverted date range, a `limit` outside 1–100, a negative `offset`, a
+key, an inverted date range, a
 missing `traverse.depth`, a `depth` of 0 or above 10, an empty
 `relationships`, a request with no query, no constraining filter and no
 traversal, or an unknown `filter.repository`. `NOT_FOUND` for a `traverse.from`

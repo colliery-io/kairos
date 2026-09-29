@@ -98,7 +98,7 @@ OIDC_AUDIENCE=
 To make the hash without a running deployment:
 
 ```sh
-docker run --rm ghcr.io/colliery-io/kairos:0.4.0 hash-password
+docker run --rm ghcr.io/colliery-io/kairos:0.5.0 hash-password
 ```
 
 **Step 5.** Set `POSTGRES_PASSWORD` to a long random value.

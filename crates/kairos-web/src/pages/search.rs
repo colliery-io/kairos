@@ -421,7 +421,7 @@ pub fn SearchPage() -> impl IntoView {
             </Panel>
 
             {move || match results.get() {
-                None => view! { <Loading label="Kairos does the search."/> }.into_any(),
+                None => view! { <Loading label="Searching…"/> }.into_any(),
                 Some(Err(error)) => view! {
                     <ErrorState
                         error=error

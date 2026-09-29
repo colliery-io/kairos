@@ -180,7 +180,7 @@ fn DeleteFlow(
                     </Text>
                 </Alert>
                 {move || match preview.get() {
-                    None => view! { <Loading label="Kairos calculates the cascade."/> }.into_any(),
+                    None => view! { <Loading label="Computing the cascade…"/> }.into_any(),
                     Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
                     Some(Ok(preview))
                         if preview.cascaded_short_codes.is_empty()

@@ -542,7 +542,7 @@ pub fn ActivityPage() -> impl IntoView {
                 </Group>
             </Panel>
             {move || match feed.get() {
-                None => view! { <Loading label="Kairos gets the activity."/> }.into_any(),
+                None => view! { <Loading label="Loading activity…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(page)) if page.items.is_empty() => view! {
                     <Empty message="No activity matches these filters — clear them, or make a change somewhere and come back."/>
@@ -871,7 +871,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
         }}
         <Stack gap="md">
             {move || match head.get() {
-                None => view! { <Loading label="Kairos gets the item."/> }.into_any(),
+                None => view! { <Loading label="Loading item…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok((item, _))) => {
                     let archived_at = item.archived_at.clone();
@@ -943,7 +943,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 }.into_any(),
             })}
             {move || match versions.get() {
-                None => view! { <Loading label="Kairos gets the history."/> }.into_any(),
+                None => view! { <Loading label="Loading history…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok(page)) if page.items.is_empty() => view! {
                     <Empty message="No history yet — every item gets a v1 snapshot at creation, so this usually means the item was just created by an older data set."/>

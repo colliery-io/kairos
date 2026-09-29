@@ -86,7 +86,7 @@ pub fn TeamDocPage() -> impl IntoView {
     });
     view! {
         {move || match data.get() {
-            None => view! { <Loading label="Kairos gets the page."/> }.into_any(),
+            None => view! { <Loading label="Loading page…"/> }.into_any(),
             Some(Err(ApiError::Http { status: 404, .. })) => view! {
                 <PageHeader title="Team not found" sub="teams"/>
                 <Panel title="Not found" caption="nothing lives at this address">

@@ -838,7 +838,7 @@ async fn archive_reach_and_proposal_confirm_against_live_stack() {
     );
     checks.check(
         "2 MCP: the output does not list the task of bob as deleted",
-        reply.1.contains("The archive took no descendant."),
+        reply.1.contains("Cascade: none."),
         &reply.1,
     );
     checks.check(
@@ -1179,7 +1179,7 @@ async fn archive_reach_and_proposal_confirm_against_live_stack() {
         !reply.0
             && reply.1
                 == format!(
-                    "Kairos archived {}.\nThe archive took 1 descendant: {}.\n",
+                    "Archived {}.\nCascade archived 1 descendant: {}.\n",
                     managed.short_code, only.short_code
                 ),
         &reply.1,

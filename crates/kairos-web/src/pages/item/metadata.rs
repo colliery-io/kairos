@@ -62,7 +62,7 @@ pub fn MetadataPanel(
     view! {
         <Panel title="Metadata" caption="typed fields (A-0003)">
             {move || match data.get() {
-                None => view! { <Loading label="Kairos gets the metadata."/> }.into_any(),
+                None => view! { <Loading label="Loading metadata…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
                 Some(Ok((definitions, _))) if definitions.is_empty() => view! {
                     <Empty message="No metadata definitions yet — add them from Admin."/>

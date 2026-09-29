@@ -1129,8 +1129,7 @@ impl KairosMcp {
             )
             .map_err(crate::api::proposals::map_proposal_error)?;
             Ok(format!(
-                "Kairos recorded the proposal {} -[{}]-> {} ({}). It is NOT an edge yet. \
-                 A person must confirm it.",
+                "Proposed {} -[{}]-> {} ({}). It is NOT an edge yet. A person must confirm it.",
                 source.short_code, params.relationship, target.short_code, proposal.id
             ))
         })
@@ -1255,7 +1254,7 @@ impl KairosMcp {
             };
             match items::update_item_content(conn, item.item_type, item.id, update, user) {
                 Ok(new_version) => Ok(format!(
-                    "Kairos changed {}. The new version is {new_version}.",
+                    "Updated {} to version {new_version}.",
                     item.short_code
                 )),
                 Err(e) => Err(map_update_error(conn, &item, e)?),
@@ -1314,9 +1313,9 @@ impl KairosMcp {
                 match items::update_item_content(conn, item.item_type, item.id, update, user) {
                     Ok(new_version) => {
                         return Ok(format!(
-                            "Kairos changed the text of {}. The new version is {new_version}. \
-                             The number of replacements is {occurrences}.",
-                            item.short_code
+                            "Edited {} to version {new_version} ({occurrences} replacement{}).",
+                            item.short_code,
+                            if occurrences == 1 { "" } else { "s" }
                         ));
                     }
                     Err(items::ItemError::VersionConflict { .. }) if attempt == 0 => continue,
@@ -1388,7 +1387,7 @@ impl KairosMcp {
                 .map(|c| c.name)
                 .unwrap_or_default();
             Ok(format!(
-                "Kairos moved {} from the board {} to the board {}. The task is in the column {}.",
+                "Moved {}: {} -> {} / {}.",
                 item.short_code, from_board.slug, target.slug, column
             ))
         })
@@ -1441,12 +1440,12 @@ impl KairosMcp {
             )?;
             Ok(match updated.repository_id {
                 Some(_) => format!(
-                    "Kairos set the repository of {} to {}.",
+                    "Set the repository of {}: {}.",
                     updated.short_code,
                     repo_label(conn, updated.repository_id)?
                 ),
                 None => format!(
-                    "Kairos removed the repository of {}. The task has no repository.",
+                    "Cleared the repository of {}: the task has no repository.",
                     updated.short_code
                 ),
             })
@@ -1514,7 +1513,7 @@ impl KairosMcp {
                     .unwrap_or_default()
             };
             Ok(format!(
-                "Kairos moved {} from the column {} to the column {}.",
+                "Transitioned {}: {} -> {}.",
                 item.short_code,
                 name_of(from_column_id),
                 name_of(to_column_id)
@@ -1550,7 +1549,7 @@ impl KairosMcp {
             graph::link_items(conn, source_id, target_id, relationship, user)
                 .map_err(map_link_error)?;
             Ok(format!(
-                "Kairos made a {relationship} edge from {} to {}.",
+                "Linked {} -[{relationship}]-> {}.",
                 params.source, params.target
             ))
         })
@@ -1585,7 +1584,7 @@ impl KairosMcp {
                 (target_id, target_type),
             )?;
             Ok(format!(
-                "Kairos removed the {relationship} edge from {} to {}.",
+                "Unlinked {} -[{relationship}]-> {}.",
                 params.source, params.target
             ))
         })
@@ -1698,13 +1697,13 @@ impl KairosMcp {
             // rule for the item, and then for each descendant.
             let outcome =
                 crate::api::cascade::archive_item(conn, &slug, user, item.id, item.item_type)?;
-            let mut out = format!("Kairos archived {}.\n", outcome.root_short_code);
+            let mut out = format!("Archived {}.\n", outcome.root_short_code);
             if outcome.cascaded_short_codes.is_empty() {
-                out.push_str("The archive took no descendant.\n");
+                out.push_str("Cascade: none.\n");
             } else {
                 let count = outcome.cascaded_short_codes.len();
                 out.push_str(&format!(
-                    "The archive took {count} descendant{}: {}.\n",
+                    "Cascade archived {count} descendant{}: {}.\n",
                     if count == 1 { "" } else { "s" },
                     outcome.cascaded_short_codes.join(", ")
                 ));
@@ -1742,14 +1741,14 @@ impl KairosMcp {
             {
                 Ok(outcome) => {
                     let mut out = format!(
-                        "Kairos restored {}. It is on its board again.\n",
+                        "Restored {}. It is on its board again.\n",
                         outcome.short_code
                     );
                     if outcome.still_archived_descendants.is_empty() {
-                        out.push_str("No item below it is in the archive.\n");
+                        out.push_str("Nothing below it is archived.\n");
                     } else {
                         out.push_str(&format!(
-                            "The number of items below it that stay in the archive is {}: {}.\n\
+                            "Archived below it ({}): {}\n\
                              To get one back, restore it by its short code.\n",
                             outcome.still_archived_descendants.len(),
                             outcome.still_archived_descendants.join(", ")
@@ -2974,7 +2973,7 @@ fn create_item_impl(
         )
         .map_err(map_graph_error)?;
         return Ok(format!(
-            "Kairos made the document {}: {} (version 1). It supports {parent_code}.",
+            "Created document {}: {} (version 1), supports {parent_code}.",
             created.short_code, created.title
         ));
     }
@@ -3197,7 +3196,7 @@ fn create_item_impl(
     };
 
     let mut out = format!(
-        "Kairos made the {item_type} {created_code}: {created_title} (version 1) on the board {}.",
+        "Created {item_type} {created_code}: {created_title} (version 1) on board {}.",
         board.slug
     );
     if let Some((parent_code, parent_id, parent_type, relationship)) = parent {
@@ -3215,7 +3214,7 @@ fn create_item_impl(
         graph::link_items(conn, parent_id, created_id, relationship, user)
             .map_err(map_graph_error)?;
         out.push_str(&format!(
-            "\nThe parent is {parent_code}. Kairos made the {relationship} edge."
+            "\nparent: {parent_code} ({relationship} edge created)."
         ));
     }
     Ok(out)
@@ -3472,7 +3471,7 @@ fn render_search_results(results: &SearchResults, repo_slugs: &BTreeMap<Uuid, St
         + results.documents.len()
         + results.adrs.len();
     let mut out = format!(
-        "The search found {} items. This page shows {} (limit {}, offset {}).\n",
+        "{} found, {} shown (limit {}, offset {}).\n",
         results.total, shown, results.limit, results.offset
     );
     if !results.strategies.is_empty() {

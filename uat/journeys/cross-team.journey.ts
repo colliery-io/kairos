@@ -140,7 +140,7 @@ journey(
         search: '(CSV)',
         replace: '(CSV, UTF-8)',
       });
-      expect(edited).toContain(`Kairos changed the text of ${filed}`);
+      expect(edited).toContain(`Edited ${filed}`);
       const item = await mcp.call('get_item', { short_code: filed });
       expect(item).toContain('(CSV, UTF-8)');
       // An edit moves nothing: the entry column, the Support lane.
@@ -303,7 +303,7 @@ journey(
     await step(alice, 'moves it back as org admin, and it lands in the entry column', async () => {
       const mcp = await alice.mcp();
       const text = await mcp.call('move_item', { short_code: filed, to_board: theirBoard });
-      expect(text).toContain(`Kairos moved ${filed}`);
+      expect(text).toContain(`Moved ${filed}`);
       expect(text).toContain(theirBoard);
       const item = await mcp.call('get_item', { short_code: filed });
       expect(item).toContain(`board: ${theirBoard}`);

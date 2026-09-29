@@ -63,7 +63,7 @@ fn TemplatePicker(#[prop(into)] parent_code: String) -> impl IntoView {
 
     view! {
         {move || match templates.get() {
-            None => view! { <Loading label="Kairos gets the templates."/> }.into_any(),
+            None => view! { <Loading label="Loading templates…"/> }.into_any(),
             Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
             Some(Ok(templates)) if templates.is_empty() => view! {
                 <Empty message="No templates yet — create them from Admin."/>
@@ -171,7 +171,7 @@ fn TemplateForm(
                 </div>
                 <div class="kairos-template-form__preview">
                     {move || match detail.get() {
-                        None => view! { <Loading label="Kairos gets the template."/> }.into_any(),
+                        None => view! { <Loading label="Loading template…"/> }.into_any(),
                         Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
                         Some(Ok(template)) => {
                             let content_html = markdown::to_html(&template.content);

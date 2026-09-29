@@ -318,7 +318,7 @@ async fn assert_nothing_written(
     let (is_error, text) = mcp.call("search", json!({ "q": title })).await;
     assert!(!is_error, "{what}: search: {text}");
     assert!(
-        text.starts_with("The search found 0 items."),
+        text.starts_with("0 found,"),
         "{what}: MCP search finds the item: {text}"
     );
     let found = svc
@@ -637,11 +637,9 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         )
         .await;
     assert!(!is_error, "an ADR with an initiative as parent: {text}");
-    assert!(text.contains("Kairos made the adr ACME-A-"), "{text}");
+    assert!(text.contains("Created adr ACME-A-"), "{text}");
     assert!(
-        text.contains(&format!(
-            "The parent is {initiative}. Kairos made the supports edge."
-        )),
+        text.contains(&format!("parent: {initiative} (supports edge created).")),
         "{text}"
     );
     assert_eq!(rows_titled(&mut conn, "Plimsoll decision"), 1);
@@ -713,9 +711,7 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         "a member with `manage_adrs` and nothing on the parent: {text}"
     );
     assert!(
-        text.contains(&format!(
-            "The parent is {initiative}. Kairos made the supports edge."
-        )),
+        text.contains(&format!("parent: {initiative} (supports edge created).")),
         "{text}"
     );
     assert_eq!(rows_titled(&mut conn, "Grommet decision"), 1);

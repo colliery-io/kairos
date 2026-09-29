@@ -327,7 +327,7 @@ pub fn AdminBoardPage() -> impl IntoView {
 
     view! {
         {move || match detail.get() {
-            None => view! { <Loading label="Kairos gets the board."/> }.into_any(),
+            None => view! { <Loading label="Loading board…"/> }.into_any(),
             Some(Err(error)) => view! {
                 <ErrorState error on_retry=Callback::new(move |_| reload.update(|n| *n += 1))/>
             }.into_any(),

@@ -659,7 +659,7 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"item_type": "initiative", "title": "Time circuits online"}),
         )
         .await;
-    assert!(text.contains("Kairos made the initiative"), "{text}");
+    assert!(text.contains("Created initiative"), "{text}");
     let initiative_code = extract_code(&text, "ACME-I-");
 
     let text = session
@@ -674,10 +674,10 @@ async fn mcp_endpoint_against_live_stack() {
             }),
         )
         .await;
-    assert!(text.contains("Kairos made the task"), "{text}");
+    assert!(text.contains("Created task"), "{text}");
     assert!(text.contains("platform-delivery"), "{text}");
     assert!(
-        text.contains(&format!("The parent is {initiative_code}")),
+        text.contains(&format!("parent: {initiative_code}")),
         "{text}"
     );
     let task_code = extract_code(&text, "ACME-T-");
@@ -839,8 +839,8 @@ async fn mcp_endpoint_against_live_stack() {
             }),
         )
         .await;
-    assert!(text.contains("The new version is 2."), "{text}");
-    assert!(text.contains("The number of replacements is 1."), "{text}");
+    assert!(text.contains("to version 2"), "{text}");
+    assert!(text.contains("(1 replacement)"), "{text}");
 
     // --- transition_item: invalid first (allowed targets enumerated) --------
     let text = session
@@ -863,9 +863,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.contains(&format!(
-            "from the column {first_column} to the column {valid_target}."
-        )),
+        text.contains(&format!(": {first_column} -> {valid_target}.")),
         "{text}"
     );
 
@@ -953,28 +951,28 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"source": adr_code, "target": initiative_code, "relationship": "informs"}),
         )
         .await;
-    assert!(text.contains("Kairos made a"), "{text}");
+    assert!(text.contains("Linked"), "{text}");
     let text = session
         .call_ok(
             "unlink_items",
             json!({"source": adr_code, "target": initiative_code, "relationship": "informs"}),
         )
         .await;
-    assert!(text.contains("Kairos removed the"), "{text}");
+    assert!(text.contains("Unlinked"), "{text}");
     let text = session
         .call_ok(
             "link_items",
             json!({"source": initiative_code, "target": task_code, "relationship": "blocks"}),
         )
         .await;
-    assert!(text.contains("Kairos made a"), "{text}");
+    assert!(text.contains("Linked"), "{text}");
     let text = session
         .call_ok(
             "unlink_items",
             json!({"source": initiative_code, "target": task_code, "relationship": "blocks"}),
         )
         .await;
-    assert!(text.contains("Kairos removed the"), "{text}");
+    assert!(text.contains("Unlinked"), "{text}");
 
     // --- delete_item: confirm required; cascade listed -----------------------
     let text = session
@@ -993,10 +991,10 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.contains(&format!("Kairos archived {initiative_code}")),
+        text.contains(&format!("Archived {initiative_code}")),
         "{text}"
     );
-    assert!(text.contains("The archive took 1 descendant"), "{text}");
+    assert!(text.contains("Cascade archived 1 descendant"), "{text}");
     assert!(text.contains(&task_code), "cascade names the task: {text}");
 
     // --- board_items reflects the cascade delete ----------------------------
@@ -1428,7 +1426,7 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": filed, "content": "edited by the filer", "version": 1}),
         )
         .await;
-    assert!(text.contains("The new version is 2."), "{text}");
+    assert!(text.contains("to version 2"), "{text}");
     let text = session
         .call_ok("get_item", json!({"short_code": filed}))
         .await;
@@ -1582,15 +1580,15 @@ async fn mcp_endpoint_against_live_stack() {
             json!({"short_code": filed, "content": "edited again by the filer", "version": 2}),
         )
         .await;
-    assert!(text.contains("The new version is 3."), "{text}");
+    assert!(text.contains("to version 3"), "{text}");
     let text = bob_session
         .call_ok("delete_item", json!({"short_code": filed, "confirm": true}))
         .await;
-    assert!(text.contains(&format!("Kairos archived {filed}")), "{text}");
+    assert!(text.contains(&format!("Archived {filed}")), "{text}");
     let text = bob_session
         .call_ok("restore_item", json!({"short_code": filed}))
         .await;
-    assert!(text.contains(&format!("Kairos restored {filed}")), "{text}");
+    assert!(text.contains(&format!("Restored {filed}")), "{text}");
     let text = session
         .call_ok("get_item", json!({"short_code": filed}))
         .await;
@@ -1808,7 +1806,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(
         text.contains(&format!(
-            "Kairos moved {movable} from the board platform-delivery to the board web-delivery."
+            "Moved {movable}: platform-delivery -> web-delivery /"
         )),
         "{text}"
     );
@@ -1861,7 +1859,7 @@ async fn mcp_endpoint_against_live_stack() {
         )
         .await;
     assert!(
-        text.contains("from the board web-delivery to the board platform-delivery"),
+        text.contains(": web-delivery -> platform-delivery /"),
         "{text}"
     );
     let text = session
@@ -1872,7 +1870,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert!(
         text.contains(&format!(
-            "Kairos moved {linked} from the board platform-delivery to the board web-delivery."
+            "Moved {linked}: platform-delivery -> web-delivery /"
         )),
         "the move does not look at the repository: {text}"
     );
@@ -2047,7 +2045,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        format!("Kairos set the repository of {found} to ledger (owner: billing).")
+        format!("Set the repository of {found}: ledger (owner: billing).")
     );
     // ...seen through get_item, through the row, and through REST.
     let text = session
@@ -2093,7 +2091,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        format!("Kairos set the repository of {found} to ledger (owner: billing).")
+        format!("Set the repository of {found}: ledger (owner: billing).")
     );
     assert_eq!(placement(&mut conn, &found), after);
     assert_eq!(activity_count(&mut conn, alice, "repository"), audit_rows);
@@ -2107,7 +2105,7 @@ async fn mcp_endpoint_against_live_stack() {
         .await;
     assert_eq!(
         text,
-        format!("Kairos set the repository of {found} to payments-api (owner: platform).")
+        format!("Set the repository of {found}: payments-api (owner: platform).")
     );
     assert_eq!(
         activity_count(&mut conn, alice, "repository"),
@@ -2143,7 +2141,7 @@ async fn mcp_endpoint_against_live_stack() {
         let text = session.call_ok("set_repository", arguments).await;
         assert_eq!(
             text,
-            format!("Kairos removed the repository of {found}. The task has no repository."),
+            format!("Cleared the repository of {found}: the task has no repository."),
             "{what}"
         );
         assert_eq!(

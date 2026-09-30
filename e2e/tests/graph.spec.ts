@@ -15,7 +15,9 @@
 //   8. /search: the traverse switch reads as result scoping
 //
 // Conventions match the other specs: visible-text/role selectors plus the
-// stable `.kairos-*` classes; in-app navigation (memory token, A-0015)
+// stable `.kairos-*` classes. COLLIERY-T-1836: the canvas is the Aurora
+// `Dag`, so its selectors are the `.cl-dag*` classes; a node's `data-id` is
+// its short code; in-app navigation (memory token, A-0015)
 // except one deliberate reload (T-0071 silent restore) for the
 // determinism assertion; the API writer mints its own PKCE token.
 
@@ -25,7 +27,10 @@ import { loadPlatformDelivery, transitionTask } from '../helpers/api';
 
 const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 
-const canvas = (page: Page) => page.locator('svg .kairos-graph__box');
+const canvas = (page: Page) => page.locator('svg .cl-dag__box');
+const nodeOf = (page: Page, code: string) =>
+  page.locator(`.cl-dag__node[data-id="${code}"]`);
+const focusNode = (page: Page) => page.locator('.cl-dag__node--current');
 
 test('graph: badges → canvas → deterministic reload → expand → refocus/back → side panel → WS live → traverse relabel', async ({
   page,
@@ -63,34 +68,34 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
   // 3. Canvas shape + deterministic reload ----------------------------------
   let sampled: Array<{ code: string; x: string }> = [];
   await test.step('canvas renders columns, focus, arrows — deterministically', async () => {
-    await expect(page.locator('.kairos-graph__header', { hasText: 'Strategy' })).toBeVisible();
-    await expect(page.locator('.kairos-graph__header', { hasText: 'Initiative' })).toBeVisible();
-    await expect(page.locator('.kairos-graph__header', { hasText: 'Task' })).toBeVisible();
-    const focus = page.locator('.kairos-graph__node--focus');
-    await expect(focus.locator('.kairos-graph__code')).toHaveText('DEMO-T-0002');
-    await expect(page.locator('.kairos-graph__edge').first()).toBeVisible();
-    await expect(page.locator('.kairos-graph__lane').first()).toBeVisible();
+    await expect(page.locator('.cl-dag__header', { hasText: 'Strategy' })).toBeVisible();
+    await expect(page.locator('.cl-dag__header', { hasText: 'Initiative' })).toBeVisible();
+    await expect(page.locator('.cl-dag__header', { hasText: 'Task' })).toBeVisible();
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0002');
+    await expect(focusNode(page).locator('.cl-dag__sublabel')).toHaveText('DEMO-T-0002');
+    await expect(page.locator('svg.cl-dag path.cl-dag__edge').first()).toBeVisible();
+    await expect(page.locator('.cl-dag__lane').first()).toBeVisible();
     expect(await canvas(page).count()).toBeGreaterThanOrEqual(3);
 
     // Sample two node positions, reload (T-0071 restores the session),
     // and require identical geometry — the no-force-layout proof.
-    const nodes = page.locator('.kairos-graph__node');
+    const nodes = page.locator('.cl-dag__node');
     sampled = [];
     for (const index of [0, 1]) {
       const node = nodes.nth(index);
       sampled.push({
-        code: (await node.locator('.kairos-graph__code').textContent()) ?? '',
-        x: (await node.locator('.kairos-graph__box').getAttribute('x')) ?? '',
+        code: (await node.getAttribute('data-id')) ?? '',
+        x: (await node.locator('.cl-dag__box').getAttribute('x')) ?? '',
       });
     }
     await page.reload();
-    await expect(page.locator('.kairos-graph__node--focus')).toBeVisible({
+    await expect(focusNode(page)).toBeVisible({
       timeout: 20_000,
     });
     for (const index of [0, 1]) {
-      const node = page.locator('.kairos-graph__node').nth(index);
-      await expect(node.locator('.kairos-graph__code')).toHaveText(sampled[index].code);
-      expect(await node.locator('.kairos-graph__box').getAttribute('x')).toBe(
+      const node = page.locator('.cl-dag__node').nth(index);
+      await expect(node).toHaveAttribute('data-id', sampled[index].code);
+      expect(await node.locator('.cl-dag__box').getAttribute('x')).toBe(
         sampled[index].x,
       );
     }
@@ -99,7 +104,7 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
   // 4. +N expands in place ---------------------------------------------------
   await test.step('+N expands the neighborhood without navigating', async () => {
     const before = await canvas(page).count();
-    const more = page.locator('.kairos-graph__more').first();
+    const more = page.locator('.cl-dag__more').first();
     await expect(more).toBeVisible();
     await more.click();
     await expect
@@ -111,22 +116,18 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
 
   // 5. Refocus + trail + browser back ---------------------------------------
   await test.step('refocus extends the trail; back returns', async () => {
-    // Click a non-focus node body (the blocked task).
-    const target = page.locator('.kairos-graph__node', {
-      has: page.locator('.kairos-graph__code', { hasText: 'DEMO-T-0003' }),
-    });
-    await target.locator('.kairos-graph__box').click();
+    // Click a non-focus node (the blocked task): a click selects it, and
+    // the selection refocuses the graph.
+    await nodeOf(page, 'DEMO-T-0003').click();
     await page.waitForURL(/\/search\/relationships\/DEMO-T-0003\?trail=DEMO-T-0002/);
     await expect(page.getByText('trail:')).toBeVisible();
-    await expect(
-      page.locator('.kairos-graph__node--focus .kairos-graph__code'),
-    ).toHaveText('DEMO-T-0003');
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0003');
 
     await page.goBack();
     await page.waitForURL(/\/items\/DEMO-T-0002\?view=graph/);
-    await expect(
-      page.locator('.kairos-graph__node--focus .kairos-graph__code'),
-    ).toHaveText('DEMO-T-0002', { timeout: 15_000 });
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0002', {
+      timeout: 15_000,
+    });
   });
 
   // 6. Side panel: the PRD under the sign-up initiative ----------------------
@@ -136,9 +137,7 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
     });
     await expect(panel.getByText('PRD: Portal sign-up flow')).toBeVisible();
     // Docs never render as canvas nodes.
-    await expect(
-      page.locator('.kairos-graph__code', { hasText: 'DEMO-D-0001' }),
-    ).toHaveCount(0);
+    await expect(nodeOf(page, 'DEMO-D-0001')).toHaveCount(0);
   });
 
   // 7. WS live: an API transition updates the open canvas --------------------
@@ -153,15 +152,15 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
     };
     // The seeded delivery graph allows Active <-> Blocked, so the move is
     // reversible: the suite's later specs pin DEMO-T-0002 in Active.
-    const focus = page.locator('.kairos-graph__node--focus');
-    await expect(focus.locator('.kairos-graph__status')).toHaveText('Active');
+    const focus = focusNode(page);
+    await expect(focus.locator('.cl-dag__detail')).toHaveText('Active');
     await transitionTask(GUI, token, 'DEMO-T-0002', columnIdOf('Blocked'));
-    await expect(focus.locator('.kairos-graph__status')).toHaveText('Blocked', {
+    await expect(focus.locator('.cl-dag__detail')).toHaveText('Blocked', {
       timeout: 20_000,
     });
     // Revert — and the canvas follows again (two live updates proven).
     await transitionTask(GUI, token, 'DEMO-T-0002', columnIdOf('Active'));
-    await expect(focus.locator('.kairos-graph__status')).toHaveText('Active', {
+    await expect(focus.locator('.cl-dag__detail')).toHaveText('Active', {
       timeout: 20_000,
     });
   });

@@ -32,16 +32,22 @@ function field(page: Page, label: string): Locator {
 
 /** Every short code the graph canvas is currently drawing. */
 async function drawn(page: Page): Promise<string[]> {
-  // SVG <text> has no innerText — read textContent.
-  const codes = await page.locator('.kairos-graph__code').allTextContents();
+  // COLLIERY-T-1836: the canvas is the Aurora `Dag`; the `data-id` of a
+  // node is its short code.
+  const codes = await page
+    .locator('.cl-dag__node')
+    .evaluateAll((nodes) => nodes.map((n) => n.getAttribute('data-id') ?? ''));
   return [...new Set(codes.map((c) => c.trim()).filter(Boolean))].sort();
 }
 
 /** The graph node carrying a short code. */
 function node(page: Page, code: string): Locator {
-  return page.locator('.kairos-graph__node', {
-    has: page.locator('.kairos-graph__code', { hasText: code }),
-  });
+  return page.locator(`.cl-dag__node[data-id="${code}"]`);
+}
+
+/** The focus node of the graph. */
+function focusNode(page: Page): Locator {
+  return page.locator('.cl-dag__node--current');
 }
 
 /** Short codes anywhere in a search response DTO, whatever the group. */
@@ -133,15 +139,15 @@ journey(
       const page = await carol.gui();
       await panel(page, 'Relationships').getByRole('link', { name: 'Open the graph explorer' }).click();
       await page.waitForURL(new RegExp(`/search/relationships/${subject}`));
-      await expect(page.locator('.kairos-graph__node--focus .kairos-graph__code')).toHaveText(subject, {
+      await expect(focusNode(page)).toHaveAttribute('data-id', subject, {
         timeout: 20_000,
       });
       const before = await drawn(page);
       expect(before, 'the initiative is on the task\'s canvas').toContain(initiative);
-      // Clicking a non-focus node's body refocuses and extends `?trail=`.
-      await node(page, initiative).locator('.kairos-graph__box').click();
+      // Clicking a non-focus node refocuses and extends `?trail=`.
+      await node(page, initiative).click();
       await page.waitForURL(new RegExp(`/search/relationships/${initiative}\\?trail=${subject}`));
-      await expect(page.locator('.kairos-graph__node--focus .kairos-graph__code')).toHaveText(initiative, {
+      await expect(focusNode(page)).toHaveAttribute('data-id', initiative, {
         timeout: 20_000,
       });
       return { from: subject, now_focused: initiative, trail: subject, canvas_had: before.length };
@@ -152,9 +158,9 @@ journey(
       const above = (await drawn(page)).filter((code) => /-S-\d{4}$/.test(code));
       expect(above, 'a strategy sits above the initiative').not.toHaveLength(0);
       strategy = above[0];
-      await node(page, strategy).locator('.kairos-graph__box').click();
+      await node(page, strategy).click();
       await page.waitForURL(new RegExp(`/search/relationships/${strategy}\\?trail=`));
-      await expect(page.locator('.kairos-graph__node--focus .kairos-graph__code')).toHaveText(strategy, {
+      await expect(focusNode(page)).toHaveAttribute('data-id', strategy, {
         timeout: 20_000,
       });
       await expect(page.getByText('trail:')).toBeVisible();
@@ -178,8 +184,12 @@ journey(
         .filter((code: string) => code !== subject && canvas.includes(code));
       expect(siblings, `${initiative} has another child on the canvas`).not.toHaveLength(0);
       const sibling = siblings[0];
-      // The node's CODE text is the link to the item; the box refocuses.
-      await node(page, sibling).locator('.kairos-graph__code').click();
+      // A click refocuses the graph on the sibling; a double click on the
+      // focus node opens its item (COLLIERY-T-1836, the Aurora `Dag`).
+      await node(page, sibling).click();
+      await page.waitForURL(new RegExp(`/search/relationships/${sibling}\\?trail=`));
+      await expect(focusNode(page)).toHaveAttribute('data-id', sibling, { timeout: 20_000 });
+      await focusNode(page).dblclick();
       await page.waitForURL(new RegExp(`/items/${sibling}`));
       await openItem(page, sibling);
       return { sibling, shares_parent_with: subject, under: initiative };

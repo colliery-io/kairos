@@ -450,14 +450,16 @@ test('an archived neighbour is marked in the panel and on the canvas', async ({
 
   await test.step('the graph draws it, marked', async () => {
     await page.goto(`/search/relationships/${parent.short_code}`);
-    await expect(
-      page.locator('.kairos-graph__node--focus .kairos-graph__code'),
-    ).toHaveText(parent.short_code);
-    const putAway = page.locator('.kairos-graph__node--put-away', {
-      has: page.locator('.kairos-graph__code', { hasText: child.short_code }),
-    });
+    // COLLIERY-T-1836: the Aurora `Dag`; a node's `data-id` is its code.
+    await expect(page.locator('.cl-dag__node--current')).toHaveAttribute(
+      'data-id',
+      parent.short_code,
+    );
+    const putAway = page.locator(
+      `.cl-dag__node--archived[data-id="${child.short_code}"]`,
+    );
     await expect(putAway).toHaveCount(1);
-    await expect(putAway.locator('.kairos-graph__put-away')).toHaveText(
+    await expect(putAway.locator('.cl-dag__mark', { hasText: 'put away' })).toHaveText(
       'put away',
     );
   });

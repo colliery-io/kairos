@@ -11,7 +11,6 @@
 
 pub mod data;
 pub mod graph;
-pub mod graph_layout;
 pub mod relationships;
 
 use aurora_dark::components::{
@@ -19,6 +18,7 @@ use aurora_dark::components::{
     NumberInput, PageHeader, Panel, Pill, SegmentedControl, Select, Stack, Switch, Table, Text,
     TextInput,
 };
+use aurora_dark::data::{Pagination, RelativeTime};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
@@ -443,38 +443,30 @@ pub fn SearchPage() -> impl IntoView {
                     let shown = usize::try_from((end - offset).max(0)).unwrap_or(0);
                     let range = crate::api::page_range_note(offset, shown, total);
                     let groups = response.results;
+                    // COLLIERY-T-1836: the Aurora `Pagination`. A change of
+                    // page runs the same search with the new offset.
+                    let page_offset = RwSignal::new(usize::try_from(offset).unwrap_or(0));
+                    let page_limit = RwSignal::new(usize::try_from(limit).unwrap_or(1));
+                    let page_total = usize::try_from(total).unwrap_or(0);
+                    let go = Callback::new(move |(to, _): (usize, usize)| {
+                        submitted.update(|r| {
+                            if let Some(r) = r {
+                                r.offset = Some(i64::try_from(to).unwrap_or(0));
+                            }
+                        });
+                    });
                     view! {
-                        <Group justify="between">
+                        <Stack gap="xs">
                             <Text dimmed=true size="sm">
                                 {format!("{range} The groups are the types of the items.")}
                             </Text>
-                            <Group gap="sm">
-                                <Button
-                                    variant="default"
-                                    size="xs"
-                                    disabled={offset == 0}
-                                    on_click=Callback::new(move |_| submitted.update(|r| {
-                                        if let Some(r) = r {
-                                            r.offset = Some((offset - limit).max(0));
-                                        }
-                                    }))
-                                >
-                                    "‹ Prev"
-                                </Button>
-                                <Button
-                                    variant="default"
-                                    size="xs"
-                                    disabled={offset + limit >= total}
-                                    on_click=Callback::new(move |_| submitted.update(|r| {
-                                        if let Some(r) = r {
-                                            r.offset = Some(offset + limit);
-                                        }
-                                    }))
-                                >
-                                    "Next ›"
-                                </Button>
-                            </Group>
-                        </Group>
+                            <Pagination
+                                offset=page_offset
+                                limit=page_limit
+                                total=page_total
+                                on_change=go
+                            />
+                        </Stack>
                         <ResultGroup entity="strategy" title="Strategies" hits=groups.strategies/>
                         <ResultGroup entity="initiative" title="Initiatives" hits=groups.initiatives/>
                         <ResultGroup entity="task" title="Tasks" hits=groups.tasks/>
@@ -506,11 +498,7 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
             .map(|hit| {
                 let detail = format!("/items/{}", hit.short_code);
                 let explore = format!("/search/relationships/{}", hit.short_code);
-                let created = hit
-                    .created_at
-                    .get(..10)
-                    .map(str::to_string)
-                    .unwrap_or_else(|| hit.created_at.clone());
+                let created = hit.created_at.clone();
                 let task_pill = hit.task_type.clone().filter(|t| t != "task").map(|t| {
                     let color = if t == "bug" { token::BAD } else { token::GOLD };
                     view! { <Pill color=color>{t}</Pill> }
@@ -546,7 +534,7 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
                                 {bucket_pill}
                             </Group>
                         </td>
-                        <td><Text dimmed=true size="sm">{created}</Text></td>
+                        <td><Text dimmed=true size="sm"><RelativeTime iso=created/></Text></td>
                         <td><Anchor href=explore>"relationships"</Anchor></td>
                     </tr>
                 }
@@ -557,7 +545,12 @@ fn ResultGroup(entity: &'static str, title: &'static str, hits: Vec<data::Hit>) 
                 <Group gap="sm">
                     <Pill color=entity_color(entity)>{entity}</Pill>
                 </Group>
-                <Table>
+                // The same widths in each group, so the tables line up.
+                <Table
+                    label=title
+                    fixed=true
+                    widths=vec!["16%".into(), "52%".into(), "14%".into(), "18%".into()]
+                >
                     <thead>
                         <tr>
                             <th>"Code"</th>

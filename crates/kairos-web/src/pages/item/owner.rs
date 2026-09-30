@@ -21,7 +21,7 @@
 //!
 //! The server remains the authority. A refusal shows in the panel.
 
-use aurora_dark::components::{Alert, Anchor, Button, Group, Panel, Pill, Stack, Text};
+use aurora_dark::components::{Alert, Anchor, Button, Group, Panel, Pill, Select, Stack, Text};
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 
@@ -194,38 +194,28 @@ pub fn OwnerBoardPanel(
                             // the check of the right, and the selector must
                             // then show.
                             {move || (!targets.with(Vec::is_empty)).then(|| view! {
-                                <div class="cl-field">
-                                    <label class="cl-field__label">"New owner board"</label>
-                                    <select
-                                        class="cl-input cl-select"
-                                        prop:value=move || value.get()
-                                        on:change=move |e| value.set(event_target_value(&e))
-                                    >
-                                        <option value=NO_CHOICE>"(select a board)"</option>
-                                        {move || targets.get().into_iter().map(|(slug, name)| view! {
-                                            <option value=slug>{name}</option>
-                                        }).collect_view()}
-                                    </select>
-                                </div>
-                                {move || {
-                                    let disabled = busy.get() || value.get() == NO_CHOICE;
-                                    view! {
-                                        <Button size="xs" disabled=disabled on_click=submit>
-                                            "Set owner board"
-                                        </Button>
-                                    }
-                                }}
+                                <Select
+                                    label="New owner board"
+                                    option_pairs=std::iter::once((
+                                        NO_CHOICE.to_string(),
+                                        "(select a board)".to_string(),
+                                    ))
+                                    .chain(targets.get())
+                                    .collect()
+                                    value=value
+                                />
+                                <Button
+                                    size="xs"
+                                    disabled=move || busy.get() || value.get() == NO_CHOICE
+                                    on_click=submit
+                                >
+                                    "Set owner board"
+                                </Button>
                             })}
                             {named.then(|| view! {
-                                {move || {
-                                    let disabled = busy.get();
-                                    view! {
-                                        <Button variant="default" size="xs" disabled=disabled
-                                            on_click=remove>
-                                            "Remove owner board"
-                                        </Button>
-                                    }
-                                }}
+                                <Button variant="default" size="xs" disabled=busy on_click=remove>
+                                    "Remove owner board"
+                                </Button>
                             })}
                         </Group>
                     }
@@ -368,27 +358,23 @@ pub fn ImpactsPanel(
                 }).collect_view()}
                 {move || (!archived && can_edit.get() && !options.with(Vec::is_empty)).then(|| view! {
                     <Group gap="sm" attr:data-testid="impacts-add">
-                        <div class="cl-field">
-                            <label class="cl-field__label">"Repository"</label>
-                            <select
-                                class="cl-input cl-select"
-                                prop:value=move || value.get()
-                                on:change=move |e| value.set(event_target_value(&e))
-                            >
-                                <option value=NO_CHOICE>"(select a repository)"</option>
-                                {move || options.get().into_iter().map(|(slug, label)| view! {
-                                    <option value=slug>{label}</option>
-                                }).collect_view()}
-                            </select>
-                        </div>
-                        {move || {
-                            let disabled = busy.get() || value.get() == NO_CHOICE;
-                            view! {
-                                <Button size="xs" disabled=disabled on_click=add>
-                                    "Add impacts link"
-                                </Button>
-                            }
-                        }}
+                        <Select
+                            label="Repository"
+                            option_pairs=std::iter::once((
+                                NO_CHOICE.to_string(),
+                                "(select a repository)".to_string(),
+                            ))
+                            .chain(options.get())
+                            .collect()
+                            value=value
+                        />
+                        <Button
+                            size="xs"
+                            disabled=move || busy.get() || value.get() == NO_CHOICE
+                            on_click=add
+                        >
+                            "Add impacts link"
+                        </Button>
                     </Group>
                 })}
                 <Text size="xs" dimmed=true>

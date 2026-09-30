@@ -207,7 +207,8 @@ pub fn AdminBoardsPage() -> impl IntoView {
                     Some(Ok(items)) => {
                         let live_teams = teams.get().and_then(|result| result.ok()).unwrap_or_default();
                         let all = items.clone();
-                        items.into_iter().map(move |board| {
+                        // COLLIERY-T-1836: a gap between the rows.
+                        let rows = items.into_iter().map(move |board| {
                         let config_href = format!("/admin/boards/{}", board.id);
                         // COLLIERY-T-0251: the server refuses the delete of
                         // the only delivery board of a team. The page says
@@ -265,7 +266,8 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                 </Show>
                             </Group>
                         }
-                    }).collect_view().into_any()
+                    }).collect_view();
+                        view! { <Stack gap="sm">{rows}</Stack> }.into_any()
                     }
                 }}
             </Panel>

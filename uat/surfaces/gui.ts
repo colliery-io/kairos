@@ -32,8 +32,11 @@ export async function openTeam(page: Page, slug: string): Promise<void> {
 /** A board column by its heading, within the planned lane when the board has lanes. */
 export function column(page: Page, name: string): Locator {
   const lane = page.locator('section.kairos-board__lane--planned');
+  // COLLIERY-T-1836: the Aurora AppShell has a <main>, and the lane is in
+  // it. The union is in document order, so the last element is the lane
+  // when the board has lanes, and <main> when it has none.
   const scope = lane.or(page.locator('main'));
-  return scope.first().locator('section.kairos-board__column', {
+  return scope.last().locator('section.kairos-board__column', {
     has: page.locator('.kairos-board__column-head', { hasText: name }),
   });
 }

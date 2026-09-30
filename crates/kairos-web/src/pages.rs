@@ -8,7 +8,8 @@
 //! what's missing, and every stub already demonstrates the page skeleton
 //! later tasks should keep.
 
-use aurora_dark::components::{Anchor, Loading, Panel, Stack, Text};
+use aurora_dark::components::{Anchor, Button, Loading, Stack, Text, TextInput};
+use aurora_dark::frame::{AuthCard, CenterScreen};
 use leptos::prelude::*;
 use leptos_router::components::Redirect;
 
@@ -41,11 +42,15 @@ pub fn LoginPage() -> impl IntoView {
     let auth = use_auth();
     let config = LocalResource::new(move || async move { auth.config_cached().await });
 
+    // COLLIERY-T-1836: the Aurora `CenterScreen` + `AuthCard`.
     view! {
-        <div class="kairos-center-screen">
-            <Panel title="Kairos" caption="flight levels, running">
+        <CenterScreen>
+            <AuthCard
+                title="Kairos"
+                sub="flight levels, running"
+                brand=Box::new(|| view! { <BrandMark/> }.into_any())
+            >
                 <Stack gap="sm" center=true>
-                    <BrandMark/>
                     {move || match config.get() {
                         None => view! { <Loading label="Checking how to sign in…"/> }.into_any(),
                         // A failed /api/config still offers the provider button: it is
@@ -77,8 +82,8 @@ pub fn LoginPage() -> impl IntoView {
                         }
                     }}
                 </Stack>
-            </Panel>
-        </div>
+            </AuthCard>
+        </CenterScreen>
     }
 }
 
@@ -90,6 +95,9 @@ fn ProviderButton() -> impl IntoView {
     let busy = RwSignal::new(false);
 
     let sign_in = move |_| {
+        if busy.get_untracked() {
+            return;
+        }
         busy.set(true);
         leptos::task::spawn_local(async move {
             let return_to = auth::take_return_to();
@@ -105,13 +113,9 @@ fn ProviderButton() -> impl IntoView {
             <Text dimmed=true size="sm">
                 "Sign in with your organization's identity provider."
             </Text>
-            <button
-                class="cl-btn cl-btn--filled"
-                disabled=move || busy.get()
-                on:click=sign_in
-            >
-                {move || if busy.get() { "Redirecting…" } else { "Sign in" }}
-            </button>
+            <Button loading=busy loading_label="Redirecting…" on_click=Callback::new(sign_in)>
+                "Sign in"
+            </Button>
             {move || error.get().map(|message| view! {
                 <Text size="xs" dimmed=true>{message}</Text>
             })}
@@ -122,17 +126,11 @@ fn ProviderButton() -> impl IntoView {
 /// The email/password form, for a deployment with local accounts
 /// (KAIROS-T-0205, KAIROS-T-0203).
 ///
-/// # Why raw elements rather than aurora's `TextInput` / `PasswordInput`
-///
-/// A login form needs three things those components do not expose: a real `<form>`
-/// with `type="submit"` so Enter submits, `autocomplete="email"` /
-/// `autocomplete="current-password"` so a password manager recognises it, and an
-/// `id`/`for` pair it controls. It uses aurora's CLASSES (`cl-field`, `cl-input`,
-/// `cl-btn`), so it looks like every other field — and this page already renders its
-/// button as a raw `cl-btn`, so raw-with-aurora-classes is the established shape here
-/// rather than a new exception. An `autocomplete` prop on the aurora inputs would be a
-/// reasonable thing to add later; it was not worth a design-system release for one
-/// form.
+/// COLLIERY-T-1836: Aurora 0.4 inputs have the props that a login form
+/// needs (`input_type`, `autocomplete`, `name`, `required`), so the form
+/// uses `TextInput` and a `Button` with `button_type="submit"` in a real
+/// `<form>`, so that Enter submits and a password manager recognises it.
+/// Each label points to its control, so `getByLabel` finds the fields.
 #[component]
 fn PasswordForm() -> impl IntoView {
     let auth = use_auth();
@@ -179,52 +177,37 @@ fn PasswordForm() -> impl IntoView {
     view! {
         <form class="kairos-login-form" on:submit=submit>
             <Stack gap="xs">
-                <div class="cl-field">
-                    <label class="cl-field__label" for="kairos-login-email">"Email"</label>
-                    <input
-                        class="cl-input"
-                        id="kairos-login-email"
-                        name="email"
-                        type="email"
-                        autocomplete="email"
-                        autocapitalize="none"
-                        spellcheck="false"
-                        required=true
-                        prop:value=move || email.get()
-                        on:input=move |e| email.set(leptos::prelude::event_target_value(&e))
-                    />
-                </div>
-                <div class="cl-field">
-                    <label class="cl-field__label" for="kairos-login-password">"Password"</label>
-                    <input
-                        class="cl-input"
-                        id="kairos-login-password"
-                        name="password"
-                        type="password"
-                        autocomplete="current-password"
-                        required=true
-                        prop:value=move || password.get()
-                        on:input=move |e| password.set(leptos::prelude::event_target_value(&e))
-                    />
-                </div>
-                <button
-                    class="cl-btn cl-btn--filled"
-                    type="submit"
-                    disabled=move || busy.get()
-                >
-                    // The endpoint is intentionally slow — argon2 — so a form with no
-                    // feedback reads as broken rather than as working.
-                    //
-                    // "Log in", NOT "Sign in" and not "Sign in with password": on a
-                    // deployment with both paths there would otherwise be two buttons
-                    // whose accessible names overlap, which is ambiguous for a person
-                    // choosing between them and for anything addressing the page by role
-                    // and name. It broke two existing e2e specs, which is how it was
-                    // found — and "with password" was not enough, because accessible-name
-                    // matching is substring by default. "Log in" also pairs with the
-                    // header's "Log out".
-                    {move || if busy.get() { "Logging in…" } else { "Log in" }}
-                </button>
+                <TextInput
+                    label="Email"
+                    value=email
+                    input_type="email"
+                    name="email"
+                    autocomplete="email"
+                    required=true
+                    spellcheck=false
+                />
+                <TextInput
+                    label="Password"
+                    value=password
+                    input_type="password"
+                    name="password"
+                    autocomplete="current-password"
+                    required=true
+                />
+                // The endpoint is intentionally slow — argon2 — so a form with no
+                // feedback reads as broken rather than as working.
+                //
+                // "Log in", NOT "Sign in" and not "Sign in with password": on a
+                // deployment with both paths there would otherwise be two buttons
+                // whose accessible names overlap, which is ambiguous for a person
+                // choosing between them and for anything addressing the page by role
+                // and name. It broke two existing e2e specs, which is how it was
+                // found — and "with password" was not enough, because accessible-name
+                // matching is substring by default. "Log in" also pairs with the
+                // header's "Log out".
+                <Button button_type="submit" loading=busy loading_label="Logging in…">
+                    "Log in"
+                </Button>
                 {move || error.get().map(|message| view! {
                     <Text size="xs" dimmed=true>{message}</Text>
                 })}
@@ -240,7 +223,7 @@ pub fn CallbackPage() -> impl IntoView {
     let auth = use_auth();
     let exchange = LocalResource::new(move || auth::complete_login(auth));
     view! {
-        <div class="kairos-center-screen">
+        <CenterScreen>
             {move || match exchange.get() {
                 None => view! { <Loading label="Completing sign-in…"/> }.into_any(),
                 Some(Ok(return_to)) => view! { <Redirect path=return_to/> }.into_any(),
@@ -252,7 +235,7 @@ pub fn CallbackPage() -> impl IntoView {
                     </Stack>
                 }.into_any(),
             }}
-        </div>
+        </CenterScreen>
     }
 }
 
@@ -308,12 +291,12 @@ pub use activity::{ActivityPage, ItemHistoryPage};
 #[component]
 pub fn NotFoundPage() -> impl IntoView {
     view! {
-        <div class="kairos-center-screen">
+        <CenterScreen>
             <Stack gap="sm" center=true>
                 <Text bright=true bold=true>"Nothing here"</Text>
                 <Text dimmed=true size="sm">"That page does not exist."</Text>
                 <Anchor href="/boards">"Back to boards"</Anchor>
             </Stack>
-        </div>
+        </CenterScreen>
     }
 }

@@ -31,7 +31,11 @@
 //! redirect"), remembering the requested path for after the callback.
 
 use aurora_dark::AuroraStyles;
-use aurora_dark::components::{AppShell, Button, Group, Loading, Pill, Stack, Text};
+use aurora_dark::components::{Button, Group, Loading, Pill, Stack, Text};
+use aurora_dark::frame::{
+    AppShell, CenterScreen, SideNav, SideNavGroup, SideNavLink, ToastStack, provide_toaster,
+};
+use aurora_dark::theme::{ThemeToggle, provide_theme};
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::components::{Outlet, ParentRoute, Redirect, Route, Router, Routes};
@@ -42,50 +46,56 @@ use crate::api;
 use crate::auth::{self, use_auth};
 use crate::pages;
 
-/// The application root: provides auth, injects the Aurora stylesheet,
-/// declares the route tree.
+/// The application root: provides auth, the theme and the toasts, injects
+/// the Aurora stylesheet, declares the route tree.
+///
+/// COLLIERY-T-1836: the page follows the theme of the operating system;
+/// the `ThemeToggle` in the top bar changes it, and `index.html` sets the
+/// stored choice before the first paint. The toasts are the short notices
+/// of a mutation (the board, the item page).
 #[component]
 pub fn App() -> impl IntoView {
     auth::provide_auth();
+    provide_theme();
+    provide_toaster();
     view! {
         <AuroraStyles/>
-        <div class="kairos-root">
-            <Router>
-                <Routes fallback=pages::NotFoundPage>
-                    <Route path=path!("/login") view=pages::LoginPage/>
-                    <Route path=path!("/callback") view=pages::CallbackPage/>
-                    <ParentRoute path=path!("") view=Shell>
-                        <Route path=path!("") view=|| view! { <Redirect path="/boards"/> }/>
-                        <Route path=path!("boards") view=pages::BoardsPage/>
-                        <Route path=path!("boards/:board") view=pages::BoardPage/>
-                        <Route path=path!("items/:code") view=pages::ItemPage/>
-                        <Route path=path!("search") view=pages::SearchPage/>
-                        <Route path=path!("search/relationships/:code") view=pages::RelationshipsPage/>
-                        <Route path=path!("teams") view=pages::TeamsPage/>
-                        <Route path=path!("teams/:slug") view=pages::TeamPage/>
-                        <Route path=path!("teams/:slug/pages/*path") view=pages::TeamDocPage/>
-                        <ParentRoute path=path!("admin") view=pages::AdminPage>
-                            <Route path=path!("") view=pages::admin::AdminHomePage/>
-                            <Route path=path!("boards") view=pages::admin::AdminBoardsPage/>
-                            <Route path=path!("boards/:board") view=pages::admin::AdminBoardPage/>
-                            <Route path=path!("teams") view=pages::admin::AdminTeamsPage/>
-                            <Route path=path!("streams") view=pages::admin::AdminStreamsPage/>
-                            <Route path=path!("repositories") view=pages::admin::AdminRepositoriesPage/>
-                            <Route path=path!("members") view=pages::admin::AdminMembersPage/>
-                            <Route path=path!("templates") view=pages::admin::AdminTemplatesPage/>
-                            <Route path=path!("metadata") view=pages::admin::AdminMetadataPage/>
-                        </ParentRoute>
-                        <Route path=path!("activity") view=pages::ActivityPage/>
-                        <Route path=path!("activity/history/:code") view=pages::ItemHistoryPage/>
+        <Router>
+            <Routes fallback=pages::NotFoundPage>
+                <Route path=path!("/login") view=pages::LoginPage/>
+                <Route path=path!("/callback") view=pages::CallbackPage/>
+                <ParentRoute path=path!("") view=Shell>
+                    <Route path=path!("") view=|| view! { <Redirect path="/boards"/> }/>
+                    <Route path=path!("boards") view=pages::BoardsPage/>
+                    <Route path=path!("boards/:board") view=pages::BoardPage/>
+                    <Route path=path!("items/:code") view=pages::ItemPage/>
+                    <Route path=path!("search") view=pages::SearchPage/>
+                    <Route path=path!("search/relationships/:code") view=pages::RelationshipsPage/>
+                    <Route path=path!("teams") view=pages::TeamsPage/>
+                    <Route path=path!("teams/:slug") view=pages::TeamPage/>
+                    <Route path=path!("teams/:slug/pages/*path") view=pages::TeamDocPage/>
+                    <ParentRoute path=path!("admin") view=pages::AdminPage>
+                        <Route path=path!("") view=pages::admin::AdminHomePage/>
+                        <Route path=path!("boards") view=pages::admin::AdminBoardsPage/>
+                        <Route path=path!("boards/:board") view=pages::admin::AdminBoardPage/>
+                        <Route path=path!("teams") view=pages::admin::AdminTeamsPage/>
+                        <Route path=path!("streams") view=pages::admin::AdminStreamsPage/>
+                        <Route path=path!("repositories") view=pages::admin::AdminRepositoriesPage/>
+                        <Route path=path!("members") view=pages::admin::AdminMembersPage/>
+                        <Route path=path!("templates") view=pages::admin::AdminTemplatesPage/>
+                        <Route path=path!("metadata") view=pages::admin::AdminMetadataPage/>
                     </ParentRoute>
-                </Routes>
-            </Router>
-        </div>
+                    <Route path=path!("activity") view=pages::ActivityPage/>
+                    <Route path=path!("activity/history/:code") view=pages::ItemHistoryPage/>
+                </ParentRoute>
+            </Routes>
+        </Router>
+        <ToastStack/>
     }
 }
 
-/// The protected shell: aurora `AppShell` with the Kairos header
-/// (brand + whoami + logout) and left nav. Unauthenticated → login
+/// The protected shell: Aurora `AppShell` with the Kairos brand, a top
+/// bar (whoami, theme, logout) and the `SideNav`. Unauthenticated → login
 /// redirect via [`RedirectToIssuer`].
 ///
 /// Whoami is fetched ONCE here and shared (`LocalResource` is `Copy`) by
@@ -105,27 +115,26 @@ fn Shell() -> impl IntoView {
     view! {
         <Show when=move || auth.is_authenticated() fallback=GuardFallback>
             <AppShell
+                brand=std::sync::Arc::new(|| view! {
+                    <BrandMark/>
+                    <Text bright=true bold=true>"Kairos"</Text>
+                }.into_any())
                 header=Box::new(move || view! {
-                    <Group justify="between">
-                        <Group gap="sm">
-                            <BrandMark/>
-                            <Text bright=true bold=true>"Kairos"</Text>
-                        </Group>
-                        <Group gap="sm">
-                            <WhoamiBadge whoami/>
-                            <LogoutButton/>
-                        </Group>
+                    <Group justify="end" gap="sm">
+                        <WhoamiBadge whoami/>
+                        <ThemeToggle/>
+                        <LogoutButton/>
                     </Group>
                 }.into_any())
                 navbar=Box::new(move || view! {
-                    <Stack gap="xs">
+                    <SideNav>
                         <NavLink href="/boards" label="Boards"/>
                         <NavLink href="/teams" label="Teams"/>
                         <NavLink href="/search" label="Search"/>
                         <NavLink href="/activity" label="Activity"/>
                         <pages::admin::AdminNavLink/>
                         <MyTeamsNav whoami/>
-                    </Stack>
+                    </SideNav>
                 }.into_any())
             >
                 <Outlet/>
@@ -146,17 +155,18 @@ fn MyTeamsNav(whoami: LocalResource<Result<api::Whoami, ApiError>>) -> impl Into
                 Some(Ok(me)) => me.teams,
                 _ => Vec::new(),
             };
+            // The wrapper keeps the `kairos-nav__section` hook of the
+            // e2e/UAT specs; the group itself is Aurora's.
             (!teams.is_empty()).then(|| view! {
                 <div class="kairos-nav__section">
-                    <Text dimmed=true size="xs">"My teams"</Text>
-                    <Stack gap="xs">
+                    <SideNavGroup label="My teams">
                         {teams.into_iter().map(|team| view! {
                             <NavLink
                                 href=format!("/teams/{}", team.slug)
                                 label=team.name
                             />
                         }).collect_view()}
-                    </Stack>
+                    </SideNavGroup>
                 </div>
             })
         }}
@@ -175,9 +185,9 @@ fn GuardFallback() -> impl IntoView {
         <Show
             when=move || !auth.restoring()
             fallback=|| view! {
-                <div class="kairos-center-screen">
+                <CenterScreen>
                     <Loading label="Restoring session…"/>
-                </div>
+                </CenterScreen>
             }
         >
             <Show when=move || auth.signed_out() fallback=RedirectToIssuer>
@@ -234,7 +244,7 @@ fn RedirectToIssuer() -> impl IntoView {
     });
 
     view! {
-        <div class="kairos-center-screen">
+        <CenterScreen>
             {move || if to_login.get() {
                 view! { <Redirect path="/login"/> }.into_any()
             } else {
@@ -248,23 +258,23 @@ fn RedirectToIssuer() -> impl IntoView {
                     }.into_any(),
                 }
             }}
-        </div>
+        </CenterScreen>
     }
 }
 
-/// One left-nav entry. Plain anchors are fine: the leptos router
-/// intercepts same-origin clicks, and `aria-current` drives the active
-/// style (app.css).
+/// One left-nav entry: an Aurora `SideNavLink`. Plain anchors are fine:
+/// the leptos router intercepts same-origin clicks. The link is active on
+/// its own path and on each path under it (`aria-current="page"`).
 #[component]
-fn NavLink(#[prop(into)] href: String, #[prop(into)] label: String) -> impl IntoView {
-    let location = use_location();
+pub(crate) fn NavLink(#[prop(into)] href: String, #[prop(into)] label: String) -> impl IntoView {
+    let pathname = use_location().pathname;
     let target = href.clone();
-    let current = move || {
-        let path = location.pathname.get();
-        (path == target || path.starts_with(&format!("{target}/"))).then_some("page")
-    };
+    let active = Signal::derive(move || {
+        let path = pathname.get();
+        path == target || path.starts_with(&format!("{target}/"))
+    });
     view! {
-        <a class="kairos-nav__link" href=href aria-current=current>{label}</a>
+        <SideNavLink href=href active=active>{label}</SideNavLink>
     }
 }
 
@@ -316,5 +326,27 @@ pub fn BrandMark() -> impl IntoView {
             <path d="M18 5 L8.5 13" style="stroke:var(--teal);" stroke-width="2.2" stroke-linecap="round"/>
             <path d="M10.5 12 L18 19" style="stroke:var(--violet);" stroke-width="2.2" stroke-linecap="round"/>
         </svg>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// COLLIERY-T-1836: `index.html` carries the Aurora theme script as it
+    /// is, in the `<head>`, before the stylesheet, so the first paint has
+    /// the stored theme.
+    #[test]
+    fn index_html_sets_the_theme_before_the_stylesheet() {
+        let html = include_str!("../index.html");
+        let script = format!("<script>{}</script>", aurora_dark::THEME_INIT_SCRIPT);
+        let at = html
+            .find(&script)
+            .expect("index.html has THEME_INIT_SCRIPT as it is");
+        let css = html
+            .find("rel=\"css\"")
+            .expect("index.html links a stylesheet");
+        let head_end = html.find("</head>").expect("index.html has a head");
+        assert!(at < css, "the theme script comes before the stylesheet");
+        assert!(at < head_end, "the theme script is in the head");
+        assert!(html.contains(r#"<meta name="color-scheme" content="light dark" />"#));
     }
 }

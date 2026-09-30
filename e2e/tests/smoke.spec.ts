@@ -269,11 +269,12 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     });
 
     // KAIROS-T-0076: the header copy-link puts the ABSOLUTE detail URL on
-    // the clipboard and flashes confirmation.
+    // the clipboard and confirms. COLLIERY-T-1836: it is the Aurora
+    // CopyButton, which says "Copied" in its title and in a status region.
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     const copy = page.getByRole('button', { name: 'Copy link' });
     await copy.click();
-    await expect(copy).toHaveText('✓');
+    await expect(copy).toHaveAttribute('title', 'Copied');
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       page.url(),
     );

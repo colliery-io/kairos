@@ -30,14 +30,24 @@ interface Point {
   y: number;
 }
 
-/** The part of `target` that is inside the viewport, or null. */
+/**
+ * The bottom of the sticky top bar (COLLIERY-T-1836: the Aurora AppShell
+ * header stays on the screen when the page scrolls). A point under it
+ * is not a point of the board: a drop there lands on the header.
+ */
+async function headerBottom(page: Page): Promise<number> {
+  const header = await page.locator('.cl-appshell__header').boundingBox();
+  return header ? Math.max(header.y + header.height, 0) : 0;
+}
+
+/** The part of `target` that is inside the viewport, below the top bar, or null. */
 async function visiblePoint(page: Page, target: Locator): Promise<Point | null> {
   const box = await target.boundingBox();
   const viewport = page.viewportSize();
   if (!box) throw new Error('drag target has no bounding box');
   if (!viewport) throw new Error('the page has no viewport size');
   const left = Math.max(box.x, 0);
-  const top = Math.max(box.y, 0);
+  const top = Math.max(box.y, await headerBottom(page));
   const right = Math.min(box.x + box.width, viewport.width);
   const bottom = Math.min(box.y + box.height, viewport.height);
   if (right - left < 4 || bottom - top < 4) return null;
@@ -60,7 +70,9 @@ async function wheelTo(page: Page, target: Locator): Promise<Point> {
     if (!box) throw new Error('drag target has no bounding box');
     const before = { x: box.x, y: box.y };
     const dx = box.x + box.width <= 0 ? -turn.x : box.x >= viewport.width ? turn.x : 0;
-    const dy = box.y + box.height <= 0 ? -turn.y : box.y >= viewport.height ? turn.y : 0;
+    const covered = await headerBottom(page);
+    const dy =
+      box.y + box.height <= covered + 4 ? -turn.y : box.y >= viewport.height ? turn.y : 0;
     await page.mouse.wheel(dx, dy);
     // The scroll is not synchronous with the wheel event. Wait until the
     // target moves; a target that does not move cannot be reached.

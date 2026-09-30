@@ -14,8 +14,9 @@
 //! code. The user adds the link on the page of the document.
 
 use aurora_dark::components::{
-    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Pill, Stack, Text, TextInput,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Pill, Select, Stack, Text, TextInput,
 };
+use aurora_dark::frame::Modal;
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
@@ -139,23 +140,15 @@ pub fn RepositoryDocuments(
                     }.into_any(),
                 }}
             </Show>
-            {move || create_open.get().then(|| view! {
-                <div class="kairos-dialog__backdrop" on:click=move |_| create_open.set(false)></div>
-                <div class="kairos-dialog" role="dialog" aria-modal="true">
-                    <div class="kairos-dialog__box">
-                        <Group justify="between">
-                            <Text bright=true bold=true>
-                                {format!("New document for the repository {}", slug.get_value())}
-                            </Text>
-                            <Button variant="default" size="xs"
-                                on_click=Callback::new(move |_| create_open.set(false))>
-                                "Close"
-                            </Button>
-                        </Group>
-                        <NewDocumentForm slug=slug.get_value() owner_team=owner_team.get_value()/>
-                    </div>
-                </div>
-            })}
+            // COLLIERY-T-1836: an Aurora `Modal` (lg). It renders the form
+            // only while it is open.
+            <Modal
+                open=create_open
+                title=format!("New document for the repository {}", slug.get_value())
+                size="lg"
+            >
+                <NewDocumentForm slug=slug.get_value() owner_team=owner_team.get_value()/>
+            </Modal>
         </Stack>
     }
 }
@@ -218,7 +211,7 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
     });
 
     let navigate = use_navigate();
-    let create = move |_| {
+    let create = move |_: ()| {
         if busy.get_untracked() {
             return;
         }
@@ -287,85 +280,55 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
                 </Alert>
             })}
             <TextInput label="Document title" placeholder="e.g. The vision of fidius" value=title/>
-            <div class="cl-field">
-                <label class="cl-field__label">"Template"</label>
-                {move || match templates.get() {
-                    None => view! { <Text size="xs" dimmed=true>"Loading templates…"</Text> }.into_any(),
-                    Some(Err(error)) => view! {
-                        <Text size="sm" dimmed=true>{item_api::error_text(&error)}</Text>
-                    }.into_any(),
-                    Some(Ok(list)) if list.is_empty() => view! {
+            {move || match templates.get() {
+                None => view! { <Text size="xs" dimmed=true>"Loading templates…"</Text> }.into_any(),
+                Some(Err(error)) => view! {
+                    <Text size="sm" dimmed=true>{item_api::error_text(&error)}</Text>
+                }.into_any(),
+                Some(Ok(list)) if list.is_empty() => view! {
+                    <Text size="sm" dimmed=true>
+                        "The organization has no templates. An organization admin adds \
+                         one on the page Admin, Templates."
+                    </Text>
+                }.into_any(),
+                Some(Ok(list)) => view! {
+                    <Select
+                        label="Template"
+                        option_pairs=list.into_iter().map(|item| (item.id, item.name)).collect()
+                        value=template
+                        attr:data-testid="repository-document-template"
+                    />
+                }.into_any(),
+            }}
+            {move || {
+                let targets = targets.get();
+                if targets.is_empty() {
+                    view! {
                         <Text size="sm" dimmed=true>
-                            "The organization has no templates. An organization admin adds \
-                             one on the page Admin, Templates."
+                            "You have the capability manage_documents on no board. Ask an \
+                             organization admin for it."
                         </Text>
-                    }.into_any(),
-                    Some(Ok(list)) => view! {
-                        <select
-                            class="cl-input cl-select"
-                            data-testid="repository-document-template"
-                            prop:value=move || template.get()
-                            on:change=move |e| template.set(event_target_value(&e))
-                        >
-                            {list.into_iter().map(|item| {
-                                let id = item.id.clone();
-                                let selected_id = item.id.clone();
-                                view! {
-                                    <option value=id selected=move || template.get() == selected_id>
-                                        {item.name}
-                                    </option>
-                                }
-                            }).collect_view()}
-                        </select>
-                    }.into_any(),
-                }}
-            </div>
-            <div class="cl-field">
-                <label class="cl-field__label">"Owner board"</label>
-                {move || {
-                    let targets = targets.get();
-                    if targets.is_empty() {
-                        view! {
-                            <Text size="sm" dimmed=true>
-                                "You have the capability manage_documents on no board. Ask an \
-                                 organization admin for it."
-                            </Text>
-                        }.into_any()
-                    } else {
-                        view! {
-                            <select
-                                class="cl-input cl-select"
-                                data-testid="repository-document-board"
-                                prop:value=move || board.get()
-                                on:change=move |e| board.set(event_target_value(&e))
-                            >
-                                {targets.into_iter().map(|(slug, name)| {
-                                    let selected_slug = slug.clone();
-                                    view! {
-                                        <option value=slug
-                                            selected=move || board.get() == selected_slug>
-                                            {name}
-                                        </option>
-                                    }
-                                }).collect_view()}
-                            </select>
-                        }.into_any()
-                    }
-                }}
-            </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <Select
+                            label="Owner board"
+                            option_pairs=targets
+                            value=board
+                            attr:data-testid="repository-document-board"
+                        />
+                    }.into_any()
+                }
+            }}
             <Text size="xs" dimmed=true>
                 "The owner board gives the right to edit the document. The document is not a \
                  card on the board. The document impacts the repository: the link says what \
                  the document is about, and it gives no right."
             </Text>
             <Group>
-                <button
-                    class="cl-btn cl-btn--filled"
-                    disabled=move || busy.get()
-                    on:click=create
-                >
-                    {move || if busy.get() { "Creating…" } else { "Create document" }}
-                </button>
+                <Button loading=busy loading_label="Creating…" on_click=Callback::new(create)>
+                    "Create document"
+                </Button>
             </Group>
         </Stack>
     }

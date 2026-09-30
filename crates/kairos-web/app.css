@@ -1,52 +1,27 @@
 /*
- * Kairos-specific layout chrome (KAIROS-T-0039). Everything visual comes
- * from Aurora Dark tokens (var(--…)) — no raw colors here, per the
- * conventions grep in docs/gui-conventions.md.
+ * Kairos-only chrome (KAIROS-T-0039, COLLIERY-T-1836). Everything visual
+ * comes from Aurora tokens (var(--…)): no raw colours here, per the
+ * conventions grep in docs/gui-conventions.md. Each token has a light and
+ * a dark value, so each rule here works in the two themes.
  *
- * Aurora's .cl-appshell is styled as an embeddable demo panel (border,
- * min-height); the Kairos app IS the page, so the shell stretches to the
- * viewport and drops the panel border.
+ * Aurora 0.4 draws the frame (AppShell, SideNav, Tabs), the dialogs
+ * (Modal, ConfirmDialog), the toasts, the cards, the chips, the graph
+ * (Dag) and the segmented bar. What stays here is the Kairos-only work:
+ * the board bands, the kanban columns and drag and drop, the item cards,
+ * the markdown editor and preview, and the badges of Kairos states.
  */
 
-html,
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: var(--bg);
+/* The Aurora AppShell header is sticky (52px). A scroll to an element
+   (a link to an anchor, scrollIntoView) stops below it, and not under it. */
+html {
+  scroll-padding-top: 64px;
 }
 
-.kairos-root .cl-appshell {
-  min-height: 100vh;
-  border: none;
-  border-radius: 0;
-}
-
-/* Left-nav entries (aurora ships the shell, the app supplies the nav). */
-.kairos-nav__link {
-  display: block;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  color: var(--fg-2);
-  text-decoration: none;
-  font-size: var(--fs-sm);
-}
-
-.kairos-nav__link:hover {
-  background: var(--panel-2);
-  color: var(--fg-bright);
-}
-
-.kairos-nav__link[aria-current="page"] {
-  background: var(--panel-2);
-  color: var(--fg-bright);
-}
-
-/* "My teams" nav section (KAIROS-T-0068): separated from the primary
-   entries by a hairline; the label sits above its team links. */
-.kairos-nav__section {
-  margin-top: var(--space-sm);
-  padding: var(--space-sm) var(--space-sm) 0;
-  border-top: 1px solid var(--edge);
+/* A row of fields and a button (an Aurora Group) lines up at the bottom,
+   so the button is beside the input and not beside the label. Aurora 0.4
+   Group has no bottom alignment; this is the one rule on a .cl-* class. */
+.cl-group:has(> .cl-field):has(> .cl-btn) {
+  align-items: flex-end;
 }
 
 /* One flight-level band on /boards (KAIROS-T-0069/T-0063): the level
@@ -56,20 +31,11 @@ body {
   flex-direction: column;
   gap: var(--space-sm);
   padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--edge);
+  border-bottom: 1px solid var(--border);
 }
 
 .kairos-board-band:last-child {
   border-bottom: none;
-}
-
-/* Full-viewport centering for the auth screens (login/callback). */
-.kairos-center-screen {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg);
 }
 
 /* Login: the local password form (KAIROS-T-0205). A real <form>, so it needs to
@@ -89,19 +55,10 @@ body {
   gap: var(--space-sm);
 }
 
-.kairos-board-tile {
-  display: block;
-  padding: var(--space-sm) var(--space-md);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-panel);
-  text-decoration: none;
-  color: var(--fg);
-}
-
-.kairos-board-tile:hover {
-  background: var(--panel-2);
-  border-color: var(--edge);
+/* A tile is an Aurora Card; the wrapper keeps the e2e hook and makes the
+   cards of a row the same height. */
+.kairos-board-tile > .cl-card {
+  height: 100%;
 }
 
 /* Document lifecycle badge (KAIROS-T-0078): an editorial label, styled
@@ -151,31 +108,14 @@ body {
   margin-top: var(--space-xs);
 }
 
-/* Children progress (KAIROS-T-0080): the segmented rollup bar on item
-   detail and the micro-badge on parent cards. Done segments/fill use the
-   ok token; the rest stay inset-neutral. */
+/* Children progress (KAIROS-T-0080): the rollup on item detail (an Aurora
+   SegmentedBar under the label) and the micro-badge on parent cards. The
+   done fill uses the ok token. */
 .kairos-progress {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   margin-bottom: var(--space-sm);
-}
-
-.kairos-progress__track {
-  display: flex;
-  gap: 2px;
-  height: 6px;
-  border-radius: var(--radius-xs);
-  overflow: hidden;
-}
-
-.kairos-progress__segment {
-  background: var(--border-control);
-  height: 100%;
-}
-
-.kairos-progress__segment--done {
-  background: var(--ok);
 }
 
 .kairos-card__progress {
@@ -224,35 +164,9 @@ body {
   border-left: 3px solid var(--ice);
 }
 
-/* KAIROS-T-0109: the repository lens — toggle chips above the lanes. */
+/* KAIROS-T-0109: the repository lens — Aurora chips above the lanes. */
 .kairos-board__lens {
   margin-bottom: var(--space-sm);
-}
-
-.kairos-board__lens-chip {
-  font: inherit;
-  font-size: var(--fs-xs);
-  padding: 2px var(--space-sm);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--fg-2);
-  cursor: pointer;
-}
-
-.kairos-board__lens-chip:hover {
-  color: var(--fg-bright);
-}
-
-.kairos-board__lens-chip--on {
-  border-color: var(--ice);
-  color: var(--ice);
-}
-
-/* KAIROS-T-0114: the "Clear" chip — present whenever a lens query param
-   is set, so a stale selection always has a visible way out. */
-.kairos-board__lens-chip--clear {
-  border-style: dashed;
 }
 
 /* An empty Support lane renders slim but its columns stay droppable. */
@@ -292,7 +206,7 @@ body {
    columns its transitions allow light up as drop targets. */
 .kairos-board__column--droppable {
   border-color: var(--ice);
-  background: var(--panel-2);
+  background: var(--ice-bg);
 }
 
 .kairos-card--dragging {
@@ -339,46 +253,10 @@ body {
   text-decoration: underline;
 }
 
-/* Copy-link button (KAIROS-T-0076): sits beside a short code on cards
-   and the item detail header. */
-.kairos-copy-link {
-  background: none;
-  border: none;
-  color: var(--fg-2);
-  cursor: pointer;
-  font-size: var(--fs-xs);
-  line-height: 1;
-  padding: 0;
-}
-
-.kairos-copy-link:hover {
-  color: var(--ice);
-}
-
-/* Page-level mutation-error banner (fixed to the viewport bottom so it
-   survives the scrolling board row). */
-.kairos-board-notice {
-  position: fixed;
-  bottom: var(--space-md);
-  right: var(--space-md);
-  z-index: 10;
-  max-width: 480px;
-}
-
-/* The notice after a request (COLLIERY-T-0232): in the flow of the page,
-   above the lanes, so that it does not cover the error banner. */
-.kairos-board__sent {
+/* The notices above the lanes (COLLIERY-T-0232, COLLIERY-T-0261): in the
+   flow of the page. A failed mutation is an Aurora toast. */
+.kairos-board__notice {
   margin-bottom: var(--space-sm);
-}
-
-.kairos-board-notice__dismiss {
-  margin-left: var(--space-sm);
-  background: none;
-  border: none;
-  color: var(--fg-2);
-  cursor: pointer;
-  font-size: var(--fs-xs);
-  text-decoration: underline;
 }
 
 /* ===== Item detail (KAIROS-T-0041) — tokens only ===== */
@@ -392,25 +270,21 @@ body {
   margin-top: var(--space-sm);
 }
 
-.kairos-item__notice {
-  margin-bottom: var(--space-sm);
-}
-
 .kairos-editor {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-/* The markdown source editor (raw textarea: the aurora Textarea binds an
-   RwSignal but this page needs the mono/size treatment; .cl-* classes are
-   never restyled, so this is an app-owned control). */
+/* The markdown source editor: a Kairos-only control (the toolbar inserts
+   at the cursor, so it needs its own element). The field token is the
+   surface of each Aurora input, in the two themes. */
 .kairos-editor__textarea {
   width: 100%;
   min-height: 340px;
   box-sizing: border-box;
   padding: var(--space-sm);
-  background: var(--inset);
+  background: var(--field);
   border: 1px solid var(--border-control);
   border-radius: var(--radius-md);
   color: var(--fg);
@@ -504,44 +378,6 @@ body {
   overflow-y: auto;
 }
 
-/* App-owned dialog (the aurora Modal is capped at 520px; the merge UI and
-   template picker need side-by-side room — .cl-* stays untouched). */
-.kairos-dialog__backdrop {
-  position: fixed;
-  inset: 0;
-  background: var(--inset);
-  opacity: 0.8;
-  z-index: 100;
-}
-
-.kairos-dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 101;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 6vh 24px;
-  overflow-y: auto;
-  pointer-events: none;
-}
-
-.kairos-dialog__box {
-  pointer-events: auto;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  width: min(1060px, 100%);
-  padding: var(--space-md);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.kairos-dialog__box--narrow {
-  width: min(560px, 100%);
-}
-
 /* Metadata panel rows. */
 .kairos-metadata {
   display: flex;
@@ -549,10 +385,16 @@ body {
   gap: var(--space-sm);
 }
 
+/* One field: an Aurora input with its label; the type pill sits at the
+   right of the label row. */
 .kairos-metadata__field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  position: relative;
+}
+
+.kairos-metadata__type {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 /* Relationships summary groups. */
@@ -580,13 +422,6 @@ body {
   gap: var(--space-sm);
 }
 
-/* Cascade pills wrap (delete dialog). */
-.kairos-delete__cascade {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 /* Team documentation tree (KAIROS-T-0085): native disclosure nesting. */
 .kairos-doctree__folder {
   border-left: 1px solid var(--border-fainter);
@@ -602,150 +437,16 @@ body {
   padding: var(--space-xs) 0 0 var(--space-sm);
 }
 
-/* Focal flight-level graph (KAIROS-T-0089). Red deliberately unused.
- *
- * KAIROS-T-0163 corrected the custom-property NAMES in this block. They
- * were `--surface`/`--surface-raised`/`--text`/`--text-bright`/
- * `--text-dimmed`, none of which aurora-dark defines — an undefined var
- * makes the declaration invalid at computed-value time, and `fill` is
- * inherited, so every box and label fell back to initial black. The
- * conventions grep only bans raw literals, so it never caught it. The
- * real tokens are `--panel`/`--panel-2`/`--fg`/`--fg-bright`/`--muted`.
- */
+/* Focal flight-level graph (KAIROS-T-0089): the Aurora Dag draws it,
+   with its own tokens (COLLIERY-T-1836). The wrapper only scrolls a wide
+   graph on a narrow screen. */
 .kairos-graph {
   overflow-x: auto;
 }
 
-.kairos-graph__header {
-  fill: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.kairos-graph__lane {
-  fill: var(--panel-2);
-  stroke: var(--border-fainter);
-}
-
-.kairos-graph__lane-label {
-  fill: var(--muted);
-  font-size: 10px;
-  font-family: var(--font-mono);
-}
-
-.kairos-graph__box {
-  fill: var(--panel);
-  stroke-width: 1.5;
-  cursor: pointer;
-}
-
-.kairos-graph__node--focus .kairos-graph__box {
-  stroke-width: 3;
-}
-
-/* A put-away node (KAIROS-T-0163 / ADR-20). The subgraph is
-   archived-inclusive since KAIROS-T-0158, so an archived neighbour is
-   DRAWN — and drawing it as live is the one wrong answer. Its box sinks
-   to the inset surface and gains the gold "put away" label below; the
-   entity-color stroke stays, because it is still that kind of item. */
-.kairos-graph__node--put-away .kairos-graph__box {
-  fill: var(--inset);
-  stroke-opacity: 0.55;
-}
-
-.kairos-graph__put-away {
-  fill: var(--gold);
-  font-size: 10px;
-  text-anchor: end;
-  pointer-events: none;
-}
-
-.kairos-graph__code {
-  fill: var(--fg-bright);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.kairos-graph__title {
-  fill: var(--fg);
-  font-size: 12px;
-  pointer-events: none;
-}
-
-.kairos-graph__status {
-  fill: var(--muted);
-  font-size: 10px;
-  pointer-events: none;
-}
-
-.kairos-graph__edge,
-.kairos-graph__legend-line {
-  fill: none;
-  stroke: var(--muted);
-  stroke-width: 1.5;
-}
-
-.kairos-graph__edge--hot {
-  stroke: var(--fg-bright);
-  stroke-width: 2.5;
-}
-
-.kairos-graph__arrowhead {
-  fill: var(--muted);
-}
-
-/* A resolved `blocks` arrow (COLLIERY-T-0233): an end of the edge is in a
-   done column, so the edge is history and not a blocker (the rule of
-   COLLIERY-T-0214). The arrow stays on the canvas, fainter and dashed. The
-   dash carries the difference for a reader who cannot see the colour. The
-   hot style keeps the dash, so a hover does not make it an open blocker. */
-.kairos-graph__edge--resolved,
-.kairos-graph__legend-line--resolved {
-  stroke: var(--faint);
-  stroke-dasharray: 5 4;
-}
-
-.kairos-graph__edge--resolved.kairos-graph__edge--hot {
-  stroke: var(--fg-2);
-}
-
-.kairos-graph__arrowhead--resolved {
-  fill: var(--faint);
-}
-
-/* The "done" mark of a node in a done column (COLLIERY-T-0233), in the
-   colour of the done badge on the relationship list. */
-.kairos-graph__done {
-  fill: var(--ok);
-  font-size: 10px;
-  text-anchor: end;
-  pointer-events: none;
-}
-
-.kairos-graph__legend {
-  margin-bottom: var(--space-xs);
-}
-
-.kairos-graph__legend-sample {
-  flex: none;
-}
-
-.kairos-graph__more {
-  cursor: pointer;
-}
-
-.kairos-graph__more circle {
-  fill: var(--panel-2);
-  stroke: var(--border-fainter);
-}
-
-.kairos-graph__more text {
-  fill: var(--fg-bright);
-  font-size: 10px;
-  text-anchor: middle;
+/* A short code in a table cell stays on one line. */
+.kairos-code {
+  white-space: nowrap;
 }
 
 /* Dependency badges on cards (KAIROS-T-0091): plain link chrome off. */

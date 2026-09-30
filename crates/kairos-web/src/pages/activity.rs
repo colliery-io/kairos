@@ -39,9 +39,11 @@
 use std::collections::HashMap;
 
 use aurora_dark::components::{
-    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Modal, PageHeader, Panel, Pill,
-    Select, Stack, Table, Text, TextInput,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
+    Stack, Table, Text, TextInput,
 };
+use aurora_dark::data::{CodeBlock, Pagination, RelativeTime};
+use aurora_dark::frame::{ConfirmDialog, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
@@ -634,7 +636,7 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
         .map(|entry| {
             let color = action_color(&entry.action).to_string();
             let actor = actor_label(&names, &entry.actor_id);
-            let when = format_when(&entry.occurred_at);
+            let when = entry.occurred_at.clone();
             // COLLIERY-T-0262: the link comes from the entry. An entry
             // with no item says why it has no link.
             let entity = match entity_cell(&entry) {
@@ -644,8 +646,8 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
                     title,
                     archived,
                 } => view! {
-                    <Group gap="xs">
-                        <Anchor href=href>{short_code}</Anchor>
+                    <Group gap="xs" wrap=true>
+                        <span class="kairos-code"><Anchor href=href>{short_code}</Anchor></span>
                         {archived.then(|| view! {
                             <span class="kairos-archived-badge">
                                 <Pill color=token::GOLD>"put away"</Pill>
@@ -665,7 +667,7 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
             };
             view! {
                 <tr>
-                    <td><Text mono=true size="xs">{when}</Text></td>
+                    <td><Text size="xs"><RelativeTime iso=when/></Text></td>
                     <td><Text size="sm">{actor}</Text></td>
                     <td><Pill color=color>{entry.action}</Pill></td>
                     <td>{entity}</td>
@@ -675,7 +677,7 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
         })
         .collect_view();
     view! {
-        <Table>
+        <Table label="Activity feed" min_width="720px">
             <thead>
                 <tr>
                     <th>"When"</th>
@@ -690,43 +692,25 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
     }
 }
 
-/// Offset pagination controls under the feed table.
+/// Offset pagination under the feed table: the Aurora `Pagination`
+/// (COLLIERY-T-1836), and the sentence of COLLIERY-T-0258 that says which
+/// part of the feed the page shows.
 #[component]
 fn FeedPager(page: ListEnvelope<ActivityEntry>, applied: RwSignal<FeedFilters>) -> impl IntoView {
-    let shown_to = page.offset + page.items.len() as i64;
-    let total = page.total;
     // COLLIERY-T-0258: the feed has no bound, so the page shows a part of
     // it and says which part.
-    let range = api::page_range_note(page.offset, page.items.len(), total);
-    let no_prev = page.offset == 0;
-    let no_next = shown_to >= total;
-    let prev_offset = (page.offset - PAGE_SIZE).max(0);
-    let next_offset = page.offset + PAGE_SIZE;
-    let go = move |offset: i64| {
-        applied.update(|filters| filters.offset = offset);
-    };
+    let range = api::page_range_note(page.offset, page.items.len(), page.total);
+    let offset = RwSignal::new(usize::try_from(page.offset).unwrap_or(0));
+    let limit = RwSignal::new(usize::try_from(PAGE_SIZE).unwrap_or(25));
+    let total = usize::try_from(page.total).unwrap_or(0);
+    let go = Callback::new(move |(to, _): (usize, usize)| {
+        applied.update(|filters| filters.offset = i64::try_from(to).unwrap_or(0));
+    });
     view! {
-        <Group justify="between">
+        <Stack gap="xs">
             <Text dimmed=true size="xs">{range}</Text>
-            <Group gap="xs">
-                <Button
-                    variant="default"
-                    size="xs"
-                    disabled=no_prev
-                    on_click=Callback::new(move |()| go(prev_offset))
-                >
-                    "Previous"
-                </Button>
-                <Button
-                    variant="default"
-                    size="xs"
-                    disabled=no_next
-                    on_click=Callback::new(move |()| go(next_offset))
-                >
-                    "Next"
-                </Button>
-            </Group>
-        </Group>
+            <Pagination offset limit total=total on_change=go/>
+        </Stack>
     }
 }
 
@@ -743,10 +727,10 @@ struct DiffView {
     content_lines: Vec<DiffLine>,
 }
 
-/// The outcome banner state after a rollback attempt.
+/// The outcome banner state after a rollback attempt that did not work.
+/// A rollback that works is a toast (COLLIERY-T-1836).
 #[derive(Clone, Debug, PartialEq)]
 enum RollbackNotice {
-    Done { from: i32, new_version: i32 },
     Conflict(String),
     Failed(String),
 }
@@ -825,6 +809,7 @@ pub fn ItemHistoryPage() -> impl IntoView {
     let rollback_target = RwSignal::new(None::<i32>);
     let rollback_busy = RwSignal::new(false);
     let notice = RwSignal::new(None::<RollbackNotice>);
+    let toaster = use_toaster();
     let run_rollback = move || {
         if rollback_busy.get_untracked() {
             return; // re-entrancy guard (the confirm button stays visible)
@@ -834,16 +819,16 @@ pub fn ItemHistoryPage() -> impl IntoView {
         };
         let code = code.get_untracked();
         rollback_busy.set(true);
+        notice.set(None);
         leptos::task::spawn_local(async move {
             let outcome = rollback(auth, code, version).await;
             rollback_busy.set(false);
             confirm_open.set(false);
             match outcome {
                 Ok(new_version) => {
-                    notice.set(Some(RollbackNotice::Done {
-                        from: version,
-                        new_version,
-                    }));
+                    toaster.success(format!(
+                        "Kairos copied version v{version} to the new version v{new_version}."
+                    ));
                     // Server state is the source of truth: refetch.
                     refresh.update(|n| *n += 1);
                 }
@@ -927,13 +912,6 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 }
             }}
             {move || notice.get().map(|state| match state {
-                RollbackNotice::Done { from, new_version } => view! {
-                    <Banner color=token::OK icon="✓">
-                        {format!(
-                            "Kairos copied version v{from} to the new version v{new_version}."
-                        )}
-                    </Banner>
-                }.into_any(),
                 RollbackNotice::Conflict(message) => view! {
                     <Alert title="Version conflict (409)" color=token::GOLD>
                         <Text size="sm">
@@ -1025,33 +1003,35 @@ pub fn ItemHistoryPage() -> impl IntoView {
                     );
                     view! {
                         <Panel title=format!("Snapshot v{}: {}", snap.version, snap.title) caption=caption>
-                            <pre style="margin:0;white-space:pre-wrap;font-family:var(--font-mono);font-size:var(--fs-sm);color:var(--fg);">
-                                {snap.content.clone()}
-                            </pre>
+                            <CodeBlock
+                                code=snap.content.clone()
+                                wrap=true
+                                max_height="480px"
+                                label=format!("Snapshot v{}", snap.version)
+                            />
                         </Panel>
                     }.into_any()
                 }
             }}
         </Stack>
-        <Modal open=confirm_open title="Roll back?">
-            <Stack gap="sm">
-                <Text size="sm">
-                    {move || format!(
-                        "A rollback copies the snapshot v{} to a new version. The history \
-                         keeps each version, and Kairos deletes nothing.",
-                        rollback_target.get().unwrap_or_default()
-                    )}
-                </Text>
-                <Group gap="sm">
-                    <Button on_click=Callback::new(move |()| run_rollback())>
-                        {move || if rollback_busy.get() { "Rolling back…" } else { "Roll back" }}
-                    </Button>
-                    <Button variant="default" on_click=Callback::new(move |()| confirm_open.set(false))>
-                        "Cancel"
-                    </Button>
-                </Group>
-            </Stack>
-        </Modal>
+        // COLLIERY-T-1836: an Aurora `ConfirmDialog` (not a danger: a
+        // rollback deletes nothing).
+        <ConfirmDialog
+            open=confirm_open
+            title="Roll back?"
+            confirm_label="Roll back"
+            danger=false
+            busy=rollback_busy
+            on_confirm=Callback::new(move |()| run_rollback())
+        >
+            <Text size="sm">
+                {move || format!(
+                    "A rollback copies the snapshot v{} to a new version. The history \
+                     keeps each version, and Kairos deletes nothing.",
+                    rollback_target.get().unwrap_or_default()
+                )}
+            </Text>
+        </ConfirmDialog>
     }
 }
 
@@ -1090,7 +1070,7 @@ fn VersionsTable(
             let version = row.version;
             let is_current = current == Some(version);
             let editor = actor_label(&names, &row.edited_by);
-            let when = format_when(&row.edited_at);
+            let when = row.edited_at.clone();
             view! {
                 <tr>
                     <td>
@@ -1100,7 +1080,7 @@ fn VersionsTable(
                         </Group>
                     </td>
                     <td><Text size="sm">{editor}</Text></td>
-                    <td><Text mono=true size="xs">{when}</Text></td>
+                    <td><Text size="xs"><RelativeTime iso=when/></Text></td>
                     <td>
                         <input
                             type="radio"
@@ -1143,7 +1123,7 @@ fn VersionsTable(
         })
         .collect_view();
     view! {
-        <Table>
+        <Table label="Versions">
             <thead>
                 <tr>
                     <th>"Version"</th>

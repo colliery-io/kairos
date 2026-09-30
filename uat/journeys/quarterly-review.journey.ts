@@ -46,7 +46,7 @@ journey(
         page.locator('section.kairos-board-band').filter({ hasText: label });
       const counts: Record<string, number> = {};
       for (const label of ['Strategy', 'Initiatives', 'Delivery']) {
-        counts[label] = await bandOf(label).first().locator('a.kairos-board-tile').count();
+        counts[label] = await bandOf(label).first().locator('.kairos-board-tile a').count();
         expect(counts[label], `the ${label} band has boards`).toBeGreaterThan(0);
       }
       // A portfolio review only works if delivery is fanned out under one
@@ -205,15 +205,18 @@ journey(
       // which is where the chain is legible.
       await pill.click();
       await page.waitForURL(/view=graph/);
-      // SVG `<text>` has no innerText — read text content, and wait for the
-      // canvas to draw before counting anything on it.
-      const drawn = page.locator('text.kairos-graph__code');
+      // Wait for the canvas to draw before counting anything on it. The
+      // canvas is the Aurora `Dag` (COLLIERY-T-1836): the `data-id` of a
+      // node is its short code.
+      const drawn = page.locator('.cl-dag__node');
       await expect(drawn.first()).toBeVisible();
-      const codes = (await drawn.allTextContents()).map((c) => c.trim());
+      const codes = await drawn.evaluateAll((nodes) =>
+        nodes.map((n) => (n.getAttribute('data-id') ?? '').trim()),
+      );
       expect(codes).toContain(blocked);
       expect(codes).toContain(blocker);
       // `blocks` is the only relationship the canvas draws as an arrow.
-      expect(await page.locator('path.kairos-graph__edge').count()).toBeGreaterThan(0);
+      expect(await page.locator('svg.cl-dag path.cl-dag__edge').count()).toBeGreaterThan(0);
       return {
         team_boards_read: delivery.length,
         teams: teams.length,

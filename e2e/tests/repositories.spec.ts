@@ -121,11 +121,11 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await expect(page.locator('[data-testid="group-by-repo"]')).toBeVisible();
 
     const chipsBefore = await page.locator('article.kairos-card').count();
-    await lens.locator('.kairos-board__lens-chip[data-repo="platform-infra"]').click();
+    await lens.locator('.cl-chip[data-repo="platform-infra"]').click();
     await expect(page).toHaveURL(/repo=platform-infra/);
     await expect(
-      lens.locator('.kairos-board__lens-chip[data-repo="platform-infra"]'),
-    ).toHaveClass(/--on/);
+      lens.locator('.cl-chip[data-repo="platform-infra"]'),
+    ).toHaveClass(/cl-chip--active/);
     // Only infra-bound tasks (plus non-task cards) remain.
     await expect(page.locator('.kairos-card__repo[data-repo="payments-api"]')).toHaveCount(0);
     await expect(page.locator('.kairos-card__repo[data-repo="platform-infra"]').first()).toBeVisible();
@@ -136,12 +136,12 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     // The selection survives a reload — it is URL state.
     await page.reload();
     await expect(
-      page.locator('[data-testid="repo-lens"] .kairos-board__lens-chip[data-repo="platform-infra"]'),
-    ).toHaveClass(/--on/);
+      page.locator('[data-testid="repo-lens"] .cl-chip[data-repo="platform-infra"]'),
+    ).toHaveClass(/cl-chip--active/);
     await expect(page.locator('.kairos-card__repo[data-repo="payments-api"]')).toHaveCount(0);
 
     // Clear it, then group by repository: one lane per repo + the remainder.
-    await page.locator('[data-testid="repo-lens"] .kairos-board__lens-chip[data-repo="platform-infra"]').click();
+    await page.locator('[data-testid="repo-lens"] .cl-chip[data-repo="platform-infra"]').click();
     await expect(page).not.toHaveURL(/repo=/);
     await page.locator('[data-testid="group-by-repo"]').click();
     await expect(page).toHaveURL(/by_repo=1/);
@@ -328,10 +328,11 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     // the platform board.
     await control.locator('select').selectOption('portal-web');
     await control.getByRole('button', { name: 'Set repository' }).click();
-    await expect(page.locator('.kairos-item__notice')).toContainText(
-      'Repository set to portal-web.',
-      { timeout: 10_000 },
-    );
+    // COLLIERY-T-1836: the notice is an Aurora toast; an earlier toast can
+    // still be on the screen, so the check names the text.
+    await expect(
+      page.locator('.cl-toast', { hasText: 'Repository set to portal-web.' }).last(),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.cl-pill', { hasText: 'repo: portal-web' })).toBeVisible({
       timeout: 10_000,
     });
@@ -364,9 +365,9 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await expect(picker.locator('option', { hasText: 'Platform Delivery' })).toHaveCount(0);
     await picker.selectOption('web-delivery');
     await mover.getByRole('button', { name: 'Move board' }).click();
-    await expect(page.locator('.kairos-item__notice')).toContainText('Moved to Web Delivery.', {
-      timeout: 10_000,
-    });
+    await expect(
+      page.locator('.cl-toast', { hasText: 'Moved to Web Delivery.' }).last(),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.locator('.cl-pill', { hasText: 'repo: payments-api' })).toBeVisible();
     // Back to platform's board over the API, for the steps that follow.
     await moveTask(GUI, alice, filedCode, 'platform-delivery');
@@ -382,9 +383,9 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await expect(boardPanel).toContainText('Platform Delivery');
     await boardPanel.locator('[data-testid="move-board"] select').selectOption('web-delivery');
     await boardPanel.getByRole('button', { name: 'Move board' }).click();
-    await expect(page.locator('.kairos-item__notice')).toContainText('Moved to Web Delivery.', {
-      timeout: 10_000,
-    });
+    await expect(
+      page.locator('.cl-toast', { hasText: 'Moved to Web Delivery.' }).last(),
+    ).toBeVisible({ timeout: 10_000 });
     await expect(boardPanel.getByRole('link', { name: 'Web Delivery' })).toBeVisible();
     await expect(boardPanel.locator('.cl-pill', { hasText: 'Backlog' })).toBeVisible();
 

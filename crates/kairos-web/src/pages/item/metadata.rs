@@ -12,11 +12,11 @@
 
 use std::collections::BTreeMap;
 
-use aurora_dark::components::{Alert, Empty, ErrorState, Group, Loading, Panel, Pill, Text};
+use aurora_dark::components::{
+    Alert, Button, Empty, ErrorState, Group, Loading, Panel, Pill, Select, Text, TextInput,
+};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
-
-use wasm_bindgen::JsCast;
 
 use super::api::{self, Family, MetadataDefinition, MetadataValue};
 use crate::auth::use_auth;
@@ -132,9 +132,12 @@ fn MetadataForm(
         RwSignal::new(values.iter().map(|value| value.slug.clone()).collect());
 
     // Choosing a definition in the picker reveals its (empty) editor row;
-    // the value only reaches the server on save.
-    let on_pick = move |e: web_sys::Event| {
-        let choice = event_target_value(&e);
+    // the value only reaches the server on save. The picker is an Aurora
+    // `Select` (COLLIERY-T-1836) bound to `pick`; the change handler puts
+    // it back on its placeholder, so the next add is a fresh change. A
+    // handler, not an Effect: no reactive re-entry (T-0078 review).
+    let pick = RwSignal::new(ADD_PLACEHOLDER.to_string());
+    let on_pick = Callback::new(move |choice: String| {
         if choice == ADD_PLACEHOLDER {
             return;
         }
@@ -150,21 +153,14 @@ fn MetadataForm(
                 }
             });
         }
-        // Reset the picker to its placeholder so the next add is a fresh
-        // change event (the node survives the option-list re-render).
-        if let Some(select) = e
-            .target()
-            .and_then(|target| target.dyn_into::<web_sys::HtmlSelectElement>().ok())
-        {
-            select.set_value(ADD_PLACEHOLDER);
-        }
-    };
+        pick.set(ADD_PLACEHOLDER.to_string());
+    });
 
     // Hidden rows are never dirty (draft == original == server value).
     let dirty =
         move || all_rows.with_value(|rows| rows.iter().any(|row| row.draft.get() != row.original));
 
-    let save = move |_| {
+    let save = move |_: ()| {
         if saving.get_untracked() {
             return;
         }
@@ -243,14 +239,7 @@ fn MetadataForm(
                     let mut options = vec![ADD_PLACEHOLDER.to_string()];
                     options.extend(available);
                     view! {
-                        <div class="cl-field">
-                            <select class="cl-input cl-select" on:change=on_pick>
-                                {options.into_iter().map(|option| {
-                                    let label = option.clone();
-                                    view! { <option value=option>{label}</option> }
-                                }).collect_view()}
-                            </select>
-                        </div>
+                        <Select options value=pick on_change=on_pick/>
                     }
                 })
             }}})}
@@ -263,13 +252,15 @@ fn MetadataForm(
                         "Blank clears a field. Last write wins (not versioned, A-0004)."
                     }}
                 </Text>
-                <button
-                    class="cl-btn cl-btn--filled cl-btn--xs"
-                    disabled=move || read_only || saving.get() || !dirty()
-                    on:click=save
+                <Button
+                    size="xs"
+                    disabled=move || read_only || !dirty()
+                    loading=saving
+                    loading_label="Saving…"
+                    on_click=Callback::new(save)
                 >
-                    {move || if saving.get() { "Saving…" } else { "Save metadata" }}
-                </button>
+                    "Save metadata"
+                </Button>
             </Group>
         </div>
     }
@@ -288,60 +279,40 @@ fn FieldEditor(row: FieldRow, read_only: bool) -> impl IntoView {
         "date" => ("date", token::TEAL),
         _ => ("string", token::ICE),
     };
+    // COLLIERY-T-1836: the Aurora fields, each with its label pointing to
+    // its control. The type pill sits at the right of the label row.
+    let name = definition.name.clone();
     let editor = match definition.field_type.as_str() {
         "enum" => {
             // "" is the explicit unset choice; the rest come from the
             // definition, in its display order.
-            let options: Vec<String> = std::iter::once(String::new())
-                .chain(definition.enum_options.iter().cloned())
+            let options: Vec<(String, String)> = std::iter::once((String::new(), "—".to_string()))
+                .chain(
+                    definition
+                        .enum_options
+                        .iter()
+                        .map(|o| (o.clone(), o.clone())),
+                )
                 .collect();
-            let options_view = options
-                .into_iter()
-                .map(|option| {
-                    let label = if option.is_empty() { "—".to_string() } else { option.clone() };
-                    view! { <option value=option.clone() selected=move || draft.get() == option>{label}</option> }
-                })
-                .collect_view();
             view! {
-                <select
-                    class="cl-input cl-select"
-                    disabled=read_only
-                    prop:value=move || draft.get()
-                    on:change=move |e| draft.set(event_target_value(&e))
-                >
-                    {options_view}
-                </select>
+                <Select label=name option_pairs=options value=draft disabled=read_only/>
             }
             .into_any()
         }
         "date" => view! {
-            <input
-                class="cl-input"
-                type="date"
-                disabled=read_only
-                prop:value=move || draft.get()
-                on:input=move |e| draft.set(event_target_value(&e))
-            />
+            <TextInput label=name input_type="date" value=draft disabled=read_only/>
         }
         .into_any(),
         _ => view! {
-            <input
-                class="cl-input"
-                type="text"
-                placeholder="—"
-                disabled=read_only
-                prop:value=move || draft.get()
-                on:input=move |e| draft.set(event_target_value(&e))
-            />
+            <TextInput label=name placeholder="—" value=draft disabled=read_only/>
         }
         .into_any(),
     };
     view! {
         <div class="kairos-metadata__field">
-            <Group justify="between">
-                <label class="cl-field__label">{definition.name.clone()}</label>
+            <span class="kairos-metadata__type">
                 <Pill color=type_pill.1>{type_pill.0}</Pill>
-            </Group>
+            </span>
             {editor}
         </div>
     }

@@ -119,7 +119,9 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
     // delivery board of the team that owns the repository.
     const template = form.locator('[data-testid="repository-document-template"]');
     await expect(template.locator('option:checked')).toHaveText('Product Vision');
-    const owner = form.locator('[data-testid="repository-document-board"]');
+    // COLLIERY-T-1836: the test id is on the Aurora field; the control is
+    // the select in it.
+    const owner = form.locator('[data-testid="repository-document-board"] select');
     await expect(owner).toHaveValue(OWNER_BOARD);
 
     // A title is necessary.

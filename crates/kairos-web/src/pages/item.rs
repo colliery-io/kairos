@@ -30,6 +30,8 @@ use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
     Stack, Text,
 };
+use aurora_dark::data::{RelativeTime, Segment, SegmentedBar};
+use aurora_dark::frame::{TabItem, Tabs, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
@@ -83,21 +85,19 @@ pub fn ItemPage() -> impl IntoView {
             };
             match Family::of_short_code(&code) {
                 Some(family) => {
-                    let tabs = {
-                        view! {
-                            <Group gap="xs">
-                                <Anchor href=details_href>
-                                    <Pill color=if graph_mode { token::MUTED } else { token::ICE }>
-                                        "Details"
-                                    </Pill>
-                                </Anchor>
-                                <Anchor href=graph_href>
-                                    <Pill color=if graph_mode { token::ICE } else { token::MUTED }>
-                                        "Graph"
-                                    </Pill>
-                                </Anchor>
-                            </Group>
-                        }
+                    // COLLIERY-T-1836: Aurora route `Tabs` (links with
+                    // role="tab"); the query param selects the tab.
+                    let tab_value =
+                        RwSignal::new(if graph_mode { "graph" } else { "details" }.to_string());
+                    let tabs = view! {
+                        <Tabs
+                            tabs=vec![
+                                TabItem::new("details", "Details").href(details_href),
+                                TabItem::new("graph", "Graph").href(graph_href),
+                            ]
+                            value=tab_value
+                            label="Item views"
+                        />
                     };
                     if graph_mode {
                         view! {
@@ -135,9 +135,9 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
     let reload = RwSignal::new(0u32);
-    // Page-level transient notice (survives the refetch that recreates
-    // the loaded subtree).
-    let notice = RwSignal::new(None::<String>);
+    // Page-level transient notice (COLLIERY-T-1836: an Aurora toast, so it
+    // survives the refetch that recreates the loaded subtree).
+    let toaster = use_toaster();
 
     let detail = LocalResource::new(move || {
         let _ = auth.token();
@@ -146,29 +146,17 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
     });
     let retry = Callback::new(move |_| reload.update(|n| *n += 1));
     let on_saved = Callback::new(move |version: i32| {
-        notice.set(Some(format!("Saved — the item is now at v{version}.")));
+        toaster.success(format!("Saved — the item is now at v{version}."));
         reload.update(|n| *n += 1);
     });
     // The move/lane controls' success path (KAIROS-T-0075/T-0077): the
     // item changed server-side; show the control's message and refetch.
     let on_moved = Callback::new(move |message: String| {
-        notice.set(Some(message));
+        toaster.success(message);
         reload.update(|n| *n += 1);
     });
 
     view! {
-        {move || notice.get().map(|message| view! {
-            <div class="kairos-item__notice">
-                <Banner color=token::OK icon="✓">
-                    <Group justify="between">
-                        <Text size="sm">{message}</Text>
-                        <Button variant="default" size="xs" on_click=Callback::new(move |_| notice.set(None))>
-                            "Dismiss"
-                        </Button>
-                    </Group>
-                </Banner>
-            </div>
-        })}
         {move || match detail.get() {
             None => view! { <Loading label="Loading item…"/> }.into_any(),
             Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
@@ -697,28 +685,24 @@ fn ChildrenProgressBar(family: Family, #[prop(into)] code: String) -> impl IntoV
     view! {
         {move || match progress.get() {
             Some(Ok(p)) if p.total > 0 => {
-                let total = p.total;
                 let label = if p.has_done_columns {
                     format!("{} of {} done", p.done, p.total)
                 } else {
                     format!("{} children", p.total)
                 };
+                // COLLIERY-T-1836: the Aurora `SegmentedBar`: one part per
+                // column, a done column in the ok hue, the others neutral.
+                let segments: Vec<Segment> = p
+                    .by_column
+                    .iter()
+                    .map(|column| {
+                        let color = if column.is_done { token::OK } else { token::MUTED };
+                        Segment::new(column.column_name.clone(), column.count as f64, color)
+                    })
+                    .collect();
                 view! {
                     <div class="kairos-progress">
-                        <div class="kairos-progress__track">
-                            {p.by_column.iter().map(|column| {
-                                let width =
-                                    (column.count as f64 / total as f64 * 100.0).max(3.0);
-                                view! {
-                                    <span
-                                        class="kairos-progress__segment"
-                                        class:kairos-progress__segment--done=column.is_done
-                                        style=format!("width: {width:.1}%")
-                                        title=format!("{}: {}", column.column_name, column.count)
-                                    ></span>
-                                }
-                            }).collect_view()}
-                        </div>
+                        <SegmentedBar segments label="Children by column" height=6/>
                         <Text dimmed=true size="xs">{label}</Text>
                     </div>
                 }.into_any()
@@ -767,7 +751,7 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
             .into_iter()
             .map(|(label, color)| view! { <Pill color=color>{label}</Pill> })
             .collect_view()}
-        <Text size="xs" dimmed=true>{format!("updated {}", item.updated_at)}</Text>
+        <Text size="xs" dimmed=true>"updated " <RelativeTime iso=item.updated_at.clone()/></Text>
     }
 }
 
@@ -1040,27 +1024,16 @@ fn RepositoryControl(
                     view! {
                         <Stack gap="xs">
                             <Group gap="sm">
-                                <div class="cl-field">
-                                    <label class="cl-field__label">"Repository"</label>
-                                    <select
-                                        class="cl-input cl-select"
-                                        prop:value=move || value.get()
-                                        on:change=move |e| value.set(event_target_value(&e))
-                                    >
-                                        {options.into_iter().map(|(slug, label)| view! {
-                                            <option value=slug>{label}</option>
-                                        }).collect_view()}
-                                    </select>
-                                </div>
-                                {move || {
-                                    let unchanged = value.get() == bound;
-                                    let disabled = busy.get() || unchanged;
-                                    view! {
-                                        <Button size="xs" disabled=disabled on_click=submit>
-                                            {if busy.get_untracked() { "Setting…" } else { "Set repository" }}
-                                        </Button>
-                                    }
-                                }}
+                                <Select label="Repository" option_pairs=options value=value/>
+                                <Button
+                                    size="xs"
+                                    disabled=move || value.get() == bound
+                                    loading=busy
+                                    loading_label="Setting…"
+                                    on_click=submit
+                                >
+                                    "Set repository"
+                                </Button>
                             </Group>
                         </Stack>
                     }.into_any()
@@ -1166,27 +1139,22 @@ fn MoveBoardControl(
         {move || (can_move.get() && !targets.with(Vec::is_empty)).then(|| view! {
             <div class="kairos-item__move-board" data-testid="move-board">
                 <Group gap="sm">
-                    <div class="cl-field">
-                        <label class="cl-field__label">"Board"</label>
-                        <select
-                            class="cl-input cl-select"
-                            prop:value=move || value.get()
-                            on:change=move |e| value.set(event_target_value(&e))
-                        >
-                            <option value=THIS_BOARD>{THIS_BOARD}</option>
-                            {move || targets.get().into_iter().map(|(slug, name)| view! {
-                                <option value=slug>{name}</option>
-                            }).collect_view()}
-                        </select>
-                    </div>
-                    {move || {
-                        let disabled = busy.get() || value.get() == THIS_BOARD;
-                        view! {
-                            <Button size="xs" disabled=disabled on_click=submit>
-                                {if busy.get_untracked() { "Moving…" } else { "Move board" }}
-                            </Button>
-                        }
-                    }}
+                    <Select
+                        label="Board"
+                        option_pairs=std::iter::once((THIS_BOARD.to_string(), THIS_BOARD.to_string()))
+                            .chain(targets.get())
+                            .collect()
+                        value=value
+                    />
+                    <Button
+                        size="xs"
+                        disabled=move || value.get() == THIS_BOARD
+                        loading=busy
+                        loading_label="Moving…"
+                        on_click=submit
+                    >
+                        "Move board"
+                    </Button>
                 </Group>
                 {move || error.get().map(|e| view! {
                     <Alert title="Could not move to that board" color=token::BAD>
@@ -1720,14 +1688,9 @@ fn DevelopmentPanel(family: Family, #[prop(into)] code: String) -> impl IntoView
                                     </Pill>
                                     // Leaves the app: open in a new tab and
                                     // sever the opener reference.
-                                    <a
-                                        class="cl-anchor"
-                                        href=link.url.clone()
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                    >
+                                    <Anchor href=link.url.clone() attr:target="_blank" attr:rel="noopener noreferrer">
                                         {label}
-                                    </a>
+                                    </Anchor>
                                 </Group>
                                 <Text mono=true dimmed=true size="xs">{repo}</Text>
                             </Group>

@@ -55,7 +55,7 @@ journey(
       const page = await bob.gui();
       await page.goto('/teams');
       // The directory is a grid of team tiles linking to /teams/<slug>.
-      const tile = page.locator(`a.kairos-board-tile[href="/teams/${TEAM}"]`);
+      const tile = page.locator(`.kairos-board-tile a[href="/teams/${TEAM}"]`);
       await expect(tile).toBeVisible();
       await tile.click();
       await page.waitForURL(new RegExp(`/teams/${TEAM}`));

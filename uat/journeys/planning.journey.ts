@@ -58,7 +58,8 @@ journey(
       await page.waitForURL(new RegExp(`/items/${initiative}`));
       await expect(page.getByText(initiative, { exact: true }).first()).toBeVisible();
       // The tab anchors are built from the resolved code, never an empty one.
-      const graphTab = page.getByRole('link', { name: 'Graph', exact: true });
+      // COLLIERY-T-1836: the Aurora route tabs are links with role="tab".
+      const graphTab = page.getByRole('tab', { name: 'Graph', exact: true });
       await expect(graphTab).toHaveAttribute('href', `/items/${initiative}?view=graph`);
       await graphTab.click();
       await page.waitForURL(/view=graph/);
@@ -102,12 +103,13 @@ journey(
     await step(alice, 'opens the Graph tab and sees the initiative, both tasks and the blocks edge', async () => {
       const page = await alice.gui();
       await page.goto(`/items/${initiative}?view=graph`);
-      await expect(page.locator('.kairos-graph__node--focus .kairos-graph__code')).toHaveText(initiative);
+      // COLLIERY-T-1836: the Aurora `Dag`; a node's `data-id` is its code.
+      await expect(page.locator('.cl-dag__node--current')).toHaveAttribute('data-id', initiative);
       for (const code of [bound, blocker]) {
-        await expect(page.locator('.kairos-graph__node', { has: page.locator('.kairos-graph__code', { hasText: code }) })).toBeVisible();
+        await expect(page.locator(`.cl-dag__node[data-id="${code}"]`)).toBeVisible();
       }
       // parent is drawn as containment (lanes); blocks is the one arrow.
-      await expect(page.locator('.kairos-graph__edge')).toHaveCount(1);
+      await expect(page.locator('svg.cl-dag path.cl-dag__edge')).toHaveCount(1);
       return { nodes: [initiative, bound, blocker], arrows: 'blocks ×1 (parent shown as containment)' };
     });
 

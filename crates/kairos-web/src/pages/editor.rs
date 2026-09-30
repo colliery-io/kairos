@@ -24,6 +24,7 @@ use std::rc::Rc;
 use aurora_dark::components::{
     ActionIcon, Alert, Button, Group, Panel, Pill, SegmentedControl, SimpleGrid, Text, TextInput,
 };
+use aurora_dark::frame::Modal;
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
@@ -124,6 +125,34 @@ pub fn MarkdownEditor(
     };
     let save = move |_| save_as(base_version.get_untracked());
 
+    // The merge dialog is open while there is a conflict. Its three ways
+    // out read the server copy at the time of the click.
+    let conflict_open = RwSignal::new(false);
+    Effect::new(move |_| conflict_open.set(conflict.with(Option::is_some)));
+    let keep_mine = Callback::new(move |_| {
+        if let Some(version) = conflict.with_untracked(|c| c.as_ref().map(|s| s.version)) {
+            save_as(version);
+        }
+    });
+    let take_theirs = Callback::new(move |_| {
+        if let Some(s) = conflict.get_untracked() {
+            title.set(s.title.clone());
+            content.set(s.content.clone());
+            orig_title.set(s.title.clone());
+            orig_content.set(s.content);
+            base_version.set(s.version);
+        }
+        conflict.set(None);
+        reference.set(None);
+    });
+    let merge_manually = Callback::new(move |_| {
+        if let Some(s) = conflict.get_untracked() {
+            base_version.set(s.version);
+            reference.set(Some(s));
+        }
+        conflict.set(None);
+    });
+
     // Toolbar insertion at the cursor (KAIROS-T-0086). Selection indexes
     // are UTF-16 code units, so splicing happens in UTF-16 space — byte
     // indexes would panic mid-codepoint on non-ASCII content.
@@ -175,15 +204,14 @@ pub fn MarkdownEditor(
                                 format!("editing v{}", base_version.get())
                             }}
                         </Pill>
-                        // Raw cl-btn: aurora Button's `disabled` prop is a
-                        // plain bool (not reactive) — LoginPage precedent.
-                        <button
-                            class="cl-btn cl-btn--filled"
-                            disabled=move || read_only || saving.get() || !dirty()
-                            on:click=move |_| save(())
+                        <Button
+                            disabled=move || read_only || !dirty()
+                            loading=saving
+                            loading_label="Saving…"
+                            on_click=Callback::new(save)
                         >
-                            {move || if saving.get() { "Saving…" } else { "Save" }}
-                        </button>
+                            "Save"
+                        </Button>
                     </Group>
                 </Group>
 
@@ -213,7 +241,7 @@ pub fn MarkdownEditor(
                     view! {
                         <TextInput label="Title" value=title/>
                         <Group justify="between">
-                            <label class="cl-field__label">"Content"</label>
+                            <label class="cl-field__label" for="kairos-editor-content">"Content"</label>
                             <Group gap="xs">
                                 {TOOLBAR.iter().map(|(label, tooltip, prefix, suffix, placeholder)| {
                                     view! {
@@ -229,6 +257,7 @@ pub fn MarkdownEditor(
                         </Group>
                         <textarea
                             class="kairos-editor__textarea"
+                            id="kairos-editor-content"
                             node_ref=textarea_ref
                             prop:value=move || content.get()
                             on:input=move |e| content.set(event_target_value(&e))
@@ -261,89 +290,64 @@ pub fn MarkdownEditor(
         </Panel>
 
         // ---- the 409 merge dialog ------------------------------------------
-        {move || conflict.get().map(|current| {
-            let server = StoredValue::new(current);
-            let keep_mine = Callback::new(move |_| {
-                save_as(server.with_value(|s| s.version));
-            });
-            let take_theirs = Callback::new(move |_| {
-                server.with_value(|s| {
-                    title.set(s.title.clone());
-                    content.set(s.content.clone());
-                    orig_title.set(s.title.clone());
-                    orig_content.set(s.content.clone());
-                    base_version.set(s.version);
-                });
-                conflict.set(None);
-                reference.set(None);
-            });
-            let merge_manually = Callback::new(move |_| {
-                server.with_value(|s| {
-                    base_version.set(s.version);
-                    reference.set(Some(s.clone()));
-                });
-                conflict.set(None);
-            });
-            view! {
-                <div class="kairos-dialog__backdrop"></div>
-                <div class="kairos-dialog" role="dialog" aria-modal="true">
-                    <div class="kairos-dialog__box">
-                        <Group justify="between">
-                            <Text bright=true bold=true>"Edit conflict"</Text>
-                            <Pill color=token::BAD>
-                                {server.with_value(|s| format!(
-                                    "server is at v{} — you edited v{}",
-                                    s.version,
-                                    base_version.get_untracked(),
-                                ))}
-                            </Pill>
-                        </Group>
-                        <Text size="sm" dimmed=true>
-                            "Someone saved this content while you were editing (KAIROS-A-0004). Nothing was overwritten — pick how to resolve; every path retries against the server's current version."
-                        </Text>
-                        <SimpleGrid cols=2>
-                            <Panel
-                                title=server.with_value(|s| format!("On the server — v{}", s.version))
-                                caption="theirs"
-                            >
-                                <Text size="sm" bright=true>{server.with_value(|s| s.title.clone())}</Text>
-                                <textarea
-                                    class="kairos-editor__textarea kairos-editor__textarea--pane"
-                                    readonly=true
-                                    prop:value=server.with_value(|s| s.content.clone())
-                                ></textarea>
-                            </Panel>
-                            <Panel
-                                title=format!("Your edit — based on v{}", base_version.get_untracked())
-                                caption="yours"
-                            >
-                                <Text size="sm" bright=true>{title.get_untracked()}</Text>
-                                <textarea
-                                    class="kairos-editor__textarea kairos-editor__textarea--pane"
-                                    readonly=true
-                                    prop:value=content.get_untracked()
-                                ></textarea>
-                            </Panel>
-                        </SimpleGrid>
-                        <Group gap="sm" justify="between">
-                            <Button variant="default" on_click=Callback::new(move |_| conflict.set(None))>
-                                "Cancel"
-                            </Button>
-                            <Group gap="sm">
-                                <Button variant="default" on_click=take_theirs>"Take theirs"</Button>
-                                <Button variant="default" on_click=merge_manually>"Merge manually"</Button>
-                                <button
-                                    class="cl-btn cl-btn--filled"
-                                    disabled=move || saving.get()
-                                    on:click=move |_| keep_mine.run(())
-                                >
-                                    {move || if saving.get() { "Saving…" } else { "Keep mine (overwrite)" }}
-                                </button>
-                            </Group>
-                        </Group>
-                    </div>
-                </div>
-            }
-        })}
+        // COLLIERY-T-1836: an Aurora `Modal` (xl, 1060px) replaces the local
+        // dialog. Escape, the scrim and × cancel, as the Cancel button
+        // does; the dialog is locked while a save runs.
+        <Modal
+            open=conflict_open
+            title="Edit conflict"
+            size="xl"
+            locked=saving
+            on_close=Callback::new(move |_| conflict.set(None))
+            footer=std::sync::Arc::new(move || view! {
+                <Button variant="default" on_click=Callback::new(move |_| conflict.set(None))>
+                    "Cancel"
+                </Button>
+                <Button variant="default" on_click=take_theirs>"Take theirs"</Button>
+                <Button variant="default" on_click=merge_manually>"Merge manually"</Button>
+                <Button loading=saving loading_label="Saving…" on_click=keep_mine>
+                    "Keep mine (overwrite)"
+                </Button>
+            }.into_any())
+        >
+            {move || conflict.get().map(|server| view! {
+                <Group justify="between">
+                    <Text size="sm" dimmed=true>
+                        "Someone saved this content while you were editing (KAIROS-A-0004). Nothing was overwritten — pick how to resolve; every path retries against the server's current version."
+                    </Text>
+                    <Pill color=token::BAD>
+                        {format!(
+                            "server is at v{} — you edited v{}",
+                            server.version,
+                            base_version.get_untracked(),
+                        )}
+                    </Pill>
+                </Group>
+                <SimpleGrid cols=2>
+                    <Panel
+                        title=format!("On the server — v{}", server.version)
+                        caption="theirs"
+                    >
+                        <Text size="sm" bright=true>{server.title.clone()}</Text>
+                        <textarea
+                            class="kairos-editor__textarea kairos-editor__textarea--pane"
+                            readonly=true
+                            prop:value=server.content.clone()
+                        ></textarea>
+                    </Panel>
+                    <Panel
+                        title=format!("Your edit — based on v{}", base_version.get_untracked())
+                        caption="yours"
+                    >
+                        <Text size="sm" bright=true>{title.get_untracked()}</Text>
+                        <textarea
+                            class="kairos-editor__textarea kairos-editor__textarea--pane"
+                            readonly=true
+                            prop:value=content.get_untracked()
+                        ></textarea>
+                    </Panel>
+                </SimpleGrid>
+            })}
+        </Modal>
     }
 }

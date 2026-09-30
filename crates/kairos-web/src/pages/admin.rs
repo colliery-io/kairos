@@ -33,6 +33,7 @@
 use aurora_dark::components::{
     Anchor, ErrorState, Group, Loading, PageHeader, Panel, SimpleGrid, Stack, Text,
 };
+use aurora_dark::frame::{TabItem, Tabs};
 use leptos::prelude::*;
 use leptos_router::components::Outlet;
 use leptos_router::hooks::use_location;
@@ -128,22 +129,10 @@ pub fn AdminNavLink() -> impl IntoView {
         let _ = auth.token();
         crate::api::whoami(auth)
     });
-    // Memo is Copy, so the per-render attribute closures below can each
-    // capture it without fighting over one captured `Location`.
-    let pathname = use_location().pathname;
     view! {
         {move || match whoami.get() {
             Some(Ok(me)) if gating::can_access(&me) => view! {
-                <a
-                    class="kairos-nav__link"
-                    href="/admin"
-                    aria-current=move || {
-                        let path = pathname.get();
-                        (path == "/admin" || path.starts_with("/admin/")).then_some("page")
-                    }
-                >
-                    "Admin"
-                </a>
+                <crate::app::NavLink href="/admin" label="Admin"/>
             }.into_any(),
             // Loading, error, or no admin access: no admin nav entry.
             _ => ().into_any(),
@@ -151,47 +140,49 @@ pub fn AdminNavLink() -> impl IntoView {
     }
 }
 
-/// Horizontal section tabs for the admin area (reuses the nav-link styling
-/// from app.css; `aria-current` drives the active state). Non-admins with a
-/// board-config grant see only Overview + Boards; the org-admin-only tabs
-/// (teams, streams, members, templates, metadata) render for admins only
-/// (KAIROS-T-0052).
+/// The section tabs of the admin area: Aurora route `Tabs`
+/// (COLLIERY-T-1836; links with `role="tab"`, the route selects the tab).
+/// Non-admins with a board-config grant see only Overview + Boards; the
+/// org-admin-only tabs (teams, streams, members, templates, metadata)
+/// render for admins only (KAIROS-T-0052).
 #[component]
 fn SectionTabs(is_admin: bool) -> impl IntoView {
     let pathname = use_location().pathname;
-    let tab = move |href: &'static str, label: &'static str| {
-        let current = move || {
-            let path = pathname.get();
-            let active = if href == "/admin" {
-                path == "/admin"
-            } else {
-                path == href || path.starts_with(&format!("{href}/"))
-            };
-            active.then_some("page")
-        };
-        view! {
-            <a class="kairos-nav__link" href=href aria-current=current>{label}</a>
-        }
-    };
-    let admin_only = is_admin.then(|| {
-        view! {
-            <>
-                {tab("/admin/teams", "Teams")}
-                {tab("/admin/streams", "Streams")}
-                {tab("/admin/repositories", "Repositories")}
-                {tab("/admin/members", "Members")}
-                {tab("/admin/templates", "Templates")}
-                {tab("/admin/metadata", "Metadata")}
-            </>
-        }
-    });
-    view! {
-        <Group gap="xs" wrap=true>
-            {tab("/admin", "Overview")}
-            {tab("/admin/boards", "Boards")}
-            {admin_only}
-        </Group>
+    let mut sections: Vec<(&'static str, &'static str)> =
+        vec![("/admin", "Overview"), ("/admin/boards", "Boards")];
+    if is_admin {
+        sections.extend([
+            ("/admin/teams", "Teams"),
+            ("/admin/streams", "Streams"),
+            ("/admin/repositories", "Repositories"),
+            ("/admin/members", "Members"),
+            ("/admin/templates", "Templates"),
+            ("/admin/metadata", "Metadata"),
+        ]);
     }
+    let hrefs: Vec<&'static str> = sections.iter().map(|(href, _)| *href).collect();
+    let current = move || {
+        let path = pathname.get();
+        hrefs
+            .iter()
+            .rev()
+            .find(|href| {
+                if **href == "/admin" {
+                    path == "/admin"
+                } else {
+                    path == **href || path.starts_with(&format!("{href}/"))
+                }
+            })
+            .map(|href| href.to_string())
+            .unwrap_or_default()
+    };
+    let value = RwSignal::new(current());
+    Effect::new(move |_| value.set(current()));
+    let tabs = sections
+        .into_iter()
+        .map(|(href, label)| TabItem::new(href, label).href(href))
+        .collect();
+    view! { <Tabs tabs value label="Admin sections"/> }
 }
 
 /// `/admin` — the overview: one card per admin surface. Non-admins with a

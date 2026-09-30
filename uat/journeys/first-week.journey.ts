@@ -33,7 +33,7 @@ journey(
       await expect(page.getByText('Strategy', { exact: true }).first()).toBeVisible();
       await expect(page.getByText('Initiatives', { exact: true }).first()).toBeVisible();
       await expect(bands.first()).toBeVisible();
-      const tiles = await page.locator('a.kairos-board-tile').count();
+      const tiles = await page.locator('.kairos-board-tile a').count();
       expect(tiles).toBeGreaterThan(0);
       const headings = await page.locator('body').innerText();
       const order = ['Strategy', 'Initiatives', 'Delivery'].map((b) => headings.indexOf(b));

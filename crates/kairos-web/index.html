@@ -3,11 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <title>Kairos</title>
     <!--
-      The Aurora Dark stylesheet is injected at runtime by <AuroraStyles/>
-      (see src/app.rs) — the documented CSR path with zero build hooks.
-      app.css carries the few Kairos-specific layout rules (tokens only).
+      Aurora THEME_INIT_SCRIPT (COLLIERY-T-1836), copied as it is. It sets
+      data-theme on <html> from the stored choice before the first paint, so
+      the page does not show the wrong theme while the WASM loads. It must
+      stay before the stylesheet. A unit test (src/app.rs) compares it with
+      the constant of the Aurora crate.
+    -->
+    <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"){var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t;}}catch(e){}})();</script>
+    <!--
+      The Aurora stylesheet is injected at runtime by <AuroraStyles/>
+      (see src/app.rs). app.css carries the Kairos-only rules (tokens only).
     -->
     <link data-trunk rel="css" href="app.css" />
     <link data-trunk rel="rust" data-wasm-opt="z" />

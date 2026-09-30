@@ -21,8 +21,8 @@
 //! COLLIERY-T-0265: the slug has its rule and its refusal too.
 
 use aurora_dark::components::{
-    Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
-    Text, TextInput,
+    Anchor, Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select,
+    Stack, Text, TextInput,
 };
 use aurora_dark::tokens::ApiError;
 use leptos::prelude::*;
@@ -397,9 +397,9 @@ fn RepositoryRow(
             <Group justify="between" wrap=true>
                 <Group gap="sm" wrap=true>
                     <Code>{code_slug}</Code>
-                    <a class="cl-anchor" href=repo_url target="_blank" rel="noopener noreferrer">
+                    <Anchor href=repo_url attr:target="_blank" attr:rel="noopener noreferrer">
                         {name}
-                    </a>
+                    </Anchor>
                     <Text dimmed=true size="sm">{owner}</Text>
                     <Text dimmed=true size="xs">{counts}</Text>
                     {has_webhook.then(|| view! { <Code>"webhooks"</Code> })}

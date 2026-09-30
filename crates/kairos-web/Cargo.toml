@@ -14,8 +14,9 @@ license.workspace = true
 # The binary selects the renderer (A-0015: CSR, no SSR).
 leptos = { workspace = true, features = ["csr"] }
 leptos_router = { workspace = true }
-# Aurora Dark design system (A-0015): tokens + components only — see
-# docs/gui-conventions.md for the "tokens only, no hardcoded colors" rule.
+# Aurora design system (A-0015; 0.4: light and dark theme, COLLIERY-T-1836):
+# tokens + components only — see docs/gui-conventions.md for the "tokens
+# only, no hardcoded colors" rule.
 aurora-dark = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -56,12 +57,6 @@ web-sys = { workspace = true, features = [
     # Drag-and-drop card transitions (KAIROS-T-0064)
     "DragEvent",
     "DataTransfer",
-    # Copy-link buttons (KAIROS-T-0076): async Clipboard API
-    "Navigator",
-    "Clipboard",
-    "MouseEvent",
-    # Metadata add-field picker reset (KAIROS-T-0078 review fix)
-    "HtmlSelectElement",
     # Markdown toolbar cursor insertion (KAIROS-T-0086)
     "HtmlTextAreaElement",
 ] }

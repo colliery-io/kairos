@@ -13,7 +13,8 @@
 //! The server decides the two lists; the words are [`left_heading`] and
 //! [`left_reason`].
 
-use aurora_dark::components::{Alert, Anchor, Button, ErrorState, Group, Loading, Pill, Text};
+use aurora_dark::components::{Alert, Anchor, ErrorState, Group, Loading, Pill, Text};
+use aurora_dark::frame::{ConfirmDialog, Modal};
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 
@@ -65,6 +66,11 @@ fn LeftLive(items: Vec<NotReached>, done: bool) -> impl IntoView {
 }
 
 /// The delete confirm dialog. `open` is owned by the page header button.
+///
+/// COLLIERY-T-1836: an Aurora `ConfirmDialog` asks first. Its impact list
+/// is the authoritative cascade preview, and the items that the archive
+/// leaves show under it. After the delete, an Aurora `Modal` shows the
+/// report of the server.
 #[component]
 pub fn DeleteDialog(
     family: Family,
@@ -74,49 +80,64 @@ pub fn DeleteDialog(
 ) -> impl IntoView {
     let code = StoredValue::new(code);
     let title = StoredValue::new(title);
-
+    // The preview loads the first time the dialog opens (the same BFS as
+    // the delete), and again at each open.
+    let asked = RwSignal::new(0u32);
+    Effect::new(move |_| {
+        if open.get() {
+            asked.update(|n| *n += 1);
+        }
+    });
     view! {
-        {move || open.get().then(|| view! {
-            <div class="kairos-dialog__backdrop"></div>
-            <div class="kairos-dialog" role="dialog" aria-modal="true">
-                <div class="kairos-dialog__box kairos-dialog__box--narrow">
-                    <DeleteFlow
-                        family
-                        code=code.get_value()
-                        title=title.get_value()
-                        open
-                    />
-                </div>
-            </div>
+        {move || (asked.get() > 0).then(|| view! {
+            <DeleteFlow
+                family
+                code=code.get_value()
+                title=title.get_value()
+                open
+                asked
+            />
         })}
     }
 }
 
-/// Confirm → delete → cascade report (own component so the children
-/// lookup only runs while the dialog is open).
+/// Confirm → delete → cascade report (own component so the cascade
+/// preview only loads once the dialog has opened).
 #[component]
 fn DeleteFlow(
     family: Family,
     #[prop(into)] code: String,
     #[prop(into)] title: String,
     open: RwSignal<bool>,
+    asked: RwSignal<u32>,
 ) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(code);
-    let title = StoredValue::new(title);
     let deleting = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     let outcome = RwSignal::new(None::<DeleteOutcome>);
+    let report_open = RwSignal::new(false);
+    // Each open starts with no error of an earlier try.
+    Effect::new(move |_| {
+        if open.get() {
+            error.set(None);
+        }
+    });
 
     // The AUTHORITATIVE pre-delete warning (KAIROS-T-0051): the full
     // transitive descendant set the server would cascade to, computed by
     // the same BFS as the delete — not just the item's direct children.
     let preview = LocalResource::new(move || {
         let _ = auth.token();
+        let _ = asked.get();
         async move { api::fetch_cascade_preview(auth, family, code.get_value()).await }
     });
+    let impacts = Signal::derive(move || match preview.get() {
+        Some(Ok(preview)) => preview.cascaded_short_codes,
+        _ => Vec::new(),
+    });
 
-    let confirm = move |_| {
+    let confirm = Callback::new(move |_| {
         if deleting.get_untracked() {
             return;
         }
@@ -126,18 +147,68 @@ fn DeleteFlow(
             let result = api::delete_item(auth, family, &code.get_value()).await;
             deleting.set(false);
             match result {
-                Ok(report) => outcome.set(Some(report)),
+                Ok(report) => {
+                    outcome.set(Some(report));
+                    open.set(false);
+                    report_open.set(true);
+                }
                 Err(e) => error.set(Some(api::error_text(&e))),
             }
         });
-    };
+    });
 
     view! {
-        {move || match outcome.get() {
-            // ---- after: the server's authoritative cascade report --------
-            Some(report) => view! {
+        // ---- before: warn + confirm --------------------------------------
+        <ConfirmDialog
+            open
+            title=format!("Delete {}?", code.get_value())
+            message=title
+            impacts
+            impacts_label="The delete also includes these live descendants:"
+            confirm_label="Delete (cascades)"
+            busy=deleting
+            size="md"
+            on_confirm=confirm
+        >
+            <Alert title="This cascades" color=token::GOLD>
+                <Text size="sm" dimmed=true>
+                    "Soft-deletes this item and every live descendant under it (parent edges, computed server-side — KAIROS-A-0001). The full set is shown here and confirmed after deletion."
+                </Text>
+            </Alert>
+            {move || match preview.get() {
+                None => view! { <Loading label="Computing the cascade…"/> }.into_any(),
+                Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
+                Some(Ok(preview))
+                    if preview.cascaded_short_codes.is_empty()
+                        && preview.not_reached.is_empty() => view! {
+                    <Text size="sm" dimmed=true>"No descendants — only this item will be deleted."</Text>
+                }.into_any(),
+                Some(Ok(preview)) if preview.cascaded_short_codes.is_empty() => view! {
+                    <Text size="sm" dimmed=true>"Only this item will be deleted."</Text>
+                    <LeftLive items=preview.not_reached done=false/>
+                }.into_any(),
+                Some(Ok(preview)) => view! {
+                    <LeftLive items=preview.not_reached done=false/>
+                }.into_any(),
+            }}
+            {move || error.get().map(|message| view! {
+                <Alert title="Delete failed" color=token::BAD>
+                    <Text size="sm" dimmed=true>{message}</Text>
+                </Alert>
+            })}
+        </ConfirmDialog>
+
+        // ---- after: the server's authoritative cascade report ------------
+        <Modal
+            open=report_open
+            title="Deleted"
+            footer=std::sync::Arc::new(|| view! {
+                <Anchor href="/boards">"Back to boards"</Anchor>
+            }.into_any())
+        >
+            {move || outcome.get().map(|report| view! {
                 <Group justify="between">
-                    <Text bright=true bold=true>"Deleted"</Text>
+                    <Text size="sm">"The server deleted the item."</Text>
                     <Pill color=token::BAD>{report.short_code.clone()}</Pill>
                 </Group>
                 <Text size="sm" dimmed=true>
@@ -153,75 +224,16 @@ fn DeleteFlow(
                 {(!report.cascaded_short_codes.is_empty()).then(|| {
                     let cascaded = report.cascaded_short_codes.clone();
                     view! {
-                        <div class="kairos-delete__cascade">
+                        <Group gap="xs" wrap=true>
                             {cascaded.into_iter().map(|code| view! {
                                 <Pill color=token::GOLD>{code}</Pill>
                             }).collect_view()}
-                        </div>
+                        </Group>
                     }
                 })}
                 <LeftLive items=report.not_reached.clone() done=true/>
-                <Group justify="end">
-                    <Anchor href="/boards">"Back to boards"</Anchor>
-                </Group>
-            }.into_any(),
-            // ---- before: warn + confirm ----------------------------------
-            None => view! {
-                <Group justify="between">
-                    <Text bright=true bold=true>{format!("Delete {}?", code.get_value())}</Text>
-                    <Button variant="default" size="xs" on_click=Callback::new(move |_| open.set(false))>
-                        "Cancel"
-                    </Button>
-                </Group>
-                <Text size="sm">{title.get_value()}</Text>
-                <Alert title="This cascades" color=token::GOLD>
-                    <Text size="sm" dimmed=true>
-                        "Soft-deletes this item and every live descendant under it (parent edges, computed server-side — KAIROS-A-0001). The full set is shown below and confirmed after deletion."
-                    </Text>
-                </Alert>
-                {move || match preview.get() {
-                    None => view! { <Loading label="Computing the cascade…"/> }.into_any(),
-                    Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
-                    Some(Ok(preview))
-                        if preview.cascaded_short_codes.is_empty()
-                            && preview.not_reached.is_empty() => view! {
-                        <Text size="sm" dimmed=true>"No descendants — only this item will be deleted."</Text>
-                    }.into_any(),
-                    Some(Ok(preview)) if preview.cascaded_short_codes.is_empty() => view! {
-                        <Text size="sm" dimmed=true>"Only this item will be deleted."</Text>
-                        <LeftLive items=preview.not_reached done=false/>
-                    }.into_any(),
-                    Some(Ok(preview)) => {
-                        let count = preview.cascade_count;
-                        view! {
-                            <Text size="sm" dimmed=true>
-                                {format!("Will also delete {count} live descendant(s):")}
-                            </Text>
-                            <div class="kairos-delete__cascade">
-                                {preview.cascaded_short_codes.into_iter().map(|code| view! {
-                                    <Pill color=token::GOLD>{code}</Pill>
-                                }).collect_view()}
-                            </div>
-                            <LeftLive items=preview.not_reached done=false/>
-                        }.into_any()
-                    }
-                }}
-                {move || error.get().map(|message| view! {
-                    <Alert title="Delete failed" color=token::BAD>
-                        <Text size="sm" dimmed=true>{message}</Text>
-                    </Alert>
-                })}
-                <Group justify="end">
-                    <button
-                        class="cl-btn cl-btn--filled cl-btn--bad"
-                        disabled=move || deleting.get()
-                        on:click=confirm
-                    >
-                        {move || if deleting.get() { "Deleting…" } else { "Delete (cascades)" }}
-                    </button>
-                </Group>
-            }.into_any(),
-        }}
+            })}
+        </Modal>
     }
 }
 

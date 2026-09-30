@@ -3,10 +3,10 @@
 Established by KAIROS-T-0039; **binding for the GUI fan-out tasks
 (KAIROS-T-0040 boards, T-0041 item detail, T-0042 search, T-0043 admin,
 T-0044 activity) and everything after them.** Architecture decisions come
-from KAIROS-A-0015 (Leptos CSR, aurora-dark, served at `/`), A-0010
+from KAIROS-A-0015 (Leptos CSR, Aurora, served at `/`), A-0010
 (PKCE), and A-0013 (single artifact); this document is the how.
 
-Read `aurora-dark`'s `PATTERNS.md` (rustdoc: `cargo doc -p
+Read Aurora's `PATTERNS.md` (rustdoc: `cargo doc -p
 colliery-io-aurora`; source repo: github.com/colliery-io/aurora-dark)
 before building a screen — it is the pick-by-intent component guide this
 document builds on.
@@ -90,22 +90,37 @@ Two dev-stack facts worth knowing (both are deployment config, not code):
 - **`KAIROS_SINGLE_TENANT=demo`** pins the tenant — a browser on
   `localhost` has no tenant subdomain and sends no `X-Tenant`.
 
-## 2. Design system: aurora-dark, tokens only
+## 2. Design system: Aurora, tokens only
 
-`aurora-dark` (crates.io: `colliery-io-aurora`, imported as
-`aurora_dark`) is the design system. The stylesheet is injected at
-runtime by `<AuroraStyles/>` once, at the app root (CSR has no
-first-paint-flash concern worth a build hook).
+Aurora (it was "Aurora Dark"; crates.io: `colliery-io-aurora` 0.4, the
+workspace key is still `aurora-dark`, so the code imports `aurora_dark`)
+is the design system. The stylesheet is injected at runtime by
+`<AuroraStyles/>` once, at the app root.
+
+**Light and dark (COLLIERY-T-1836).** Aurora has a light and a dark
+theme. With no choice, the page follows the operating system
+(`prefers-color-scheme`). The `ThemeToggle` in the top bar (`app.rs`)
+sets `data-theme="light"` or `"dark"` on `<html>` and stores the choice
+in the browser (`aurora-theme`); "System" removes it. `index.html` has
+Aurora's `THEME_INIT_SCRIPT` in the `<head>`, before the stylesheet, so
+the first paint has the stored theme (a unit test in `app.rs` compares it
+with the crate constant). `e2e/tests/theme.spec.ts` checks the toggle,
+the reload, and the main pages in the two themes.
 
 **The token rule.** No raw color literals anywhere in this crate — not
 in Rust, not in CSS, not in inline `style=`, not in SVG. Color arrives
 two ways only:
 
 - Rust props / data-driven color: `aurora_dark::tokens::token::*`
-  constants (`token::ICE`, …) and `status_color(...)`;
+  constants (`token::ICE`, …) and `status_color(...)`. Since Aurora 0.4
+  each constant is a CSS variable (`token::ICE` is `"var(--ice)"`), so
+  an inline style follows the theme. Do not add text to a token (a hex
+  alpha such as `format!("{}1c", token::ICE)` makes an invalid colour);
+  use `tint(token::ICE, 12)`, `fill_for` or `pill_bg`;
 - CSS (including inline styles and SVG): `var(--ice)`, `var(--panel)`,
   … For SVG, put the var in `style="stroke:var(--ice);"` — presentation
-  attributes don't resolve CSS variables.
+  attributes don't resolve CSS variables. Each token has a light and a
+  dark value; for text on a status fill use `--x-fg` on `--x-bg`.
 
 Mechanized as **`angreal web lint`** (a CI gate): greps
 `crates/kairos-web` (`src/**/*.rs`, `*.css`, `index.html`) for
@@ -114,10 +129,19 @@ allowlist — if a color feels missing, it's a design-token conversation,
 not a literal.
 
 Component choice: consult PATTERNS.md's "Pick by intent" table before
-writing markup. App-specific chrome (nav links, full-viewport layout)
-lives in `app.css`, uses `.kairos-*` class names, and consumes tokens.
-Never restyle `.cl-*` classes except where `app.css` already does
-(the appshell full-viewport override).
+writing markup. The frame is `AppShell` + `SideNav`; dialogs are `Modal`
+and `ConfirmDialog` (every delete or cascade asks first); a short notice
+after a mutation is a toast (`use_toaster()`); a list of pages uses
+`Pagination`; a time uses `RelativeTime`; a field is `TextInput`,
+`Select` (`option_pairs` when the label is not the value), `Textarea` or
+`Button` with the reactive `disabled` / `loading` props, never raw
+`cl-*` markup; the graph is `Dag`. Kairos-only chrome (the kanban board
+and its drag and drop, the item cards, the markdown editor and preview,
+the history diff, the badges of Kairos states) lives in `app.css`, uses
+`.kairos-*` class names, and consumes tokens. `app.css` does not restyle
+`.cl-*` classes (two exceptions: the height of the card in a
+`.kairos-board-tile`, and the bottom alignment of a `Group` that holds a
+field and a button, which Aurora 0.4 does not offer).
 
 ## 3. Module layout and routes
 
@@ -149,8 +173,8 @@ Fan-out rules:
   to T-0040, etc.); register them in `app.rs`'s route table and keep its
   module-doc route map current.
 - Nav changes (new top-level sections) belong to the task that owns the
-  section; the nav is `Shell`'s `navbar` in `app.rs` (a `NavLink` per
-  entry — `aria-current` styling comes free).
+  section; the nav is `Shell`'s `navbar` in `app.rs` (a `NavLink`, an
+  Aurora `SideNavLink`, per entry — `aria-current` styling comes free).
 
 ## 4. Data layer
 

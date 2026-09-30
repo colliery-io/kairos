@@ -7,8 +7,9 @@
 //! parent contract) and the page navigates to its detail route.
 
 use aurora_dark::components::{
-    Alert, Button, Empty, ErrorState, Group, Loading, Panel, Pill, Text, TextInput,
+    Alert, Button, Empty, ErrorState, Group, Loading, Panel, Pill, Select, Text, TextInput,
 };
+use aurora_dark::frame::Modal;
 use aurora_dark::tokens::token;
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
@@ -18,6 +19,8 @@ use super::markdown;
 use crate::auth::use_auth;
 
 /// The "New document" dialog. `open` is owned by the page header button.
+/// COLLIERY-T-1836: an Aurora `Modal` (xl: the picker and the preview side
+/// by side). It renders its body only while it is open.
 #[component]
 pub fn CreateDocumentDialog(
     /// Short code of the workflow item that will parent the document.
@@ -28,22 +31,13 @@ pub fn CreateDocumentDialog(
     let parent_code = StoredValue::new(parent_code);
 
     view! {
-        {move || open.get().then(|| view! {
-            <div class="kairos-dialog__backdrop" on:click=move |_| open.set(false)></div>
-            <div class="kairos-dialog" role="dialog" aria-modal="true">
-                <div class="kairos-dialog__box">
-                    <Group justify="between">
-                        <Text bright=true bold=true>
-                            {format!("New document supporting {}", parent_code.get_value())}
-                        </Text>
-                        <Button variant="default" size="xs" on_click=Callback::new(move |_| open.set(false))>
-                            "Close"
-                        </Button>
-                    </Group>
-                    <TemplatePicker parent_code=parent_code.get_value()/>
-                </div>
-            </div>
-        })}
+        <Modal
+            open
+            title=format!("New document supporting {}", parent_code.get_value())
+            size="xl"
+        >
+            <TemplatePicker parent_code=parent_code.get_value()/>
+        </Modal>
     }
 }
 
@@ -95,21 +89,13 @@ fn TemplateForm(
         api::fetch_template_detail(auth, selected_id.get())
     });
 
-    let options_view = templates
+    let template_options: Vec<(String, String)> = templates
         .iter()
-        .map(|template| {
-            let id = template.id.clone();
-            let id_for_selected = template.id.clone();
-            view! {
-                <option value=id selected=move || selected_id.get() == id_for_selected>
-                    {template.name.clone()}
-                </option>
-            }
-        })
-        .collect_view();
+        .map(|template| (template.id.clone(), template.name.clone()))
+        .collect();
 
     let navigate = use_navigate();
-    let create = move |_| {
+    let create = move |_: ()| {
         if creating.get_untracked() {
             return;
         }
@@ -150,22 +136,11 @@ fn TemplateForm(
             })}
             <Group gap="sm" top=true>
                 <div class="kairos-template-form__controls">
-                    <label class="cl-field__label">"Template"</label>
-                    <select
-                        class="cl-input cl-select"
-                        prop:value=move || selected_id.get()
-                        on:change=move |e| selected_id.set(event_target_value(&e))
-                    >
-                        {options_view}
-                    </select>
+                    <Select label="Template" option_pairs=template_options value=selected_id/>
                     <TextInput label="Document title" placeholder="e.g. PRD: Portal sign-up flow" value=title/>
-                    <button
-                        class="cl-btn cl-btn--filled"
-                        disabled=move || creating.get()
-                        on:click=create
-                    >
-                        {move || if creating.get() { "Creating…" } else { "Create document" }}
-                    </button>
+                    <Button loading=creating loading_label="Creating…" on_click=Callback::new(create)>
+                        "Create document"
+                    </Button>
                     <Text size="xs" dimmed=true>
                         "Starter content is copied in; declared fields are stamped as metadata (defaults applied) — A-0003."
                     </Text>

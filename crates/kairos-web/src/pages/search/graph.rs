@@ -4,8 +4,12 @@
 //! replacing the five stacked panels the UAT called "a grab bag".
 //!
 //! Rendering rules (survey-backed, recorded in the initiative):
-//! - Strategy | Initiative | Task as FIXED layered columns; layout is the
-//!   pure [`super::graph_layout`] module (deterministic, unit-tested);
+//! - Strategy | Initiative | Task as FIXED layered columns; the Aurora
+//!   [`Dag`] (COLLIERY-T-1836) owns the layout (a pure, deterministic
+//!   function) and the interaction: click selects (here: refocuses),
+//!   double click or Enter on the focus opens the item, hover dims all but
+//!   the edges of a node. This module maps the subgraph to its data
+//!   ([`canvas_data`], unit-tested);
 //! - `parent` is containment (lane bands), never an arrow;
 //! - `blocks` is the ONLY drawn arrow, in two styles (COLLIERY-T-0233):
 //!   an open blocker, and a resolved one, where an end of the edge is in
@@ -29,36 +33,181 @@ use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_query_map};
 
-use super::graph_layout::{self, Column, LayoutInputEdge, LayoutInputNode};
+use aurora_dark::graph::{Align, Dag, DagEdge, DagLane, DagNode, EdgeStyle, Hue};
+
 use super::{RELATIONSHIPS, data, entity_color};
 use crate::api;
 use crate::auth::use_auth;
 
-/// The canvas column of an entity type; documents/ADRs return `None` and
-/// render in the side panel instead.
-fn column_of(entity_type: &str) -> Option<Column> {
+/// The canvas layer of an entity type (Strategy | Initiative | Task, the
+/// fixed columns); documents/ADRs return `None` and render in the side
+/// panel instead.
+fn layer_of(entity_type: &str) -> Option<usize> {
     match entity_type {
-        "strategy" => Some(Column::Strategy),
-        "initiative" => Some(Column::Initiative),
-        "task" => Some(Column::Task),
+        "strategy" => Some(0),
+        "initiative" => Some(1),
+        "task" => Some(2),
         _ => None,
     }
 }
 
-/// Truncate a title for its node box (SVG text does not wrap).
-fn clip(title: &str, max: usize) -> String {
-    if title.chars().count() <= max {
-        title.to_string()
-    } else {
-        let clipped: String = title.chars().take(max.saturating_sub(1)).collect();
-        format!("{clipped}…")
+/// The hue of a canvas node: the same meaning as [`entity_color`].
+fn hue_of(entity_type: &str) -> Hue {
+    match entity_type {
+        "strategy" => Hue::Violet,
+        "initiative" => Hue::Ice,
+        "task" => Hue::Teal,
+        _ => Hue::Muted,
     }
 }
 
-/// The room that the "put away" mark takes at the right end of the status
-/// row. The "done" mark (COLLIERY-T-0233) moves left by this when a node
-/// has the two marks.
-const PUT_AWAY_MARK_W: f64 = 52.0;
+/// The size of a node box. Three lines: title, short code, column.
+const NODE_W: f64 = 220.0;
+const NODE_H: f64 = 58.0;
+
+/// The name of the edge style of an open `blocks` arrow.
+const OPEN: &str = "open";
+/// The name of the edge style of a resolved `blocks` arrow.
+const RESOLVED: &str = "resolved";
+
+/// The two styles of a `blocks` arrow (COLLIERY-T-0233). The dash carries
+/// the difference for a reader who cannot see the colour. Red stays
+/// unused (reserved for violated/at-risk by convention).
+fn edge_styles() -> Vec<EdgeStyle> {
+    vec![
+        EdgeStyle::new(OPEN, "Open blocker", Hue::Gold),
+        EdgeStyle::new(
+            RESOLVED,
+            "Resolved: one end is in a done column",
+            Hue::Muted,
+        )
+        .dashed(),
+    ]
+}
+
+/// What the canvas draws: the product data for the Aurora [`Dag`].
+#[derive(Debug, Clone, PartialEq)]
+struct CanvasData {
+    nodes: Vec<DagNode>,
+    edges: Vec<DagEdge>,
+    lanes: Vec<DagLane>,
+}
+
+/// Map the merged subgraph onto the canvas (pure, so it is unit-tested):
+///
+/// - only strategy/initiative/task nodes; the node id is the SHORT CODE,
+///   so the callbacks give back the code and `data-id` is stable;
+/// - `parent` (source = parent) is containment: a node has ONE lane, the
+///   on-canvas parent in the previous layer with the lowest short code;
+/// - `blocks` is the only arrow, open or resolved (COLLIERY-T-0233);
+/// - `+N` = degree minus EVERY fetched incident edge (the full merged set
+///   — side-panel material counts as fetched, so a badge always promises
+///   an expansion that adds something).
+fn canvas_data(nodes: &[data::GraphNode], edges: &[data::GraphEdge], focus: &str) -> CanvasData {
+    use std::collections::{BTreeSet, HashMap};
+
+    let mut fetched_incident: HashMap<&str, i64> = HashMap::new();
+    for edge in edges {
+        *fetched_incident.entry(edge.source_id.as_str()).or_default() += 1;
+        *fetched_incident.entry(edge.target_id.as_str()).or_default() += 1;
+    }
+    // Canvas nodes by wire id: (node, layer).
+    let on_canvas: HashMap<&str, (&data::GraphNode, usize)> = nodes
+        .iter()
+        .filter_map(|node| Some((node.id.as_str(), (node, layer_of(&node.entity_type)?))))
+        .collect();
+
+    // The lane of each node: its lowest-code parent one layer up.
+    let mut lane_of: HashMap<&str, &str> = HashMap::new();
+    for edge in edges.iter().filter(|e| e.relationship == "parent") {
+        let (Some(&(parent, parent_layer)), Some(&(child, child_layer))) = (
+            on_canvas.get(edge.source_id.as_str()),
+            on_canvas.get(edge.target_id.as_str()),
+        ) else {
+            continue;
+        };
+        if parent_layer + 1 != child_layer {
+            continue;
+        }
+        let entry = lane_of
+            .entry(child.id.as_str())
+            .or_insert(parent.short_code.as_str());
+        if parent.short_code.as_str() < *entry {
+            *entry = parent.short_code.as_str();
+        }
+    }
+    let lanes: Vec<DagLane> = lane_of
+        .values()
+        .copied()
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .map(|parent| DagLane::new(parent, parent).anchor(parent))
+        .collect();
+
+    let mut dag_nodes: Vec<DagNode> = nodes
+        .iter()
+        .filter_map(|node| {
+            let (_, layer) = on_canvas.get(node.id.as_str())?;
+            let put_away = node.archived_at.is_some();
+            let hidden =
+                (node.degree - fetched_incident.get(node.id.as_str()).copied().unwrap_or(0)).max(0);
+            // The old hover text: "put away" never "archived" — for a
+            // document the status is the editorial lifecycle, which has
+            // its own unrelated "archived" (KAIROS-T-0163).
+            let mut tooltip = format!("{} — {}", node.title, node.status);
+            if node.done {
+                tooltip.push_str(" — done");
+            }
+            if put_away {
+                tooltip.push_str(" — put away");
+            }
+            let mut dag = DagNode::new(node.short_code.clone(), node.title.clone())
+                .sublabel(node.short_code.clone())
+                .detail(node.status.clone())
+                .kind(node.entity_type.clone())
+                .layer(*layer)
+                .status(hue_of(&node.entity_type))
+                .sort_key(node.short_code.clone())
+                .current(node.short_code == focus)
+                .tooltip(tooltip)
+                .more(u32::try_from(hidden).unwrap_or(u32::MAX));
+            if let Some(parent) = lane_of.get(node.id.as_str()) {
+                dag = dag.lane(*parent);
+            }
+            // The first mark sits at the right end: "put away", then "done".
+            if put_away {
+                dag = dag.archived(true).mark("put away", Hue::Gold);
+            }
+            if node.done {
+                dag = dag.done(true).mark("done", Hue::Ok);
+            }
+            Some(dag)
+        })
+        .collect();
+    dag_nodes.sort_by(|a, b| a.id.cmp(&b.id));
+
+    let dag_edges = edges
+        .iter()
+        .filter(|edge| edge.relationship == "blocks")
+        .filter_map(|edge| {
+            let (source, _) = on_canvas.get(edge.source_id.as_str())?;
+            let (target, _) = on_canvas.get(edge.target_id.as_str())?;
+            let edge = DagEdge::new(source.short_code.clone(), target.short_code.clone());
+            Some(if blocks_resolved(nodes, &source.id, &target.id) {
+                edge.style(RESOLVED)
+                    .label("Resolved: one end is in a done column. This edge does not block.")
+            } else {
+                edge.style(OPEN).label("Open blocker")
+            })
+        })
+        .collect();
+
+    CanvasData {
+        nodes: dag_nodes,
+        edges: dag_edges,
+        lanes,
+    }
+}
 
 /// Whether a `blocks` arrow is resolved (COLLIERY-T-0233): an end of the
 /// edge is in a done column, so the edge is history and not a blocker
@@ -94,7 +243,6 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
     let auth = use_auth();
     let code = StoredValue::new(short_code);
     let reload = RwSignal::new(0u32);
-    let hovered = RwSignal::new(None::<String>);
 
     // Base subgraph (depth 2) + in-place expansions, merged reactively —
     // expanding never remounts and never loses prior expansions.
@@ -205,57 +353,10 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                 _ => view! { <Loading label="Walking the graph…"/> }.into_any(),
             },
             Some((nodes, edges)) => {
-                // ---- canvas geometry (pure, deterministic) -----------------
-                // `+N` = degree minus EVERY fetched incident edge (the full
-                // merged set — side-panel material counts as fetched, so a
-                // badge always promises an expansion that adds something).
-                let mut fetched_incident: std::collections::HashMap<&str, i64> =
-                    std::collections::HashMap::new();
-                for edge in &edges {
-                    *fetched_incident.entry(edge.source_id.as_str()).or_default() += 1;
-                    *fetched_incident.entry(edge.target_id.as_str()).or_default() += 1;
-                }
-                let canvas_inputs: Vec<LayoutInputNode> = nodes
-                    .iter()
-                    .filter_map(|node| {
-                        Some(LayoutInputNode {
-                            id: node.id.clone(),
-                            short_code: node.short_code.clone(),
-                            column: column_of(&node.entity_type)?,
-                            hidden_neighbors: (node.degree
-                                - fetched_incident
-                                    .get(node.id.as_str())
-                                    .copied()
-                                    .unwrap_or(0))
-                            .max(0),
-                        })
-                    })
-                    .collect();
-                let on_canvas: std::collections::HashSet<&str> =
-                    canvas_inputs.iter().map(|n| n.id.as_str()).collect();
-                let canvas_edges: Vec<LayoutInputEdge> = edges
-                    .iter()
-                    .filter(|edge| {
-                        on_canvas.contains(edge.source_id.as_str())
-                            && on_canvas.contains(edge.target_id.as_str())
-                    })
-                    .map(|edge| LayoutInputEdge {
-                        source_id: edge.source_id.clone(),
-                        target_id: edge.target_id.clone(),
-                        relationship: edge.relationship.clone(),
-                    })
-                    .collect();
-                let geometry = graph_layout::layout(&canvas_inputs, &canvas_edges);
-                // COLLIERY-T-0233: the arrows whose edge has an end in a
-                // done column, keyed like the layout's arrows.
-                let resolved: std::collections::HashSet<(String, String)> = geometry
-                    .arrows
-                    .iter()
-                    .filter(|arrow| blocks_resolved(&nodes, &arrow.source_id, &arrow.target_id))
-                    .map(|arrow| (arrow.source_id.clone(), arrow.target_id.clone()))
-                    .collect();
-                let by_id = move |id: &str| nodes.iter().find(|n| n.id == id).cloned();
+                // ---- canvas data (Aurora `Dag` owns layout + interaction) --
                 let focus_code = code.get_value();
+                let canvas = canvas_data(&nodes, &edges, &focus_code);
+                let by_id = move |id: &str| nodes.iter().find(|n| n.id == id).cloned();
 
                 // ---- side panel rows (supports/informs/supersedes) ---------
                 let mut panel_rows: Vec<PanelRow> = Vec::new();
@@ -270,7 +371,7 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                     };
                     // Show the NON-canvas end (doc/ADR material), labeled
                     // with direction relative to the canvas item.
-                    let (anchor, other, arrow) = if column_of(&target.entity_type).is_none() {
+                    let (anchor, other, arrow) = if layer_of(&target.entity_type).is_none() {
                         (source, target, "→")
                     } else {
                         (target, source, "←")
@@ -327,234 +428,53 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                     }
                 });
 
-                // ---- SVG ----------------------------------------------------
-                let lane_label = |id: &str| {
-                    by_id(id).map(|n| n.short_code).unwrap_or_default()
+                // ---- canvas ------------------------------------------------
+                let CanvasData { nodes: dag_nodes, edges: dag_edges, lanes: dag_lanes } = canvas;
+                let focus_for_select = focus_code.clone();
+                let refocus = refocus.clone();
+                let selected = Signal::derive({
+                    let focus = focus_code.clone();
+                    move || Some(focus.clone())
+                });
+                let open_item = {
+                    let navigate = use_navigate();
+                    move |target: String| navigate(&format!("/items/{target}"), Default::default())
                 };
-                let lanes = geometry
-                    .lanes
-                    .iter()
-                    .map(|lane| {
-                        let label = lane_label(&lane.parent_id);
-                        view! {
-                            <g>
-                                <rect
-                                    class="kairos-graph__lane"
-                                    x=lane.x y=lane.y width=lane.w height=lane.h rx=8
-                                ></rect>
-                                <text
-                                    class="kairos-graph__lane-label"
-                                    x=lane.x + 6.0 y=lane.y - 3.0
-                                >{label}</text>
-                            </g>
-                        }
-                    })
-                    .collect_view();
-                let arrows = geometry
-                    .arrows
-                    .iter()
-                    .map(|arrow| {
-                        let source = arrow.source_id.clone();
-                        let target = arrow.target_id.clone();
-                        let path = arrow.path.clone();
-                        // COLLIERY-T-0233: a resolved arrow is history.
-                        // It has its own style and arrowhead, or the
-                        // reader takes a completed blocker for an open
-                        // one.
-                        let is_resolved = resolved
-                            .contains(&(arrow.source_id.clone(), arrow.target_id.clone()));
-                        let hot = move || {
-                            hovered.get().is_some_and(|h| h == source || h == target)
-                        };
-                        let (marker, tip) = if is_resolved {
-                            (
-                                "url(#kairos-graph-arrowhead-resolved)",
-                                "Resolved: one end is in a done column. This edge does not block.",
-                            )
-                        } else {
-                            ("url(#kairos-graph-arrowhead)", "Open blocker")
-                        };
-                        view! {
-                            <path
-                                class=move || if hot() {
-                                    "kairos-graph__edge kairos-graph__edge--hot"
-                                } else {
-                                    "kairos-graph__edge"
-                                }
-                                class:kairos-graph__edge--resolved=is_resolved
-                                d=path
-                                marker-end=marker
-                            >
-                                <title>{tip}</title>
-                            </path>
-                        }
-                    })
-                    .collect_view();
-                let boxes = geometry
-                    .nodes
-                    .iter()
-                    .filter_map(|placed| {
-                        let node = by_id(&placed.id)?;
-                        let is_focus = node.short_code == focus_code;
-                        let node_id = node.id.clone();
-                        let enter_id = node_id.clone();
-                        // KAIROS-T-0158/T-0163: an archived node is DRAWN
-                        // (dropping it broke the paths through it), so it
-                        // has to be drawn differently — otherwise the
-                        // reader plans against a retired item. "put away"
-                        // never "archived": for a document the status
-                        // line below is the editorial lifecycle, which
-                        // has its own unrelated "archived".
-                        let put_away = node.archived_at.is_some();
-                        // COLLIERY-T-0233: the node says if its item is
-                        // in a done column. The column NAME in `status`
-                        // does not say it: the flag is the decision of
-                        // the board, and the name can be any word.
-                        let done = node.done;
-                        let mut title_attr = format!("{} — {}", node.title, node.status);
-                        if done {
-                            title_attr.push_str(" — done");
-                        }
-                        if put_away {
-                            title_attr.push_str(" — put away");
-                        }
-                        let node_code = node.short_code.clone();
-                        let refocus_code = node_code.clone();
-                        let detail_code = node_code.clone();
-                        let expand_code = node_code.clone();
-                        let refocus = refocus.clone();
-                        let navigate = use_navigate();
-                        let (x, y, w, h) = (placed.x, placed.y, placed.w, placed.h);
-                        let hidden = placed.hidden_neighbors;
-                        Some(view! {
-                            <g
-                                class=if is_focus {
-                                    "kairos-graph__node kairos-graph__node--focus"
-                                } else {
-                                    "kairos-graph__node"
-                                }
-                                class:kairos-graph__node--put-away=put_away
-                                class:kairos-graph__node--done=done
-                                on:mouseenter=move |_| hovered.set(Some(enter_id.clone()))
-                                on:mouseleave=move |_| hovered.set(None)
-                            >
-                                <title>{title_attr}</title>
-                                <rect
-                                    class="kairos-graph__box"
-                                    x=x y=y width=w height=h rx=8
-                                    stroke=entity_color(&node.entity_type)
-                                    on:click=move |_| {
-                                        if !is_focus {
-                                            refocus(refocus_code.clone());
-                                        }
-                                    }
-                                ></rect>
-                                <text
-                                    class="kairos-graph__code"
-                                    x=x + 10.0 y=y + 20.0
-                                    on:click=move |_| navigate(
-                                        &format!("/items/{detail_code}"),
-                                        Default::default(),
-                                    )
-                                >{node.short_code.clone()}</text>
-                                <text
-                                    class="kairos-graph__title"
-                                    x=x + 10.0 y=y + 36.0
-                                >{clip(&node.title, 26)}</text>
-                                <text
-                                    class="kairos-graph__status"
-                                    x=x + 10.0 y=y + 50.0
-                                >{node.status.clone()}</text>
-                                {done.then(|| view! {
-                                    <text
-                                        class="kairos-graph__done"
-                                        x=x + w - 10.0 - if put_away { PUT_AWAY_MARK_W } else { 0.0 }
-                                        y=y + 50.0
-                                    >"done"</text>
-                                })}
-                                {put_away.then(|| view! {
-                                    <text
-                                        class="kairos-graph__put-away"
-                                        x=x + w - 10.0 y=y + 50.0
-                                    >"put away"</text>
-                                })}
-                                {(hidden > 0).then(|| {
-                                    view! {
-                                        <g
-                                            class="kairos-graph__more"
-                                            on:click=move |_| expand(expand_code.clone())
-                                        >
-                                            <title>{format!("{hidden} more linked item(s) — click to expand")}</title>
-                                            <circle cx=x + w - 16.0 cy=y + 16.0 r=11></circle>
-                                            <text x=x + w - 16.0 y=y + 20.0>
-                                                {format!("+{hidden}")}
-                                            </text>
-                                        </g>
-                                    }
-                                })}
-                            </g>
-                        })
-                    })
-                    .collect_view();
-                let headers = geometry
-                    .headers
-                    .iter()
-                    .map(|(label, x)| {
-                        view! {
-                            <text class="kairos-graph__header" x=*x y=18>{*label}</text>
-                        }
-                    })
-                    .collect_view();
-                let (view_w, view_h) = (geometry.width, geometry.height);
 
                 view! {
                     <Stack gap="md">
                         {trail_chips}
                         <Panel
                             title="Flight-level graph"
-                            caption="parent = containment · blocks = arrows · depth 2, +N expands \
-                                     · put-away items are drawn, marked"
+                            caption="A band holds the children of a parent. An arrow shows a \
+                                     block. Click a box to move the focus to it. Double-click a \
+                                     box to open the item. Click +N to show more linked items."
                         >
-                            <GraphLegend/>
-                            <div class="kairos-graph">
-                                <svg
-                                    width=view_w
-                                    height=view_h
-                                    viewBox=format!("0 0 {view_w} {view_h}")
-                                    role="img"
-                                >
-                                    <defs>
-                                        <marker
-                                            id="kairos-graph-arrowhead"
-                                            viewBox="0 0 10 10"
-                                            refX="9" refY="5"
-                                            markerWidth="7" markerHeight="7"
-                                            orient="auto-start-reverse"
-                                        >
-                                            <path d="M 0 0 L 10 5 L 0 10 z" class="kairos-graph__arrowhead"></path>
-                                        </marker>
-                                        // COLLIERY-T-0233: a marker does
-                                        // not inherit the stroke of its
-                                        // path, so the resolved style
-                                        // has its own arrowhead.
-                                        <marker
-                                            id="kairos-graph-arrowhead-resolved"
-                                            viewBox="0 0 10 10"
-                                            refX="9" refY="5"
-                                            markerWidth="7" markerHeight="7"
-                                            orient="auto-start-reverse"
-                                        >
-                                            <path
-                                                d="M 0 0 L 10 5 L 0 10 z"
-                                                class="kairos-graph__arrowhead kairos-graph__arrowhead--resolved"
-                                            ></path>
-                                        </marker>
-                                    </defs>
-                                    {headers}
-                                    {lanes}
-                                    {arrows}
-                                    {boxes}
-                                </svg>
+                            <div class="kairos-graph" data-testid="item-graph">
+                                <Dag
+                                    nodes=dag_nodes
+                                    edges=dag_edges
+                                    lanes=dag_lanes
+                                    layers=vec![
+                                        "Strategy".to_string(),
+                                        "Initiative".to_string(),
+                                        "Task".to_string(),
+                                    ]
+                                    styles=edge_styles()
+                                    legend=true
+                                    align=Align::Start
+                                    node_w=NODE_W
+                                    node_h=NODE_H
+                                    label="Flight-level graph"
+                                    selected=selected
+                                    on_select=Callback::new(move |target: String| {
+                                        if target != focus_for_select {
+                                            refocus(target);
+                                        }
+                                    })
+                                    on_open=Callback::new(open_item)
+                                    on_more=Callback::new(move |target: String| expand(target))
+                                />
                             </div>
                         </Panel>
                         {(!panel_rows.is_empty()).then(|| view! {
@@ -601,42 +521,6 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                 }.into_any()
             }
         }}
-    }
-}
-
-/// The legend of the canvas (COLLIERY-T-0233): the two styles of a
-/// `blocks` arrow. The samples have classes of their own, because a
-/// sample is not an edge of the graph. In `app.css` each sample shares its
-/// rule with the arrow that it explains, so the legend cannot show a style
-/// that the canvas does not draw.
-#[component]
-fn GraphLegend() -> impl IntoView {
-    let sample = |resolved: bool| {
-        view! {
-            <svg class="kairos-graph__legend-sample" width="44" height="12" aria-hidden="true">
-                <path
-                    class="kairos-graph__legend-line"
-                    class:kairos-graph__legend-line--resolved=resolved
-                    d="M 2 6 L 42 6"
-                ></path>
-            </svg>
-        }
-    };
-    view! {
-        <div class="kairos-graph__legend">
-            <Group gap="md" wrap=true>
-                <Group gap="xs">
-                    {sample(false)}
-                    <Text dimmed=true size="xs">"Open blocker"</Text>
-                </Group>
-                <Group gap="xs">
-                    {sample(true)}
-                    <Text dimmed=true size="xs">
-                        "Resolved: one end is in a done column"
-                    </Text>
-                </Group>
-            </Group>
-        </div>
     }
 }
 
@@ -851,5 +735,104 @@ mod tests {
         assert!(blocks_resolved(&nodes, "done", "open"), "done blocker");
         assert!(blocks_resolved(&nodes, "open", "done"), "done blocked item");
         assert!(!blocks_resolved(&nodes, "open", "absent"), "unknown end");
+    }
+
+    fn typed(id: &str, entity_type: &str) -> data::GraphNode {
+        data::GraphNode {
+            short_code: id.to_string(),
+            entity_type: entity_type.to_string(),
+            title: format!("title {id}"),
+            status: "Active".to_string(),
+            ..node(id, false)
+        }
+    }
+
+    fn edge(source: &str, target: &str, relationship: &str) -> data::GraphEdge {
+        data::GraphEdge {
+            source_id: source.to_string(),
+            target_id: target.to_string(),
+            relationship: relationship.to_string(),
+            depth: 1,
+        }
+    }
+
+    /// COLLIERY-T-1836: a node has ONE lane — of its parents one layer up,
+    /// the one with the lowest short code. A parent two layers up, and a
+    /// document, give no lane; the document is not on the canvas.
+    #[test]
+    fn a_node_has_one_lane_the_lowest_parent_code() {
+        let nodes = vec![
+            typed("A-S-1", "strategy"),
+            typed("A-I-2", "initiative"),
+            typed("A-I-1", "initiative"),
+            typed("A-T-1", "task"),
+            typed("A-T-2", "task"),
+            typed("A-D-1", "document"),
+        ];
+        let edges = vec![
+            edge("A-I-2", "A-T-1", "parent"),
+            edge("A-I-1", "A-T-1", "parent"),
+            edge("A-S-1", "A-T-2", "parent"),
+            edge("A-S-1", "A-I-2", "parent"),
+            edge("A-D-1", "A-I-1", "supports"),
+        ];
+        let canvas = canvas_data(&nodes, &edges, "A-T-1");
+        let lane = |id: &str| {
+            canvas
+                .nodes
+                .iter()
+                .find(|n| n.id == id)
+                .and_then(|n| n.lane.clone())
+        };
+        assert_eq!(lane("A-T-1").as_deref(), Some("A-I-1"));
+        assert_eq!(lane("A-T-2"), None, "a parent two layers up is no lane");
+        assert_eq!(lane("A-I-2").as_deref(), Some("A-S-1"));
+        let lanes: Vec<&str> = canvas.lanes.iter().map(|l| l.id.as_str()).collect();
+        assert_eq!(lanes, vec!["A-I-1", "A-S-1"]);
+        assert!(canvas.nodes.iter().all(|n| n.id != "A-D-1"), "no documents");
+        assert!(canvas.edges.is_empty(), "parent and supports draw no arrow");
+        let focus: Vec<&str> = canvas
+            .nodes
+            .iter()
+            .filter(|n| n.current)
+            .map(|n| n.id.as_str())
+            .collect();
+        assert_eq!(focus, vec!["A-T-1"]);
+    }
+
+    /// Blocks arrows get the open or the resolved style; marks, the
+    /// archived flag and `+N` come from the wire node; the node order does
+    /// not depend on the input order.
+    #[test]
+    fn blocks_styles_marks_and_more() {
+        let mut done = typed("A-T-1", "task");
+        done.done = true;
+        done.archived_at = Some("2026-01-01T00:00:00Z".to_string());
+        let mut open = typed("A-T-2", "task");
+        open.degree = 4;
+        let nodes = vec![open, done, typed("A-T-3", "task")];
+        let edges = vec![
+            edge("A-T-1", "A-T-2", "blocks"),
+            edge("A-T-3", "A-T-2", "blocks"),
+        ];
+        let canvas = canvas_data(&nodes, &edges, "A-T-2");
+        let styles: Vec<(&str, &str)> = canvas
+            .edges
+            .iter()
+            .map(|e| (e.from.as_str(), e.style.as_str()))
+            .collect();
+        assert_eq!(styles, vec![("A-T-1", RESOLVED), ("A-T-3", OPEN)]);
+        let ids: Vec<&str> = canvas.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, vec!["A-T-1", "A-T-2", "A-T-3"]);
+        let first = &canvas.nodes[0];
+        assert!(first.archived && first.done);
+        let marks: Vec<&str> = first.marks.iter().map(|m| m.label.as_str()).collect();
+        assert_eq!(marks, vec!["put away", "done"]);
+        assert_eq!(canvas.nodes[1].more, 2, "degree 4 minus 2 fetched edges");
+        assert_eq!(canvas.nodes[2].more, 0);
+
+        let mut reversed = nodes.clone();
+        reversed.reverse();
+        assert_eq!(canvas_data(&reversed, &edges, "A-T-2").nodes, canvas.nodes);
     }
 }

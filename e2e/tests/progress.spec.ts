@@ -51,8 +51,10 @@ test('children progress: card badge and detail bar for a seeded parent', async (
     await expect(bar).toBeVisible();
     await expect(bar).toContainText('1 of 5 done');
     // Segments: one per involved column, done segments distinct.
+    // COLLIERY-T-1836: the bar is the Aurora SegmentedBar; a done column
+    // has the ok hue.
     await expect(
-      bar.locator('.kairos-progress__segment--done'),
+      bar.locator('.cl-segbar__part[style*="var(--ok)"]'),
     ).toHaveCount(1);
   });
 

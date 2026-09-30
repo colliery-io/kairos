@@ -25,9 +25,10 @@ pub(crate) mod data;
 pub(crate) mod live;
 
 use aurora_dark::components::{
-    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, Modal, PageHeader, Pill, Select,
+    Alert, Anchor, Button, Chip, Empty, ErrorState, Group, Loading, PageHeader, Pill, Select,
     Stack, Text, TextInput, Textarea,
 };
+use aurora_dark::frame::{Card, Modal, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
@@ -824,17 +825,22 @@ pub fn BoardsPage() -> impl IntoView {
                                                 {group_boards.into_iter().map(|board| {
                                                     let href = format!("/boards/{}", board.slug);
                                                     view! {
-                                                        <a class="kairos-board-tile" href=href>
-                                                            <Stack gap="xs">
-                                                                <Group justify="between">
-                                                                    <Text bright=true bold=true>{board.name.clone()}</Text>
-                                                                    <Pill color=level_color(&board.board_level)>
-                                                                        {board.board_level.clone()}
-                                                                    </Pill>
-                                                                </Group>
-                                                                <Text mono=true dimmed=true size="xs">{board.slug.clone()}</Text>
-                                                            </Stack>
-                                                        </a>
+                                                        // COLLIERY-T-1836: an Aurora `Card`; the
+                                                        // wrapper keeps the `kairos-board-tile`
+                                                        // hook of the e2e/UAT specs.
+                                                        <div class="kairos-board-tile">
+                                                            <Card href=href>
+                                                                <Stack gap="xs">
+                                                                    <Group justify="between">
+                                                                        <Text bright=true bold=true>{board.name.clone()}</Text>
+                                                                        <Pill color=level_color(&board.board_level)>
+                                                                            {board.board_level.clone()}
+                                                                        </Pill>
+                                                                    </Group>
+                                                                    <Text mono=true dimmed=true size="xs">{board.slug.clone()}</Text>
+                                                                </Stack>
+                                                            </Card>
+                                                        </div>
                                                     }
                                                 }).collect_view()}
                                             </div>
@@ -1098,11 +1104,13 @@ pub fn BoardPage() -> impl IntoView {
         }
     };
 
-    // Failed mutations (transition/create) surface here, page-level.
-    let action_error = RwSignal::new(None::<ApiError>);
-    let on_error = Callback::new(move |error: ApiError| action_error.set(Some(error)));
+    // Failed mutations (transition/create) surface as an error toast
+    // (COLLIERY-T-1836: it was a fixed banner of this page).
+    let toaster = use_toaster();
+    let on_error = Callback::new(move |error: ApiError| {
+        toaster.error(describe(&error));
+    });
     let on_changed = Callback::new(move |_: ()| {
-        action_error.set(None);
         refetch();
     });
 
@@ -1198,19 +1206,6 @@ pub fn BoardPage() -> impl IntoView {
         }}
         {move || board_key.get().map(|_| view! {
             <BoardBody model powers mode on_changed on_error/>
-        })}
-        {move || action_error.get().map(|error| view! {
-            <div class="kairos-board-notice">
-                <Banner color=token::BAD icon="✕">
-                    {describe(&error)}
-                    <button
-                        class="kairos-board-notice__dismiss"
-                        on:click=move |_| action_error.set(None)
-                    >
-                        "Dismiss"
-                    </button>
-                </Banner>
-            </div>
         })}
     }
 }
@@ -1462,7 +1457,7 @@ fn BoardBody(
                     })
                 })
                 .map(|note| view! {
-                    <div class="kairos-board-notice" role="status" data-testid="board-cap">
+                    <div class="kairos-board__notice" role="status" data-testid="board-cap">
                         <Banner color=token::GOLD icon="!">{note}</Banner>
                     </div>
                 })
@@ -1479,7 +1474,7 @@ fn BoardBody(
                 request_notice(team_name.get().as_deref(), &entry_name, hidden);
             let href = format!("/items/{}", request.short_code);
             view! {
-                <div class="kairos-board__sent" role="status" data-testid="request-sent">
+                <div class="kairos-board__notice" role="status" data-testid="request-sent">
                     <Banner color=token::OK icon="✓">
                         <Group justify="between">
                             <Text size="sm">
@@ -1511,42 +1506,38 @@ fn BoardBody(
                             let label = on_slug.clone();
                             let attr = on_slug.clone();
                             view! {
-                                <button
-                                    type="button"
-                                    class="kairos-board__lens-chip"
-                                    class:kairos-board__lens-chip--on=move || is_on.get()
-                                    aria-pressed=move || is_on.get().to_string()
-                                    data-repo=attr
-                                    on:click=move |_| toggle_repo(on_slug.clone())
-                                >
-                                    {label}
-                                </button>
+                                <Chip
+                                    label
+                                    active=is_on
+                                    on_click=Callback::new(move |_| toggle_repo(on_slug.clone()))
+                                    attr:r#type="button"
+                                    attr:aria-pressed=move || is_on.get().to_string()
+                                    attr:data-repo=attr
+                                />
                             }
                         }
                     />
                     {move || group_toggle_shown.get().then(|| view! {
-                        <button
-                            type="button"
-                            class="kairos-board__lens-chip"
-                            class:kairos-board__lens-chip--on=move || group_by_repo.get()
-                            aria-pressed=move || group_by_repo.get().to_string()
-                            data-testid="group-by-repo"
-                            on:click=move |_| {
+                        <Chip
+                            label="Group by repository"
+                            active=group_by_repo
+                            on_click=Callback::new(move |_| {
                                 set_by_repo_query.set((!group_by_repo.get_untracked()).then(|| "1".to_string()))
-                            }
-                        >
-                            "Group by repository"
-                        </button>
+                            })
+                            attr:r#type="button"
+                            attr:aria-pressed=move || group_by_repo.get().to_string()
+                            attr:data-testid="group-by-repo"
+                        />
                     })}
                     {move || lens_active.get().then(|| view! {
-                        <button
-                            type="button"
-                            class="kairos-board__lens-chip kairos-board__lens-chip--clear"
-                            data-testid="clear-repo-lens"
-                            on:click=move |_| clear_lens()
+                        <Button
+                            variant="subtle"
+                            size="xs"
+                            on_click=Callback::new(move |_| clear_lens())
+                            attr:data-testid="clear-repo-lens"
                         >
                             "Clear"
-                        </button>
+                        </Button>
                     })}
                 </Group>
             </div>
@@ -1999,7 +1990,7 @@ fn ItemCard(
                     </a>
                     <copy_link::CopyLinkButton code=code_for_copy/>
                 </Group>
-                <Group gap="xs">
+                <Group gap="xs" wrap=true>
                     {repository.map(|slug| {
                         let attr = slug.clone();
                         view! {
@@ -2271,22 +2262,15 @@ fn CreateItemModal(
                             options=vec!["auto".into(), "planned".into(), "support".into()]/>
                     })}
                     // COLLIERY-T-0221: only when the tenant has a repository.
-                    // A plain <select>, as on the item page: the value is
-                    // the slug and the label says more, which the aurora
-                    // `Select` (one string for both) cannot do.
+                    // The value is the slug and the label says more: the
+                    // Aurora `Select` with `option_pairs`.
                     {move || repo_options.get().map(|options| view! {
-                        <div class="cl-field" data-testid="create-repository">
-                            <label class="cl-field__label">"Repository"</label>
-                            <select
-                                class="cl-input cl-select"
-                                prop:value=move || repository.get()
-                                on:change=move |e| repository.set(event_target_value(&e))
-                            >
-                                {options.into_iter().map(|(slug, label)| view! {
-                                    <option value=slug>{label}</option>
-                                }).collect_view()}
-                            </select>
-                        </div>
+                        <Select
+                            label="Repository"
+                            option_pairs=options
+                            value=repository
+                            attr:data-testid="create-repository"
+                        />
                     })}
                 })}
                 {matches!(kind, EntityKind::Adr).then(|| view! {

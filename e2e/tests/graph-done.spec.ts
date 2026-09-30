@@ -98,10 +98,11 @@ async function moveTo(token: string, board: Board, code: string, name: string) {
   }
 }
 
-const node = (page: Page, code: string) =>
-  page.locator('.kairos-graph__node', {
-    has: page.locator('.kairos-graph__code', { hasText: code }),
-  });
+// COLLIERY-T-1836: the canvas is the Aurora `Dag`. A node's `data-id` is
+// its short code; a resolved arrow has the dashed style.
+const node = (page: Page, code: string) => page.locator(`.cl-dag__node[data-id="${code}"]`);
+const doneMark = (page: Page, code: string) =>
+  node(page, code).locator('.cl-dag__mark', { hasText: /^done$/ });
 
 test('graph-done: a completed blocker on a different board changes the card and the arrow', async ({
   page,
@@ -168,22 +169,20 @@ test('graph-done: a completed blocker on a different board changes the card and 
       expect(await page.evaluate(() => (window as any).__t0233)).toBe('same page');
     });
 
-    const resolved = page.locator('.kairos-graph__edge--resolved');
-    const open = page.locator('.kairos-graph__edge:not(.kairos-graph__edge--resolved)');
+    const resolved = page.locator('svg.cl-dag path.cl-dag__edge.cl-dag__edge--dashed');
+    const open = page.locator('svg.cl-dag path.cl-dag__edge:not(.cl-dag__edge--dashed)');
 
     await test.step('c. the graph draws the completed blocker as history', async () => {
       await card.locator('.kairos-card__blocks').first().click();
       await page.waitForURL(new RegExp(`/items/${waiting}\\?view=graph`));
-      await expect(
-        page.locator('.kairos-graph__node--focus .kairos-graph__code'),
-      ).toHaveText(waiting);
+      await expect(page.locator('.cl-dag__node--current')).toHaveAttribute('data-id', waiting);
 
       // The node says that its item is in a done column.
-      await expect(node(page, blocker)).toHaveClass(/kairos-graph__node--done/);
-      await expect(node(page, blocker).locator('.kairos-graph__done')).toHaveText('done');
-      await expect(node(page, second)).not.toHaveClass(/kairos-graph__node--done/);
-      await expect(node(page, second).locator('.kairos-graph__done')).toHaveCount(0);
-      await expect(node(page, waiting).locator('.kairos-graph__done')).toHaveCount(0);
+      await expect(node(page, blocker)).toHaveClass(/cl-dag__node--done/);
+      await expect(doneMark(page, blocker)).toHaveText('done');
+      await expect(node(page, second)).not.toHaveClass(/cl-dag__node--done/);
+      await expect(doneMark(page, second)).toHaveCount(0);
+      await expect(doneMark(page, waiting)).toHaveCount(0);
 
       // Two arrows, one of each style.
       await expect(resolved).toHaveCount(1);
@@ -204,31 +203,44 @@ test('graph-done: a completed blocker on a different board changes the card and 
       expect(openStyle.dash).toBe('none');
       expect(resolvedStyle.dash).not.toBe('none');
       expect(resolvedStyle.stroke).not.toBe(openStyle.stroke);
-      expect(await resolved.getAttribute('marker-end')).toBe(
-        'url(#kairos-graph-arrowhead-resolved)',
-      );
-      expect(await open.getAttribute('marker-end')).toBe('url(#kairos-graph-arrowhead)');
+      // Each style has its own arrowhead (a marker does not take the
+      // stroke of its path), in the hue of the style.
+      const resolvedMarker = await resolved.getAttribute('marker-end');
+      const openMarker = await open.getAttribute('marker-end');
+      expect(resolvedMarker).not.toBe(openMarker);
+      const markerId = (ref: string | null) => (ref ?? '').replace(/^url\(#(.*)\)$/, '$1');
+      await expect(
+        page.locator(`marker[id="${markerId(resolvedMarker)}"] path.cl-dag__arrowhead`),
+      ).toHaveClass(/cl-dag__hue--muted/);
+      await expect(
+        page.locator(`marker[id="${markerId(openMarker)}"] path.cl-dag__arrowhead`),
+      ).toHaveClass(/cl-dag__hue--gold/);
     });
 
     await test.step('d. the legend names the two styles', async () => {
-      const legend = page.locator('.kairos-graph__legend');
+      const legend = page.locator('.cl-dag-legend');
       await expect(legend.getByText('Open blocker', { exact: true })).toBeVisible();
       await expect(
         legend.getByText('Resolved: one end is in a done column', { exact: true }),
       ).toBeVisible();
       // Each sample has the style of the arrow that it explains.
       const dash = (el: Element) => getComputedStyle(el).strokeDasharray;
-      const samples = legend.locator('.kairos-graph__legend-line');
-      await expect(samples).toHaveCount(2);
-      expect(await samples.nth(0).evaluate(dash)).toBe(await open.evaluate(dash));
-      expect(await samples.nth(1).evaluate(dash)).toBe(await resolved.evaluate(dash));
+      const sample = (label: string) =>
+        legend
+          .locator('.cl-dag-legend__item', { hasText: label })
+          .locator('path.cl-dag__edge');
+      await expect(legend.locator('.cl-dag-legend__item')).toHaveCount(2);
+      expect(await sample('Open blocker').evaluate(dash)).toBe(await open.evaluate(dash));
+      expect(await sample('Resolved: one end is in a done column').evaluate(dash)).toBe(
+        await resolved.evaluate(dash),
+      );
     });
 
     await test.step('e. the second blocker is completed: the open canvas follows', async () => {
       await moveTo(alice, elsewhere, second, 'Completed');
       await expect(resolved).toHaveCount(2, { timeout: 20_000 });
       await expect(open).toHaveCount(0);
-      await expect(node(page, second).locator('.kairos-graph__done')).toHaveText('done');
+      await expect(doneMark(page, second)).toHaveText('done');
     });
   } finally {
     // Put the cards away, so that the boards are as the seed made them.

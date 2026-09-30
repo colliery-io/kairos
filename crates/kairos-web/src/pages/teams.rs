@@ -19,9 +19,11 @@ pub(crate) mod api;
 pub(crate) mod doc;
 
 use aurora_dark::components::{
-    ActionIcon, Alert, Anchor, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Stack,
-    Text,
+    ActionIcon, Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill,
+    Stack, Text, Textarea,
 };
+use aurora_dark::data::RelativeTime;
+use aurora_dark::frame::Card;
 use aurora_dark::tokens::ApiError;
 use futures_util::future::join_all;
 use futures_util::join;
@@ -98,18 +100,21 @@ pub fn TeamsPage() -> impl IntoView {
                             n => format!("{n} members"),
                         };
                         view! {
-                            <a class="kairos-board-tile" href=href>
-                                <Stack gap="xs">
-                                    <Group justify="between">
-                                        <Text bright=true bold=true>{name}</Text>
-                                        <Pill color=team_type_color(&team_type)>{team_type}</Pill>
-                                    </Group>
-                                    <Group justify="between">
-                                        <Text mono=true dimmed=true size="xs">{slug}</Text>
-                                        <Text dimmed=true size="xs">{members}</Text>
-                                    </Group>
-                                </Stack>
-                            </a>
+                            // COLLIERY-T-1836: an Aurora `Card`, as on /boards.
+                            <div class="kairos-board-tile">
+                                <Card href=href>
+                                    <Stack gap="xs">
+                                        <Group justify="between">
+                                            <Text bright=true bold=true>{name}</Text>
+                                            <Pill color=team_type_color(&team_type)>{team_type}</Pill>
+                                        </Group>
+                                        <Group justify="between">
+                                            <Text mono=true dimmed=true size="xs">{slug}</Text>
+                                            <Text dimmed=true size="xs">{members}</Text>
+                                        </Group>
+                                    </Stack>
+                                </Card>
+                            </div>
                         }
                     }).collect_view()}
                 </div>
@@ -471,14 +476,9 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                         <Group justify="between" wrap=true>
                                             <Group gap="sm" wrap=true>
                                                 <Pill color=aurora_dark::tokens::token::ICE>{repo.slug.clone()}</Pill>
-                                                <a
-                                                    class="cl-anchor"
-                                                    href=repo.repo_url.clone()
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                >
+                                                <Anchor href=repo.repo_url.clone() attr:target="_blank" attr:rel="noopener noreferrer">
                                                     {name}
-                                                </a>
+                                                </Anchor>
                                             </Group>
                                             <Group gap="sm">
                                                 <Text dimmed=true size="xs">{open}</Text>
@@ -529,14 +529,9 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                                 <Pill color=link_state_color(&link.state)>
                                                     {link.state.clone()}
                                                 </Pill>
-                                                <a
-                                                    class="cl-anchor"
-                                                    href=link.url.clone()
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                >
+                                                <Anchor href=link.url.clone() attr:target="_blank" attr:rel="noopener noreferrer">
                                                     {label}
-                                                </a>
+                                                </Anchor>
                                             </Group>
                                             <Text mono=true dimmed=true size="xs">{repo}</Text>
                                         </Group>
@@ -602,7 +597,7 @@ fn AnnouncementsPanel(
             })
     };
 
-    let post = move |_| {
+    let post = move |_: ()| {
         let body = draft.get_untracked();
         if body.trim().is_empty() || busy.get_untracked() {
             return;
@@ -654,7 +649,6 @@ fn AnnouncementsPanel(
                         <Stack gap="sm">
                             {announcements.into_iter().map(|announcement| {
                                 let api::Announcement { id, body, pinned, created_by, created_at } = announcement;
-                                let date = created_at.split('T').next().unwrap_or_default().to_string();
                                 let delete_id = id.clone();
                                 view! {
                                     <Stack gap="xs">
@@ -663,7 +657,7 @@ fn AnnouncementsPanel(
                                                 {pinned.then(|| view! {
                                                     <Pill color=aurora_dark::tokens::token::GOLD>"pinned"</Pill>
                                                 })}
-                                                <Text dimmed=true size="xs">{date}</Text>
+                                                <Text dimmed=true size="xs"><RelativeTime iso=created_at/></Text>
                                             </Group>
                                             {move || {
                                                 let mine_or_admin = identity()
@@ -693,20 +687,21 @@ fn AnnouncementsPanel(
                         .unwrap_or(false);
                     can_post.then(|| view! {
                         <Stack gap="xs">
-                            <label class="cl-field__label">"Post an announcement (markdown)"</label>
-                            <textarea
-                                class="kairos-editor__textarea"
-                                prop:value=move || draft.get()
-                                on:input=move |e| draft.set(event_target_value(&e))
-                            ></textarea>
+                            <Textarea
+                                label="Post an announcement (markdown)"
+                                value=draft
+                                rows=6
+                                mono=true
+                            />
                             <Group justify="end">
-                                <button
-                                    class="cl-btn cl-btn--filled"
-                                    disabled=move || busy.get() || draft.get().trim().is_empty()
-                                    on:click=post
+                                <Button
+                                    disabled=move || draft.get().trim().is_empty()
+                                    loading=busy
+                                    loading_label="Posting…"
+                                    on_click=Callback::new(post)
                                 >
-                                    {move || if busy.get() { "Posting…" } else { "Post" }}
-                                </button>
+                                    "Post"
+                                </Button>
                             </Group>
                         </Stack>
                     })

@@ -8,14 +8,15 @@
 //!
 //! Decisions (recorded on KAIROS-T-0086): folder indexes are the create
 //! surface (root-level sections ship with the scaffold; creating new
-//! ROOT nodes is deliberately not offered in v1); deletes confirm with a
-//! second click rather than a dialog; after a delete the router goes up
-//! one level.
+//! ROOT nodes is deliberately not offered in v1); after a delete the
+//! router goes up one level. COLLIERY-T-1836: a delete asks in an Aurora
+//! `ConfirmDialog` (it was a second click on the button).
 
 use aurora_dark::components::{
-    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Stack, Text,
-    TextInput,
+    Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
+    Stack, Text, TextInput,
 };
+use aurora_dark::frame::ConfirmDialog;
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::hooks::{use_navigate, use_params_map};
@@ -353,7 +354,7 @@ pub(crate) fn CreateForm(
         "created at the top level of the tree"
     };
 
-    let create = move |_| {
+    let create = move |_: ()| {
         let slug_value = slug.get_untracked().trim().to_string();
         let title_value = title.get_untracked().trim().to_string();
         if slug_value.is_empty() || title_value.is_empty() || busy.get_untracked() {
@@ -392,27 +393,23 @@ pub(crate) fn CreateForm(
                     </Alert>
                 })}
                 <Group gap="sm">
-                    <select
-                        class="cl-input"
-                        prop:value=move || kind.get()
-                        on:change=move |e| kind.set(event_target_value(&e))
-                    >
-                        <option value="page">"page"</option>
-                        <option value="folder">"folder"</option>
-                    </select>
+                    <Select
+                        label="Kind"
+                        options=vec!["page".to_string(), "folder".to_string()]
+                        value=kind
+                    />
                     <TextInput label="Slug" value=slug/>
                     <TextInput label="Title" value=title/>
-                    <button
-                        class="cl-btn cl-btn--filled"
+                    <Button
                         disabled=move || {
-                            busy.get()
-                                || slug.get().trim().is_empty()
-                                || title.get().trim().is_empty()
+                            slug.get().trim().is_empty() || title.get().trim().is_empty()
                         }
-                        on:click=create
+                        loading=busy
+                        loading_label="Creating…"
+                        on_click=Callback::new(create)
                     >
-                        {move || if busy.get() { "Creating…" } else { "Create" }}
-                    </button>
+                        "Create"
+                    </Button>
                 </Group>
             </Stack>
         </Panel>
@@ -422,8 +419,9 @@ pub(crate) fn CreateForm(
 /// Rename / move / delete for an unprotected node (KAIROS-T-0086). The
 /// move select offers every folder EXCEPT the node and its descendants
 /// (a folder inside itself is a cycle — the server refuses it too) plus
-/// the tree root. Delete confirms with a second click; folders with live
-/// children surface the server's FOLDER_NOT_EMPTY count.
+/// the tree root. Delete asks in an Aurora `ConfirmDialog`
+/// (COLLIERY-T-1836; it was a second click); folders with live children
+/// surface the server's FOLDER_NOT_EMPTY count.
 #[component]
 fn StructurePanel(
     team: api::Team,
@@ -523,11 +521,8 @@ fn StructurePanel(
             .map(|parent| format!("/teams/{team_slug}/pages/{}", path_of(&pages, parent)));
         parent_path.unwrap_or_else(|| format!("/teams/{team_slug}"))
     };
-    let delete = move |_| {
-        if !confirm_delete.get_untracked() {
-            confirm_delete.set(true);
-            return;
-        }
+    let page_title = node.title.clone();
+    let delete = move |_: ()| {
         if busy.get_untracked() {
             return;
         }
@@ -561,31 +556,36 @@ fn StructurePanel(
                     <Button variant="default" on_click=Callback::new(rename)>"Rename"</Button>
                 </Group>
                 <Group gap="sm">
-                    <label class="cl-field__label">"Move to"</label>
-                    <select
-                        class="cl-input"
-                        prop:value=move || move_choice.get()
-                        on:change=move |e| move_choice.set(event_target_value(&e))
-                    >
-                        <option value="">"(root)"</option>
-                        {move_targets.iter().map(|(id, label)| {
-                            let id = id.clone();
-                            let label = label.clone();
-                            view! { <option value=id>{label}</option> }
-                        }).collect_view()}
-                    </select>
+                    <Select
+                        label="Move to"
+                        placeholder="(root)"
+                        option_pairs=move_targets.clone()
+                        value=move_choice
+                    />
                     <Button variant="default" on_click=Callback::new(do_move)>"Move"</Button>
                 </Group>
                 <Group gap="sm" justify="end">
-                    <button
-                        class="cl-btn"
-                        disabled=move || busy.get()
-                        on:click=delete
+                    <Button
+                        variant="default"
+                        bad=true
+                        disabled=busy
+                        on_click=Callback::new(move |_| confirm_delete.set(true))
                     >
-                        {move || if confirm_delete.get() { "Really delete?" } else { "Delete" }}
-                    </button>
+                        "Delete"
+                    </Button>
                 </Group>
             </Stack>
         </Panel>
+        <ConfirmDialog
+            open=confirm_delete
+            title="Delete this page?"
+            message=format!(
+                "Kairos deletes the page \"{page_title}\". A folder that has pages in it \
+                 stays, and the server tells you why."
+            )
+            confirm_label="Delete"
+            busy=busy
+            on_confirm=Callback::new(delete)
+        />
     }
 }

@@ -188,13 +188,25 @@ def lint():
 )
 def unit():
     """Run unit tests for all workspace crates, then the plugin hook's
-    stdlib unit tests (KAIROS-T-0108)."""
+    stdlib unit tests (KAIROS-T-0108), then the stdlib unit tests of the
+    Metis import script (scripts/metis_import, COLLIERY-I-0019)."""
     code = run_cargo_command(["test", "--workspace", "--lib", "--bins"])
     if code:
         return code
     hook_tests = os.path.join(PROJECT_ROOT, "plugin", "hooks", "test_session_start.py")
-    return subprocess.run(
+    code = subprocess.run(
         [sys.executable, "-m", "unittest", hook_tests], cwd=PROJECT_ROOT, check=False
+    ).returncode
+    if code:
+        return code
+    scripts = os.path.join(PROJECT_ROOT, "scripts")
+    return subprocess.run(
+        [
+            sys.executable, "-B", "-m", "unittest", "discover",
+            "-s", os.path.join(scripts, "metis_import"), "-t", scripts,
+        ],
+        cwd=PROJECT_ROOT,
+        check=False,
     ).returncode
 
 

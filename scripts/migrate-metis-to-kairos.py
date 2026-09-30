@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
-"""Copy a Metis work record into a Kairos tenant, keeping the numbers.
+"""Copy a Metis work record into a Kairos tenant.
 
-One-way and resumable. Every Metis document becomes one Kairos item:
+Two modes. `--codes keep` (the default) keeps the numbers and needs an empty
+tenant: it is the mode that moved the kairos record on 2026-09-26, and the
+text below describes it. `--codes remap` gives each item a new code from the
+organization sequence and rewrites the references: see
+scripts/metis_import/run_remap.py and the usage at the end of this text.
+
+One-way and resumable. In keep mode every Metis document becomes one Kairos
+item:
 
     vision         -> strategy   (S)   on the strategy board
     initiative     -> initiative (I)   on the initiative board
@@ -40,6 +47,20 @@ Usage:
 KAIROS_KEY is a principal that manages the delivery, initiative and ADR
 boards. KAIROS_ADMIN_TOKEN is only used for what sits on the strategy board:
 the strategy itself and the documents that support it.
+
+Remap mode:
+    KAIROS_KEY=kairos_sk_... [KAIROS_ADMIN_TOKEN=kairos_ss_...] \\
+      scripts/migrate-metis-to-kairos.py --codes remap \\
+        --url https://kairos.example --metis ~/Desktop/fidius/.metis \\
+        --repository fidius --prefix COLLIERY \\
+        --delivery-board colliery-io-delivery \\
+        [--also-map ~/kairos-import/fidius/import-state.json,...] \\
+        [--content-dir ~/kairos-import/fidius/ste] plan|apply|verify
+
+The state goes to ~/kairos-import/<repository>/import-state.json (--state).
+plan reads only the files, and the boards too when --url is given. apply
+refuses a URL that is not 127.0.0.1 or localhost unless
+--i-mean-the-live-deployment is given.
 """
 
 import argparse
@@ -48,8 +69,12 @@ import json
 import os
 import re
 import sys
-import urllib.error
-import urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from metis_import import run_remap  # noqa: E402
+from metis_import.api import Api, Stop, is_local  # noqa: E402
+from metis_import.metis import parse  # noqa: E402,F401
 
 LETTER = {"strategy": "S", "initiative": "I", "task": "T", "document": "D", "adr": "A"}
 KIND = {
@@ -103,38 +128,6 @@ TASK_TYPE = {"#bug": "bug", "#tech-debt": "tech_debt", "#feature": "task"}
 ORDER = ["strategy", "initiative", "adr", "document", "task"]
 
 
-class Stop(Exception):
-    pass
-
-
-def parse(path):
-    with open(path, encoding="utf-8") as f:
-        text = f.read()
-    m = re.match(r"\A---\n(.*?)\n---\n?", text, re.DOTALL)
-    if not m:
-        return None
-    front, body = m.group(1), text[m.end():]
-    meta = {"tags": []}
-    for line in front.splitlines():
-        tag = re.match(r'^\s+-\s+"?(#[^"\s]+)"?\s*$', line)
-        if tag:
-            meta["tags"].append(tag.group(1))
-            continue
-        kv = re.match(r"^([a-z_]+):\s*(.*)$", line)
-        if kv and kv.group(1) != "tags":
-            meta[kv.group(1)] = kv.group(2).strip().strip('"')
-    if "short_code" not in meta or "level" not in meta:
-        return None
-    meta["body"] = body.strip("\n") + "\n"
-    meta["phase"] = next((t.split("/", 1)[1] for t in meta["tags"] if t.startswith("#phase/")), "")
-    blocked = meta.get("blocked_by", "")
-    meta["blocked_by"] = re.findall(r"[A-Z]+-[A-Z]-\d{4}", blocked)
-    meta["parent"] = (re.findall(r"[A-Z]+-[A-Z]-\d{4}", meta.get("parent", "")) or [None])[0]
-    meta["archived"] = meta.get("archived", "false") == "true"
-    meta["path"] = path
-    return meta
-
-
 def inventory(metis_dir):
     docs = {}
     for root, _dirs, files in os.walk(metis_dir):
@@ -180,82 +173,12 @@ def footer(prefix, doc, today):
     )
 
 
-class Api:
-    def __init__(self, url, key, admin):
-        self.url = url.rstrip("/")
-        self.key = key
-        self.admin = admin
-        self.session = None
-        self.rpc_id = 0
-
-    def call(self, method, path, body=None, admin=False, extra=None):
-        token = self.admin if admin else self.key
-        if not token:
-            raise Stop("no %s credential for %s %s" % ("admin" if admin else "key", method, path))
-        headers = {"authorization": "Bearer " + token, "accept": "application/json"}
-        data = None
-        if body is not None:
-            data = json.dumps(body).encode("utf-8")
-            headers["content-type"] = "application/json"
-        headers.update(extra or {})
-        req = urllib.request.Request(self.url + path, data=data, method=method, headers=headers)
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                raw = resp.read().decode("utf-8")
-                return resp.status, raw, resp.headers
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace"), e.headers
-
-    def json(self, method, path, body=None, admin=False, ok=(200, 201)):
-        status, raw, _ = self.call(method, path, body, admin)
-        if status not in ok:
-            raise Stop("%s %s -> HTTP %s: %s" % (method, path, status, raw[:400]))
-        return json.loads(raw) if raw.strip() else {}
-
-    # --- MCP, for the edges -------------------------------------------------
-    def _rpc(self, payload, notify=False):
-        extra = {"accept": "application/json, text/event-stream"}
-        if self.session:
-            extra["mcp-session-id"] = self.session
-        status, raw, headers = self.call("POST", "/mcp", payload, extra=extra)
-        if status not in (200, 202):
-            raise Stop("mcp %s -> HTTP %s: %s" % (payload.get("method"), status, raw[:300]))
-        if headers.get("mcp-session-id"):
-            self.session = headers.get("mcp-session-id")
-        if notify:
-            return None
-        for line in raw.splitlines():
-            line = line.strip()
-            if line.startswith("data:"):
-                line = line[5:].strip()
-            if line.startswith("{"):
-                msg = json.loads(line)
-                if "result" in msg or "error" in msg:
-                    return msg
-        raise Stop("mcp %s: no JSON-RPC answer in %r" % (payload.get("method"), raw[:200]))
-
-    def tool(self, name, arguments):
-        if not self.session:
-            self._rpc({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-                "protocolVersion": "2025-06-18", "capabilities": {},
-                "clientInfo": {"name": "migrate-metis-to-kairos", "version": "1"}}})
-            self._rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}, notify=True)
-        self.rpc_id += 1
-        msg = self._rpc({"jsonrpc": "2.0", "id": self.rpc_id, "method": "tools/call",
-                         "params": {"name": name, "arguments": arguments}})
-        if "error" in msg:
-            return False, json.dumps(msg["error"])
-        result = msg["result"]
-        text = " ".join(c.get("text", "") for c in result.get("content", []))
-        return not result.get("isError", False), text
-
-
 def boards(api):
     listing = api.json("GET", "/api/boards?limit=100")
     out = {}
     for row in listing.get("items", listing if isinstance(listing, list) else []):
         full = api.json("GET", "/api/boards/" + row["id"])
-        full["by_name"] = {c["name"]: c["id"] for c in full["columns"]}
+        full["by_name"] = {c["name"]: c["id"] for c in full["columns"] if not c.get("removed_at")}
         out[full["slug"]] = full
     return out
 
@@ -339,7 +262,9 @@ def save(path, state):
 def main():
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("mode", choices=["plan", "apply", "verify"])
-    p.add_argument("--url", required=True)
+    p.add_argument("--codes", choices=["keep", "remap"], default="keep",
+                   help="keep: keep the numbers (empty tenant). remap: new codes from the sequence")
+    p.add_argument("--url", help="required, except for plan in remap mode")
     p.add_argument("--metis", default=".metis")
     p.add_argument("--repository", required=True)
     p.add_argument("--prefix", required=True)
@@ -348,7 +273,25 @@ def main():
     p.add_argument("--adr-board", default="adrs")
     p.add_argument("--strategy-board", default="strategy")
     p.add_argument("--limit", type=int, default=0, help="stop after this many creates (0 = all)")
+    p.add_argument("--state", help="remap: the state file (default ~/kairos-import/<repository>/import-state.json)")
+    p.add_argument("--also-map", help="remap: state files of earlier runs, separated by commas")
+    p.add_argument("--content-dir", help="remap: directory of staged texts <OLD-CODE>.md")
+    p.add_argument("--wiki-links", choices=["plain", "link"], default="plain",
+                   help="remap: [[CODE]] becomes the plain new code, or a markdown link")
+    p.add_argument("--tenant", help="send this X-Tenant header (a deployment with more than one tenant)")
+    p.add_argument("--i-mean-the-live-deployment", action="store_true",
+                   help="permit apply against a URL that is not 127.0.0.1 or localhost")
     args = p.parse_args()
+    sys.stdout.reconfigure(line_buffering=True)
+
+    if args.mode == "apply" and args.url and not is_local(args.url) \
+            and not args.i_mean_the_live_deployment:
+        raise Stop("apply against %s is refused. That URL is not 127.0.0.1 or localhost. "
+                   "Add --i-mean-the-live-deployment to write to it." % args.url)
+    if args.codes == "remap":
+        sys.exit(run_remap.main(args))
+    if not args.url:
+        raise Stop("--url is required in keep mode")
 
     docs = inventory(args.metis)
     steps = plan(docs, args.prefix)
@@ -371,7 +314,7 @@ def main():
               % (len(steps), parents, blocks, len(state["codes"])))
         return
 
-    api = Api(args.url, os.environ.get("KAIROS_KEY"), os.environ.get("KAIROS_ADMIN_TOKEN"))
+    api = Api(args.url, os.environ.get("KAIROS_KEY"), os.environ.get("KAIROS_ADMIN_TOKEN"), args.tenant)
     all_boards = boards(api)
     today = datetime.date.today().isoformat()
 

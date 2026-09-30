@@ -7,6 +7,7 @@
 pub mod abac;
 pub mod board;
 pub mod chunk;
+pub mod embed_text;
 pub mod forge;
 pub mod graph;
 pub mod items;

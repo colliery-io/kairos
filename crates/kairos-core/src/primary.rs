@@ -12,6 +12,10 @@
 //! present for every item, and owned by the product rather than by a tenant's
 //! template.
 //!
+//! The owning team was on that list and is not any more (COLLIERY-T-1840): in a
+//! tenant where one team owns every task, `team: colliery-io` was the same line
+//! in every probe.
+//!
 //! That constraint came from being wrong earlier. An initial design keyed on
 //! named sections — "take the Summary" — and the corpus killed it: across 4,927
 //! real documents there were 11,553 distinct heading strings, **85% occurring
@@ -71,6 +75,7 @@
 use std::fmt::Write as _;
 
 use crate::chunk::chunk;
+use crate::embed_text::{has_real_words, mask_import_footer};
 use crate::short_code::ItemType;
 
 /// The structural facts about an item that go into its primary vector.
@@ -84,10 +89,11 @@ pub struct PrimaryInputs<'a> {
     /// The repository the item is issued against, if any. A strong prior for
     /// genuine coupling (KAIROS-A-0019).
     pub repository: Option<&'a str>,
-    /// The owning team's name or slug, if any.
-    pub team: Option<&'a str>,
     /// The parent item's title, if it has a parent. Cheap context that says
-    /// which piece of work this belongs to.
+    /// which piece of work this belongs to. An archived parent counts: the
+    /// investigation of COLLIERY-T-1840 found 931 of 1,370 parent edges ended
+    /// at an archived parent, and dropping its title took the context from the
+    /// items that most needed it.
     pub parent_title: Option<&'a str>,
     /// Stamped metadata as `(label, value)` pairs, in the order they should be
     /// read. The **label** matters: it is tenant-chosen meaning, unlike a
@@ -138,9 +144,9 @@ pub fn primary_text_with(
     if let Some(repository) = non_blank(inputs.repository) {
         let _ = writeln!(out, "repository: {repository}");
     }
-    if let Some(team) = non_blank(inputs.team) {
-        let _ = writeln!(out, "team: {team}");
-    }
+    // No `team:` line (COLLIERY-T-1840). A tenant whose tasks all belong to
+    // one team put the same line into every probe, and a line that every item
+    // has cannot tell two items apart.
     if let Some(parent) = non_blank(inputs.parent_title) {
         let _ = writeln!(out, "part of: {parent}");
     }
@@ -160,16 +166,30 @@ pub fn primary_text_with(
 
 /// The item's opening prose, up to `budget` characters.
 ///
-/// Taken from the chunker's first chunk with real content, so "opening" means the
-/// same thing here as it does in `item_chunks` — one definition of where a
-/// document starts, not two that can disagree. Content that is all headings, or
-/// empty, yields `None` rather than an empty line.
+/// Taken from the chunker's chunks, so "opening" means the same thing here as
+/// it does in `item_chunks` — one definition of where a document starts, not two
+/// that can disagree. The importer footer is masked first, as it is for the
+/// chunks ([`mask_import_footer`]).
+///
+/// The opening is the first chunk **with real words** ([`has_real_words`]),
+/// and not simply the first chunk. For 35% of the imported items the first
+/// section was "Parent Initiative" with a line of short codes, and that line
+/// was all the probe had to say about the item (COLLIERY-T-1840). This does not
+/// read a heading: a section is skipped for what it holds, not for its name.
+/// When no chunk has real words, the first chunk with any text is used.
+///
+/// Content that is all headings, or empty, yields `None` rather than an empty
+/// line.
 fn opening_prose(content: &str, budget: usize) -> Option<String> {
     if budget == 0 {
         return None;
     }
-    let chunks = chunk(content);
-    let first = chunks.iter().find(|c| !c.text.trim().is_empty())?;
+    let content = mask_import_footer(content);
+    let chunks = chunk(&content);
+    let first = chunks
+        .iter()
+        .find(|c| has_real_words(&c.text))
+        .or_else(|| chunks.iter().find(|c| !c.text.trim().is_empty()))?;
     let text = first.text.trim();
     if text.is_empty() {
         return None;
@@ -237,7 +257,6 @@ mod tests {
         let inputs = PrimaryInputs {
             title: "Refund rounding",
             repository: Some("payments-api"),
-            team: Some("platform"),
             parent_title: Some("Billing correctness"),
             metadata: &metadata,
             content: "The total is rounded before tax.",
@@ -246,7 +265,6 @@ mod tests {
         for expected in [
             "task: Refund rounding",
             "repository: payments-api",
-            "team: platform",
             "part of: Billing correctness",
             "priority: high",
             "component: billing",
@@ -265,7 +283,6 @@ mod tests {
         let inputs = PrimaryInputs {
             title: "Bare item",
             repository: None,
-            team: Some("   "),
             parent_title: Some(""),
             metadata: &metadata,
             content: "",
@@ -332,6 +349,45 @@ mod tests {
             !text.contains("Objective"),
             "headings are not prose: {text}"
         );
+    }
+
+    /// COLLIERY-T-1757's own shape: a first section that is only codes. The
+    /// probe must say what the item is about, and a line of codes does not.
+    #[test]
+    fn the_opening_is_the_first_section_with_real_words() {
+        let inputs = PrimaryInputs {
+            title: "T",
+            content: "# T\n\n## Parent Initiative\n\nCOLLIERY-I-0262 · decision COLLIERY-A-0109\n\n\
+                      ## Objective\n\nMake the broker serve the built wasm bundle so the console \
+                      is reachable at the broker.\n",
+            ..Default::default()
+        };
+        let text = primary_text(ItemType::Task, &inputs);
+        assert!(text.contains("Make the broker serve"), "{text}");
+        assert!(!text.contains("COLLIERY-I-0262"), "{text}");
+    }
+
+    #[test]
+    fn with_no_real_words_the_first_text_is_still_used() {
+        let inputs = PrimaryInputs {
+            title: "T",
+            content: "## Parent\n\nCOLLIERY-I-0001\n\n## Type\n\nBug\n",
+            ..Default::default()
+        };
+        let text = primary_text(ItemType::Task, &inputs);
+        assert!(text.ends_with("COLLIERY-I-0001\n"), "{text}");
+    }
+
+    /// The importer footer says where an item came from, not what it is.
+    #[test]
+    fn the_importer_footer_is_not_prose() {
+        let inputs = PrimaryInputs {
+            title: "T",
+            content: "Short.\n\n---\n\nThis item came from the Metis record of the repository \
+                      brokkr. Its Metis code was BROKKR-T-0001. Metis created it on 2026-01-01.\n",
+            ..Default::default()
+        };
+        assert_eq!(primary_text(ItemType::Task, &inputs), "task: T\nShort.\n");
     }
 
     #[test]

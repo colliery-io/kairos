@@ -210,9 +210,12 @@ fn refreshing_embeds_only_what_changed() {
         fourth.primary_embedded,
         "the title is part of the composed text, so it moved"
     );
+    // Since COLLIERY-T-1840 each chunk is embedded with the title of its item
+    // (`kairos_core::embed_text::chunk_text`), so a new title re-embeds the
+    // chunks too. A title changes seldom; an append, above, still costs one.
     assert_eq!(
-        fourth.chunks_embedded, 0,
-        "but the body did not, so no chunk was re-embedded: {fourth:?}"
+        fourth.chunks_embedded, 3,
+        "the title is part of each chunk's text, so every chunk moved: {fourth:?}"
     );
 
     // ---- a different model invalidates everything -------------------------

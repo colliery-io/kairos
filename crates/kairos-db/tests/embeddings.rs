@@ -246,21 +246,9 @@ fn embedding_store_lifecycle() {
     // NULL rather than missing: a document has no repository, and composing a
     // blank `repository:` line would put one token into every document alike.
     assert_eq!(enriched.repository, None, "this task has no repository");
-    // COLLIERY-T-0230: a delivery board always has a team, and the task has
-    // the team of its board. Until then this fixture had a delivery board
-    // with no team, and the assertion was `None`.
-    assert_eq!(
-        enriched.team.as_deref(),
-        Some("delivery-team"),
-        "the team of the board travels with the task"
-    );
-    // The NULL case stays covered by the parent: an initiative is on a
-    // board of the organization, and has no delivery team.
-    let umbrella = pending
-        .iter()
-        .find(|p| p.id == parent.id)
-        .expect("the parent initiative");
-    assert_eq!(umbrella.team, None, "an initiative has no delivery team");
+    // No team travels with the row (COLLIERY-T-1840): the probe has no
+    // `team:` line any more, because one team on every task made it the same
+    // line in every probe.
 
     let metadata = metadata_for(&mut conn, &[one.id, two.id]).expect("metadata");
     assert_eq!(
@@ -531,6 +519,28 @@ fn embedding_store_lifecycle() {
         c.items, 3,
         "and it is still counted: archived items carry vectors too, because \
          prior art in finished work is one of the claims retrieval makes"
+    );
+
+    // ---- an archived parent still names its child (COLLIERY-T-1840) ------
+    // 931 of 1,370 parent edges of the colliery tenant end at an archived
+    // parent. Its title is the context of the child, so it stays.
+    items::soft_delete_item(
+        &mut conn,
+        kairos_core::short_code::ItemType::Initiative,
+        parent.id,
+        alice,
+    )
+    .expect("archiving the parent");
+    let pending = pending_primary(&mut conn, &m, 100, 0).expect("pending");
+    assert_eq!(
+        pending
+            .iter()
+            .find(|p| p.id == one.id)
+            .expect("the archived child is still listed")
+            .parent_title
+            .as_deref(),
+        Some("Billing correctness"),
+        "the title of an archived parent travels with the row"
     );
 
     // ---- forgetting an item removes both tables ---------------------------

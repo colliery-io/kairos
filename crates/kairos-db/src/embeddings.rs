@@ -110,10 +110,9 @@ pub struct PendingItem {
     /// The repository the item is issued against, if any (tasks only).
     #[diesel(sql_type = Nullable<Text>)]
     pub repository: Option<String>,
-    /// The owning team, if any (tasks only).
-    #[diesel(sql_type = Nullable<Text>)]
-    pub team: Option<String>,
-    /// The title of the item's parent, if it has one.
+    /// The title of the item's parent, if it has one, live or archived
+    /// (COLLIERY-T-1840: most imported parents are archived, and their title is
+    /// still the context of the child).
     #[diesel(sql_type = Nullable<Text>)]
     pub parent_title: Option<String>,
     /// The hash currently stored, if any. `None` means never embedded.
@@ -207,17 +206,20 @@ pub fn pending_primary(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<PendingItem>, EmbeddingError> {
-    // The 1:1 structural inputs rule 4 asks for. `repository` and `team` are
-    // task-level attributes, so they LEFT JOIN through `tasks` and are NULL for
-    // every other type — which is correct rather than missing: a document has no
+    // The 1:1 structural inputs rule 4 asks for. `repository` is a task-level
+    // attribute, so it LEFT JOINs through `tasks` and is NULL for every other
+    // type — which is correct rather than missing: a document has no
     // repository, and composing a blank `repository:` line for it would put the
-    // same token into every document in the tenant.
+    // same token into every document in the tenant. The team is not read
+    // (COLLIERY-T-1840): see `kairos_core::primary`.
     //
     // The parent comes from `item_relationships`, where the edge points
     // parent -> child, so the item is the TARGET and the parent is the source.
+    // An archived parent counts (COLLIERY-T-1840): `entity_directory` has
+    // archived rows, and the join no longer filters them out.
     let rows = sql_query(
         "SELECT s.id, s.entity_type, s.short_code, s.title, s.content, \
-                r.slug AS repository, tm.slug AS team, p.title AS parent_title, \
+                r.slug AS repository, p.title AS parent_title, \
                 e.content_hash AS stored_hash \
          FROM searchable_items s \
          LEFT JOIN item_embeddings e \
@@ -225,11 +227,10 @@ pub fn pending_primary(
           AND e.provider = $1 AND e.model = $2 AND e.dimension = $3 \
          LEFT JOIN tasks t ON t.id = s.id \
          LEFT JOIN repositories r ON r.id = t.repository_id AND r.deleted_at IS NULL \
-         LEFT JOIN teams tm ON tm.id = t.team_id AND tm.deleted_at IS NULL \
          LEFT JOIN item_relationships rel \
            ON rel.target_id = s.id AND rel.relationship = 'parent' \
          LEFT JOIN entity_directory p \
-           ON p.id = rel.source_id AND p.deleted_at IS NULL \
+           ON p.id = rel.source_id \
          ORDER BY (e.item_id IS NULL) DESC, s.short_code \
          LIMIT $4 OFFSET $5",
     )
@@ -347,9 +348,10 @@ pub struct ChunkWrite<'a> {
     pub char_start: i32,
     /// Character range within the item's content.
     pub char_end: i32,
-    /// The chunk's text.
+    /// The chunk's text as it stands in the content. What was embedded can
+    /// be more (COLLIERY-T-1840 adds the item's title and the heading).
     pub text: &'a str,
-    /// Hash of `text`.
+    /// Hash of the text that was embedded for this chunk.
     pub content_hash: &'a str,
     /// The chunk's vector, or `None` to mean **unchanged — leave the stored row
     /// alone**.
@@ -561,6 +563,20 @@ mod tests {
     }
 
     #[test]
+    fn a_title_query_matches_any_of_its_words() {
+        assert_eq!(
+            any_word_query("broker serves the brokkr-web wasm bundle + SPA fallback").as_deref(),
+            Some("broker OR serves OR the OR brokkr OR web OR wasm OR bundle OR spa OR fallback")
+        );
+        // Nothing of the title acts as an operator.
+        assert_eq!(
+            any_word_query("-not \"a phrase\" or this").as_deref(),
+            Some("not OR a OR phrase OR this")
+        );
+        assert_eq!(any_word_query(" — + "), None);
+    }
+
+    #[test]
     fn missing_is_items_minus_embedded_and_never_negative() {
         let c = EmbeddingCounts {
             items: 10,
@@ -752,10 +768,24 @@ pub struct Neighbour {
 
 /// The nearest items by vector, excluding the item itself.
 ///
-/// Searches **chunks as well as primary vectors**: a document whose opening is
-/// unremarkable can still have one section that is exactly the thing, and the
-/// chunk is also what lets the answer cite where it matched. Each item appears
-/// once, at its best-matching chunk.
+/// The probe is the item's **primary** vector. It is compared with the other
+/// items' primary vectors **and** with their chunks, and each item appears
+/// once, at its best match:
+///
+/// - the chunks are there because a document whose opening is unremarkable can
+///   still have one section that is exactly the thing, and a chunk is what
+///   lets the answer cite where it matched;
+/// - the primaries are there because a probe is a summary, and the nearest
+///   thing to a summary is another summary. Before COLLIERY-T-1840 only chunks
+///   were compared, so an item with many chunks had many chances, and an item
+///   whose sections were all long and specific had none that looked like a
+///   summary.
+///
+/// **A short chunk cannot be the best match** (COLLIERY-T-1840). A chunk whose
+/// text is below [`kairos_core::embed_text::MIN_MATCH_CHARS`] — "None.", a line
+/// of codes, a template marker — is near to anything short, and it made the
+/// heading of a template the reason for a proposal. Such chunks are stored, and
+/// skipped here. A match on a primary vector has no heading.
 ///
 /// Archived items are included on purpose. Prior art in finished work is one of
 /// the three claims retrieval exists to make, and KAIROS-A-0020 kept put-away
@@ -775,22 +805,32 @@ pub fn vector_neighbours(
               WHERE item_id = $1 AND provider = $2 AND model = $3 AND dimension = $4 \
          ), \
          hits AS ( \
-             SELECT c.item_id, c.heading, (c.embedding <=> (SELECT embedding FROM probe)) AS d, \
-                    row_number() OVER ( \
-                        PARTITION BY c.item_id \
-                        ORDER BY c.embedding <=> (SELECT embedding FROM probe) \
-                    ) AS rn \
+             SELECT e.item_id, NULL::text AS heading, \
+                    (e.embedding <=> (SELECT embedding FROM probe)) AS d \
+               FROM item_embeddings e \
+              WHERE e.item_id <> $1 \
+                AND e.provider = $2 AND e.model = $3 AND e.dimension = $4 \
+                AND EXISTS (SELECT 1 FROM probe) \
+             UNION ALL \
+             SELECT c.item_id, c.heading, \
+                    (c.embedding <=> (SELECT embedding FROM probe)) AS d \
                FROM item_chunks c \
               WHERE c.item_id <> $1 \
                 AND c.provider = $2 AND c.model = $3 AND c.dimension = $4 \
+                AND char_length(btrim(c.chunk_text, E' \\t\\r\\n')) >= $6 \
                 AND EXISTS (SELECT 1 FROM probe) \
+         ), \
+         best AS ( \
+             SELECT item_id, heading, d, \
+                    row_number() OVER (PARTITION BY item_id ORDER BY d, heading NULLS FIRST) AS rn \
+               FROM hits \
          ) \
          SELECT d.id, d.short_code, d.entity_type, d.title, \
-                (d.deleted_at IS NOT NULL) AS archived, h.heading \
-           FROM hits h \
-           JOIN entity_directory d ON d.id = h.item_id \
-          WHERE h.rn = 1 \
-          ORDER BY h.d \
+                (d.deleted_at IS NOT NULL) AS archived, b.heading \
+           FROM best b \
+           JOIN entity_directory d ON d.id = b.item_id \
+          WHERE b.rn = 1 \
+          ORDER BY b.d, d.short_code \
           LIMIT $5",
     )
     .bind::<SqlUuid, _>(item_id)
@@ -798,6 +838,7 @@ pub fn vector_neighbours(
     .bind::<Text, _>(&model.model)
     .bind::<Integer, _>(model.dimension as i32)
     .bind::<BigInt, _>(limit)
+    .bind::<Integer, _>(kairos_core::embed_text::MIN_MATCH_CHARS as i32)
     .load::<Neighbour>(conn)?;
     Ok(rows)
 }
@@ -808,12 +849,23 @@ pub fn vector_neighbours(
 /// hybrid when it does not. Uses the same weighted `tsv` the unified search
 /// ranks on (KAIROS-T-0186), so a title match outranks a passing mention here
 /// too.
+///
+/// `title` is the item's title, and an item matches when it has **any** of its
+/// words ([`any_word_query`]); `ts_rank_cd` puts the items with more of them,
+/// and closer together, first. Before COLLIERY-T-1840 the title went to
+/// `websearch_to_tsquery` as it was, which needs **each** word: for the twelve
+/// words of COLLIERY-T-1757 no item matched, and in a sample of 120 items 31%
+/// got no row at all. The answer then came from the vectors alone while it said
+/// "Ranked across text and meaning".
 pub fn lexical_neighbours(
     conn: &mut PgConnection,
     item_id: Uuid,
-    query: &str,
+    title: &str,
     limit: i64,
 ) -> Result<Vec<Neighbour>, EmbeddingError> {
+    let Some(query) = any_word_query(title) else {
+        return Ok(Vec::new());
+    };
     let rows = sql_query(
         "SELECT s.id, s.short_code, s.entity_type, s.title, \
                 (s.deleted_at IS NOT NULL) AS archived, NULL::text AS heading \
@@ -824,10 +876,26 @@ pub fn lexical_neighbours(
           LIMIT $3",
     )
     .bind::<SqlUuid, _>(item_id)
-    .bind::<Text, _>(query)
+    .bind::<Text, _>(&query)
     .bind::<BigInt, _>(limit)
     .load::<Neighbour>(conn)?;
     Ok(rows)
+}
+
+/// A `websearch_to_tsquery` query that matches any word of `title`.
+///
+/// The words are the runs of letters and digits, joined by `OR`. So nothing of
+/// the title can act as an operator: a `-` that would negate, a `"` that would
+/// start a phrase, and the words `or` and `and` (stop words, which the English
+/// configuration drops anyway) are gone. `None` when the title has no word.
+pub fn any_word_query(title: &str) -> Option<String> {
+    let words: Vec<String> = title
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
+        .filter(|w| w != "or" && w != "and")
+        .collect();
+    (!words.is_empty()).then(|| words.join(" OR "))
 }
 
 /// What the graph says about each of `others`, relative to `item_id`.

@@ -62,11 +62,17 @@ fn with_database(url: &str, db: &str) -> String {
 /// deterministic provider — which hashes bytes — duly matched every document to
 /// every other on that section and cited "Objective". A true result about a
 /// fixture that said nothing.
+///
+/// Each section is longer than `kairos_core::embed_text::MIN_MATCH_CHARS`:
+/// since COLLIERY-T-1840 a shorter chunk cannot be the best match, and its
+/// heading is not cited.
 fn doc(unique: &str, shared: &str) -> String {
+    const LONG: &str = "This sentence is here so that the section is long enough to be \
+                        a match on its own, which a short template body cannot be.";
     format!(
-        "## Objective\n\nSomething about {unique}, which nothing else says.\n\n\
-         ## Implementation Notes\n\n{shared}\n\n\
-         ## Status Updates\n\nNothing yet for {unique}.\n"
+        "## Objective\n\nSomething about {unique}, which nothing else says. {LONG}\n\n\
+         ## Implementation Notes\n\n{shared} {LONG}\n\n\
+         ## Status Updates\n\nNothing yet for {unique}. {LONG}\n"
     )
 }
 
@@ -267,9 +273,11 @@ fn related_work_proposes_and_degrades() {
     //
     // WHICH section is cited cannot be asserted here, and the reason is worth
     // knowing. The probe is the item's PRIMARY vector compared against other
-    // items' CHUNK vectors — which is right for a real model, where both live in
-    // one space, and meaningless for a provider that hashes bytes. So the
-    // nearest chunk under this provider is arbitrary. What this checks is the
+    // items' primary and CHUNK vectors — which is right for a real model, where
+    // they all live in one space, and meaningless for a provider that hashes
+    // bytes. So the nearest chunk under this provider is arbitrary, and a
+    // primary match cites no heading. `related_work_corpus.rs` checks the
+    // citations with the real model. What this checks is the
     // plumbing: that a heading survives the query, the fusion and the sentence.
     // That the RIGHT section is cited is `the_matched_heading_is_cited_verbatim`
     // in kairos_core::retrieval, where it can be stated exactly.

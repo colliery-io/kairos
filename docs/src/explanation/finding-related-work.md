@@ -64,8 +64,12 @@ phrased as a suggestion because a suggestion is what the evidence supports.
 ## What this means for you
 
 **Read the reasoning, not the ranking.** Each proposal says what matched, which
-section it matched in, and what the graph did or did not know. That sentence is
-the useful part; the order is a hint.
+section it matched in when one section decided the match, and what the graph did
+or did not know. That sentence is the useful part; the order is a hint.
+
+**Look past your own project.** Items of the same project share its words, so
+they usually take the first places. Prior art from another repository can come
+lower in the list, and it is often the most useful proposal.
 
 **"Nothing joins them" is weaker than it sounds.** It means no direct edge and no
 shared parent — not that a path was searched for and missed. Work graphs are

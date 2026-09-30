@@ -35,6 +35,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use kairos_core::chunk::chunk;
+use kairos_core::embed_text::{chunk_text, mask_import_footer};
 use kairos_core::primary::{PrimaryInputs, content_hash, primary_text};
 use kairos_core::short_code::ItemType;
 use kairos_db::embeddings::{
@@ -166,7 +167,6 @@ impl EmbeddingService {
         let inputs = PrimaryInputs {
             title: &item.title,
             repository: item.repository.as_deref(),
-            team: item.team.as_deref(),
             parent_title: item.parent_title.as_deref(),
             metadata,
             content: &item.content,
@@ -176,12 +176,24 @@ impl EmbeddingService {
         let primary_stale = item.stored_hash.as_deref() != Some(hash.as_str());
 
         // ---- the chunks ---------------------------------------------------
-        let chunks = chunk(&item.content);
+        // The importer footer is masked before chunking (COLLIERY-T-1840): it
+        // says where an item came from, and it made the last chunk of every
+        // item of one repository alike. The mask keeps each character offset,
+        // so the stored offsets still point into the stored content.
+        let content = mask_import_footer(&item.content);
+        let chunks = chunk(&content);
         outcome.chunks_total = chunks.len();
         let stored: HashMap<i32, String> = stored_chunk_hashes(conn, item.id, &self.model)?
             .into_iter()
             .collect();
-        let hashes: Vec<String> = chunks.iter().map(|c| content_hash(&c.text)).collect();
+        // What is embedded for a chunk is its item's title, its heading and its
+        // body (`kairos_core::embed_text::chunk_text`), and the hash is of that
+        // text: a new title re-embeds the chunks, as it must.
+        let texts: Vec<String> = chunks
+            .iter()
+            .map(|c| chunk_text(&item.title, c.heading.as_deref(), &c.text))
+            .collect();
+        let hashes: Vec<String> = texts.iter().map(|t| content_hash(t)).collect();
 
         // Everything that needs the model, gathered before anything is sent, so
         // one item costs one call however many of its sections moved.
@@ -192,7 +204,7 @@ impl EmbeddingService {
         let stale_chunks: Vec<usize> = (0..chunks.len())
             .filter(|&i| stored.get(&(i as i32)) != Some(&hashes[i]))
             .collect();
-        to_embed.extend(stale_chunks.iter().map(|&i| chunks[i].text.clone()));
+        to_embed.extend(stale_chunks.iter().map(|&i| texts[i].clone()));
 
         if to_embed.is_empty() {
             return Ok(outcome);
@@ -477,7 +489,8 @@ impl EmbeddingService {
 
         // Lexical uses the item's own title as the query: it is the most
         // discriminating text the item has, and a whole document as a tsquery
-        // matches everything.
+        // matches everything. Any word of it matches, and more words rank
+        // higher (COLLIERY-T-1840); requiring every word matched nothing.
         let lexical =
             kairos_db::embeddings::lexical_neighbours(conn, item.id, &item.title, CANDIDATE_DEPTH)?;
         let vector =
@@ -495,7 +508,10 @@ impl EmbeddingService {
             let c = by_id.entry(n.id).or_insert_with(|| blank(n));
             c.vector_rank = Some(rank);
             // The chunk heading only exists on the vector side, and it is the
-            // citation — keep it even when lexical saw the item first.
+            // citation — keep it even when lexical saw the item first. It is
+            // `None` when the best match was the item's primary vector, and a
+            // chunk with no real content is never the best match
+            // (COLLIERY-T-1840), so a template heading is not quoted.
             if c.heading.is_none() {
                 c.heading.clone_from(&n.heading);
             }

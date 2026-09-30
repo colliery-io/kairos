@@ -38,13 +38,15 @@ Codes an agent can receive, and what each means.
 | `CONFLICT` | An optimistic-concurrency version mismatch. The refusal carries the current version and content. From `add_repository`: the directory has the slug already, or it has the repository already. |
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
-| `SAME_BOARD` | A `move_item` whose target is the board the task is already on. |
+| `SAME_BOARD` | A `move_item` whose target is the board the task is already on. A document is different: see [`move_item`](#move_item). |
 | `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
 | `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
-| `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. |
+| `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
-| `ALREADY_LINKED` | That edge already exists. |
+| `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
+| `LAST_PARENT` | An `unlink_items` of the last `supports` edge of a document that names no board. |
+| `LAST_OWNER` | A `move_item` that removes the owner board of a document that supports no item. |
 
 **Each tool refuses an argument that it does not know.** Each tool has the
 rule of the routes of the REST API, the tools that read too. The tool does not
@@ -126,6 +128,7 @@ One repository in full. The output has these parts:
 - `open tasks (all boards)`: the open task count
 - `webhooks`: `connected` or `not connected`
 - the team's description of how to work in the repository
+- the documents and the ADRs that impact the repository
 - the in-flight branches and pull requests, each with its work item
 
 The delivery board is the board of the owner. A task that links to the
@@ -135,8 +138,25 @@ tasks that link to the repository.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `repository` | string | yes | — | Slug or UUID. |
+| `include_deleted` | boolean | no | `false` | Add the archived documents and ADRs that impact the repository, each with the mark `[archived]`. |
 
-Refuses: `NOT_FOUND` for an unknown repository.
+The section `## Documents and ADRs that impact this repository` has one line
+for each item. The documents come first, in the order of the short code. A
+document shows its document type, if it has one, and its lifecycle. An ADR
+shows its column, if it is on a board. An empty section shows `(none)`.
+
+```text
+## Documents and ADRs that impact this repository
+- ACME-D-0004 — The vision of fidius · document (vision) · lifecycle: published
+- ACME-D-0009 — An old plan · document · lifecycle: draft [archived]
+- ACME-A-0002 — Plugins are dynamic libraries · adr · column: Decided
+```
+
+Read these items with `get_item` before you plan work in the repository. See
+[impacts](glossary.md#impacts).
+
+Refuses: `NOT_FOUND` for an unknown repository, and for a repository that is
+not live.
 
 ## The repository directory
 
@@ -288,6 +308,23 @@ supporting documents.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 
+A document has no column. It shows its owner in the line `owner board`. The
+line has one of three forms:
+
+| Line | Meaning |
+|---|---|
+| `- owner board: platform-delivery` | The document names this board. |
+| `- owner board: web-delivery (the board of ACME-T-0007, which the document supports)` | The document names no board. The board of its earliest parent is its owner. |
+| `- owner board: (none)` | The document names no board and supports no item. |
+
+A document or an ADR that impacts a repository has the line `impacts` in the
+section of the relationships. The mark `[archived]` shows a repository that is
+not live.
+
+```text
+- impacts: repository fidius (github colliery-io/fidius); repository old-lib (github acme/old-lib) [archived]
+```
+
 Archived items are returned, marked with the instant they were put away. The
 column reported for an archived card is the name of the column it was put away
 in, which may since have been removed from the board: a removed column is
@@ -340,10 +377,10 @@ are compact and grouped by type.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `entity_type` | array of string | no | all | `strategy`, `initiative`, `task`, `document`, `adr`. Must not be an empty array. |
-| `board_id` | UUID string | no | — | Items on this board. |
+| `board_id` | UUID string | no | — | Items on this board. A document is not a card, so this filter gives no document. |
 | `column_id` | UUID string | no | — | Items in this column. |
 | `team_id` | UUID string | no | — | Tasks of this team. |
-| `repository` | string | no | — | Tasks that link to this repository, on all boards. Slug or UUID. |
+| `repository` | string | no | — | The items of this repository: see below. Slug or UUID of a live repository. |
 | `task_type` | array of string | no | all | `task`, `bug`, `tech_debt`, `support`. Must not be an empty array. |
 | `work_class` | array of string | no | all | `planned`, `support`. Must not be an empty array. |
 | `is_bucket` | boolean | no | both | Bucket or non-bucket initiatives. |
@@ -351,6 +388,16 @@ are compact and grouped by type.
 | `created_after` | RFC 3339 string | no | — | Items created strictly after. |
 | `created_before` | RFC 3339 string | no | — | Items created strictly before. Must be later than `created_after`. |
 | `include_deleted` | boolean | no | `false` | Include archived items, marked `[archived]`. Composes with everything, `q` and `traverse` included, and counts on its own as a constraining filter. |
+
+`filter.repository` gives three types of item:
+
+- the tasks that link to the repository, on all boards
+- the documents that impact the repository
+- the ADRs that impact the repository
+
+The filter gives no strategy and no initiative. With `team_id`, `task_type` or
+`work_class`, only tasks match. `entity_type` makes the result smaller, as for
+each filter.
 
 `traverse`:
 
@@ -360,6 +407,10 @@ are compact and grouped by type.
 | `relationships` | array of string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. Must not be empty. |
 | `direction` | string | yes | — | `outbound`, `inbound`, `both`. |
 | `depth` | integer | no in the schema | — | 1–10. Optional in the schema, but a traversal without it is refused: the field is deliberately not defaulted so that a missing depth is a typed refusal rather than a silent choice. |
+
+`traverse` follows the edges between two items. An `impacts` link goes to a
+repository, so `impacts` is not a value of `relationships`. Use
+`filter.repository` to find the items that impact a repository.
 
 `sort`:
 
@@ -390,8 +441,8 @@ Creates a work item and returns its new short code.
 |---|---|---|---|---|
 | `item_type` | string | yes | — | `strategy`, `initiative`, `task`, `document`, `adr`. |
 | `title` | string | yes | — | The item's title. |
-| `board` | string | no | see below | Target board, slug or UUID. Ignored for documents. For a task, the board decides the team of the task. |
-| `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document, where it is required, or an ADR, creates the `supports` edge. |
+| `board` | string | no | see below | Target board, slug or UUID. For a task, the board decides the team of the task. For a document, it is the owner board, and it has no default. |
+| `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document or an ADR, creates the `supports` edge. |
 | `content` | string | no | empty, or the template's | Initial markdown content. |
 | `template` | string | no | — | Documents only. Template id, slug or name. |
 | `task_type` | string | no | `task` | Tasks only. `task`, `bug`, `tech_debt`, `support`. |
@@ -405,8 +456,7 @@ Creates a work item and returns its new short code.
 
 `board` may be omitted when the tenant has exactly one live board of the
 matching level. For a task, that level is `delivery`. A `repository` does not
-replace `board`. The tool has no `team` argument. Documents take no board: they
-inherit their parent's board for authorization.
+replace `board`. The tool has no `team` argument.
 
 An ADR can have a `parent`. The `parent` names a strategy, an initiative or a
 task. The tool creates the `supports` edge from that item to the ADR. The
@@ -414,11 +464,31 @@ caller needs `manage_adrs` on the ADR board, and no capability on the board of
 the parent. The caller creates the ADR, so the link rule lets the caller link
 it.
 
-A document is different. A document has no board, so the caller needs
-`manage_documents` on the board of the parent.
-
 The same applies to each `parent`: the caller who creates an item can link it
 to that parent.
+
+A document must have an owner. The call has `board`, or `parent`, or the two.
+
+| The call has | The owner of the document | The caller needs |
+|---|---|---|
+| `board` | The board that `board` names. It can be a live board of each level. | `manage_documents` on that board |
+| `parent` | The board of the parent. The parent is a strategy, an initiative or a task. | `manage_documents` on the board of the parent |
+| `board` and `parent` | The board that `board` names. The document supports the parent too. | `manage_documents` on the board that `board` names |
+
+The document is not a card of its owner board. It has no column, and
+`board_items` does not show it. See [owner board](glossary.md#owner-board).
+
+`repository` does not apply to a document. To say that a document impacts a
+repository, create the document. Then call [`link_items`](#link_items) with
+the relationship `impacts`.
+
+The result for a document is one line. It has one of three forms:
+
+```text
+Created document ACME-D-0004: The vision of fidius (version 1), owner board platform-delivery.
+Created document ACME-D-0005: PRD of the portal (version 1), supports ACME-I-0002.
+Created document ACME-D-0006: Rollout plan (version 1), owner board platform-delivery, supports ACME-I-0002.
+```
 
 The default of `work_class` depends on the caller:
 
@@ -447,8 +517,8 @@ both fields were already *readable* through `get_item`. They are accepted now.
 Refuses: `VALIDATION` for an unknown `item_type`; for a `task_type`,
 `work_class`, `complexity` or `bucket_type` outside its vocabulary; for a `decision_date` that is not `YYYY-MM-DD`; for a type-specific
 argument passed with the wrong `item_type`, naming the type it belongs to; for a
-document without `parent`, or whose parent is not a strategy, initiative or
-task; for a `parent` relationship that the type rules do not allow, with the
+document with no `board` and no `parent`, or whose parent is not a strategy, initiative or
+task; for a document with `repository`; for a `parent` relationship that the type rules do not allow, with the
 rule in the message; for a `parent` that does not name a live item; for an unknown template,
 and for a template *name* that matches more than one template, which asks for
 the id or slug instead; when no live board of the required level exists; when
@@ -564,24 +634,74 @@ target outside the board's transition graph, enumerating the allowed targets.
 Moves a task to another delivery board. It lands in that board's entry column
 and follows that board's team.
 
+The tool also moves a document to a different owner board, or removes the
+owner board of a document.
+
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `short_code` | string | yes | — | The task's short code. |
-| `to_board` | string | yes | — | Target delivery board, slug or UUID. |
+| `short_code` | string | yes | — | The short code of the task or of the document. |
+| `to_board` | string | no in the schema | — | Target board, slug or UUID. A task must have it, and the board is a delivery board. For a document, see below. |
 
 Requires `manage_tasks` on both the task's current board and the target. A
 move is not an edit. The creator of the task gets no right to move it.
-
-Refuses: `NOT_FOUND` for an unknown short code, an archived task, or an unknown
-or archived `to_board`; `VALIDATION` when the item is not a task;
-`ITEM_NOT_ON_BOARD` when the task has no placement; `FORBIDDEN` without
-`manage_tasks` on either side; `SAME_BOARD`; `NOT_DELIVERY_BOARD`;
-`NO_ENTRY_COLUMN`.
 
 The task keeps its repository. The move does not look at the repository.
 
 Column-to-column moves on an item's own board are `transition_item`, not this
 tool.
+
+#### A document
+
+`to_board` is the new owner board of the document. It can be a live board of
+each level. The document gets no column. Its edges and its `impacts` links do
+not change.
+
+To remove the owner board, omit `to_board`, or send null or an empty string.
+The board of the earliest item that the document supports becomes the owner.
+A document that supports no item keeps its board: the refusal is `LAST_OWNER`.
+
+The move of a document is not an edit. The caller needs `manage_documents` on
+two boards:
+
+- the board that owns the document now
+- the board that owns the document after the move
+
+An organization admin can move each document. The creator of the document gets
+no right to move it. For a document that names no board, the board of its
+earliest parent owns it now. For a remove, that board owns it after the move.
+
+The tool writes no new version of the document. The activity log gets one
+entry with the action `update`.
+
+The result is one line. `(none)` shows a document that names no board.
+
+```text
+Moved ACME-D-0004: owner board platform-delivery -> web-delivery.
+Moved ACME-D-0005: owner board (none) -> web-delivery.
+Moved ACME-D-0005: owner board web-delivery -> (none).
+```
+
+A call can name the board that the document has. That call is a success, and
+it writes nothing. The same applies to a remove for a document that names no
+board.
+
+```text
+No change to ACME-D-0004: its owner board is web-delivery already.
+No change to ACME-D-0005: it names no owner board.
+```
+
+#### Refusals
+
+The tool refuses with these codes:
+
+| Code | When |
+|---|---|
+| `NOT_FOUND` | The short code is unknown, or the item is archived. The `to_board` is unknown or archived. |
+| `VALIDATION` | The item is not a task and not a document. A task has no `to_board`. |
+| `ITEM_NOT_ON_BOARD` | The task has no placement. |
+| `FORBIDDEN` | The caller does not hold `manage_tasks` on the two boards of a task. The caller does not hold `manage_documents` on the two boards of a document, and the message names the board. |
+| `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `NO_ENTRY_COLUMN` | For a task only. |
+| `LAST_OWNER` | The call removes the owner board of a document that supports no item. |
 
 ## Relationships
 
@@ -592,8 +712,8 @@ Creates a relationship edge between two items.
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `source` | string | yes | — | Source item's short code. The edge runs source to target. |
-| `target` | string | yes | — | Target item's short code. |
-| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. |
+| `target` | string | yes | — | Target item's short code. For `impacts`: the slug or the UUID of a repository. |
+| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`. |
 
 The [link rule](capabilities.md#who-can-write-relationships) applies. The
 caller can edit the source or the target. One end is sufficient. The rule is
@@ -603,8 +723,8 @@ The caller can edit an item that the caller created. So a request that the
 caller sent to a different team can block an item of the caller. The caller
 can also edit an item with `manage_<type>` on its authorization board.
 
-One exception is a `supports` edge to a document with no parent. The caller
-must be able to edit the document. See
+One exception is a `supports` edge to a document with no parent and no owner
+board. The caller must be able to edit the document. See
 [The `supports` edge of a document](capabilities.md#the-supports-edge-of-a-document).
 
 A `blocks` edge counts only while the items at both ends can move. Complete
@@ -617,10 +737,42 @@ Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
 `source` or `target` that does not name a live item, and for a self-link where
 `source` and `target` are the same item; `FORBIDDEN` when the caller can edit
 neither end, and the message names the capability for each end; `FORBIDDEN`
-for `supports` to a document with no parent, when the caller cannot edit the
-document;
+for `supports` to a document with no parent and no owner board, when the
+caller cannot edit the document;
 `RELATIONSHIP_RULE` when that relationship is not allowed between
 those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
+
+#### The relationship `impacts`
+
+An `impacts` link says which repository a document or an ADR is about. The
+`source` is the short code of the document or of the ADR. The `target` is a
+live repository of the organization, of each team.
+
+The [edit rule](capabilities.md#the-edit-rule) of the source applies. The
+caller needs no right on the repository. The link gives no right on the
+source, and no right on the repository. See
+[Who can write an `impacts` link](capabilities.md#who-can-write-an-impacts-link).
+
+A task does not impact a repository. `set_repository` links a task to a
+repository.
+
+The result is one line:
+
+```text
+Linked ACME-D-0004 -[impacts]-> repository fidius.
+```
+
+Refuses for `impacts`: `VALIDATION` for a `source` that does not name a live
+item. `RELATIONSHIP_RULE` for a `source` that is a strategy, an initiative or
+a task. `FORBIDDEN` when the caller cannot edit the source. `VALIDATION` for a
+`target` that is not a live repository. `ALREADY_LINKED` when the link is
+there.
+
+The refusal for a task says how to link a task:
+
+```text
+RELATIONSHIP_RULE: ACME-T-0012 is a task. Only a document or an ADR can impact a repository. A task links to a repository. To link ACME-T-0012 to a repository, use the tool set_repository.
+```
 
 ### `unlink_items`
 
@@ -630,21 +782,34 @@ Removes a relationship edge. The arguments and the link rule are those of
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `source` | string | yes | — | Source item's short code. |
-| `target` | string | yes | — | Target item's short code. |
-| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`. |
+| `target` | string | yes | — | Target item's short code. For `impacts`: the slug or the UUID of a repository. |
+| `relationship` | string | yes | — | `parent`, `supports`, `informs`, `supersedes`, `blocks`, `impacts`. |
 
 To remove a `supports` edge of a document, the caller must be able to edit
 the document. The right to edit the source is not sufficient.
 
-A document always has a parent. The tool refuses to remove the last `supports`
-edge of a document. Link the document to a different item first, or archive
-the document. See
-[A document always has a parent](capabilities.md#a-document-always-has-a-parent).
+A document always has an owner. For a document that names no board, the tool
+refuses to remove the last `supports` edge. Do one of these steps first:
+
+- Link the document to a different item.
+- Name an owner board for the document with [`move_item`](#move_item).
+
+If the document has no more use, archive it. A document that names a board
+can lose its last `supports` edge. See
+[A document always has an owner](capabilities.md#a-document-always-has-an-owner).
+
+For `impacts`, the rule is that of `link_items`: the caller can edit the
+source. The repository can be archived. The result is one line:
+
+```text
+Unlinked ACME-D-0004 -[impacts]-> repository fidius.
+```
 
 Refuses: as `link_items`, except that a `relationship` with no such edge
-between those items is `NOT_FOUND`. The tool gives `FORBIDDEN` for a
+between those items is `NOT_FOUND`. An `impacts` link that is not there is
+`NOT_FOUND` too. The tool gives `FORBIDDEN` for a
 `supports` edge of a document that the caller cannot edit. The tool gives
-`LAST_PARENT` for the last `supports` edge of a document.
+`LAST_PARENT` for the last `supports` edge of a document that names no board.
 
 ## Finding related work
 
@@ -782,7 +947,9 @@ A live descendant that an archive did not reach stays as it is.
 Refuses: `NOT_FOUND` for an unknown short code; `VALIDATION` when the item is
 not archived; `FORBIDDEN` when the edit rule refuses the caller;
 `RESTORE_BLOCKED` when the item's board, column, owning team or
-repository has since been removed, naming what is missing.
+repository has since been removed, naming what is missing. For a document,
+the board is its owner board. The `impacts` links of an item block no
+restore.
 
 ## Related reading
 

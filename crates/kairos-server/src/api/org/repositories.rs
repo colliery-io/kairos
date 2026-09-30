@@ -19,6 +19,12 @@
 //! - **delete** is org admin only, and refused while live tasks or a live
 //!   webhook connection still reference the repository.
 //!
+//! A document or an ADR can IMPACT a repository (COLLIERY-T-0269): the
+//! link says what the item is about. The detail of a repository gives
+//! those items. The link gives no right: the owner team of a repository
+//! gets no right on a document that impacts it. The delete of a repository
+//! does not look at the links, and they stay.
+//!
 //! Webhook wiring is a separate resource (`/api/forge-connections`,
 //! [`super::forge`]) that hangs off a repository.
 
@@ -467,14 +473,48 @@ pub(crate) async fn list_repositories(
     Ok(Json(rows))
 }
 
+/// The documents and the ADRs that impact a repository, as the wire type
+/// (COLLIERY-T-0269): the ONE read for `GET /api/repositories/{slug}` and
+/// for the MCP tool `get_repository`.
+pub(crate) fn impacted_by(
+    conn: &mut PgConnection,
+    repository_id: Uuid,
+    include_archived: bool,
+) -> Result<Vec<dto::ImpactingItem>, ApiError> {
+    Ok(
+        kairos_db::impacts::items_of_repository(conn, repository_id, include_archived)
+            .map_err(ApiError::internal)?
+            .into_iter()
+            .map(|item| dto::ImpactingItem {
+                short_code: item.short_code,
+                title: item.title,
+                entity_type: item.entity_type,
+                document_type: item.document_type,
+                lifecycle: item.lifecycle,
+                column: item.column_name,
+                archived_at: item.archived_at.map(|at| at.to_rfc3339()),
+            })
+            .collect(),
+    )
+}
+
 /// One repository (open tenant-wide): the directory row plus its webhook
 /// connection id and in-flight links — everything an agent reads before
 /// working in, or filing against, a codebase.
+///
+/// `impacted_by` has the documents and the ADRs that impact the
+/// repository (COLLIERY-T-0269): its vision, its architecture, the
+/// decisions about it. It has the live items only.
+/// `?include_deleted=true` adds the archived items, each marked with
+/// `archived_at`.
 #[utoipa::path(
     get,
     path = "/api/repositories/{slug}",
     tag = "repositories",
-    params(("slug" = String, Path, description = "Repository slug (or UUID)")),
+    params(
+        ("slug" = String, Path, description = "Repository slug (or UUID)"),
+        dto::RepositoryDetailQuery,
+    ),
     responses(
         (status = 200, description = "The repository", body = dto::RepositoryDetail),
         (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
@@ -484,6 +524,7 @@ pub(crate) async fn get_repository(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
     Path(slug): Path<String>,
+    ApiQuery(query): ApiQuery<dto::RepositoryDetailQuery>,
 ) -> Result<Json<dto::RepositoryDetail>, ApiError> {
     let detail = state
         .blocking
@@ -515,6 +556,7 @@ pub(crate) async fn get_repository(
                 repository: render_one(conn, repo)?,
                 connection_id,
                 in_flight,
+                impacted_by: impacted_by(conn, repo_id, query.include_deleted)?,
             })
         })
         .await?;

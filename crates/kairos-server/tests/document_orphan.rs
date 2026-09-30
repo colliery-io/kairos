@@ -448,6 +448,7 @@ async fn task_by(client: &KairosClient, board: &str, title: &str) -> Task {
 
 fn document_on(parent: Option<&str>, title: &str) -> CreateDocumentRequest {
     CreateDocumentRequest {
+        board: None,
         title: title.into(),
         content: Some("original content".into()),
         template_id: None,

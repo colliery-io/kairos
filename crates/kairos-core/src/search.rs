@@ -142,8 +142,9 @@ pub struct SearchFilter {
     /// attribute; other entity types are excluded).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_id: Option<Uuid>,
-    /// Restrict to tasks issued against this repository (KAIROS-T-0104,
-    /// A-0019; task-level attribute, other entity types are excluded).
+    /// Restrict to the items of this repository (KAIROS-T-0104, A-0019,
+    /// COLLIERY-T-0269): the tasks that link to it, and the documents and
+    /// the ADRs that impact it. Strategies and initiatives are excluded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository_id: Option<Uuid>,
     /// Restrict to tasks of these types (excludes non-task entities).

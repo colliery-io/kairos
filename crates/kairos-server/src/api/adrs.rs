@@ -19,10 +19,11 @@ use kairos_db::models::items::Adr;
 use kairos_db::{boards, items};
 use serde_json::json;
 
-use super::convert::IntoDto;
+use super::convert::{IntoDto, attach_impact, attach_impacts};
+use super::documents::{clamp_impact_list, impacting_ids};
 use super::{
-    Liveness, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref, parse_opt_uuid,
-    parse_uuid, require_capability, require_item_edit, short_code_not_found,
+    Liveness, map_board_error, map_item_error, opt_board_id_by_ref, parse_opt_uuid, parse_uuid,
+    require_capability, require_item_edit, short_code_not_found,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -42,6 +43,11 @@ pub fn router() -> Router<AppState> {
             get(get_adr).patch(update_adr).delete(delete_adr),
         )
         .route("/api/adrs/{short_code}/transition", post(transition_adr))
+}
+
+/// An ADR as the wire type, with its `impacts` links (COLLIERY-T-0269).
+fn render(conn: &mut PgConnection, adr: Adr) -> Result<dto::Adr, ApiError> {
+    attach_impact(conn, adr.into_dto())
 }
 
 /// Load the live ADR with this short code, or 404.
@@ -66,32 +72,41 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
 /// `?include_deleted=true` widens the listing to archived work, each row
 /// marked with `archived_at` (KAIROS-A-0020 rule 2). Default false: rule 3
 /// is that a listing nobody asked hides put-away work.
+///
+/// `?repository=` keeps the ADRs that impact that repository
+/// (COLLIERY-T-0269). The value is the slug or the id of a live
+/// repository. An unknown repository is a 422 `VALIDATION`.
 #[utoipa::path(
     get,
     path = "/api/adrs",
     tag = "adrs",
-    params(dto::ListQuery),
+    params(dto::ImpactListQuery),
     responses(
         (status = 200, description = "Page of ADRs", body = dto::ListEnvelope<dto::Adr>),
         (status = 401, description = "Missing/invalid token", body = dto::ErrorEnvelope),
+        (status = 422, description = "Unknown repository", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn list_adrs(
     State(state): State<AppState>,
     Extension(tenant): Extension<TenantContext>,
-    ApiQuery(query): ApiQuery<dto::ListQuery>,
+    ApiQuery(query): ApiQuery<dto::ImpactListQuery>,
 ) -> Result<Json<dto::ListEnvelope<dto::Adr>>, ApiError> {
-    let (limit, offset, liveness) = clamp_list(&query);
+    let (limit, offset, liveness) = clamp_impact_list(&query);
     let envelope = state
         .blocking
         .run(&tenant.slug, move |conn| {
             use kairos_db::schema::adrs::dsl;
+            let impacting = impacting_ids(conn, query.repository.as_deref())?;
             // ONE predicate, applied to both the count and the page
             // (KAIROS-T-0159): the two can never disagree.
             let visible = || {
                 let mut query = dsl::adrs.into_boxed();
                 if liveness == Liveness::LiveOnly {
                     query = query.filter(dsl::deleted_at.is_null());
+                }
+                if let Some(ids) = &impacting {
+                    query = query.filter(dsl::id.eq_any(ids.clone()));
                 }
                 query
             };
@@ -106,8 +121,10 @@ pub(crate) async fn list_adrs(
                 .select(Adr::as_select())
                 .load(conn)
                 .map_err(ApiError::internal)?;
+            let mut items: Vec<dto::Adr> = rows.into_iter().map(IntoDto::into_dto).collect();
+            attach_impacts(conn, &mut items)?;
             Ok(dto::ListEnvelope {
-                items: rows.into_iter().map(IntoDto::into_dto).collect(),
+                items,
                 total,
                 limit,
                 offset,
@@ -136,7 +153,8 @@ pub(crate) async fn get_adr(
     let adr = state
         .blocking
         .run(&tenant.slug, move |conn| {
-            Ok(load(conn, &short_code, Liveness::IncludeArchived)?.into_dto())
+            let adr = load(conn, &short_code, Liveness::IncludeArchived)?;
+            render(conn, adr)
         })
         .await?;
     Ok(Json(adr))
@@ -195,7 +213,7 @@ pub(crate) async fn create_adr(
                 user,
             )
             .map_err(map_item_error)?;
-            Ok(created.into_dto())
+            render(conn, created)
         })
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
@@ -239,13 +257,17 @@ pub(crate) async fn update_adr(
                 expected_version: body.version,
             };
             match items::update_item_content(conn, ItemType::Adr, adr.id, update, user) {
-                Ok(_) => Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto()),
+                Ok(_) => {
+                    let updated = load(conn, &short_code, Liveness::LiveOnly)?;
+                    render(conn, updated)
+                }
                 Err(items::ItemError::VersionConflict {
                     expected_version,
                     current_version,
                     ..
                 }) => {
-                    let current = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+                    let current = load(conn, &short_code, Liveness::LiveOnly)?;
+                    let current = render(conn, current)?;
                     Err(ApiError::conflict(format!(
                         "The request has the version {expected_version}, and the current \
                          version is {current_version}. Get the item again, and make the \
@@ -333,7 +355,8 @@ pub(crate) async fn transition_adr(
             // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, adr.board_id, user, "transition_items")?;
             boards::transition_adr(conn, adr.id, to_column_id, user).map_err(map_board_error)?;
-            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
+            let moved = load(conn, &short_code, Liveness::LiveOnly)?;
+            render(conn, moved)
         })
         .await?;
     Ok(Json(transitioned))

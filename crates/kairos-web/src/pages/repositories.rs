@@ -6,8 +6,13 @@
 //!
 //! No route page lives here yet; the admin directory is
 //! `pages::admin::repositories` and re-exports from this module.
+//!
+//! [`documents`] shows the documents and the ADRs that impact a
+//! repository, and makes a new document for it (COLLIERY-T-0269). The
+//! admin directory and the team page show it for each repository.
 
 pub(crate) mod api;
+pub(crate) mod documents;
 
 use api::Repository;
 

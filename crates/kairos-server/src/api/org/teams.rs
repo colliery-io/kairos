@@ -554,7 +554,7 @@ pub(crate) async fn update_team(
         (status = 200, description = "Team and delivery board soft-deleted", body = dto::OrgDeleteResponse),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown team", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "BOARD_NOT_EMPTY", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "BOARD_NOT_EMPTY, or BOARD_OWNS_DOCUMENTS", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_team(
@@ -624,6 +624,14 @@ pub(crate) async fn delete_team(
                             "items": items,
                         })));
                     }
+                    // COLLIERY-T-0269: the board goes with the team, and a
+                    // document that names it would have no owner.
+                    super::check_board_owns_no_document(
+                        conn,
+                        board.id,
+                        &board.name,
+                        "Then delete the team.",
+                    )?;
                 }
                 diesel::update(dsl::teams.filter(dsl::id.eq(team_id)))
                     .set((

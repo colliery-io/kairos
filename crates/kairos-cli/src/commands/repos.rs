@@ -11,9 +11,16 @@
 //! column counts them with all the others. For the same reason the board
 //! column is `OWNER_BOARD`: it is the delivery board of the owner, not where
 //! tasks go.
+//!
+//! `link` and `unlink` write the relationship `impacts` from a document or
+//! an ADR to a repository (COLLIERY-T-0269). The link says what the item
+//! is about, and it gives no right. `bind` is for a task, and it says
+//! where the code of the task is. `get` lists the documents and the ADRs
+//! that impact the repository.
 
+use kairos_client::EntityKind;
 use kairos_client::types_repositories::{
-    CreateRepositoryRequest, Repository, UpdateRepositoryRequest,
+    CreateRepositoryRequest, ImpactingItem, Repository, UpdateRepositoryRequest,
 };
 
 use crate::commands::entities::require_confirm;
@@ -32,10 +39,15 @@ pub enum ReposCommand {
         #[command(flatten)]
         common: Common,
     },
-    /// Show one repository: owner, the owner's board, how-to-work-here, in-flight PRs
+    /// Show one repository: owner, the owner's board, how-to-work-here,
+    /// the documents and ADRs that impact it, in-flight PRs
     Get {
         /// Repository slug (or UUID)
         repository: String,
+        /// Also list the archived documents and ADRs that impact the
+        /// repository, marked `[archived]`
+        #[arg(long)]
+        include_deleted: bool,
         #[command(flatten)]
         common: Common,
     },
@@ -118,6 +130,77 @@ pub enum ReposCommand {
         #[command(flatten)]
         common: Common,
     },
+    /// Say that a document or an ADR impacts a repository (the
+    /// relationship `impacts`). It can be any repository, of any team. You
+    /// must be able to edit the document or the ADR. The link gives no
+    /// right
+    Link {
+        /// Short code of the document or of the ADR
+        short_code: String,
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Remove an `impacts` link of a document or of an ADR
+    Unlink {
+        /// Short code of the document or of the ADR
+        short_code: String,
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+}
+
+/// The entity family of a short code, from its type letter
+/// (`ACME-D-0001` is a document). The server has the rule on which family
+/// can impact a repository, and it refuses the others with the reason.
+fn family_of(short_code: &str) -> Result<EntityKind, CliError> {
+    let mut parts = short_code.rsplit('-');
+    let (_number, letter) = (parts.next(), parts.next());
+    match letter {
+        Some("S") => Ok(EntityKind::Strategy),
+        Some("I") => Ok(EntityKind::Initiative),
+        Some("T") => Ok(EntityKind::Task),
+        Some("D") => Ok(EntityKind::Document),
+        Some("A") => Ok(EntityKind::Adr),
+        _ => Err(CliError::Failure(format!(
+            "{short_code:?} is not a short code. A short code has the form ACME-D-0001."
+        ))),
+    }
+}
+
+/// The lines of `get` for the documents and the ADRs that impact the
+/// repository (COLLIERY-T-0269).
+fn impacted_by_lines(items: &[ImpactingItem]) -> Vec<String> {
+    if items.is_empty() {
+        return vec!["  (none)".to_string()];
+    }
+    items
+        .iter()
+        .map(|item| {
+            let kind = match (&item.document_type, item.entity_type.as_str()) {
+                (Some(document_type), _) => format!("document ({document_type})"),
+                (None, entity_type) => entity_type.to_string(),
+            };
+            let state = item
+                .lifecycle
+                .as_deref()
+                .or(item.column.as_deref())
+                .unwrap_or("-");
+            format!(
+                "  {}{} [{state}] {} — {kind}",
+                item.short_code,
+                if item.archived_at.is_some() {
+                    " [archived]"
+                } else {
+                    ""
+                },
+                item.title
+            )
+        })
+        .collect()
 }
 
 fn repo_table(repos: &[Repository]) -> Table {
@@ -162,9 +245,17 @@ impl ReposCommand {
                 }
                 Ok(())
             }
-            Self::Get { repository, common } => {
+            Self::Get {
+                repository,
+                include_deleted,
+                common,
+            } => {
                 let client = client(&common)?;
-                let detail = client.get_repository(&repository).await?;
+                let detail = if include_deleted {
+                    client.get_repository_with_archived(&repository).await?
+                } else {
+                    client.get_repository(&repository).await?
+                };
                 if common.json {
                     return print_json(&detail);
                 }
@@ -185,6 +276,10 @@ impl ReposCommand {
                     for line in detail.repository.description.lines() {
                         println!("  {line}");
                     }
+                }
+                println!("\nDocuments and ADRs that impact this repository:");
+                for line in impacted_by_lines(&detail.impacted_by) {
+                    println!("{line}");
                 }
                 println!("\nIn flight:");
                 if detail.in_flight.is_empty() {
@@ -336,6 +431,95 @@ impl ReposCommand {
                 println!("Kairos removed the repository of {}.", task.short_code);
                 Ok(())
             }
+            Self::Link {
+                short_code,
+                repository,
+                common,
+            } => {
+                let kind = family_of(&short_code)?;
+                let client = client(&common)?;
+                let impact = client.add_impact(kind, &short_code, &repository).await?;
+                if common.json {
+                    return print_json(&impact);
+                }
+                println!(
+                    "Kairos made the link: {short_code} impacts the repository {}.",
+                    impact.repository.slug
+                );
+                Ok(())
+            }
+            Self::Unlink {
+                short_code,
+                repository,
+                common,
+            } => {
+                let kind = family_of(&short_code)?;
+                let client = client(&common)?;
+                let removed = client.remove_impact(kind, &short_code, &repository).await?;
+                if common.json {
+                    return print_json(&removed);
+                }
+                println!(
+                    "Kairos removed the link: {short_code} does not impact the repository {}.",
+                    removed.repository
+                );
+                Ok(())
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// COLLIERY-T-0269: the family of `link` and `unlink` comes from the
+    /// type letter of the short code.
+    #[test]
+    fn the_family_comes_from_the_short_code() {
+        assert_eq!(family_of("ACME-D-0001").unwrap(), EntityKind::Document);
+        assert_eq!(family_of("ACME-A-0012").unwrap(), EntityKind::Adr);
+        // The letter is the part before the number.
+        assert_eq!(family_of("ACME-CO-D-0001").unwrap(), EntityKind::Document);
+        // The server refuses a task, with the reason.
+        assert_eq!(family_of("ACME-T-0001").unwrap(), EntityKind::Task);
+        let err = family_of("fidius").expect_err("not a short code");
+        assert_eq!(
+            err.to_string(),
+            "\"fidius\" is not a short code. A short code has the form ACME-D-0001."
+        );
+    }
+
+    #[test]
+    fn the_items_that_impact_a_repository() {
+        assert_eq!(impacted_by_lines(&[]), vec!["  (none)".to_string()]);
+        let lines = impacted_by_lines(&[
+            ImpactingItem {
+                short_code: "ACME-D-0004".into(),
+                title: "The vision of fidius".into(),
+                entity_type: "document".into(),
+                document_type: Some("vision".into()),
+                lifecycle: Some("published".into()),
+                column: None,
+                archived_at: None,
+            },
+            ImpactingItem {
+                short_code: "ACME-A-0002".into(),
+                title: "Plugins are dynamic libraries".into(),
+                entity_type: "adr".into(),
+                document_type: None,
+                lifecycle: None,
+                column: Some("Decided".into()),
+                archived_at: Some("2026-09-01T00:00:00Z".into()),
+            },
+        ]);
+        assert_eq!(
+            lines,
+            vec![
+                "  ACME-D-0004 [published] The vision of fidius — document (vision)".to_string(),
+                "  ACME-A-0002 [archived] [Decided] Plugins are dynamic libraries — adr"
+                    .to_string(),
+            ]
+        );
     }
 }

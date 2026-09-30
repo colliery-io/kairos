@@ -116,6 +116,67 @@ edge, and the client draws it with a different style.
 | `200` | [`GraphResponse`](schemas.md#graphresponse) | The focal subgraph |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 
+### `GET /api/{entity_type}/{short_code}/impacts`
+
+The repositories that a document or an ADR impacts (open tenant-wide).
+
+A link to an archived repository is in the list, with `archived_at`.
+The item can be archived: its links stay.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (documents|adrs) |
+| `short_code` | path | yes | `string` | Item short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ItemImpactsResponse`](schemas.md#itemimpactsresponse) | The impacts links of the item, by the slug of the repository |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not a document and not an ADR |
+
+### `POST /api/{entity_type}/{short_code}/impacts`
+
+Make an `impacts` link from a document or an ADR to a repository.
+
+The edit rule applies (COLLIERY-T-0228). The caller can edit the item.
+The caller needs no right on the repository. The link gives no right.
+
+The repository is a live repository of the organization, of each team.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (documents|adrs) |
+| `short_code` | path | yes | `string` | Item short code |
+
+Request body (required): `application/json`, [`CreateImpactRequest`](schemas.md#createimpactrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `201` | [`Impact`](schemas.md#impact) | Link created (relationship_add activity row written) |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller cannot edit the item |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not a document and not an ADR. ALREADY_LINKED: the link is there. VALIDATION: no live repository has that slug or id |
+
+### `DELETE /api/{entity_type}/{short_code}/impacts/{repository}`
+
+Remove an `impacts` link.
+
+The edit rule applies (COLLIERY-T-0228), as for the create. The
+repository can be archived.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (documents|adrs) |
+| `short_code` | path | yes | `string` | Item short code |
+| `repository` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`DeletedImpactResponse`](schemas.md#deletedimpactresponse) | Link removed (relationship_remove activity row written) |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller cannot edit the item |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code, or the item does not impact that repository |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not a document and not an ADR |
+
 ### `GET /api/{entity_type}/{short_code}/links`
 
 The branches and pull/merge requests linked to one item

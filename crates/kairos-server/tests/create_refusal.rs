@@ -529,6 +529,7 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     let before = footprint(&mut conn);
     let err = match svc
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "Quixlo document over REST".into(),
             content: Some("This content must not be stored.".into()),
             template_id: None,
@@ -601,6 +602,7 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     let before = footprint(&mut conn);
     let result = svc
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "Vextrum document over REST".into(),
             content: Some("This content must not be stored.".into()),
             template_id: None,

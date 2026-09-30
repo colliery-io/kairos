@@ -27,9 +27,10 @@ use serde_json::Value;
 use crate::error::Error;
 use crate::types::{
     Adr, CascadePreviewResponse, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest,
-    CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope, Initiative,
-    ListEnvelope, ListQuery, Pagination, RestoreResponse, SetLifecycleRequest, SetWorkClassRequest,
-    Strategy, Task, TransitionRequest, UpdateContentRequest,
+    CreateStrategyRequest, CreateTaskRequest, DeleteResponse, Document, ErrorEnvelope,
+    ImpactListQuery, Initiative, ListEnvelope, ListQuery, Pagination, RestoreResponse,
+    SetDocumentBoardRequest, SetLifecycleRequest, SetWorkClassRequest, Strategy, Task,
+    TransitionRequest, UpdateContentRequest,
 };
 use crate::types_auth::{DeploymentConfig, LoginRequest, LoginResponse};
 use crate::types_meta::{
@@ -391,13 +392,24 @@ macro_rules! entity_family {
     ($family:literal, $dto:ty, $create_req:ty,
      $list:ident, $get:ident, $create:ident, $update:ident, $delete:ident,
      $restore:ident) => {
+        entity_family!(
+            $family, $dto, $create_req, ListQuery, $list, $get, $create, $update, $delete,
+            $restore
+        );
+    };
+    // COLLIERY-T-0269: the list of documents and the list of ADRs take
+    // `ImpactListQuery`, which has the filter `repository`. Each caller
+    // that gives a `Pagination` or a `ListQuery` gets what it got before.
+    ($family:literal, $dto:ty, $create_req:ty, $query:ty,
+     $list:ident, $get:ident, $create:ident, $update:ident, $delete:ident,
+     $restore:ident) => {
         #[doc = concat!("`GET /api/", $family, "` — list (tenant-open read).\n\n",
                                 "Takes a [`Pagination`] for the live-only listing or a ",
                                 "[`ListQuery`] to widen it to archived work (KAIROS-T-0159); ",
                                 "`total` always counts whatever the page shows.")]
         pub async fn $list(
             &self,
-            query: impl Into<ListQuery>,
+            query: impl Into<$query>,
         ) -> Result<ListEnvelope<$dto>, Error> {
             self.get_query(concat!("/api/", $family), &query.into())
                 .await
@@ -583,6 +595,7 @@ impl KairosClient {
         "documents",
         Document,
         CreateDocumentRequest,
+        ImpactListQuery,
         list_documents,
         get_document,
         create_document,
@@ -595,6 +608,7 @@ impl KairosClient {
         "adrs",
         Adr,
         CreateAdrRequest,
+        ImpactListQuery,
         list_adrs,
         get_adr,
         create_adr,
@@ -1100,6 +1114,67 @@ impl KairosClient {
         .await
     }
 
+    /// `PATCH /api/documents/{short_code}/board` — set, change or remove
+    /// the owner board of a document (COLLIERY-T-0269). `board` is a slug
+    /// or a UUID, and `None` removes the board. The caller needs
+    /// `manage_documents` on the board that owns the document now and on
+    /// the new board. A document that supports no item keeps its board:
+    /// 422 `LAST_OWNER`, which arrives as [`Error::Other`].
+    pub async fn set_document_board(
+        &self,
+        short_code: &str,
+        board: Option<&str>,
+    ) -> Result<Document, Error> {
+        self.patch(
+            &format!("/api/documents/{short_code}/board"),
+            &SetDocumentBoardRequest {
+                board: Some(board.map(str::to_string)),
+            },
+        )
+        .await
+    }
+
+    /// `GET /api/{family}/{short_code}/impacts` — the repositories that a
+    /// document or an ADR impacts (COLLIERY-T-0269).
+    pub async fn item_impacts(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+    ) -> Result<crate::types_repositories::ItemImpactsResponse, Error> {
+        self.get(&format!("/api/{kind}/{short_code}/impacts")).await
+    }
+
+    /// `POST /api/{family}/{short_code}/impacts` — say that a document or
+    /// an ADR impacts a repository (slug or UUID, COLLIERY-T-0269). The
+    /// edit rule of the item applies, and no right on the repository is
+    /// needed. The link gives no right.
+    pub async fn add_impact(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+        repository: &str,
+    ) -> Result<crate::types_repositories::Impact, Error> {
+        self.post_created(
+            &format!("/api/{kind}/{short_code}/impacts"),
+            &crate::types_repositories::CreateImpactRequest {
+                repository: repository.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// `DELETE /api/{family}/{short_code}/impacts/{repository}` — remove
+    /// an `impacts` link (COLLIERY-T-0269).
+    pub async fn remove_impact(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+        repository: &str,
+    ) -> Result<crate::types_repositories::DeletedImpactResponse, Error> {
+        self.delete(&format!("/api/{kind}/{short_code}/impacts/{repository}"))
+            .await
+    }
+
     /// `GET /api/{family}/{short_code}/children-progress` — the direct
     /// `parent`-edge children grouped by board column, with the
     /// `(done, total)` summary (KAIROS-T-0080).
@@ -1175,12 +1250,30 @@ impl KairosClient {
     }
 
     /// `GET /api/repositories/{slug}` — the repository, its webhook
-    /// connection id and in-flight links.
+    /// connection id, its in-flight links, and the live documents and
+    /// ADRs that impact it (COLLIERY-T-0269).
     pub async fn get_repository(
         &self,
         reference: &str,
     ) -> Result<crate::types_repositories::RepositoryDetail, Error> {
         self.get(&format!("/api/repositories/{reference}")).await
+    }
+
+    /// `GET /api/repositories/{slug}?include_deleted=true` —
+    /// [`Self::get_repository`], with the archived documents and ADRs that
+    /// impact the repository too, each marked with `archived_at`
+    /// (COLLIERY-T-0269).
+    pub async fn get_repository_with_archived(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_repositories::RepositoryDetail, Error> {
+        self.get_query(
+            &format!("/api/repositories/{reference}"),
+            &crate::types_repositories::RepositoryDetailQuery {
+                include_deleted: true,
+            },
+        )
+        .await
     }
 
     /// `POST /api/repositories` — register a repository under its owning

@@ -236,6 +236,11 @@ pub fn may_write_edge(may_edit_source: bool, may_edit_target: bool) -> bool {
 /// the organization. For a document that HAS a parent, a new edge does not
 /// change the authority (the earliest edge still gives it), and the link
 /// rule applies as it is.
+///
+/// COLLIERY-T-0269: a document that NAMES a board has an owner, and a
+/// `supports` edge does not change its authority. The caller sends `true`
+/// for it, as for a document that has a parent
+/// ([`document_has_an_owner`]).
 pub fn may_link_document_parent(
     document_has_parent: bool,
     may_edit_source: bool,
@@ -273,6 +278,36 @@ pub fn may_unlink_document_parent(may_edit_document: bool) -> bool {
 /// for it. The owner decided that the server does not make that state.
 pub fn document_keeps_a_parent(parents: usize) -> bool {
     parents > 1
+}
+
+/// A DOCUMENT ALWAYS HAS AN OWNER (COLLIERY-T-0269): does it have one
+/// now? The owner is the board that the document names, or the board of
+/// an item that the document supports.
+///
+/// The owner decided the model on 2026-09-29. A board owns a document. A
+/// repository does not: an `impacts` link says what the document is
+/// about, and it is not an owner.
+pub fn document_has_an_owner(names_board: bool, parents: usize) -> bool {
+    names_board || parents > 0
+}
+
+/// Can one `supports` edge of a document be removed (COLLIERY-T-0269)?
+/// The rule of COLLIERY-T-0235 ([`document_keeps_a_parent`]) is for a
+/// document that names no board. A document that names a board keeps its
+/// owner when its last parent goes, so each of its parents can go.
+///
+/// As [`document_keeps_a_parent`], this is a rule of the data and not a
+/// permission: it applies to each principal, an admin of the organization
+/// too.
+pub fn document_parent_can_go(names_board: bool, parents: usize) -> bool {
+    names_board || document_keeps_a_parent(parents)
+}
+
+/// Can the board of a document be removed (COLLIERY-T-0269)? Only when
+/// the document supports one item or more: the board of that item is then
+/// its owner. A rule of the data, as [`document_parent_can_go`].
+pub fn document_board_can_go(parents: usize) -> bool {
+    parents > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -398,6 +433,57 @@ mod tests {
         assert!(!document_keeps_a_parent(1));
         assert!(document_keeps_a_parent(2));
         assert!(document_keeps_a_parent(3));
+    }
+
+    // -- the owner of a document (COLLIERY-T-0269) -----------------------------
+
+    #[test]
+    fn a_board_or_a_parent_is_an_owner() {
+        assert!(!document_has_an_owner(false, 0));
+        assert!(document_has_an_owner(true, 0));
+        assert!(document_has_an_owner(false, 1));
+        assert!(document_has_an_owner(true, 2));
+    }
+
+    /// With no board the rule is that of COLLIERY-T-0235, for each count.
+    #[test]
+    fn the_last_parent_can_go_only_from_a_document_that_names_a_board() {
+        for parents in 0..4 {
+            assert_eq!(
+                document_parent_can_go(false, parents),
+                document_keeps_a_parent(parents),
+                "{parents} parents, no board"
+            );
+            assert!(
+                document_parent_can_go(true, parents),
+                "{parents} parents, a board"
+            );
+        }
+    }
+
+    #[test]
+    fn the_board_can_go_only_from_a_document_that_supports_an_item() {
+        assert!(!document_board_can_go(0));
+        assert!(document_board_can_go(1));
+        assert!(document_board_can_go(2));
+    }
+
+    /// No remove leaves a document with no owner: after each permitted
+    /// remove, the document has a board or a parent.
+    #[test]
+    fn no_permitted_remove_makes_an_orphan() {
+        for names_board in [false, true] {
+            for parents in 1..4 {
+                if document_parent_can_go(names_board, parents) {
+                    assert!(document_has_an_owner(names_board, parents - 1));
+                }
+            }
+        }
+        for parents in 0..4 {
+            if document_board_can_go(parents) {
+                assert!(document_has_an_owner(false, parents));
+            }
+        }
     }
 
     // -- exact matches ---------------------------------------------------------

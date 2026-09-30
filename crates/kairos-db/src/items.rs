@@ -873,6 +873,142 @@ pub fn set_document_lifecycle(
     })
 }
 
+/// A live board with this id exists, or [`ItemError::BoardNotFound`].
+fn require_live_board(conn: &mut PgConnection, board_id: Uuid) -> Result<(), ItemError> {
+    use crate::schema::boards::dsl;
+    let live: Option<Uuid> = dsl::boards
+        .filter(dsl::id.eq(board_id))
+        .filter(dsl::deleted_at.is_null())
+        .select(dsl::id)
+        .first(conn)
+        .optional()?;
+    live.map(|_| ()).ok_or(ItemError::BoardNotFound(board_id))
+}
+
+/// What [`set_document_board`] did (COLLIERY-T-0269).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DocumentBoardChange {
+    /// The document after the call.
+    pub document: Document,
+    /// The board that the document named before the call.
+    pub from: Option<Uuid>,
+    /// The call changed the row. `false` = the document named that board
+    /// already, and the call wrote nothing.
+    pub changed: bool,
+}
+
+/// Set, change or remove the OWNER board of a document (COLLIERY-T-0269).
+/// As the lifecycle, this is not a content edit: no version bump and no
+/// `item_history` row. It writes one `activity_log` row with the action
+/// `update` (`owner_board:{from}->{to}`, each end the slug of a board or
+/// `none`) and the `relationship_changed` event, which makes an open page
+/// of the document read it again. Setting the board that the document has
+/// is a no-op: it writes nothing.
+///
+/// A new board must be live ([`ItemError::BoardNotFound`]).
+///
+/// NO RULE is applied here. Who may change the owner, and the rule that a
+/// document keeps an owner, are the caller's: the server asks them in the
+/// transaction of this call.
+pub fn set_document_board(
+    conn: &mut PgConnection,
+    document_id: Uuid,
+    board_id: Option<Uuid>,
+    actor: Uuid,
+) -> Result<DocumentBoardChange, ItemError> {
+    conn.transaction::<_, ItemError, _>(|conn| {
+        use crate::schema::documents::dsl;
+        let current: Document = dsl::documents
+            .filter(dsl::id.eq(document_id))
+            .filter(dsl::deleted_at.is_null())
+            .select(Document::as_select())
+            .first(conn)
+            .optional()?
+            .ok_or(ItemError::ItemNotFound {
+                entity_type: "document",
+                id: document_id,
+            })?;
+        let from = current.board_id;
+        if from == board_id {
+            return Ok(DocumentBoardChange {
+                document: current,
+                from,
+                changed: false,
+            });
+        }
+        if let Some(board_id) = board_id {
+            require_live_board(conn, board_id)?;
+        }
+        let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
+            .set((
+                dsl::board_id.eq(board_id),
+                dsl::updated_by.eq(actor),
+                dsl::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(Document::as_returning())
+            .get_result(conn)?;
+        let label = |conn: &mut PgConnection, board: Option<Uuid>| match board {
+            Some(id) => board_slug(conn, id),
+            None => Ok("none".to_string()),
+        };
+        let details = format!(
+            "owner_board:{}->{}",
+            label(conn, from)?,
+            label(conn, board_id)?
+        );
+        log_activity(
+            conn,
+            actor,
+            ActivityAction::Update,
+            document_id,
+            "document",
+            details,
+        )?;
+        events::emit_item_event_by_id(
+            conn,
+            EventKind::RelationshipChanged,
+            "document",
+            document_id,
+            actor,
+        )?;
+        Ok(DocumentBoardChange {
+            document: updated,
+            from,
+            changed: true,
+        })
+    })
+}
+
+/// The short codes of the LIVE documents that name `board_id` as their
+/// owner, sorted (COLLIERY-T-0269). A board with one or more cannot be
+/// deleted: a document always has an owner, and a deleted board is none.
+/// An archived document does not count, as an archived card does not
+/// (KAIROS-I-0012).
+pub fn live_documents_of_board(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+) -> Result<Vec<String>, DieselError> {
+    use crate::schema::documents::dsl;
+    dsl::documents
+        .filter(dsl::board_id.eq(board_id))
+        .filter(dsl::deleted_at.is_null())
+        .order(dsl::short_code.asc())
+        .select(dsl::short_code)
+        .load(conn)
+}
+
+/// The slug of a board, deleted or not, for the text of a record. An id
+/// that names no board gives the id.
+fn board_slug(conn: &mut PgConnection, board_id: Uuid) -> Result<String, DieselError> {
+    use crate::schema::boards::dsl;
+    let slug: Option<String> = dsl::boards
+        .filter(dsl::id.eq(board_id))
+        .select(dsl::slug)
+        .first(conn)
+        .optional()?;
+    Ok(slug.unwrap_or_else(|| board_id.to_string()))
+}
+
 /// Input for [`create_document`].
 #[derive(Debug, Clone)]
 pub struct CreateDocument<'a> {
@@ -890,13 +1026,37 @@ pub struct CreateDocument<'a> {
 /// `template_id`, the template's content is copied (unless `content`
 /// overrides it) and every `template_metadata` row carrying a
 /// `default_value` is stamped as an `item_metadata` row (KAIROS-A-0003).
+///
+/// The document names no board. [`create_document_on_board`] makes a
+/// document that names one.
 pub fn create_document(
     conn: &mut PgConnection,
     input: CreateDocument<'_>,
     actor: Uuid,
 ) -> Result<Document, ItemError> {
+    create_document_on_board(conn, input, None, actor)
+}
+
+/// [`create_document`], for a document that NAMES a board as its owner
+/// (COLLIERY-T-0269). The board must be live
+/// ([`ItemError::BoardNotFound`]). It can have each level: the owner of a
+/// document is a board, and not a column of it. `board_id: None` = the
+/// document names no board.
+///
+/// The document is not a card of the board. It has no column, and the
+/// event of the create has no board.
+pub fn create_document_on_board(
+    conn: &mut PgConnection,
+    input: CreateDocument<'_>,
+    board_id: Option<Uuid>,
+    actor: Uuid,
+) -> Result<Document, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         use crate::schema::{item_metadata, template_metadata, templates};
+
+        if let Some(board_id) = board_id {
+            require_live_board(conn, board_id)?;
+        }
 
         let template: Option<Template> = match input.template_id {
             Some(template_id) => Some(
@@ -914,14 +1074,17 @@ pub fn create_document(
 
         let code = next_short_code(conn, ItemType::Document)?;
         let created: Document = diesel::insert_into(crate::schema::documents::table)
-            .values(NewDocument {
-                short_code: code,
-                title: input.title.to_string(),
-                content: content.to_string(),
-                template_id: input.template_id,
-                created_by: actor,
-                updated_by: actor,
-            })
+            .values((
+                NewDocument {
+                    short_code: code,
+                    title: input.title.to_string(),
+                    content: content.to_string(),
+                    template_id: input.template_id,
+                    created_by: actor,
+                    updated_by: actor,
+                },
+                crate::schema::documents::board_id.eq(board_id),
+            ))
             .returning(Document::as_returning())
             .get_result(conn)?;
 
@@ -1608,15 +1771,19 @@ fn restore_row(
 /// Everything an archived item needs back before it can be live, that is
 /// itself gone. Empty = the restore may proceed.
 ///
-/// Documents have no placement of their own (they hang off a parent via
-/// `supports`), so nothing here applies to them.
+/// A document has no column. It can name a board as its owner
+/// (COLLIERY-T-0269), and that board is what it needs back: the delete of
+/// a board looks at the live documents only, so the owner of an archived
+/// document can be gone. The `impacts` links of a document or of an ADR
+/// need nothing: a link to an archived repository stays, and it is shown
+/// as such.
 fn restore_blockers(
     conn: &mut PgConnection,
     item_type: ItemType,
     item_id: Uuid,
 ) -> Result<Vec<String>, DieselError> {
     use crate::schema::{
-        adrs, board_columns, boards, initiatives, repositories, strategies, tasks, teams,
+        adrs, board_columns, boards, documents, initiatives, repositories, strategies, tasks, teams,
     };
 
     let mut missing = Vec::new();
@@ -1641,13 +1808,20 @@ fn restore_blockers(
             .first::<(Uuid, Uuid)>(conn)
             .optional()?
             .map(|(b, c)| (Some(b), Some(c))),
-        // ADRs may be off-board; documents are never on one.
+        // ADRs may be off-board.
         ItemType::Adr => adrs::table
             .filter(adrs::id.eq(item_id))
             .select((adrs::board_id, adrs::column_id))
             .first::<(Option<Uuid>, Option<Uuid>)>(conn)
             .optional()?,
-        ItemType::Document => None,
+        // A document is never on a board, and has no column. The board
+        // is its owner, if it names one (COLLIERY-T-0269).
+        ItemType::Document => documents::table
+            .filter(documents::id.eq(item_id))
+            .select(documents::board_id)
+            .first::<Option<Uuid>>(conn)
+            .optional()?
+            .map(|board_id| (board_id, None)),
     };
 
     if let Some((board_id, column_id)) = placement {

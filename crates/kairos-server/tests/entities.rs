@@ -1063,6 +1063,7 @@ async fn entity_endpoints_against_live_stack() {
     let err = rejection(
         alice
             .create_document(&CreateDocumentRequest {
+                board: None,
                 title: "Orphan".into(),
                 content: None,
                 template_id: None,
@@ -1083,6 +1084,7 @@ async fn entity_endpoints_against_live_stack() {
     let err = rejection(
         alice
             .create_document(&CreateDocumentRequest {
+                board: None,
                 title: "x".into(),
                 content: None,
                 template_id: None,
@@ -1097,6 +1099,7 @@ async fn entity_endpoints_against_live_stack() {
     let err = rejection(
         alice
             .create_document(&CreateDocumentRequest {
+                board: None,
                 title: "x".into(),
                 content: None,
                 template_id: None,
@@ -1113,6 +1116,7 @@ async fn entity_endpoints_against_live_stack() {
     // capability named.
     let err = rejection(
         bob.create_document(&CreateDocumentRequest {
+            board: None,
             title: "Spec".into(),
             content: None,
             template_id: None,
@@ -1131,6 +1135,7 @@ async fn entity_endpoints_against_live_stack() {
     // initiative's board.
     let document = alice
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "API Spec".into(),
             content: Some("endpoint table".into()),
             template_id: None,
@@ -1150,6 +1155,7 @@ async fn entity_endpoints_against_live_stack() {
         .expect("tenant prd template");
     let stamped = alice
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "PRD for the API".into(),
             content: None,
             template_id: Some(template_id.to_string()),

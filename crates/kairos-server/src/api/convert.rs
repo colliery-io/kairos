@@ -103,6 +103,10 @@ impl IntoDto<dto::Document> for Document {
             short_code: self.short_code,
             title: self.title,
             content: self.content,
+            board_id: self.board_id.map(|id| id.to_string()),
+            // Pure conversion has no link; [`attach_impacts`] reads the
+            // links of a batch in one query.
+            impacts: Vec::new(),
             template_id: self.template_id.map(|id| id.to_string()),
             lifecycle: self.lifecycle.to_string(),
             version: self.version,
@@ -124,6 +128,8 @@ impl IntoDto<dto::Adr> for Adr {
             content: self.content,
             board_id: self.board_id.map(|id| id.to_string()),
             column_id: self.column_id.map(|id| id.to_string()),
+            // As for a document: [`attach_impacts`] reads the links.
+            impacts: Vec::new(),
             decision_maker: self.decision_maker,
             decision_date: self.decision_date.map(|d| d.to_string()),
             version: self.version,
@@ -197,4 +203,87 @@ pub fn attach_repository(
     attach_repositories(conn, &mut tasks)?;
     let [task] = tasks;
     Ok(task)
+}
+
+/// One `impacts` link as the wire type (COLLIERY-T-0269).
+pub fn impact(
+    row: kairos_db::impacts::ImpactedRepository,
+) -> kairos_client::types_repositories::Impact {
+    kairos_client::types_repositories::Impact {
+        relationship: kairos_db::impacts::RELATIONSHIP.to_string(),
+        target_kind: kairos_db::impacts::TARGET_REPOSITORY.to_string(),
+        repository: kairos_client::types_repositories::ImpactedRepository {
+            id: row.repository_id.to_string(),
+            slug: row.slug,
+            forge: row.forge,
+            repo_full_name: row.repo_full_name,
+            archived_at: row.archived_at.map(timestamp),
+        },
+        created_at: timestamp(row.created_at),
+    }
+}
+
+/// A wire type that has `impacts` links: a document or an ADR
+/// (COLLIERY-T-0269).
+pub trait HasImpacts {
+    /// The id of the item (UUID).
+    fn item_id(&self) -> &str;
+    /// Where the links go.
+    fn impacts_mut(&mut self) -> &mut Vec<kairos_client::types_repositories::Impact>;
+}
+
+impl HasImpacts for dto::Document {
+    fn item_id(&self) -> &str {
+        &self.id
+    }
+    fn impacts_mut(&mut self) -> &mut Vec<kairos_client::types_repositories::Impact> {
+        &mut self.impacts
+    }
+}
+
+impl HasImpacts for dto::Adr {
+    fn item_id(&self) -> &str {
+        &self.id
+    }
+    fn impacts_mut(&mut self) -> &mut Vec<kairos_client::types_repositories::Impact> {
+        &mut self.impacts
+    }
+}
+
+/// Fill `impacts` on a batch of documents or of ADRs with ONE query
+/// (COLLIERY-T-0269), as [`attach_repositories`] does for tasks. Call it
+/// at each endpoint that gives documents or ADRs: the pure [`IntoDto`]
+/// conversion never touches the DB. A link to an archived repository is
+/// in the list, with `archived_at`.
+pub fn attach_impacts<T: HasImpacts>(
+    conn: &mut PgConnection,
+    items: &mut [T],
+) -> Result<(), crate::error::ApiError> {
+    let ids: Vec<Uuid> = items
+        .iter()
+        .filter_map(|item| item.item_id().parse().ok())
+        .collect();
+    let mut by_item = kairos_db::impacts::repositories_of_items(conn, &ids)
+        .map_err(crate::error::ApiError::internal)?;
+    for item in items.iter_mut() {
+        let links = item
+            .item_id()
+            .parse::<Uuid>()
+            .ok()
+            .and_then(|id| by_item.remove(&id))
+            .unwrap_or_default();
+        *item.impacts_mut() = links.into_iter().map(impact).collect();
+    }
+    Ok(())
+}
+
+/// Single-item convenience over [`attach_impacts`].
+pub fn attach_impact<T: HasImpacts>(
+    conn: &mut PgConnection,
+    item: T,
+) -> Result<T, crate::error::ApiError> {
+    let mut items = [item];
+    attach_impacts(conn, &mut items)?;
+    let [item] = items;
+    Ok(item)
 }

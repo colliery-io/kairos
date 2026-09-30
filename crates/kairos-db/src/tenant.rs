@@ -206,7 +206,13 @@ INSERT INTO public.system_templates (name, slug, content) VALUES
     ('Social Contract', 'social_contract',
      E'# Social Contract\n\n## Values\n\n## Agreements\n\n## Communication\n\n## Conflict Resolution\n'),
     ('Company Vision', 'company_vision',
-     E'# Company Vision\n\n## Where We Are Going\n\n## Why It Matters\n\n## How We Will Know\n')
+     E'# Company Vision\n\n## Where We Are Going\n\n## Why It Matters\n\n## How We Will Know\n'),
+    -- COLLIERY-T-0269: the vision of a product, a repository or a
+    -- capability. It is not the vision of the organization, which is
+    -- 'Company Vision'. The tenant migration `document_board_and_impacts`
+    -- has the same text, for the tenants that exist.
+    ('Product Vision', 'product_vision',
+     E'# Product Vision\n\n## Purpose\n\n## Who It Is For\n\n## Current State\n\n## Future State\n\n## Principles\n\n## What It Is Not\n')
 ON CONFLICT (slug) DO NOTHING;
 
 -- KAIROS-A-0003 template-to-metadata associations.
@@ -218,7 +224,8 @@ FROM (VALUES
     ('architecture_framing', 'document_type', 'architecture'),
     ('team_charter', 'document_type', 'charter'),
     ('social_contract', 'document_type', 'social_contract'),
-    ('company_vision', 'document_type', 'vision')
+    ('company_vision', 'document_type', 'vision'),
+    ('product_vision', 'document_type', 'vision')
 ) AS a(template_slug, def_slug, default_value)
 JOIN public.system_templates t ON t.slug = a.template_slug
 JOIN public.system_metadata_definitions d ON d.slug = a.def_slug
@@ -348,11 +355,25 @@ pub fn provision_tenant(
 
         // KAIROS-A-0003: copy system defaults into the tenant schema
         // (unqualified names resolve to the tenant schema via search_path).
-        let templates_copied = sql_query(
+        // COLLIERY-T-0269: a tenant migration can make a template (the
+        // migration `document_board_and_impacts` makes "Product Vision"
+        // for the tenants that exist), and it runs before this copy. The
+        // copy does not make that template again, and the count is the
+        // count of the system templates that the tenant has.
+        sql_query(
             "INSERT INTO templates (name, slug, content, is_system_default) \
-             SELECT name, slug, content, true FROM public.system_templates",
+             SELECT name, slug, content, true FROM public.system_templates \
+             ON CONFLICT (slug) DO NOTHING",
         )
         .execute(conn)?;
+        let templates_copied = {
+            use crate::schema::templates::dsl;
+            let count: i64 = dsl::templates
+                .filter(dsl::is_system_default.eq(true))
+                .count()
+                .get_result(conn)?;
+            count as usize
+        };
         let metadata_definitions_copied = sql_query(
             "INSERT INTO metadata_definitions (name, slug, field_type, is_system_default) \
              SELECT name, slug, field_type, true FROM public.system_metadata_definitions",
@@ -383,7 +404,8 @@ pub fn provision_tenant(
              JOIN public.system_templates st ON st.id = stm.template_id \
              JOIN public.system_metadata_definitions smd ON smd.id = stm.metadata_definition_id \
              JOIN templates t ON t.slug = st.slug \
-             JOIN metadata_definitions md ON md.slug = smd.slug",
+             JOIN metadata_definitions md ON md.slug = smd.slug \
+             ON CONFLICT (template_id, metadata_definition_id) DO NOTHING",
         )
         .execute(conn)?;
 

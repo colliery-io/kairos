@@ -90,6 +90,8 @@ use crate::app::AppState;
         crate::api::documents::create_document,
         crate::api::documents::update_document,
         crate::api::documents::set_lifecycle,
+        // The owner board of a document (COLLIERY-T-0269).
+        crate::api::documents::set_board,
         crate::api::documents::delete_document,
         crate::api::adrs::list_adrs,
         crate::api::adrs::get_adr,
@@ -113,6 +115,10 @@ use crate::app::AppState;
         crate::api::meta::relationships::get_item_links,
         crate::api::meta::relationships::create_relationship,
         crate::api::meta::relationships::delete_relationship,
+        // The relationship `impacts`, to a repository (COLLIERY-T-0269).
+        crate::api::meta::impacts::get_impacts,
+        crate::api::meta::impacts::create_impact,
+        crate::api::meta::impacts::delete_impact,
         crate::api::meta::metadata::get_metadata,
         crate::api::meta::metadata::update_metadata,
         crate::api::meta::definitions::list_definitions,

@@ -84,7 +84,10 @@ def live_state_hint(values):
         return (
             f"This checkout is repository `{repository}`. For live state, call the "
             f"kairos MCP tools now: `get_repository` for `{repository}` (read its "
-            "\"How to work here\" description and in-flight PRs first), then "
+            "\"How to work here\" description and in-flight PRs first). The result "
+            "lists the documents and the ADRs that impact this repository: its "
+            "vision, its architecture and the decisions about it. Read them with "
+            "`get_item` before you plan work. Then call "
             f"`board_items` for the board of your team ({team_board}) with "
             f"`repository={repository}`. That is your queue. The board without "
             "the filter shows all the work of your team. The work of other teams "

@@ -141,6 +141,39 @@ The GUI shows the message of the server in the dialog. The dialog stays open.
 | 422 `VALIDATION` | You named a repository and no board or team. The message starts with `The request has no board_id and no team_id.` | Name a board or a team. |
 | 422 `VALIDATION` | You named a team that is not the team of the board. | Name the team of the board, or no team. |
 
+## Give a document to a different owner board
+
+A document is on no board. It has an owner board, which gives the right to
+edit it. To change the owner board, you need `manage_documents` on two boards:
+
+- the board that owns the document now
+- the new owner board
+
+An organization admin can change the owner of each document. The creator of a
+document gets no right to change its owner.
+
+1. Change the owner board with one of these commands:
+
+   ```sh
+   kairos documents move ACME-D-0004 --to-board web-delivery
+   ```
+
+   An agent calls `move_item` with the short code and `to_board`.
+
+2. Make sure that the document shows the new board:
+
+   ```sh
+   kairos documents get ACME-D-0004
+   ```
+
+The document gets no column, and no board view shows it. Its `supports` edges
+and its `impacts` links do not change.
+
+To remove the owner board, use `--no-board`. The board of the item that the
+document supports becomes the owner. The server refuses this for a document
+that supports no item, with 422 `LAST_OWNER`. Link the document to a work
+item first.
+
 ## What to do instead
 
 If you do not hold `manage_tasks` on both boards, do not go looking for a
@@ -161,6 +194,7 @@ workaround; there is a supported route for each case.
 
 - [`POST /api/tasks/{short_code}/move`](../reference/rest/work-items.md)
 - [`move_item`](../reference/mcp-tools.md#move_item)
+- [The owner of a document](../reference/capabilities.md#the-owner-of-a-document)
 - [Teams and boards](../explanation/teams-and-boards.md#moving-work-between-boards)
 - [Capabilities and access](../explanation/capabilities-and-access.md)
 - [Repositories as execution scope](../explanation/repositories-as-execution-scope.md#requests-between-teams-are-support-work)

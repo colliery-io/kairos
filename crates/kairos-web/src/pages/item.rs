@@ -10,6 +10,8 @@
 //!   definitions, date inputs, strings; null clears);
 //! - board/column display (name via `GET /api/boards/{id}`, linked to the
 //!   T-0040 board view) and type-specific facts;
+//! - the owner board of a document, and the repositories that a document
+//!   or an ADR impacts ([`owner`], COLLIERY-T-0269);
 //! - relationships summary (linked; the full explorer is T-0042's
 //!   `/search/relationships/:code`) and the history link (T-0044's
 //!   `/activity/history/:code`);
@@ -22,6 +24,7 @@ mod delete;
 mod editor;
 pub(crate) mod markdown;
 mod metadata;
+mod owner;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
@@ -41,6 +44,10 @@ use create_doc::CreateDocumentDialog;
 use delete::DeleteDialog;
 use editor::ContentEditor;
 use metadata::MetadataPanel;
+use owner::{ImpactsPanel, OwnerBoardPanel};
+// The dialog of a repository gives a document to a board with the rule of
+// the owner panel (COLLIERY-T-0269).
+pub(crate) use owner::owner_board_targets;
 
 /// The Details | Graph tab targets for a resolved short code — `None`
 /// while the route param is still empty, so no anchor is ever emitted
@@ -214,6 +221,7 @@ fn ItemLoaded(
     let item_id = item.id.clone();
     let created_by = item.created_by.clone();
     let editorial_archived = item.lifecycle.as_deref() == Some("archived");
+    let impacts_creator = item.created_by.clone();
     let ItemDetail {
         short_code,
         title,
@@ -221,14 +229,15 @@ fn ItemLoaded(
         version,
         board_id,
         column_id,
+        impacts,
         ..
     } = item;
 
     // ONE board read for the page (KAIROS-T-0164): the placement panel
     // renders it and the Restore affordance's capability mirror needs the
     // board's slug/team — a second fetch would be the same request.
-    // `Ok(None)` = the item sits on no board at all (a document, an
-    // off-board ADR).
+    // `Ok(None)` = the item sits on no board at all (an off-board ADR),
+    // or it is a document that names no owner board (COLLIERY-T-0269).
     let board_id_for_fetch = StoredValue::new(board_id);
     let board = LocalResource::new(move || {
         let _ = auth.token();
@@ -311,8 +320,23 @@ fn ItemLoaded(
                 on_saved
             />
             <Stack gap="sm">
-                <BoardPanel family code=short_code.clone() board column_id
-                    work_class=lane repository created_by archived on_moved/>
+                // COLLIERY-T-0269: the board of a document is its owner,
+                // and not a placement. The document has no column, no
+                // lane and no transition, so it gets a panel of its own.
+                {if family == Family::Document {
+                    view! {
+                        <OwnerBoardPanel code=short_code.clone() board archived on_moved/>
+                    }.into_any()
+                } else {
+                    view! {
+                        <BoardPanel family code=short_code.clone() board column_id
+                            work_class=lane repository created_by archived on_moved/>
+                    }.into_any()
+                }}
+                {matches!(family, Family::Document | Family::Adr).then(|| view! {
+                    <ImpactsPanel family code=short_code.clone() impacts board
+                        created_by=impacts_creator archived on_moved/>
+                })}
                 {lifecycle.map(|current| view! {
                     <LifecyclePanel code=short_code.clone() current archived on_moved/>
                 })}
@@ -747,8 +771,9 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
     }
 }
 
-/// Board/column display: documents never sit on boards; ADRs may not; the
-/// rest always do. Board and column ids resolve to names via
+/// Board/column display: ADRs may not sit on a board; the rest always
+/// do. A document never sits on a board, and this panel is not for it
+/// (COLLIERY-T-0269, [`OwnerBoardPanel`]). Board and column ids resolve to names via
 /// `GET /api/boards/{id}`, linked to the T-0040 board view. On-board
 /// items also get the move control here (KAIROS-T-0075) — the
 /// keyboard-accessible transition path since cards are drag-only.
@@ -784,10 +809,9 @@ fn BoardPanel(
                 None => view! { <Loading label="Loading board…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
                 Some(Ok(None)) => {
-                    let message = match family {
-                        Family::Document => "Documents attach to a workflow item (supports edge), not a board.",
-                        _ => "Off-board — no column, no transitions (org-admin writes only).",
-                    };
+                    // A document does not come here: it has the panel of
+                    // its owner board (COLLIERY-T-0269).
+                    let message = "Off-board — no column, no transitions (org-admin writes only).";
                     view! { <Text size="sm" dimmed=true>{message}</Text> }.into_any()
                 }
                 Some(Ok(Some(board))) => {

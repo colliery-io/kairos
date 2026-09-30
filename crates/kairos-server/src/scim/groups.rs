@@ -796,6 +796,21 @@ pub(crate) async fn delete_group(
                         if item_count == 1 { "" } else { "s" },
                     )));
                 }
+                // COLLIERY-T-0269: the same rule as `DELETE /api/teams/{id}`
+                // for a board that is the owner of live documents.
+                let documents = kairos_db::items::live_documents_of_board(conn, board.id)
+                    .map_err(ScimError::internal)?;
+                if !documents.is_empty() {
+                    return Err(ScimError::mutability(format!(
+                        "The delivery board {:?} of the team {:?} is the owner of {} live \
+                         document{}. Name a different board for each document or archive \
+                         it. Then delete the group.",
+                        board.name,
+                        team.slug,
+                        documents.len(),
+                        if documents.len() == 1 { "" } else { "s" },
+                    )));
+                }
             }
             diesel::update(teams::table.filter(teams::id.eq(team.id)))
                 .set((

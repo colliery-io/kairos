@@ -16,7 +16,12 @@
 //!   [`require_item_edit`], an EDGE asks [`require_edge_write`], and a MOVE
 //!   or a create asks [`require_capability`]. The REMOVE of an edge asks
 //!   [`crate::api::remove_edge`] (COLLIERY-T-0235): the same rule, but for
-//!   the `supports` edge of a document.
+//!   the `supports` edge of a document. COLLIERY-T-0269 added no tool: the
+//!   owner board of a document is an argument of `create_item` and of
+//!   `move_item`, and the relationship `impacts` is a relationship of
+//!   `link_items` and of `unlink_items`. Each calls the function that the
+//!   REST handler calls ([`crate::api::documents`],
+//!   [`crate::api::meta::impacts`]).
 //! - **REQ-1.2**: no tenant parameter exists — the tenant is the one the
 //!   middleware resolved from the connection host.
 //! - **REQ-1.3**: short codes identify items in every input and output;
@@ -105,6 +110,9 @@ pub struct ListRepositoriesParams {
 pub struct GetRepositoryParams {
     /// The repository, by slug (e.g. "payments-api") or UUID.
     pub repository: String,
+    /// Include the archived documents and ADRs that impact the
+    /// repository, each marked `[archived]`. Default false.
+    pub include_deleted: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -218,7 +226,8 @@ pub struct SearchFilterParams {
     pub column_id: Option<String>,
     /// Restrict to tasks of this team (UUID).
     pub team_id: Option<String>,
-    /// Restrict to tasks that link to this repository (slug or UUID).
+    /// Restrict to the items of this repository (slug or UUID): the tasks
+    /// that link to it, and the documents and the ADRs that impact it.
     pub repository: Option<String>,
     /// Restrict to task types: task | bug | tech_debt | support.
     pub task_type: Option<Vec<String>>,
@@ -274,10 +283,13 @@ pub struct CreateItemParams {
     pub title: String,
     /// Target board, by slug or UUID. Optional when the tenant has exactly
     /// one board of the matching level (strategy/initiative/adr boards,
-    /// or the single delivery board for tasks). Ignored for documents.
+    /// or the single delivery board for tasks). For a document it is the
+    /// OWNER board: a live board of each level, with no default. The
+    /// document is not a card of the board.
     pub board: Option<String>,
     /// Parent item's short code: creates the `parent` edge. For a document
-    /// (where a parent is REQUIRED) or an ADR, creates the `supports` edge.
+    /// or an ADR, creates the `supports` edge. A document must have
+    /// `board`, or `parent`, or the two.
     pub parent: Option<String>,
     /// Template (id or name) — documents only (KAIROS-A-0003).
     pub template: Option<String>,
@@ -363,11 +375,15 @@ pub struct TransitionItemParams {
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
 pub struct MoveItemParams {
-    /// The task's short code (e.g. "ACME-T-0012").
+    /// The short code of the task (e.g. "ACME-T-0012") or of the document
+    /// (e.g. "ACME-D-0004").
     pub short_code: String,
-    /// The delivery board to move it to, by slug (e.g. "web-delivery") or
-    /// UUID. It lands in that board's entry column.
-    pub to_board: String,
+    /// The board to move it to, by slug (e.g. "web-delivery") or UUID. A
+    /// task must have it: a delivery board, and the task lands in the
+    /// entry column of that board. For a document it is the new owner
+    /// board, of each level. To remove the owner board of a document,
+    /// omit this argument, or send null or an empty string.
+    pub to_board: Option<String>,
 }
 
 /// Parameters for `set_repository` (COLLIERY-T-0220).
@@ -440,9 +456,10 @@ pub struct UpdateRepositoryParams {
 pub struct LinkItemsParams {
     /// Source item's short code (edge direction: source -> target).
     pub source: String,
-    /// Target item's short code.
+    /// Target item's short code. For `impacts`: the slug or the UUID of a
+    /// repository.
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks.
+    /// parent | supports | informs | supersedes | blocks | impacts.
     pub relationship: String,
 }
 
@@ -452,9 +469,10 @@ pub struct LinkItemsParams {
 pub struct UnlinkItemsParams {
     /// Source item's short code.
     pub source: String,
-    /// Target item's short code.
+    /// Target item's short code. For `impacts`: the slug or the UUID of a
+    /// repository.
     pub target: String,
-    /// parent | supports | informs | supersedes | blocks.
+    /// parent | supports | informs | supersedes | blocks | impacts.
     pub relationship: String,
 }
 
@@ -647,7 +665,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository in full: owner team, the delivery board of that team, the open task count on all boards, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID."
+        description = "One repository in full: owner team, the delivery board of that team, the open task count on all boards, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), the documents and the ADRs that impact the repository (its vision, its architecture, the decisions about it: read them with `get_item` before you plan work in the repository), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID. `include_deleted: true` adds the archived documents and ADRs, each marked [archived]."
     )]
     pub async fn get_repository(
         &self,
@@ -660,6 +678,12 @@ impl KairosMcp {
                 .map_err(crate::api::org::repositories::map_error)?;
             let repo_id = repo.id;
             let rendered = crate::api::org::repositories::render(conn, vec![repo])?.remove(0);
+            // COLLIERY-T-0269: the same read as `GET /api/repositories/{slug}`.
+            let impacted_by = crate::api::org::repositories::impacted_by(
+                conn,
+                repo_id,
+                params.include_deleted.unwrap_or(false),
+            )?;
             // Slugs everywhere (KAIROS-T-0123): the delivery board is what
             // the skills pass to `board_items`, so print it the way they
             // will use it. It is the board of the OWNER, and the line says
@@ -698,6 +722,33 @@ impl KairosMcp {
             } else {
                 out.push_str(&rendered.description);
                 out.push('\n');
+            }
+            // COLLIERY-T-0269. Before the work in flight: what the
+            // repository is for comes before what is open in it.
+            out.push_str("\n## Documents and ADRs that impact this repository\n");
+            if impacted_by.is_empty() {
+                out.push_str("(none)\n");
+            }
+            for item in impacted_by {
+                let kind = match (item.entity_type.as_str(), item.document_type) {
+                    ("document", Some(document_type)) => format!("document ({document_type})"),
+                    (entity_type, _) => entity_type.to_string(),
+                };
+                let state = match (item.lifecycle, item.column) {
+                    (Some(lifecycle), _) => format!(" · lifecycle: {lifecycle}"),
+                    (None, Some(column)) => format!(" · column: {column}"),
+                    (None, None) => String::new(),
+                };
+                out.push_str(&format!(
+                    "- {} — {} · {kind}{state}{}\n",
+                    item.short_code,
+                    item.title,
+                    if item.archived_at.is_some() {
+                        " [archived]"
+                    } else {
+                        ""
+                    }
+                ));
             }
             out.push_str("\n## In flight\n");
             if in_flight.is_empty() {
@@ -951,7 +1002,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An `impacts` link says what the item is about, and it gives no right."
     )]
     pub async fn get_item(
         &self,
@@ -1000,6 +1051,11 @@ impl KairosMcp {
                 let column = column_label(conn, column_id)?;
                 out.push_str(&format!("- board: {} / column: {column}\n", board.slug));
             }
+            // COLLIERY-T-0269: the owner of a document. It is a board and
+            // not a position, so the line has no column.
+            if item.item_type == ItemType::Document {
+                out.push_str(&owner_board_line(conn, &item)?);
+            }
             out.push_str(&format!("- version: {}\n", item.version));
             out.push_str(&format!(
                 "- updated: {}\n",
@@ -1043,9 +1099,13 @@ impl KairosMcp {
             // Relationships (both directions, agent-oriented labels).
             let item_done = column_is_done(conn, item.column_id)?;
             let relationships = relationship_lines(conn, item.id, item_done)?;
-            if !relationships.is_empty() {
+            // COLLIERY-T-0269: the repositories that the item impacts are
+            // in the same section as its edges.
+            let impacts = impacts_line(conn, &item)?;
+            if !relationships.is_empty() || !impacts.is_empty() {
                 out.push_str("\n## Relationships\n");
                 out.push_str(&relationships);
+                out.push_str(&impacts);
             }
 
             // Forge links (KAIROS-T-0123, UAT finding #3): an agent must see
@@ -1233,7 +1293,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Unified search: full-text `q`, structured `filter` (types, board, column, team, task_type, metadata, dates), and graph `traverse` compose freely (at least one required). Compact results grouped by type; use get_item for full content."
+        description = "Unified search: full-text `q`, structured `filter` (types, board, column, team, repository, task_type, metadata, dates), and graph `traverse` compose freely (at least one required). `filter.repository` gives the items of a repository: the tasks that link to it, and the documents and the ADRs that impact it. `traverse` follows the edges between items, so `impacts` is not a relationship of `traverse`. Compact results grouped by type; use get_item for full content."
     )]
     pub async fn search(
         &self,
@@ -1277,7 +1337,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document (where it is REQUIRED) or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Documents: a document must have an owner, so send `board`, or `parent`, or the two. `board` is the owner board: you need `manage_documents` on it, and it gives the right to edit the document. The document is not a card of the board. With `parent` and no `board`, the owner is the board of the parent. A document that is about a repository as a whole (its vision, its architecture) names the board of the team and impacts the repository: create it with `board`, then call `link_items` with the relationship `impacts`. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1392,8 +1452,14 @@ impl KairosMcp {
         .await
     }
 
+    // COLLIERY-T-0269: the change of the owner board of a document is in
+    // this tool, and not in `update_item`. `update_item` replaces content
+    // under a version check, and the edit rule is its gate. The change of
+    // an owner is no content: it writes no version. Its gate is the gate
+    // of a move: the capability on the board that the item leaves and on
+    // the board that it goes to, and nothing for the creator.
     #[tool(
-        description = "Move a TASK to another delivery board (`to_board` is a board slug or UUID) — what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. To move an item between COLUMNS of its own board, use `transition_item`."
+        description = "Move a TASK to another delivery board, or a DOCUMENT to another owner board. `to_board` is a board slug or UUID. A task: what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. A document: `to_board` is the new owner board, of each level. The owner board gives the right to edit the document. The document is not a card, and it gets no column. Needs `manage_documents` on both the board that owns the document now and the target. The creator of the document gets no right to move it. To remove the owner board of a document, omit `to_board`: the owner is then the board of the item that the document supports. A document that supports no item keeps its board (LAST_OWNER). The links of the document do not change. To move an item between COLUMNS of its own board, use `transition_item`."
     )]
     pub async fn move_item(
         &self,
@@ -1405,21 +1471,34 @@ impl KairosMcp {
         let slug = tenant.slug.clone();
         self.run_tool(&tenant, move |conn| {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            let to_board = crate::api::documents::board_to_set(params.to_board.as_deref());
+            if item.item_type == ItemType::Document {
+                return move_document(conn, &slug, user, &item, to_board);
+            }
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
-                    "The {} {} is not a task. Only a task can move to a different \
-                     delivery board. Use transition_item to move an item between the \
-                     columns of its board.",
+                    "The {} {} is not a task and not a document. Only a task can move to \
+                     a different delivery board, and only a document can move to a \
+                     different owner board. Use transition_item to move an item between \
+                     the columns of its board.",
                     item.item_type, item.short_code
                 )));
             }
+            let to_board = to_board.ok_or_else(|| {
+                ApiError::validation(format!(
+                    "The call has no `to_board`. Send the slug or the id of the delivery \
+                     board that the task {} moves to.",
+                    item.short_code
+                ))
+                .with_details(json!({ "argument": "to_board" }))
+            })?;
             let from_board_id = item.board_id.ok_or_else(|| {
                 ApiError::unprocessable(
                     "ITEM_NOT_ON_BOARD",
                     format!("The task {} is not on a board.", item.short_code),
                 )
             })?;
-            let target = board_by_ref(conn, &params.to_board)?;
+            let target = board_by_ref(conn, to_board)?;
             // Two-sided: the work leaves one team's board and lands on
             // another's, so the caller needs the capability on the two.
             //
@@ -1704,7 +1783,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type. One exception: to write `supports` to a document that has no parent, you must be able to edit the document."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type. One exception: to write `supports` to a document that has no parent and names no board, you must be able to edit the document. The relationship `impacts` goes from a document or an ADR to a REPOSITORY: `source` is the short code, and `target` is the slug or the UUID of a live repository, of each team. It says what the item is about. It gives no right on the item and no right on the repository. You must be able to edit the document or the ADR, and you need no right on the repository. A task does not impact a repository: `set_repository` links a task."
     )]
     pub async fn link_items(
         &self,
@@ -1715,8 +1794,23 @@ impl KairosMcp {
         let user = auth.user_id;
         let tenant_ctx = tenant.clone();
         self.run_tool(&tenant, move |conn| {
-            let relationship =
-                parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
+            // COLLIERY-T-0269: the target of `impacts` is a repository.
+            if params.relationship == kairos_db::impacts::RELATIONSHIP {
+                let source = require_live_typed(conn, &params.source, "source")?;
+                let linked = crate::api::meta::impacts::add(
+                    conn,
+                    &tenant_ctx.slug,
+                    user,
+                    source,
+                    &params.target,
+                    crate::api::meta::impacts::Surface::Mcp,
+                )?;
+                return Ok(format!(
+                    "Linked {} -[impacts]-> repository {}.",
+                    params.source, linked.slug
+                ));
+            }
+            let relationship = parse_relationship(&params.relationship)?;
             let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
             let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
             require_edge_write(
@@ -1738,7 +1832,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items. To remove a `supports` edge of a document, you must be able to edit the document. A document always has a parent: the remove of its last `supports` edge is refused (LAST_PARENT). Link the document to a different item first, or archive the document."
+        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items. To remove a `supports` edge of a document, you must be able to edit the document. A document always has an owner. For a document that names no board, the remove of its last `supports` edge is refused (LAST_PARENT): link the document to a different item first, or name a board for the document with `move_item`, or archive the document. A document that names a board can lose its last `supports` edge. For the relationship `impacts`, `target` is the slug or the UUID of the repository, and you must be able to edit the document or the ADR."
     )]
     pub async fn unlink_items(
         &self,
@@ -1749,8 +1843,23 @@ impl KairosMcp {
         let user = auth.user_id;
         let tenant_ctx = tenant.clone();
         self.run_tool(&tenant, move |conn| {
-            let relationship =
-                parse_enum(&params.relationship, "relationship", RelationshipType::ALL)?;
+            // COLLIERY-T-0269: the target of `impacts` is a repository.
+            if params.relationship == kairos_db::impacts::RELATIONSHIP {
+                let source = require_live_typed(conn, &params.source, "source")?;
+                let removed = crate::api::meta::impacts::remove(
+                    conn,
+                    &tenant_ctx.slug,
+                    user,
+                    source,
+                    &params.target,
+                    crate::api::meta::impacts::Surface::Mcp,
+                )?;
+                return Ok(format!(
+                    "Unlinked {} -[impacts]-> repository {}.",
+                    params.source, removed.slug
+                ));
+            }
+            let relationship = parse_relationship(&params.relationship)?;
             let (source_id, source_type) = require_live_typed(conn, &params.source, "source")?;
             let (target_id, target_type) = require_live_typed(conn, &params.target, "target")?;
             // COLLIERY-T-0235: the rule of the remove and the delete, in
@@ -2125,7 +2234,9 @@ fn load_item(
                 title: row.title,
                 content: row.content,
                 version: row.version,
-                board_id: None,
+                // The OWNER board (COLLIERY-T-0269). A document has no
+                // column, so no reader takes it for a card.
+                board_id: row.board_id,
                 column_id: None,
                 task_type: None,
                 work_class: None,
@@ -2671,6 +2782,113 @@ fn repo_label(conn: &mut PgConnection, repository_id: Option<Uuid>) -> Result<St
     ))
 }
 
+/// The relationship of `link_items` or of `unlink_items`. The refusal
+/// names `impacts` with the five relationships of an edge between two
+/// items (COLLIERY-T-0269): the caller that handles `impacts` does it
+/// before this function.
+fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
+    value.parse::<RelationshipType>().map_err(|_| {
+        let mut allowed: Vec<String> = RelationshipType::ALL
+            .iter()
+            .map(|relationship| relationship.to_string())
+            .collect();
+        allowed.push(kairos_db::impacts::RELATIONSHIP.to_string());
+        ApiError::validation(format!(
+            "The value {value:?} is not a value of relationship. The values are: {}.",
+            allowed.join(", ")
+        ))
+    })
+}
+
+/// The line `- owner board: ...` of a document for `get_item`
+/// (COLLIERY-T-0269). The owner is the board that the document names, or
+/// the board of the earliest item that it supports. The line says which
+/// of the two, because the remove of a `supports` edge changes the second
+/// and not the first.
+fn owner_board_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiError> {
+    if let Some(board_id) = item.board_id {
+        let board = board_by_id(conn, board_id)?;
+        return Ok(format!("- owner board: {}\n", board.slug));
+    }
+    let parent = abac::document_parents(conn, item.id)
+        .map_err(map_abac_error)?
+        .into_iter()
+        .next();
+    Ok(match parent {
+        Some(parent) => {
+            let board = board_by_id(conn, parent.board_id)?;
+            let code = crate::api::short_code_of(conn, parent.parent_id)?;
+            format!(
+                "- owner board: {} (the board of {code}, which the document supports)\n",
+                board.slug
+            )
+        }
+        None => "- owner board: (none)\n".to_string(),
+    })
+}
+
+/// The line `- impacts: ...` of a document or of an ADR for `get_item`
+/// (COLLIERY-T-0269), or an empty string. A link to an archived
+/// repository is in the line, marked.
+fn impacts_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiError> {
+    if !kairos_db::impacts::is_subject(item.item_type) {
+        return Ok(String::new());
+    }
+    let links = kairos_db::impacts::repositories_of(conn, item.id).map_err(ApiError::internal)?;
+    if links.is_empty() {
+        return Ok(String::new());
+    }
+    let entries: Vec<String> = links
+        .into_iter()
+        .map(|link| {
+            let archived = if link.archived_at.is_some() {
+                " [archived]"
+            } else {
+                ""
+            };
+            format!(
+                "repository {} ({} {}){archived}",
+                link.slug, link.forge, link.repo_full_name
+            )
+        })
+        .collect();
+    Ok(format!("- impacts: {}\n", entries.join("; ")))
+}
+
+/// The move of a DOCUMENT to a different owner board, or the remove of
+/// its owner board (COLLIERY-T-0269): `move_item` for a document. The rule
+/// and the write are those of `PATCH /api/documents/{short_code}/board`
+/// ([`crate::api::documents::change_board`]).
+fn move_document(
+    conn: &mut PgConnection,
+    slug: &str,
+    user: Uuid,
+    item: &ItemView,
+    to_board: Option<&str>,
+) -> Result<String, ApiError> {
+    let change = crate::api::documents::change_board(conn, slug, user, item.id, to_board)?;
+    let name = |board: &Option<Board>| {
+        board
+            .as_ref()
+            .map_or_else(|| "(none)".to_string(), |board| board.slug.clone())
+    };
+    if !change.changed {
+        return Ok(match &change.to {
+            Some(board) => format!(
+                "No change to {}: its owner board is {} already.",
+                item.short_code, board.slug
+            ),
+            None => format!("No change to {}: it names no owner board.", item.short_code),
+        });
+    }
+    Ok(format!(
+        "Moved {}: owner board {} -> {}.",
+        item.short_code,
+        name(&change.from),
+        name(&change.to)
+    ))
+}
+
 /// A live item by short code WITH its type (the edge-permission check needs
 /// it); 422 `VALIDATION` naming the field otherwise, mirroring REST.
 fn require_live_typed(
@@ -3089,60 +3307,54 @@ fn create_item_impl(
     }
     let content = params.content.as_deref().unwrap_or("");
 
-    // Documents: no board; parent REQUIRED; supports edge; authorization
-    // inherits from the parent's board (the REST create_document contract).
+    // Documents: an owner is REQUIRED, which is `board`, or `parent`, or
+    // the two (COLLIERY-T-0269). The rule, the gate and the refusals are
+    // those of POST /api/documents: the two call one function.
     if item_type == ItemType::Document {
-        let parent_code = params.parent.as_deref().ok_or_else(|| {
-            ApiError::validation(
-                "The call has no `parent`. A document must have a parent: the short code \
-                 of a strategy, an initiative, or a task. A supports edge links the \
-                 document to the parent.",
-            )
-        })?;
-        let (parent_id, parent_type) = resolve_short_code(conn, parent_code, Liveness::LiveOnly)?
-            .ok_or_else(|| {
-            ApiError::validation(format!(
-                "The parent {parent_code:?} is not the short code of a live item."
-            ))
-        })?;
-        if !matches!(
-            parent_type,
-            ItemType::Strategy | ItemType::Initiative | ItemType::Task
-        ) {
-            return Err(ApiError::validation(format!(
-                "The parent {parent_code:?} has the type {parent_type}. The parent of a \
-                 document is a strategy, an initiative, or a task."
-            )));
+        // Until COLLIERY-T-0269 the tool did not read `repository` for a
+        // document, and it did not say so.
+        if params.repository.is_some() {
+            return Err(ApiError::validation(
+                "The argument repository applies to tasks. It does not apply to an item \
+                 of the type document. To say that the document impacts a repository, \
+                 create the document. Then call link_items with the relationship \
+                 impacts.",
+            ));
         }
-        let board = abac::resolve_authorization_board(conn, parent_id).map_err(map_abac_error)?;
-        require_capability(conn, slug, board, user, manage_capability(item_type))?;
         let template_id = params
             .template
             .as_deref()
             .map(|t| resolve_template(conn, t))
             .transpose()?;
-        let created = items::create_document(
+        let created = crate::api::documents::create(
             conn,
-            items::CreateDocument {
+            slug,
+            user,
+            crate::api::documents::NewDocument {
                 title: &params.title,
                 content: params.content.as_deref(),
                 template_id,
+                board: params.board.as_deref(),
+                parent: params.parent.as_deref(),
             },
-            user,
-        )
-        .map_err(map_item_error)?;
-        graph::link_items(
-            conn,
-            parent_id,
-            created.id,
-            RelationshipType::Supports,
-            user,
-        )
-        .map_err(map_graph_error)?;
-        return Ok(format!(
-            "Created document {}: {} (version 1), supports {parent_code}.",
-            created.short_code, created.title
-        ));
+            crate::api::documents::CreateWording {
+                request: "call",
+                board: "`board`",
+                parent: "`parent`",
+            },
+        )?;
+        let mut out = format!(
+            "Created document {}: {} (version 1)",
+            created.document.short_code, created.document.title
+        );
+        if let Some(board) = &created.board {
+            out.push_str(&format!(", owner board {}", board.slug));
+        }
+        if let Some(parent_code) = &created.parent {
+            out.push_str(&format!(", supports {parent_code}"));
+        }
+        out.push('.');
+        return Ok(out);
     }
 
     if item_type != ItemType::Task {

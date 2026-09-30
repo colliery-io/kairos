@@ -11,9 +11,10 @@ use clap::Args;
 
 use kairos_client::types::{
     Adr, CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateStrategyRequest,
-    CreateTaskRequest, DeleteResponse, Document, Initiative, ListEnvelope, ListQuery, Pagination,
-    RestoreResponse, Strategy, Task, UpdateContentRequest,
+    CreateTaskRequest, DeleteResponse, Document, ImpactListQuery, Initiative, ListEnvelope,
+    ListQuery, Pagination, RestoreResponse, Strategy, Task, UpdateContentRequest,
 };
+use kairos_client::types_repositories::Impact;
 
 use crate::context::{Common, client, print_json};
 use crate::error::CliError;
@@ -75,6 +76,41 @@ impl EntityListArgs {
             limit: self.limit,
             offset: self.offset,
             include_deleted: self.include_deleted,
+        }
+    }
+}
+
+// COLLIERY-T-0269. Not [`EntityListArgs`], for the reason that
+// [`EntityListArgs`] is not [`ListArgs`]: a strategy, an initiative and a
+// task impact no repository, and the flag would do nothing there.
+/// `?limit=&offset=&include_deleted=&repository=` flags for the `list`
+/// verb of documents and of ADRs.
+#[derive(Args, Debug)]
+pub struct ImpactListArgs {
+    /// Page size (server default 50, max 200)
+    #[arg(long)]
+    pub limit: Option<i64>,
+    /// Rows to skip
+    #[arg(long)]
+    pub offset: Option<i64>,
+    /// Also list archived (put-away) work, marked `[archived]` in the
+    /// CODE column. Default: live work only
+    #[arg(long)]
+    pub include_deleted: bool,
+    /// Only the items that impact this repository (slug or UUID)
+    #[arg(long, value_name = "REPOSITORY")]
+    pub repo: Option<String>,
+    #[command(flatten)]
+    pub common: Common,
+}
+
+impl ImpactListArgs {
+    pub fn query(&self) -> ImpactListQuery {
+        ImpactListQuery {
+            limit: self.limit,
+            offset: self.offset,
+            include_deleted: self.include_deleted,
+            repository: self.repo.clone(),
         }
     }
 }
@@ -174,6 +210,30 @@ pub struct MoveArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos documents move` (COLLIERY-T-0269).
+#[derive(Args, Debug)]
+pub struct DocumentMoveArgs {
+    /// The document's short code (e.g. ACME-D-0001)
+    pub short_code: String,
+    /// The new owner board (slug or UUID), of each level. The owner board
+    /// gives the right to edit the document. You need `manage_documents`
+    /// on the board that owns the document now and on this board
+    #[arg(
+        long = "to-board",
+        value_name = "BOARD",
+        required_unless_present = "no_board",
+        conflicts_with = "no_board"
+    )]
+    pub to_board: Option<String>,
+    /// Remove the owner board. The owner is then the board of the item
+    /// that the document supports. A document that supports no item keeps
+    /// its board
+    #[arg(long = "no-board")]
+    pub no_board: bool,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of the `delete` verbs (soft delete, KAIROS-A-0001 cascade).
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
@@ -228,6 +288,22 @@ pub trait EntityView: serde::Serialize + utoipa::ToSchema {
 
 fn or_dash(value: &Option<String>) -> String {
     value.clone().unwrap_or_else(|| "-".to_string())
+}
+
+/// The repositories of the `impacts` links of an item, by slug
+/// (COLLIERY-T-0269), or `-`. An archived repository is marked.
+fn impacts_cell(impacts: &[Impact]) -> String {
+    if impacts.is_empty() {
+        return "-".to_string();
+    }
+    impacts
+        .iter()
+        .map(|impact| match impact.repository.archived_at {
+            Some(_) => format!("{} [archived]", impact.repository.slug),
+            None => impact.repository.slug.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl EntityView for Strategy {
@@ -399,6 +475,10 @@ impl EntityView for Document {
     fn fields(&self) -> Vec<(&'static str, String)> {
         vec![
             ("id", self.id.clone()),
+            // COLLIERY-T-0269. The board that the document names. With
+            // `-`, the owner is the board of the item that it supports.
+            ("owner board", or_dash(&self.board_id)),
+            ("impacts", impacts_cell(&self.impacts)),
             ("template", or_dash(&self.template_id)),
             ("lifecycle", self.lifecycle.clone()),
             ("version", self.version.to_string()),
@@ -444,6 +524,7 @@ impl EntityView for Adr {
             ("id", self.id.clone()),
             ("board", or_dash(&self.board_id)),
             ("column", or_dash(&self.column_id)),
+            ("impacts", impacts_cell(&self.impacts)),
             ("decision maker", or_dash(&self.decision_maker)),
             ("decision date", or_dash(&self.decision_date)),
             ("version", self.version.to_string()),
@@ -558,6 +639,45 @@ pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
         task.short_code, task.board_id, task.column_id
     );
     Ok(())
+}
+
+/// Render the change of the owner board of a document (COLLIERY-T-0269).
+/// `before` is the owner board that the document named before the call.
+pub fn emit_document_moved(
+    common: &Common,
+    before: Option<&str>,
+    document: &Document,
+) -> Result<(), CliError> {
+    if common.json {
+        return print_json(document);
+    }
+    println!(
+        "{}",
+        document_moved_line(&document.short_code, before, document.board_id.as_deref())
+    );
+    Ok(())
+}
+
+/// The line of [`emit_document_moved`].
+fn document_moved_line(short_code: &str, before: Option<&str>, after: Option<&str>) -> String {
+    match (before, after) {
+        (before, after) if before == after => match after {
+            Some(board) => format!(
+                "Kairos did not change the document {short_code}. Its owner board is {board} \
+                 already."
+            ),
+            None => {
+                format!("Kairos did not change the document {short_code}. It names no owner board.")
+            }
+        },
+        (_, Some(board)) => {
+            format!("Kairos moved the document {short_code} to the owner board {board}.")
+        }
+        (_, None) => format!(
+            "Kairos removed the owner board of the document {short_code}. Its owner is the \
+             board of the item that it supports."
+        ),
+    }
 }
 
 /// `restore` output: what came back, and what deliberately did not.
@@ -764,10 +884,16 @@ pub struct DocumentCreateArgs {
     /// Title
     #[arg(long)]
     pub title: String,
-    /// Short code of the workflow item this document supports (required by
-    /// the API; documents inherit that item's board for authorization)
+    /// The owner board of the document (slug or UUID), of each level. It
+    /// gives the right to edit the document, and you need
+    /// `manage_documents` on it. The document is not a card of the board.
+    /// A document must have --board, or --parent, or the two
+    #[arg(long, value_name = "BOARD", required_unless_present = "parent")]
+    pub board: Option<String>,
+    /// Short code of the workflow item this document supports. With no
+    /// --board, the document takes the board of that item as its owner
     #[arg(long, value_name = "SHORT_CODE")]
-    pub parent: String,
+    pub parent: Option<String>,
     /// Markdown content (omit with --template to stamp the template's
     /// content)
     #[arg(long)]
@@ -783,9 +909,10 @@ impl DocumentCreateArgs {
     fn request(&self) -> CreateDocumentRequest {
         CreateDocumentRequest {
             title: self.title.clone(),
+            board: self.board.clone(),
             content: self.content.clone(),
             template_id: self.template.clone(),
-            parent_short_code: Some(self.parent.clone()),
+            parent_short_code: self.parent.clone(),
         }
     }
 }
@@ -837,14 +964,19 @@ impl AdrCreateArgs {
 /// `transition(Transition) = method` argument adds the transition verb
 /// (documents have no transition endpoint in S-0005); the optional
 /// `board_move(Move) = method` adds the board move (tasks only — they are
-/// the one family on per-team boards, KAIROS-I-0012).
+/// the one family on per-team boards, KAIROS-I-0012). The optional
+/// `owner_move(Move) = method` adds the move of a document to a different
+/// owner board (COLLIERY-T-0269). `list_args` is the type of the flags of
+/// `list`: [`ImpactListArgs`] for documents and ADRs, which have the
+/// filter `--repo`.
 macro_rules! entity_family_cli {
     (
-        $enum_name:ident, $noun:literal, $create_args:ty,
+        $enum_name:ident, $noun:literal, $create_args:ty, list_args = $list_args:ty,
         list = $list:ident, get = $get:ident, create = $create_fn:ident,
         update = $update:ident, delete = $delete:ident, restore = $restore:ident
         $(, transition($transition_variant:ident) = $transition_fn:ident)?
         $(, board_move($move_variant:ident) = $move_fn:ident)?
+        $(, owner_move($owner_variant:ident) = $owner_fn:ident)?
     ) => {
         #[doc = concat!("Operations on ", $noun, "s.")]
         #[derive(clap::Subcommand, Debug)]
@@ -854,7 +986,7 @@ macro_rules! entity_family_cli {
             // `command(about = ..)`, which clap emits as an expression.
             #[command(about = concat!("List ", $noun,
                                       "s (paginated; --include-deleted adds archived work)"))]
-            List(EntityListArgs),
+            List($list_args),
             #[command(about = concat!("Show one ", $noun,
                                       ", including its markdown content"))]
             Get(GetArgs),
@@ -872,6 +1004,11 @@ macro_rules! entity_family_cli {
             #[command(about = concat!("Move a ", $noun, " to another delivery board ",
                                       "(it lands in that board's entry column)"))]
             $move_variant(MoveArgs),
+            )?
+            $(
+            #[command(about = concat!("Move a ", $noun, " to another owner board, ",
+                                      "or remove its owner board (--no-board)"))]
+            $owner_variant(DocumentMoveArgs),
             )?
             #[command(about = concat!("Soft-delete a ", $noun,
                                       " and cascade to its children (requires --confirm)"))]
@@ -923,6 +1060,19 @@ macro_rules! entity_family_cli {
                         emit_moved(&args.common, &item)
                     }
                     )?
+                    $(
+                    Self::$owner_variant(args) => {
+                        let client = client(&args.common)?;
+                        // The board before the call, to say what changed:
+                        // the response of a call that changes nothing is a
+                        // normal 200.
+                        let before = client.$get(&args.short_code).await?.board_id;
+                        let item = client
+                            .$owner_fn(&args.short_code, args.to_board.as_deref())
+                            .await?;
+                        emit_document_moved(&args.common, before.as_deref(), &item)
+                    }
+                    )?
                     Self::Delete(args) => {
                         require_confirm(args.confirm, &args.short_code)?;
                         let client = client(&args.common)?;
@@ -944,6 +1094,7 @@ entity_family_cli!(
     StrategiesCommand,
     "strategy",
     StrategyCreateArgs,
+    list_args = EntityListArgs,
     list = list_strategies,
     get = get_strategy,
     create = create_strategy,
@@ -957,6 +1108,7 @@ entity_family_cli!(
     InitiativesCommand,
     "initiative",
     InitiativeCreateArgs,
+    list_args = EntityListArgs,
     list = list_initiatives,
     get = get_initiative,
     create = create_initiative,
@@ -970,6 +1122,7 @@ entity_family_cli!(
     TasksCommand,
     "task",
     TaskCreateArgs,
+    list_args = EntityListArgs,
     list = list_tasks,
     get = get_task,
     create = create_task,
@@ -984,18 +1137,21 @@ entity_family_cli!(
     DocumentsCommand,
     "document",
     DocumentCreateArgs,
+    list_args = ImpactListArgs,
     list = list_documents,
     get = get_document,
     create = create_document,
     update = update_document,
     delete = delete_document,
-    restore = restore_document
+    restore = restore_document,
+    owner_move(Move) = set_document_board
 );
 
 entity_family_cli!(
     AdrsCommand,
     "ADR",
     AdrCreateArgs,
+    list_args = ImpactListArgs,
     list = list_adrs,
     get = get_adr,
     create = create_adr,
@@ -1085,6 +1241,58 @@ mod tests {
         assert_eq!(request.title, None);
         assert_eq!(request.content, "new content");
         assert_eq!(request.version, 1);
+    }
+
+    /// COLLIERY-T-0269: the line of `documents move` says what changed.
+    #[test]
+    fn the_move_of_a_document_says_what_changed() {
+        assert_eq!(
+            document_moved_line("ACME-D-0001", None, Some("b-1")),
+            "Kairos moved the document ACME-D-0001 to the owner board b-1."
+        );
+        assert_eq!(
+            document_moved_line("ACME-D-0001", Some("b-1"), Some("b-2")),
+            "Kairos moved the document ACME-D-0001 to the owner board b-2."
+        );
+        assert_eq!(
+            document_moved_line("ACME-D-0001", Some("b-1"), None),
+            "Kairos removed the owner board of the document ACME-D-0001. Its owner is the \
+             board of the item that it supports."
+        );
+        assert_eq!(
+            document_moved_line("ACME-D-0001", Some("b-1"), Some("b-1")),
+            "Kairos did not change the document ACME-D-0001. Its owner board is b-1 already."
+        );
+        assert_eq!(
+            document_moved_line("ACME-D-0001", None, None),
+            "Kairos did not change the document ACME-D-0001. It names no owner board."
+        );
+    }
+
+    /// COLLIERY-T-0269: an archived repository is marked.
+    #[test]
+    fn the_impacts_of_an_item_are_the_slugs_of_the_repositories() {
+        use kairos_client::types_repositories::ImpactedRepository;
+        let link = |slug: &str, archived_at: Option<&str>| Impact {
+            relationship: "impacts".into(),
+            target_kind: "repository".into(),
+            repository: ImpactedRepository {
+                id: "r-1".into(),
+                slug: slug.into(),
+                forge: "github".into(),
+                repo_full_name: format!("acme/{slug}"),
+                archived_at: archived_at.map(str::to_string),
+            },
+            created_at: "2026-09-29T00:00:00Z".into(),
+        };
+        assert_eq!(impacts_cell(&[]), "-");
+        assert_eq!(
+            impacts_cell(&[
+                link("fidius", None),
+                link("old", Some("2026-09-01T00:00:00Z"))
+            ]),
+            "fidius, old [archived]"
+        );
     }
 
     /// Deletes refuse to run without --confirm.

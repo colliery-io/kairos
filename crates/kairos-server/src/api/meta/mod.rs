@@ -26,13 +26,16 @@
 //!   role. The `supports` edge of a document is narrower, and a document
 //!   keeps its last one ([`crate::api::require_edge_remove`],
 //!   COLLIERY-T-0235).
+//! - `impacts` writes take the EDIT rule of the document or of the ADR
+//!   ([`impacts`], COLLIERY-T-0269). No right on the repository is
+//!   needed.
 //! - Item-metadata writes and restore take the EDIT rule
 //!   ([`crate::api::require_item_edit`], COLLIERY-T-0228): the caller
 //!   created the item, or holds its `manage_<type>` capability on its
 //!   authorization board
 //!   ([`kairos_db::abac::resolve_authorization_board`]: own board for
-//!   board items, the parent's board for documents via `supports`), or is
-//!   an org admin.
+//!   board items; for a document the board that it names, or the parent's
+//!   board via `supports`), or is an org admin.
 //!
 //! # The `{entity_type}` path segment
 //!
@@ -45,6 +48,8 @@
 pub mod activity;
 pub mod definitions;
 pub mod history;
+// COLLIERY-T-0269: the relationship `impacts`, to a repository.
+pub mod impacts;
 pub mod metadata;
 pub mod relationships;
 pub mod restore;
@@ -69,6 +74,7 @@ use crate::middleware::tenant::TenantContext;
 pub fn router() -> Router<AppState> {
     Router::new()
         .merge(relationships::router())
+        .merge(impacts::router())
         .merge(restore::router())
         .merge(metadata::router())
         .merge(definitions::router())

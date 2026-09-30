@@ -64,6 +64,45 @@ pub async fn list_repositories(
     get_json(auth, &path).await
 }
 
+/// mirror of: `kairos_client::types_repositories::ImpactingItem`: one
+/// document or ADR that impacts a repository (COLLIERY-T-0269).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ImpactingItem {
+    pub short_code: String,
+    pub title: String,
+    /// `document` or `adr`.
+    pub entity_type: String,
+    /// The document type (`vision`, `architecture`, ...), if the document
+    /// has one.
+    #[serde(default)]
+    pub document_type: Option<String>,
+    /// The editorial lifecycle of a document.
+    #[serde(default)]
+    pub lifecycle: Option<String>,
+    /// The name of the column of an ADR.
+    #[serde(default)]
+    pub column: Option<String>,
+}
+
+/// mirror of: `kairos_client::types_repositories::RepositoryDetail`
+/// (partial — the documents and the ADRs that impact the repository).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+struct RepositoryImpacts {
+    #[serde(default)]
+    impacted_by: Vec<ImpactingItem>,
+}
+
+/// `GET /api/repositories/{slug}` — the live documents and ADRs that
+/// impact the repository (COLLIERY-T-0269).
+pub async fn impacted_by(auth: Auth, slug: &str) -> Result<Vec<ImpactingItem>, ApiError> {
+    let detail: RepositoryImpacts = get_json(
+        auth,
+        &format!("/api/repositories/{}", crate::api::encode_component(slug)),
+    )
+    .await?;
+    Ok(detail.impacted_by)
+}
+
 /// mirror of: `kairos_client::types_repositories::SetTaskRepositoryRequest`.
 #[derive(Debug, Serialize)]
 struct SetTaskRepositoryRequest<'a> {
@@ -118,6 +157,34 @@ mod tests {
             serde_json::from_value(serde_json::json!({"id": "r-1", "slug": "payments-api"}))
                 .expect("ref mirror decodes without repo_full_name");
         assert_eq!(embedded.repo_full_name, "");
+    }
+
+    /// COLLIERY-T-0269: the detail of a repository has the documents and
+    /// the ADRs that impact it. A body of an older server has none.
+    #[test]
+    fn the_impacting_items_decode_server_shape() {
+        let detail: RepositoryImpacts = serde_json::from_value(serde_json::json!({
+            "id": "r-1", "slug": "fidius", "connection_id": null, "in_flight": [],
+            "impacted_by": [
+                {"short_code": "ACME-D-0004", "title": "The vision of fidius",
+                 "entity_type": "document", "document_type": "vision",
+                 "lifecycle": "published", "column": null},
+                {"short_code": "ACME-A-0002", "title": "Plugins are dynamic libraries",
+                 "entity_type": "adr", "document_type": null, "lifecycle": null,
+                 "column": "Decided"}
+            ]
+        }))
+        .expect("the mirror decodes");
+        assert_eq!(detail.impacted_by.len(), 2);
+        assert_eq!(
+            detail.impacted_by[0].document_type.as_deref(),
+            Some("vision")
+        );
+        assert_eq!(detail.impacted_by[1].column.as_deref(), Some("Decided"));
+        let old: RepositoryImpacts =
+            serde_json::from_value(serde_json::json!({"id": "r-1", "slug": "fidius"}))
+                .expect("a body with no impacted_by decodes");
+        assert!(old.impacted_by.is_empty());
     }
 
     /// The bind request serializes `null` for a clear (the server reads

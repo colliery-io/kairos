@@ -225,6 +225,7 @@ async fn meta_endpoints_against_live_stack() {
 
     let document = alice
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "Spec".into(),
             content: Some("spec".into()),
             template_id: None,
@@ -1150,6 +1151,7 @@ async fn meta_endpoints_against_live_stack() {
     // (KAIROS-A-0003 via the T-0018 document create).
     let stamped = alice
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "Deploy runbook".into(),
             content: None,
             template_id: Some(runbook_id.clone()),

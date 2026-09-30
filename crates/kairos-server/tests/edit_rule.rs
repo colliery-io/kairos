@@ -565,6 +565,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .expect("bob creates on his board");
     let document = svc
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "The document of the organization".into(),
             content: Some("original content".into()),
             template_id: None,
@@ -1027,6 +1028,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .expect("task");
     let alice_document = alice
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "The document of alice".into(),
             content: Some("original content".into()),
             template_id: None,
@@ -1578,6 +1580,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         "12 REST: the create gate of a document does not change",
         alice
             .create_document(&CreateDocumentRequest {
+                board: None,
                 title: "A document under her request".into(),
                 content: None,
                 template_id: None,

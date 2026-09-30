@@ -206,6 +206,10 @@ pub(crate) async fn search(
             // KAIROS-T-0104: embed the repository ref on task hits.
             super::convert::attach_repositories(conn, &mut response.results.tasks)
                 .map_err(ApiError::internal)?;
+            // COLLIERY-T-0269: the `impacts` links of each document and of
+            // each ADR, one query for each of the two types.
+            super::convert::attach_impacts(conn, &mut response.results.documents)?;
+            super::convert::attach_impacts(conn, &mut response.results.adrs)?;
             Ok(response)
         })
         .await?;

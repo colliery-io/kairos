@@ -46,9 +46,16 @@ One repository (open tenant-wide): the directory row plus its webhook
 connection id and in-flight links — everything an agent reads before
 working in, or filing against, a codebase.
 
+`impacted_by` has the documents and the ADRs that impact the
+repository (COLLIERY-T-0269): its vision, its architecture, the
+decisions about it. It has the live items only.
+`?include_deleted=true` adds the archived items, each marked with
+`archived_at`.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `slug` | path | yes | `string` | Repository slug (or UUID) |
+| `include_deleted` | query | no | `boolean` | Include the archived documents and ADRs in `impacted_by`, each marked with `archived_at`. Default false. |
 
 | Response | Body | Meaning |
 |---|---|---|

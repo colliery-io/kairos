@@ -459,6 +459,8 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                 let open = format!("{} open", repo.open_tasks);
                                 let webhook = if repo.has_webhook { "webhooks" } else { "no webhooks" };
                                 let slug_attr = repo.slug.clone();
+                                let documents_slug = repo.slug.clone();
+                                let owner_team = repo.team.id.clone();
                                 // KAIROS-T-0124 #6a: the "how to work here"
                                 // blurb agents read over MCP is visible to the
                                 // humans on the team page too.
@@ -488,6 +490,11 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                                 <Text dimmed=true size="sm">{text}</Text>
                                             </div>
                                         })}
+                                        // COLLIERY-T-0269: the vision, the
+                                        // architecture and the decisions
+                                        // about the repository.
+                                        <crate::pages::repositories::documents::RepositoryDocuments
+                                            slug=documents_slug owner_team/>
                                     </Stack>
                                 }
                             }).collect_view()}

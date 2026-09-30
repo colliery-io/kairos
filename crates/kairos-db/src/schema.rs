@@ -132,6 +132,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         lifecycle -> Text,
+        board_id -> Nullable<Uuid>,
     }
 }
 
@@ -233,6 +234,18 @@ diesel::table! {
         content -> Text,
         edited_by -> Uuid,
         edited_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    item_impacts (id) {
+        id -> Uuid,
+        item_id -> Uuid,
+        item_type -> Text,
+        target_kind -> Text,
+        target_id -> Uuid,
+        created_by -> Uuid,
+        created_at -> Timestamptz,
     }
 }
 
@@ -478,6 +491,7 @@ diesel::joinable!(board_columns -> boards (board_id));
 diesel::joinable!(board_member_capabilities -> boards (board_id));
 diesel::joinable!(board_transitions -> boards (board_id));
 diesel::joinable!(boards -> teams (team_id));
+diesel::joinable!(documents -> boards (board_id));
 diesel::joinable!(documents -> templates (template_id));
 diesel::joinable!(forge_connections -> repositories (repository_id));
 diesel::joinable!(initiatives -> board_columns (column_id));
@@ -518,6 +532,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     item_chunks,
     item_embeddings,
     item_history,
+    item_impacts,
     item_links,
     item_metadata,
     item_relationships,

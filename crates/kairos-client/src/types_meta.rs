@@ -423,10 +423,12 @@ pub struct ActivityEntry {
     /// A change to a team, a delivery stream, a membership or a user has
     /// the action `update` (COLLIERY-T-0265).
     pub action: String,
-    /// The item acted on (UUID; null for relationship actions).
+    /// The item acted on (UUID). Null for a relationship between two
+    /// items: `details` names the two. For an `impacts` link it is the
+    /// document or the ADR of the link (COLLIERY-T-0269).
     pub entity_id: Option<String>,
-    /// `strategy|initiative|task|document|adr` (null for relationship
-    /// actions).
+    /// `strategy|initiative|task|document|adr`. Null when `entity_id` is
+    /// null.
     pub entity_type: Option<String>,
     /// Structured context, e.g. `"column:Draft->Active"`.
     pub details: String,

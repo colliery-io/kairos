@@ -75,7 +75,7 @@ otherwise ignore it.
 | `item_moved` | A task moved to another delivery board. Emitted **twice**: once for the board it left (`board_id` = the source, no `column_id`) and once for the board it joined, so both boards' subscribers re-fetch |
 | `item_deleted` | An item was soft-deleted (put away) |
 | `item_restored` | An archived item was put back. **Distinct from `item_created`**: the item and its history existed all along, so a client that treats this as a create shows a new card carrying an old version number |
-| `relationship_changed` | A relationship edge touching the item was added or removed |
+| `relationship_changed` | A relationship edge touching the item was added or removed. An `impacts` link of the item was added or removed. The owner board of a document changed |
 | `metadata_changed` | The item's metadata values changed |
 | `item_links_changed` | The item's forge links (branches, pull or merge requests) changed |
 

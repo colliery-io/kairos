@@ -14,6 +14,7 @@ pub mod embeddings;
 pub mod events;
 pub mod forge;
 pub mod graph;
+pub mod impacts;
 pub mod items;
 pub mod local_auth;
 pub mod migrations;

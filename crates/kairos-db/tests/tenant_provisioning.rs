@@ -41,7 +41,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 33] = [
+const EXPECTED_TABLES: [&str; 34] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -59,6 +59,8 @@ const EXPECTED_TABLES: [&str; 33] = [
     "item_chunks",
     "item_embeddings",
     "item_history",
+    // COLLIERY-T-0269: the `impacts` links of a document or of an ADR.
+    "item_impacts",
     "item_links",
     "item_metadata",
     "item_relationships",
@@ -373,9 +375,10 @@ fn tenant_provisioning_lifecycle() {
         "first provision should apply the tenant migration tree"
     );
     assert_eq!(report.boards_created, ["strategy", "initiatives", "adrs"]);
+    // COLLIERY-T-0269 added the template "Product Vision".
     assert_eq!(
-        report.templates_copied, 6,
-        "A-0003 ships 6 system templates"
+        report.templates_copied, 7,
+        "A-0003 ships 6 system templates, and COLLIERY-T-0269 one"
     );
     assert_eq!(
         report.metadata_definitions_copied, 3,
@@ -655,6 +658,7 @@ fn tenant_provisioning_lifecycle() {
             "architecture_framing",
             "company_vision",
             "prd",
+            "product_vision",
             "social_contract",
             "system_context",
             "team_charter",
@@ -697,7 +701,8 @@ fn tenant_provisioning_lifecycle() {
     );
     assert_eq!(
         count(&mut conn, "SELECT count(*) FROM org_acme.template_metadata"),
-        6,
+        // COLLIERY-T-0269: 7 templates, with "Product Vision".
+        7,
         "one document_type association per template ('status' retired)"
     );
 

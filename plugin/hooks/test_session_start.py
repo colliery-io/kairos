@@ -67,6 +67,16 @@ class LiveStateHint(unittest.TestCase):
         self.assertIn("platform-delivery", hint)
         self.assertNotIn("re-run /kairos:bootstrap to detect", hint)
 
+    def test_the_agent_reads_the_documents_that_impact_the_repository(self):
+        # COLLIERY-T-0269: the vision of a repository is a document that
+        # impacts it, and `get_repository` lists it.
+        hint = self.repo_hint()
+        self.assertIn(
+            "the documents and the ADRs that impact this repository", hint
+        )
+        self.assertIn("Read them with `get_item` before you plan work.", hint)
+        self.assertIn("Then call `board_items`", hint)
+
     def test_the_queue_is_the_board_of_the_team(self):
         hint = self.repo_hint()
         self.assertIn("the board of your team (platform-delivery)", hint)

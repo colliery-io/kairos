@@ -28,4 +28,17 @@ The team decides the board of a task, and the board decides its team (COLLIERY-A
 
 Your queue is the board of your team, filtered by the repository of the checkout. Call `board_items` with `board=<team_board>` and `repository=<slug>` (SessionStart context, from `/kairos:bootstrap`). `board_items` gives 200 items at most in one result. When the result is a part of the board, its first lines say so and give the `offset` of the next part. Call `board_items` again with that `offset` until you have each part. Then make the decision. The work of other teams in this repository is not in your queue. Find it with `search` (`filter.repository`). `get_repository <slug>` gives the owner of a repository, the "how to work here" description and the in-flight PRs.
 
+## Documents: the board is the owner, the repository is what the document is about
+
+A document has an owner, and the owner is a board. The owner board gives the right to edit the document: `manage_documents` on that board, which each member of the team of a delivery board has. A document has one of two owners:
+
+- **The board that the document names.** Use this for a document that belongs to a repository or a product as a whole, and to no work item: its vision, its architecture overview. `create_item {item_type: document, board: <team_board>, template: "Product Vision", title: ...}`. The document is not a card of the board.
+- **The board of the item that the document supports.** Use this for a document that belongs to one work item: a PRD of an initiative, the findings of a research task. `create_item {item_type: document, parent: <short code>, ...}`.
+
+Then say what the document is about: `link_items {source: <document>, target: <repository slug>, relationship: impacts}`. The link goes from a document or an ADR to a repository. It gives no right, and you need no right on the repository. A task does not impact a repository: `set_repository` links a task.
+
+In a checkout, read the documents that impact the repository before you plan work. `get_repository <slug>` lists them, and `get_item` gives each one. `search` with `filter.repository` finds them with the tasks of the repository.
+
+`move_item` gives a document to a different owner board. You need `manage_documents` on the board that owns the document now and on the new board.
+
 **A request to a different team** — the recipe lives with the `implement` skill (model-invoked, so agents can reach it without this router): [workflow/implement/CROSS-TEAM-FILING.md](../../workflow/implement/CROSS-TEAM-FILING.md). In one line: `create_item {board: the delivery board of that team, parent: your initiative}` → `link_items blocks` back to your item → report the short code. The request goes to the entry column of that board, in the support lane.

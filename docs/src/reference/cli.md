@@ -180,13 +180,14 @@ differ.
 | `create` | yes | yes | yes | yes | yes |
 | `edit` | yes | yes | yes | yes | yes |
 | `transition` | yes | yes | yes | no | yes |
-| `move` | no | no | yes | no | no |
+| `move` | no | no | yes | yes | no |
 | `delete` | yes | yes | yes | yes | yes |
 | `restore` | yes | yes | yes | yes | yes |
 
 `documents` has no `transition` verb: documents have no board placement, and
-carry an editorial lifecycle instead of a column. `move` exists only on
-`tasks`, the only type that sits on a team delivery board. See
+carry an editorial lifecycle instead of a column. `move` exists on `tasks`
+and on `documents`. `tasks move` moves a task to a different delivery board.
+`documents move` gives a document to a different owner board. See
 [Flight levels](../explanation/flight-levels.md) and
 [Teams and boards](../explanation/teams-and-boards.md).
 
@@ -201,6 +202,12 @@ kairos <noun> list [OPTIONS]
 | `--limit <LIMIT>` | integer | server default 50, maximum 200 | Page size. |
 | `--offset <OFFSET>` | integer | 0 | Rows to skip. |
 | `--include-deleted` | flag | off | Also list archived (put-away) items, marked `[archived]` in the `CODE` column. Without the flag, only live items are returned. |
+
+`documents list` and `adrs list` have one more option:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `--repo <REPOSITORY>` | slug or UUID | none | Only the items that impact this repository. The repository must be live. |
 
 Among the `list` verbs, `--include-deleted` exists on these five only: the
 organization nouns (`boards`, `teams`, `members`, `streams`, `admin tenants`)
@@ -218,6 +225,14 @@ kairos <noun> get <SHORT_CODE> [OPTIONS]
 | `<SHORT_CODE>` | string | required | The item's short code, e.g. `ACME-T-0001`. |
 
 Prints the item including its markdown content.
+
+`documents get` prints the line `owner board`. It has the id of the board that
+the document names. It has `-` for a document that names no board. The board
+of the item that the document supports owns that document.
+
+`documents get` and `adrs get` print the line `impacts`. It has the slugs of
+the repositories that the item impacts, or `-`. The mark `[archived]` shows a
+repository that is not live.
 
 ### `<noun> create`
 
@@ -242,7 +257,8 @@ Board placement per noun:
 | `initiatives` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `tasks` | `--board <BOARD>` | slug or UUID | required unless `--team` is given | Delivery board to create the task on. The board decides the team of the task. With `--team` and no `--board`, the task goes to the delivery board of that team. |
 | `tasks` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
-| `documents` | `--parent <SHORT_CODE>` | string | required | The workflow item the document supports. Documents take no board; they inherit that item's board for authorization. |
+| `documents` | `--board <BOARD>` | slug or UUID | required unless `--parent` is given | The owner board of the document. It gives the right to edit the document. The document is not a card of the board. |
+| `documents` | `--parent <SHORT_CODE>` | string | required unless `--board` is given | The workflow item the document supports. With no `--board`, the board of that item owns the document. |
 | `adrs` | `--board <BOARD_ID>` | UUID | none | ADR board. Omitting it creates an off-board ADR, which is an org-admin operation. |
 | `adrs` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 
@@ -259,6 +275,11 @@ Options specific to one noun:
 | `tasks` | `--repo <REPOSITORY>` | slug or UUID | none | Repository the task links to. It can be any repository, of any team. It does not choose the board. |
 
 `tasks create` needs `--board` or `--team`. `--repo` does not replace them.
+
+`documents create` needs `--board`, or `--parent`, or the two. With the two,
+the board that `--board` names owns the document. The command needs
+`manage_documents` on the owner. To say that the document impacts a
+repository, use [`kairos repos link`](#kairos-repos-link).
 
 A caller without `manage_tasks` on the board creates a request. The request
 goes to the entry column. For that caller, a `--column` that names a different
@@ -317,6 +338,37 @@ team. The command needs `manage_tasks` on both boards. The task keeps its
 repository.
 See [Move work between boards](../how-to/move-work-between-boards.md).
 
+### `documents move`
+
+```
+kairos documents move <SHORT_CODE> --to-board <BOARD> [OPTIONS]
+kairos documents move <SHORT_CODE> --no-board [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The short code of the document. |
+| `--to-board <BOARD>` | slug or UUID | required unless `--no-board` is given | The new owner board. It can be a board of each level. |
+| `--no-board` | flag | off | Remove the owner board. Conflicts with `--to-board`. |
+
+The command changes the owner board of the document. The document gets no
+column. The command needs `manage_documents` on the board that owns the
+document now and on the new board. The creator of the document gets no right
+to move it.
+
+With `--no-board`, the board of the item that the document supports becomes
+the owner. The server refuses `--no-board` for a document that supports no
+item, with 422 `LAST_OWNER`.
+
+The command prints one of these lines:
+
+```text
+Kairos moved the document ACME-D-0004 to the owner board <board-id>.
+Kairos removed the owner board of the document ACME-D-0004. Its owner is the board of the item that it supports.
+Kairos did not change the document ACME-D-0004. Its owner board is <board-id> already.
+Kairos did not change the document ACME-D-0004. It names no owner board.
+```
+
 ### `<noun> delete`
 
 ```
@@ -367,10 +419,10 @@ Filters:
 |---|---|---|---|
 | `-q`, `--query <QUERY>` | string | none | Full-text query. Websearch semantics: quoted phrases, `OR`, `-negation`. |
 | `--type <ENTITY_TYPE>` | `strategy` \| `initiative` \| `task` \| `document` \| `adr` | all | Entity type filter. Repeatable. |
-| `--board <BOARD_ID>` | UUID | none | Restrict to items on this board. |
+| `--board <BOARD_ID>` | UUID | none | Restrict to items on this board. A document is not a card, so this filter gives no document. |
 | `--column <COLUMN_ID>` | UUID | none | Restrict to items in this column. |
 | `--team <TEAM_ID>` | UUID | none | Restrict to tasks assigned to this team. |
-| `--repo <REPOSITORY>` | slug or UUID | none | Restrict to tasks that link to this repository. |
+| `--repo <REPOSITORY>` | slug or UUID | none | Restrict to the items of this repository: the tasks that link to it, and the documents and the ADRs that impact it. |
 | `--task-type <TASK_TYPE>` | `task` \| `bug` \| `tech_debt` \| `support` | all | Task type filter. Repeatable. |
 | `--work-class <WORK_CLASS>` | `planned` \| `support` | all | Lane filter. Repeatable. |
 | `--is-bucket <BOOL>` | `true` \| `false` | both | Restrict to bucket or non-bucket initiatives. |
@@ -662,9 +714,10 @@ kairos repos list [OPTIONS]
 kairos repos get <REPOSITORY> [OPTIONS]
 ```
 
-| Argument | Type | Default | Description |
+| Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<REPOSITORY>` | slug or UUID | required | The repository. |
+| `--include-deleted` | flag | off | Also list the archived documents and ADRs that impact the repository, marked `[archived]`. |
 
 Prints one table row with the columns `SLUG`, `FORGE`, `NAME`, `TEAM`,
 `OWNER_BOARD`, `OPEN` and `WEBHOOK`. `kairos repos list` prints the same
@@ -672,8 +725,22 @@ columns. `OWNER_BOARD` is the delivery board of the owning team. `OPEN` is the
 count of open tasks that link to the repository, on all boards.
 
 After the row, the command prints the URL, the default branch and the webhook
-connection. Then it prints the how-to-work-here description and the in-flight
-branches and pull requests.
+connection. Then it prints three sections:
+
+- the how-to-work-here description
+- the documents and the ADRs that impact the repository
+- the in-flight branches and pull requests
+
+Each document or ADR is one line. The line has the short code, the lifecycle
+or the column, the title, and the kind of the item:
+
+```text
+Documents and ADRs that impact this repository:
+  ACME-D-0004 [published] The vision of fidius — document (vision)
+  ACME-A-0002 [Decided] Plugins are dynamic libraries — adr
+```
+
+The section shows `(none)` when no item impacts the repository.
 
 ### `kairos repos create`
 
@@ -762,6 +829,52 @@ kairos repos unbind <SHORT_CODE> [OPTIONS]
 | `<SHORT_CODE>` | string | required | The task whose repository binding is cleared. |
 
 The board and the team of the task do not change.
+
+### `kairos repos link`
+
+```
+kairos repos link <SHORT_CODE> <REPOSITORY> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The document or the ADR. |
+| `<REPOSITORY>` | slug or UUID | required | The repository. It can be any live repository, of any team. |
+
+The command says that a document or an ADR impacts a repository. The link says
+what the item is about. It gives no right on the item, and no right on the
+repository.
+
+The caller must be able to edit the document or the ADR. The caller needs no
+right on the repository. The command prints this line:
+
+```text
+Kairos made the link: ACME-D-0004 impacts the repository fidius.
+```
+
+The server refuses a task, a strategy and an initiative with 422
+`RELATIONSHIP_RULE`. To link a task to a repository, use `kairos repos bind`.
+The server refuses a link that is there with 422 `ALREADY_LINKED`.
+
+### `kairos repos unlink`
+
+```
+kairos repos unlink <SHORT_CODE> <REPOSITORY> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The document or the ADR. |
+| `<REPOSITORY>` | slug or UUID | required | The repository. It can be archived. |
+
+The command removes an `impacts` link. The rule is that of `kairos repos
+link`. The command prints this line:
+
+```text
+Kairos removed the link: ACME-D-0004 does not impact the repository fidius.
+```
+
+The server gives 404 `NOT_FOUND` for a link that is not there.
 
 Repositories are the codebases that tasks link to. See
 [Repositories as execution scope](../explanation/repositories-as-execution-scope.md).

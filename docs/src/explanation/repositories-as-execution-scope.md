@@ -132,10 +132,92 @@ repository. Allowing many repositories per task would make an agent's queue a
 join, make "done" ambiguous per repository, and blur the link between a pull
 request and the item it belongs to.
 
-Only tasks link at all. Strategies, initiatives, documents and ADRs stay
-repository-less, because that is where cross-repository intent lives. An
-initiative that spans four codebases is not missing a field; being above the
-execution scope is what it is for.
+Only tasks link in this way. Strategies and initiatives stay repository-less,
+because that is where cross-repository intent lives. An initiative that spans
+four codebases is not missing a field; being above the execution scope is what
+it is for. Documents and ADRs have a different relation to a repository,
+described next.
+
+## A document is about a repository; a board owns it
+
+A repository has things written about it that belong to no single piece of
+work: why it exists, how it is built, what was decided about it. The vision of
+a repository is the clearest case. It is a document, it says why the
+repository, the product or the capability exists, and it is not the vision of
+the organisation.
+
+Until COLLIERY-T-0269 such a document had nowhere honest to live. A document
+took its authority from the work item it supported, so a team hung the vision
+of its product off some strategy in order to give it an owner. The product
+owner decided the model on 2026-09-29, and it separates two questions that one
+edge used to answer.
+
+| Link | What it says | Example: the vision of the repository fidius |
+|---|---|---|
+| Document to board | The owner. The board gives the right to edit. | `colliery-io-delivery` |
+| Document to repository, with the relationship `impacts` | What the document is about. It gives no right. | `fidius` |
+
+**A board owns a document, and a repository does not.** This is the same
+argument as the one for tasks. Access in Kairos is asked of a board, because a
+board is where a team and its capabilities meet. A repository has an owner
+team, but that ownership is a responsibility for review, release and
+standards. It was never a list of who may write what. Making the repository
+the owner of a document would have created a second place to grant access,
+and the link would have started to do two jobs again, which is the defect the
+amendment above removed from tasks.
+
+**The link gives no right, in either direction.** A member of the team that
+owns `fidius` cannot edit a document because the document impacts `fidius`.
+A person who may edit the document may say that it impacts any live
+repository, of any team, and needs no right on that repository to say so. A
+statement about what a text is about is cheap, several teams write about one
+codebase, and none of that should change who answers for the text.
+
+**A document that names a board is not a card.** It has no column, no lane and
+no transition, and the board view does not show it. The board is its owner,
+not its position. A document keeps its editorial lifecycle, as before.
+
+A document still may support a work item, and a document that names no board
+still takes the board of the item it supports. The two owners exist side by
+side: a PRD belongs to its initiative, and a vision belongs to a team. What
+cannot exist is a document with no owner. The last `supports` edge of a
+document that names no board stays, and the board of a document that supports
+nothing stays.
+
+ADRs impact repositories too. An ADR already has a board of its own, so only
+the second link is new for it.
+
+The link is not stored as an edge between two items, because a repository is
+not an item. The graph view, the traversal of a search and the cascade of an
+archive read edges between items, and none of them has to learn what a
+repository is. The cost is that `impacts` is not something a traversal can
+follow. The filter by repository covers the question that a traversal would
+have answered: it gives the tasks that link to the repository, and the
+documents and the ADRs that impact it.
+
+For an agent, this completes the frame of the checkout. `get_repository`
+gives the description of how to work in the repository, and it lists the
+documents and the ADRs that impact it. An agent reads why the repository
+exists before it plans work in it.
+
+### What happens when things are put away
+
+The links are built so that putting something away never leaves a document
+without an owner, and never quietly loses a statement.
+
+- The archive of a work item takes no document. The cascade follows `parent`
+  edges only, and a document has none. This is the same for a document that
+  names a board and for one that names none.
+- The archive of a document removes no link. The repository stops listing the
+  document, unless the reader asks for archived items, and a restore brings it
+  back with its links.
+- A deleted repository keeps the links that point at it. The delete does not
+  count them, because the repository owns nothing. The document shows the
+  link with a mark, and an editor of the document can remove it.
+- A board that owns a live document cannot be deleted. The documents name a
+  different board first, or go to the archive.
+- The restore of a document whose owner board is deleted is refused, and the
+  refusal names the board. This is the rule that a card already had.
 
 ## What ownership means
 
@@ -340,6 +422,8 @@ path dimension at all.
 - COLLIERY-A-0023, approved on 2026-09-27, which amends the record above: the
   team decides the board, and a repository is a link. It has no file to link
   to: see [ADR](../reference/glossary.md#adr) in the glossary.
+- COLLIERY-T-0269, from a decision of the product owner on 2026-09-29: a board
+  owns a document, and a document impacts a repository.
 - [The whitelist stance that requests
   widen](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0006.md)
   (KAIROS-A-0006).

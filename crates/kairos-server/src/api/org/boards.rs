@@ -519,6 +519,10 @@ pub(crate) async fn update_board(
 /// (422 `BOARD_NOT_EMPTY` otherwise — the T-0010 empty rule applied at
 /// board scope). Requires `configure_boards` on the board.
 ///
+/// A board that is the owner of a live document is not deleted
+/// (COLLIERY-T-0269): 422 `BOARD_OWNS_DOCUMENTS`. A document always has
+/// an owner. Name a different board for each document, or archive it.
+///
 /// The only delivery board of a team is not deleted (COLLIERY-T-0241): 422
 /// `LAST_DELIVERY_BOARD`. A team always has a delivery board. To remove
 /// the board, delete the team (`DELETE /api/teams/{id}`), which removes
@@ -533,7 +537,7 @@ pub(crate) async fn update_board(
         (status = 200, description = "Soft-deleted", body = dto::OrgDeleteResponse),
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "BOARD_NOT_EMPTY, or LAST_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "BOARD_NOT_EMPTY, LAST_DELIVERY_BOARD, or BOARD_OWNS_DOCUMENTS", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_board(
@@ -570,6 +574,14 @@ pub(crate) async fn delete_board(
                     )
                     .with_details(json!({ "item_count": item_count, "items": items })));
                 }
+                // COLLIERY-T-0269: a document that names the board is not a
+                // card, and the board is its owner.
+                super::check_board_owns_no_document(
+                    conn,
+                    board_id,
+                    &board.name,
+                    "Then delete the board.",
+                )?;
                 diesel::update(dsl::boards.filter(dsl::id.eq(board_id)))
                     .set((
                         dsl::deleted_at.eq(diesel::dsl::now),
@@ -814,6 +826,21 @@ pub(crate) async fn board_items(
                 }
                 for group in groups.iter_mut() {
                     group.tasks = by_column.remove(&group.column.id).unwrap_or_default();
+                }
+            }
+            // COLLIERY-T-0269: the `impacts` links of each ADR, ONE query
+            // for the whole page.
+            {
+                let mut all: Vec<kairos_client::types::Adr> = groups
+                    .iter_mut()
+                    .flat_map(|g| std::mem::take(&mut g.adrs))
+                    .collect();
+                super::super::convert::attach_impacts(conn, &mut all)?;
+                for adr in all {
+                    let column = adr.column_id.clone().unwrap_or_default();
+                    if let Some(&i) = index_of.get(&column) {
+                        groups[i].adrs.push(adr);
+                    }
                 }
             }
 

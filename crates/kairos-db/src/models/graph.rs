@@ -87,7 +87,9 @@ pub struct ActivityLogEntry {
     pub id: Uuid,
     pub actor_id: Uuid,
     pub action: ActivityAction,
-    /// The item acted on (NULL for relationship actions).
+    /// The item acted on (NULL for a relationship between two items). For
+    /// an `impacts` link it is the document or the ADR of the link
+    /// (COLLIERY-T-0269).
     pub entity_id: Option<Uuid>,
     /// `'strategy' | 'initiative' | 'task' | 'document' | 'adr'` (free TEXT
     /// in the DDL).

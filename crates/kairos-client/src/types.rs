@@ -145,10 +145,11 @@ pub struct Task {
 }
 
 /// A supporting document, as returned by `/api/documents`. Documents do not
-/// live on boards; they attach to a workflow item via a `supports` edge and
-/// inherit that item's board for authorization (KAIROS-A-0006). Their
-/// `lifecycle` is an editorial label (KAIROS-T-0078) â never board
-/// position.
+/// live on boards: a document is never a card, and it has no column. A
+/// document has an owner (COLLIERY-T-0269). The owner is the board that the
+/// document names (`board_id`). When it names none, the owner is the board
+/// of the item that it supports (KAIROS-A-0006). The `lifecycle` is an
+/// editorial label (KAIROS-T-0078), and never a board position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Document {
     /// Entity id (UUID).
@@ -158,6 +159,17 @@ pub struct Document {
     pub title: String,
     /// Markdown content.
     pub content: String,
+    /// The owner board (UUID): the board that the document names
+    /// (COLLIERY-T-0269). It gives the right to edit the document. Null
+    /// when the document names no board: its owner is then the board of
+    /// the earliest item that it supports.
+    #[serde(default)]
+    pub board_id: Option<String>,
+    /// The repositories that the document impacts (COLLIERY-T-0269), by
+    /// slug. An `impacts` link says what the document is about. It gives
+    /// no right.
+    #[serde(default)]
+    pub impacts: Vec<crate::types_repositories::Impact>,
     /// Template the document was stamped from (UUID), if any.
     pub template_id: Option<String>,
     /// Editorial lifecycle: `draft|review|published|archived`
@@ -197,6 +209,10 @@ pub struct Adr {
     pub board_id: Option<String>,
     /// Current column (UUID), if placed on a board.
     pub column_id: Option<String>,
+    /// The repositories that the ADR impacts (COLLIERY-T-0269), by slug.
+    /// An `impacts` link says what the ADR is about. It gives no right.
+    #[serde(default)]
+    pub impacts: Vec<crate::types_repositories::Impact>,
     pub decision_maker: Option<String>,
     /// `YYYY-MM-DD`.
     pub decision_date: Option<String>,
@@ -324,14 +340,30 @@ pub struct SetWorkClassRequest {
     pub work_class: String,
 }
 
-/// Body of `POST /api/documents`. Documents attach to a workflow item at
-/// birth: `parent_short_code` is REQUIRED (KAIROS-T-0018 contract) and must
-/// name a strategy, initiative, or task; the server creates the `supports`
-/// edge and authorizes `manage_documents` against the parent's board.
+/// Body of `POST /api/documents`. A document has an owner from its create
+/// (COLLIERY-T-0269). Send `board`, or `parent_short_code`, or the two.
+///
+/// With `board`, the document names that board as its owner. The caller
+/// needs `manage_documents` on that board.
+///
+/// With `parent_short_code` and no `board`, the owner is the board of the
+/// parent (KAIROS-T-0018 contract). The parent must be a strategy, an
+/// initiative, or a task. The server creates the `supports` edge. The
+/// caller needs `manage_documents` on the board of the parent.
+///
+/// With the two, the document supports the item and names the board. The
+/// board that it names is its owner.
+///
+/// With none of the two, the server refuses the request: 422
+/// `VALIDATION`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateDocumentRequest {
     pub title: String,
+    /// The owner board (slug or UUID): a live board of each level. The
+    /// document is not a card of the board.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
     /// Markdown content. Omitted + `template_id` set = the template's
     /// content is stamped in.
     #[serde(default)]
@@ -340,9 +372,44 @@ pub struct CreateDocumentRequest {
     #[serde(default)]
     pub template_id: Option<String>,
     /// Short code of the workflow item this document supports. Required
-    /// (422 `VALIDATION` when missing).
+    /// when the request has no `board` (422 `VALIDATION` when the two are
+    /// missing).
     #[serde(default)]
     pub parent_short_code: Option<String>,
+}
+
+/// Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269):
+/// set, change or remove the owner board of a document.
+///
+/// `board` must be in the body. Its value is the slug or the id of a live
+/// board. A null or an empty string removes the board. After that, the
+/// owner is the board of the earliest item that the document supports.
+/// When the document supports no item, the server refuses that request
+/// with 422 `LAST_OWNER`.
+///
+/// The board that the document has changes nothing: the response is 200,
+/// and the server writes nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetDocumentBoardRequest {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schema(value_type = Option<String>)]
+    pub board: Option<Option<String>>,
+}
+
+/// A field that is present, with its value or its null. With
+/// `#[serde(default)]`, a field that is absent is `None` and a null is
+/// `Some(None)`.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 /// Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule:
@@ -483,6 +550,61 @@ impl From<Pagination> for ListQuery {
             offset: page.offset,
             include_deleted: false,
         }
+    }
+}
+
+/// `?limit=&offset=&include_deleted=&repository=`: the query of the list
+/// of documents and of the list of ADRs (COLLIERY-T-0269). It is
+/// [`ListQuery`], and the repository that the items impact.
+///
+/// Separate from [`ListQuery`] for the reason that [`ListQuery`] is
+/// separate from [`Pagination`]: a strategy, an initiative and a task
+/// impact no repository, and a shared struct would show them a parameter
+/// that does nothing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct ImpactListQuery {
+    /// Page size (default 50, max 200).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    /// Rows to skip (default 0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<i64>,
+    /// Include archived (put-away) rows, each marked with `archived_at`
+    /// (KAIROS-A-0020 rule 2). Default false.
+    #[serde(default)]
+    pub include_deleted: bool,
+    /// Only the items that impact this repository (slug or UUID of a live
+    /// repository). An unknown repository is a 404 `NOT_FOUND`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+}
+
+impl ImpactListQuery {
+    /// The items that impact one repository, live rows only.
+    pub fn of_repository(repository: &str) -> Self {
+        Self {
+            repository: Some(repository.to_string()),
+            ..Self::default()
+        }
+    }
+}
+
+impl From<ListQuery> for ImpactListQuery {
+    fn from(query: ListQuery) -> Self {
+        Self {
+            limit: query.limit,
+            offset: query.offset,
+            include_deleted: query.include_deleted,
+            repository: None,
+        }
+    }
+}
+
+impl From<Pagination> for ImpactListQuery {
+    fn from(page: Pagination) -> Self {
+        ListQuery::from(page).into()
     }
 }
 

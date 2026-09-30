@@ -117,11 +117,18 @@ pub struct ItemDetail {
     pub content: String,
     /// KAIROS-A-0004 optimistic-concurrency version; PATCH carries it back.
     pub version: i32,
-    /// Board placement (absent for documents, optional for ADRs).
+    /// Board placement (optional for ADRs). For a document it is the
+    /// OWNER board (COLLIERY-T-0269): the board that the document names,
+    /// which gives the right to edit it. It is not a placement: a
+    /// document has no column.
     #[serde(default)]
     pub board_id: Option<String>,
     #[serde(default)]
     pub column_id: Option<String>,
+    /// The repositories that a document or an ADR impacts
+    /// (COLLIERY-T-0269). Empty for the other families.
+    #[serde(default)]
+    pub impacts: Vec<Impact>,
     /// Editorial lifecycle (KAIROS-T-0078; documents only) —
     /// `draft|review|published|archived`.
     ///
@@ -171,6 +178,24 @@ pub struct ItemDetail {
     pub decision_maker: Option<String>,
     #[serde(default)]
     pub decision_date: Option<String>,
+}
+
+/// mirror of: `kairos_client::types_repositories::Impact` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Impact {
+    pub repository: ImpactedRepository,
+}
+
+/// mirror of: `kairos_client::types_repositories::ImpactedRepository`
+/// (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ImpactedRepository {
+    pub slug: String,
+    #[serde(default)]
+    pub repo_full_name: String,
+    /// Set when the repository is archived. The link stays.
+    #[serde(default)]
+    pub archived_at: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_org::BoardDetail` (partial).
@@ -707,21 +732,95 @@ pub async fn update_metadata(
 
 /// Body of `POST /api/documents` (mirror of:
 /// `kairos_client::types::CreateDocumentRequest`, partial — the
-/// template-create flow's fields).
+/// template-create flow's fields). A document has an owner
+/// (COLLIERY-T-0269): the body has `board`, or `parent_short_code`, or
+/// the two. A field with no value is not in the body.
 #[derive(Debug, Serialize)]
 pub struct CreateDocumentBody {
     pub title: String,
     pub template_id: String,
-    pub parent_short_code: String,
+    /// The owner board, by slug.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_short_code: Option<String>,
 }
 
-/// `POST /api/documents` — create-from-template, attached to a workflow
-/// parent (the T-0018 contract).
+/// `POST /api/documents` — create-from-template. The document supports a
+/// workflow parent (the T-0018 contract), or names an owner board
+/// (COLLIERY-T-0269).
 pub async fn create_document(
     auth: Auth,
     body: &CreateDocumentBody,
 ) -> Result<ItemDetail, ApiError> {
     crate::api::post_json(auth, "/api/documents", body).await
+}
+
+/// Body of `PATCH /api/documents/{short_code}/board` (mirror of:
+/// `kairos_client::types::SetDocumentBoardRequest`). `board` is always in
+/// the body: a null removes the owner board.
+#[derive(Debug, Serialize)]
+struct SetDocumentBoardBody<'a> {
+    board: Option<&'a str>,
+}
+
+/// `PATCH /api/documents/{short_code}/board` — set, change or remove the
+/// owner board of a document (COLLIERY-T-0269). Refusals the panel shows
+/// inline: 403 without `manage_documents` on the two boards, 422
+/// `LAST_OWNER` for a document that supports no item, 404 for an unknown
+/// board.
+pub async fn set_document_board(
+    auth: Auth,
+    code: &str,
+    board: Option<&str>,
+) -> Result<ItemDetail, ApiError> {
+    send_json(
+        auth,
+        Verb::Patch,
+        &format!("/api/documents/{code}/board"),
+        Some(&SetDocumentBoardBody { board }),
+    )
+    .await
+}
+
+/// Body of `POST /api/{family}/{short_code}/impacts` (mirror of:
+/// `kairos_client::types_repositories::CreateImpactRequest`).
+#[derive(Debug, Serialize)]
+struct CreateImpactBody<'a> {
+    repository: &'a str,
+}
+
+/// `POST /api/{family}/{short_code}/impacts` — say that a document or an
+/// ADR impacts a repository (COLLIERY-T-0269).
+pub async fn add_impact(
+    auth: Auth,
+    family: Family,
+    code: &str,
+    repository: &str,
+) -> Result<Impact, ApiError> {
+    crate::api::post_json(
+        auth,
+        &format!("/api/{}/{code}/impacts", family.api_family()),
+        &CreateImpactBody { repository },
+    )
+    .await
+}
+
+/// `DELETE /api/{family}/{short_code}/impacts/{repository}` — remove an
+/// `impacts` link (COLLIERY-T-0269).
+pub async fn remove_impact(
+    auth: Auth,
+    family: Family,
+    code: &str,
+    repository: &str,
+) -> Result<(), ApiError> {
+    let path = format!(
+        "/api/{}/{code}/impacts/{}",
+        family.api_family(),
+        crate::api::encode_component(repository)
+    );
+    let _: serde_json::Value = send_json(auth, Verb::Delete, &path, None::<&()>).await?;
+    Ok(())
 }
 
 /// Body of `POST /api/tasks/{short_code}/move` (mirror of:

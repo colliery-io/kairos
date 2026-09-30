@@ -289,6 +289,26 @@ fn missing_edit(
     })
 }
 
+/// The edit rule as a value, for a caller that writes its own refusal
+/// (COLLIERY-T-0269): `None` = the principal may edit the item.
+/// `Some(board)` = it may not, and `board` is the authorization board of
+/// the item, if it has one. The decision is that of [`require_item_edit`].
+pub(crate) fn missing_item_edit(
+    conn: &mut PgConnection,
+    slug: &str,
+    user_id: Uuid,
+    item_id: Uuid,
+    item_type: ItemType,
+) -> Result<Option<Option<Uuid>>, ApiError> {
+    Ok(missing_edit(conn, slug, user_id, item_id, item_type)?.map(|missing| missing.board_id))
+}
+
+/// The `manage_<type>` capability of an item type, the capability of the
+/// edit rule.
+pub(crate) fn manage_capability_of(item_type: ItemType) -> &'static str {
+    meta::manage_capability(item_type)
+}
+
 /// THE EDIT RULE (COLLIERY-T-0228): may this principal edit this item?
 ///
 /// A principal, a person or a service account, may edit an item when ONE
@@ -297,8 +317,13 @@ fn missing_edit(
 /// 1. the principal created the item (`created_by`),
 /// 2. the principal holds `manage_<type>` on the authorization board of
 ///    the item ([`abac::resolve_authorization_board`]: the board of the
-///    item, or for a document the board of its `supports` parent),
+///    item, or for a document the board that it names, or the board of
+///    its `supports` parent when it names none, COLLIERY-T-0269),
 /// 3. the principal is an admin of the organization.
+///
+/// An `impacts` link gives no right (COLLIERY-T-0269). A member of the
+/// team that owns a repository cannot edit a document because the
+/// document impacts that repository.
 ///
 /// WHY. Creation is the primary mechanism of ownership: the person who
 /// wrote an item can correct it. A capability on a board is how a team
@@ -312,12 +337,14 @@ fn missing_edit(
 /// board.
 ///
 /// AN EDIT IS: the title and the content, the metadata, the repository of
-/// a task, the editorial lifecycle of a document, archive, and restore.
-/// Each REST handler and each MCP tool for those writes calls this
-/// function, and no other check.
+/// a task, the `impacts` links of a document or of an ADR
+/// (COLLIERY-T-0269), the editorial lifecycle of a document, archive, and
+/// restore. Each REST handler and each MCP tool for those writes calls
+/// this function, and no other check.
 ///
-/// CREATION DOES NOT GRANT MOVEMENT. `transition`, `work-class` and `move`
-/// do not call this function. They call [`require_capability`], and the
+/// CREATION DOES NOT GRANT MOVEMENT. `transition`, `work-class`, `move`
+/// and the change of the owner board of a document
+/// ([`documents::change_board`]) do not call this function. They call [`require_capability`], and the
 /// creator of an item gets nothing there. A team controls its own plan
 /// (COLLIERY-T-0218, COLLIERY-A-0023): the person who sends a request
 /// cannot move it out of the entry column, cannot put it in the planned
@@ -402,6 +429,10 @@ pub type EdgeEnd = (Uuid, ItemType);
 /// edge does not change which board answers for it. An ADR does not take
 /// its authority from `supports`, so an ADR takes the rule above too.
 ///
+/// COLLIERY-T-0269: a document that NAMES a board takes the rule above
+/// too, with a parent or with none. The board that it names answers for
+/// it, and no `supports` edge changes that.
+///
 /// This function is the rule for the CREATE of an edge. The remove is
 /// [`require_edge_remove`], which is this rule for each edge but the
 /// `supports` edge of a document.
@@ -421,9 +452,14 @@ pub fn require_edge_write(
     if is_document_parent_edge(relationship, target_type) {
         // COLLIERY-T-0235: the first parent of a document decides who can
         // edit the document. See the doc comment for the attack.
-        let has_parent = !abac::document_parents(conn, target_id)
+        // COLLIERY-T-0269: but for a document that names a board.
+        let names_board = abac::document_owner_board(conn, target_id)
             .map_err(map_abac_error)?
-            .is_empty();
+            .is_some();
+        let parents = abac::document_parents(conn, target_id)
+            .map_err(map_abac_error)?
+            .len();
+        let has_parent = kairos_core::abac::document_has_an_owner(names_board, parents);
         if kairos_core::abac::may_link_document_parent(
             has_parent,
             source.is_none(),
@@ -497,7 +533,7 @@ fn is_document_parent_edge(relationship: &str, target_type: ItemType) -> bool {
 
 /// The short code of an item, archived or not, for the text of a refusal.
 /// An id that names nothing gives the id.
-fn short_code_of(conn: &mut PgConnection, id: Uuid) -> Result<String, ApiError> {
+pub(crate) fn short_code_of(conn: &mut PgConnection, id: Uuid) -> Result<String, ApiError> {
     #[derive(QueryableByName)]
     struct Row {
         #[diesel(sql_type = Text)]
@@ -531,17 +567,24 @@ fn short_code_of(conn: &mut PgConnection, id: Uuid) -> Result<String, ApiError> 
 ///    remove the edge from A. B is now the earliest parent, the board of B
 ///    answers for the document, and the principal can edit and archive it.
 ///
-/// 2. WHICH: the LAST `supports` edge of a document cannot be removed, by
-///    any principal, an admin of the organization too. The refusal is 422
-///    `LAST_PARENT`: a rule of the data, not a permission.
+/// 2. WHICH: the LAST `supports` edge of a document that names NO board
+///    cannot be removed, by any principal, an admin of the organization
+///    too. The refusal is 422 `LAST_PARENT`: a rule of the data, not a
+///    permission.
 ///
-///    WHY. A document has no board. It takes its authority from what it
-///    supports, so a document that supports nothing has no team to answer
-///    for it, and the next `supports` edge would give it to the board of
-///    whoever wrote that edge. The owner decided (2026-09-27) that the
-///    server does not make a document an orphan. To move a document, the
-///    caller links it to the new item first, and then removes the old
-///    edge.
+///    WHY. Such a document takes its authority from what it supports, so
+///    when it supports nothing it has no team to answer for it, and the
+///    next `supports` edge would give it to the board of whoever wrote
+///    that edge. The owner decided (2026-09-27) that the server does not
+///    make a document an orphan. To move a document, the caller links it
+///    to the new item first, and then removes the old edge.
+///
+///    COLLIERY-T-0269: a document that NAMES a board has an owner with
+///    no parent, so its last `supports` edge can go
+///    ([`kairos_core::abac::document_parent_can_go`]). The owner rule
+///    replaces the parent rule for that document: the remove of its
+///    board is what is refused when it supports nothing (`LAST_OWNER`,
+///    [`documents::change_board`]).
 ///
 /// WHO comes first, so a principal who may not edit the document learns
 /// nothing about its parents from the refusal.
@@ -574,9 +617,15 @@ pub fn require_edge_remove(
     if !kairos_core::abac::may_unlink_document_parent(missing.is_none()) {
         let capability = meta::manage_capability(target_type);
         let board_id = missing.and_then(|missing| missing.board_id);
-        let need = match board_id {
-            Some(_) => format!("You need {capability:?} on the board of its parent."),
-            None => "The document has no board.".to_string(),
+        // COLLIERY-T-0269: the board is the board that the document
+        // names, or the board of its parent.
+        let names_board = abac::document_owner_board(conn, document_id)
+            .map_err(map_abac_error)?
+            .is_some();
+        let need = match (board_id, names_board) {
+            (Some(_), true) => format!("You need {capability:?} on the board of the document."),
+            (Some(_), false) => format!("You need {capability:?} on the board of its parent."),
+            (None, _) => "The document has no board.".to_string(),
         };
         return Err(ApiError::forbidden(format!(
             "To remove a supports edge of a document, you must be able to edit the document. \
@@ -598,9 +647,14 @@ pub fn require_edge_remove(
 
     // 2. WHICH.
     abac::lock_document(conn, document_id).map_err(map_abac_error)?;
+    // Read AFTER the lock: the change of the owner board takes the same
+    // lock (COLLIERY-T-0269).
+    let names_board = abac::document_owner_board(conn, document_id)
+        .map_err(map_abac_error)?
+        .is_some();
     let parents = abac::document_parents(conn, document_id).map_err(map_abac_error)?;
     let is_parent = parents.iter().any(|parent| parent.parent_id == source_id);
-    if is_parent && !kairos_core::abac::document_keeps_a_parent(parents.len()) {
+    if is_parent && !kairos_core::abac::document_parent_can_go(names_board, parents.len()) {
         let document = short_code_of(conn, document_id)?;
         let parent = short_code_of(conn, source_id)?;
         return Err(ApiError::unprocessable(

@@ -224,6 +224,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `DUPLICATE_TRANSITION` | 422 | That edge already exists | — |
 | `NO_ENTRY_COLUMN` | 422 | The target board has no column to admit an arriving item | — |
 | `TEAM_HAS_DELIVERY_BOARD` | 422 | The team has a live delivery board. A team has only one delivery board | `team_id` and `board` (`id`, `name`, `slug`), the board that the team has |
+| `BOARD_OWNS_DOCUMENTS` | 422 | The board is the owner of live documents. Name a different board for each document, or archive it. The delete of a team gives this code for a delivery board of the team | `board_id`, `item_count` and `items`: the short codes of the documents, **capped at 20** |
 | `LAST_DELIVERY_BOARD` | 422 | The board is the only delivery board of a team. Delete the team to remove the team and its board together | `board_id` and `team` (`id`, `name`) |
 | `BOARD_TEAM_IS_FIXED` | 422 | The update of a board has a `team_id` that is not the team of the board. The team of a board does not change. Move the task to give work to a different team | `board_id` and `team_id`, the team that the board has |
 
@@ -233,16 +234,17 @@ server refuses a value that is not an integer, with `VALIDATION`.
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
-| `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to | `missing` — a list naming each thing that is gone |
+| `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
+| `LAST_OWNER` | 422 | The request removes the owner board of a document that supports no item. [A document always has an owner](capabilities.md#a-document-always-has-an-owner). Link the document to a work item first, or name a different board | `document` (the short code) and `board` (the slug of the owner board) |
 
 ### Relationships
 
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `CYCLE_DETECTED` | 422 | The edge would create a cycle | — |
-| `RELATIONSHIP_RULE` | 422 | The edge is not legal between those two entity types | `relationship` |
-| `ALREADY_LINKED` | 422 | That edge already exists | — |
-| `LAST_PARENT` | 422 | The edge is the last `supports` edge of a document. [A document always has a parent](capabilities.md#a-document-always-has-a-parent). Link the document to a different item first, or archive the document | `relationship`, `document` and `parent` (the two short codes) |
+| `RELATIONSHIP_RULE` | 422 | The edge is not legal between those two entity types. For an `impacts` link: the subject is not a document and not an ADR | `relationship`. For an `impacts` link, also `source_type` and `allowed_source_types` |
+| `ALREADY_LINKED` | 422 | That edge already exists. For an `impacts` link: the item impacts that repository already | — |
+| `LAST_PARENT` | 422 | The edge is the last `supports` edge of a document that names no board. [A document always has a parent](capabilities.md#a-document-always-has-a-parent). Link the document to a different item first, or name an owner board for the document, or archive the document | `relationship`, `document` and `parent` (the two short codes) |
 
 ### Tenant configuration
 
@@ -295,6 +297,8 @@ The refusals a reader most often arrives here from:
   [Send a request to a different team](../how-to/move-work-between-boards.md#when-a-request-is-refused)
 - `LAST_PARENT` →
   [A document always has a parent](capabilities.md#a-document-always-has-a-parent)
+- `LAST_OWNER`, `BOARD_OWNS_DOCUMENTS` →
+  [The owner of a document](capabilities.md#the-owner-of-a-document)
 - `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
   [Connect a git forge](../how-to/connect-a-git-forge.md)
 

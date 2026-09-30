@@ -5,6 +5,8 @@ ADRs are Kairos items, not repo files. To record one:
 1. `create_item` with `item_type: adr`, the decision's short title as `title`, the template below as `content`, and `decision_maker` when known.
 2. `link_items` (`informs`) from the new ADR to the item whose work produced the decision — the task, initiative, or other item being discussed — so the decision stays discoverable from the work it shaped. If no such item exists, skip the link.
 
+3. `link_items` (`impacts`) from the new ADR to each repository that the decision is about: `target` is the slug of the repository. `get_repository` then lists the decision for each agent that works in that repository. The link gives no right on the ADR. If the decision is about no repository, skip the link.
+
 Kairos assigns the short code; there is no manual numbering and no `docs/adr/` directory. In a multi-context repo (one with a `CONTEXT-MAP.md`), name the bounded context in the ADR's title so the decision's scope stays visible.
 
 ## Template (the item's content)

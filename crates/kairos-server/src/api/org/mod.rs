@@ -197,6 +197,43 @@ pub fn count_live_board_items(conn: &mut PgConnection, board_id: Uuid) -> Result
     Ok(total)
 }
 
+/// Refuse the delete of a board that is the OWNER of live documents
+/// (COLLIERY-T-0269): 422 `BOARD_OWNS_DOCUMENTS`. A document that names a
+/// board is not a card of it, so [`count_live_board_items`] does not count
+/// it. But a document always has an owner, and a deleted board is none.
+///
+/// `then` is the last sentence of the refusal: what the caller wanted to
+/// delete. `details.items` has 20 short codes at most.
+pub fn check_board_owns_no_document(
+    conn: &mut PgConnection,
+    board_id: Uuid,
+    board_name: &str,
+    then: &str,
+) -> Result<(), ApiError> {
+    let documents =
+        kairos_db::items::live_documents_of_board(conn, board_id).map_err(ApiError::internal)?;
+    if documents.is_empty() {
+        return Ok(());
+    }
+    let count = documents.len();
+    let named: Vec<String> = documents.into_iter().take(20).collect();
+    Err(ApiError::unprocessable(
+        "BOARD_OWNS_DOCUMENTS",
+        format!(
+            "The board {board_name:?} is the owner of {count} live document{}: [{}]. Name a \
+             different board for each document (PATCH /api/documents/{{code}}/board) or \
+             archive it. {then}",
+            if count == 1 { "" } else { "s" },
+            named.join(", ")
+        ),
+    )
+    .with_details(serde_json::json!({
+        "board_id": board_id,
+        "item_count": count,
+        "items": named,
+    })))
+}
+
 /// The short codes of the live cards on `board_id` (at most `limit`), for
 /// a `BOARD_NOT_EMPTY` refusal that names what to move or delete.
 pub fn live_board_item_codes(

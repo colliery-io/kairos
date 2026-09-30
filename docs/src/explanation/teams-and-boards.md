@@ -156,6 +156,32 @@ and takes the team of the board it arrives on, because the link says where the
 code is and nothing about whose work it is. For the same reason a change of a
 repository's owner changes nothing about the tasks that link to it.
 
+### A board also owns documents
+
+A board holds cards, and since COLLIERY-T-0269 it can also own documents. The
+two are different relations. A card sits in a column of the board. A document
+that names the board sits nowhere: it has no column and the board view does
+not show it. The board gives the right to edit the document, and that is all.
+
+Any live board can own a document, whatever its level. The vision of a product
+usually names the delivery board of the team that builds the product, because
+the members of that team can then edit it with no grant. A board of the
+organisation can own a document too, and the people who edit it are the ones
+with `manage_documents` on that board.
+
+A document changes owner the way a task changes board: with the capability on
+both boards, the one that owns it now and the new one. The person who wrote
+the document can still edit it, but cannot hand it to another team alone, for
+the reason a task cannot be pushed onto a board.
+
+Owning documents is one more reason a board can refuse to go. A board that
+owns a live document is not deleted, and a team whose delivery board owns one
+is not deleted either. The documents name a different board first, or are put
+away. [Repositories as execution
+scope](repositories-as-execution-scope.md#a-document-is-about-a-repository-a-board-owns-it)
+explains why the owner is a board and not the repository that the document is
+about.
+
 The endpoints, their refusal codes and the exact capability names are in the
 [board and team reference](../reference/rest/boards-and-teams.md) and the
 [CLI reference](../reference/cli.md); this page is about why the rules are
@@ -171,6 +197,8 @@ shaped the way they are.
   (KAIROS-A-0001).
 - A board always has a team, in two forms (COLLIERY-T-0230, a decision of the
   product owner on 2026-09-27).
+- A board owns a document (COLLIERY-T-0269, a decision of the product owner
+  on 2026-09-29).
 - [One owning team per
   repository](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0019.md)
   (KAIROS-A-0019), amended by COLLIERY-A-0023: the team decides the board, and

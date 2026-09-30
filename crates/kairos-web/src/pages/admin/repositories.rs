@@ -10,6 +10,11 @@
 //! operator copies into the forge and never re-reads. Rotation is
 //! disconnect + connect (a new connection id = a new URL and secret).
 //!
+//! COLLIERY-T-0269: each row shows the documents and the ADRs that impact
+//! the repository (its vision, its architecture, the decisions about it),
+//! and makes a new document for the repository
+//! ([`crate::pages::repositories::documents`]).
+//!
 //! COLLIERY-T-0267: the two forms give the rule of the full name, of the
 //! URL and of the default branch before the user sends them. A refusal of
 //! the server about one of these fields shows next to that field.
@@ -298,6 +303,8 @@ fn RepositoryRow(
     let owner = format!("owner: {}", repo.team.slug);
     let repo_url = repo.repo_url.clone();
     let description = repo.description.clone();
+    let documents_slug = repo.slug.clone();
+    let owner_team = repo.team.id.clone();
 
     let on_save = move |_| {
         let reference = slug.get_value();
@@ -420,6 +427,8 @@ fn RepositoryRow(
             {(!description.is_empty()).then(|| view! {
                 <Text dimmed=true size="sm">{description}</Text>
             })}
+            <crate::pages::repositories::documents::RepositoryDocuments
+                slug=documents_slug owner_team/>
             <Show when=move || editing.get()>
                 <Stack gap="xs">
                     <Group gap="sm" wrap=true top=true>

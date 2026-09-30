@@ -645,6 +645,73 @@ async fn ws_events_against_live_stack() {
     assert_eq!(raw["short_code"], task4.short_code.as_str());
 
     // =========================================================================
+    // COLLIERY-T-0269: an `impacts` link and a change of the owner board of
+    // a document emit relationship_changed for the document, so an open
+    // page of the document reads it again
+    // =========================================================================
+    let events_team = common::seed_team(&mut acme, "Events", "events");
+    let repository = kairos_db::repositories::create(
+        &mut acme,
+        kairos_db::models::repositories::NewRepository {
+            slug: "fidius".into(),
+            forge: kairos_db::models::enums::Forge::Github,
+            repo_full_name: "acme/fidius".into(),
+            repo_url: "https://github.com/acme/fidius".into(),
+            default_branch: "main".into(),
+            team_id: events_team,
+            description: String::new(),
+            created_by: alice_id,
+            updated_by: alice_id,
+        },
+    )
+    .expect("creating the repository");
+    let vision = items::create_document_on_board(
+        &mut acme,
+        kairos_db::items::CreateDocument {
+            title: "The vision of fidius",
+            content: Some("…"),
+            template_id: None,
+        },
+        Some(acme_strategy_board),
+        alice_id,
+    )
+    .expect("creating the document");
+    let (event, raw) = recv_event(&mut stream).await;
+    assert_event_shape(&event, &raw, "item_created", "document");
+    assert_eq!(event.short_code, vision.short_code.as_str());
+    assert_eq!(
+        event.board_id, None,
+        "a document that names a board is not a card of that board: {raw}"
+    );
+
+    let document_changed = |event: &ThinEvent, raw: &Value, what: &str| {
+        assert_event_shape(event, raw, "relationship_changed", "document");
+        assert_eq!(event.short_code, vision.short_code.as_str(), "{what}");
+        assert_eq!(event.board_id, None, "{what}: {raw}");
+        assert_eq!(event.actor, alice_id.to_string(), "{what}");
+    };
+    kairos_db::impacts::link(&mut acme, vision.id, repository.id, alice_id)
+        .expect("the impacts link");
+    let (event, raw) = recv_event(&mut stream).await;
+    document_changed(&event, &raw, "the add of an impacts link");
+
+    let change = items::set_document_board(&mut acme, vision.id, Some(acme_delivery), alice_id)
+        .expect("the change of the owner board");
+    assert!(change.changed);
+    let (event, raw) = recv_event(&mut stream).await;
+    document_changed(&event, &raw, "the change of the owner board");
+
+    // The board that the document has: no write, and no event. The next
+    // event is that of the remove of the link.
+    let again = items::set_document_board(&mut acme, vision.id, Some(acme_delivery), alice_id)
+        .expect("the same owner board");
+    assert!(!again.changed);
+    kairos_db::impacts::unlink(&mut acme, vision.id, repository.id, alice_id)
+        .expect("the remove of the impacts link");
+    let (event, raw) = recv_event(&mut stream).await;
+    document_changed(&event, &raw, "the remove of an impacts link");
+
+    // =========================================================================
     // Clean disconnect / reconnect (timeout-bounded)
     // =========================================================================
     stream.close().await.expect("closing the helper stream");

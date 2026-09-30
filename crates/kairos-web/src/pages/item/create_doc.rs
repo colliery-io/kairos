@@ -125,7 +125,8 @@ fn TemplateForm(
             let body = CreateDocumentBody {
                 title: document_title,
                 template_id: selected_id.get_untracked(),
-                parent_short_code: parent_code.get_value(),
+                board: None,
+                parent_short_code: Some(parent_code.get_value()),
             };
             match api::create_document(auth, &body).await {
                 Ok(created) => navigate(

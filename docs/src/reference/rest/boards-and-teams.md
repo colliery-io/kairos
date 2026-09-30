@@ -87,6 +87,10 @@ Soft-delete a board. Only allowed when NO workflow item references it
 (422 `BOARD_NOT_EMPTY` otherwise — the T-0010 empty rule applied at
 board scope). Requires `configure_boards` on the board.
 
+A board that is the owner of a live document is not deleted
+(COLLIERY-T-0269): 422 `BOARD_OWNS_DOCUMENTS`. A document always has
+an owner. Name a different board for each document, or archive it.
+
 The only delivery board of a team is not deleted (COLLIERY-T-0241): 422
 `LAST_DELIVERY_BOARD`. A team always has a delivery board. To remove
 the board, delete the team (`DELETE /api/teams/{id}`), which removes
@@ -102,7 +106,7 @@ live items, because no retry can pass it.
 | `200` | [`OrgDeleteResponse`](schemas.md#orgdeleteresponse) | Soft-deleted |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY, or LAST_DELIVERY_BOARD |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY, LAST_DELIVERY_BOARD, or BOARD_OWNS_DOCUMENTS |
 
 ### `PATCH /api/boards/{id}`
 
@@ -471,7 +475,7 @@ applies the rule to each board, and it removes each board with the team
 | `200` | [`OrgDeleteResponse`](schemas.md#orgdeleteresponse) | Team and delivery board soft-deleted |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown team |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | BOARD_NOT_EMPTY, or BOARD_OWNS_DOCUMENTS |
 
 ### `PATCH /api/teams/{id}`
 

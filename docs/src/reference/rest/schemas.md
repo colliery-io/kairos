@@ -17,10 +17,10 @@ One `activity_log` row, as returned by `GET /api/activity`.
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
 | `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |
-| `entity_id` | `string`, nullable | no | The item acted on (UUID; null for relationship actions). |
+| `entity_id` | `string`, nullable | no | The item acted on (UUID). Null for a relationship between two items: `details` names the two. For an `impacts` link it is the document or the ADR of the link (COLLIERY-T-0269). |
 | `entity_short_code` | `string`, nullable | no | The short code of the item acted on (COLLIERY-T-0262), live or archived. Null when the entry is not about an item (a board, a team, a member), and when Kairos has no item with the id. |
 | `entity_title` | `string`, nullable | no | The title of the item acted on, as it is now. Null when `entity_short_code` is null. |
-| `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr` (null for relationship actions). |
+| `entity_type` | `string`, nullable | no | `strategy|initiative|task|document|adr`. Null when `entity_id` is null. |
 | `id` | `string` | yes | Row id (UUID). |
 | `occurred_at` | `string` | yes | RFC 3339. |
 
@@ -81,6 +81,7 @@ An Architecture Decision Record, as returned by `/api/adrs`. Board placement is 
 | `decision_date` | `string`, nullable | no | `YYYY-MM-DD`. |
 | `decision_maker` | `string`, nullable | no |  |
 | `id` | `string` | yes | Entity id (UUID). |
+| `impacts` | array of [`Impact`](schemas.md#impact) | no | The repositories that the ADR impacts (COLLIERY-T-0269), by slug. An `impacts` link says what the ADR is about. It gives no right. |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-A-{NNNN}`). |
 | `title` | `string` | yes |  |
 | `updated_at` | `string` | yes | RFC 3339. |
@@ -300,12 +301,13 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 
 ## CreateDocumentRequest
 
-Body of `POST /api/documents`. Documents attach to a workflow item at birth: `parent_short_code` is REQUIRED (KAIROS-T-0018 contract) and must name a strategy, initiative, or task; the server creates the `supports` edge and authorizes `manage_documents` against the parent's board.
+Body of `POST /api/documents`. A document has an owner from its create (COLLIERY-T-0269). Send `board`, or `parent_short_code`, or the two. With `board`, the document names that board as its owner. The caller needs `manage_documents` on that board. With `parent_short_code` and no `board`, the owner is the board of the parent (KAIROS-T-0018 contract). The parent must be a strategy, an initiative, or a task. The server creates the `supports` edge. The caller needs `manage_documents` on the board of the parent. With the two, the document supports the item and names the board. The board that it names is its owner. With none of the two, the server refuses the request: 422 `VALIDATION`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `board` | `string`, nullable | no | The owner board (slug or UUID): a live board of each level. The document is not a card of the board. |
 | `content` | `string`, nullable | no | Markdown content. Omitted + `template_id` set = the template's content is stamped in. |
-| `parent_short_code` | `string`, nullable | no | Short code of the workflow item this document supports. Required (422 `VALIDATION` when missing). |
+| `parent_short_code` | `string`, nullable | no | Short code of the workflow item this document supports. Required when the request has no `board` (422 `VALIDATION` when the two are missing). |
 | `template_id` | `string`, nullable | no | Template to stamp content + metadata defaults from (UUID). |
 | `title` | `string` | yes |  |
 
@@ -318,6 +320,16 @@ Body of `POST /api/forge-connections`: connect webhooks for a registered reposit
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `repository` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## CreateImpactRequest
+
+Body of `POST /api/{entity_type}/{short_code}/impacts` (COLLIERY-T-0269): the repository that the item impacts.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `repository` | `string` | yes | A live repository of the organization, by slug or UUID. It can be the repository of each team. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
@@ -543,6 +555,15 @@ Response of `DELETE /api/{family}/{short_code}` â the soft delete and its K
 | `not_reached` | array of [`NotReached`](schemas.md#notreached) | no | The live descendants that the archive did not reach, sorted by short code (COLLIERY-T-0234). They stay live and keep their `parent` edge. Absent when the archive reached each descendant. |
 | `short_code` | `string` | yes | The deleted item's short code. |
 
+## DeletedImpactResponse
+
+Response of `DELETE /api/{entity_type}/{short_code}/impacts/{repository}`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `repository` | `string` | yes | The slug of the repository that the item does not impact now. |
+| `short_code` | `string` | yes | The short code of the item. |
+
 ## DeletedResponse
 
 `DELETE` response for both service accounts and keys.
@@ -567,15 +588,17 @@ A delivery stream (`/api/delivery-streams`).
 
 ## Document
 
-A supporting document, as returned by `/api/documents`. Documents do not live on boards; they attach to a workflow item via a `supports` edge and inherit that item's board for authorization (KAIROS-A-0006). Their `lifecycle` is an editorial label (KAIROS-T-0078) â never board position.
+A supporting document, as returned by `/api/documents`. Documents do not live on boards: a document is never a card, and it has no column. A document has an owner (COLLIERY-T-0269). The owner is the board that the document names (`board_id`). When it names none, the owner is the board of the item that it supports (KAIROS-A-0006). The `lifecycle` is an editorial label (KAIROS-T-0078), and never a board position.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
+| `board_id` | `string`, nullable | no | The owner board (UUID): the board that the document names (COLLIERY-T-0269). It gives the right to edit the document. Null when the document names no board: its owner is then the board of the earliest item that it supports. |
 | `content` | `string` | yes | Markdown content. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `created_by` | `string` | yes | Creator user id (UUID). |
 | `id` | `string` | yes | Entity id (UUID). |
+| `impacts` | array of [`Impact`](schemas.md#impact) | no | The repositories that the document impacts (COLLIERY-T-0269), by slug. An `impacts` link says what the document is about. It gives no right. |
 | `lifecycle` | `string` | yes | Editorial lifecycle: `draft|review|published|archived` (KAIROS-T-0078). A label with free transitions â never a board column, never metadata. |
 | `short_code` | `string` | yes | Tenant-scoped short code (`{PREFIX}-D-{NNNN}`). |
 | `template_id` | `string`, nullable | no | Template the document was stamped from (UUID), if any. |
@@ -676,6 +699,43 @@ One row of `GET /api/{entity_type}/{short_code}/history`.
 | `edited_by` | `string` | yes | Editor user id (UUID). |
 | `version` | `integer` | yes | The content version this snapshot captured. |
 
+## Impact
+
+One `impacts` link of a document or of an ADR (COLLIERY-T-0269): a repository that the item is about. The link gives no right on the item and no right on the repository.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `created_at` | `string` | yes | When the link was made, RFC 3339. |
+| `relationship` | `string` | yes | Always `impacts`. |
+| `repository` | [`ImpactedRepository`](schemas.md#impactedrepository) | yes | The repository. |
+| `target_kind` | `string` | yes | Always `repository`. A later version can have other target kinds. |
+
+## ImpactedRepository
+
+The repository of an [`Impact`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `archived_at` | `string`, nullable | no | When the repository was archived, RFC 3339. Absent while the repository is live. The link stays when the repository is archived. |
+| `forge` | `string` | yes | `github|gitlab|other`. |
+| `id` | `string` | yes | Repository id (UUID). |
+| `repo_full_name` | `string` | yes | `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
+| `slug` | `string` | yes | The slug of the repository. |
+
+## ImpactingItem
+
+One document or ADR that impacts a repository (COLLIERY-T-0269), in [`RepositoryDetail`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `archived_at` | `string`, nullable | no | When the item was archived, RFC 3339. Absent while the item is live. |
+| `column` | `string`, nullable | no | The name of the column of an ADR. Null for a document, and for an ADR that is not on a board. |
+| `document_type` | `string`, nullable | no | The value of the metadata `document_type` (`vision`, `architecture`, ...). Null for an ADR, and for a document that has no document type. |
+| `entity_type` | `string` | yes | `document` or `adr`. |
+| `lifecycle` | `string`, nullable | no | The editorial lifecycle of a document: `draft|review|published|archived`. Null for an ADR. |
+| `short_code` | `string` | yes | The short code of the item. |
+| `title` | `string` | yes |  |
+
 ## Initiative
 
 An initiative (Flight Level 2), as returned by `/api/initiatives`.
@@ -697,6 +757,15 @@ An initiative (Flight Level 2), as returned by `/api/initiatives`.
 | `updated_at` | `string` | yes | RFC 3339. |
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
+
+## ItemImpactsResponse
+
+Response of `GET /api/{entity_type}/{short_code}/impacts`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `impacts` | array of [`Impact`](schemas.md#impact) | yes | The `impacts` links of the item, by the slug of the repository. |
+| `short_code` | `string` | yes | The short code of the item. |
 
 ## ItemLink
 
@@ -1212,7 +1281,7 @@ The `filter` capability. Fields are AND with each other; array values are OR wit
 | `include_deleted` | `boolean` | no | Include archived (soft-deleted) items (default false). Composes with every other capability — `q` and `traverse` included since KAIROS-T-0157 — and is a complete request on its own. Archived hits are served with `archived_at` set (KAIROS-A-0020). |
 | `is_bucket` | `boolean`, nullable | no | Restrict to (non-)bucket initiatives (initiative-level attribute; other entity types are excluded). |
 | `metadata` | `object`, nullable | no | Metadata conditions keyed by definition slug; string values support trailing-`*` globs (e.g. `"component": "auth*"`). All entries must match (AND). |
-| `repository` | `string`, nullable | no | Restrict to tasks issued against this repository (slug or UUID — KAIROS-T-0115 made every repository reference on the wire the same shape; the old name `repository_id` is refused, COLLIERY-T-0259). Task-level attribute, other entity types are excluded. |
+| `repository` | `string`, nullable | no | Restrict to the items of this repository (slug or UUID of a live repository — KAIROS-T-0115 made every repository reference on the wire the same shape; the old name `repository_id` is refused, COLLIERY-T-0259). The items of a repository are the tasks that link to it, and the documents and the ADRs that impact it (COLLIERY-T-0269). Strategies and initiatives are excluded. With `team_id`, `task_type` or `work_class`, only tasks match. |
 | `task_type` | `array`, nullable | no | Restrict to tasks of these types (`task|bug|tech_debt|support`; excludes non-task entities). |
 | `team_id` | `string`, nullable | no | Restrict to tasks assigned to this team (UUID; task-level attribute, other entity types are excluded). |
 | `work_class` | `array`, nullable | no | Restrict to tasks in these Planned/Support lanes (`planned|support`, KAIROS-T-0077; task-level attribute, other entity types are excluded). |
@@ -1332,6 +1401,16 @@ One session, for the audit listing. Never the token or its hash.
 | `id` | `string` | yes |  |
 | `last_used_at` | `string`, nullable | no | `null` until the session is first used. |
 | `revoked_at` | `string`, nullable | no | `null` while the session is live. |
+
+## SetDocumentBoardRequest
+
+Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): set, change or remove the owner board of a document. `board` must be in the body. Its value is the slug or the id of a live board. A null or an empty string removes the board. After that, the owner is the board of the earliest item that the document supports. When the document supports no item, the server refuses that request with 422 `LAST_OWNER`. The board that the document has changes nothing: the response is 200, and the server writes nothing.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board` | `string`, nullable | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## SetLifecycleRequest
 

@@ -205,7 +205,9 @@ pub struct TaskChangeset {
 // ---------------------------------------------------------------------------
 
 /// A supporting document (`documents`); child of any entity via the
-/// relationship graph. Documents do not live on boards.
+/// relationship graph. Documents do not live on boards: a document is
+/// never a card, and it has no column. It can NAME a board as its owner
+/// (`board_id`, COLLIERY-T-0269).
 #[derive(Debug, Clone, PartialEq, Eq, Queryable, Selectable, Identifiable, Associations)]
 #[diesel(table_name = documents)]
 #[diesel(belongs_to(Template, foreign_key = template_id))]
@@ -224,6 +226,12 @@ pub struct Document {
     pub updated_at: DateTime<Utc>,
     /// Editorial state (KAIROS-T-0078) — a label, never board position.
     pub lifecycle: DocumentLifecycle,
+    /// The OWNER board (COLLIERY-T-0269): the board that the document
+    /// names, which gives the right to edit it. `None` = the document
+    /// names no board, and it takes the board of the item that it
+    /// supports. It is not a position: the document is not a card, and it
+    /// has no column.
+    pub board_id: Option<Uuid>,
 }
 
 /// Insert for [`Document`].

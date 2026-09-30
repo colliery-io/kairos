@@ -414,32 +414,42 @@ is that a listing nobody asked hides put-away work. Note this is the
 the same name (KAIROS-T-0078) — a published document can be
 editorially archived and perfectly live.
 
+`?repository=` keeps the documents that impact that repository
+(COLLIERY-T-0269). The value is the slug or the id of a live
+repository. An unknown repository is a 422 `VALIDATION`.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false. |
+| `repository` | query | no | `string` | Only the items that impact this repository (slug or UUID of a live repository). An unknown repository is a 404 `NOT_FOUND`. |
 
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`ListEnvelope_Document`](schemas.md#listenvelope_document) | Page of documents |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 
 ### `POST /api/documents`
 
-Create a document attached to a workflow item (`parent_short_code`
-REQUIRED — see the module docs). Requires `manage_documents` on the
-parent's board. COLLIERY-T-0228 did not change this gate. A document
-has no board, so this gate decides which item a document can support. With `template_id`, the template's content and metadata
+Create a document. It needs an owner: `board`, or `parent_short_code`,
+or the two (COLLIERY-T-0269, see the module docs).
+
+With `board`, the caller needs `manage_documents` on that board. With
+`parent_short_code` and no `board`, the caller needs `manage_documents`
+on the board of the parent. COLLIERY-T-0228 did not change this gate.
+With `template_id`, the template's content and metadata
 defaults are stamped (KAIROS-A-0003).
 
 Request body (required): `application/json`, [`CreateDocumentRequest`](schemas.md#createdocumentrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
-| `201` | [`Document`](schemas.md#document) | Created (supports edge written) |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability on the parent's board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/unknown parent, non-workflow parent, or unknown template |
+| `201` | [`Document`](schemas.md#document) | Created. With parent_short_code, the supports edge is written |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability on the board that the document names, or on the board of the parent |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No board and no parent, unknown parent, non-workflow parent, or unknown template |
 
 ### `GET /api/documents/{short_code}`
 
@@ -459,7 +469,9 @@ Get one document by short code (open tenant-wide).
 Soft-delete a document.
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
-document, holds `manage_documents` on the board of its parent, or is an organization admin.
+document, holds `manage_documents` on the board of the document, or is an organization admin.
+The archive removes no `impacts` link, and the restore needs no
+repair (COLLIERY-T-0269).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -476,7 +488,10 @@ document, holds `manage_documents` on the board of its parent, or is an organiza
 Update document content (KAIROS-A-0004 optimistic concurrency).
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
-document, holds `manage_documents` on the board of its parent, or is an organization admin.
+document, holds `manage_documents` on the board of the document, or is an organization admin.
+The board of the document is the board that it names. When it names
+none, it is the board of the earliest item that it supports
+(COLLIERY-T-0269).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -491,13 +506,46 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
+### `PATCH /api/documents/{short_code}/board`
+
+Set, change or remove the owner board of a document (COLLIERY-T-0269).
+
+This is a move and not an edit. The caller needs `manage_documents` on
+two boards: the board that owns the document now, and the new board.
+An organization admin needs no capability. The creator of the document
+gets no right to change its owner.
+
+A null or an empty `board` removes the board. After that, the owner is
+the board of the earliest item that the document supports. The server
+refuses that request for a document that supports no item: 422
+`LAST_OWNER`. Link the document to a work item first, or name a
+different board.
+
+The board that the document has changes nothing: the response is 200,
+and the server writes nothing. Not a content edit: no version bump and
+no history row. The activity log gets one entry with the action
+`update`.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Document short code |
+
+Request body (required): `application/json`, [`SetDocumentBoardRequest`](schemas.md#setdocumentboardrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Document`](schemas.md#document) | The document, with its owner board |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_documents on the board that owns the document now, or on the new board |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code, or unknown board |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_OWNER: the document supports no item. VALIDATION: the body has no board |
+
 ### `PATCH /api/documents/{short_code}/lifecycle`
 
 Set a document's editorial lifecycle (KAIROS-T-0078): a free-transition
 label — draft | review | published | archived.
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
-document, holds `manage_documents` on the board of its parent, or is an organization admin.
+document, holds `manage_documents` on the board of the document, or is an organization admin.
 The lifecycle is a label and not a column, so this write is an edit and
 not a move. Not a
 content edit: no version bump, no history row; activity-logged and
@@ -526,16 +574,22 @@ List ADRs (open tenant-wide, S-0005 list envelope).
 marked with `archived_at` (KAIROS-A-0020 rule 2). Default false: rule 3
 is that a listing nobody asked hides put-away work.
 
+`?repository=` keeps the ADRs that impact that repository
+(COLLIERY-T-0269). The value is the slug or the id of a live
+repository. An unknown repository is a 422 `VALIDATION`.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `limit` | query | no | `integer` | Page size (default 50, max 200). |
 | `offset` | query | no | `integer` | Rows to skip (default 0). |
-| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false â rule 3 is that a listing nobody asked hides them. `total` widens with the page, never independently of it. |
+| `include_deleted` | query | no | `boolean` | Include archived (put-away) rows, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false. |
+| `repository` | query | no | `string` | Only the items that impact this repository (slug or UUID of a live repository). An unknown repository is a 404 `NOT_FOUND`. |
 
 | Response | Body | Meaning |
 |---|---|---|
 | `200` | [`ListEnvelope_Adr`](schemas.md#listenvelope_adr) | Page of ADRs |
 | `401` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing/invalid token |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 
 ### `POST /api/adrs`
 

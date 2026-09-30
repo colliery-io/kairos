@@ -57,6 +57,11 @@
 //!    `deleted_at IS NULL` default. Filters on attributes a type does not
 //!    have exclude the type outright (e.g. `task_type` ⇒ tasks only,
 //!    `board_id` ⇒ no documents), so those types cost no query at all.
+//!    `repository_id` keeps three types (COLLIERY-T-0269): the tasks that
+//!    link to the repository, and the documents and the ADRs that impact
+//!    it. `board_id` is the board that an item is a card of. A document
+//!    is a card of no board, the board that it names as its owner too, so
+//!    `board_id` excludes each document.
 //! 7. **Sort, count, paginate**: the combined cross-type rows are sorted
 //!    in memory (`created_at`/`updated_at`/`title`/`relevance`, tie-broken by
 //!    `short_code` for determinism), `total` is counted **before**
@@ -539,13 +544,15 @@ fn applicable_types(filter: Option<&SearchFilter>) -> Vec<ItemType> {
             // Documents do not live on boards.
             types.retain(|t| *t != ItemType::Document);
         }
-        if filter.team_id.is_some()
-            || filter.repository_id.is_some()
-            || filter.task_type.is_some()
-            || filter.work_class.is_some()
-        {
-            // team_id, repository_id, task_type, and work_class are
-            // task-level attributes.
+        if filter.repository_id.is_some() {
+            // COLLIERY-T-0269: a task links to a repository, and a
+            // document or an ADR impacts one. A strategy and an
+            // initiative have no link to a repository.
+            types.retain(|t| matches!(t, ItemType::Task | ItemType::Document | ItemType::Adr));
+        }
+        if filter.team_id.is_some() || filter.task_type.is_some() || filter.work_class.is_some() {
+            // team_id, task_type, and work_class are task-level
+            // attributes.
             types.retain(|t| *t == ItemType::Task);
         }
         if filter.is_bucket.is_some() {
@@ -578,6 +585,20 @@ fn model_work_class(work_class: SearchWorkClass) -> WorkClass {
         SearchWorkClass::Planned => WorkClass::Planned,
         SearchWorkClass::Support => WorkClass::Support,
     }
+}
+
+/// The ids of the items that impact a repository (COLLIERY-T-0269), as a
+/// subquery: the filter `repository_id` of a document and of an ADR. It
+/// is part of the hydration query of the type, so it adds no query.
+fn impacting(
+    repository_id: Uuid,
+) -> crate::schema::item_impacts::BoxedQuery<'static, diesel::pg::Pg, SqlUuid> {
+    use crate::schema::item_impacts::dsl;
+    dsl::item_impacts
+        .filter(dsl::target_kind.eq(crate::impacts::TARGET_REPOSITORY))
+        .filter(dsl::target_id.eq(repository_id))
+        .select(dsl::item_id)
+        .into_boxed()
 }
 
 fn hydrate_strategies(
@@ -724,6 +745,10 @@ fn hydrate_documents(
         if !filter.include_deleted {
             query = query.filter(dsl::deleted_at.is_null());
         }
+        if let Some(repository_id) = filter.repository_id {
+            // COLLIERY-T-0269: the documents that impact the repository.
+            query = query.filter(dsl::id.eq_any(impacting(repository_id)));
+        }
         if let Some(after) = filter.created_after {
             query = query.filter(dsl::created_at.gt(after));
         }
@@ -753,6 +778,10 @@ fn hydrate_adrs(
     if let Some(filter) = filter {
         if !filter.include_deleted {
             query = query.filter(dsl::deleted_at.is_null());
+        }
+        if let Some(repository_id) = filter.repository_id {
+            // COLLIERY-T-0269: the ADRs that impact the repository.
+            query = query.filter(dsl::id.eq_any(impacting(repository_id)));
         }
         if let Some(board_id) = filter.board_id {
             query = query.filter(dsl::board_id.eq(board_id));

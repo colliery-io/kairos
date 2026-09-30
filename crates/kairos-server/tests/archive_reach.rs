@@ -1221,6 +1221,7 @@ async fn archive_reach_and_proposal_confirm_against_live_stack() {
     // =======================================================================
     let document = svc
         .create_document(&CreateDocumentRequest {
+            board: None,
             title: "11: the document of the organization".into(),
             content: Some("original content".into()),
             template_id: None,

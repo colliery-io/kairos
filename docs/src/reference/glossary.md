@@ -19,7 +19,7 @@ An entry has one of these actions:
 | Action | The change |
 |---|---|
 | `create` | A person made an item, a board, a team, a delivery stream, a team page, a membership, an API key or a SCIM token. |
-| `update` | A person changed a team, a delivery stream, the role of a member, or the profile of a user. |
+| `update` | A person changed a team, a delivery stream, the role of a member, or the profile of a user. A person changed the owner board of a document. |
 | `delete` | A person deleted or archived one of them. |
 | `restore` | A person restored an archived item. |
 | `transition` | An item moved to a different column of its board. |
@@ -28,10 +28,14 @@ An entry has one of these actions:
 | `work_class` | A task changed its lane. |
 | `lifecycle` | A document changed its [editorial lifecycle](#editorial-lifecycle). |
 | `repository` | A person added, changed or deleted a repository, or changed the repository of a task. |
-| `relationship_add` | A person added an edge between two items. |
-| `relationship_remove` | A person removed an edge between two items. |
+| `relationship_add` | A person added an edge between two items, or an [`impacts`](#impacts) link. |
+| `relationship_remove` | A person removed an edge between two items, or an `impacts` link. |
 | `capability_grant` | A person gave a capability on a board to a user. |
 | `capability_revoke` | A person removed a capability on a board from a user. |
+
+An entry about an edge between two items names no entity. Its details have the
+two short codes. An entry about an `impacts` link names the document or the
+ADR as its entity.
 
 Before COLLIERY-T-0265, a change to a team, a delivery stream, a role or a user
 had the action `create`. Kairos does not change old entries.
@@ -97,6 +101,20 @@ caller can edit: see [cascade](#cascade).
 See [Archiving](../explanation/archiving.md) for why the state is defined this
 way.
 
+## authorization board
+
+The board that the server reads to decide who can write an item. A principal
+with `manage_<type>` on that board can edit the item.
+
+| Item | Authorization board |
+|---|---|
+| Strategy, initiative, task, ADR on a board | The board of the item |
+| Document that names a board | Its [owner board](#owner-board) |
+| Document that names no board | The board of the earliest item that it supports |
+
+An ADR that is on no board has no authorization board. See
+[Capabilities](capabilities.md#how-a-board-is-resolved).
+
 ## board
 
 Four board **levels** exist — `strategy`, `initiative`, `delivery`, `adr` —
@@ -134,8 +152,8 @@ Every board has a team. The rule has two forms.
   to the board.
   Kairos refuses to create a board of the organization with a `team_id`.
 
-Documents sit on no board at all. They inherit their parent item's board for
-authorization purposes.
+Documents sit on no board at all. A document has an owner, and the owner is a
+board: see [owner board](#owner-board).
 
 ## bucket
 
@@ -233,16 +251,29 @@ A slug that a caller sends must agree with the rule of a [slug](#slug).
 
 ## document
 
-One of the five work-item types, letter `D`. A document supports a strategy,
-an initiative or a task, through a `supports` edge that is required at
-creation. That item is the parent of the document. Documents have no board
+One of the five work-item types, letter `D`. Documents have no board
 placement and therefore no column and no
 transitions; instead they carry an editorial lifecycle. A document may be
 stamped from a template.
 
-A document always has a parent. It can have more than one. The board of the
-earliest parent is the authorization board of the document. The server refuses
-to remove the last `supports` edge of a document (`LAST_PARENT`).
+A document can support a strategy, an initiative or a task, through a
+`supports` edge. That item is a parent of the document. A document can have
+more than one parent, and it can have none.
+
+A document always has an owner. The owner is a board:
+
+- the [owner board](#owner-board) that the document names, or
+- the board of the earliest parent, when the document names no board.
+
+The create of a document needs a board, or a parent, or the two. The server
+refuses each write that leaves a document with no owner:
+
+- `LAST_PARENT` for the last `supports` edge of a document that names no board
+- `LAST_OWNER` for the owner board of a document that supports no item
+
+A document can [impact](#impacts) a repository. That link says what the
+document is about. See
+[The owner of a document](capabilities.md#the-owner-of-a-document).
 
 ## done column
 
@@ -271,8 +302,10 @@ one of these conditions is true:
 - The principal is an organization admin.
 
 An edit is a change of the title, the content, the metadata, the repository of
-a task, or the editorial lifecycle of a document. An archive and a restore are
-edits also. A move is not an edit. See [Capabilities](capabilities.md#the-edit-rule).
+a task, or the editorial lifecycle of a document. An `impacts` link of a
+document or of an ADR is an edit of that item. An archive and a restore are
+edits also. A move is not an edit. The change of the owner board of a
+document is a move. See [Capabilities](capabilities.md#the-edit-rule).
 
 ## entry column
 
@@ -310,6 +343,38 @@ Documents (`D`) and ADRs (`A`) carry short codes but are not flight levels.
 
 See [Flight levels](../explanation/flight-levels.md).
 
+## impacts
+
+The relationship from a document or an ADR to a repository. It says what the
+item is about. The vision of the repository `fidius` impacts `fidius`.
+
+The link gives no right. The owner team of the repository gets no right on the
+item. A principal who can edit the item can write the link, and needs no right
+on the repository. See
+[Capabilities](capabilities.md#who-can-write-an-impacts-link).
+
+An item can impact more than one repository. A task does not impact a
+repository: a task links to one repository, which says where its code is.
+
+An `impacts` link is not an edge between two items. A repository is not an
+item and has no short code. So these reads do not show the link:
+
+- the graph view
+- `GET /api/{type}/{short_code}/relationships`
+- the traversal of a search
+- the cascade of an archive
+
+These reads show the link:
+
+- the item: `impacts` of a document or of an ADR, and the line `impacts` of
+  `get_item`
+- the repository: `impacted_by` of `GET /api/repositories/{slug}`, and
+  `get_repository`
+- the filter `repository` of a search, and of the list of documents and of ADRs
+
+A link stays when the repository is deleted, and when the item is archived.
+A read shows the repository or the item with a mark.
+
 ## initiative
 
 One of the five work-item types, letter `I`. Flight Level 2. May carry a
@@ -333,6 +398,9 @@ the rule applies to the confirm also. See
 The `supports` edge of a document is the one exception: the principal must be
 able to edit the document.
 
+An [`impacts`](#impacts) link is not an edge between two items. The edit rule
+of the document or of the ADR decides who can write it.
+
 ## metadata definition
 
 A tenant-scoped custom field: a slug, a type of `string`, `enum` or `date`, and
@@ -349,13 +417,34 @@ The tenant. One organization per tenant, holding its own schema, boards, teams
 and work. Every short code's prefix defaults to the organization slug,
 upper-cased and reduced to `A-Z0-9`.
 
+## owner board
+
+The board that a document names as its owner. The owner board gives the right
+to edit the document: a principal with `manage_documents` on it can edit the
+document. It is the [authorization board](#authorization-board) of the
+document.
+
+Each live board can be an owner board. Its level can be `strategy`,
+`initiative`, `delivery` or `adr`.
+
+The document is not a card of its owner board. It has no column and no
+transition, and the board view does not show it.
+
+A document can name no board. The board of the earliest item that it supports
+owns that document.
+
+The change of the owner board is a move. The principal needs
+`manage_documents` on the board that owns the document now and on the new
+board. See [Capabilities](capabilities.md#who-can-change-the-owner).
+
 ## put away
 
 See sense 1 of [archived](#archived).
 
 ## relationship
 
-A directed edge between two items. Five types exist:
+A directed edge between two items. Five types of edge exist, and a sixth
+relationship goes to a repository:
 
 | Type | Meaning |
 |---|---|
@@ -364,11 +453,13 @@ A directed edge between two items. Five types exist:
 | `informs` | One item informs another without owning it. |
 | `supersedes` | One item replaces another. |
 | `blocks` | The source blocks the target. |
+| [`impacts`](#impacts) | A document or an ADR is about a repository. The target is a repository and not an item. Kairos does not keep this link as an edge between two items. |
 
 Which types are legal between which item types is enforced, as is cycle
 prevention. The [link rule](#link-rule) decides who can write an edge, and it
 is the same for the five types. The `supports` edge of a document is the one
-exception.
+exception. The [edit rule](#edit-rule) of the document or of the ADR decides
+who can write an `impacts` link.
 
 **Complete work does not block, and nothing blocks complete work.** A `blocks`
 edge counts only while the items at both ends can move. The edge stops counting
@@ -578,6 +669,9 @@ See [Teams and boards](../explanation/teams-and-boards.md).
 A reusable starting point for a document: content to stamp, plus a set of
 metadata definitions to collect.
 
+A new tenant has the templates "Product Vision" and "Company Vision". The two
+give the document type `vision`. See [vision](#vision).
+
 ## tenant
 
 See [organization](#organization). A deployment resolves which tenant a request
@@ -596,6 +690,22 @@ An item's content revision counter. Content edits bump it and write a history
 snapshot; edits are optimistically concurrent, so an edit based on a stale
 version is refused with `CONFLICT` carrying the current version. Setting a
 document's editorial lifecycle is not a content edit and does not bump it.
+
+## vision
+
+A document that says why a thing exists. It has the document type `vision`,
+which is a value of the metadata definition `document_type`.
+
+A vision can be about a repository, a product or a capability. A team writes
+it from the template "Product Vision". The template has these sections: Purpose,
+Who It Is For, Current State, Future State, Principles, What It Is Not.
+
+Such a vision names the board of a team as its
+[owner board](#owner-board). It [impacts](#impacts) the repository that it is
+about. It is not the vision of the organization.
+
+The vision of the organization is a document from the template "Company
+Vision".
 
 ## work class
 

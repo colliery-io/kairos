@@ -213,6 +213,8 @@ CODE_BASELINE_PATH = REPO_ROOT / "scripts" / "ste-code-baseline.json"
 CODE_SCOPE = [
     "crates/kairos-core/src",
     "crates/kairos-db/src",
+    "crates/kairos-index/src",
+    "crates/kairos-cli/src/index",
     "crates/kairos-server/src/api",
     "crates/kairos-server/src/mcp",
     "crates/kairos-server/src/middleware",

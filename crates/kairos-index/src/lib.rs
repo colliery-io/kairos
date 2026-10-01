@@ -27,6 +27,7 @@ mod edges;
 mod extract;
 #[cfg(feature = "llama")]
 mod llama;
+mod query;
 pub mod rules;
 pub mod rust_analyzer;
 mod schema;
@@ -43,6 +44,10 @@ use sha2::{Digest, Sha256};
 
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
+pub use query::{
+    CallEdge, Counts, External, FileInfo, Lookup, ModuleInfo, PathStep, SearchHit, SearchMode,
+    SearchResult, SymbolInfo,
+};
 pub use rules::{Decision, Origin, RuleSet};
 pub use rust_analyzer::BuildOptions;
 pub use schema::SCHEMA_VERSION;
@@ -51,6 +56,10 @@ pub use summary::{
     SummarizeOptions, Summarizer, SummaryCall, SummaryReport, SummaryRequest, model_path,
     summarize,
 };
+
+/// The index of a checkout, from its root (COLLIERY-T-1852). A build does not
+/// read it, or its journal, as a file of the tree.
+pub const INDEX_FILE: &str = ".kairos/index.db";
 
 /// A file larger than this is read only in part: enough for the header and
 /// the rules. The default rules exclude it (`too-large`), so it is never
@@ -187,29 +196,27 @@ pub struct EdgeRecord {
 pub enum IndexError {
     #[error("The repository root {0} is not a folder.")]
     NotAFolder(PathBuf),
-    #[error("Cannot read {path}: {source}")]
+    #[error("Cannot read {path}: {source}.")]
     Io {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("Cannot read the tree: {0}")]
+    #[error("Cannot read the tree: {0}.")]
     Walk(#[from] ignore::Error),
-    #[error("The rules file {path} is not valid: {message}")]
+    #[error("The rules file {path} is not valid: {message}.")]
     Rules { path: PathBuf, message: String },
     #[error(
         "The index has schema version {found}. This version of Kairos reads version {}.",
         SCHEMA_VERSION
     )]
     SchemaVersion { found: i64 },
-    #[error("The index database has an error: {0}")]
+    #[error("The index database has an error: {0}.")]
     Db(#[from] rusqlite::Error),
-    #[error("The parser did not start: {0}")]
+    #[error("The parser did not start: {0}.")]
     Parser(String),
-    #[error(
-        "The Rust edges need the {0} component, and it is not installed. Run `rustup component add {0}`."
-    )]
+    #[error("The Rust edges need the {0} component. Run `rustup component add {0}`.")]
     MissingComponent(&'static str),
-    #[error("rust-analyzer scip failed: {0}")]
+    #[error("The SCIP run of rust-analyzer failed: {0}.")]
     Scip(String),
     #[error(
         "The rust-analyzer binary {path} has the sha256 {found}. The pinned value is {expected}."
@@ -223,11 +230,11 @@ pub enum IndexError {
         "The pinned rust-analyzer is not at {0}. Run `angreal dev fetch-rust-analyzer` to download it."
     )]
     RustAnalyzerMissing(PathBuf),
-    #[error("No rust-analyzer release is pinned for {0}.")]
+    #[error("The index has no pinned rust-analyzer release for {0}.")]
     RustAnalyzerPlatform(String),
-    #[error("The download of rust-analyzer failed: {0}")]
+    #[error("The download of rust-analyzer failed: {0}.")]
     RustAnalyzerDownload(String),
-    #[error("rust-analyzer did not run with the build turned off: {0}.")]
+    #[error("The SCIP run did not turn off the build: {0}.")]
     BuildNotOff(String),
     #[error("The summarizer gave no summary for {name}: {message}.")]
     Summary { name: String, message: String },
@@ -235,9 +242,9 @@ pub enum IndexError {
     Changed(String),
     #[error("The summary pool has vectors of the model {pool}. This run uses {run}.")]
     VectorModel { pool: String, run: String },
-    #[error("The vectors failed: {0}")]
+    #[error("The vectors failed: {0}.")]
     Embed(String),
-    #[error("{0}")]
+    #[error("The summary model failed: {0}.")]
     Model(String),
     #[error("The index {0} is there already. Give the name of a new file.")]
     Exists(PathBuf),
@@ -519,6 +526,7 @@ fn walk(root: &Path) -> Result<Vec<(String, PathBuf)>, IndexError> {
         .follow_links(false)
         .filter_entry(|entry| entry.file_name() != ".git")
         .build();
+    let index_file = root.join(INDEX_FILE);
     let mut files = Vec::new();
     for entry in walker {
         let entry = entry?;
@@ -526,6 +534,14 @@ fn walk(root: &Path) -> Result<Vec<(String, PathBuf)>, IndexError> {
             continue;
         }
         let abs = entry.into_path();
+        // The index and its SQLite journal files (`-journal`, `-wal`).
+        if abs
+            .as_os_str()
+            .as_encoded_bytes()
+            .starts_with(index_file.as_os_str().as_encoded_bytes())
+        {
+            continue;
+        }
         let rel = abs
             .strip_prefix(root)
             .expect("the walk stays under the root")
@@ -910,5 +926,17 @@ mod tests {
         std::fs::write(repo.join("main.go"), "package main\nfunc main() {}\n").unwrap();
         let paths: Vec<String> = walk(repo).unwrap().into_iter().map(|(p, _)| p).collect();
         assert_eq!(paths, [".gitignore", "main.go"]);
+    }
+
+    #[test]
+    fn the_index_of_the_checkout_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        std::fs::create_dir_all(repo.join(".kairos")).unwrap();
+        std::fs::write(repo.join(".kairos/index.db"), "x").unwrap();
+        std::fs::write(repo.join(".kairos/index.db-journal"), "x").unwrap();
+        std::fs::write(repo.join(".kairos/index-rules.toml"), "").unwrap();
+        let paths: Vec<String> = walk(repo).unwrap().into_iter().map(|(p, _)| p).collect();
+        assert_eq!(paths, [".kairos/index-rules.toml"]);
     }
 }

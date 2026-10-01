@@ -626,7 +626,7 @@ fn summary_of(conn: &Connection, key: &str) -> Result<Option<String>, IndexError
 }
 
 /// The model of the vectors, as `pool_meta` keeps it.
-fn model_name(embedder: &dyn EmbeddingProvider) -> String {
+pub(crate) fn model_name(embedder: &dyn EmbeddingProvider) -> String {
     let id = embedder.model_id();
     format!("{}/{}/{}", id.provider, id.model, id.dimension)
 }

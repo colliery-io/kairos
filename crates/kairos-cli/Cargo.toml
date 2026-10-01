@@ -28,6 +28,20 @@ chrono = { workspace = true }
 # line from stdin and shows what is typed. Turning the echo off is termios on
 # Unix and the console API on Windows, which is not code to write by hand.
 rpassword = "7.5.4"
+# `kairos index` and the local code tools (COLLIERY-T-1852). The index is
+# one SQLite file in the checkout; the server talks MCP over stdio with the
+# same SDK as the server of Kairos.
+kairos-index = { path = "../kairos-index" }
+kairos-embed = { path = "../kairos-embed", default-features = false }
+rmcp = { workspace = true, features = ["server", "transport-io"] }
+
+[features]
+default = []
+# The summarizer of the index: llama.cpp (built with cmake and a C++
+# compiler) and the local vector model (onnxruntime). The release build does
+# not have it, so `kairos index` makes the structure and the edges only, and
+# says that it made no summaries.
+llama = ["kairos-index/llama", "kairos-embed/local"]
 
 [dev-dependencies]
 # tests/cli_live.rs boots the production router in-process against a
@@ -43,3 +57,11 @@ uuid = { workspace = true }
 # browser would; cookies keep any Dex session state across the redirects.
 reqwest = { workspace = true, features = ["cookies"] }
 tempfile = "3.14.0"
+# The scenarios of `kairos index` (COLLIERY-T-1852): cucumber, and the
+# deterministic vectors of the indexes that they build.
+cucumber = "0.23"
+
+# The scenarios in tests/features/. cucumber has its own runner, not libtest.
+[[test]]
+name = "index_bdd"
+harness = false

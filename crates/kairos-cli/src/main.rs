@@ -25,6 +25,10 @@
 //! (+members), `streams` (+teams), `members`, and `admin tenants`. Human
 //! tables by default, `--json` everywhere.
 //!
+//! `kairos index` (COLLIERY-T-1852) needs no deployment: it builds the code
+//! index of a checkout and serves its code tools to an agent over stdio
+//! ([`index`]).
+//!
 //! Exit codes (KAIROS-A-0015): 0 success · 1 API/validation error ·
 //! 2 auth error.
 
@@ -32,6 +36,7 @@ mod commands;
 mod context;
 mod credentials;
 mod error;
+mod index;
 mod oidc;
 mod password;
 mod provider;
@@ -57,6 +62,7 @@ use commands::streams::StreamsCommand;
 use commands::teams::TeamsCommand;
 use credentials::{CredentialStore, DeploymentCredentials, unix_now};
 use error::CliError;
+use index::IndexCommand;
 use kairos_client::types_auth::LoginRequest;
 use kairos_client::types_org::WhoamiResponse;
 use kairos_client::{Error as ApiError, KairosClient};
@@ -174,6 +180,9 @@ enum Command {
     /// Deployment administration (tenant provisioning)
     #[command(subcommand)]
     Admin(AdminCommand),
+    /// The code index of a checkout, and its code tools for an agent (COLLIERY-T-1852)
+    #[command(subcommand)]
+    Index(IndexCommand),
 }
 
 #[tokio::main]
@@ -221,6 +230,7 @@ async fn run(command: Command) -> Result<(), CliError> {
         Command::ServiceAccounts(command) => command.run().await,
         Command::Keys(command) => command.run().await,
         Command::Admin(command) => command.run().await,
+        Command::Index(command) => command.run().await,
     }
 }
 

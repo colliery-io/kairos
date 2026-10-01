@@ -21,8 +21,10 @@
 //!   build commands do nothing, and the rest goes to the real `cargo`.
 //!
 //! **The rust-analyzer** is the pinned standalone release of
-//! [`crate::rust_analyzer`], with the sysroot (and `rust-src`) of the
-//! toolchain of the repository.
+//! [`crate::rust_analyzer`], with the sysroot of the toolchain of the
+//! repository and the pinned std source (`cargo.sysrootSrc`, COLLIERY-T-1860).
+//! The `rust-src` of the toolchain is not used. The log must name the
+//! pinned std source; the run is refused if not.
 //!
 //! **A file in 2 crates.** rust-analyzer 1.93.0 `scip` panics when one file
 //! is a module of 2 crates ("Invariant violation: file emitted multiple
@@ -97,7 +99,8 @@ pub mod proto {
 
 /// The log targets that tell what rust-analyzer ran. The rest of its info
 /// log is large and is not needed.
-const RA_LOG: &str = "warn,load_cargo=info,project_model::build_dependencies=info";
+const RA_LOG: &str =
+    "warn,load_cargo=info,project_model::build_dependencies=info,project_model::workspace=info";
 
 /// The panic of rust-analyzer 1.93.0 `scip` on a file in 2 crates.
 const SHARED_FILE_PANIC: &str = "file emitted multiple times";
@@ -141,9 +144,8 @@ pub fn run(
         .filter(|o| o.status.success())
         .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
         .ok_or_else(|| IndexError::Scip("rustc --print sysroot did not run".into()))?;
-    if !sysroot.join("lib/rustlib/src/rust/library").is_dir() {
-        return Err(IndexError::MissingComponent("rust-src"));
-    }
+    // The pinned std source, with the sha256 of its archive checked.
+    let std_source = crate::rust_analyzer::resolve_std_source(options)?;
 
     let work = tempfile::Builder::new()
         .prefix("kairos-scip-")
@@ -192,6 +194,7 @@ pub fn run(
         "cargo": {
             "buildScripts": { "enable": false, "overrideCommand": ["true"] },
             "sysroot": fake_sysroot,
+            "sysrootSrc": std_source,
             "targetDir": target_dir,
         },
         "procMacro": { "enable": false },
@@ -249,6 +252,18 @@ pub fn run(
             "a proc-macro server started".into(),
         ));
     }
+    let logged = std_sources(&log);
+    if logged.is_empty() || logged.iter().any(|p| !same_path(p, &std_source)) {
+        return Err(IndexError::Scip(format!(
+            "rust-analyzer did not read the pinned std source {}. Its log names {}",
+            std_source.display(),
+            if logged.is_empty() {
+                "no std source".to_string()
+            } else {
+                logged.join(", ")
+            }
+        )));
+    }
 
     let bytes = fs::read(&output_path).map_err(io(&output_path))?;
     let index = <proto::Index as prost::Message>::decode(bytes.as_slice())
@@ -262,6 +277,7 @@ pub fn run(
         build_script_command,
         proc_macro_server_started,
         rust_analyzer,
+        std_source: logged.first().map(PathBuf::from),
         left_out_targets,
         documents: index.documents.len(),
         occurrences: index.documents.iter().map(|d| d.occurrences.len()).sum(),
@@ -594,6 +610,24 @@ fn build_script_command(log: &str) -> Option<String> {
     Some(words.join(" "))
 }
 
+/// The std sources in the log: `Using sysroot … src_root=Some(AbsPath("…"))`
+/// gives the path in the quotes.
+fn std_sources(log: &str) -> Vec<String> {
+    const START: &str = "src_root=Some(AbsPath(\"";
+    log.lines()
+        .filter(|l| l.contains("Using sysroot"))
+        .filter_map(|l| {
+            let rest = &l[l.find(START)? + START.len()..];
+            Some(rest[..rest.find("\"))")?].to_string())
+        })
+        .collect()
+}
+
+/// Whether `logged` is the folder `path`, after links are followed.
+fn same_path(logged: &str, path: &Path) -> bool {
+    fs::canonicalize(logged).is_ok_and(|p| p == path)
+}
+
 fn proc_macro_server_started(log: &str) -> Option<bool> {
     if log.contains("Proc-macro server started") {
         Some(true)
@@ -877,5 +911,14 @@ mod tests {
             proc_macro_server_started("INFO Proc-macro server started path=/x"),
             Some(true)
         );
+    }
+
+    #[test]
+    fn the_log_gives_the_std_source() {
+        let log = "2026 INFO Using sysroot workspace=/r/Cargo.toml \
+                   src_root=Some(AbsPath(\"/c/rust-src-1.99.0/library\")) root=Some(AbsPath(\"/s\"))\n\
+                   2026 INFO Loaded sysroot src_root=Some(AbsPath(\"/other\"))\n";
+        assert_eq!(std_sources(log), ["/c/rust-src-1.99.0/library"]);
+        assert!(std_sources("2026 INFO Using sysroot src_root=None").is_empty());
     }
 }

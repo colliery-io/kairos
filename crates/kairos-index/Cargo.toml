@@ -33,6 +33,9 @@ tempfile = "3.14.0"
 # gzip file from GitHub. Both crates are in the workspace tree already.
 ureq = "3"
 flate2 = "1"
+# The pinned std source (COLLIERY-T-1860) is a .tar.gz from
+# static.rust-lang.org.
+tar = "0.4"
 # The vectors of the summaries: the trait and the deterministic provider.
 # The caller gives the provider; the local model (bge-small-en-v1.5) is the
 # `local` feature of kairos-embed, which the server already builds.

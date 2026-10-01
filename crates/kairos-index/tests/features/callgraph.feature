@@ -1,7 +1,7 @@
 # COLLIERY-T-1849: the call graph of the index, from the polyglot fixture.
 # The Rust edges come from `rust-analyzer scip`, so these scenarios need the
-# pinned rust-analyzer (`angreal dev fetch-rust-analyzer`) and the rustup
-# component rust-src.
+# pinned rust-analyzer and the pinned std source
+# (`angreal dev fetch-rust-analyzer`).
 Feature: The call graph
 
   Scenario: A Rust method call resolves to its real target

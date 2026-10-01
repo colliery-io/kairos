@@ -125,6 +125,32 @@ at = 24
 class = "certain"
 callee = { file = "src/labels.rs", name = "count_text", line = 11 }
 
+# In the arguments of assert_eq!, format!, println! and vec!: SCIP resolves
+# each one with the pinned std source of Rust 1.94 or later (COLLIERY-T-1860).
+[[edge]]
+caller = { file = "src/labels.rs", name = "std_macro_calls", line = 30 }
+at = 31
+class = "certain"
+callee = { file = "src/labels.rs", name = "fixture_name", line = 16 }
+
+[[edge]]
+caller = { file = "src/labels.rs", name = "std_macro_calls", line = 30 }
+at = 32
+class = "certain"
+callee = { file = "src/labels.rs", name = "fixture_name", line = 16 }
+
+[[edge]]
+caller = { file = "src/labels.rs", name = "std_macro_calls", line = 30 }
+at = 33
+class = "certain"
+callee = { file = "src/labels.rs", name = "fixture_name", line = 16 }
+
+[[edge]]
+caller = { file = "src/labels.rs", name = "std_macro_calls", line = 30 }
+at = 34
+class = "certain"
+callee = { file = "src/labels.rs", name = "fixture_name", line = 16 }
+
 [[edge]]
 caller = { file = "src/queue.rs", name = "new", line = 9 }
 at = 11

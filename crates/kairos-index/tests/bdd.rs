@@ -62,15 +62,19 @@ struct IndexWorld {
     moved: Option<(String, String)>,
     /// A rust-analyzer binary in place of the pinned one in the cache.
     rust_analyzer: Option<PathBuf>,
+    /// A std source archive in place of the pinned one in the cache.
+    std_source: Option<PathBuf>,
     /// The error of the last build, for a scenario where the build fails.
     build_error: Option<String>,
 }
 
-/// The rust-analyzer of the scenarios: the pinned binary in the cache, or
-/// `rust_analyzer`. The scenarios never download it.
-fn build_options(rust_analyzer: Option<PathBuf>) -> BuildOptions {
+/// The rust-analyzer and the std source of the scenarios: those pinned in
+/// the cache, or `rust_analyzer` and `std_source`. The scenarios never
+/// download them.
+fn build_options(rust_analyzer: Option<PathBuf>, std_source: Option<PathBuf>) -> BuildOptions {
     BuildOptions {
         rust_analyzer,
+        std_source,
         download: false,
     }
 }
@@ -116,14 +120,16 @@ impl IndexWorld {
         let db = out
             .path()
             .join(format!("index-{}.sqlite", self.indexes.len()));
-        let options = build_options(self.rust_analyzer.clone());
+        let options = build_options(self.rust_analyzer.clone(), self.std_source.clone());
         match build_structure_with(&self.root, &db, &options) {
             Ok(report) => {
                 self.report = Some(report);
                 self.indexes.push(db);
             }
-            // A scenario with another binary checks the error.
-            Err(e) if self.rust_analyzer.is_some() => self.build_error = Some(e.to_string()),
+            // A scenario with another binary or std source checks the error.
+            Err(e) if self.rust_analyzer.is_some() || self.std_source.is_some() => {
+                self.build_error = Some(e.to_string())
+            }
             Err(e) => panic!("{e}"),
         }
     }
@@ -181,7 +187,7 @@ impl IndexWorld {
             &DeterministicProvider::default(),
             &UpdateOptions {
                 rust_edges,
-                build: build_options(None),
+                build: build_options(None, None),
                 ..UpdateOptions::default()
             },
         )
@@ -1021,6 +1027,170 @@ fn the_build_stops(world: &mut IndexWorld) {
     );
 }
 
+// --- The pinned std source (COLLIERY-T-1860) ----------------------------------
+
+/// The function of the fixture that calls `fixture_name` inside 4 std
+/// macros, and the macros, in the order of the code.
+const STD_MACRO_CALLER: &str = "std_macro_calls";
+const STD_MACROS: [&str; 4] = ["assert_eq!", "format!", "println!", "vec!"];
+
+/// The checked `library/` folder of the pinned std source in the cache.
+fn pinned_std_source() -> PathBuf {
+    let archive = rust_analyzer::std_source_archive_path().expect("HOME is set");
+    let library = archive.parent().expect("a folder").join(format!(
+        "rust-src-{}/library",
+        rust_analyzer::RUST_SRC_VERSION
+    ));
+    fs::canonicalize(&library).unwrap_or_else(|e| {
+        panic!(
+            "the pinned std source is not at {}: {e}. Run `angreal dev fetch-rust-analyzer`",
+            library.display()
+        )
+    })
+}
+
+/// The std source that the last SCIP run logged.
+fn logged_std_source(world: &IndexWorld) -> PathBuf {
+    let report = world.report.as_ref().expect("no build ran");
+    let scip = report.scip.as_ref().expect("the build did not run SCIP");
+    let logged = scip
+        .std_source
+        .as_ref()
+        .expect("the log of rust-analyzer names no std source");
+    fs::canonicalize(logged).unwrap_or_else(|e| panic!("{}: {e}", logged.display()))
+}
+
+#[given(
+    "the polyglot fixture, where a Rust function calls a fixture function inside assert_eq!, format!, vec! and println!"
+)]
+fn std_macro_calls(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let text = fs::read_to_string(world.root.join("src/labels.rs")).expect("read src/labels.rs");
+    let body = text
+        .split_once(&format!("fn {STD_MACRO_CALLER}("))
+        .map(|(_, b)| b)
+        .expect("src/labels.rs has no std_macro_calls");
+    for name in STD_MACROS {
+        let call = format!("{name}[");
+        let paren = format!("{name}(");
+        assert!(
+            body.lines()
+                .any(|l| (l.contains(&call) || l.contains(&paren)) && l.contains("fixture_name()")),
+            "{STD_MACRO_CALLER} does not call fixture_name inside {name}"
+        );
+    }
+}
+
+#[when("I build the index with the pinned rust-analyzer and the pinned std source")]
+fn build_with_the_pins(world: &mut IndexWorld) {
+    world.build();
+    let scip = world
+        .report
+        .as_ref()
+        .and_then(|r| r.scip.as_ref())
+        .expect("the build did not run SCIP");
+    assert_eq!(scip.rust_analyzer, rust_analyzer::VERSION);
+    assert_eq!(logged_std_source(world), pinned_std_source());
+}
+
+#[then(expr = "each of the 4 calls is a {string} edge from SCIP")]
+fn std_macro_calls_are_scip(world: &mut IndexWorld, class: String) {
+    let calls: Vec<_> = world
+        .edges()
+        .into_iter()
+        .filter(|e| {
+            e.caller.file == "src/labels.rs"
+                && e.caller.name == STD_MACRO_CALLER
+                && calls_name(e, "fixture_name")
+        })
+        .collect();
+    let lines: BTreeSet<_> = calls.iter().map(|e| e.line).collect();
+    assert_eq!(
+        (calls.len(), lines.len()),
+        (4, 4),
+        "4 calls of fixture_name on 4 lines were expected: {calls:#?}"
+    );
+    for e in &calls {
+        assert_eq!(
+            (e.class.as_str(), e.origin.as_str()),
+            (class.as_str(), "scip"),
+            "{e:#?}"
+        );
+        assert_eq!(
+            e.callee
+                .as_ref()
+                .map(|c| (c.file.as_str(), c.name.as_str())),
+            Some(("src/labels.rs", "fixture_name")),
+            "{e:#?}"
+        );
+    }
+}
+
+#[given("a fixture whose rust-toolchain.toml pins Rust 1.93")]
+fn a_fixture_on_rust_1_93(world: &mut IndexWorld) {
+    let copy = TempDir::new().expect("make a folder for the copy");
+    copy_tree(&fixture_root(), copy.path());
+    fs::write(
+        copy.path().join("rust-toolchain.toml"),
+        "[toolchain]\nchannel = \"1.93.0\"\n",
+    )
+    .expect("write rust-toolchain.toml");
+    let rustc = std::process::Command::new("rustc")
+        .arg("--version")
+        .current_dir(copy.path())
+        .output()
+        .expect("run rustc");
+    let version = String::from_utf8_lossy(&rustc.stdout);
+    assert!(
+        version.starts_with("rustc 1.93."),
+        "the copy does not use Rust 1.93: {version}"
+    );
+    world.root = copy.path().to_path_buf();
+    world.repo_copy = Some(copy);
+}
+
+#[then("rust-analyzer reads the pinned std source, and the log shows its path")]
+fn reads_the_pinned_std_source(world: &mut IndexWorld) {
+    let logged = logged_std_source(world);
+    assert_eq!(logged, pinned_std_source());
+    assert!(
+        !logged.starts_with(Path::new(&std::env::var("HOME").unwrap_or_default()).join(".rustup")),
+        "rust-analyzer read the std source of a toolchain: {}",
+        logged.display()
+    );
+}
+
+#[given("a std source archive whose sha256 is not the pinned value")]
+fn a_wrong_std_source(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let dir = TempDir::new().expect("make a folder for the archive");
+    let path = dir.path().join(format!(
+        "rust-src-{}.tar.gz",
+        rust_analyzer::RUST_SRC_VERSION
+    ));
+    fs::write(&path, "not a rust-src archive").expect("write the archive");
+    world.std_source = Some(path);
+    world.extra.push(dir);
+}
+
+#[then("the build stops, and the error names the archive and the expected checksum")]
+fn the_build_stops_for_the_std_source(world: &mut IndexWorld) {
+    assert!(world.report.is_none(), "the build did not stop");
+    let error = world
+        .build_error
+        .as_deref()
+        .expect("the build gave no error");
+    let path = world.std_source.as_ref().expect("no archive");
+    assert!(
+        error.contains(&path.display().to_string()),
+        "the error does not name the archive: {error}"
+    );
+    assert!(
+        error.contains(rust_analyzer::RUST_SRC_SHA256),
+        "the error does not name the checksum: {error}"
+    );
+}
+
 // --- Summaries ------------------------------------------------------------------
 
 /// The symbols that get a summary: not test code, and of a summarized kind.
@@ -1104,7 +1274,7 @@ fn change_a_body(world: &mut IndexWorld) {
     // Build again into the same index, so that its summary pool stays.
     let db = world.indexes.last().expect("no index was built").clone();
     world.report = Some(
-        build_structure_with(&world.root, &db, &build_options(None))
+        build_structure_with(&world.root, &db, &build_options(None, None))
             .unwrap_or_else(|e| panic!("{e}")),
     );
     world.summarize_with_fake();
@@ -1720,7 +1890,7 @@ fn make_branch(world: &mut IndexWorld, changed: (String, String, String), change
         &mut fake,
         &DeterministicProvider::default(),
         &UpdateOptions {
-            build: build_options(None),
+            build: build_options(None, None),
             ..UpdateOptions::default()
         },
     )
@@ -1757,7 +1927,7 @@ fn merge_the_branches(world: &mut IndexWorld) {
         &mut fake,
         &DeterministicProvider::default(),
         &UpdateOptions {
-            build: build_options(None),
+            build: build_options(None, None),
             ..UpdateOptions::default()
         },
     )
@@ -2275,6 +2445,13 @@ async fn main() {
             "The pinned {} is not in the cache, so each scenario that builds a Rust index fails. \
              Run `angreal dev fetch-rust-analyzer`.",
             rust_analyzer::VERSION
+        );
+    }
+    if !rust_analyzer::std_source_archive_path().is_some_and(|p| p.is_file()) {
+        eprintln!(
+            "The pinned std source of Rust {} is not in the cache, so each scenario that builds \
+             a Rust index fails. Run `angreal dev fetch-rust-analyzer`.",
+            rust_analyzer::RUST_SRC_VERSION
         );
     }
     let mut cucumber = IndexWorld::cucumber();

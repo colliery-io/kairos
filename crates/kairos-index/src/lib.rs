@@ -119,6 +119,9 @@ pub struct ScipRun {
     pub proc_macro_server_started: Option<bool>,
     /// What `--version` of the rust-analyzer of the run printed.
     pub rust_analyzer: String,
+    /// The std source that rust-analyzer logged: the `library/` folder of
+    /// the pinned `rust-src` archive. The run is refused if it is not.
+    pub std_source: Option<PathBuf>,
     pub documents: usize,
     pub occurrences: usize,
     /// The targets that the run leaves out, by root file from the
@@ -214,8 +217,6 @@ pub enum IndexError {
     Db(#[from] rusqlite::Error),
     #[error("The parser did not start: {0}.")]
     Parser(String),
-    #[error("The Rust edges need the {0} component. Run `rustup component add {0}`.")]
-    MissingComponent(&'static str),
     #[error("The SCIP run of rust-analyzer failed: {0}.")]
     Scip(String),
     #[error(
@@ -234,6 +235,20 @@ pub enum IndexError {
     RustAnalyzerPlatform(String),
     #[error("The download of rust-analyzer failed: {0}.")]
     RustAnalyzerDownload(String),
+    #[error(
+        "The std source archive {path} has the sha256 {found}. The pinned value is {expected}."
+    )]
+    StdSourceChecksum {
+        path: PathBuf,
+        found: String,
+        expected: String,
+    },
+    #[error(
+        "The pinned std source is not at {0}. Run `angreal dev fetch-rust-analyzer` to download it."
+    )]
+    StdSourceMissing(PathBuf),
+    #[error("The download of the std source failed: {0}.")]
+    StdSourceDownload(String),
     #[error("The SCIP run did not turn off the build: {0}.")]
     BuildNotOff(String),
     #[error("The summarizer gave no summary for {name}: {message}.")]
@@ -258,9 +273,8 @@ pub enum IndexError {
 ///
 /// If `root` has a `Cargo.toml` and Rust files to index, the Rust edges
 /// come from `rust-analyzer scip`, with the build turned off. That needs the
-/// rustup component `rust-src` of the toolchain of the repository, and the
-/// pinned rust-analyzer release, which this function downloads on first
-/// need (see [`rust_analyzer`]).
+/// pinned rust-analyzer release and the pinned std source, which this
+/// function downloads on first need (see [`rust_analyzer`]).
 pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError> {
     build_structure_with(root, db, &BuildOptions::default())
 }

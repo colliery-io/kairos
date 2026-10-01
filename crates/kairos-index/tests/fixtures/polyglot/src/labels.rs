@@ -23,3 +23,13 @@ pub fn label(count: usize) -> String {
     let source = quoted!(fixture_name());
     format!("{} ({source})", count_text(count))
 }
+
+/// Calls a fixture function inside assert_eq!, format!, println! and vec!.
+/// These std macros expand only with a std source of Rust 1.94 or later
+/// (COLLIERY-T-1860).
+pub fn std_macro_calls() -> Vec<&'static str> {
+    assert_eq!(fixture_name(), "polyglot");
+    let text = format!("{}", fixture_name());
+    println!("{text} {}", fixture_name());
+    vec![fixture_name()]
+}

@@ -1,9 +1,12 @@
-//! Download the pinned rust-analyzer release into the cache of the index
-//! (COLLIERY-T-1858): `angreal dev fetch-rust-analyzer`.
+//! Download the pinned rust-analyzer release and the pinned std source into
+//! the cache of the index (COLLIERY-T-1858, COLLIERY-T-1860):
+//! `angreal dev fetch-rust-analyzer`.
 //!
 //! The binary goes to `~/.cache/kairos-index/bin/` (or to
-//! `KAIROS_INDEX_RUST_ANALYZER`). Its sha256 is checked. If it is there
-//! already, only the check runs.
+//! `KAIROS_INDEX_RUST_ANALYZER`), the `rust-src` archive to
+//! `~/.cache/kairos-index/rust-src/` (or to `KAIROS_INDEX_RUST_SRC`), and its
+//! `library/` folder is unpacked next to it. Both sha256 values are checked.
+//! If both are there already, only the checks run.
 
 use std::process::ExitCode;
 
@@ -15,8 +18,13 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     match rust_analyzer::fetch() {
-        Ok(path) => {
-            println!("{} is at {}.", rust_analyzer::VERSION, path.display());
+        Ok((binary, std_source)) => {
+            println!("{} is at {}.", rust_analyzer::VERSION, binary.display());
+            println!(
+                "The std source of Rust {} is at {}.",
+                rust_analyzer::RUST_SRC_VERSION,
+                std_source.display()
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {

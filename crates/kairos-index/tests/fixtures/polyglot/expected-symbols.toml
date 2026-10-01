@@ -144,6 +144,16 @@ language = "rust"
 lines = [22, 25]
 is_test = false
 
+# Calls inside std macros (COLLIERY-T-1860).
+[[symbol]]
+file = "src/labels.rs"
+name = "std_macro_calls"
+container = ""
+kind = "function"
+language = "rust"
+lines = [30, 35]
+is_test = false
+
 [[symbol]]
 file = "src/stack.rs"
 name = "DEFAULT_CAPACITY"

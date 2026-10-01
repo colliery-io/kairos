@@ -265,6 +265,7 @@ impl CliWorld {
         fs::create_dir_all(db.parent().expect("a folder")).expect("make .kairos");
         let options = BuildOptions {
             rust_analyzer: None,
+            std_source: None,
             download: false,
         };
         build_structure_with(&root, &db, &options).unwrap_or_else(|e| panic!("{e}"));
@@ -629,6 +630,13 @@ async fn main() {
             "The pinned {} is not in the cache, so each scenario that builds a Rust index fails. \
              Run `angreal dev fetch-rust-analyzer`.",
             rust_analyzer::VERSION
+        );
+    }
+    if !rust_analyzer::std_source_archive_path().is_some_and(|p| p.is_file()) {
+        eprintln!(
+            "The pinned std source of Rust {} is not in the cache, so each scenario that builds \
+             a Rust index fails. Run `angreal dev fetch-rust-analyzer`.",
+            rust_analyzer::RUST_SRC_VERSION
         );
     }
     let features = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/features");

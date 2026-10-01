@@ -183,34 +183,41 @@ def dev_fetch_model():
 @dev()
 @angreal.command(
     name="fetch-rust-analyzer",
-    about="download the pinned rust-analyzer of the code index into ~/.cache/kairos-index/bin",
+    about="download the pinned rust-analyzer and std source of the code index into ~/.cache/kairos-index",
     tool=angreal.ToolDescription(
         """
-        Populate the rust-analyzer cache of the code index (COLLIERY-T-1858).
+        Populate the rust-analyzer cache of the code index (COLLIERY-T-1858,
+        COLLIERY-T-1860).
 
         kairos-index runs `rust-analyzer scip` with one pinned standalone
-        release, not the rust-analyzer of the toolchain. The index downloads
-        it on first need, but the kairos-index scenarios never download: they
-        fail and name this task if the binary is not there. This task is the
+        release, not the rust-analyzer of the toolchain, and with one pinned
+        std source (the rust-src archive of a stable Rust release, 1.94 or
+        later), not the rust-src of the toolchain. The index downloads both
+        on first need, but the kairos-index scenarios never download: they
+        fail and name this task if one is not there. This task is the
         deliberate fetch, for a test machine and for CI.
 
         ## When to use
         - Before `test integration` on a new machine or in CI
-        - After the pinned release changes (crates/kairos-index/src/rust_analyzer.rs)
+        - After the pinned release or std source changes
+          (crates/kairos-index/src/rust_analyzer.rs)
 
         ## Related tasks
         - `test integration` - runs the kairos-index scenarios with the binary
 
         ## Output
-        The version and the path of the binary. Idempotent: if the binary is
-        there, only its sha256 is checked. About 14 MB to download, 37 MB on
-        disk, in ~/.cache/kairos-index/bin (or KAIROS_INDEX_RUST_ANALYZER).
+        The version and the path of the binary and of the std source.
+        Idempotent: if both are there, only their sha256 values are checked.
+        The binary: about 16 MB to download, 40 MB on disk, in
+        ~/.cache/kairos-index/bin (or KAIROS_INDEX_RUST_ANALYZER). The std
+        source: 9.4 MB to download, unpacked once next to the archive in
+        ~/.cache/kairos-index/rust-src (or KAIROS_INDEX_RUST_SRC).
         """,
         risk_level="safe",
     ),
 )
 def dev_fetch_rust_analyzer():
-    """Fetch the pinned rust-analyzer into ~/.cache/kairos-index/bin."""
+    """Fetch the pinned rust-analyzer and std source into ~/.cache/kairos-index."""
     return subprocess.run(
         [
             "cargo", "run", "-p", "kairos-index",

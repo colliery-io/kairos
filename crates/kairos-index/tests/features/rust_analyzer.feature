@@ -1,7 +1,8 @@
 # COLLIERY-T-1858: the index uses a pinned standalone rust-analyzer release,
 # not the one of the toolchain. The scenarios use the binary in
 # ~/.cache/kairos-index/bin/ (`angreal dev fetch-rust-analyzer`) and never
-# download it. They still need the rustup component rust-src.
+# download it. The scenario "The SCIP run still builds nothing" is now in
+# std_source.feature (COLLIERY-T-1860).
 Feature: A pinned rust-analyzer
 
   Scenario: Test crates that share a module are indexed
@@ -14,9 +15,3 @@ Feature: A pinned rust-analyzer
     Given a rust-analyzer binary whose sha256 is not the pinned value
     When I build the index
     Then the build stops, and the error names the binary and the expected checksum
-
-  Scenario: The SCIP run still builds nothing
-    Given the polyglot fixture with no target folder
-    When I build the index with the pinned rust-analyzer
-    Then the fixture still has no target folder
-    And the log shows the build-script command "true" and no proc-macro server

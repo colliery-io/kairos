@@ -89,7 +89,7 @@ CREATE TABLE edge_candidates (
 
 -- The call sites of a Rust file that the last SCIP run resolved: with a SCIP
 -- edge, or with no edge (a tuple struct, an enum variant). An update that
--- keeps the SCIP edges of an unchanged file gives these no name class.
+-- keeps the SCIP edges of an unchanged function gives these no name class.
 CREATE TABLE scip_covered (
     file_id    INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
     start_byte INTEGER NOT NULL,

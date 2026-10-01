@@ -48,17 +48,23 @@ Feature: Updates and merges
     When I update the index with "--rust-edges"
     Then SCIP ran, and the marked edges are SCIP edges again
 
-  # The task asked for 2 macro-text edges. SCIP resolves the call in the
-  # format! argument (rust-analyzer expands format! and each macro_rules!
-  # macro that keeps its input as code), so that call is a SCIP edge. The
-  # custom macro keeps its input as text, as a proc macro does when proc
-  # macros are off, so only SCIP cannot see its call. To confirm (Dylan).
+  # rust-analyzer expands format! and each macro_rules! macro that keeps its
+  # input as code, also with proc macros off, so SCIP resolves the call in the
+  # format! argument. The fallback is for a macro that keeps its input as
+  # text, as a proc macro does when proc macros are off (Dylan, 2026-10-01).
   Scenario: A call inside a macro gets a name class
-    Given the polyglot fixture, where a Rust function calls a fixture function inside a format! argument and inside a custom macro_rules! invocation
+    Given the polyglot fixture, where a Rust function calls a fixture function inside a format! argument and inside a custom macro that keeps its input as text
     When I build the index
-    Then the call in the custom macro is an edge from that function, with a name class and the source "macro-text"
-    And the call in the format! argument is an edge from SCIP
+    Then the call inside the custom macro is an edge with a name class and the source "macro-text"
+    And the call inside the format! argument is a SCIP edge
     And no call that SCIP resolved is also an edge from the macro text
+
+  Scenario: An unchanged symbol in a changed file keeps its SCIP edges
+    Given a summarized index with Rust edges from SCIP
+    When I change one function in a Rust file and update the index with no options
+    Then the other functions of that file keep their SCIP edges and their keys
+    And only the changed function has name-class edges, marked to be replaced
+    And the summarizer did not run for the unchanged functions
 
   Scenario: Uncommitted changes are in the index
     Given a summarized index of the polyglot fixture

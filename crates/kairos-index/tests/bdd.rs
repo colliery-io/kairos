@@ -1818,14 +1818,20 @@ fn scip_did_not_run(world: &mut IndexWorld) {
 
 #[then("the edges of the changed file have name classes, marked to be replaced")]
 fn changed_edges_are_marked(world: &mut IndexWorld) {
-    let (file, _, _) = world.changed.clone().expect("no function changed");
+    let (file, name, _) = world.changed.clone().expect("no function changed");
     let edges = world.edges();
-    let changed: Vec<_> = edges.iter().filter(|e| e.caller.file == file).collect();
-    assert!(!changed.is_empty(), "{file} has no edges");
+    // The edges of the changed function. The other functions of the file
+    // keep their SCIP edges (the scenario "An unchanged symbol in a changed
+    // file keeps its SCIP edges").
+    let changed: Vec<_> = edges
+        .iter()
+        .filter(|e| e.caller.file == file && e.caller.name == name)
+        .collect();
+    assert!(!changed.is_empty(), "{name} in {file} has no edges");
     for e in &changed {
         assert!(
             e.origin != "scip" && e.scip_pending,
-            "an edge of {file} is not a marked name class: {e:#?}"
+            "an edge of {name} is not a marked name class: {e:#?}"
         );
     }
     // The edges of the other Rust files are the SCIP edges of the base.
@@ -1862,6 +1868,119 @@ fn changed_edges_are_marked(world: &mut IndexWorld) {
     );
 }
 
+/// `Stack::new` gets 1 more line, so that `push` and `pop` move down and
+/// their code stays the same.
+#[when("I change one function in a Rust file and update the index with no options")]
+fn change_one_of_a_file(world: &mut IndexWorld) {
+    edit(
+        &world.root,
+        "src/stack.rs",
+        "        Stack {\n            items: Vec::with_capacity(DEFAULT_CAPACITY),\n        }\n",
+        "        let capacity = DEFAULT_CAPACITY;\n        let items = Vec::with_capacity(capacity);\n\n        Stack { items }\n",
+    );
+    world.changed = Some(("src/stack.rs".into(), "new".into(), "Stack".into()));
+    world.update(false);
+}
+
+/// An edge with its line from the start of its caller: the line, the
+/// column, the called name, the class, the origin and the callee.
+type MovedEdge = (u32, u32, String, String, String, Option<(String, String)>);
+
+/// The edges from `name` in `file`, with the line from the start of the
+/// caller, so that 2 builds compare when the caller moved.
+fn edges_from(edges: &[EdgeRecord], file: &str, name: &str) -> BTreeSet<MovedEdge> {
+    edges
+        .iter()
+        .filter(|e| e.caller.file == file && e.caller.name == name)
+        .map(|e| {
+            (
+                e.line - e.caller.start_line,
+                e.col,
+                e.callee_name.clone(),
+                e.class.clone(),
+                e.origin.clone(),
+                e.callee.as_ref().map(|c| (c.file.clone(), c.name.clone())),
+            )
+        })
+        .collect()
+}
+
+#[then("the other functions of that file keep their SCIP edges and their keys")]
+fn others_keep_scip(world: &mut IndexWorld) {
+    let (file, changed, _) = world.changed.clone().expect("no function changed");
+    let before = world.before.clone().expect("no snapshot");
+    let after = world.snapshot();
+    let others: BTreeSet<&str> = after
+        .symbols
+        .iter()
+        .filter(|s| {
+            s.file == file && matches!(s.kind.as_str(), "function" | "method") && s.name != changed
+        })
+        .map(|s| s.name.as_str())
+        .collect();
+    assert!(others.len() >= 2, "{file} has too few other functions");
+    for name in others {
+        let old = before
+            .symbols
+            .iter()
+            .find(|s| s.file == file && s.name == name)
+            .expect("the function was in the base");
+        let new = after
+            .symbols
+            .iter()
+            .find(|s| s.file == file && s.name == name)
+            .expect("the function is in the update");
+        assert_ne!(old.start_line, new.start_line, "{name} did not move");
+        let was = edges_from(&before.edges, &file, name);
+        let is = edges_from(&after.edges, &file, name);
+        assert!(!was.is_empty(), "{name} had no edges");
+        assert!(
+            was.iter().all(|e| e.4 == "scip"),
+            "{name} had an edge that is not from SCIP: {was:#?}"
+        );
+        assert_eq!(is, was, "the edges of {name}");
+        assert!(
+            after
+                .edges
+                .iter()
+                .filter(|e| e.caller.file == file && e.caller.name == name)
+                .all(|e| !e.scip_pending),
+            "an edge of {name} is marked"
+        );
+        assert_eq!(new.summary_key, old.summary_key, "the key of {name}");
+    }
+}
+
+#[then("only the changed function has name-class edges, marked to be replaced")]
+fn only_changed_is_marked(world: &mut IndexWorld) {
+    let (file, changed, _) = world.changed.clone().expect("no function changed");
+    let edges = world.edges();
+    let marked: BTreeSet<_> = edges
+        .iter()
+        .filter(|e| e.scip_pending)
+        .map(|e| (e.caller.file.clone(), e.caller.name.clone()))
+        .collect();
+    assert_eq!(
+        marked,
+        BTreeSet::from([(file.clone(), changed.clone())]),
+        "the marked edges"
+    );
+    let own: Vec<_> = edges
+        .iter()
+        .filter(|e| e.caller.file == file && e.caller.name == changed)
+        .collect();
+    assert!(!own.is_empty(), "{changed} has no edges");
+    for e in own {
+        assert!(e.origin != "scip" && e.scip_pending, "{e:#?}");
+    }
+}
+
+#[then("the summarizer did not run for the unchanged functions")]
+fn ran_for_the_changed_only(world: &mut IndexWorld) {
+    let (file, changed, _) = world.changed.clone().expect("no function changed");
+    assert_eq!(world.symbol_requests(), [format!("{file}:{changed}")]);
+}
+
 #[then("SCIP ran, and the marked edges are SCIP edges again")]
 fn marked_edges_are_scip(world: &mut IndexWorld) {
     let report = world.update_report.as_ref().expect("no update ran");
@@ -1880,7 +1999,7 @@ fn marked_edges_are_scip(world: &mut IndexWorld) {
 }
 
 #[given(
-    "the polyglot fixture, where a Rust function calls a fixture function inside a format! argument and inside a custom macro_rules! invocation"
+    "the polyglot fixture, where a Rust function calls a fixture function inside a format! argument and inside a custom macro that keeps its input as text"
 )]
 fn macro_calls(world: &mut IndexWorld) {
     world.root = fixture_root();
@@ -1916,7 +2035,7 @@ fn label_edge(world: &IndexWorld, name: &str) -> EdgeRecord {
 }
 
 #[then(
-    expr = "the call in the custom macro is an edge from that function, with a name class and the source {string}"
+    expr = "the call inside the custom macro is an edge with a name class and the source {string}"
 )]
 fn macro_edge(world: &mut IndexWorld, origin: String) {
     let e = label_edge(world, "fixture_name");
@@ -1924,7 +2043,7 @@ fn macro_edge(world: &mut IndexWorld, origin: String) {
     assert!(!e.scip_pending, "{e:#?}");
 }
 
-#[then("the call in the format! argument is an edge from SCIP")]
+#[then("the call inside the format! argument is a SCIP edge")]
 fn format_edge(world: &mut IndexWorld) {
     let e = label_edge(world, "count_text");
     assert_eq!(e.origin, "scip", "{e:#?}");

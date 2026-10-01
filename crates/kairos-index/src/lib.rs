@@ -17,8 +17,8 @@
 //!
 //! [`update`] builds the structure again from the tree (with the changes
 //! that are not committed) and runs the summarizer only for the keys that
-//! the pool does not have. It runs no SCIP unless it is told to: a Rust file
-//! that did not change keeps its SCIP edges. [`merge`] is an update of the
+//! the pool does not have. It runs no SCIP unless it is told to: a Rust
+//! function whose code did not change keeps its SCIP edges. [`merge`] is an update of the
 //! merged tree with the pools of 2 indexes (COLLIERY-T-1851).
 
 mod calls;
@@ -87,8 +87,8 @@ pub struct EdgeStats {
     /// Calls in the text of a Rust macro that SCIP did not resolve. They got
     /// a name class, with the origin `macro-text`.
     pub macro_text: usize,
-    /// SCIP edges kept from a base index, for the Rust files that did not
-    /// change.
+    /// SCIP edges kept from a base index, for the Rust functions whose code
+    /// did not change.
     pub kept_scip: usize,
     /// Name classes that wait for a SCIP run (`scip_pending`).
     pub pending: usize,
@@ -239,14 +239,14 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
 enum Mode<'a> {
     /// A `rust-analyzer scip` run.
     Scip,
-    /// The SCIP edges of these indexes, for the Rust files that did not
-    /// change.
+    /// The SCIP edges of these indexes, for the Rust functions whose code
+    /// did not change.
     Keep(&'a [edges::BaseIndex]),
 }
 
 /// Build the structure of the tree at `root` into the index at `db`, which
-/// is the base: its summary pool stays, and a Rust file that did not change
-/// keeps its SCIP edges, unless `options.rust_edges`.
+/// is the base: its summary pool stays, and a Rust function whose code did
+/// not change keeps its SCIP edges, unless `options.rust_edges`.
 pub fn update_structure(
     root: &Path,
     db: &Path,
@@ -406,8 +406,11 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
                     name: s.name.clone(),
                     container: s.container.clone(),
                     kind: s.kind,
+                    start_line: s.start_line,
+                    end_line: s.end_line,
                     start_byte: s.start_byte,
                     end_byte: s.end_byte,
+                    tree_hash: s.tree_hash.clone(),
                 });
             }
             report.symbols += symbols.len();
@@ -415,7 +418,6 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
                 path: p.rel,
                 language,
                 text: &p.file.text,
-                content_hash: &p.file.content_hash,
                 symbols,
                 calls: &found.calls,
                 use_ranges: &found.use_ranges,
@@ -735,9 +737,9 @@ impl Index {
 #[derive(Debug, Clone, Default)]
 pub struct UpdateOptions {
     /// Run `rust-analyzer scip` for the Rust edges (`--rust-edges`). Without
-    /// it, a Rust file that did not change keeps the SCIP edges of the base,
-    /// and the edges of a changed Rust file are name classes that wait for
-    /// the next run.
+    /// it, a Rust function whose code did not change keeps the SCIP edges of
+    /// the base, also in a changed file, and the edges of a changed Rust
+    /// function are name classes that wait for the next run.
     pub rust_edges: bool,
     /// Which part of the index to summarize.
     pub summarize: SummarizeOptions,

@@ -9,7 +9,7 @@
 //! ```
 //!
 //! `--update` updates the index from the tree: the structure is built again
-//! with the SCIP edges of the index for the Rust files that did not change
+//! with the SCIP edges of the index for the Rust functions that did not change
 //! (or with a SCIP run, with `--rust-edges`), and only the keys that the pool
 //! does not have are summarized.
 //!

@@ -18,7 +18,7 @@ pub fn fixture_name() -> &'static str {
 }
 
 /// Calls fixture functions inside a format! argument and inside a custom
-/// macro_rules! invocation.
+/// macro that keeps its input as text.
 pub fn label(count: usize) -> String {
     let source = quoted!(fixture_name());
     format!("{} ({source})", count_text(count))

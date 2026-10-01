@@ -80,6 +80,9 @@ pub mod proto {
 
     /// `SymbolRole.Definition`.
     pub const ROLE_DEFINITION: i32 = 0x1;
+    /// `PositionEncoding.UTF8CodeUnitOffsetFromLineStart`: the encoding of
+    /// rust-analyzer.
+    pub const ENCODING_UTF8: i32 = 1;
     /// `PositionEncoding.UTF16CodeUnitOffsetFromLineStart`.
     pub const ENCODING_UTF16: i32 = 2;
     /// `PositionEncoding.UTF32CodeUnitOffsetFromLineStart`.

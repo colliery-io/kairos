@@ -9,6 +9,7 @@ TypeScript and Go code with a call graph that we know.
 
 When you change a file here, change the 2 lists too.
 
-The Rust test crates `tests/first.rs` and `tests/second.rs` share
-`tests/common/mod.rs`. rust-analyzer 1.93.0 `scip` panics on a file in 2
-crates, so the index leaves `tests/second.rs` out of the SCIP run.
+The Rust test crates `tests/first.rs`, `tests/second.rs` and
+`tests/third.rs` share `tests/common/mod.rs`. rust-analyzer 1.93.0 `scip`
+panics on a file in 2 crates; the pinned rust-analyzer does not, so the index
+leaves no crate out of the SCIP run (COLLIERY-T-1858).

@@ -178,3 +178,43 @@ def dev_fetch_model():
         ],
         cwd=str(PROJECT_ROOT),
     ).returncode
+
+
+@dev()
+@angreal.command(
+    name="fetch-rust-analyzer",
+    about="download the pinned rust-analyzer of the code index into ~/.cache/kairos-index/bin",
+    tool=angreal.ToolDescription(
+        """
+        Populate the rust-analyzer cache of the code index (COLLIERY-T-1858).
+
+        kairos-index runs `rust-analyzer scip` with one pinned standalone
+        release, not the rust-analyzer of the toolchain. The index downloads
+        it on first need, but the kairos-index scenarios never download: they
+        fail and name this task if the binary is not there. This task is the
+        deliberate fetch, for a test machine and for CI.
+
+        ## When to use
+        - Before `test integration` on a new machine or in CI
+        - After the pinned release changes (crates/kairos-index/src/rust_analyzer.rs)
+
+        ## Related tasks
+        - `test integration` - runs the kairos-index scenarios with the binary
+
+        ## Output
+        The version and the path of the binary. Idempotent: if the binary is
+        there, only its sha256 is checked. About 14 MB to download, 37 MB on
+        disk, in ~/.cache/kairos-index/bin (or KAIROS_INDEX_RUST_ANALYZER).
+        """,
+        risk_level="safe",
+    ),
+)
+def dev_fetch_rust_analyzer():
+    """Fetch the pinned rust-analyzer into ~/.cache/kairos-index/bin."""
+    return subprocess.run(
+        [
+            "cargo", "run", "-p", "kairos-index",
+            "--example", "fetch_rust_analyzer",
+        ],
+        cwd=str(PROJECT_ROOT),
+    ).returncode

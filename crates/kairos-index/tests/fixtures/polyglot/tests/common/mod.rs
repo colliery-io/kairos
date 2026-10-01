@@ -1,5 +1,5 @@
-//! A module that 2 test crates share. rust-analyzer 1.93.0 `scip` panics on
-//! a file in 2 crates, so the index leaves the second crate out of the run.
+//! A module that 3 test crates share. The pinned rust-analyzer indexes it
+//! for each of them (COLLIERY-T-1858).
 
 pub fn helper() -> usize {
     polyglot::enqueue_all(&[7]).len()

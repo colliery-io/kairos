@@ -1,6 +1,7 @@
 # COLLIERY-T-1849: the call graph of the index, from the polyglot fixture.
 # The Rust edges come from `rust-analyzer scip`, so these scenarios need the
-# rustup components rust-analyzer and rust-src.
+# pinned rust-analyzer (`angreal dev fetch-rust-analyzer`) and the rustup
+# component rust-src.
 Feature: The call graph
 
   Scenario: A Rust method call resolves to its real target
@@ -22,11 +23,8 @@ Feature: The call graph
     Then the edge goes to the trait method
     And the edge is "certain"
 
-  Scenario: The SCIP run builds nothing
-    Given the polyglot fixture with no target folder
-    When I build the index
-    Then the fixture still has no target folder
-    And no temporary build folder is left after the run
+  # "The SCIP run builds nothing" is now in rust_analyzer.feature
+  # (COLLIERY-T-1858).
 
   Scenario: An ambiguous Python call lists its candidates
     Given the polyglot fixture, where 2 Python modules each define "load"
@@ -46,13 +44,9 @@ Feature: The call graph
     Then each edge in the fixture's expected-edges file is in the index with its class
     And the index has no other edge
 
-  # A defect found on Kairos: rust-analyzer 1.93.0 `scip` panics on a file
-  # in 2 crates ("Invariant violation: file emitted multiple times").
-  Scenario: A module that 2 test crates share does not stop the SCIP run
-    Given the polyglot fixture, where 2 Rust test crates share the module "tests/common/mod.rs"
-    When I build the index
-    Then the SCIP run leaves out the test crate "tests/second.rs"
-    And each call from "tests/second.rs" has a name class
+  # The pinned rust-analyzer indexes test crates that share a module
+  # (rust_analyzer.feature, COLLIERY-T-1858). rust-analyzer 1.93.0 panicked
+  # on them, and the index left them out (COLLIERY-T-1849).
 
   # A defect found on Kairos: a SCIP symbol names the package and the path,
   # not the crate, so the root functions of 2 test crates share a symbol.

@@ -507,7 +507,7 @@ language = "python"
 lines = [4, 6]
 is_test = false
 
-# --- Rust test crates that share a module (COLLIERY-T-1849) -------------------
+# --- Rust test crates that share a module (COLLIERY-T-1849, T-1858) ----------
 
 [[symbol]]
 file = "tests/common/mod.rs"
@@ -588,4 +588,22 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [9, 12]
+is_test = true
+
+[[symbol]]
+file = "tests/third.rs"
+name = "common"
+container = ""
+kind = "module"
+language = "rust"
+lines = [15, 15]
+is_test = true
+
+[[symbol]]
+file = "tests/third.rs"
+name = "third_uses_the_helper"
+container = ""
+kind = "function"
+language = "rust"
+lines = [18, 20]
 is_test = true

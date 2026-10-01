@@ -2580,6 +2580,7 @@ name = "kairos-index"
 version = "0.5.0"
 dependencies = [
  "cucumber",
+ "flate2",
  "globset",
  "ignore",
  "kairos-embed",
@@ -2595,6 +2596,7 @@ dependencies = [
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tree-sitter",
+ "ureq",
 ]
 
 [[package]]

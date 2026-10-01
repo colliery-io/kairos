@@ -77,6 +77,11 @@ jobs:
       - name: Gate 3 — angreal test unit
         run: angreal test unit
 
+      # The kairos-index scenarios use the pinned rust-analyzer release
+      # (COLLIERY-T-1858) and never download it themselves.
+      - name: Fetch the pinned rust-analyzer
+        run: angreal dev fetch-rust-analyzer
+
       - name: Gate 4 — angreal test integration
         run: angreal test integration
 

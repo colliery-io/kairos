@@ -168,8 +168,8 @@ at = 21
 class = "external"
 external = "Vec::pop"
 
-# 2 test crates share tests/common/mod.rs. The SCIP run leaves out the second
-# one (tests/second.rs), so its call has a name class.
+# 3 test crates share tests/common/mod.rs. The pinned rust-analyzer leaves
+# none out, so each call to the shared module is a SCIP edge (COLLIERY-T-1858).
 [[edge]]
 caller = { file = "tests/common/mod.rs", name = "helper", line = 4 }
 at = 5
@@ -192,7 +192,12 @@ callee = { file = "tests/common/mod.rs", name = "helper", line = 4 }
 caller = { file = "tests/second.rs", name = "second_uses_the_helper", line = 4 }
 at = 5
 class = "certain"
-origin = "name"
+callee = { file = "tests/common/mod.rs", name = "helper", line = 4 }
+
+[[edge]]
+caller = { file = "tests/third.rs", name = "third_uses_the_helper", line = 18 }
+at = 19
+class = "certain"
 callee = { file = "tests/common/mod.rs", name = "helper", line = 4 }
 
 # tests/first.rs and tests/third.rs each define `setup` at the root. SCIP

@@ -20,12 +20,18 @@
 //!   metadata that this module prepared, `check`, `build` and the other
 //!   build commands do nothing, and the rest goes to the real `cargo`.
 //!
+//! **The rust-analyzer** is the pinned standalone release of
+//! [`crate::rust_analyzer`], with the sysroot (and `rust-src`) of the
+//! toolchain of the repository.
+//!
 //! **A file in 2 crates.** rust-analyzer 1.93.0 `scip` panics when one file
 //! is a module of 2 crates ("Invariant violation: file emitted multiple
 //! times"), for example `tests/common/mod.rs` of 2 integration tests. The
-//! prepared metadata leaves out each target that shares a module file with
-//! an earlier target (library first, then binaries, then the rest by name).
-//! The calls of a left-out target get name classes.
+//! pinned release does not (COLLIERY-T-1858). Only after that panic, the run
+//! starts again with prepared metadata that leaves out each target that
+//! shares a module file with an earlier target (library first, then
+//! binaries, then the rest by name). The calls of a left-out target get name
+//! classes.
 //!
 //! **A symbol in 2 crates.** A SCIP symbol names the package and the path,
 //! not the crate. So `fn pin` at the root of 2 test crates of one package
@@ -93,6 +99,9 @@ pub mod proto {
 /// log is large and is not needed.
 const RA_LOG: &str = "warn,load_cargo=info,project_model::build_dependencies=info";
 
+/// The panic of rust-analyzer 1.93.0 `scip` on a file in 2 crates.
+const SHARED_FILE_PANIC: &str = "file emitted multiple times";
+
 /// The crate of each module file of the run, from the repository root. A
 /// crate is a target of a workspace member.
 #[derive(Debug, Default)]
@@ -104,21 +113,26 @@ pub struct Crates {
 
 /// Run `rust-analyzer scip` on the Cargo workspace at `root`, with the
 /// build turned off, and read its index.
-pub fn run(root: &Path) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
+pub fn run(
+    root: &Path,
+    options: &crate::BuildOptions,
+) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
     let started = Instant::now();
     let root = fs::canonicalize(root).map_err(|source| IndexError::Io {
         path: root.to_path_buf(),
         source,
     })?;
 
-    // The rustup proxies choose the toolchain of the repository.
-    let version = Command::new("rust-analyzer")
+    // The pinned binary, with its sha256 checked.
+    let program = crate::rust_analyzer::resolve(options)?;
+    let version = Command::new(&program)
         .arg("--version")
-        .current_dir(&root)
-        .output();
-    if !version.is_ok_and(|o| o.status.success()) {
-        return Err(IndexError::MissingComponent("rust-analyzer"));
-    }
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .ok_or_else(|| IndexError::Scip(format!("{} --version did not run", program.display())))?;
+    let rust_analyzer = String::from_utf8_lossy(&version.stdout).trim().to_string();
+    // The rustup proxy chooses the toolchain of the repository.
     let sysroot = Command::new("rustc")
         .args(["--print", "sysroot"])
         .current_dir(&root)
@@ -148,13 +162,10 @@ pub fn run(root: &Path) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
     let tmp_dir = work_dir.join("tmp");
     fs::create_dir(&tmp_dir).map_err(io(&tmp_dir))?;
 
-    // The metadata of the workspace, with the targets left out that share a
-    // module file with an earlier target.
+    // The metadata of the workspace.
     let manifest = root.join("Cargo.toml");
-    let (metadata, left_out_targets, crates) =
-        prepared_metadata(&root, &manifest, &sysroot, &work_dir)?;
+    let metadata = cargo_metadata(&root, &manifest, &sysroot, &work_dir)?;
     let metadata_path = work_dir.join("metadata.json");
-    fs::write(&metadata_path, metadata.to_string()).map_err(io(&metadata_path))?;
 
     // The sysroot of the run: lib/ as it is, bin/ with each tool but cargo,
     // and no libexec/.
@@ -190,34 +201,39 @@ pub fn run(root: &Path) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
 
     let log_path = work_dir.join("rust-analyzer.log");
     let output_path = work_dir.join("index.scip");
-    // The rust-analyzer of the toolchain, or the one on the PATH.
-    let tool = sysroot.join("bin/rust-analyzer");
-    let program = if tool.is_file() {
-        tool
-    } else {
-        PathBuf::from("rust-analyzer")
+    // First with each target. Only a rust-analyzer with the defect of 1.93.0
+    // panics on a file in 2 crates; then again, with the shared targets left
+    // out.
+    let mut leave_out = false;
+    let (left_out_targets, crates) = loop {
+        let (prepared, left_out_targets, crates) = prepare_metadata(&root, &metadata, leave_out)?;
+        fs::write(&metadata_path, prepared.to_string()).map_err(io(&metadata_path))?;
+        let output = Command::new(&program)
+            .arg("--log-file")
+            .arg(&log_path)
+            .arg("scip")
+            .arg(&root)
+            .arg("--output")
+            .arg(&output_path)
+            .arg("--config-path")
+            .arg(&config_path)
+            .current_dir(&root)
+            .env("RA_LOG", RA_LOG)
+            .env("CARGO_TARGET_DIR", &target_dir)
+            .env("RUSTUP_TOOLCHAIN", &fake_sysroot)
+            .env("TMPDIR", &tmp_dir)
+            .output()
+            .map_err(|e| IndexError::Scip(e.to_string()))?;
+        if output.status.success() {
+            break (left_out_targets, crates);
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !leave_out && stderr.contains(SHARED_FILE_PANIC) {
+            leave_out = true;
+            continue;
+        }
+        return Err(IndexError::Scip(failure_text(&stderr)));
     };
-    let output = Command::new(program)
-        .arg("--log-file")
-        .arg(&log_path)
-        .arg("scip")
-        .arg(&root)
-        .arg("--output")
-        .arg(&output_path)
-        .arg("--config-path")
-        .arg(&config_path)
-        .current_dir(&root)
-        .env("RA_LOG", RA_LOG)
-        .env("CARGO_TARGET_DIR", &target_dir)
-        .env("RUSTUP_TOOLCHAIN", &fake_sysroot)
-        .env("TMPDIR", &tmp_dir)
-        .output()
-        .map_err(|e| IndexError::Scip(e.to_string()))?;
-    if !output.status.success() {
-        return Err(IndexError::Scip(failure_text(&String::from_utf8_lossy(
-            &output.stderr,
-        ))));
-    }
 
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     let build_script_command = build_script_command(&log);
@@ -245,6 +261,7 @@ pub fn run(root: &Path) -> Result<(ScipRun, proto::Index, Crates), IndexError> {
         elapsed: started.elapsed(),
         build_script_command,
         proc_macro_server_started,
+        rust_analyzer,
         left_out_targets,
         documents: index.documents.len(),
         occurrences: index.documents.iter().map(|d| d.occurrences.len()).sum(),
@@ -291,17 +308,14 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `cargo metadata` of the workspace, with the targets left out that share
-/// a module file with an earlier target. Like rust-analyzer, it gives cargo
-/// a copy of `Cargo.lock`, so the repository is not changed. Returns the
-/// metadata, the root files of the left-out targets and the crate of each
-/// module file, from `root`.
-fn prepared_metadata(
+/// `cargo metadata` of the workspace. Like rust-analyzer, it gives cargo a
+/// copy of `Cargo.lock`, so the repository is not changed.
+fn cargo_metadata(
     root: &Path,
     manifest: &Path,
     sysroot: &Path,
     work_dir: &Path,
-) -> Result<(Value, Vec<String>, Crates), IndexError> {
+) -> Result<Value, IndexError> {
     let lock_dir = work_dir.join("lock");
     fs::create_dir(&lock_dir).map_err(|source| IndexError::Io {
         path: lock_dir.clone(),
@@ -331,10 +345,21 @@ fn prepared_metadata(
             failure_text(&String::from_utf8_lossy(&output.stderr))
         )));
     }
-    let mut metadata: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| IndexError::Scip(format!("cargo metadata is not valid JSON: {e}")))?;
+    serde_json::from_slice(&output.stdout)
+        .map_err(|e| IndexError::Scip(format!("cargo metadata is not valid JSON: {e}")))
+}
+
+/// The metadata of one run, the root files of the left-out targets and the
+/// crate of each module file, from `root`. With `leave_out`, the targets
+/// that share a module file with an earlier target are left out.
+fn prepare_metadata(
+    root: &Path,
+    metadata: &Value,
+    leave_out: bool,
+) -> Result<(Value, Vec<String>, Crates), IndexError> {
+    let mut metadata = metadata.clone();
     let parser = LanguageParser::new().map_err(|e| IndexError::Parser(e.to_string()))?;
-    let shared = leave_out_shared_targets(&mut metadata, &parser);
+    let shared = shared_targets(&mut metadata, &parser, leave_out);
     let relative = |p: &Path| {
         p.strip_prefix(root)
             .map_or_else(|_| p.to_string_lossy(), |r| r.to_string_lossy())
@@ -356,18 +381,20 @@ fn prepared_metadata(
     Ok((metadata, left_out, crates))
 }
 
-/// What `leave_out_shared_targets` found.
+/// What `shared_targets` found.
 struct SharedTargets {
     /// The root files of the left-out targets.
     left_out: Vec<String>,
-    /// The kept target of each module file.
+    /// The first kept target of each module file.
     file_crate: HashMap<PathBuf, usize>,
     libraries: HashSet<usize>,
 }
 
-/// Remove from the workspace members each target that shares a module file
-/// with an earlier target.
-fn leave_out_shared_targets(metadata: &mut Value, parser: &LanguageParser) -> SharedTargets {
+/// The crate of each module file: the first target (library first, then
+/// binaries, then the rest by name) whose module tree has it. With
+/// `leave_out`, remove from the workspace members each target that shares a
+/// module file with an earlier target.
+fn shared_targets(metadata: &mut Value, parser: &LanguageParser, leave_out: bool) -> SharedTargets {
     let members: HashSet<String> = metadata["workspace_members"]
         .as_array()
         .into_iter()
@@ -422,15 +449,16 @@ fn leave_out_shared_targets(metadata: &mut Value, parser: &LanguageParser) -> Sh
                 continue;
             };
             let files = module_files(parser, Path::new(src));
-            if files.iter().any(|f| out.file_crate.contains_key(f)) {
+            if leave_out && files.iter().any(|f| out.file_crate.contains_key(f)) {
                 drop.insert(i);
                 out.left_out.push(src.to_string());
             } else {
                 if rank(&targets[i]).0 == 0 {
                     out.libraries.insert(next_crate);
                 }
-                out.file_crate
-                    .extend(files.into_iter().map(|f| (f, next_crate)));
+                for f in files {
+                    out.file_crate.entry(f).or_insert(next_crate);
+                }
                 next_crate += 1;
             }
         }
@@ -773,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn a_target_that_shares_a_module_is_left_out() {
+    fn a_target_that_shares_a_module_is_left_out_only_on_request() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         fs::create_dir_all(root.join("src/inner")).unwrap();
@@ -807,7 +835,17 @@ mod tests {
         let parser = LanguageParser::new().unwrap();
         let files = module_files(&parser, &root.join("src/lib.rs"));
         assert_eq!(files.len(), 4, "{files:?}");
-        let shared = leave_out_shared_targets(&mut metadata, &parser);
+        // With no defect, no target is left out, and a shared file is in the
+        // first crate that has it.
+        let mut each = metadata.clone();
+        let all = shared_targets(&mut each, &parser, false);
+        assert!(all.left_out.is_empty());
+        assert_eq!(each, metadata);
+        assert_eq!(
+            all.file_crate[&root.join("tests/common/mod.rs")],
+            all.file_crate[&root.join("tests/a.rs")]
+        );
+        let shared = shared_targets(&mut metadata, &parser, true);
         assert_eq!(shared.left_out, [src("tests/b.rs"), src("tests/c.rs")]);
         assert_eq!(shared.libraries.len(), 1);
         let lib = shared.file_crate[&root.join("src/inner/deep.rs")];

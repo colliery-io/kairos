@@ -279,7 +279,6 @@ fn same_code(b: &BaseSym, s: &Sym, file: &ParsedFile<'_>, line_starts: &[usize])
     {
         return false;
     }
-    let is_name = |c: char| c.is_alphanumeric() || c == '_';
     b.edges.iter().all(|e| {
         let line = (e.line + s.start_line).checked_sub(b.start_line + 1);
         let at = line.and_then(|line| {
@@ -295,10 +294,15 @@ fn same_code(b: &BaseSym, s: &Sym, file: &ParsedFile<'_>, line_starts: &[usize])
         at.is_some_and(|at| {
             s.start_byte <= at
                 && at < s.end_byte
-                && file.text[at..].starts_with(is_name)
-                && !file.text[..at].ends_with(is_name)
+                && file.text[at..].starts_with(is_name_char)
+                && !file.text[..at].ends_with(is_name_char)
         })
     })
+}
+
+/// A character of a Rust name.
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// The kinds that a call can start in.
@@ -576,8 +580,12 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                     continue;
                 };
                 resolved_at.insert(byte);
+                // An operator (`*`, `+`, a deref) is a reference to its trait
+                // method in newer rust-analyzer releases. It is not a call
+                // that the code writes, so it is not an edge.
                 if occ.symbol_roles & proto::ROLE_DEFINITION != 0
                     || file.use_ranges.iter().any(|&(s, e)| s <= byte && byte < e)
+                    || !file.text[byte..].starts_with(is_name_char)
                 {
                     continue;
                 }

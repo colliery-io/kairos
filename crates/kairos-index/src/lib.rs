@@ -10,7 +10,8 @@
 //!
 //! This crate builds the structure ([`build_structure`]) and reads it back
 //! ([`Index`]). The Rust call edges come from `rust-analyzer scip` with the
-//! build turned off (see `scip`); the edges of the other languages come from
+//! build turned off (see `scip`), with a pinned rust-analyzer release (see
+//! [`rust_analyzer`]); the edges of the other languages come from
 //! their names (see `edges`). [`summarize`] writes the summaries and their
 //! vectors (COLLIERY-T-1850), with a [`Summarizer`]: the fake one for tests,
 //! or `LlamaSummarizer` with the feature `llama`.
@@ -27,6 +28,7 @@ mod extract;
 #[cfg(feature = "llama")]
 mod llama;
 pub mod rules;
+pub mod rust_analyzer;
 mod schema;
 mod scip;
 mod summary;
@@ -42,6 +44,7 @@ use sha2::{Digest, Sha256};
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
 pub use rules::{Decision, Origin, RuleSet};
+pub use rust_analyzer::BuildOptions;
 pub use schema::SCHEMA_VERSION;
 pub use summary::{
     FakeSummarizer, Level, LevelCount, MODEL_FILE_NAME, SUMMARIZED_KINDS, SYSTEM_PROMPT,
@@ -105,11 +108,14 @@ pub struct ScipRun {
     pub build_script_command: Option<String>,
     /// Whether rust-analyzer logged that it started a proc-macro server.
     pub proc_macro_server_started: Option<bool>,
+    /// What `--version` of the rust-analyzer of the run printed.
+    pub rust_analyzer: String,
     pub documents: usize,
     pub occurrences: usize,
     /// The targets that the run leaves out, by root file from the
-    /// repository root: each shares a module file with an earlier target
-    /// (see `scip`). Their calls get name classes.
+    /// repository root: each shares a module file with an earlier target.
+    /// Only a rust-analyzer with the defect of 1.93.0 needs this (see
+    /// `scip`). Their calls get name classes.
     pub left_out_targets: Vec<String>,
 }
 
@@ -205,6 +211,22 @@ pub enum IndexError {
     MissingComponent(&'static str),
     #[error("rust-analyzer scip failed: {0}")]
     Scip(String),
+    #[error(
+        "The rust-analyzer binary {path} has the sha256 {found}. The pinned value is {expected}."
+    )]
+    RustAnalyzerChecksum {
+        path: PathBuf,
+        found: String,
+        expected: String,
+    },
+    #[error(
+        "The pinned rust-analyzer is not at {0}. Run `angreal dev fetch-rust-analyzer` to download it."
+    )]
+    RustAnalyzerMissing(PathBuf),
+    #[error("No rust-analyzer release is pinned for {0}.")]
+    RustAnalyzerPlatform(String),
+    #[error("The download of rust-analyzer failed: {0}")]
+    RustAnalyzerDownload(String),
     #[error("rust-analyzer did not run with the build turned off: {0}.")]
     BuildNotOff(String),
     #[error("The summarizer gave no summary for {name}: {message}.")]
@@ -229,16 +251,27 @@ pub enum IndexError {
 ///
 /// If `root` has a `Cargo.toml` and Rust files to index, the Rust edges
 /// come from `rust-analyzer scip`, with the build turned off. That needs the
-/// rustup components `rust-analyzer` and `rust-src`; with no
-/// `rust-analyzer`, the build fails and names the component.
+/// rustup component `rust-src` of the toolchain of the repository, and the
+/// pinned rust-analyzer release, which this function downloads on first
+/// need (see [`rust_analyzer`]).
 pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError> {
-    build(root, db, Mode::Scip)
+    build_structure_with(root, db, &BuildOptions::default())
+}
+
+/// [`build_structure`], with the choice of the rust-analyzer binary and of
+/// its download.
+pub fn build_structure_with(
+    root: &Path,
+    db: &Path,
+    options: &BuildOptions,
+) -> Result<BuildReport, IndexError> {
+    build(root, db, Mode::Scip(options))
 }
 
 /// Where a build gets the Rust edges.
 enum Mode<'a> {
     /// A `rust-analyzer scip` run.
-    Scip,
+    Scip(&'a BuildOptions),
     /// The SCIP edges of these indexes, for the Rust functions whose code
     /// did not change.
     Keep(&'a [edges::BaseIndex]),
@@ -253,7 +286,7 @@ pub fn update_structure(
     options: &UpdateOptions,
 ) -> Result<BuildReport, IndexError> {
     if options.rust_edges {
-        return build(root, db, Mode::Scip);
+        return build(root, db, Mode::Scip(&options.build));
     }
     let conn = Connection::open(db)?;
     schema::prepare(&conn)?;
@@ -333,8 +366,8 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
         .iter()
         .any(|p| p.language == Some("rust") && p.found.is_some());
     let workspace = has_rust && root.join("Cargo.toml").is_file();
-    let scip_index = if workspace && matches!(mode, Mode::Scip) {
-        let (run, index, crates) = scip::run(root)?;
+    let scip_index = if let (true, Mode::Scip(options)) = (workspace, &mode) {
+        let (run, index, crates) = scip::run(root, options)?;
         report.scip = Some(run);
         Some((index, crates))
     } else {
@@ -743,6 +776,8 @@ pub struct UpdateOptions {
     pub rust_edges: bool,
     /// Which part of the index to summarize.
     pub summarize: SummarizeOptions,
+    /// The rust-analyzer of a SCIP run.
+    pub build: BuildOptions,
 }
 
 /// What an update or a merge did.
@@ -775,8 +810,8 @@ pub fn update(
 /// at `root`: an update of that tree with the pools of all of them.
 ///
 /// The same key always means the same input, so the pools merge with no
-/// conflict. A Rust file keeps the SCIP edges of the first base that has its
-/// content and no edge that waits for SCIP. `out` must not exist. The pools
+/// conflict. A Rust function keeps the SCIP edges of the first base that has
+/// its code and no edge of it that waits for SCIP. `out` must not exist. The pools
 /// must have the vectors of one model.
 pub fn merge(
     root: &Path,
@@ -800,7 +835,7 @@ pub fn merge(
     }
     drop(conn);
     let mode = if options.rust_edges {
-        Mode::Scip
+        Mode::Scip(&options.build)
     } else {
         Mode::Keep(&kept)
     };

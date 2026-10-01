@@ -5,13 +5,14 @@
 //! ```text
 //! cargo run --release -p kairos-index --features llama --example summarize -- \
 //!     <repository> <index.sqlite> [--under <path prefix>]... [--max <symbols>]
-//!     [--skip-build | --update [--rust-edges]]
+//!     [--skip-build | --update [--rust-edges] | --structure-only]
 //! ```
 //!
 //! `--update` updates the index from the tree: the structure is built again
 //! with the SCIP edges of the index for the Rust functions that did not change
 //! (or with a SCIP run, with `--rust-edges`), and only the keys that the pool
-//! does not have are summarized.
+//! does not have are summarized. `--structure-only` builds the structure,
+//! prints the SCIP run and stops: no model is loaded.
 //!
 //! The model file comes from `KAIROS_INDEX_MODEL` or the default path (see
 //! `kairos_index::model_path`). The vectors use the local
@@ -45,6 +46,7 @@ fn run() -> Result<(), String> {
     let mut skip_build = false;
     let mut update = false;
     let mut rust_edges = false;
+    let mut structure_only = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             // Use the structure of an earlier run, so that the peak memory
@@ -52,6 +54,7 @@ fn run() -> Result<(), String> {
             "--skip-build" => skip_build = true,
             "--update" => update = true,
             "--rust-edges" => rust_edges = true,
+            "--structure-only" => structure_only = true,
             "--under" => options
                 .under
                 .push(args.next().ok_or("--under needs a value")?),
@@ -76,6 +79,9 @@ fn run() -> Result<(), String> {
     if update && skip_build {
         return Err("--update and --skip-build cannot go together.".into());
     }
+    if structure_only && (update || skip_build) {
+        return Err("--structure-only cannot go with --update or --skip-build.".into());
+    }
 
     let started = Instant::now();
     if update {
@@ -85,6 +91,7 @@ fn run() -> Result<(), String> {
             &UpdateOptions {
                 rust_edges,
                 summarize: options.clone(),
+                ..UpdateOptions::default()
             },
         )
         .map_err(|e| e.to_string())?;
@@ -107,6 +114,20 @@ fn run() -> Result<(), String> {
             built.symbols,
             started.elapsed().as_secs_f64()
         );
+        if let Some(scip) = &built.scip {
+            println!(
+                "SCIP run: {}, {:.1} s, {} documents, {} occurrences, {} targets left out",
+                scip.rust_analyzer,
+                scip.elapsed.as_secs_f64(),
+                scip.documents,
+                scip.occurrences,
+                scip.left_out_targets.len()
+            );
+        }
+        println!("edges: {:?}", built.edges);
+        if structure_only {
+            return Ok(());
+        }
     }
 
     let cache = std::env::var_os("KAIROS_EMBED_CACHE")

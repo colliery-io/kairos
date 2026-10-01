@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use cucumber::{World, given, then, when};
 use kairos_embed::DeterministicProvider;
 use kairos_index::{
-    BuildReport, EdgeRecord, FakeSummarizer, FileRecord, Index, Level, SUMMARIZED_KINDS,
-    SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, UpdateOptions,
-    UpdateReport, build_structure, merge, summarize, update,
+    BuildOptions, BuildReport, EdgeRecord, FakeSummarizer, FileRecord, Index, Level,
+    SUMMARIZED_KINDS, SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef,
+    UpdateOptions, UpdateReport, build_structure_with, merge, rust_analyzer, summarize, update,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -60,6 +60,19 @@ struct IndexWorld {
     branches: Vec<(PathBuf, (String, String, String))>,
     /// A file that a scenario moved: the path before and after.
     moved: Option<(String, String)>,
+    /// A rust-analyzer binary in place of the pinned one in the cache.
+    rust_analyzer: Option<PathBuf>,
+    /// The error of the last build, for a scenario where the build fails.
+    build_error: Option<String>,
+}
+
+/// The rust-analyzer of the scenarios: the pinned binary in the cache, or
+/// `rust_analyzer`. The scenarios never download it.
+fn build_options(rust_analyzer: Option<PathBuf>) -> BuildOptions {
+    BuildOptions {
+        rust_analyzer,
+        download: false,
+    }
 }
 
 /// What an index holds, to compare before and after an update.
@@ -103,9 +116,16 @@ impl IndexWorld {
         let db = out
             .path()
             .join(format!("index-{}.sqlite", self.indexes.len()));
-        let report = build_structure(&self.root, &db).unwrap_or_else(|e| panic!("{e}"));
-        self.report = Some(report);
-        self.indexes.push(db);
+        let options = build_options(self.rust_analyzer.clone());
+        match build_structure_with(&self.root, &db, &options) {
+            Ok(report) => {
+                self.report = Some(report);
+                self.indexes.push(db);
+            }
+            // A scenario with another binary checks the error.
+            Err(e) if self.rust_analyzer.is_some() => self.build_error = Some(e.to_string()),
+            Err(e) => panic!("{e}"),
+        }
     }
 
     /// Summarize the last index (build one first if there is none) with the
@@ -161,6 +181,7 @@ impl IndexWorld {
             &DeterministicProvider::default(),
             &UpdateOptions {
                 rust_edges,
+                build: build_options(None),
                 ..UpdateOptions::default()
             },
         )
@@ -542,24 +563,6 @@ fn a_go_function_calls_println(world: &mut IndexWorld) {
     });
 }
 
-#[given(expr = "the polyglot fixture, where 2 Rust test crates share the module {string}")]
-fn two_test_crates_share_a_module(world: &mut IndexWorld, module: String) {
-    world.root = fixture_root();
-    assert!(
-        world.root.join(&module).is_file(),
-        "{module} is not in the fixture"
-    );
-    let users: Vec<_> = fs::read_dir(world.root.join("tests"))
-        .expect("read tests/")
-        .map(|e| e.expect("read an entry").path())
-        .filter(|p| {
-            p.extension().is_some_and(|x| x == "rs")
-                && fs::read_to_string(p).is_ok_and(|t| t.contains("mod common;"))
-        })
-        .collect();
-    assert_eq!(users.len(), 2, "2 test crates must declare `mod common;`");
-}
-
 #[given(expr = "the polyglot fixture, where 2 Rust test crates each define a function {string}")]
 fn two_test_crates_define(world: &mut IndexWorld, name: String) {
     world.root = fixture_root();
@@ -838,8 +841,8 @@ fn still_no_target(world: &mut IndexWorld) {
     );
 }
 
-#[then("no temporary build folder is left after the run")]
-fn no_temporary_folder(world: &mut IndexWorld) {
+#[then(expr = "the log shows the build-script command {string} and no proc-macro server")]
+fn the_log_shows_no_build(world: &mut IndexWorld, command: String) {
     let report = world.report.as_ref().expect("no build ran");
     let scip = report.scip.as_ref().expect("the build did not run SCIP");
     assert!(
@@ -849,7 +852,7 @@ fn no_temporary_folder(world: &mut IndexWorld) {
     );
     assert_eq!(
         scip.build_script_command.as_deref(),
-        Some("true"),
+        Some(command.as_str()),
         "rust-analyzer must run no build script"
     );
     assert_eq!(
@@ -885,26 +888,6 @@ fn each_setup_in_its_crate(world: &mut IndexWorld) {
     }
 }
 
-#[then(expr = "the SCIP run leaves out the test crate {string}")]
-fn scip_leaves_out(world: &mut IndexWorld, target: String) {
-    let report = world.report.as_ref().expect("no build ran");
-    let scip = report.scip.as_ref().expect("the build did not run SCIP");
-    assert_eq!(scip.left_out_targets, [target]);
-}
-
-#[then(expr = "each call from {string} has a name class")]
-fn calls_from_have_name_classes(world: &mut IndexWorld, file: String) {
-    let edges: Vec<_> = world
-        .edges()
-        .into_iter()
-        .filter(|e| e.caller.file == file)
-        .collect();
-    assert!(!edges.is_empty(), "no edge starts in {file}");
-    for edge in edges {
-        assert_eq!(edge.origin, "name", "{edge:#?}");
-    }
-}
-
 #[then("each edge in the fixture's expected-edges file is in the index with its class")]
 fn has_the_expected_edges(world: &mut IndexWorld) {
     let got: Vec<EdgeRecord> = world.edges();
@@ -937,6 +920,104 @@ fn has_no_other_edge(world: &mut IndexWorld) {
     assert!(
         extra.is_empty(),
         "edges in the index that expected-edges.toml does not list: {extra:#?}"
+    );
+}
+
+// --- The pinned rust-analyzer (COLLIERY-T-1858) -------------------------------
+
+/// The 3 test crates of the fixture that declare `mod common;`.
+const SHARED_MODULE_USERS: [&str; 3] = ["tests/first.rs", "tests/second.rs", "tests/third.rs"];
+
+#[given("the polyglot fixture, where 3 test crates share tests/common/mod.rs")]
+fn three_test_crates_share_a_module(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    assert!(world.root.join("tests/common/mod.rs").is_file());
+    let users: BTreeSet<String> = fs::read_dir(world.root.join("tests"))
+        .expect("read tests/")
+        .map(|e| e.expect("read an entry").path())
+        .filter(|p| {
+            p.extension().is_some_and(|x| x == "rs")
+                && fs::read_to_string(p).is_ok_and(|t| t.contains("mod common;"))
+        })
+        .map(|p| format!("tests/{}", p.file_name().unwrap().to_string_lossy()))
+        .collect();
+    assert_eq!(
+        users,
+        SHARED_MODULE_USERS.map(String::from).into(),
+        "3 test crates must declare `mod common;`"
+    );
+}
+
+#[when("I build the index with the pinned rust-analyzer")]
+fn build_with_the_pin(world: &mut IndexWorld) {
+    world.build();
+    let scip = world
+        .report
+        .as_ref()
+        .and_then(|r| r.scip.as_ref())
+        .expect("the build did not run SCIP");
+    assert_eq!(scip.rust_analyzer, rust_analyzer::VERSION);
+}
+
+#[then("no target is left out")]
+fn no_target_left_out(world: &mut IndexWorld) {
+    let report = world.report.as_ref().expect("no build ran");
+    let scip = report.scip.as_ref().expect("the build did not run SCIP");
+    assert_eq!(scip.left_out_targets, Vec::<String>::new());
+}
+
+#[then(expr = "each call from the 3 test crates to the shared module is a {string} edge from SCIP")]
+fn shared_module_calls_are_scip(world: &mut IndexWorld, class: String) {
+    let edges = world.edges();
+    for file in SHARED_MODULE_USERS {
+        let calls: Vec<_> = edges
+            .iter()
+            .filter(|e| e.caller.file == file && calls_name(e, "helper"))
+            .collect();
+        assert!(!calls.is_empty(), "{file} has no call of helper");
+        for e in calls {
+            assert_eq!(
+                (e.class.as_str(), e.origin.as_str()),
+                (class.as_str(), "scip"),
+                "{e:#?}"
+            );
+            assert_eq!(
+                e.callee.as_ref().map(|c| c.file.as_str()),
+                Some("tests/common/mod.rs"),
+                "{e:#?}"
+            );
+        }
+    }
+}
+
+#[given("a rust-analyzer binary whose sha256 is not the pinned value")]
+fn a_wrong_binary(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let dir = TempDir::new().expect("make a folder for the binary");
+    let path = dir.path().join("rust-analyzer");
+    fs::write(&path, "#!/bin/sh\necho 'rust-analyzer 0.0.0'\n").expect("write the binary");
+    world.rust_analyzer = Some(path);
+    world.extra.push(dir);
+}
+
+#[then("the build stops, and the error names the binary and the expected checksum")]
+fn the_build_stops(world: &mut IndexWorld) {
+    assert!(world.report.is_none(), "the build did not stop");
+    let error = world
+        .build_error
+        .as_deref()
+        .expect("the build gave no error");
+    let path = world.rust_analyzer.as_ref().expect("no binary");
+    let expected = rust_analyzer::pin()
+        .expect("a pin for this platform")
+        .binary_sha256;
+    assert!(
+        error.contains(&path.display().to_string()),
+        "the error does not name the binary: {error}"
+    );
+    assert!(
+        error.contains(expected),
+        "the error does not name the checksum: {error}"
     );
 }
 
@@ -1022,7 +1103,10 @@ fn change_a_body(world: &mut IndexWorld) {
 
     // Build again into the same index, so that its summary pool stays.
     let db = world.indexes.last().expect("no index was built").clone();
-    world.report = Some(build_structure(&world.root, &db).unwrap_or_else(|e| panic!("{e}")));
+    world.report = Some(
+        build_structure_with(&world.root, &db, &build_options(None))
+            .unwrap_or_else(|e| panic!("{e}")),
+    );
     world.summarize_with_fake();
 }
 
@@ -1635,7 +1719,10 @@ fn make_branch(world: &mut IndexWorld, changed: (String, String, String), change
         &db,
         &mut fake,
         &DeterministicProvider::default(),
-        &UpdateOptions::default(),
+        &UpdateOptions {
+            build: build_options(None),
+            ..UpdateOptions::default()
+        },
     )
     .unwrap_or_else(|e| panic!("{e}"));
     assert!(
@@ -1669,7 +1756,10 @@ fn merge_the_branches(world: &mut IndexWorld) {
         &out,
         &mut fake,
         &DeterministicProvider::default(),
-        &UpdateOptions::default(),
+        &UpdateOptions {
+            build: build_options(None),
+            ..UpdateOptions::default()
+        },
     )
     .unwrap_or_else(|e| panic!("{e}"));
     world.requests = fake.requests;
@@ -2180,6 +2270,13 @@ fn why_no_model() -> Option<String> {
 #[tokio::main]
 async fn main() {
     let features = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/features");
+    if !rust_analyzer::binary_path().is_some_and(|p| p.is_file()) {
+        eprintln!(
+            "The pinned {} is not in the cache, so each scenario that builds a Rust index fails. \
+             Run `angreal dev fetch-rust-analyzer`.",
+            rust_analyzer::VERSION
+        );
+    }
     let mut cucumber = IndexWorld::cucumber();
     match why_no_model() {
         None => {

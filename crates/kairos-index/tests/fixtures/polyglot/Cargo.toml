@@ -1,0 +1,10 @@
+# The polyglot fixture of kairos-index (COLLIERY-T-1848). The Kairos workspace
+# excludes this folder and never builds it. The empty [workspace] table makes
+# it a root of its own, so rust-analyzer can read it (COLLIERY-T-1849).
+[package]
+name = "polyglot"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]

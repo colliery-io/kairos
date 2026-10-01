@@ -1,0 +1,119 @@
+# The default file rules of the code index (COLLIERY-I-0264, "Which files").
+#
+# They come from the Laya trial of 2026-10-01 (61 of 65 files right), with 4
+# fixes for its 4 misses:
+#
+#   - fixture-data runs before long-line, so a JSON corpus with long lines
+#     is a fixture, not vendored code;
+#   - the extension decides before the line length: long-line skips the
+#     code of the 4 languages, and docs-file runs before it, so a long line
+#     in hand-written Rust or in Markdown does not make the file vendored;
+#   - tool-files runs before test-name, so `.angreal/task_test.py` is source;
+#   - snapshot-data makes a tool-written baseline (`ste-baseline.json`)
+#     generated.
+#
+# The first rule that matches a file decides. The rules of a repository, in
+# `.kairos/index-rules.toml`, run before these. A file that no rule matches
+# is `source`. Only `source` and `test` files are parsed for symbols.
+#
+# The format is the format of `.kairos/index-rules.toml`. Each condition of a
+# rule must match. A list matches when one of its items matches.
+#
+#   path               globs on the path from the root (`*` stops at `/`)
+#   file_name          globs on the file name
+#   extension          extensions, with no dot
+#   not_extension      the file must not have one of these extensions
+#   size_over          the file has more bytes than this
+#   longest_line_over  the longest line has more characters than this
+#   first_line         text in the first line (case is ignored)
+#   header             text in the first 10 lines (case is ignored)
+
+[[rule]]
+id = "lock-file"
+decision = "generated"
+file_name = ["*.lock", "package-lock.json", "pnpm-lock.yaml", "go.sum"]
+
+[[rule]]
+id = "generated-header"
+decision = "generated"
+header = ["do not edit", "@generated", "code generated"]
+
+[[rule]]
+id = "generated-first-line"
+decision = "generated"
+first_line = ["generated"]
+
+[[rule]]
+id = "built-output"
+decision = "generated"
+path = ["**/book/**", "**/dist/**", "**/build/**", "**/target/**"]
+
+[[rule]]
+id = "vendored-dir"
+decision = "vendored"
+path = ["**/vendor/**", "**/third_party/**", "**/themes/*/**"]
+
+[[rule]]
+id = "minified"
+decision = "vendored"
+file_name = ["*.min.js", "*.min.css"]
+
+# After the vendored rules: a hashed bundle in a vendored theme is vendored.
+[[rule]]
+id = "hashed-name"
+decision = "generated"
+file_name = ["*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].*"]
+
+[[rule]]
+id = "fixture-dir"
+decision = "fixture"
+path = ["**/tests/fixtures/**", "**/test-fixtures/**", "**/testdata/**"]
+
+[[rule]]
+id = "fixture-data"
+decision = "fixture"
+path = ["**/fixtures/**"]
+extension = ["json", "ndjson", "sql", "yaml", "yml"]
+
+[[rule]]
+id = "snapshot-data"
+decision = "generated"
+file_name = ["*baseline*.json", "*.snap"]
+
+# Before the size and the line length: the extension decides first, so a
+# Markdown file with long lines or a large image is docs.
+[[rule]]
+id = "docs-file"
+decision = "docs"
+extension = ["md", "svg", "png", "jpg", "jpeg", "gif"]
+
+[[rule]]
+id = "too-large"
+decision = "excluded"
+size_over = 1048576
+
+[[rule]]
+id = "long-line"
+decision = "vendored"
+longest_line_over = 1000
+not_extension = ["rs", "py", "pyi", "ts", "tsx", "go"]
+
+[[rule]]
+id = "tool-files"
+decision = "source"
+path = [".angreal/**"]
+
+[[rule]]
+id = "test-path"
+decision = "test"
+path = ["**/tests/**", "**/e2e/**", "**/uat/**", "**/__tests__/**"]
+
+[[rule]]
+id = "test-name"
+decision = "test"
+file_name = ["test_*", "*_test.*", "*.spec.*", "*.test.*", "*.journey.*", "conftest.py"]
+
+[[rule]]
+id = "docs-dir"
+decision = "docs"
+path = ["docs/**"]

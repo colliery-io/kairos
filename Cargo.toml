@@ -9,7 +9,13 @@ members = [
     "crates/kairos-cli",
     "crates/kairos-web",
     "crates/kairos-soak",
+    # The code index (COLLIERY-I-0264) and the narsil code it vendors.
+    "crates/kairos-index",
+    "crates/kairos-index/vendor/narsil",
 ]
+# A small repository that the kairos-index tests read. It has a Cargo.toml of
+# its own (for rust-analyzer, COLLIERY-T-1849), and it is never built.
+exclude = ["crates/kairos-index/tests/fixtures"]
 
 [workspace.package]
 version = "0.5.0"

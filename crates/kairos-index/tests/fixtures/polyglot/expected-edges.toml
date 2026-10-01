@@ -1,0 +1,161 @@
+# The call edges of this fixture (COLLIERY-T-1848, for COLLIERY-T-1849).
+#
+# A symbol is named by its file, its name and its first line, as in
+# expected-symbols.toml. Each edge has:
+#
+#   caller      the calling symbol
+#   at          the line of the call
+#   class       "certain", "possible" or "external" (COLLIERY-I-0264)
+#   callee      the called symbol, for a certain edge
+#   candidates  the symbols that the name matches, for a possible edge
+#   external    the called name, for an external edge
+#
+# Each call to a function or a class of the fixture is listed. Calls into
+# std or into a dependency are listed only where they test something, for
+# example a `push` on a Vec that must not resolve to `Stack::push`. A Rust
+# macro call (assert_eq!) is not an edge.
+
+# --- Rust (from SCIP, so each edge into the fixture is certain) ---------------
+
+# The second `push`: enqueue_all calls Queue::push, not Stack::push.
+[[edge]]
+caller = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+at = 12
+class = "certain"
+callee = { file = "src/queue.rs", name = "new", line = 9 }
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+at = 14
+class = "certain"
+callee = { file = "src/queue.rs", name = "push", line = 15 }
+
+# A trait method called on a generic: the callee is the method of the trait.
+[[edge]]
+caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
+at = 21
+class = "certain"
+callee = { file = "src/shapes.rs", name = "describe", line = 5 }
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 29 }
+at = 30
+class = "certain"
+callee = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 29 }
+at = 31
+class = "certain"
+callee = { file = "src/queue.rs", name = "len", line = 19 }
+
+# `self.items.push(item)` is Vec::push. It is not Stack::push or Queue::push.
+[[edge]]
+caller = { file = "src/stack.rs", name = "push", line = 16 }
+at = 17
+class = "external"
+external = "Vec::push"
+
+[[edge]]
+caller = { file = "src/queue.rs", name = "push", line = 15 }
+at = 16
+class = "external"
+external = "VecDeque::push_back"
+
+# --- Python (name classes) ---------------------------------------------------
+
+# Same file.
+[[edge]]
+caller = { file = "python/polyglot/csv_loader.py", name = "load", line = 4 }
+at = 6
+class = "certain"
+callee = { file = "python/polyglot/csv_loader.py", name = "_split", line = 9 }
+
+[[edge]]
+caller = { file = "python/polyglot/json_loader.py", name = "load", line = 6 }
+at = 8
+class = "external"
+external = "json.loads"
+
+# The ambiguous caller: 2 modules define `load`.
+[[edge]]
+caller = { file = "python/polyglot/report.py", name = "build_report", line = 17 }
+at = 18
+class = "possible"
+candidates = [
+    { file = "python/polyglot/csv_loader.py", name = "load", line = 4 },
+    { file = "python/polyglot/json_loader.py", name = "load", line = 6 },
+]
+
+# A call of a class, in the same file.
+[[edge]]
+caller = { file = "python/polyglot/report.py", name = "build_report", line = 17 }
+at = 19
+class = "certain"
+callee = { file = "python/polyglot/report.py", name = "Report", line = 9 }
+
+# `render` is a unique name in the fixture.
+[[edge]]
+caller = { file = "python/polyglot/report.py", name = "build_report", line = 17 }
+at = 19
+class = "certain"
+callee = { file = "python/polyglot/report.py", name = "render", line = 13 }
+
+[[edge]]
+caller = { file = "python/tests/test_report.py", name = "test_render_joins_rows", line = 4 }
+at = 5
+class = "certain"
+callee = { file = "python/polyglot/report.py", name = "Report", line = 9 }
+
+[[edge]]
+caller = { file = "python/tests/test_report.py", name = "test_render_joins_rows", line = 4 }
+at = 5
+class = "certain"
+callee = { file = "python/polyglot/report.py", name = "render", line = 13 }
+
+[[edge]]
+caller = { file = "python/tests/test_report.py", name = "test_build_report_reads_the_file", line = 8 }
+at = 11
+class = "certain"
+callee = { file = "python/polyglot/report.py", name = "build_report", line = 17 }
+
+# --- TypeScript (name classes) -----------------------------------------------
+
+[[edge]]
+caller = { file = "web/src/cart.ts", name = "total", line = 10 }
+at = 12
+class = "certain"
+callee = { file = "web/src/format.ts", name = "formatPrice", line = 13 }
+
+# `this.items.push(item)` is Array.prototype.push.
+[[edge]]
+caller = { file = "web/src/cart.ts", name = "add", line = 6 }
+at = 7
+class = "external"
+external = "Array.push"
+
+# --- Go (name classes) -------------------------------------------------------
+
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Greet", line = 6 }
+at = 7
+class = "external"
+external = "fmt.Println"
+
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Greet", line = 6 }
+at = 7
+class = "certain"
+callee = { file = "go/greet/greet.go", name = "Message", line = 11 }
+
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Greet", line = 21 }
+at = 22
+class = "external"
+external = "fmt.Println"
+
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Greet", line = 21 }
+at = 22
+class = "certain"
+callee = { file = "go/greet/greet.go", name = "Message", line = 11 }

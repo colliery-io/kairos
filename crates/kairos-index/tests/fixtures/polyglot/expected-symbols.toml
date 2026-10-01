@@ -1,0 +1,443 @@
+# The symbols that the index must have for this fixture, and no others
+# (COLLIERY-T-1848). One entry for each symbol:
+#
+#   file       the path from the fixture root
+#   name       the symbol name
+#   container  the name of the nearest symbol that holds it ("" at the top)
+#   kind       the narsil kind, in snake case
+#   language   the narsil language
+#   lines      the first and the last line, from 1, both included
+#   is_test    true for test code
+#
+# The `[[file]]` entries give the decision and the default rule for the
+# special files of the fixture.
+
+[[file]]
+path = "vendor/leftpad/leftpad.go"
+decision = "vendored"
+rule = "vendored-dir"
+
+[[file]]
+path = "web/src/generated/api.ts"
+decision = "generated"
+rule = "generated-header"
+
+[[file]]
+path = "tests/fixtures/sample_handler.py"
+decision = "fixture"
+rule = "fixture-dir"
+
+[[file]]
+path = "python/tests/test_report.py"
+decision = "test"
+rule = "test-path"
+
+# --- Rust -------------------------------------------------------------------
+
+[[symbol]]
+file = "src/lib.rs"
+name = "queue"
+container = ""
+kind = "module"
+language = "rust"
+lines = [3, 3]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "shapes"
+container = ""
+kind = "module"
+language = "rust"
+lines = [4, 4]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "stack"
+container = ""
+kind = "module"
+language = "rust"
+lines = [5, 5]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "enqueue_all"
+container = ""
+kind = "function"
+language = "rust"
+lines = [11, 17]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "describe_all"
+container = ""
+kind = "function"
+language = "rust"
+lines = [20, 22]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "tests"
+container = ""
+kind = "module"
+language = "rust"
+lines = [25, 33]
+is_test = true
+
+[[symbol]]
+file = "src/lib.rs"
+name = "enqueue_all_keeps_each_item"
+container = "tests"
+kind = "function"
+language = "rust"
+lines = [29, 32]
+is_test = true
+
+[[symbol]]
+file = "src/stack.rs"
+name = "DEFAULT_CAPACITY"
+container = ""
+kind = "constant"
+language = "rust"
+lines = [2, 2]
+is_test = false
+
+[[symbol]]
+file = "src/stack.rs"
+name = "Stack"
+container = ""
+kind = "struct"
+language = "rust"
+lines = [5, 7]
+is_test = false
+
+[[symbol]]
+file = "src/stack.rs"
+name = "Stack"
+container = ""
+kind = "implementation"
+language = "rust"
+lines = [9, 23]
+is_test = false
+
+[[symbol]]
+file = "src/stack.rs"
+name = "new"
+container = "Stack"
+kind = "function"
+language = "rust"
+lines = [10, 14]
+is_test = false
+
+[[symbol]]
+file = "src/stack.rs"
+name = "push"
+container = "Stack"
+kind = "function"
+language = "rust"
+lines = [16, 18]
+is_test = false
+
+[[symbol]]
+file = "src/stack.rs"
+name = "pop"
+container = "Stack"
+kind = "function"
+language = "rust"
+lines = [20, 22]
+is_test = false
+
+[[symbol]]
+file = "src/queue.rs"
+name = "Queue"
+container = ""
+kind = "struct"
+language = "rust"
+lines = [4, 6]
+is_test = false
+
+[[symbol]]
+file = "src/queue.rs"
+name = "Queue"
+container = ""
+kind = "implementation"
+language = "rust"
+lines = [8, 22]
+is_test = false
+
+[[symbol]]
+file = "src/queue.rs"
+name = "new"
+container = "Queue"
+kind = "function"
+language = "rust"
+lines = [9, 13]
+is_test = false
+
+[[symbol]]
+file = "src/queue.rs"
+name = "push"
+container = "Queue"
+kind = "function"
+language = "rust"
+lines = [15, 17]
+is_test = false
+
+[[symbol]]
+file = "src/queue.rs"
+name = "len"
+container = "Queue"
+kind = "function"
+language = "rust"
+lines = [19, 21]
+is_test = false
+
+# The required method `area` of the trait has no body. narsil's Rust query
+# does not capture a `function_signature_item`, so it is not a symbol.
+[[symbol]]
+file = "src/shapes.rs"
+name = "Shape"
+container = ""
+kind = "trait"
+language = "rust"
+lines = [2, 8]
+is_test = false
+
+[[symbol]]
+file = "src/shapes.rs"
+name = "describe"
+container = "Shape"
+kind = "function"
+language = "rust"
+lines = [5, 7]
+is_test = false
+
+[[symbol]]
+file = "src/shapes.rs"
+name = "Square"
+container = ""
+kind = "struct"
+language = "rust"
+lines = [10, 12]
+is_test = false
+
+# `impl Shape for Square`: narsil names the implementation after the type.
+[[symbol]]
+file = "src/shapes.rs"
+name = "Square"
+container = ""
+kind = "implementation"
+language = "rust"
+lines = [14, 18]
+is_test = false
+
+[[symbol]]
+file = "src/shapes.rs"
+name = "area"
+container = "Square"
+kind = "function"
+language = "rust"
+lines = [15, 17]
+is_test = false
+
+# --- Python -----------------------------------------------------------------
+
+[[symbol]]
+file = "python/polyglot/csv_loader.py"
+name = "load"
+container = ""
+kind = "function"
+language = "python"
+lines = [4, 6]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/csv_loader.py"
+name = "_split"
+container = ""
+kind = "function"
+language = "python"
+lines = [9, 10]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/json_loader.py"
+name = "load"
+container = ""
+kind = "function"
+language = "python"
+lines = [6, 8]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/report.py"
+name = "Report"
+container = ""
+kind = "class"
+language = "python"
+lines = [9, 14]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/report.py"
+name = "__init__"
+container = "Report"
+kind = "function"
+language = "python"
+lines = [10, 11]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/report.py"
+name = "render"
+container = "Report"
+kind = "function"
+language = "python"
+lines = [13, 14]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/report.py"
+name = "build_report"
+container = ""
+kind = "function"
+language = "python"
+lines = [17, 19]
+is_test = false
+
+[[symbol]]
+file = "python/tests/test_report.py"
+name = "test_render_joins_rows"
+container = ""
+kind = "function"
+language = "python"
+lines = [4, 5]
+is_test = true
+
+[[symbol]]
+file = "python/tests/test_report.py"
+name = "test_build_report_reads_the_file"
+container = ""
+kind = "function"
+language = "python"
+lines = [8, 11]
+is_test = true
+
+# --- TypeScript -------------------------------------------------------------
+
+[[symbol]]
+file = "web/src/format.ts"
+name = "Currency"
+container = ""
+kind = "type_alias"
+language = "typescript"
+lines = [1, 1]
+is_test = false
+
+[[symbol]]
+file = "web/src/format.ts"
+name = "Money"
+container = ""
+kind = "interface"
+language = "typescript"
+lines = [3, 6]
+is_test = false
+
+[[symbol]]
+file = "web/src/format.ts"
+name = "Rounding"
+container = ""
+kind = "enum"
+language = "typescript"
+lines = [8, 11]
+is_test = false
+
+[[symbol]]
+file = "web/src/format.ts"
+name = "formatPrice"
+container = ""
+kind = "function"
+language = "typescript"
+lines = [13, 15]
+is_test = false
+
+[[symbol]]
+file = "web/src/cart.ts"
+name = "Cart"
+container = ""
+kind = "class"
+language = "typescript"
+lines = [3, 14]
+is_test = false
+
+[[symbol]]
+file = "web/src/cart.ts"
+name = "add"
+container = "Cart"
+kind = "method"
+language = "typescript"
+lines = [6, 8]
+is_test = false
+
+[[symbol]]
+file = "web/src/cart.ts"
+name = "total"
+container = "Cart"
+kind = "method"
+language = "typescript"
+lines = [10, 13]
+is_test = false
+
+# --- Go ---------------------------------------------------------------------
+
+[[symbol]]
+file = "go/greet/greet.go"
+name = "Greet"
+container = ""
+kind = "function"
+language = "go"
+lines = [6, 8]
+is_test = false
+
+[[symbol]]
+file = "go/greet/greet.go"
+name = "Message"
+container = ""
+kind = "function"
+language = "go"
+lines = [11, 13]
+is_test = false
+
+# narsil gives each Go type declaration the kind type_alias, a struct too.
+[[symbol]]
+file = "go/greet/greet.go"
+name = "Greeter"
+container = ""
+kind = "type_alias"
+language = "go"
+lines = [16, 18]
+is_test = false
+
+[[symbol]]
+file = "go/greet/greet.go"
+name = "Greet"
+container = ""
+kind = "method"
+language = "go"
+lines = [21, 23]
+is_test = false
+
+# --- scripts/ (a repository rule can exclude it) ----------------------------
+
+[[symbol]]
+file = "scripts/release.py"
+name = "bump_version"
+container = ""
+kind = "function"
+language = "python"
+lines = [4, 6]
+is_test = false

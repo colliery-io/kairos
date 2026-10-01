@@ -1,0 +1,35 @@
+[package]
+name = "kairos-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The code index: symbols, file decisions and the summary pool, in SQLite (COLLIERY-I-0264)"
+
+[dependencies]
+kairos-narsil = { path = "vendor/narsil" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }
+# The same tree-sitter as the vendored narsil code: the tree hash walks its trees.
+tree-sitter = "0.26"
+# The index is one SQLite file. `bundled` compiles SQLite in, so no system
+# library is needed on a Mac, on Linux or in CI.
+rusqlite = { version = "0.40", features = ["bundled"] }
+# .kairos/index-rules.toml. The workspace already has toml 0.9 in the tree.
+toml = "0.9"
+# The walk of the tree: it honours .gitignore, so target/ and node_modules/
+# are never read. Its globset matches the path rules.
+ignore = "0.4"
+globset = "0.4"
+
+[dev-dependencies]
+# The BDD harness (COLLIERY-I-0264, "The tests: behaviour first").
+cucumber = "0.23"
+tokio = { workspace = true }
+tempfile = "3.14.0"
+
+# The scenarios in tests/features/. cucumber has its own runner, not libtest.
+[[test]]
+name = "bdd"
+harness = false

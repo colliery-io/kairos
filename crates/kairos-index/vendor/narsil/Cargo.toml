@@ -1,0 +1,24 @@
+# Vendored from narsil-mcp (github.com/postrv/narsil-mcp), the symbol
+# extraction and the call graph only (COLLIERY-T-1848). See NOTICE for the
+# upstream commit and the changes. The licence and the edition are upstream's,
+# not the workspace's.
+[package]
+name = "kairos-narsil"
+version = "1.7.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "The tree-sitter symbol extraction and call graph of narsil-mcp, vendored for kairos-index"
+
+[dependencies]
+anyhow = "1.0"
+dashmap = "6.0"
+serde = { workspace = true }
+streaming-iterator = "0.1"
+tracing = { workspace = true }
+# The versions narsil-mcp a4a2bd7 uses, which the I-0264 benchmark measured.
+tree-sitter = "0.26"
+tree-sitter-rust = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-go = "0.23"

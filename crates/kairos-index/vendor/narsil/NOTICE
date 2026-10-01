@@ -1,0 +1,33 @@
+kairos-narsil: vendored code from narsil-mcp
+
+Upstream:   https://github.com/postrv/narsil-mcp
+Commit:     a4a2bd7a95f8ef9aab682bf1db97905d8f79b895 (narsil-mcp 1.7.0, 2026-05-12)
+Copyright:  Copyright (c) 2024 postrv
+Licence:    MIT OR Apache-2.0, at your option. The texts are in LICENSE-MIT and
+            LICENSE-APACHE in this folder, copied from the upstream commit.
+
+Vendored on 2026-10-01 for Kairos task COLLIERY-T-1848 (initiative
+COLLIERY-I-0264, the code index).
+
+Files taken from upstream src/:
+
+  symbols.rs    symbol kinds and the Symbol type
+  parser.rs     the tree-sitter parser and the symbol queries
+  callgraph.rs  the call graph (for COLLIERY-T-1849)
+
+Nothing else is taken: not the MCP server, the LSP, the network, the neural
+or embedding code, the persistence, the security rules or the frontend.
+
+Changes from upstream:
+
+  1. parser.rs: the language list is cut to Rust, Python, TypeScript, TSX and
+     Go. The unit tests for the removed languages (and the JavaScript UTF-8
+     signature test) are removed. The queries of the kept languages are not
+     changed.
+  2. symbols.rs and parser.rs: each Symbol also carries start_byte and
+     end_byte, the byte range of its definition node. Each changed line is
+     marked "KAIROS PATCH".
+  3. lib.rs and Cargo.toml are new. Cargo.toml lists only the dependencies of
+     the three files.
+
+callgraph.rs is not changed.

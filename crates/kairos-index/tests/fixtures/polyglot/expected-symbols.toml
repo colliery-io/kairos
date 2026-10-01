@@ -81,11 +81,20 @@ is_test = false
 
 [[symbol]]
 file = "src/lib.rs"
+name = "total_area"
+container = ""
+kind = "function"
+language = "rust"
+lines = [25, 27]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
 name = "tests"
 container = ""
 kind = "module"
 language = "rust"
-lines = [25, 33]
+lines = [30, 38]
 is_test = true
 
 [[symbol]]
@@ -94,7 +103,7 @@ name = "enqueue_all_keeps_each_item"
 container = "tests"
 kind = "function"
 language = "rust"
-lines = [29, 32]
+lines = [34, 37]
 is_test = true
 
 [[symbol]]
@@ -196,8 +205,6 @@ language = "rust"
 lines = [19, 21]
 is_test = false
 
-# The required method `area` of the trait has no body. narsil's Rust query
-# does not capture a `function_signature_item`, so it is not a symbol.
 [[symbol]]
 file = "src/shapes.rs"
 name = "Shape"
@@ -205,6 +212,17 @@ container = ""
 kind = "trait"
 language = "rust"
 lines = [2, 8]
+is_test = false
+
+# The required method `area` of the trait has no body. The vendored narsil
+# query keeps it (KAIROS PATCH, COLLIERY-T-1849): a generic call goes to it.
+[[symbol]]
+file = "src/shapes.rs"
+name = "area"
+container = "Shape"
+kind = "function"
+language = "rust"
+lines = [3, 3]
 is_test = false
 
 [[symbol]]
@@ -441,3 +459,86 @@ kind = "function"
 language = "python"
 lines = [4, 6]
 is_test = false
+
+# --- Rust test crates that share a module (COLLIERY-T-1849) -------------------
+
+[[symbol]]
+file = "tests/common/mod.rs"
+name = "helper"
+container = ""
+kind = "function"
+language = "rust"
+lines = [4, 6]
+is_test = true
+
+[[symbol]]
+file = "tests/first.rs"
+name = "common"
+container = ""
+kind = "module"
+language = "rust"
+lines = [1, 1]
+is_test = true
+
+[[symbol]]
+file = "tests/first.rs"
+name = "first_uses_the_helper"
+container = ""
+kind = "function"
+language = "rust"
+lines = [4, 6]
+is_test = true
+
+[[symbol]]
+file = "tests/second.rs"
+name = "common"
+container = ""
+kind = "module"
+language = "rust"
+lines = [1, 1]
+is_test = true
+
+[[symbol]]
+file = "tests/second.rs"
+name = "second_uses_the_helper"
+container = ""
+kind = "function"
+language = "rust"
+lines = [4, 7]
+is_test = true
+
+[[symbol]]
+file = "tests/first.rs"
+name = "setup"
+container = ""
+kind = "function"
+language = "rust"
+lines = [8, 10]
+is_test = true
+
+[[symbol]]
+file = "tests/first.rs"
+name = "first_uses_its_setup"
+container = ""
+kind = "function"
+language = "rust"
+lines = [13, 16]
+is_test = true
+
+[[symbol]]
+file = "tests/third.rs"
+name = "setup"
+container = ""
+kind = "function"
+language = "rust"
+lines = [4, 6]
+is_test = true
+
+[[symbol]]
+file = "tests/third.rs"
+name = "third_uses_its_setup"
+container = ""
+kind = "function"
+language = "rust"
+lines = [9, 12]
+is_test = true

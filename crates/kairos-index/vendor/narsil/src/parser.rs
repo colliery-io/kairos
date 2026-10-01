@@ -79,6 +79,8 @@ impl LanguageParser {
                 extensions: vec!["rs"],
                 symbol_query: r#"
                     (function_item name: (identifier) @function.name) @function.def
+                    ; KAIROS PATCH: keep a trait method with no body, the target of a generic call.
+                    (function_signature_item name: (identifier) @function.name) @function.def
                     (struct_item name: (type_identifier) @struct.name) @struct.def
                     (enum_item name: (type_identifier) @enum.name) @enum.def
                     (trait_item name: (type_identifier) @trait.name) @trait.def

@@ -8,6 +8,8 @@ use kairos_narsil::symbols::{Symbol, SymbolKind};
 use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Tree};
 
+use crate::calls::{CallSite, call_sites, rust_use_ranges};
+
 /// The language of a file, from its extension: the languages of the index
 /// (Rust, Python, TypeScript, Go), with the names that narsil uses.
 pub fn language_of(path: &str) -> Option<&'static str> {
@@ -37,15 +39,24 @@ pub struct Extracted {
     pub is_test: bool,
 }
 
-/// Parse `content` and return its symbols in source order. `test_file` marks
-/// each symbol as test code.
+/// What one file gives: its symbols, its call sites and, for Rust, the
+/// ranges of its `use` declarations.
+#[derive(Debug, Clone, Default)]
+pub struct FileExtract {
+    pub symbols: Vec<Extracted>,
+    pub calls: Vec<CallSite>,
+    pub use_ranges: Vec<(usize, usize)>,
+}
+
+/// Parse `content` and return its symbols in source order, and its call
+/// sites. `test_file` marks each symbol as test code.
 pub fn extract(
     parser: &LanguageParser,
     path: &str,
     language: &str,
     content: &str,
     test_file: bool,
-) -> Result<Vec<Extracted>, String> {
+) -> Result<FileExtract, String> {
     let parsed = parser
         .parse_file(Path::new(path), content)
         .map_err(|e| e.to_string())?;
@@ -74,7 +85,13 @@ pub fn extract(
     });
 
     let source = content.as_bytes();
-    let out = symbols
+    let calls = call_sites(language, &tree, source);
+    let use_ranges = if language == "rust" {
+        rust_use_ranges(&tree)
+    } else {
+        Vec::new()
+    };
+    let symbols: Vec<Extracted> = symbols
         .iter()
         .map(|s| {
             let node = definition_node(&tree, s);
@@ -96,7 +113,11 @@ pub fn extract(
             }
         })
         .collect();
-    Ok(out)
+    Ok(FileExtract {
+        symbols,
+        calls,
+        use_ranges,
+    })
 }
 
 /// The kind in snake case. Stable: it is stored in the index.
@@ -219,7 +240,9 @@ mod tests {
 
     fn symbols(path: &str, content: &str) -> Vec<Extracted> {
         let parser = LanguageParser::new().unwrap();
-        extract(&parser, path, language_of(path).unwrap(), content, false).unwrap()
+        extract(&parser, path, language_of(path).unwrap(), content, false)
+            .unwrap()
+            .symbols
     }
 
     fn hash_of(path: &str, content: &str, name: &str) -> String {

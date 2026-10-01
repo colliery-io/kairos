@@ -1,21 +1,27 @@
-# The call edges of this fixture (COLLIERY-T-1848, for COLLIERY-T-1849).
+# The call edges of this fixture (COLLIERY-T-1848, COLLIERY-T-1849): each
+# edge, and no other. The scenario "The edges match the fixture's expected
+# edges" compares the 2 lists both ways.
 #
 # A symbol is named by its file, its name and its first line, as in
 # expected-symbols.toml. Each edge has:
 #
 #   caller      the calling symbol
-#   at          the line of the call
+#   at          the line of the called name
 #   class       "certain", "possible" or "external" (COLLIERY-I-0264)
 #   callee      the called symbol, for a certain edge
 #   candidates  the symbols that the name matches, for a possible edge
-#   external    the called name, for an external edge
+#   origin      "scip" or "name"; by default "scip" for a Rust caller and
+#               "name" for the other languages
+#   external    the called name, for an external edge: as SCIP names it
+#               for Rust (`Vec::push`), as the code writes it for the other
+#               languages (`fmt.Println`). When the part before the name is
+#               not a plain path, only the name is kept (`split` in
+#               `line.rstrip("\n").split(",")`).
 #
-# Each call to a function or a class of the fixture is listed. Calls into
-# std or into a dependency are listed only where they test something, for
-# example a `push` on a Vec that must not resolve to `Stack::push`. A Rust
-# macro call (assert_eq!) is not an edge.
+# A Rust macro call (assert_eq!) is not an edge, but a call in its arguments
+# is: SCIP resolves it.
 
-# --- Rust (from SCIP, so each edge into the fixture is certain) ---------------
+# --- Rust (from SCIP) ---------------------------------------------------------
 
 # The second `push`: enqueue_all calls Queue::push, not Stack::push.
 [[edge]]
@@ -34,20 +40,95 @@ callee = { file = "src/queue.rs", name = "push", line = 15 }
 [[edge]]
 caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
 at = 21
+class = "external"
+external = "[T]::iter"
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
+at = 21
+class = "external"
+external = "Iterator::map"
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
+at = 21
 class = "certain"
 callee = { file = "src/shapes.rs", name = "describe", line = 5 }
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 29 }
-at = 30
+caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
+at = 21
+class = "external"
+external = "Iterator::collect"
+
+# A trait method with no body called on a generic: the callee is its
+# declaration in the trait.
+[[edge]]
+caller = { file = "src/lib.rs", name = "total_area", line = 25 }
+at = 26
+class = "external"
+external = "[T]::iter"
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "total_area", line = 25 }
+at = 26
+class = "external"
+external = "Iterator::map"
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "total_area", line = 25 }
+at = 26
+class = "certain"
+callee = { file = "src/shapes.rs", name = "area", line = 3 }
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "total_area", line = 25 }
+at = 26
+class = "external"
+external = "Iterator::sum"
+
+[[edge]]
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 34 }
+at = 35
 class = "certain"
 callee = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
 
+# In the arguments of assert_eq!.
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 29 }
-at = 31
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 34 }
+at = 36
 class = "certain"
 callee = { file = "src/queue.rs", name = "len", line = 19 }
+
+[[edge]]
+caller = { file = "src/queue.rs", name = "new", line = 9 }
+at = 11
+class = "external"
+external = "VecDeque::new"
+
+[[edge]]
+caller = { file = "src/queue.rs", name = "push", line = 15 }
+at = 16
+class = "external"
+external = "VecDeque::push_back"
+
+[[edge]]
+caller = { file = "src/queue.rs", name = "len", line = 19 }
+at = 20
+class = "external"
+external = "VecDeque::len"
+
+[[edge]]
+caller = { file = "src/shapes.rs", name = "describe", line = 5 }
+at = 6
+class = "external"
+external = "String::from"
+
+[[edge]]
+caller = { file = "src/stack.rs", name = "new", line = 10 }
+at = 12
+class = "external"
+external = "Vec::with_capacity"
 
 # `self.items.push(item)` is Vec::push. It is not Stack::push or Queue::push.
 [[edge]]
@@ -57,12 +138,59 @@ class = "external"
 external = "Vec::push"
 
 [[edge]]
-caller = { file = "src/queue.rs", name = "push", line = 15 }
-at = 16
+caller = { file = "src/stack.rs", name = "pop", line = 20 }
+at = 21
 class = "external"
-external = "VecDeque::push_back"
+external = "Vec::pop"
+
+# 2 test crates share tests/common/mod.rs. The SCIP run leaves out the second
+# one (tests/second.rs), so its call has a name class.
+[[edge]]
+caller = { file = "tests/common/mod.rs", name = "helper", line = 4 }
+at = 5
+class = "certain"
+callee = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+
+[[edge]]
+caller = { file = "tests/common/mod.rs", name = "helper", line = 4 }
+at = 5
+class = "certain"
+callee = { file = "src/queue.rs", name = "len", line = 19 }
+
+[[edge]]
+caller = { file = "tests/first.rs", name = "first_uses_the_helper", line = 4 }
+at = 5
+class = "certain"
+callee = { file = "tests/common/mod.rs", name = "helper", line = 4 }
+
+[[edge]]
+caller = { file = "tests/second.rs", name = "second_uses_the_helper", line = 4 }
+at = 5
+class = "certain"
+origin = "name"
+callee = { file = "tests/common/mod.rs", name = "helper", line = 4 }
+
+# tests/first.rs and tests/third.rs each define `setup` at the root. SCIP
+# gives the 2 functions one symbol; the crate of the call chooses.
+[[edge]]
+caller = { file = "tests/first.rs", name = "first_uses_its_setup", line = 13 }
+at = 14
+class = "certain"
+callee = { file = "tests/first.rs", name = "setup", line = 8 }
+
+[[edge]]
+caller = { file = "tests/third.rs", name = "third_uses_its_setup", line = 9 }
+at = 10
+class = "certain"
+callee = { file = "tests/third.rs", name = "setup", line = 4 }
 
 # --- Python (name classes) ---------------------------------------------------
+
+[[edge]]
+caller = { file = "python/polyglot/csv_loader.py", name = "load", line = 4 }
+at = 5
+class = "external"
+external = "open"
 
 # Same file.
 [[edge]]
@@ -72,10 +200,46 @@ class = "certain"
 callee = { file = "python/polyglot/csv_loader.py", name = "_split", line = 9 }
 
 [[edge]]
+caller = { file = "python/polyglot/csv_loader.py", name = "_split", line = 9 }
+at = 10
+class = "external"
+external = "line.rstrip"
+
+[[edge]]
+caller = { file = "python/polyglot/csv_loader.py", name = "_split", line = 9 }
+at = 10
+class = "external"
+external = "split"
+
+[[edge]]
+caller = { file = "python/polyglot/json_loader.py", name = "load", line = 6 }
+at = 7
+class = "external"
+external = "open"
+
+[[edge]]
 caller = { file = "python/polyglot/json_loader.py", name = "load", line = 6 }
 at = 8
 class = "external"
 external = "json.loads"
+
+[[edge]]
+caller = { file = "python/polyglot/json_loader.py", name = "load", line = 6 }
+at = 8
+class = "external"
+external = "handle.read"
+
+[[edge]]
+caller = { file = "python/polyglot/report.py", name = "render", line = 13 }
+at = 14
+class = "external"
+external = "join"
+
+[[edge]]
+caller = { file = "python/polyglot/report.py", name = "render", line = 13 }
+at = 14
+class = "external"
+external = "str"
 
 # The ambiguous caller: 2 modules define `load`.
 [[edge]]
@@ -115,11 +279,48 @@ callee = { file = "python/polyglot/report.py", name = "render", line = 13 }
 
 [[edge]]
 caller = { file = "python/tests/test_report.py", name = "test_build_report_reads_the_file", line = 8 }
+at = 10
+class = "external"
+external = "path.write_text"
+
+[[edge]]
+caller = { file = "python/tests/test_report.py", name = "test_build_report_reads_the_file", line = 8 }
 at = 11
 class = "certain"
 callee = { file = "python/polyglot/report.py", name = "build_report", line = 17 }
 
+[[edge]]
+caller = { file = "python/tests/test_report.py", name = "test_build_report_reads_the_file", line = 8 }
+at = 11
+class = "external"
+external = "str"
+
+[[edge]]
+caller = { file = "scripts/release.py", name = "bump_version", line = 4 }
+at = 5
+class = "external"
+external = "version.split"
+
+[[edge]]
+caller = { file = "scripts/release.py", name = "bump_version", line = 4 }
+at = 6
+class = "external"
+external = "int"
+
 # --- TypeScript (name classes) -----------------------------------------------
+
+# `this.items.push(item)` is Array.prototype.push: no TypeScript `push` here.
+[[edge]]
+caller = { file = "web/src/cart.ts", name = "add", line = 6 }
+at = 7
+class = "external"
+external = "this.items.push"
+
+[[edge]]
+caller = { file = "web/src/cart.ts", name = "total", line = 10 }
+at = 11
+class = "external"
+external = "this.items.reduce"
 
 [[edge]]
 caller = { file = "web/src/cart.ts", name = "total", line = 10 }
@@ -127,12 +328,11 @@ at = 12
 class = "certain"
 callee = { file = "web/src/format.ts", name = "formatPrice", line = 13 }
 
-# `this.items.push(item)` is Array.prototype.push.
 [[edge]]
-caller = { file = "web/src/cart.ts", name = "add", line = 6 }
-at = 7
+caller = { file = "web/src/format.ts", name = "formatPrice", line = 13 }
+at = 14
 class = "external"
-external = "Array.push"
+external = "toFixed"
 
 # --- Go (name classes) -------------------------------------------------------
 

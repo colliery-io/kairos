@@ -21,6 +21,11 @@ pub fn describe_all<S: Shape>(shapes: &[S]) -> Vec<String> {
     shapes.iter().map(|shape| shape.describe()).collect()
 }
 
+/// Calls a trait method with no body on a generic type.
+pub fn total_area<S: Shape>(shapes: &[S]) -> f64 {
+    shapes.iter().map(|shape| shape.area()).sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

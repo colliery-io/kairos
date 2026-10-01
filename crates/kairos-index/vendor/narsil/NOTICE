@@ -27,7 +27,10 @@ Changes from upstream:
   2. symbols.rs and parser.rs: each Symbol also carries start_byte and
      end_byte, the byte range of its definition node. Each changed line is
      marked "KAIROS PATCH".
-  3. lib.rs and Cargo.toml are new. Cargo.toml lists only the dependencies of
+  3. parser.rs: the Rust query also captures `function_signature_item`, a
+     trait method with no body, as a function. A call on a generic value
+     resolves to that declaration (COLLIERY-T-1849). Marked "KAIROS PATCH".
+  4. lib.rs and Cargo.toml are new. Cargo.toml lists only the dependencies of
      the three files.
 
 callgraph.rs is not changed.

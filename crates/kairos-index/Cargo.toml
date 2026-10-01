@@ -22,12 +22,18 @@ toml = "0.9"
 # are never read. Its globset matches the path rules.
 ignore = "0.4"
 globset = "0.4"
+# The SCIP index of rust-analyzer is protobuf. prost is in the workspace tree
+# already; the few messages are written by hand, so no protoc and no build
+# script are needed.
+prost = "0.14"
+serde_json = { workspace = true }
+# The temporary folder of the SCIP run, deleted at its end.
+tempfile = "3.14.0"
 
 [dev-dependencies]
 # The BDD harness (COLLIERY-I-0264, "The tests: behaviour first").
 cucumber = "0.23"
 tokio = { workspace = true }
-tempfile = "3.14.0"
 
 # The scenarios in tests/features/. cucumber has its own runner, not libtest.
 [[test]]

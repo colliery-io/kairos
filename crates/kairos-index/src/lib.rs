@@ -9,12 +9,17 @@
 //!    what made it. A build of the structure keeps it.
 //!
 //! This crate builds the structure ([`build_structure`]) and reads it back
-//! ([`Index`]). The edges (COLLIERY-T-1849) and the summaries
-//! (COLLIERY-T-1850) come later; their tables are in the schema already.
+//! ([`Index`]). The Rust call edges come from `rust-analyzer scip` with the
+//! build turned off (see `scip`); the edges of the other languages come from
+//! their names (see `edges`). The summaries (COLLIERY-T-1850) come later;
+//! their table is in the schema already.
 
+mod calls;
+mod edges;
 mod extract;
 pub mod rules;
 mod schema;
+mod scip;
 
 use std::fs::File;
 use std::io::Read;
@@ -38,6 +43,49 @@ pub struct BuildReport {
     pub files: usize,
     pub parsed_files: usize,
     pub symbols: usize,
+    pub edges: EdgeStats,
+    /// The `rust-analyzer scip` run, if the tree has a Cargo workspace at
+    /// its root with Rust files to index.
+    pub scip: Option<ScipRun>,
+}
+
+/// The count of the edges of a build, by class and origin, and the Rust
+/// calls that SCIP did not resolve.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EdgeStats {
+    pub certain_scip: usize,
+    pub external_scip: usize,
+    pub certain_name: usize,
+    pub possible_name: usize,
+    pub external_name: usize,
+    /// Rust call sites with no SCIP reference at the called name. They got
+    /// a name class.
+    pub rust_unresolved: usize,
+    /// SCIP references to a function of an indexed file that has no narsil
+    /// symbol at that place. They got a name class.
+    pub scip_join_misses: usize,
+    /// SCIP references to a symbol with more than one definition, where
+    /// the crate of the reference does not choose one. They got a name class.
+    pub scip_ambiguous: usize,
+}
+
+/// One `rust-analyzer scip` run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScipRun {
+    /// The temporary folder of the run. The run deletes it at its end.
+    pub work_dir: PathBuf,
+    pub elapsed: std::time::Duration,
+    /// The build-script command that rust-analyzer logged. `true` runs
+    /// nothing.
+    pub build_script_command: Option<String>,
+    /// Whether rust-analyzer logged that it started a proc-macro server.
+    pub proc_macro_server_started: Option<bool>,
+    pub documents: usize,
+    pub occurrences: usize,
+    /// The targets that the run leaves out, by root file from the
+    /// repository root: each shares a module file with an earlier target
+    /// (see `scip`). Their calls get name classes.
+    pub left_out_targets: Vec<String>,
 }
 
 /// One file of the tree and the decision for it.
@@ -71,6 +119,34 @@ pub struct SymbolRecord {
     pub is_test: bool,
 }
 
+/// A symbol, as an edge names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolRef {
+    pub file: String,
+    pub name: String,
+    pub container: Option<String>,
+    pub start_line: u32,
+}
+
+/// One edge of the call graph.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeRecord {
+    pub caller: SymbolRef,
+    /// The called symbol, for a `certain` edge.
+    pub callee: Option<SymbolRef>,
+    /// The called name: as SCIP names it (`Vec::push`) or as the code
+    /// writes it (`fmt.Println`).
+    pub callee_name: String,
+    pub kind: String,
+    pub class: String,
+    pub origin: String,
+    /// The place of the called name, from 1.
+    pub line: u32,
+    pub col: u32,
+    /// The symbols that the name matches, for a `possible` edge.
+    pub candidates: Vec<SymbolRef>,
+}
+
 /// An error of the index. The texts follow ASD-STE100: a user can see them.
 #[derive(Debug, thiserror::Error)]
 pub enum IndexError {
@@ -91,6 +167,14 @@ pub enum IndexError {
     Db(#[from] rusqlite::Error),
     #[error("The parser did not start: {0}")]
     Parser(String),
+    #[error(
+        "The Rust edges need the {0} component, and it is not installed. Run `rustup component add {0}`."
+    )]
+    MissingComponent(&'static str),
+    #[error("rust-analyzer scip failed: {0}")]
+    Scip(String),
+    #[error("rust-analyzer did not run with the build turned off: {0}.")]
+    BuildNotOff(String),
 }
 
 /// Build the structure of the tree at `root` into the index at `db`.
@@ -98,6 +182,11 @@ pub enum IndexError {
 /// The index file is made if it is not there. Its structure is deleted and
 /// written again; its summary pool is kept. The repository's rules are read
 /// from `.kairos/index-rules.toml` under `root`.
+///
+/// If `root` has a `Cargo.toml` and Rust files to index, the Rust edges
+/// come from `rust-analyzer scip`, with the build turned off. That needs the
+/// rustup components `rust-analyzer` and `rust-src`; with no
+/// `rust-analyzer`, the build fails and names the component.
 pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError> {
     if !root.is_dir() {
         return Err(IndexError::NotAFolder(root.to_path_buf()));
@@ -106,18 +195,82 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
     let parser = LanguageParser::new().map_err(|e| IndexError::Parser(e.to_string()))?;
     let paths = walk(root)?;
 
+    // 1. Read, decide and parse each file.
+    let mut report = BuildReport {
+        files: 0,
+        parsed_files: 0,
+        symbols: 0,
+        edges: EdgeStats::default(),
+        scip: None,
+    };
+    let mut prepared = Vec::with_capacity(paths.len());
+    for (rel, abs) in &paths {
+        let file = read_file(abs)?;
+        let header: String = file
+            .text
+            .lines()
+            .take(rules::HEADER_LINES)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_lowercase();
+        let first_line = header.lines().next().unwrap_or("");
+        let verdict = rules.decide(&rules::FileFacts {
+            path: rel,
+            size: file.size,
+            longest_line: file.longest_line,
+            first_line,
+            header: &header,
+        });
+        let language = extract::language_of(rel);
+
+        let mut found = None;
+        let mut parse_error = None;
+        if let (true, Some(language)) = (verdict.decision.is_parsed(), language) {
+            if !file.complete || !file.utf8 {
+                parse_error = Some("the file is not complete UTF-8 text".to_string());
+            } else {
+                match extract::extract(
+                    &parser,
+                    rel,
+                    language,
+                    &file.text,
+                    verdict.decision == Decision::Test,
+                ) {
+                    Ok(extracted) => found = Some(extracted),
+                    Err(e) => parse_error = Some(e),
+                }
+                report.parsed_files += 1;
+            }
+        }
+        prepared.push(Prepared {
+            rel,
+            language,
+            verdict,
+            file,
+            found,
+            parse_error,
+        });
+    }
+
+    // 2. The SCIP index of the Cargo workspace at the root.
+    let has_rust = prepared
+        .iter()
+        .any(|p| p.language == Some("rust") && p.found.is_some());
+    let scip_index = if has_rust && root.join("Cargo.toml").is_file() {
+        let (run, index, crates) = scip::run(root)?;
+        report.scip = Some(run);
+        Some((index, crates))
+    } else {
+        None
+    };
+
+    // 3. Write the structure.
     let mut conn = Connection::open(db)?;
     schema::prepare(&conn)?;
     let tx = conn.transaction()?;
     tx.execute_batch(
         "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;",
     )?;
-
-    let mut report = BuildReport {
-        files: 0,
-        parsed_files: 0,
-        symbols: 0,
-    };
     {
         let mut insert_file = tx.prepare(
             "INSERT INTO files (path, language, decision, rule, rule_origin, size, longest_line, content_hash, parse_error)
@@ -129,60 +282,27 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         )?;
 
-        for (rel, abs) in &paths {
-            let file = read_file(abs)?;
-            let header: String = file
-                .text
-                .lines()
-                .take(rules::HEADER_LINES)
-                .collect::<Vec<_>>()
-                .join("\n")
-                .to_lowercase();
-            let first_line = header.lines().next().unwrap_or("");
-            let verdict = rules.decide(&rules::FileFacts {
-                path: rel,
-                size: file.size,
-                longest_line: file.longest_line,
-                first_line,
-                header: &header,
-            });
-            let language = extract::language_of(rel);
-
-            let mut symbols = Vec::new();
-            let mut parse_error = None;
-            if let (true, Some(language)) = (verdict.decision.is_parsed(), language) {
-                if !file.complete || !file.utf8 {
-                    parse_error = Some("the file is not complete UTF-8 text".to_string());
-                } else {
-                    match extract::extract(
-                        &parser,
-                        rel,
-                        language,
-                        &file.text,
-                        verdict.decision == Decision::Test,
-                    ) {
-                        Ok(found) => symbols = found,
-                        Err(e) => parse_error = Some(e),
-                    }
-                    report.parsed_files += 1;
-                }
-            }
-
+        let mut parsed = Vec::new();
+        for p in &prepared {
             insert_file.execute(params![
-                rel,
-                language,
-                verdict.decision.as_str(),
-                verdict.rule,
-                verdict.origin.as_str(),
-                file.size as i64,
-                file.longest_line as i64,
-                file.content_hash,
-                parse_error,
+                p.rel,
+                p.language,
+                p.verdict.decision.as_str(),
+                p.verdict.rule,
+                p.verdict.origin.as_str(),
+                p.file.size as i64,
+                p.file.longest_line as i64,
+                p.file.content_hash,
+                p.parse_error,
             ])?;
             let file_id = tx.last_insert_rowid();
             report.files += 1;
 
-            for s in &symbols {
+            let (Some(found), Some(language)) = (&p.found, p.language) else {
+                continue;
+            };
+            let mut symbols = Vec::with_capacity(found.symbols.len());
+            for s in &found.symbols {
                 insert_symbol.execute(params![
                     file_id,
                     s.name,
@@ -197,12 +317,62 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
                     s.tree_hash,
                     s.is_test,
                 ])?;
+                symbols.push(edges::Sym {
+                    id: tx.last_insert_rowid(),
+                    name: s.name.clone(),
+                    kind: s.kind,
+                    start_byte: s.start_byte,
+                    end_byte: s.end_byte,
+                });
             }
             report.symbols += symbols.len();
+            parsed.push(edges::ParsedFile {
+                path: p.rel,
+                language,
+                text: &p.file.text,
+                symbols,
+                calls: &found.calls,
+                use_ranges: &found.use_ranges,
+            });
+        }
+
+        let (new_edges, stats) = edges::resolve(&parsed, scip_index.as_ref().map(|(i, c)| (i, c)));
+        report.edges = stats;
+        let mut insert_edge = tx.prepare(
+            "INSERT INTO edges (caller_id, callee_id, callee_name, edge_kind, class, origin, line, col)
+             VALUES (?1, ?2, ?3, 'call', ?4, ?5, ?6, ?7)",
+        )?;
+        let mut insert_candidate = tx.prepare(
+            "INSERT OR IGNORE INTO edge_candidates (edge_id, symbol_id) VALUES (?1, ?2)",
+        )?;
+        for e in &new_edges {
+            insert_edge.execute(params![
+                e.caller_id,
+                e.callee_id,
+                e.callee_name,
+                e.class,
+                e.origin,
+                e.line as i64,
+                e.col as i64,
+            ])?;
+            let edge_id = tx.last_insert_rowid();
+            for c in &e.candidates {
+                insert_candidate.execute(params![edge_id, c])?;
+            }
         }
     }
     tx.commit()?;
     Ok(report)
+}
+
+/// One file of the tree after the rules and the parser, before the write.
+struct Prepared<'a> {
+    rel: &'a str,
+    language: Option<&'static str>,
+    verdict: rules::Verdict,
+    file: FileContent,
+    found: Option<extract::FileExtract>,
+    parse_error: Option<String>,
 }
 
 /// The files under `root`, sorted by path. `.gitignore` is honoured, so
@@ -346,6 +516,69 @@ impl Index {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Each edge, by caller and place, with the candidates of each
+    /// `possible` edge.
+    pub fn edges(&self) -> Result<Vec<EdgeRecord>, IndexError> {
+        fn symbol_ref(r: &rusqlite::Row<'_>, at: usize) -> rusqlite::Result<Option<SymbolRef>> {
+            let file: Option<String> = r.get(at)?;
+            Ok(match file {
+                None => None,
+                Some(file) => Some(SymbolRef {
+                    file,
+                    name: r.get(at + 1)?,
+                    container: r.get(at + 2)?,
+                    start_line: r.get(at + 3)?,
+                }),
+            })
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.callee_name, e.edge_kind, e.class, e.origin, e.line, e.col,
+                    cf.path, c.name, c.container, c.start_line,
+                    tf.path, t.name, t.container, t.start_line
+             FROM edges e
+             JOIN symbols c ON c.id = e.caller_id JOIN files cf ON cf.id = c.file_id
+             LEFT JOIN symbols t ON t.id = e.callee_id LEFT JOIN files tf ON tf.id = t.file_id
+             ORDER BY cf.path, c.start_byte, e.line, e.col, e.callee_name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                EdgeRecord {
+                    caller: symbol_ref(r, 7)?.expect("an edge has a caller"),
+                    callee: symbol_ref(r, 11)?,
+                    callee_name: r.get(1)?,
+                    kind: r.get(2)?,
+                    class: r.get(3)?,
+                    origin: r.get(4)?,
+                    line: r.get(5)?,
+                    col: r.get(6)?,
+                    candidates: Vec::new(),
+                },
+            ))
+        })?;
+        let mut edges: Vec<(i64, EdgeRecord)> = rows.collect::<Result<_, _>>()?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT ec.edge_id, f.path, s.name, s.container, s.start_line
+             FROM edge_candidates ec
+             JOIN symbols s ON s.id = ec.symbol_id JOIN files f ON f.id = s.file_id
+             ORDER BY ec.edge_id, f.path, s.start_line",
+        )?;
+        let mut candidates: std::collections::HashMap<i64, Vec<SymbolRef>> =
+            std::collections::HashMap::new();
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, symbol_ref(r, 1)?.expect("a candidate")))
+        })?;
+        for row in rows {
+            let (edge_id, symbol) = row?;
+            candidates.entry(edge_id).or_default().push(symbol);
+        }
+        for (id, edge) in &mut edges {
+            edge.candidates = candidates.remove(id).unwrap_or_default();
+        }
+        Ok(edges.into_iter().map(|(_, e)| e).collect())
     }
 }
 

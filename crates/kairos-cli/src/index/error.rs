@@ -64,6 +64,8 @@ pub enum ToolError {
     BadArguments(String),
     #[error("The argument `limit` must be from 1 to {0}.")]
     Limit(usize),
+    #[error("The argument `min_lines` must be 1 or more.")]
+    MinLines,
     #[error(transparent)]
     Index(#[from] kairos_index::IndexError),
 }
@@ -78,7 +80,8 @@ impl ToolError {
             ToolError::UnknownArgument { .. }
             | ToolError::MissingArgument { .. }
             | ToolError::BadArguments(_)
-            | ToolError::Limit(_) => "VALIDATION",
+            | ToolError::Limit(_)
+            | ToolError::MinLines => "VALIDATION",
             ToolError::Index(_) => "INDEX",
         }
     }

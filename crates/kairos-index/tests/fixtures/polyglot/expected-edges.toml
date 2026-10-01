@@ -429,3 +429,107 @@ caller = { file = "go/greet/greet.go", name = "Title", line = 26 }
 at = 27
 class = "external"
 external = "len"
+
+# --- Repeated code (COLLIERY-T-1857) -------------------------------------------
+
+[[edge]]
+caller = { file = "python/polyglot/stats.py", name = "summarize_rows", line = 5 }
+at = 11
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/stats.py", name = "summarize_rows", line = 5 }
+at = 12
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/stats.py", name = "summarize_rows", line = 5 }
+at = 12
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/tally.py", name = "tally_records", line = 5 }
+at = 11
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/tally.py", name = "tally_records", line = 5 }
+at = 12
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/tally.py", name = "tally_records", line = 5 }
+at = 12
+class = "external"
+external = "len"
+
+[[edge]]
+caller = { file = "python/polyglot/tally.py", name = "tally_records", line = 5 }
+at = 14
+class = "external"
+external = "round"
+
+[[edge]]
+caller = { file = "python/tests/test_stats.py", name = "test_summary_counts_the_rows", line = 4 }
+at = 6
+class = "certain"
+callee = { file = "python/polyglot/stats.py", name = "summarize_rows", line = 5 }
+
+[[edge]]
+caller = { file = "python/tests/test_stats.py", name = "test_summary_counts_the_rows_again", line = 12 }
+at = 14
+class = "certain"
+callee = { file = "python/polyglot/stats.py", name = "summarize_rows", line = 5 }
+
+[[edge]]
+caller = { file = "src/checksum.rs", name = "checksum", line = 16 }
+at = 19
+class = "external"
+external = "u32::wrapping_mul"
+
+[[edge]]
+caller = { file = "src/checksum.rs", name = "checksum", line = 16 }
+at = 19
+class = "external"
+external = "u32::wrapping_add"
+
+[[edge]]
+caller = { file = "src/checksum.rs", name = "checksum", line = 16 }
+at = 19
+class = "external"
+external = "u32::from"
+
+[[edge]]
+caller = { file = "src/legacy.rs", name = "checksum", line = 13 }
+at = 19
+class = "external"
+external = "u32::wrapping_mul"
+
+[[edge]]
+caller = { file = "src/legacy.rs", name = "checksum", line = 13 }
+at = 20
+class = "external"
+external = "u32::wrapping_add"
+
+[[edge]]
+caller = { file = "src/legacy.rs", name = "checksum", line = 13 }
+at = 20
+class = "external"
+external = "u32::from"
+
+[[edge]]
+caller = { file = "web/src/totals.ts", name = "addUpCents", line = 14 }
+at = 15
+class = "external"
+external = "prices.map"
+
+[[edge]]
+caller = { file = "web/src/totals.ts", name = "addUpCents", line = 14 }
+at = 18
+class = "external"
+external = "amounts.reduce"

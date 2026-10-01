@@ -1,6 +1,7 @@
 //! Symbols from one file, through the vendored narsil parser, with what the
 //! index adds to them: the container, the test mark and the tree hash.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use kairos_narsil::parser::LanguageParser;
@@ -9,6 +10,7 @@ use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Tree};
 
 use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_use_ranges};
+use crate::tokens;
 
 /// The language of a file, from its extension: the languages of the index
 /// (Rust, Python, TypeScript, Go), with the names that narsil uses.
@@ -37,6 +39,13 @@ pub struct Extracted {
     pub signature: Option<String>,
     pub tree_hash: String,
     pub is_test: bool,
+    /// The token vector of a function or a method (COLLIERY-T-1857).
+    pub token_vector: Option<Vec<u32>>,
+    /// The count of the tokens of the token vector.
+    pub token_count: Option<u32>,
+    /// Whether the token vector was made from the code: `false` when it came
+    /// from the vectors that the index had for the tree hash.
+    pub token_vector_made: bool,
 }
 
 /// What one file gives: its symbols, its call sites and, for Rust, the
@@ -51,13 +60,16 @@ pub struct FileExtract {
 }
 
 /// Parse `content` and return its symbols in source order, and its call
-/// sites. `test_file` marks each symbol as test code.
+/// sites. `test_file` marks each symbol as test code. `known` holds the token
+/// vectors that the index has, by tree hash: a function with one of these
+/// hashes reuses its vector.
 pub fn extract(
     parser: &LanguageParser,
     path: &str,
     language: &str,
     content: &str,
     test_file: bool,
+    known: &HashMap<String, (Vec<u32>, u32)>,
 ) -> Result<FileExtract, String> {
     let parsed = parser
         .parse_file(Path::new(path), content)
@@ -97,21 +109,36 @@ pub fn extract(
         .iter()
         .map(|s| {
             let node = definition_node(&tree, s);
+            let kind = kind_name(&s.kind);
+            let tree_hash = node.map_or_else(
+                || hash_text(language, &source[s.start_byte..s.end_byte]),
+                |node| tree_hash(language, node, source),
+            );
+            // The tokens depend only on the tree, so a known tree hash has
+            // its vector already. A symbol with no definition node has none.
+            let (token_vector, token_vector_made) = match node {
+                Some(node) if tokens::has_vector(kind) => match known.get(&tree_hash) {
+                    Some(v) => (Some(v.clone()), false),
+                    None => (tokens::token_vector(node, source), true),
+                },
+                _ => (None, false),
+            };
+            let (token_vector, token_count) = token_vector.unzip();
             Extracted {
                 name: s.name.clone(),
                 container: container_of(&symbols, s),
-                kind: kind_name(&s.kind),
+                kind,
                 start_line: s.start_line,
                 end_line: s.end_line,
                 start_byte: s.start_byte,
                 end_byte: s.end_byte,
                 signature: s.signature.clone(),
-                tree_hash: node.map_or_else(
-                    || hash_text(language, &source[s.start_byte..s.end_byte]),
-                    |node| tree_hash(language, node, source),
-                ),
+                tree_hash,
                 is_test: test_file
                     || (language == "rust" && node.is_some_and(|n| in_rust_test_code(n, source))),
+                token_vector,
+                token_count,
+                token_vector_made,
             }
         })
         .collect();
@@ -254,9 +281,16 @@ mod tests {
 
     fn symbols(path: &str, content: &str) -> Vec<Extracted> {
         let parser = LanguageParser::new().unwrap();
-        extract(&parser, path, language_of(path).unwrap(), content, false)
-            .unwrap()
-            .symbols
+        extract(
+            &parser,
+            path,
+            language_of(path).unwrap(),
+            content,
+            false,
+            &HashMap::new(),
+        )
+        .unwrap()
+        .symbols
     }
 
     fn hash_of(path: &str, content: &str, name: &str) -> String {

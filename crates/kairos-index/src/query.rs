@@ -5,7 +5,8 @@
 //!   rank are fused by reciprocal rank, as the search of the Kairos items
 //!   does (`kairos-core::retrieval`): a cosine and a text score have no common
 //!   scale, but 2 ranks do. With no summaries, the search reads the names,
-//!   the signatures and the paths.
+//!   the signatures and the paths. Test code ranks below the other
+//!   symbols (COLLIERY-T-1857).
 //! - [`Index::lookup`]: a symbol from the name that an agent gives.
 //! - [`Index::callers`] and [`Index::callees`]: `certain` edges, and the
 //!   `possible` ones on request.
@@ -192,12 +193,12 @@ pub struct SearchResult {
 
 /// The columns of [`SymbolInfo`], for `s` (symbols), `f` (files) and `m`
 /// (summaries).
-const SYMBOL_COLUMNS: &str = "s.id, f.path, s.name, s.container, s.kind, s.language, \
+pub(crate) const SYMBOL_COLUMNS: &str = "s.id, f.path, s.name, s.container, s.kind, s.language, \
      s.start_line, s.end_line, s.signature, s.is_test, m.summary";
-const SYMBOL_FROM: &str = "symbols s JOIN files f ON f.id = s.file_id \
+pub(crate) const SYMBOL_FROM: &str = "symbols s JOIN files f ON f.id = s.file_id \
      LEFT JOIN summaries m ON m.key = s.summary_key";
 
-fn symbol_info(r: &Row<'_>, at: usize) -> rusqlite::Result<SymbolInfo> {
+pub(crate) fn symbol_info(r: &Row<'_>, at: usize) -> rusqlite::Result<SymbolInfo> {
     Ok(SymbolInfo {
         id: r.get(at)?,
         file: r.get(at + 1)?,
@@ -609,8 +610,17 @@ impl Index {
             }
         }
 
+        // Test code ranks below each other symbol (COLLIERY-T-1857): with no
+        // summaries, the names of test functions often have the words of the
+        // query.
         let mut order: Vec<(usize, f64)> = fused.into_iter().collect();
-        order.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        order.sort_by(|a, b| {
+            let (test_a, test_b) = (docs[a.0].0.is_test, docs[b.0].0.is_test);
+            test_a
+                .cmp(&test_b)
+                .then(b.1.total_cmp(&a.1))
+                .then(a.0.cmp(&b.0))
+        });
         let mut docs: Vec<Option<SymbolInfo>> = docs.into_iter().map(|(s, _)| Some(s)).collect();
         let hits = order
             .into_iter()

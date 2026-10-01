@@ -449,6 +449,16 @@ fn symbol_with_unknown_argument(world: &mut CliWorld) {
     world.call("symbol", json!({"symbol": "pop", "verbose": true}));
 }
 
+#[when("an agent calls duplicates")]
+fn duplicates(world: &mut CliWorld) {
+    world.call("duplicates", json!({}));
+}
+
+#[when("an agent calls duplicates with an argument that the tool does not have")]
+fn duplicates_with_unknown_argument(world: &mut CliWorld) {
+    world.call("duplicates", json!({"kind": "exact", "verbose": true}));
+}
+
 #[when("an agent calls module_map")]
 fn module_map(world: &mut CliWorld) {
     world.call("module_map", json!({}));
@@ -571,6 +581,47 @@ fn refused(world: &mut CliWorld) {
         result.text
     );
     assert!(result.text.contains("\"verbose\""), "{}", result.text);
+}
+
+#[then("the result has the exact copy of checksum, with the files, the lines and a score")]
+fn the_exact_copy(world: &mut CliWorld) {
+    let text = world.text().to_string();
+    let groups = numbered(&text);
+    let exact = groups
+        .iter()
+        .position(|l| l.contains("exact") && l.contains("score 1.00"))
+        .unwrap_or_else(|| panic!("no exact group with a score:\n{text}"));
+    // The symbols of the group are the list lines after its numbered line.
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines
+        .iter()
+        .position(|l| *l == groups[exact])
+        .expect("the group line");
+    let symbols: Vec<&str> = lines[start + 1..]
+        .iter()
+        .take_while(|l| l.starts_with("- "))
+        .copied()
+        .collect();
+    assert_eq!(
+        symbols,
+        [
+            "- checksum (src/checksum.rs:16-22)",
+            "- checksum (src/legacy.rs:13-24)"
+        ],
+        "{text}"
+    );
+    // Test code and small symbols are left out by default, and the result
+    // says so.
+    assert!(text.contains("Test code is left out."), "{text}");
+    assert!(!text.contains("value (src/checksum.rs"), "{text}");
+}
+
+#[then(expr = "{string} gives the same groups")]
+fn the_cli_gives_the_same(world: &mut CliWorld, command: String) {
+    assert_eq!(command, "kairos index duplicates");
+    let root = world.root().to_path_buf();
+    let out = kairos(&["index", "duplicates"], &root);
+    assert_eq!(out.trim_end(), world.text().trim_end());
 }
 
 #[then("the result has each module with its summary and its files")]

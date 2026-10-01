@@ -23,6 +23,7 @@
 //! merged tree with the pools of 2 indexes (COLLIERY-T-1851).
 
 mod calls;
+mod duplicates;
 mod edges;
 mod extract;
 #[cfg(feature = "llama")]
@@ -33,7 +34,9 @@ pub mod rust_analyzer;
 mod schema;
 mod scip;
 mod summary;
+mod tokens;
 
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -42,6 +45,10 @@ use kairos_narsil::parser::LanguageParser;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
+pub use duplicates::{
+    DEFAULT_MIN_LINES, DuplicateGroup, DuplicateKind, DuplicateOptions, Duplicates,
+    MIN_NEAR_TOKENS, NEAR_THRESHOLD, SAME_IDEA_THRESHOLD,
+};
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
 pub use query::{
@@ -76,6 +83,16 @@ pub struct BuildReport {
     /// The `rust-analyzer scip` run, if the tree has a Cargo workspace at
     /// its root with Rust files to index.
     pub scip: Option<ScipRun>,
+    /// The token vectors of the functions (COLLIERY-T-1857).
+    pub token_vectors: TokenVectorStats,
+}
+
+/// The token vectors of a build: made from the code, or reused from the
+/// index for a function whose tree hash the index had already.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenVectorStats {
+    pub made: usize,
+    pub reused: usize,
 }
 
 /// The count of the edges of a build, by class and origin, and the Rust
@@ -162,6 +179,11 @@ pub struct SymbolRecord {
     pub is_test: bool,
     /// The key of its summary in the pool, when it has one.
     pub summary_key: Option<String>,
+    /// The token vector of a function or a method (COLLIERY-T-1857): its
+    /// MinHash signature.
+    pub token_vector: Option<Vec<u32>>,
+    /// The count of the tokens of the token vector.
+    pub token_count: Option<u32>,
 }
 
 /// A symbol, as an edge names it.
@@ -286,7 +308,37 @@ pub fn build_structure_with(
     db: &Path,
     options: &BuildOptions,
 ) -> Result<BuildReport, IndexError> {
-    build(root, db, Mode::Scip(options))
+    let known = known_vectors_at(db)?;
+    build(root, db, Mode::Scip(options), &known)
+}
+
+/// The token vectors of the index at `db`, by tree hash, for a build that
+/// reuses them (COLLIERY-T-1857). None if `db` is not there, or if it has
+/// another schema version (the build then refuses it).
+fn known_vectors_at(db: &Path) -> Result<HashMap<String, (Vec<u32>, u32)>, IndexError> {
+    if !db.is_file() {
+        return Ok(HashMap::new());
+    }
+    let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version != SCHEMA_VERSION {
+        return Ok(HashMap::new());
+    }
+    known_vectors(&conn)
+}
+
+fn known_vectors(conn: &Connection) -> Result<HashMap<String, (Vec<u32>, u32)>, IndexError> {
+    let mut stmt = conn.prepare(
+        "SELECT tree_hash, token_vector, token_count FROM symbols
+         WHERE token_vector IS NOT NULL AND token_count IS NOT NULL",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            (tokens::from_blob(&r.get::<_, Vec<u8>>(1)?), r.get(2)?),
+        ))
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
 }
 
 /// Where a build gets the Rust edges.
@@ -306,17 +358,23 @@ pub fn update_structure(
     db: &Path,
     options: &UpdateOptions,
 ) -> Result<BuildReport, IndexError> {
+    let known = known_vectors_at(db)?;
     if options.rust_edges {
-        return build(root, db, Mode::Scip(&options.build));
+        return build(root, db, Mode::Scip(&options.build), &known);
     }
     let conn = Connection::open(db)?;
     schema::prepare(&conn)?;
     let base = edges::BaseIndex::read(&conn)?;
     drop(conn);
-    build(root, db, Mode::Keep(std::slice::from_ref(&base)))
+    build(root, db, Mode::Keep(std::slice::from_ref(&base)), &known)
 }
 
-fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexError> {
+fn build(
+    root: &Path,
+    db: &Path,
+    mode: Mode<'_>,
+    known: &HashMap<String, (Vec<u32>, u32)>,
+) -> Result<BuildReport, IndexError> {
     if !root.is_dir() {
         return Err(IndexError::NotAFolder(root.to_path_buf()));
     }
@@ -331,6 +389,7 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
         symbols: 0,
         edges: EdgeStats::default(),
         scip: None,
+        token_vectors: TokenVectorStats::default(),
     };
     let mut prepared = Vec::with_capacity(paths.len());
     for (rel, abs) in &paths {
@@ -364,6 +423,7 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
                     language,
                     &file.text,
                     verdict.decision == Decision::Test,
+                    known,
                 ) {
                     Ok(extracted) => found = Some(extracted),
                     Err(e) => parse_error = Some(e),
@@ -415,8 +475,9 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
         )?;
         let mut insert_symbol = tx.prepare(
             "INSERT INTO symbols (file_id, name, container, kind, language, start_line, end_line,
-                                  start_byte, end_byte, signature, tree_hash, is_test)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                                  start_byte, end_byte, signature, tree_hash, is_test, token_vector,
+                                  token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         )?;
 
         let mut parsed = Vec::new();
@@ -454,7 +515,14 @@ fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexErr
                     s.signature,
                     s.tree_hash,
                     s.is_test,
+                    s.token_vector.as_deref().map(tokens::to_blob),
+                    s.token_count,
                 ])?;
+                match (&s.token_vector, s.token_vector_made) {
+                    (Some(_), true) => report.token_vectors.made += 1,
+                    (Some(_), false) => report.token_vectors.reused += 1,
+                    (None, _) => {}
+                }
                 symbols.push(edges::Sym {
                     id: tx.last_insert_rowid(),
                     name: s.name.clone(),
@@ -662,7 +730,8 @@ impl Index {
     pub fn symbols(&self) -> Result<Vec<SymbolRecord>, IndexError> {
         let mut stmt = self.conn.prepare(
             "SELECT f.path, s.name, s.container, s.kind, s.language, s.start_line, s.end_line,
-                    s.start_byte, s.end_byte, s.signature, s.tree_hash, s.is_test, s.summary_key
+                    s.start_byte, s.end_byte, s.signature, s.tree_hash, s.is_test, s.summary_key,
+                    s.token_vector, s.token_count
              FROM symbols s JOIN files f ON f.id = s.file_id
              ORDER BY f.path, s.start_byte, s.end_byte DESC, s.kind, s.name",
         )?;
@@ -681,6 +750,10 @@ impl Index {
                 tree_hash: r.get(10)?,
                 is_test: r.get(11)?,
                 summary_key: r.get(12)?,
+                token_vector: r
+                    .get::<_, Option<Vec<u8>>>(13)?
+                    .map(|b| tokens::from_blob(&b)),
+                token_count: r.get(14)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -855,12 +928,14 @@ pub fn merge(
         return Err(IndexError::Exists(out.to_path_buf()));
     }
     let mut kept = Vec::with_capacity(bases.len());
+    let mut known = HashMap::new();
     let mut conn = Connection::open(out)?;
     schema::prepare(&conn)?;
     for base in bases {
         // Index::open refuses a missing file or another schema version.
         let index = Index::open(base)?;
         kept.push(edges::BaseIndex::read(&index.conn)?);
+        known.extend(known_vectors(&index.conn)?);
         summary::copy_pool(&index.conn, &mut conn)?;
     }
     drop(conn);
@@ -869,7 +944,7 @@ pub fn merge(
     } else {
         Mode::Keep(&kept)
     };
-    let build = build(root, out, mode)?;
+    let build = build(root, out, mode, &known)?;
     let summary = summarize(root, out, summarizer, embedder, &options.summarize)?;
     Ok(UpdateReport { build, summary })
 }

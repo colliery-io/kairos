@@ -11,6 +11,11 @@
 //! tree hash (`symbols.summary_key`), the key of a file summary has the path,
 //! an edge can come from the text of a macro (`macro-text`) and can wait for
 //! a SCIP run (`scip_pending`), and `scip_covered` keeps what SCIP resolved.
+//!
+//! Version 4 (COLLIERY-T-1857): `symbols.token_vector`, the MinHash signature
+//! of the tokens of a function or a method, and `symbols.token_count`, for the
+//! `near` kind of repeated code. A build reuses the vector of each tree hash that the index has.
+//!
 //! An index of an earlier version is refused.
 //!
 //! `PRAGMA user_version` holds the schema version.
@@ -20,7 +25,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -54,7 +59,9 @@ CREATE TABLE symbols (
     signature   TEXT,
     tree_hash   TEXT    NOT NULL,           -- sha256 of the normalized tree
     is_test     INTEGER NOT NULL CHECK (is_test IN (0, 1)),
-    summary_key TEXT                        -- the key of its summary in the pool
+    summary_key TEXT,                       -- the key of its summary in the pool
+    token_vector BLOB,                      -- a function: 128 little-endian u32 (MinHash)
+    token_count INTEGER                     -- the count of its tokens
 ) STRICT;
 CREATE INDEX symbols_file ON symbols (file_id);
 CREATE INDEX symbols_name ON symbols (name);

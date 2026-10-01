@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use kairos_embed::EmbeddingProvider;
-use kairos_index::{CallEdge, Index, Lookup, SearchMode, SymbolInfo};
+use kairos_index::{
+    CallEdge, DEFAULT_MIN_LINES, DuplicateKind, DuplicateOptions, Index, IndexError, Lookup,
+    SearchMode, SymbolInfo,
+};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::model::{
@@ -29,6 +32,10 @@ use super::error::{IndexCommandError, ToolError};
 const DEFAULT_LIMIT: usize = 10;
 /// The most results of one `code_search`.
 const MAX_LIMIT: usize = 50;
+/// The groups of `duplicates` when the call gives no `limit`.
+pub(super) const DEFAULT_GROUPS: usize = 20;
+/// The most groups of one `duplicates`.
+pub(super) const MAX_GROUPS: usize = 200;
 
 /// Serve the code tools of the checkout at `root` on stdin and stdout until
 /// the client closes stdin.
@@ -105,6 +112,45 @@ pub struct PathParams {
     pub from_file: Option<String>,
     /// The file of `to`, when more than one symbol has the name.
     pub to_file: Option<String>,
+}
+
+/// A kind of repeated code, as an argument.
+#[derive(Debug, Clone, Copy, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(rename_all = "kebab-case")]
+pub enum KindParam {
+    Exact,
+    Near,
+    SameIdea,
+}
+
+impl From<KindParam> for DuplicateKind {
+    fn from(k: KindParam) -> Self {
+        match k {
+            KindParam::Exact => DuplicateKind::Exact,
+            KindParam::Near => DuplicateKind::Near,
+            KindParam::SameIdea => DuplicateKind::SameIdea,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct DuplicatesParams {
+    /// Only this kind: `exact` (the same code with other whitespace or
+    /// comments), `near` (a copy with renamed names or a few changed lines) or
+    /// `same-idea` (summaries with the same meaning). Default: all 3.
+    pub kind: Option<KindParam>,
+    /// The smallest function to compare, in lines. Default 5.
+    pub min_lines: Option<u32>,
+    /// Also compare test code. Default false.
+    pub tests: Option<bool>,
+    /// Only the functions in files under this path, from the root of the
+    /// checkout.
+    pub under: Option<String>,
+    /// The most groups to give, from 1 to 200. Default 20.
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -199,6 +245,64 @@ fn marks(edge: &CallEdge) -> String {
         out.push_str(", by name until the next SCIP run");
     }
     out
+}
+
+/// The text of `duplicates`, for the MCP tool and for `kairos index
+/// duplicates` (COLLIERY-T-1857): the count, what was left out, then each
+/// group with its kind, its score and its symbols.
+pub(super) fn duplicates_text(
+    index: &Index,
+    options: &DuplicateOptions,
+    limit: usize,
+) -> Result<String, IndexError> {
+    let found = index.duplicates(options)?;
+    let compared = plural(found.compared, "function", "functions");
+    let mut out = if found.groups.is_empty() {
+        format!("No repeated code is in the {compared} that were compared.")
+    } else {
+        let mut head = format!(
+            "{} of repeated code in {compared}.",
+            plural(found.groups.len(), "group", "groups")
+        );
+        if found.groups.len() > limit {
+            head.push_str(&format!(
+                " Only {} shown.",
+                plural(limit, "group is", "groups are")
+            ));
+        }
+        head
+    };
+    if !options.include_tests {
+        out.push_str(" Test code is left out.");
+    }
+    if options.min_lines > 1 {
+        out.push_str(&format!(
+            " Functions under {} lines are left out.",
+            options.min_lines
+        ));
+    }
+    if options.kinds.contains(&DuplicateKind::SameIdea) && !found.summary_vectors {
+        out.push_str(" The functions have no summary vectors, so no search for the same idea ran.");
+    }
+    for (i, g) in found.groups.iter().take(limit).enumerate() {
+        out.push_str(&format!(
+            "\n{}. {}, score {:.2}, {}:",
+            i + 1,
+            g.kind.as_str(),
+            g.score,
+            plural(g.symbols.len(), "symbol", "symbols")
+        ));
+        for s in &g.symbols {
+            out.push_str(&format!(
+                "\n- {} ({}:{}-{})",
+                s.qualified(),
+                s.file,
+                s.start_line,
+                s.end_line
+            ));
+        }
+    }
+    Ok(out)
 }
 
 fn plural(count: usize, one: &str, many: &str) -> String {
@@ -435,6 +539,37 @@ impl CodeTools {
     }
 
     #[tool(
+        description = "Find repeated code in this checkout. The kinds: `exact`, the same code with other whitespace or comments; `near`, a copy with renamed names or a few changed lines; `same-idea`, 2 functions whose summaries have the same meaning. Each group has its kind, a score from 0 to 1, and its functions with their files and lines. Test code and functions under 5 lines are left out, unless you set `tests` or `min_lines`."
+    )]
+    async fn duplicates(
+        &self,
+        Parameters(params): Parameters<DuplicatesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        result((|| {
+            let limit = params.limit.unwrap_or(DEFAULT_GROUPS);
+            if !(1..=MAX_GROUPS).contains(&limit) {
+                return Err(ToolError::Limit(MAX_GROUPS));
+            }
+            let min_lines = params.min_lines.unwrap_or(DEFAULT_MIN_LINES);
+            if min_lines == 0 {
+                return Err(ToolError::MinLines);
+            }
+            let options = DuplicateOptions {
+                kinds: match params.kind {
+                    Some(kind) => vec![kind.into()],
+                    None => DuplicateKind::ALL.to_vec(),
+                },
+                min_lines,
+                include_tests: params.tests.unwrap_or(false),
+                under: params.under,
+                ..DuplicateOptions::default()
+            };
+            let index = self.open()?;
+            Ok(duplicates_text(&index, &options, limit)?)
+        })())
+    }
+
+    #[tool(
         description = "The map of this checkout: each folder of source files, with its summary and its files, each file with its summary. Use it in place of .metis/code-index.md. `under` keeps the folders under one path."
     )]
     async fn module_map(
@@ -500,8 +635,9 @@ impl ServerHandler for CodeTools {
             .with_instructions(format!(
                 "The code index of the checkout {}. Use these tools before you read files: \
                  `module_map` for the map, `code_search` to find code by what it does, \
-                 `symbol` for one symbol, `callers` and `callees` for the call graph, and \
-                 `path` for how one symbol reaches another. Run `kairos index update` after \
+                 `symbol` for one symbol, `callers` and `callees` for the call graph, \
+                 `path` for how one symbol reaches another, and `duplicates` for repeated \
+                 code. Run `kairos index update` after \
                  you change code.",
                 display(&self.root)
             ))

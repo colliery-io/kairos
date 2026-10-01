@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use cucumber::{World, given, then, when};
 use kairos_embed::DeterministicProvider;
 use kairos_index::{
-    BuildOptions, BuildReport, EdgeRecord, FakeSummarizer, FileRecord, Index, Level,
-    SUMMARIZED_KINDS, SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef,
-    UpdateOptions, UpdateReport, build_structure_with, merge, rust_analyzer, summarize, update,
+    BuildOptions, BuildReport, DuplicateOptions, Duplicates, EdgeRecord, FakeSummarizer,
+    FileRecord, Index, Level, SUMMARIZED_KINDS, SearchResult, SummarizeOptions, Summarizer,
+    SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, UpdateOptions, UpdateReport,
+    build_structure_with, merge, rust_analyzer, summarize, update,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -66,6 +67,10 @@ struct IndexWorld {
     std_source: Option<PathBuf>,
     /// The error of the last build, for a scenario where the build fails.
     build_error: Option<String>,
+    /// The result of the last search for repeated code.
+    duplicates: Option<Duplicates>,
+    /// The result of the last search of the code.
+    search: Option<SearchResult>,
 }
 
 /// The rust-analyzer and the std source of the scenarios: those pinned in
@@ -2405,6 +2410,525 @@ fn index_has_the_change(world: &mut IndexWorld) {
         "the index has the committed file"
     );
     assert_eq!(world.symbol_requests(), ["go/greet/greet.go:Farewell"]);
+}
+
+// --- Repeated code (COLLIERY-T-1857) ---------------------------------------------
+
+/// The summary text that the 2 TypeScript functions of the `same-idea` group
+/// get: the same meaning, in the only form that the deterministic vectors
+/// can show.
+const SAME_IDEA: &str = "Adds up the cents of each price and returns the sum.";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExpectedDuplicates {
+    group: Vec<ExpectedGroup>,
+    small: Vec<ExpectedGroup>,
+    test: Vec<ExpectedGroup>,
+    unrelated: Vec<UnrelatedPair>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+struct ExpectedGroup {
+    kind: String,
+    symbols: Vec<NamedSymbol>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(deny_unknown_fields)]
+struct UnrelatedPair {
+    symbols: [NamedSymbol; 2],
+}
+
+#[derive(Debug, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+struct NamedSymbol {
+    file: String,
+    name: String,
+}
+
+impl ExpectedGroup {
+    fn names(&self) -> BTreeSet<NamedSymbol> {
+        self.symbols.iter().cloned().collect()
+    }
+}
+
+fn expected_duplicates() -> ExpectedDuplicates {
+    let path = fixture_root().join("expected-duplicates.toml");
+    let text = fs::read_to_string(&path).expect("read expected-duplicates.toml");
+    toml::from_str(&text).expect("parse expected-duplicates.toml")
+}
+
+/// The one `[[group]]` of expected-duplicates.toml with this kind.
+fn expected_group(kind: &str) -> ExpectedGroup {
+    let found: Vec<_> = expected_duplicates()
+        .group
+        .into_iter()
+        .filter(|g| g.kind == kind)
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "expected-duplicates.toml must have 1 group of kind {kind}"
+    );
+    found[0].clone()
+}
+
+/// The text of the function `name` in `file` of the fixture.
+fn function_text(file: &str, name: &str) -> String {
+    let symbols = expected();
+    let s = symbols
+        .symbol
+        .iter()
+        .find(|s| s.file == file && s.name == name)
+        .unwrap_or_else(|| panic!("expected-symbols.toml has no {name} in {file}"));
+    let text = fs::read_to_string(fixture_root().join(file)).expect("read a fixture file");
+    text.lines()
+        .skip(s.lines[0] as usize - 1)
+        .take((s.lines[1] - s.lines[0] + 1) as usize)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A fake summarizer that gives the 2 functions of the `same-idea` group
+/// the text [`SAME_IDEA`], and each other symbol the text of
+/// [`FakeSummarizer`].
+#[derive(Default)]
+struct SameIdea {
+    fake: FakeSummarizer,
+}
+
+/// The vectors of the duplicates scenarios: the deterministic vectors of
+/// the summary text only. The summarizer embeds `name: summary`, and a hash of
+/// that text would give 2 functions with the same summary 2 unrelated
+/// vectors. A real model gives close vectors to texts with the same meaning.
+#[derive(Debug)]
+struct SummaryTextVectors {
+    id: kairos_embed::ModelId,
+    inner: DeterministicProvider,
+}
+
+impl Default for SummaryTextVectors {
+    fn default() -> Self {
+        SummaryTextVectors {
+            id: kairos_embed::ModelId::new("test", "summary-text-sha256-384", 384),
+            inner: DeterministicProvider::default(),
+        }
+    }
+}
+
+impl kairos_embed::EmbeddingProvider for SummaryTextVectors {
+    fn model_id(&self) -> &kairos_embed::ModelId {
+        &self.id
+    }
+
+    fn embed(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<kairos_embed::Embedding>, kairos_embed::EmbedError> {
+        let summaries: Vec<String> = texts
+            .iter()
+            .map(|t| {
+                t.split_once(": ")
+                    .map_or(t.as_str(), |(_, s)| s)
+                    .to_string()
+            })
+            .collect();
+        self.inner.embed(&summaries)
+    }
+}
+
+impl Summarizer for SameIdea {
+    fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
+        let group = expected_group("same-idea");
+        if request.level == Level::Symbol
+            && group
+                .symbols
+                .iter()
+                .any(|s| s.file == request.path && s.name == request.name)
+        {
+            return Ok(SAME_IDEA.to_string());
+        }
+        self.fake.summarize(request)
+    }
+}
+
+/// The groups of the last search, as (kind, symbols).
+fn found_groups(world: &IndexWorld) -> Vec<(String, BTreeSet<NamedSymbol>, f64)> {
+    world
+        .duplicates
+        .as_ref()
+        .expect("no search for repeated code ran")
+        .groups
+        .iter()
+        .map(|g| {
+            (
+                g.kind.as_str().to_string(),
+                g.symbols
+                    .iter()
+                    .map(|s| NamedSymbol {
+                        file: s.file.clone(),
+                        name: s.name.clone(),
+                    })
+                    .collect(),
+                g.score,
+            )
+        })
+        .collect()
+}
+
+impl IndexWorld {
+    /// Build and summarize the index (with [`SameIdea`]) if the scenario has
+    /// none, then search it for repeated code.
+    fn ask_for_duplicates(&mut self, options: &DuplicateOptions) {
+        if self.root.as_os_str().is_empty() {
+            self.root = fixture_root();
+        }
+        if self.indexes.is_empty() {
+            self.build();
+            let db = self.indexes.last().expect("no index was built").clone();
+            summarize(
+                &self.root,
+                &db,
+                &mut SameIdea::default(),
+                &SummaryTextVectors::default(),
+                &SummarizeOptions::default(),
+            )
+            .unwrap_or_else(|e| panic!("{e}"));
+        }
+        let found = self
+            .index()
+            .duplicates(options)
+            .unwrap_or_else(|e| panic!("{e}"));
+        self.duplicates = Some(found);
+    }
+}
+
+#[given(
+    "the polyglot fixture, where a Rust function is copied to a second file with different comments and whitespace"
+)]
+fn an_exact_copy(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let group = expected_group("exact");
+    let [a, b] = &group.symbols[..] else {
+        panic!("the exact group must have 2 symbols: {group:?}");
+    };
+    assert_ne!(a.file, b.file, "the copy must be in a second file");
+    assert!(a.file.ends_with(".rs") && b.file.ends_with(".rs"));
+    let (text_a, text_b) = (
+        function_text(&a.file, &a.name),
+        function_text(&b.file, &b.name),
+    );
+    assert_ne!(text_a, text_b, "the 2 copies must differ in their text");
+    let squeeze = |t: &str| -> String {
+        t.lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .flat_map(|l| l.chars())
+            .filter(|c| !c.is_whitespace())
+            .collect()
+    };
+    assert_eq!(
+        squeeze(&text_a),
+        squeeze(&text_b),
+        "the 2 copies must differ only in comments and whitespace"
+    );
+}
+
+#[given(
+    "the polyglot fixture, where a Python function is copied with its variables renamed and one line changed"
+)]
+fn a_near_copy(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let group = expected_group("near");
+    let [a, b] = &group.symbols[..] else {
+        panic!("the near group must have 2 symbols: {group:?}");
+    };
+    assert!(a.file.ends_with(".py") && b.file.ends_with(".py"));
+    let (text_a, text_b) = (
+        function_text(&a.file, &a.name),
+        function_text(&b.file, &b.name),
+    );
+    let lines_a: Vec<_> = text_a.lines().collect();
+    let lines_b: Vec<_> = text_b.lines().collect();
+    assert_eq!(lines_a.len(), lines_b.len(), "the copy has other lines");
+    assert!(
+        lines_a.iter().zip(&lines_b).filter(|(x, y)| x != y).count() > 2,
+        "the copy must rename its variables"
+    );
+}
+
+#[given("the polyglot fixture, where 2 TypeScript functions do the same job with different code")]
+fn same_job(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let group = expected_group("same-idea");
+    let [a, b] = &group.symbols[..] else {
+        panic!("the same-idea group must have 2 symbols: {group:?}");
+    };
+    assert!(a.file.ends_with(".ts") && b.file.ends_with(".ts"));
+    let (text_a, text_b) = (
+        function_text(&a.file, &a.name),
+        function_text(&b.file, &b.name),
+    );
+    let lines_a: BTreeSet<&str> = text_a.lines().skip(1).map(str::trim).collect();
+    assert!(
+        text_b
+            .lines()
+            .skip(1)
+            .map(str::trim)
+            .filter(|l| l.len() > 3)
+            .all(|l| !lines_a.contains(l)),
+        "the 2 functions must have different code"
+    );
+}
+
+#[given("the fake summarizer gives them summaries with the same meaning")]
+fn same_meaning(_world: &mut IndexWorld) {
+    let group = expected_group("same-idea");
+    let mut summarizer = SameIdea::default();
+    let mut texts = BTreeSet::new();
+    for s in &group.symbols {
+        let request = SummaryRequest {
+            level: Level::Symbol,
+            key: format!("key of {}", s.name),
+            language: Some("typescript".into()),
+            kind: "function".into(),
+            name: s.name.clone(),
+            path: s.file.clone(),
+            code: Some(function_text(&s.file, &s.name)),
+            callees: Vec::new(),
+            children: Vec::new(),
+        };
+        texts.insert(summarizer.summarize(&request).expect("a summary"));
+    }
+    assert_eq!(texts, BTreeSet::from([SAME_IDEA.to_string()]));
+}
+
+#[given("the polyglot fixture")]
+fn the_plain_fixture(world: &mut IndexWorld) {
+    world.root = fixture_root();
+}
+
+#[given(
+    "the polyglot fixture, where 2 one-line getters are the same, and 2 test functions are the same"
+)]
+fn small_and_test_pairs(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let duplicates = expected_duplicates();
+    assert_eq!(duplicates.small.len(), 1, "1 [[small]] group was expected");
+    assert_eq!(duplicates.test.len(), 1, "1 [[test]] group was expected");
+    for s in &duplicates.small[0].symbols {
+        assert_eq!(
+            function_text(&s.file, &s.name).lines().count(),
+            1,
+            "{s:?} must be 1 line"
+        );
+    }
+    let symbols = expected().symbol;
+    for s in &duplicates.test[0].symbols {
+        assert!(
+            symbols
+                .iter()
+                .any(|e| e.file == s.file && e.name == s.name && e.is_test),
+            "{s:?} must be test code"
+        );
+        assert!(function_text(&s.file, &s.name).lines().count() >= 5);
+    }
+}
+
+#[when("I ask for duplicates")]
+fn ask_for_duplicates(world: &mut IndexWorld) {
+    world.ask_for_duplicates(&DuplicateOptions::default());
+}
+
+#[when("I ask for duplicates with no size limit and with test code")]
+fn ask_with_no_limits(world: &mut IndexWorld) {
+    world.ask_for_duplicates(&DuplicateOptions {
+        min_lines: 1,
+        include_tests: true,
+        ..DuplicateOptions::default()
+    });
+}
+
+#[then(expr = "the 2 functions are a group of kind {string}")]
+fn a_group_of_kind(world: &mut IndexWorld, kind: String) {
+    let want = expected_group(&kind).names();
+    let found = found_groups(world);
+    let group = found
+        .iter()
+        .find(|(_, symbols, _)| symbols.intersection(&want).next().is_some())
+        .unwrap_or_else(|| panic!("no group has {want:?}: {found:#?}"));
+    assert_eq!((&group.0, &group.1), (&kind, &want), "{found:#?}");
+    assert!(group.2 > 0.0 && group.2 <= 1.0, "the score {}", group.2);
+    if kind == "exact" {
+        assert_eq!(group.2, 1.0, "an exact group has the score 1");
+    }
+}
+
+#[then("no group has 2 symbols that the fixture's expected file marks as unrelated")]
+fn no_unrelated_group(world: &mut IndexWorld) {
+    let found = found_groups(world);
+    let unrelated = expected_duplicates().unrelated;
+    assert!(!unrelated.is_empty());
+    for pair in &unrelated {
+        for (kind, symbols, _) in &found {
+            assert!(
+                !(symbols.contains(&pair.symbols[0]) && symbols.contains(&pair.symbols[1])),
+                "a {kind} group has the unrelated pair {pair:?}: {symbols:?}"
+            );
+        }
+    }
+}
+
+#[then("the groups are the groups of the fixture's expected file")]
+fn the_expected_groups(world: &mut IndexWorld) {
+    let mut found: Vec<(String, BTreeSet<NamedSymbol>)> = found_groups(world)
+        .into_iter()
+        .map(|(k, s, _)| (k, s))
+        .collect();
+    found.sort();
+    let mut want: Vec<(String, BTreeSet<NamedSymbol>)> = expected_duplicates()
+        .group
+        .into_iter()
+        .map(|g| (g.kind.clone(), g.names()))
+        .collect();
+    want.sort();
+    assert_eq!(found, want);
+}
+
+#[then("neither pair is in a group")]
+fn neither_pair(world: &mut IndexWorld) {
+    let found = found_groups(world);
+    let expected = expected_duplicates();
+    for pair in expected.small.iter().chain(&expected.test) {
+        let names = pair.names();
+        for (kind, symbols, _) in &found {
+            assert!(
+                symbols.intersection(&names).count() < 2,
+                "a {kind} group has {names:?}: {symbols:?}"
+            );
+        }
+    }
+}
+
+#[then("both pairs are groups")]
+fn both_pairs(world: &mut IndexWorld) {
+    let found = found_groups(world);
+    let expected = expected_duplicates();
+    for pair in expected.small.iter().chain(&expected.test) {
+        let names = pair.names();
+        assert!(
+            found
+                .iter()
+                .any(|(kind, symbols, _)| *kind == pair.kind && names.is_subset(symbols)),
+            "no {} group has {names:?}: {found:#?}",
+            pair.kind
+        );
+    }
+}
+
+/// The functions and methods: the symbols that have a token vector.
+fn has_token_vector(s: &SymbolRecord) -> bool {
+    matches!(s.kind.as_str(), "function" | "method" | "constructor")
+}
+
+#[given("an index with token vectors")]
+fn an_index_with_token_vectors(world: &mut IndexWorld) {
+    a_summarized_index_of_the_fixture(world);
+    let report = world.report.as_ref().expect("no build ran");
+    let functions: Vec<_> = world
+        .symbols()
+        .into_iter()
+        .filter(has_token_vector)
+        .collect();
+    assert!(
+        functions.len() >= 20,
+        "too few functions: {}",
+        functions.len()
+    );
+    for s in &functions {
+        assert!(s.token_vector.is_some(), "{s:?} has no token vector");
+    }
+    for s in world.symbols().iter().filter(|s| !has_token_vector(s)) {
+        assert!(s.token_vector.is_none(), "{s:?} has a token vector");
+    }
+    assert_eq!(report.token_vectors.made, functions.len());
+}
+
+#[when("I change one function and update the index")]
+fn change_one_function(world: &mut IndexWorld) {
+    change_one_rust_body(world);
+}
+
+#[then("only that function's token vector is made again")]
+fn only_one_token_vector(world: &mut IndexWorld) {
+    let (file, name, container) = world.changed.clone().expect("no function changed");
+    let report = world.update_report.as_ref().expect("no update ran");
+    let before = world.before.clone().expect("no snapshot").symbols;
+    let after = world.symbols();
+    let functions = after.iter().filter(|s| has_token_vector(s)).count();
+    assert_eq!(
+        (
+            report.build.token_vectors.made,
+            report.build.token_vectors.reused
+        ),
+        (1, functions - 1),
+        "the token vectors made and reused"
+    );
+    for s in after.iter().filter(|s| has_token_vector(s)) {
+        let old = before
+            .iter()
+            .find(|o| identity(o) == identity(s))
+            .unwrap_or_else(|| panic!("{s:?} is new"));
+        let changed = (s.file.as_str(), s.name.as_str(), s.container.as_deref())
+            == (file.as_str(), name.as_str(), Some(container.as_str()));
+        if changed {
+            assert_ne!(old.token_vector, s.token_vector, "the vector of {name}");
+        } else {
+            assert_eq!(old.token_vector, s.token_vector, "the vector of {s:?}");
+        }
+    }
+}
+
+// --- The search of the code (COLLIERY-T-1857) -------------------------------------
+
+#[given("an index of the polyglot fixture with no summaries")]
+fn an_index_with_no_summaries(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    world.build();
+}
+
+#[when(expr = "I search the code for {string}")]
+fn search_the_code(world: &mut IndexWorld, query: String) {
+    let found = world
+        .index()
+        .search(&query, None, 50)
+        .unwrap_or_else(|e| panic!("{e}"));
+    world.search = Some(found);
+}
+
+#[then("the results have test functions and functions that are not test code")]
+fn tests_and_others(world: &mut IndexWorld) {
+    let hits = &world.search.as_ref().expect("no search ran").hits;
+    assert!(hits.iter().any(|h| h.symbol.is_test), "{hits:#?}");
+    assert!(hits.iter().any(|h| !h.symbol.is_test), "{hits:#?}");
+}
+
+#[then("each result that is not test code ranks above each test function")]
+fn tests_rank_lower(world: &mut IndexWorld) {
+    let hits = &world.search.as_ref().expect("no search ran").hits;
+    let first_test = hits
+        .iter()
+        .position(|h| h.symbol.is_test)
+        .expect("a test result");
+    let order: Vec<_> = hits
+        .iter()
+        .map(|h| format!("{} test={}", h.symbol.place(), h.symbol.is_test))
+        .collect();
+    assert!(
+        hits[first_test..].iter().all(|h| h.symbol.is_test),
+        "a test function ranks above other code: {order:#?}"
+    );
 }
 
 /// The step "Given the Qwen3-4B model file is on disk". It is added only

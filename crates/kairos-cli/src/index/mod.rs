@@ -8,6 +8,9 @@
 //!   each function whose code did not change, and runs no SCIP unless
 //!   `--rust-edges` is given.
 //! - `kairos index status` gives the counts.
+//! - `kairos index duplicates` finds repeated code: exact copies, near copies
+//!   and the same idea in other code (COLLIERY-T-1857). It gives the text of the
+//!   MCP tool `duplicates`.
 //! - `kairos index mcp` serves the code tools to an agent over stdio
 //!   ([`mcp`]).
 //!
@@ -32,7 +35,9 @@ use std::time::Instant;
 
 use clap::Subcommand;
 use kairos_embed::EmbeddingProvider;
-use kairos_index::{BuildOptions, BuildReport, Index, UpdateOptions};
+use kairos_index::{
+    BuildOptions, BuildReport, DuplicateKind, DuplicateOptions, Index, UpdateOptions,
+};
 
 pub use error::IndexCommandError;
 
@@ -58,11 +63,39 @@ pub enum IndexCommand {
         #[command(flatten)]
         root: RootArg,
     },
+    /// Find repeated code: exact copies, near copies and the same idea in other code
+    Duplicates {
+        #[command(flatten)]
+        root: RootArg,
+        /// Only this kind of repeated code
+        #[arg(long, value_enum)]
+        kind: Option<KindArg>,
+        /// The smallest function to compare, in lines
+        #[arg(long, default_value_t = kairos_index::DEFAULT_MIN_LINES, value_parser = clap::value_parser!(u32).range(1..))]
+        min_lines: u32,
+        /// Also compare test code
+        #[arg(long)]
+        tests: bool,
+        /// Only the functions in files under this path, from the root of the checkout
+        #[arg(long)]
+        under: Option<String>,
+        /// The most groups to show, from 1 to 200
+        #[arg(long, default_value_t = mcp::DEFAULT_GROUPS as u64, value_parser = clap::value_parser!(u64).range(1..=mcp::MAX_GROUPS as u64))]
+        limit: u64,
+    },
     /// Serve the code tools of the index to an agent: MCP over stdio
     Mcp {
         #[command(flatten)]
         root: RootArg,
     },
+}
+
+/// A kind of repeated code, as a CLI value.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum KindArg {
+    Exact,
+    Near,
+    SameIdea,
 }
 
 #[derive(clap::Args)]
@@ -80,6 +113,29 @@ impl IndexCommand {
                 resolve_root(root).and_then(|root| update(&root, rust_edges))
             }
             IndexCommand::Status { root } => resolve_root(root).and_then(|root| status(&root)),
+            IndexCommand::Duplicates {
+                root,
+                kind,
+                min_lines,
+                tests,
+                under,
+                limit,
+            } => resolve_root(root).and_then(|root| {
+                let kinds = match kind {
+                    Some(KindArg::Exact) => vec![DuplicateKind::Exact],
+                    Some(KindArg::Near) => vec![DuplicateKind::Near],
+                    Some(KindArg::SameIdea) => vec![DuplicateKind::SameIdea],
+                    None => DuplicateKind::ALL.to_vec(),
+                };
+                let options = DuplicateOptions {
+                    kinds,
+                    min_lines,
+                    include_tests: tests,
+                    under,
+                    ..DuplicateOptions::default()
+                };
+                duplicates(&root, &options, limit as usize)
+            }),
             IndexCommand::Mcp { root } => match resolve_root(root) {
                 Ok(root) => mcp::serve(root).await,
                 Err(e) => Err(e),
@@ -239,6 +295,10 @@ fn print_structure(report: &BuildReport, started: Instant) {
         ),
         None => {}
     }
+    println!(
+        "Token vectors: {} made, {} reused from the index.",
+        report.token_vectors.made, report.token_vectors.reused
+    );
 }
 
 fn print_summaries(outcome: summaries::Outcome) {
@@ -281,6 +341,20 @@ fn status(root: &Path) -> Result<(), IndexCommandError> {
     if let Some(model) = &c.vector_model {
         println!("Vectors: {model}");
     }
+    Ok(())
+}
+
+fn duplicates(
+    root: &Path,
+    options: &DuplicateOptions,
+    limit: usize,
+) -> Result<(), IndexCommandError> {
+    let db = db_path(root);
+    if !db.is_file() {
+        return Err(IndexCommandError::NoIndex(db));
+    }
+    let index = Index::open(&db)?;
+    println!("{}", mcp::duplicates_text(&index, options, limit)?);
     Ok(())
 }
 

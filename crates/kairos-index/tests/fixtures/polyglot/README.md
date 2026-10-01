@@ -19,3 +19,10 @@ leaves no crate out of the SCIP run (COLLIERY-T-1858).
 current rust-analyzer expands these std macros only with a std source of
 Rust 1.94 or later, so the index gives it the pinned std source
 (COLLIERY-T-1860).
+
+The repeated code of the duplicates scenarios (COLLIERY-T-1857) is listed in
+`expected-duplicates.toml`: an exact copy (`src/checksum.rs` and
+`src/legacy.rs`), a near copy (`python/polyglot/stats.py` and `tally.py`),
+2 TypeScript functions that do the same job (`web/src/totals.ts`), 2
+one-line getters and 2 test functions that are the same, and pairs that are
+not repeated code.

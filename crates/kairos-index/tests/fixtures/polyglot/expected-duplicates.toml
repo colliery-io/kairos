@@ -1,0 +1,78 @@
+# The repeated code of this fixture (COLLIERY-T-1857). A symbol is named by
+# its file and its name.
+#
+#   [[group]]      a group that `duplicates` must give with the default
+#                  options (no test code, no symbol under 5 lines). It gives
+#                  no other group.
+#   [[small]]      a group of symbols under 5 lines. Only a search with no
+#                  size limit gives it.
+#   [[test]]       a group of test functions. Only a search with test code
+#                  gives it.
+#   [[unrelated]]  2 symbols that are not repeated code. No group may hold
+#                  both.
+#
+# The `same-idea` group needs summaries with the same meaning: the scenarios
+# give the 2 functions the same summary text (tests/bdd.rs, SAME_IDEA).
+
+[[group]]
+kind = "exact"
+symbols = [
+    { file = "src/checksum.rs", name = "checksum" },
+    { file = "src/legacy.rs", name = "checksum" },
+]
+
+[[group]]
+kind = "near"
+symbols = [
+    { file = "python/polyglot/stats.py", name = "summarize_rows" },
+    { file = "python/polyglot/tally.py", name = "tally_records" },
+]
+
+[[group]]
+kind = "same-idea"
+symbols = [
+    { file = "web/src/totals.ts", name = "sumCents" },
+    { file = "web/src/totals.ts", name = "addUpCents" },
+]
+
+[[small]]
+kind = "exact"
+symbols = [
+    { file = "src/checksum.rs", name = "value" },
+    { file = "src/legacy.rs", name = "value" },
+]
+
+[[test]]
+kind = "near"
+symbols = [
+    { file = "python/tests/test_stats.py", name = "test_summary_counts_the_rows" },
+    { file = "python/tests/test_stats.py", name = "test_summary_counts_the_rows_again" },
+]
+
+# The same shape: a loop that adds each item to a value.
+[[unrelated]]
+symbols = [
+    { file = "src/lib.rs", name = "enqueue_all" },
+    { file = "src/checksum.rs", name = "checksum" },
+]
+
+# 2 constructors of 5 lines with the same shape.
+[[unrelated]]
+symbols = [
+    { file = "src/stack.rs", name = "new" },
+    { file = "src/queue.rs", name = "new" },
+]
+
+# The same name, other code.
+[[unrelated]]
+symbols = [
+    { file = "python/polyglot/csv_loader.py", name = "load" },
+    { file = "python/polyglot/json_loader.py", name = "load" },
+]
+
+# A loop that adds numbers, in 2 languages.
+[[unrelated]]
+symbols = [
+    { file = "web/src/totals.ts", name = "sumCents" },
+    { file = "python/polyglot/stats.py", name = "summarize_rows" },
+]

@@ -617,3 +617,149 @@ kind = "function"
 language = "rust"
 lines = [18, 20]
 is_test = true
+
+# --- Repeated code (COLLIERY-T-1857) -------------------------------------------
+
+[[symbol]]
+file = "src/lib.rs"
+name = "checksum"
+container = ""
+kind = "module"
+language = "rust"
+lines = [43, 43]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
+name = "legacy"
+container = ""
+kind = "module"
+language = "rust"
+lines = [44, 44]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/stats.py"
+name = "summarize_rows"
+container = ""
+kind = "function"
+language = "python"
+lines = [5, 15]
+is_test = false
+
+[[symbol]]
+file = "python/polyglot/tally.py"
+name = "tally_records"
+container = ""
+kind = "function"
+language = "python"
+lines = [5, 15]
+is_test = false
+
+[[symbol]]
+file = "python/tests/test_stats.py"
+name = "test_summary_counts_the_rows"
+container = ""
+kind = "function"
+language = "python"
+lines = [4, 9]
+is_test = true
+
+[[symbol]]
+file = "python/tests/test_stats.py"
+name = "test_summary_counts_the_rows_again"
+container = ""
+kind = "function"
+language = "python"
+lines = [12, 17]
+is_test = true
+
+[[symbol]]
+file = "src/checksum.rs"
+name = "Checksum"
+container = ""
+kind = "struct"
+language = "rust"
+lines = [6, 8]
+is_test = false
+
+[[symbol]]
+file = "src/checksum.rs"
+name = "Checksum"
+container = ""
+kind = "implementation"
+language = "rust"
+lines = [10, 13]
+is_test = false
+
+[[symbol]]
+file = "src/checksum.rs"
+name = "value"
+container = "Checksum"
+kind = "function"
+language = "rust"
+lines = [12, 12]
+is_test = false
+
+[[symbol]]
+file = "src/checksum.rs"
+name = "checksum"
+container = ""
+kind = "function"
+language = "rust"
+lines = [16, 22]
+is_test = false
+
+[[symbol]]
+file = "src/legacy.rs"
+name = "Checksum"
+container = ""
+kind = "struct"
+language = "rust"
+lines = [4, 6]
+is_test = false
+
+[[symbol]]
+file = "src/legacy.rs"
+name = "Checksum"
+container = ""
+kind = "implementation"
+language = "rust"
+lines = [8, 10]
+is_test = false
+
+[[symbol]]
+file = "src/legacy.rs"
+name = "value"
+container = "Checksum"
+kind = "function"
+language = "rust"
+lines = [9, 9]
+is_test = false
+
+[[symbol]]
+file = "src/legacy.rs"
+name = "checksum"
+container = ""
+kind = "function"
+language = "rust"
+lines = [13, 24]
+is_test = false
+
+[[symbol]]
+file = "web/src/totals.ts"
+name = "sumCents"
+container = ""
+kind = "function"
+language = "typescript"
+lines = [6, 12]
+is_test = false
+
+[[symbol]]
+file = "web/src/totals.ts"
+name = "addUpCents"
+container = ""
+kind = "function"
+language = "typescript"
+lines = [14, 19]
+is_test = false

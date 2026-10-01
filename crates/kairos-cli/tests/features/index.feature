@@ -35,3 +35,14 @@ Feature: The CLI and the code tools
     Given an index of the polyglot fixture
     When an agent calls module_map
     Then the result has each module with its summary and its files
+
+  # COLLIERY-T-1857: repeated code, over MCP and from the CLI.
+  Scenario: An agent finds repeated code
+    Given an index of the polyglot fixture
+    When an agent calls duplicates
+    Then the result has the exact copy of checksum, with the files, the lines and a score
+    And "kairos index duplicates" gives the same groups
+
+  Scenario: An unknown argument of duplicates is refused
+    When an agent calls duplicates with an argument that the tool does not have
+    Then the call is refused, and the error names the argument

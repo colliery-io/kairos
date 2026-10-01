@@ -37,3 +37,8 @@ mod tests {
         assert_eq!(queue.len(), 2);
     }
 }
+
+// The 2 modules of the repeated-code scenarios (COLLIERY-T-1857). They are
+// at the end, so that the lines above do not move.
+pub mod checksum;
+pub mod legacy;

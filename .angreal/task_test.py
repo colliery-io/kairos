@@ -36,6 +36,19 @@ from utils import docker_up, docker_down, run_cargo_command, PROJECT_ROOT
 
 test = angreal.command_group(name="test", about="commands for running tests")
 
+
+def _no_incremental():
+    """Turn off cargo's incremental compilation for this test run.
+
+    Incremental data was 66 of 218 GiB of target/debug when target/ filled the
+    disk (2026-10-01, COLLIERY-T-1847). A test run rebuilds after an edit
+    anyway, and the sweep removes the session data a few days later, so the
+    data costs space and gives little. Set in this process, so every cargo
+    command of the task (and the GUI build it calls) inherits it; an explicit
+    CARGO_INCREMENTAL in the environment wins.
+    """
+    os.environ.setdefault("CARGO_INCREMENTAL", "0")
+
 # Soak stack wiring (KAIROS-T-0046): a dedicated port so neither a dev
 # server (41080) nor the e2e stack (41188) collides. The soak DRIVER
 # (crates/kairos-soak) always targets an already-running deployment via
@@ -155,6 +168,7 @@ CLIPPY_ARGS = ["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]
 )
 def lint():
     """Run rustfmt in check mode, then clippy across the whole workspace."""
+    _no_incremental()
     code = run_cargo_command(["fmt", "--all", "--check"])
     if code:
         return code
@@ -190,6 +204,7 @@ def unit():
     """Run unit tests for all workspace crates, then the plugin hook's
     stdlib unit tests (KAIROS-T-0108), then the stdlib unit tests of the
     Metis import script (scripts/metis_import, COLLIERY-I-0019)."""
+    _no_incremental()
     code = run_cargo_command(["test", "--workspace", "--lib", "--bins"])
     if code:
         return code
@@ -262,6 +277,7 @@ def integration(keep_running=False):
     2. Runs every workspace integration test target (tests/ directories)
     3. Tears down services (unless --keep-running)
     """
+    _no_incremental()
     print("Starting docker services...")
     exit_code = docker_up()
     if exit_code != 0:
@@ -570,6 +586,7 @@ def _run_gui_smoke(env):
 )
 def e2e():
     """Compose up -> seed-demo --force -> serve -> golden-path runner -> down."""
+    _no_incremental()
     print("Starting docker services for E2E smoke...", flush=True)
     exit_code = _e2e_phase("compose up", docker_up())
     if exit_code != 0:
@@ -737,6 +754,7 @@ def e2e():
 )
 def soak(duration=None, config=None):
     """Boot compose + server + seed, then drive the kairos-soak workforce."""
+    _no_incremental()
     duration = duration or "4h"
 
     def phase(name, exit_code):
@@ -964,6 +982,7 @@ def _run_uat_suite(server_url, mode, journeys, headed, report_dir):
 )
 def uat(server=None, journey=None, keep_running=False, headed=False, report_dir=None):
     """Persona journeys: compose up -> seed -> serve -> uat/ -> report."""
+    _no_incremental()
     if server:
         return _run_uat_suite(server.rstrip("/"), "server", journey, headed, report_dir)
 

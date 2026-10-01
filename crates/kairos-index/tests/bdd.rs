@@ -9,8 +9,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use cucumber::{World, given, then, when};
+use kairos_embed::DeterministicProvider;
 use kairos_index::{
-    BuildReport, EdgeRecord, FileRecord, Index, SymbolRecord, SymbolRef, build_structure,
+    BuildReport, EdgeRecord, FakeSummarizer, FileRecord, Index, Level, SUMMARIZED_KINDS,
+    SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, build_structure,
+    summarize,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -36,6 +39,16 @@ struct IndexWorld {
     files_before: Option<BTreeSet<String>>,
     /// The call that a call-graph scenario looks at.
     focus: Option<Focus>,
+    /// The requests that the summarizer got in the last summary run.
+    requests: Vec<SummaryRequest>,
+    /// The report of the last summary run.
+    summary_report: Option<SummaryReport>,
+    /// The symbols before a change, for the scenarios that compare keys.
+    symbols_before: Option<Vec<SymbolRecord>>,
+    /// The symbol that a summary scenario looks at: file, name, container.
+    changed: Option<(String, String, String)>,
+    /// The model file, when it is on disk.
+    model: Option<PathBuf>,
 }
 
 /// A call that a scenario looks at: the calling function and the called
@@ -73,6 +86,26 @@ impl IndexWorld {
         let report = build_structure(&self.root, &db).unwrap_or_else(|e| panic!("{e}"));
         self.report = Some(report);
         self.indexes.push(db);
+    }
+
+    /// Summarize the last index (build one first if there is none) with the
+    /// fake summarizer and the deterministic vectors.
+    fn summarize_with_fake(&mut self) {
+        if self.indexes.is_empty() {
+            self.build();
+        }
+        let db = self.indexes.last().expect("no index was built").clone();
+        let mut fake = FakeSummarizer::default();
+        let report = summarize(
+            &self.root,
+            &db,
+            &mut fake,
+            &DeterministicProvider::default(),
+            &SummarizeOptions::default(),
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        self.requests = fake.requests;
+        self.summary_report = Some(report);
     }
 
     fn edges(&self) -> Vec<EdgeRecord> {
@@ -841,12 +874,476 @@ fn has_no_other_edge(world: &mut IndexWorld) {
     );
 }
 
+// --- Summaries ------------------------------------------------------------------
+
+/// The symbols that get a summary: not test code, and of a summarized kind.
+fn summarized(s: &SymbolRecord) -> bool {
+    !s.is_test && SUMMARIZED_KINDS.contains(&s.kind.as_str())
+}
+
+fn find_symbol<'a>(
+    symbols: &'a [SymbolRecord],
+    (file, name, container): &(String, String, String),
+) -> &'a SymbolRecord {
+    let found: Vec<_> = symbols
+        .iter()
+        .filter(|s| {
+            &s.file == file && &s.name == name && s.container.as_deref() == Some(container.as_str())
+        })
+        .collect();
+    assert_eq!(
+        found.len(),
+        1,
+        "1 symbol {container}::{name} in {file} was expected"
+    );
+    found[0]
+}
+
+#[given("the polyglot fixture and the fake summarizer")]
+fn the_fixture_and_the_fake(world: &mut IndexWorld) {
+    world.root = fixture_root();
+}
+
+#[given("2 copies of a Rust function that differ only in whitespace and comments")]
+fn two_copies(world: &mut IndexWorld) {
+    let copy = TempDir::new().expect("make a folder for the repository");
+    let src = copy.path().join("src");
+    fs::create_dir_all(&src).expect("make src/");
+    fs::write(
+        src.join("a.rs"),
+        "pub fn add_one(x: u32) -> u32 { x + 1 }\n",
+    )
+    .expect("write a.rs");
+    fs::write(
+        src.join("b.rs"),
+        "/// The same code as in a.rs.\npub fn add_one(x: u32) -> u32 {\n    // Add one.\n    x  +  1\n}\n",
+    )
+    .expect("write b.rs");
+    world.root = copy.path().to_path_buf();
+    world.repo_copy = Some(copy);
+}
+
+#[given("a summarized index")]
+fn a_summarized_index(world: &mut IndexWorld) {
+    let copy = TempDir::new().expect("make a folder for the copy");
+    copy_tree(&fixture_root(), copy.path());
+    world.root = copy.path().to_path_buf();
+    world.repo_copy = Some(copy);
+    world.summarize_with_fake();
+    world.symbols_before = Some(world.symbols());
+}
+
+#[when("I summarize the index")]
+fn summarize_the_index(world: &mut IndexWorld) {
+    world.summarize_with_fake();
+}
+
+#[when("the body of a function changes and its signature stays the same")]
+fn change_a_body(world: &mut IndexWorld) {
+    let path = world.root.join("src/queue.rs");
+    let before = fs::read_to_string(&path).expect("read src/queue.rs");
+    let signature = "    pub fn push(&mut self, item: u32) {\n        self.items.push_back(item);";
+    assert!(
+        before.contains(signature),
+        "src/queue.rs has no push to change"
+    );
+    let after = before.replace(
+        signature,
+        "    pub fn push(&mut self, item: u32) {\n        self.items.push_front(item);",
+    );
+    fs::write(&path, after).expect("write src/queue.rs");
+    world.changed = Some(("src/queue.rs".into(), "push".into(), "Queue".into()));
+
+    // Build again into the same index, so that its summary pool stays.
+    let db = world.indexes.last().expect("no index was built").clone();
+    world.report = Some(build_structure(&world.root, &db).unwrap_or_else(|e| panic!("{e}")));
+    world.summarize_with_fake();
+}
+
+#[then("each symbol that is not test code has a summary and a vector")]
+fn each_symbol_has_a_summary(world: &mut IndexWorld) {
+    let index = world.index();
+    let symbols = world.symbols();
+    let mut count = 0;
+    for s in symbols.iter().filter(|s| summarized(s)) {
+        let summary = index
+            .summary(&s.tree_hash)
+            .expect("read a summary")
+            .unwrap_or_else(|| panic!("{} in {} has no summary", s.name, s.file));
+        assert_eq!(summary.level, "symbol", "{s:?}");
+        assert!(!summary.summary.is_empty(), "{s:?}: the summary is empty");
+        let vector = summary
+            .vector
+            .unwrap_or_else(|| panic!("{} in {} has no vector", s.name, s.file));
+        assert_eq!(vector.len(), 384, "{s:?}: the vector width");
+        count += 1;
+    }
+    assert!(count >= 20, "only {count} symbols have a summary");
+
+    // The other kinds (a `mod x;` line, an impl block, a constant) get none.
+    for s in symbols.iter().filter(|s| !s.is_test && !summarized(s)) {
+        assert!(
+            !world
+                .requests
+                .iter()
+                .any(|r| r.level == Level::Symbol && r.key == s.tree_hash),
+            "{s:?} is not a function or a type, and it got a summary"
+        );
+    }
+
+    // Each file and module summary has a vector too.
+    for (path, key) in index.file_summary_keys().expect("read the files") {
+        if let Some(key) = key {
+            let summary = index.summary(&key).expect("read").expect("a file summary");
+            assert!(
+                summary.vector.is_some(),
+                "the summary of {path} has no vector"
+            );
+        }
+    }
+    let modules = index.modules().expect("read the modules");
+    assert!(!modules.is_empty(), "no module has a summary");
+    for (path, key) in modules {
+        let summary = index
+            .summary(&key)
+            .expect("read")
+            .expect("a module summary");
+        assert_eq!(summary.level, "module");
+        assert!(
+            summary.vector.is_some(),
+            "the summary of {path} has no vector"
+        );
+    }
+}
+
+#[then("no test symbol has a summary")]
+fn no_test_summary(world: &mut IndexWorld) {
+    let index = world.index();
+    let tests: Vec<_> = world.symbols().into_iter().filter(|s| s.is_test).collect();
+    assert!(!tests.is_empty(), "the fixture has no test symbols");
+    for s in &tests {
+        assert!(
+            !world.requests.iter().any(|r| r.key == s.tree_hash),
+            "the summarizer got the test symbol {} in {}",
+            s.name,
+            s.file
+        );
+        assert!(
+            index.summary(&s.tree_hash).expect("read").is_none(),
+            "the test symbol {} in {} has a summary",
+            s.name,
+            s.file
+        );
+    }
+}
+
+#[then("the 2 symbols have the same key")]
+fn the_same_key(world: &mut IndexWorld) {
+    let symbols: Vec<_> = world
+        .symbols()
+        .into_iter()
+        .filter(|s| s.name == "add_one")
+        .collect();
+    assert_eq!(symbols.len(), 2, "2 copies were expected: {symbols:#?}");
+    assert_eq!(symbols[0].tree_hash, symbols[1].tree_hash);
+    assert!(
+        world
+            .index()
+            .summary(&symbols[0].tree_hash)
+            .expect("read")
+            .is_some(),
+        "the key has no summary"
+    );
+}
+
+#[then("the summarizer ran one time for them")]
+fn ran_one_time(world: &mut IndexWorld) {
+    let key = world
+        .symbols()
+        .into_iter()
+        .find(|s| s.name == "add_one")
+        .expect("add_one")
+        .tree_hash;
+    let runs = world
+        .requests
+        .iter()
+        .filter(|r| r.level == Level::Symbol && r.key == key)
+        .count();
+    assert_eq!(runs, 1, "the summarizer ran {runs} times for the 2 copies");
+    let report = world.summary_report.as_ref().expect("no summary run");
+    assert_eq!((report.symbols.summarized, report.symbols.reused), (1, 1));
+}
+
+#[then("the input to each file summary is the summaries of its symbols, not the code of the file")]
+fn file_input_is_symbol_summaries(world: &mut IndexWorld) {
+    let index = world.index();
+    let symbols = world.symbols();
+    let files = world.files();
+    let keys: std::collections::BTreeMap<String, Option<String>> = index
+        .file_summary_keys()
+        .expect("read the files")
+        .into_iter()
+        .collect();
+    let mut checked = 0;
+    for f in files.iter().filter(|f| f.decision == "source") {
+        let parts: Vec<_> = symbols
+            .iter()
+            .filter(|s| s.file == f.path && summarized(s))
+            .collect();
+        if parts.is_empty() {
+            continue;
+        }
+        let requests: Vec<_> = world
+            .requests
+            .iter()
+            .filter(|r| r.level == Level::File && r.path == f.path)
+            .collect();
+        assert_eq!(
+            requests.len(),
+            1,
+            "1 file summary of {} was expected",
+            f.path
+        );
+        let request = requests[0];
+        assert_eq!(keys[&f.path].as_deref(), Some(request.key.as_str()));
+        assert!(request.code.is_none(), "{}: the input has code", f.path);
+        assert_eq!(
+            request.children.len(),
+            parts.len(),
+            "{}: 1 line for each symbol was expected: {:#?}",
+            f.path,
+            request.children
+        );
+        for (line, s) in request.children.iter().zip(&parts) {
+            let summary = index
+                .summary(&s.tree_hash)
+                .expect("read")
+                .expect("a symbol summary")
+                .summary;
+            assert!(
+                line.ends_with(&summary) && line.contains(&s.name),
+                "{}: the line {line:?} is not the summary of {}",
+                f.path,
+                s.name
+            );
+        }
+        let text = fs::read_to_string(world.root.join(&f.path)).expect("read the file");
+        let prompt = request.prompt();
+        for code_line in text.lines().map(str::trim).filter(|l| l.len() > 12) {
+            assert!(
+                !prompt.contains(code_line),
+                "{}: the input has the code line {code_line:?}",
+                f.path
+            );
+        }
+        checked += 1;
+    }
+    assert!(checked >= 8, "only {checked} files have a summary");
+}
+
+#[then("the key of the function changes")]
+fn the_key_changes(world: &mut IndexWorld) {
+    let changed = world.changed.clone().expect("no function changed");
+    let before = world.symbols_before.clone().expect("no keys before");
+    let after = world.symbols();
+    let old = find_symbol(&before, &changed);
+    let new = find_symbol(&after, &changed);
+    assert_eq!(old.signature, new.signature, "the signature changed");
+    assert_ne!(old.tree_hash, new.tree_hash, "the key did not change");
+    let ran: Vec<_> = world
+        .requests
+        .iter()
+        .filter(|r| r.level == Level::Symbol)
+        .map(|r| r.key.as_str())
+        .collect();
+    assert_eq!(
+        ran,
+        [new.tree_hash.as_str()],
+        "only the changed function needs a new summary"
+    );
+}
+
+#[then("the keys of its callers do not change")]
+fn caller_keys_stay(world: &mut IndexWorld) {
+    let changed = world.changed.clone().expect("no function changed");
+    let before = world.symbols_before.clone().expect("no keys before");
+    let after = world.symbols();
+    let callers: Vec<_> = world
+        .edges()
+        .into_iter()
+        .filter(|e| {
+            e.callee.as_ref().is_some_and(|c| {
+                c.file == changed.0
+                    && c.name == changed.1
+                    && c.container.as_deref() == Some(changed.2.as_str())
+            })
+        })
+        .map(|e| {
+            (
+                e.caller.file.clone(),
+                e.caller.name.clone(),
+                e.caller.container.clone().unwrap_or_default(),
+            )
+        })
+        .collect();
+    assert!(!callers.is_empty(), "the function has no callers");
+    for caller in &callers {
+        let find = |symbols: &[SymbolRecord]| {
+            symbols
+                .iter()
+                .find(|s| {
+                    s.file == caller.0
+                        && s.name == caller.1
+                        && s.container.clone().unwrap_or_default() == caller.2
+                })
+                .unwrap_or_else(|| panic!("no symbol {caller:?}"))
+                .tree_hash
+                .clone()
+        };
+        assert_eq!(find(&before), find(&after), "the key of {caller:?} changed");
+    }
+}
+
+/// The count of sentences in `text`: the ends `.`, `!` and `?` before a space
+/// or the end, outside code in backticks, with no `e.g.` or `i.e.`.
+fn sentences(text: &str) -> usize {
+    let mut plain = String::new();
+    let mut in_code = false;
+    for c in text.chars() {
+        if c == '`' {
+            in_code = !in_code;
+        } else if !in_code {
+            plain.push(c);
+        }
+    }
+    let plain = plain.replace("e.g.", "eg").replace("i.e.", "ie");
+    let chars: Vec<char> = plain.trim().chars().collect();
+    chars
+        .iter()
+        .enumerate()
+        .filter(|(i, c)| {
+            matches!(c, '.' | '!' | '?') && chars.get(i + 1).is_none_or(|n| n.is_whitespace())
+        })
+        .count()
+}
+
+#[cfg(feature = "llama")]
+#[when("I summarize 3 symbols of the polyglot fixture with the real model")]
+fn summarize_with_the_model(world: &mut IndexWorld) {
+    let path = world.model.clone().expect("the model file is not on disk");
+    world.root = fixture_root();
+    world.build();
+    let db = world.indexes.last().expect("no index").clone();
+    let model = kairos_index::LlamaModelFile::load(&path).unwrap_or_else(|e| panic!("{e}"));
+    let mut summarizer = model.summarizer().unwrap_or_else(|e| panic!("{e}"));
+    let report = summarize(
+        &world.root,
+        &db,
+        &mut summarizer,
+        &DeterministicProvider::default(),
+        &SummarizeOptions {
+            under: None,
+            max_new_symbols: Some(3),
+        },
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    for call in &report.calls {
+        eprintln!(
+            "{} {} ({:.1} s): {}",
+            call.level.as_str(),
+            call.name,
+            call.elapsed.as_secs_f64(),
+            call.summary
+        );
+    }
+    world.summary_report = Some(report);
+}
+
+#[then("each summary has 1 to 3 sentences")]
+fn one_to_three_sentences(world: &mut IndexWorld) {
+    let report = world.summary_report.as_ref().expect("no summary run");
+    let symbols = report
+        .calls
+        .iter()
+        .filter(|c| c.level == Level::Symbol)
+        .count();
+    assert_eq!(symbols, 3, "3 symbol summaries were expected");
+    for call in &report.calls {
+        let n = sentences(&call.summary);
+        assert!(
+            (1..=3).contains(&n),
+            "{}: {n} sentences: {:?}",
+            call.name,
+            call.summary
+        );
+    }
+}
+
+#[then("no summary is empty")]
+fn no_empty_summary(world: &mut IndexWorld) {
+    let report = world.summary_report.as_ref().expect("no summary run");
+    assert!(!report.calls.is_empty(), "the model wrote no summary");
+    for call in &report.calls {
+        assert!(
+            !call.summary.trim().is_empty(),
+            "{}: the summary is empty",
+            call.name
+        );
+    }
+}
+
+/// The step "Given the Qwen3-4B model file is on disk". It is added only
+/// when the model file is on disk and the test has the `llama` feature.
+/// Otherwise no step matches, and cucumber shows the scenario as skipped.
+fn the_model_is_on_disk(
+    world: &mut IndexWorld,
+    _: cucumber::step::Context,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>> {
+    world.model = kairos_index::model_path().filter(|p| p.is_file());
+    assert!(world.model.is_some(), "the model file is not on disk");
+    Box::pin(async {})
+}
+
+/// Why the `@model` scenario cannot run here, or `None` if it can.
+fn why_no_model() -> Option<String> {
+    let Some(path) = kairos_index::model_path() else {
+        return Some("HOME and KAIROS_INDEX_MODEL are not set".into());
+    };
+    if !path.is_file() {
+        return Some(format!(
+            "the model file {} is not on disk. Set KAIROS_INDEX_MODEL, or put {} there",
+            path.display(),
+            kairos_index::MODEL_FILE_NAME
+        ));
+    }
+    if !cfg!(feature = "llama") {
+        return Some("the test is built without the feature `llama`".into());
+    }
+    None
+}
+
 #[tokio::main]
 async fn main() {
     let features = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/features");
-    IndexWorld::cucumber()
-        // Each build runs rust-analyzer, which uses about 0.6 GB.
+    let mut cucumber = IndexWorld::cucumber();
+    match why_no_model() {
+        None => {
+            cucumber = cucumber.given(
+                cucumber::codegen::Regex::new("^the Qwen3-4B model file is on disk$")
+                    .expect("a valid pattern"),
+                the_model_is_on_disk,
+            );
+        }
+        Some(reason) => {
+            eprintln!("The @model scenario does not run: {reason}.");
+        }
+    }
+    cucumber
+        // Each build runs rust-analyzer, which uses about 0.6 GB. The model
+        // scenario uses about 4 GB more.
         .max_concurrent_scenarios(4)
+        // A skipped step fails the run, but for a scenario tagged
+        // @allow.skipped: the @model scenario when the model is not here.
         .fail_on_skipped()
         .run_and_exit(features)
         .await;

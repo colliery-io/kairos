@@ -25,6 +25,7 @@
 //! outbound calls — says so, and gets search that still works.
 
 use std::sync::Arc;
+#[cfg(feature = "remote")]
 use std::time::Duration;
 
 use crate::{EmbedError, EmbeddingProvider};

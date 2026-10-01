@@ -49,6 +49,28 @@ def _no_incremental():
     """
     os.environ.setdefault("CARGO_INCREMENTAL", "0")
 
+
+# The summary model of the code index (COLLIERY-T-1850). Nothing downloads
+# it; kairos_index::model_path() reads the same places.
+INDEX_MODEL_FILE = "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+
+
+def _index_model_features():
+    """The cargo arguments that build the real summarizer of kairos-index.
+
+    The `@model` scenario of kairos-index runs only with the feature `llama`
+    (llama.cpp, built with cmake) and with the model file on disk. So the
+    feature is turned on only when the file is there: a machine without the
+    model needs no cmake, and the scenario shows as skipped, with the reason.
+    """
+    path = os.environ.get("KAIROS_INDEX_MODEL") or str(
+        Path.home() / ".cache" / "kairos-index" / "models" / INDEX_MODEL_FILE
+    )
+    if os.path.isfile(path):
+        print(f"The index model is at {path}: the @model scenario runs.")
+        return ["--features", "kairos-index/llama"]
+    return []
+
 # Soak stack wiring (KAIROS-T-0046): a dedicated port so neither a dev
 # server (41080) nor the e2e stack (41188) collides. The soak DRIVER
 # (crates/kairos-soak) always targets an already-running deployment via
@@ -296,7 +318,7 @@ def integration(keep_running=False):
     else:
         print(f"Running {len(targets)} integration test target(s): {', '.join(targets)}")
         result = subprocess.run(
-            ["cargo", "test", "--workspace", "--test", "*"],
+            ["cargo", "test", "--workspace", "--test", "*", *_index_model_features()],
             cwd=str(PROJECT_ROOT),
         )
         test_exit_code = result.returncode

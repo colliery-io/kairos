@@ -3,7 +3,9 @@
 //!
 //! - The structure: `files`, `symbols`, `edges` and `edge_candidates`. A build
 //!   deletes and writes it again.
-//! - The summary pool: `summaries`. A build of the structure keeps it.
+//! - The summary pool: `summaries` and `pool_meta`. A build of the structure
+//!   keeps it. `files.summary_key` and `modules` link the structure to the
+//!   pool; the summarizer writes them (COLLIERY-T-1850).
 //!
 //! `PRAGMA user_version` holds the schema version.
 
@@ -12,7 +14,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -27,7 +29,8 @@ CREATE TABLE files (
     size         INTEGER NOT NULL,          -- bytes
     longest_line INTEGER NOT NULL,          -- characters
     content_hash TEXT    NOT NULL,          -- sha256 of the bytes, for updates
-    parse_error  TEXT                       -- set when a parsed file failed
+    parse_error  TEXT,                      -- set when a parsed file failed
+    summary_key  TEXT                       -- the key of its summary in the pool
 ) STRICT;
 
 -- One row for each symbol that narsil extracts from a source or test file.
@@ -82,6 +85,20 @@ CREATE TABLE summaries (
     level   TEXT NOT NULL CHECK (level IN ('symbol', 'file', 'module')),
     summary TEXT NOT NULL,
     vector  BLOB                            -- little-endian f32, NULL until embedded
+) STRICT;
+
+-- Facts about the pool. 'vector_model': the model of the vectors, as
+-- provider/model/dimension. One pool holds the vectors of one model only.
+CREATE TABLE pool_meta (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+) STRICT;
+
+-- A module is a folder that holds summarized files. It is part of the
+-- structure: a build deletes it, and the summarizer writes it again.
+CREATE TABLE modules (
+    path        TEXT PRIMARY KEY,           -- from the root; '.' for the root
+    summary_key TEXT NOT NULL
 ) STRICT;
 "#;
 

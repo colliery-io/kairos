@@ -29,11 +29,38 @@ prost = "0.14"
 serde_json = { workspace = true }
 # The temporary folder of the SCIP run, deleted at its end.
 tempfile = "3.14.0"
+# The vectors of the summaries: the trait and the deterministic provider.
+# The caller gives the provider; the local model (bge-small-en-v1.5) is the
+# `local` feature of kairos-embed, which the server already builds.
+kairos-embed = { path = "../kairos-embed", default-features = false }
+
+# The llama.cpp summarizer (feature `llama`). llama-cpp-sys-2 builds
+# llama.cpp from C++ source with cmake, which takes minutes. So it is not in
+# the default build. Metal on a Mac; the CPU, with OpenMP, on Linux.
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-2 = { version = "=0.1.158", default-features = false, features = ["metal"], optional = true }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-2 = { version = "=0.1.158", default-features = false, features = ["openmp"], optional = true }
+
+[features]
+default = []
+# The real summarizer: Qwen3-4B-Instruct-2507 GGUF through llama.cpp. Needs
+# cmake and a C++ compiler at build time.
+llama = ["dep:llama-cpp-2"]
 
 [dev-dependencies]
+# The scenarios use the deterministic vectors; the measurement example uses
+# the local model.
+kairos-embed = { path = "../kairos-embed", features = ["local"] }
 # The BDD harness (COLLIERY-I-0264, "The tests: behaviour first").
 cucumber = "0.23"
 tokio = { workspace = true }
+
+# The measurement tool: build, then summarize with the real model.
+[[example]]
+name = "summarize"
+required-features = ["llama"]
 
 # The scenarios in tests/features/. cucumber has its own runner, not libtest.
 [[test]]

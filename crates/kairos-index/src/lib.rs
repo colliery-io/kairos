@@ -11,15 +11,19 @@
 //! This crate builds the structure ([`build_structure`]) and reads it back
 //! ([`Index`]). The Rust call edges come from `rust-analyzer scip` with the
 //! build turned off (see `scip`); the edges of the other languages come from
-//! their names (see `edges`). The summaries (COLLIERY-T-1850) come later;
-//! their table is in the schema already.
+//! their names (see `edges`). [`summarize`] writes the summaries and their
+//! vectors (COLLIERY-T-1850), with a [`Summarizer`]: the fake one for tests,
+//! or `LlamaSummarizer` with the feature `llama`.
 
 mod calls;
 mod edges;
 mod extract;
+#[cfg(feature = "llama")]
+mod llama;
 pub mod rules;
 mod schema;
 mod scip;
+mod summary;
 
 use std::fs::File;
 use std::io::Read;
@@ -29,8 +33,15 @@ use kairos_narsil::parser::LanguageParser;
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "llama")]
+pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
 pub use rules::{Decision, Origin, RuleSet};
 pub use schema::SCHEMA_VERSION;
+pub use summary::{
+    FakeSummarizer, Level, LevelCount, MODEL_FILE_NAME, SUMMARIZED_KINDS, SYSTEM_PROMPT,
+    SummarizeOptions, Summarizer, SummaryCall, SummaryReport, SummaryRequest, model_path,
+    summarize,
+};
 
 /// A file larger than this is read only in part: enough for the header and
 /// the rules. The default rules exclude it (`too-large`), so it is never
@@ -161,7 +172,10 @@ pub enum IndexError {
     Walk(#[from] ignore::Error),
     #[error("The rules file {path} is not valid: {message}")]
     Rules { path: PathBuf, message: String },
-    #[error("The index has schema version {found}. This version of Kairos reads version 1.")]
+    #[error(
+        "The index has schema version {found}. This version of Kairos reads version {}.",
+        SCHEMA_VERSION
+    )]
     SchemaVersion { found: i64 },
     #[error("The index database has an error: {0}")]
     Db(#[from] rusqlite::Error),
@@ -175,6 +189,16 @@ pub enum IndexError {
     Scip(String),
     #[error("rust-analyzer did not run with the build turned off: {0}.")]
     BuildNotOff(String),
+    #[error("The summarizer gave no summary for {name}: {message}.")]
+    Summary { name: String, message: String },
+    #[error("The file {0} changed after the build of the structure. Build the structure again.")]
+    Changed(String),
+    #[error("The summary pool has vectors of the model {pool}. This run uses {run}.")]
+    VectorModel { pool: String, run: String },
+    #[error("The vectors failed: {0}")]
+    Embed(String),
+    #[error("{0}")]
+    Model(String),
 }
 
 /// Build the structure of the tree at `root` into the index at `db`.
@@ -269,7 +293,8 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
     schema::prepare(&conn)?;
     let tx = conn.transaction()?;
     tx.execute_batch(
-        "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;",
+        "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;
+         DELETE FROM modules;",
     )?;
     {
         let mut insert_file = tx.prepare(
@@ -580,6 +605,61 @@ impl Index {
         }
         Ok(edges.into_iter().map(|(_, e)| e).collect())
     }
+
+    /// The summary with this key in the pool, with its vector.
+    pub fn summary(&self, key: &str) -> Result<Option<SummaryRecord>, IndexError> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT key, level, summary, vector FROM summaries WHERE key = ?1",
+                [key],
+                |r| {
+                    let vector: Option<Vec<u8>> = r.get(3)?;
+                    Ok(SummaryRecord {
+                        key: r.get(0)?,
+                        level: r.get(1)?,
+                        summary: r.get(2)?,
+                        vector: vector.map(|bytes| {
+                            bytes
+                                .chunks_exact(4)
+                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect()
+                        }),
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Each file with the key of its summary, by path.
+    pub fn file_summary_keys(&self) -> Result<Vec<(String, Option<String>)>, IndexError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, summary_key FROM files ORDER BY path")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Each module (a folder of summarized files) with the key of its
+    /// summary, by path.
+    pub fn modules(&self) -> Result<Vec<(String, String)>, IndexError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, summary_key FROM modules ORDER BY path")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}
+
+/// One summary of the pool.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SummaryRecord {
+    pub key: String,
+    pub level: String,
+    pub summary: String,
+    /// Little-endian f32 in the index. `None` until it is embedded.
+    pub vector: Option<Vec<f32>>,
 }
 
 #[cfg(test)]

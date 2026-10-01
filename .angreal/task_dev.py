@@ -24,7 +24,7 @@ from pathlib import Path
 
 import angreal  # type: ignore
 
-from utils import PROJECT_ROOT
+from utils import PROJECT_ROOT, SWEEP_DAYS, sweep_target
 
 dev = angreal.command_group(name="dev", about="local development commands")
 
@@ -85,6 +85,48 @@ def dev_serve(release=False):
         return subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=env).returncode
     except KeyboardInterrupt:
         return 0
+
+
+@dev()
+@angreal.command(
+    name="sweep",
+    about="remove build artefacts in target/ older than N days",
+    tool=angreal.ToolDescription(
+        """
+        Remove old build artefacts from target/ (the idea of `cargo sweep
+        --time`, with no tool to install).
+
+        Each cargo build of a crate leaves a new entry in deps/, incremental/,
+        build/ and .fingerprint/, and cargo never removes the old ones. A week
+        of gate runs grew target/ to 360 GiB and filled the disk of the host
+        that also runs the live deployment (2026-10-01). Every task that runs
+        cargo through `run_cargo_command` already sweeps once at its start, with
+        KAIROS_SWEEP_DAYS (default 3; 0 turns it off). This task is the manual
+        entry point.
+
+        ## When to use
+        - When target/ is large and you want the space back now
+        - With --days 0 to remove every artefact (like `cargo clean`, but the
+          embedding model cache and the GUI bundle stay)
+
+        ## Output
+        The number of entries removed and the space freed. Cargo rebuilds any
+        removed artefact that it needs, so the cost is a slower next build.
+        """,
+        risk_level="safe",
+    ),
+)
+@angreal.argument(
+    name="days", long="days", takes_value=True,
+    help=f"remove artefacts not modified in this many days (default {SWEEP_DAYS:g})",
+)
+def dev_sweep(days=None):
+    """Remove old build artefacts from target/."""
+    days = float(days) if days is not None else SWEEP_DAYS
+    removed, freed = sweep_target(days)
+    print(f"Removed {removed} build artefacts older than {days:g} days "
+          f"({freed / 2**30:.1f} GiB).")
+    return 0
 
 
 # Where `angreal dev` puts the local embedding model. Matches the integration

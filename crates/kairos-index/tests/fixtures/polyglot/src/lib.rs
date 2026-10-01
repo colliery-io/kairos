@@ -1,5 +1,6 @@
 //! The Rust part of the polyglot fixture.
 
+pub mod labels;
 pub mod queue;
 pub mod shapes;
 pub mod stack;

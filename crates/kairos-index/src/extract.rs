@@ -8,7 +8,7 @@ use kairos_narsil::symbols::{Symbol, SymbolKind};
 use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Tree};
 
-use crate::calls::{CallSite, call_sites, rust_use_ranges};
+use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_use_ranges};
 
 /// The language of a file, from its extension: the languages of the index
 /// (Rust, Python, TypeScript, Go), with the names that narsil uses.
@@ -40,12 +40,14 @@ pub struct Extracted {
 }
 
 /// What one file gives: its symbols, its call sites and, for Rust, the
-/// ranges of its `use` declarations.
+/// ranges of its `use` declarations and the calls in the text of its macro
+/// invocations.
 #[derive(Debug, Clone, Default)]
 pub struct FileExtract {
     pub symbols: Vec<Extracted>,
     pub calls: Vec<CallSite>,
     pub use_ranges: Vec<(usize, usize)>,
+    pub macro_calls: Vec<CallSite>,
 }
 
 /// Parse `content` and return its symbols in source order, and its call
@@ -86,10 +88,10 @@ pub fn extract(
 
     let source = content.as_bytes();
     let calls = call_sites(language, &tree, source);
-    let use_ranges = if language == "rust" {
-        rust_use_ranges(&tree)
+    let (use_ranges, macro_calls) = if language == "rust" {
+        (rust_use_ranges(&tree), rust_macro_calls(&tree, source))
     } else {
-        Vec::new()
+        (Vec::new(), Vec::new())
     };
     let symbols: Vec<Extracted> = symbols
         .iter()
@@ -117,6 +119,7 @@ pub fn extract(
         symbols,
         calls,
         use_ranges,
+        macro_calls,
     })
 }
 
@@ -166,13 +169,24 @@ fn definition_node<'t>(tree: &'t Tree, s: &Symbol) -> Option<Node<'t>> {
 }
 
 /// The hash of the normalized syntax tree of a symbol: the node kinds and
-/// the text of the leaves, with no comments and no whitespace. The same code,
-/// formatted another way, gives the same hash. It keys the symbol's summary
-/// in the summary pool (COLLIERY-T-1850).
+/// the text of the leaves, with no comments, no whitespace and no trailing
+/// comma before a closing bracket (a formatter adds one when it wraps a
+/// line; `(x,)` and `(x)` still differ, as their node kinds differ). The same
+/// code, formatted another way, gives the same hash. It is a part of the key
+/// of the symbol's summary in the summary pool (COLLIERY-T-1850).
 fn tree_hash(language: &str, node: Node<'_>, source: &[u8]) -> String {
     fn feed(hasher: &mut Sha256, node: Node<'_>, source: &[u8]) {
         if node.kind().contains("comment") {
             return;
+        }
+        if node.kind() == "," {
+            let mut next = node.next_sibling();
+            while let Some(n) = next.filter(|n| n.kind().contains("comment")) {
+                next = n.next_sibling();
+            }
+            if next.is_some_and(|n| matches!(n.kind(), ")" | "]" | "}")) {
+                return;
+            }
         }
         hasher.update(b"(");
         hasher.update(node.kind().as_bytes());
@@ -259,6 +273,27 @@ mod tests {
         let b = hash_of(
             "b.rs",
             "fn f(x: u32) -> u32 {\n    // add one\n    x + 1\n}\n",
+            "f",
+        );
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn the_tree_hash_ignores_a_trailing_comma() {
+        let a = hash_of("a.py", "def f(path):\n    return g(path, 1)\n", "f");
+        let b = hash_of(
+            "a.py",
+            "def f(\n    path,\n):\n    return g(\n        path,\n        1,\n    )\n",
+            "f",
+        );
+        assert_eq!(a, b);
+        let tuple = hash_of("a.py", "def f(x):\n    return (x,)\n", "f");
+        let plain = hash_of("a.py", "def f(x):\n    return (x)\n", "f");
+        assert_ne!(tuple, plain);
+        let a = hash_of("a.rs", "fn f() { g(1, 2) }", "f");
+        let b = hash_of(
+            "a.rs",
+            "fn f() {\n    g(\n        1,\n        2,\n    )\n}",
             "f",
         );
         assert_eq!(a, b);

@@ -9,9 +9,12 @@
 //!   module summary** from the summaries of the files in its folder. Neither
 //!   reads code: the benchmark showed that file summaries from code cost as
 //!   much as all the symbol summaries.
-//! - **The key** of a symbol summary is the tree hash of the symbol. The key
-//!   of a file or a module summary is the hash of the list of child summaries
-//!   that is its input. A key that is in the pool is not summarized again.
+//! - **The key** of a symbol summary is the hash of the tree hash of the
+//!   symbol and of the signatures of its callees (COLLIERY-T-1851). So a
+//!   changed signature gives new summaries to the direct callers only, and a
+//!   changed body to none. The key of a file summary is the hash of its path
+//!   and of the list of child summaries; the key of a module summary is the
+//!   hash of that list. A key that is in the pool is not summarized again.
 //! - **The vectors** come from an [`EmbeddingProvider`]: in Kairos, the local
 //!   `bge-small-en-v1.5`, the same model and space as the Kairos items.
 //!
@@ -149,9 +152,10 @@ impl SummaryRequest {
                 prompt
             }
             Level::File => format!(
-                "Summarize a {language} source file in 1 to 3 sentences, from the summaries \
-                 of its parts below. Say what the file is for and what it gives to other code. \
-                 Do not list each part. Output only the summary.\n\n{}",
+                "Summarize the {language} source file `{}` in 1 to 3 sentences, from the \
+                 summaries of its parts below. Say what the file is for and what it gives to \
+                 other code. Do not list each part. Output only the summary.\n\n{}",
+                self.path,
                 self.children.join("\n")
             ),
             Level::Module => format!(
@@ -194,8 +198,9 @@ impl Summarizer for FakeSummarizer {
 /// Which part of the index to summarize.
 #[derive(Debug, Clone, Default)]
 pub struct SummarizeOptions {
-    /// Only the files whose path starts with this text.
-    pub under: Option<String>,
+    /// Only the files whose path starts with one of these texts. Empty:
+    /// each file.
+    pub under: Vec<String>,
     /// Stop after this number of new symbol summaries. A file whose symbols
     /// do not all have a summary gets no summary.
     pub max_new_symbols: Option<usize>,
@@ -293,7 +298,8 @@ pub fn summarize(
     let vector_model = model_name(embedder);
     check_vector_model(&conn, &vector_model)?;
 
-    let in_scope = |path: &str| options.under.as_deref().is_none_or(|u| path.starts_with(u));
+    let in_scope =
+        |path: &str| options.under.is_empty() || options.under.iter().any(|u| path.starts_with(u));
     let files = read_files(&conn)?;
     let symbols = read_symbols(&conn)?;
     let calls = read_callees(&conn)?;
@@ -304,25 +310,14 @@ pub fn summarize(
 
     // 1. The symbols.
     let mut new_symbols = 0usize;
-    let mut seen: HashSet<&str> = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    // The key of each symbol whose summary is in the pool.
+    let mut symbol_keys: HashMap<i64, String> = HashMap::new();
     for s in &symbols {
         let file = file_by_id[&s.file_id];
         if !s.summarized() || !in_scope(&file.path) {
             continue;
         }
-        if seen.contains(s.tree_hash.as_str()) || in_pool(&conn, &s.tree_hash)? {
-            seen.insert(&s.tree_hash);
-            report.symbols.reused += 1;
-            continue;
-        }
-        if options
-            .max_new_symbols
-            .is_some_and(|max| new_symbols >= max)
-        {
-            report.symbols.left += 1;
-            continue;
-        }
-        let code = texts.slice(s.file_id, s.start_byte, s.end_byte)?;
         let mut callees = Vec::new();
         for callee_id in calls.get(&s.id).map(Vec::as_slice).unwrap_or_default() {
             let Some(callee) = by_id.get(callee_id) else {
@@ -338,9 +333,24 @@ pub fn summarize(
                 callees.push(signature);
             }
         }
+        let key = symbol_key(&s.tree_hash, &callees);
+        if seen.contains(&key) || in_pool(&conn, &key)? {
+            seen.insert(key.clone());
+            symbol_keys.insert(s.id, key);
+            report.symbols.reused += 1;
+            continue;
+        }
+        if options
+            .max_new_symbols
+            .is_some_and(|max| new_symbols >= max)
+        {
+            report.symbols.left += 1;
+            continue;
+        }
+        let code = texts.slice(s.file_id, s.start_byte, s.end_byte)?;
         let request = SummaryRequest {
             level: Level::Symbol,
-            key: s.tree_hash.clone(),
+            key: key.clone(),
             language: Some(s.language.clone()),
             kind: s.kind.clone(),
             name: s.name.clone(),
@@ -356,7 +366,8 @@ pub fn summarize(
             format!("{}:{}", file.path, s.qualified()),
             &mut report,
         )?;
-        seen.insert(&s.tree_hash);
+        seen.insert(key.clone());
+        symbol_keys.insert(s.id, key);
         new_symbols += 1;
         report.symbols.summarized += 1;
     }
@@ -376,7 +387,10 @@ pub fn summarize(
         };
         let mut lines = Vec::with_capacity(children.len());
         for s in children {
-            match summary_of(&conn, &s.tree_hash)? {
+            let Some(key) = symbol_keys.get(&s.id) else {
+                break;
+            };
+            match summary_of(&conn, key)? {
                 Some(text) => lines.push(format!("- `{}` ({}): {text}", s.qualified(), s.kind)),
                 None => break,
             }
@@ -387,7 +401,7 @@ pub fn summarize(
             continue;
         }
         let language = f.language.clone().unwrap_or_default();
-        let key = children_key(Level::File, &language, &lines);
+        let key = children_key(Level::File, &language, &f.path, &lines);
         let request = SummaryRequest {
             level: Level::File,
             key: key.clone(),
@@ -436,7 +450,7 @@ pub fn summarize(
             report.modules.left += 1;
             continue;
         }
-        let key = children_key(Level::Module, "", &lines);
+        let key = children_key(Level::Module, "", "", &lines);
         if in_pool(&conn, &key)? {
             report.modules.reused += 1;
         } else {
@@ -465,12 +479,24 @@ pub fn summarize(
             for (path, key) in &file_keys {
                 set_file.execute(params![path, key])?;
             }
+            let mut set_symbol = tx.prepare("UPDATE symbols SET summary_key = ?2 WHERE id = ?1")?;
+            for (id, key) in &symbol_keys {
+                set_symbol.execute(params![id, key])?;
+            }
             // The modules in scope are written again. With no scope, the
             // prefix is empty and each module goes.
-            tx.execute(
-                "DELETE FROM modules WHERE substr(path, 1, length(?1)) = ?1",
-                params![options.under.as_deref().unwrap_or("")],
-            )?;
+            let all = [String::new()];
+            let prefixes = if options.under.is_empty() {
+                &all[..]
+            } else {
+                &options.under[..]
+            };
+            for prefix in prefixes {
+                tx.execute(
+                    "DELETE FROM modules WHERE substr(path, 1, length(?1)) = ?1",
+                    params![prefix],
+                )?;
+            }
             let mut set_module =
                 tx.prepare("INSERT OR REPLACE INTO modules (path, summary_key) VALUES (?1, ?2)")?;
             for (path, key) in &module_keys {
@@ -482,7 +508,11 @@ pub fn summarize(
 
     // 5. The vectors of each summary that has none.
     let started = Instant::now();
-    report.vectors = embed_missing(&mut conn, embedder, &vector_model, &symbols)?;
+    let names: HashMap<&str, &str> = symbols
+        .iter()
+        .filter_map(|s| Some((symbol_keys.get(&s.id)?.as_str(), s.name.as_str())))
+        .collect();
+    report.vectors = embed_missing(&mut conn, embedder, &vector_model, &names)?;
     report.embed_elapsed = started.elapsed();
     Ok(report)
 }
@@ -524,13 +554,55 @@ fn run_one(
     Ok(())
 }
 
+/// The key of a symbol summary: the hash of the tree hash of the symbol and
+/// of the signatures of its callees, in the order of the calls. The
+/// signatures are compared with no formatting (see [`signature_key`]), so a
+/// formatting change gives the same key.
+fn symbol_key(tree_hash: &str, callees: &[String]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"symbol");
+    hasher.update([0]);
+    hasher.update(tree_hash.as_bytes());
+    for callee in callees {
+        hasher.update([0]);
+        hasher.update(signature_key(callee).as_bytes());
+    }
+    hex(&hasher.finalize())
+}
+
+/// A signature with no formatting: no whitespace, except one space between
+/// 2 word characters, and no comma before a closing bracket.
+fn signature_key(signature: &str) -> String {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = String::with_capacity(signature.len());
+    let mut space = false;
+    for c in signature.chars() {
+        if c.is_whitespace() {
+            space = true;
+            continue;
+        }
+        if space && out.chars().last().is_some_and(word) && word(c) {
+            out.push(' ');
+        }
+        space = false;
+        if matches!(c, ')' | ']' | '>' | '}') && out.ends_with(',') {
+            out.pop();
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// The key of a file or a module summary: the hash of its level, its
-/// language and its child lines, in order.
-fn children_key(level: Level, language: &str, lines: &[String]) -> String {
+/// language, its path (a file only; empty for a module) and its child lines,
+/// in order.
+fn children_key(level: Level, language: &str, path: &str, lines: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(level.as_str().as_bytes());
     hasher.update([0]);
     hasher.update(language.as_bytes());
+    hasher.update([0]);
+    hasher.update(path.as_bytes());
     for line in lines {
         hasher.update([0]);
         hasher.update(line.as_bytes());
@@ -584,12 +656,8 @@ fn embed_missing(
     conn: &mut Connection,
     embedder: &dyn EmbeddingProvider,
     model: &str,
-    symbols: &[Sym],
+    names: &HashMap<&str, &str>,
 ) -> Result<usize, IndexError> {
-    let names: HashMap<&str, &str> = symbols
-        .iter()
-        .map(|s| (s.tree_hash.as_str(), s.name.as_str()))
-        .collect();
     let missing: Vec<(String, String, String)> = {
         let mut stmt = conn.prepare(
             "SELECT key, level, summary FROM summaries WHERE vector IS NULL ORDER BY key",
@@ -625,6 +693,48 @@ fn embed_missing(
         written += batch.len();
     }
     Ok(written)
+}
+
+/// Copy the summary pool of the index at `from` into the index at `to`. A
+/// key that `to` has already keeps its summary; it gets the vector of `from`
+/// if it has none. The 2 pools must have the vectors of one model.
+pub(crate) fn copy_pool(from: &Connection, to: &mut Connection) -> Result<(), IndexError> {
+    let model: Option<String> = from
+        .query_row(
+            "SELECT value FROM pool_meta WHERE name = 'vector_model'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(model) = &model {
+        check_vector_model(to, model)?;
+    }
+    let tx = to.transaction()?;
+    {
+        if let Some(model) = &model {
+            tx.execute(
+                "INSERT OR IGNORE INTO pool_meta (name, value) VALUES ('vector_model', ?1)",
+                [model],
+            )?;
+        }
+        let mut insert = tx.prepare(
+            "INSERT INTO summaries (key, level, summary, vector) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (key) DO UPDATE SET vector = excluded.vector
+             WHERE summaries.vector IS NULL",
+        )?;
+        let mut stmt = from.prepare("SELECT key, level, summary, vector FROM summaries")?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            insert.execute(params![
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<Vec<u8>>>(3)?,
+            ])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 fn read_files(conn: &Connection) -> Result<Vec<FileRow>, IndexError> {
@@ -798,6 +908,15 @@ mod tests {
     }
 
     #[test]
+    fn a_file_prompt_has_the_path() {
+        let prompt = request(Level::File).prompt();
+        assert!(
+            prompt.starts_with("Summarize the rust source file `src/lib.rs` in 1 to 3 sentences"),
+            "{prompt}"
+        );
+    }
+
+    #[test]
     fn the_symbol_prompt_is_the_prompt_of_the_model_comparison() {
         assert_eq!(
             request(Level::Symbol).prompt(),
@@ -828,15 +947,42 @@ mod tests {
 
     #[test]
     fn the_key_of_a_file_depends_on_the_order_of_its_children() {
-        let a = children_key(Level::File, "rust", &["x".into(), "y".into()]);
-        let b = children_key(Level::File, "rust", &["y".into(), "x".into()]);
-        let c = children_key(Level::Module, "rust", &["x".into(), "y".into()]);
+        let a = children_key(Level::File, "rust", "a.rs", &["x".into(), "y".into()]);
+        let b = children_key(Level::File, "rust", "a.rs", &["y".into(), "x".into()]);
+        let c = children_key(Level::Module, "rust", "a.rs", &["x".into(), "y".into()]);
+        let d = children_key(Level::File, "rust", "b.rs", &["x".into(), "y".into()]);
         assert_ne!(a, b);
         assert_ne!(a, c);
+        assert_ne!(a, d, "the path is in the key of a file");
         assert_eq!(
             a,
-            children_key(Level::File, "rust", &["x".into(), "y".into()])
+            children_key(Level::File, "rust", "a.rs", &["x".into(), "y".into()])
         );
+    }
+
+    #[test]
+    fn a_signature_key_has_no_formatting() {
+        let want = "def load(path: str, opts: dict[str, int]) -> list";
+        for formatted in [
+            "def load(path: str, opts: dict[str, int]) -> list",
+            "def load( path: str,\n    opts: dict[str,int], ) -> list",
+            "def  load(path:str, opts: dict[ str, int ])->list",
+        ] {
+            assert_eq!(signature_key(formatted), signature_key(want), "{formatted}");
+        }
+        assert_ne!(signature_key("fn f(a: u32)"), signature_key("fn f(a: u64)"));
+        assert_eq!(signature_key("pub fn  f( a : u32 , )"), "pub fn f(a:u32)");
+    }
+
+    #[test]
+    fn the_key_of_a_symbol_has_the_signatures_of_its_callees() {
+        let plain = symbol_key("t", &[]);
+        let one = symbol_key("t", &["fn g(x: u32)".into()]);
+        let reformatted = symbol_key("t", &["fn g( x: u32 )".into()]);
+        let changed = symbol_key("t", &["fn g(x: u64)".into()]);
+        assert_ne!(plain, one);
+        assert_eq!(one, reformatted);
+        assert_ne!(one, changed);
     }
 
     #[test]
@@ -871,7 +1017,7 @@ mod tests {
         let embed = kairos_embed::DeterministicProvider::default();
         let mut fake = FakeSummarizer::default();
         let limited = SummarizeOptions {
-            under: None,
+            under: Vec::new(),
             max_new_symbols: Some(1),
         };
         let report = summarize(&repo, &db, &mut fake, &embed, &limited).unwrap();

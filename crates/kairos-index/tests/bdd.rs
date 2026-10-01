@@ -12,8 +12,8 @@ use cucumber::{World, given, then, when};
 use kairos_embed::DeterministicProvider;
 use kairos_index::{
     BuildReport, EdgeRecord, FakeSummarizer, FileRecord, Index, Level, SUMMARIZED_KINDS,
-    SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, build_structure,
-    summarize,
+    SummarizeOptions, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, UpdateOptions,
+    UpdateReport, build_structure, merge, summarize, update,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -49,6 +49,26 @@ struct IndexWorld {
     changed: Option<(String, String, String)>,
     /// The model file, when it is on disk.
     model: Option<PathBuf>,
+    /// The index before an update, for the scenarios that compare.
+    before: Option<Snapshot>,
+    /// The report of the last update or merge.
+    update_report: Option<UpdateReport>,
+    /// The other folders of a scenario: branch trees and their indexes.
+    extra: Vec<TempDir>,
+    /// The indexes of the 2 branches of a merge, and the symbol that each
+    /// branch changed: file, name, container.
+    branches: Vec<(PathBuf, (String, String, String))>,
+    /// A file that a scenario moved: the path before and after.
+    moved: Option<(String, String)>,
+}
+
+/// What an index holds, to compare before and after an update.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    symbols: Vec<SymbolRecord>,
+    edges: Vec<EdgeRecord>,
+    file_keys: std::collections::BTreeMap<String, Option<String>>,
+    modules: std::collections::BTreeMap<String, String>,
 }
 
 /// A call that a scenario looks at: the calling function and the called
@@ -110,6 +130,52 @@ impl IndexWorld {
 
     fn edges(&self) -> Vec<EdgeRecord> {
         self.index().edges().expect("read the edges")
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let index = self.index();
+        Snapshot {
+            symbols: index.symbols().expect("read the symbols"),
+            edges: index.edges().expect("read the edges"),
+            file_keys: index
+                .file_summary_keys()
+                .expect("read the files")
+                .into_iter()
+                .collect(),
+            modules: index
+                .modules()
+                .expect("read the modules")
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    /// Update the last index from the tree, with the fake summarizer.
+    fn update(&mut self, rust_edges: bool) {
+        let db = self.indexes.last().expect("no index was built").clone();
+        let mut fake = FakeSummarizer::default();
+        let report = update(
+            &self.root,
+            &db,
+            &mut fake,
+            &DeterministicProvider::default(),
+            &UpdateOptions {
+                rust_edges,
+                ..UpdateOptions::default()
+            },
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        self.requests = fake.requests;
+        self.update_report = Some(report);
+    }
+
+    /// The symbol requests of the last run, as `file:name`.
+    fn symbol_requests(&self) -> Vec<String> {
+        self.requests
+            .iter()
+            .filter(|r| r.level == Level::Symbol)
+            .map(|r| format!("{}:{}", r.path, r.name))
+            .collect()
     }
 
     /// The edges of the focused call: from the focused function, to the
@@ -966,8 +1032,12 @@ fn each_symbol_has_a_summary(world: &mut IndexWorld) {
     let symbols = world.symbols();
     let mut count = 0;
     for s in symbols.iter().filter(|s| summarized(s)) {
+        let key = s
+            .summary_key
+            .as_deref()
+            .unwrap_or_else(|| panic!("{} in {} has no summary key", s.name, s.file));
         let summary = index
-            .summary(&s.tree_hash)
+            .summary(key)
             .expect("read a summary")
             .unwrap_or_else(|| panic!("{} in {} has no summary", s.name, s.file));
         assert_eq!(summary.level, "symbol", "{s:?}");
@@ -983,10 +1053,11 @@ fn each_symbol_has_a_summary(world: &mut IndexWorld) {
     // The other kinds (a `mod x;` line, an impl block, a constant) get none.
     for s in symbols.iter().filter(|s| !s.is_test && !summarized(s)) {
         assert!(
-            !world
-                .requests
-                .iter()
-                .any(|r| r.level == Level::Symbol && r.key == s.tree_hash),
+            s.summary_key.is_none()
+                && !world.requests.iter().any(|r| r.level == Level::Symbol
+                    && r.path == s.file
+                    && r.name == s.name
+                    && r.kind == s.kind),
             "{s:?} is not a function or a type, and it got a summary"
         );
     }
@@ -1018,18 +1089,20 @@ fn each_symbol_has_a_summary(world: &mut IndexWorld) {
 
 #[then("no test symbol has a summary")]
 fn no_test_summary(world: &mut IndexWorld) {
-    let index = world.index();
     let tests: Vec<_> = world.symbols().into_iter().filter(|s| s.is_test).collect();
     assert!(!tests.is_empty(), "the fixture has no test symbols");
     for s in &tests {
         assert!(
-            !world.requests.iter().any(|r| r.key == s.tree_hash),
+            !world
+                .requests
+                .iter()
+                .any(|r| r.level == Level::Symbol && r.path == s.file && r.name == s.name),
             "the summarizer got the test symbol {} in {}",
             s.name,
             s.file
         );
         assert!(
-            index.summary(&s.tree_hash).expect("read").is_none(),
+            s.summary_key.is_none(),
             "the test symbol {} in {} has a summary",
             s.name,
             s.file
@@ -1046,12 +1119,10 @@ fn the_same_key(world: &mut IndexWorld) {
         .collect();
     assert_eq!(symbols.len(), 2, "2 copies were expected: {symbols:#?}");
     assert_eq!(symbols[0].tree_hash, symbols[1].tree_hash);
+    assert_eq!(symbols[0].summary_key, symbols[1].summary_key);
+    let key = symbols[0].summary_key.as_deref().expect("a summary key");
     assert!(
-        world
-            .index()
-            .summary(&symbols[0].tree_hash)
-            .expect("read")
-            .is_some(),
+        world.index().summary(key).expect("read").is_some(),
         "the key has no summary"
     );
 }
@@ -1063,7 +1134,8 @@ fn ran_one_time(world: &mut IndexWorld) {
         .into_iter()
         .find(|s| s.name == "add_one")
         .expect("add_one")
-        .tree_hash;
+        .summary_key
+        .expect("a summary key");
     let runs = world
         .requests
         .iter()
@@ -1116,7 +1188,7 @@ fn file_input_is_symbol_summaries(world: &mut IndexWorld) {
         );
         for (line, s) in request.children.iter().zip(&parts) {
             let summary = index
-                .summary(&s.tree_hash)
+                .summary(s.summary_key.as_deref().expect("a summary key"))
                 .expect("read")
                 .expect("a symbol summary")
                 .summary;
@@ -1149,7 +1221,8 @@ fn the_key_changes(world: &mut IndexWorld) {
     let old = find_symbol(&before, &changed);
     let new = find_symbol(&after, &changed);
     assert_eq!(old.signature, new.signature, "the signature changed");
-    assert_ne!(old.tree_hash, new.tree_hash, "the key did not change");
+    assert_ne!(old.tree_hash, new.tree_hash, "the tree did not change");
+    assert_ne!(old.summary_key, new.summary_key, "the key did not change");
     let ran: Vec<_> = world
         .requests
         .iter()
@@ -1158,7 +1231,7 @@ fn the_key_changes(world: &mut IndexWorld) {
         .collect();
     assert_eq!(
         ran,
-        [new.tree_hash.as_str()],
+        [new.summary_key.as_deref().expect("a summary key")],
         "only the changed function needs a new summary"
     );
 }
@@ -1197,7 +1270,7 @@ fn caller_keys_stay(world: &mut IndexWorld) {
                         && s.container.clone().unwrap_or_default() == caller.2
                 })
                 .unwrap_or_else(|| panic!("no symbol {caller:?}"))
-                .tree_hash
+                .summary_key
                 .clone()
         };
         assert_eq!(find(&before), find(&after), "the key of {caller:?} changed");
@@ -1242,7 +1315,7 @@ fn summarize_with_the_model(world: &mut IndexWorld) {
         &mut summarizer,
         &DeterministicProvider::default(),
         &SummarizeOptions {
-            under: None,
+            under: Vec::new(),
             max_new_symbols: Some(3),
         },
     )
@@ -1259,8 +1332,8 @@ fn summarize_with_the_model(world: &mut IndexWorld) {
     world.summary_report = Some(report);
 }
 
-#[then("each summary has 1 to 3 sentences")]
-fn one_to_three_sentences(world: &mut IndexWorld) {
+#[then("each summary has 1 to 5 sentences")]
+fn one_to_five_sentences(world: &mut IndexWorld) {
     let report = world.summary_report.as_ref().expect("no summary run");
     let symbols = report
         .calls
@@ -1271,7 +1344,7 @@ fn one_to_three_sentences(world: &mut IndexWorld) {
     for call in &report.calls {
         let n = sentences(&call.summary);
         assert!(
-            (1..=3).contains(&n),
+            (1..=5).contains(&n),
             "{}: {n} sentences: {:?}",
             call.name,
             call.summary
@@ -1290,6 +1363,669 @@ fn no_empty_summary(world: &mut IndexWorld) {
             call.name
         );
     }
+}
+
+// --- Updates and merges (COLLIERY-T-1851) -----------------------------------------
+
+/// Replace `from` with `to` in the file `path` of the tree at `root`. The
+/// text must be in the file one time.
+fn edit(root: &Path, path: &str, from: &str, to: &str) {
+    let file = root.join(path);
+    let text = fs::read_to_string(&file).unwrap_or_else(|e| panic!("read {path}: {e}"));
+    assert_eq!(
+        text.matches(from).count(),
+        1,
+        "{path} must hold {from:?} one time"
+    );
+    fs::write(&file, text.replacen(from, to, 1)).unwrap_or_else(|e| panic!("write {path}: {e}"));
+}
+
+/// The body change of the Rust scenarios: `Stack::pop` gets a filter.
+const POP_BEFORE: &str = "        self.items.pop()\n";
+const POP_AFTER: &str = "        self.items.pop().filter(|item| *item > 0)\n";
+
+/// The summary key of the symbol `(file, name, container)`; an empty
+/// container is a symbol at the top of its file.
+fn symbol_key(
+    symbols: &[SymbolRecord],
+    (file, name, container): &(String, String, String),
+) -> Option<String> {
+    let found: Vec<_> = symbols
+        .iter()
+        .filter(|s| {
+            &s.file == file && &s.name == name && s.container.as_deref().unwrap_or("") == container
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "1 symbol {name} in {file} was expected");
+    found[0].summary_key.clone()
+}
+
+/// The identity of a symbol across 2 builds: its file, container, name and
+/// kind. Its lines can change.
+fn identity(s: &SymbolRecord) -> (String, String, String, String) {
+    (
+        s.file.clone(),
+        s.container.clone().unwrap_or_default(),
+        s.name.clone(),
+        s.kind.clone(),
+    )
+}
+
+#[given("a summarized index of the polyglot fixture")]
+fn a_summarized_index_of_the_fixture(world: &mut IndexWorld) {
+    a_summarized_index(world);
+    world.before = Some(world.snapshot());
+}
+
+#[given("a summarized index with Rust edges from SCIP")]
+fn a_summarized_index_with_scip(world: &mut IndexWorld) {
+    a_summarized_index_of_the_fixture(world);
+    let report = world.report.as_ref().expect("no build ran");
+    assert!(report.scip.is_some(), "the build did not run SCIP");
+    let before = world.before.as_ref().expect("no snapshot");
+    assert!(
+        before
+            .edges
+            .iter()
+            .any(|e| e.caller.file == "src/stack.rs" && e.origin == "scip"),
+        "src/stack.rs has no SCIP edge"
+    );
+}
+
+#[when("I change the body of one Rust function and update the index")]
+fn change_one_rust_body(world: &mut IndexWorld) {
+    edit(&world.root, "src/stack.rs", POP_BEFORE, POP_AFTER);
+    world.changed = Some(("src/stack.rs".into(), "pop".into(), "Stack".into()));
+    world.update(false);
+}
+
+#[when("I change a Rust function and update the index with no options")]
+fn change_rust_no_options(world: &mut IndexWorld) {
+    change_one_rust_body(world);
+}
+
+#[when(expr = "I update the index with {string}")]
+fn update_with(world: &mut IndexWorld, option: String) {
+    assert_eq!(option, "--rust-edges", "an unknown option");
+    world.update(true);
+}
+
+#[then("the summarizer ran for that function and for its file and module only")]
+fn ran_for_function_file_module(world: &mut IndexWorld) {
+    let (file, name, _) = world.changed.clone().expect("no function changed");
+    assert_eq!(world.symbol_requests(), [format!("{file}:{name}")]);
+    let files: Vec<_> = world
+        .requests
+        .iter()
+        .filter(|r| r.level == Level::File)
+        .map(|r| r.path.clone())
+        .collect();
+    assert_eq!(files, [file.as_str()], "the file summaries");
+    let modules: Vec<_> = world
+        .requests
+        .iter()
+        .filter(|r| r.level == Level::Module)
+        .map(|r| r.path.clone())
+        .collect();
+    let folder = file.rsplit_once('/').map_or(".", |(f, _)| f).to_string();
+    assert_eq!(modules, [folder], "the module summaries");
+}
+
+#[then("each other summary is the same as before")]
+fn other_summaries_stay(world: &mut IndexWorld) {
+    let changed = world.changed.clone().expect("no function changed");
+    let before = world.before.clone().expect("no snapshot");
+    let after = world.snapshot();
+    let folder = changed
+        .0
+        .rsplit_once('/')
+        .map_or(".", |(f, _)| f)
+        .to_string();
+    let mut compared = 0;
+    for s in after.symbols.iter().filter(|s| summarized(s)) {
+        if (s.file.as_str(), s.name.as_str(), s.container.as_deref())
+            == (
+                changed.0.as_str(),
+                changed.1.as_str(),
+                Some(changed.2.as_str()),
+            )
+        {
+            continue;
+        }
+        let old = before
+            .symbols
+            .iter()
+            .find(|o| identity(o) == identity(s))
+            .unwrap_or_else(|| panic!("{s:?} is new"));
+        assert_eq!(old.summary_key, s.summary_key, "the key of {s:?}");
+        assert!(s.summary_key.is_some(), "{s:?} has no summary");
+        compared += 1;
+    }
+    assert!(compared >= 20, "only {compared} symbols compared");
+    for (path, key) in &after.file_keys {
+        if *path != changed.0 {
+            assert_eq!(
+                before.file_keys.get(path),
+                Some(key),
+                "the summary of {path}"
+            );
+        }
+    }
+    for (path, key) in &after.modules {
+        if *path != folder {
+            assert_eq!(before.modules.get(path), Some(key), "the summary of {path}");
+        }
+    }
+}
+
+#[when("I reformat a Python file and update the index")]
+fn reformat_python(world: &mut IndexWorld) {
+    let path = "python/polyglot/report.py";
+    let text = fs::read_to_string(world.root.join(path)).expect("read report.py");
+    let reformatted = text
+        .replace("    def __init__(self, rows):\n", "    def __init__( self,rows ):\n\n")
+        .replace(
+            "        return \"\\n\".join(str(row) for row in self.rows)\n",
+            "        return \"\\n\".join(\n            str(row)\n            for row in self.rows\n        )\n",
+        )
+        .replace("def build_report(path):\n", "def build_report(\n    path,\n):\n");
+    assert_ne!(text, reformatted, "the reformat changed nothing");
+    fs::write(world.root.join(path), reformatted).expect("write report.py");
+    world.update(false);
+}
+
+#[then("the summarizer did not run")]
+fn the_summarizer_did_not_run(world: &mut IndexWorld) {
+    let ran: Vec<_> = world
+        .requests
+        .iter()
+        .map(|r| format!("{} {}:{}", r.level.as_str(), r.path, r.name))
+        .collect();
+    assert!(ran.is_empty(), "the summarizer ran for {ran:#?}");
+}
+
+#[when("I delete a TypeScript function and update the index")]
+fn delete_typescript(world: &mut IndexWorld) {
+    let before = world.before.as_ref().expect("no snapshot");
+    assert!(
+        before.edges.iter().any(|e| e.caller.name == "formatPrice")
+            && before
+                .edges
+                .iter()
+                .any(|e| e.callee.as_ref().is_some_and(|c| c.name == "formatPrice")),
+        "formatPrice must have edges in and out before the change"
+    );
+    edit(
+        &world.root,
+        "web/src/format.ts",
+        "\nexport function formatPrice(money: Money): string {\n  return `${(money.cents / 100).toFixed(2)} ${money.currency}`;\n}\n",
+        "",
+    );
+    world.update(false);
+}
+
+#[then("the function and its edges are not in the structure")]
+fn function_and_edges_gone(world: &mut IndexWorld) {
+    let snapshot = world.snapshot();
+    let found: Vec<_> = snapshot
+        .symbols
+        .iter()
+        .filter(|s| s.name == "formatPrice")
+        .collect();
+    assert!(found.is_empty(), "the function is still there: {found:#?}");
+    for e in &snapshot.edges {
+        let names = std::iter::once(&e.caller)
+            .chain(e.callee.as_ref())
+            .chain(&e.candidates);
+        for end in names {
+            assert!(
+                end.name != "formatPrice",
+                "an edge of the function is left: {e:#?}"
+            );
+        }
+    }
+}
+
+#[given("an index of branch A, where one Go function changed")]
+fn branch_a(world: &mut IndexWorld) {
+    if world.indexes.is_empty() {
+        a_summarized_index_of_the_fixture(world);
+    }
+    let changed = (
+        "go/greet/greet.go".to_string(),
+        "Title".to_string(),
+        String::new(),
+    );
+    make_branch(world, changed, |root| {
+        edit(
+            root,
+            "go/greet/greet.go",
+            "name[0] == ' '",
+            "name[0] == '\\t'",
+        )
+    });
+}
+
+#[given("an index of branch B, where one Rust function changed")]
+fn branch_b(world: &mut IndexWorld) {
+    let changed = (
+        "src/stack.rs".to_string(),
+        "pop".to_string(),
+        "Stack".to_string(),
+    );
+    make_branch(world, changed, |root| {
+        edit(root, "src/stack.rs", POP_BEFORE, POP_AFTER)
+    });
+}
+
+/// Copy the base tree and its index, change the copy, and update the copied
+/// index from it.
+fn make_branch(world: &mut IndexWorld, changed: (String, String, String), change: impl Fn(&Path)) {
+    let base_root = world.root.clone();
+    let base_db = world.indexes[0].clone();
+    let dir = TempDir::new().expect("make a folder for the branch");
+    let root = dir.path().join("tree");
+    copy_tree(&base_root, &root);
+    let db = dir.path().join("index.sqlite");
+    fs::copy(&base_db, &db).expect("copy the base index");
+    change(&root);
+    let mut fake = FakeSummarizer::default();
+    update(
+        &root,
+        &db,
+        &mut fake,
+        &DeterministicProvider::default(),
+        &UpdateOptions::default(),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert!(
+        fake.requests
+            .iter()
+            .any(|r| r.level == Level::Symbol && r.path == changed.0 && r.name == changed.1),
+        "the branch did not summarize {changed:?}"
+    );
+    world.branches.push((db, changed));
+    world.extra.push(dir);
+}
+
+#[when("I merge the 2 indexes for the merged tree")]
+fn merge_the_branches(world: &mut IndexWorld) {
+    assert_eq!(world.branches.len(), 2, "2 branches were expected");
+    let dir = TempDir::new().expect("make a folder for the merge");
+    let root = dir.path().join("tree");
+    copy_tree(&world.root, &root);
+    edit(
+        &root,
+        "go/greet/greet.go",
+        "name[0] == ' '",
+        "name[0] == '\\t'",
+    );
+    edit(&root, "src/stack.rs", POP_BEFORE, POP_AFTER);
+    let out = dir.path().join("merged.sqlite");
+    let mut fake = FakeSummarizer::default();
+    let report = merge(
+        &root,
+        &[&world.branches[0].0, &world.branches[1].0],
+        &out,
+        &mut fake,
+        &DeterministicProvider::default(),
+        &UpdateOptions::default(),
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    world.requests = fake.requests;
+    world.update_report = Some(report);
+    world.root = root;
+    world.indexes.push(out);
+    world.extra.push(dir);
+}
+
+#[then("the merged index has both changed functions with their new summaries")]
+fn merged_has_both(world: &mut IndexWorld) {
+    let merged = world.symbols();
+    let before = world.before.clone().expect("no snapshot");
+    for (db, changed) in world.branches.clone() {
+        let branch = Index::open(&db).expect("open a branch index");
+        let symbols = branch.symbols().expect("read the symbols");
+        let branch_key = symbol_key(&symbols, &changed).expect("the branch has a key");
+        let merged_key = symbol_key(&merged, &changed).expect("the merged index has a key");
+        assert_eq!(branch_key, merged_key, "the key of {changed:?}");
+        assert_ne!(
+            symbol_key(&before.symbols, &changed),
+            Some(merged_key.clone()),
+            "the key of {changed:?} did not change on its branch"
+        );
+        let summary = world.index().summary(&merged_key).expect("read");
+        assert!(
+            summary.is_some_and(|s| s.vector.is_some()),
+            "{changed:?} has no summary and vector"
+        );
+    }
+}
+
+#[given("a summarized index, where function A calls B, and B calls C")]
+fn a_chain(world: &mut IndexWorld) {
+    a_summarized_index_of_the_fixture(world);
+    let edges = world.edges();
+    let calls = |from: &str, to: &str| {
+        edges.iter().any(|e| {
+            e.caller.file == "go/greet/greet.go"
+                && e.caller.name == from
+                && e.class == "certain"
+                && e.callee.as_ref().is_some_and(|c| c.name == to)
+        })
+    };
+    assert!(
+        calls("Greet", "Message") && calls("Message", "Title"),
+        "the fixture has no chain"
+    );
+}
+
+#[when("the signature of C changes and I update the index")]
+fn change_c_signature(world: &mut IndexWorld) {
+    edit(
+        &world.root,
+        "go/greet/greet.go",
+        "func Title(name string) string {",
+        "func Title(name string, rest ...string) string {",
+    );
+    world.update(false);
+}
+
+#[then("C and B are summarized again")]
+fn c_and_b_again(world: &mut IndexWorld) {
+    let ran = world.symbol_requests();
+    for name in ["Title", "Message"] {
+        let want = format!("go/greet/greet.go:{name}");
+        assert!(
+            ran.contains(&want),
+            "{name} was not summarized again: {ran:?}"
+        );
+    }
+}
+
+#[then("A is not summarized again")]
+fn a_not_again(world: &mut IndexWorld) {
+    let ran = world.symbol_requests();
+    assert_eq!(ran.len(), 2, "only C and B were expected: {ran:?}");
+    assert!(
+        !ran.contains(&"go/greet/greet.go:Greet".to_string()),
+        "{ran:?}"
+    );
+}
+
+#[when("I move a Python file to another folder and update the index")]
+fn move_python(world: &mut IndexWorld) {
+    let from = "python/polyglot/json_loader.py";
+    let to = "python/polyglot/loaders/json_loader.py";
+    fs::create_dir_all(world.root.join("python/polyglot/loaders")).expect("make the folder");
+    fs::rename(world.root.join(from), world.root.join(to)).expect("move the file");
+    world.moved = Some((from.into(), to.into()));
+    world.update(false);
+}
+
+#[then("the file is summarized again")]
+fn moved_file_again(world: &mut IndexWorld) {
+    let (_, to) = world.moved.clone().expect("no file moved");
+    let files: Vec<_> = world
+        .requests
+        .iter()
+        .filter(|r| r.level == Level::File)
+        .map(|r| r.path.clone())
+        .collect();
+    assert_eq!(files, [to.as_str()], "the file summaries");
+    let request = world
+        .requests
+        .iter()
+        .find(|r| r.level == Level::File)
+        .expect("a file request");
+    assert!(
+        request.prompt().contains(&to),
+        "the prompt has no path: {}",
+        request.prompt()
+    );
+}
+
+#[then("its symbols are not summarized again")]
+fn moved_symbols_stay(world: &mut IndexWorld) {
+    let (from, to) = world.moved.clone().expect("no file moved");
+    assert_eq!(world.symbol_requests(), Vec::<String>::new());
+    let before = world.before.clone().expect("no snapshot");
+    let after = world.symbols();
+    let moved: Vec<_> = after
+        .iter()
+        .filter(|s| s.file == to && summarized(s))
+        .collect();
+    assert!(!moved.is_empty(), "the moved file has no symbols");
+    for s in moved {
+        let old = before
+            .symbols
+            .iter()
+            .find(|o| o.file == from && o.name == s.name && o.kind == s.kind)
+            .unwrap_or_else(|| panic!("{s:?} was not in the old file"));
+        assert_eq!(old.summary_key, s.summary_key, "the key of {s:?}");
+    }
+}
+
+#[then("SCIP did not run")]
+fn scip_did_not_run(world: &mut IndexWorld) {
+    let report = world.update_report.as_ref().expect("no update ran");
+    assert!(
+        report.build.scip.is_none(),
+        "SCIP ran: {:?}",
+        report.build.scip
+    );
+}
+
+#[then("the edges of the changed file have name classes, marked to be replaced")]
+fn changed_edges_are_marked(world: &mut IndexWorld) {
+    let (file, _, _) = world.changed.clone().expect("no function changed");
+    let edges = world.edges();
+    let changed: Vec<_> = edges.iter().filter(|e| e.caller.file == file).collect();
+    assert!(!changed.is_empty(), "{file} has no edges");
+    for e in &changed {
+        assert!(
+            e.origin != "scip" && e.scip_pending,
+            "an edge of {file} is not a marked name class: {e:#?}"
+        );
+    }
+    // The edges of the other Rust files are the SCIP edges of the base.
+    let before = world.before.clone().expect("no snapshot");
+    let key = |e: &EdgeRecord| {
+        (
+            e.caller.file.clone(),
+            e.caller.name.clone(),
+            e.line,
+            e.col,
+            e.callee_name.clone(),
+            e.class.clone(),
+            e.origin.clone(),
+        )
+    };
+    let kept: BTreeSet<_> = edges
+        .iter()
+        .filter(|e| e.caller.file.ends_with(".rs") && e.caller.file != file)
+        .map(key)
+        .collect();
+    let base: BTreeSet<_> = before
+        .edges
+        .iter()
+        .filter(|e| e.caller.file.ends_with(".rs") && e.caller.file != file)
+        .map(key)
+        .collect();
+    assert_eq!(kept, base, "the other Rust edges changed");
+    assert!(
+        edges
+            .iter()
+            .filter(|e| e.caller.file != file)
+            .all(|e| !e.scip_pending),
+        "an edge of an unchanged file is marked"
+    );
+}
+
+#[then("SCIP ran, and the marked edges are SCIP edges again")]
+fn marked_edges_are_scip(world: &mut IndexWorld) {
+    let report = world.update_report.as_ref().expect("no update ran");
+    assert!(report.build.scip.is_some(), "SCIP did not run");
+    let (file, _, _) = world.changed.clone().expect("no function changed");
+    let edges = world.edges();
+    assert!(
+        edges.iter().all(|e| !e.scip_pending),
+        "an edge is still marked"
+    );
+    let changed: Vec<_> = edges.iter().filter(|e| e.caller.file == file).collect();
+    assert!(!changed.is_empty(), "{file} has no edges");
+    for e in changed {
+        assert_eq!(e.origin, "scip", "{e:#?}");
+    }
+}
+
+#[given(
+    "the polyglot fixture, where a Rust function calls a fixture function inside a format! argument and inside a custom macro_rules! invocation"
+)]
+fn macro_calls(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let text = fs::read_to_string(world.root.join("src/labels.rs")).expect("read src/labels.rs");
+    assert!(
+        text.contains("format!(\"{} ({source})\", count_text(count))")
+            && text.contains("quoted!(fixture_name())")
+            && text.contains("macro_rules! quoted"),
+        "src/labels.rs has not the 2 macro calls"
+    );
+}
+
+/// The edge from `label` in src/labels.rs to the fixture function `name`.
+fn label_edge(world: &IndexWorld, name: &str) -> EdgeRecord {
+    let edges = world.edges();
+    let found: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.caller.file == "src/labels.rs" && e.caller.name == "label" && calls_name(e, name)
+        })
+        .collect();
+    assert_eq!(found.len(), 1, "1 edge to {name} was expected: {found:#?}");
+    let e = found[0].clone();
+    assert_eq!(
+        e.callee
+            .as_ref()
+            .map(|c| (c.file.as_str(), c.name.as_str())),
+        Some(("src/labels.rs", name)),
+        "{e:#?}"
+    );
+    assert_eq!(e.class, "certain", "{e:#?}");
+    e
+}
+
+#[then(
+    expr = "the call in the custom macro is an edge from that function, with a name class and the source {string}"
+)]
+fn macro_edge(world: &mut IndexWorld, origin: String) {
+    let e = label_edge(world, "fixture_name");
+    assert_eq!(e.origin, origin, "{e:#?}");
+    assert!(!e.scip_pending, "{e:#?}");
+}
+
+#[then("the call in the format! argument is an edge from SCIP")]
+fn format_edge(world: &mut IndexWorld) {
+    let e = label_edge(world, "count_text");
+    assert_eq!(e.origin, "scip", "{e:#?}");
+}
+
+#[then("no call that SCIP resolved is also an edge from the macro text")]
+fn no_double_macro_edges(world: &mut IndexWorld) {
+    let edges = world.edges();
+    let scip: BTreeSet<_> = edges
+        .iter()
+        .filter(|e| e.origin == "scip")
+        .map(|e| (e.caller.clone(), e.line, e.col))
+        .map(|(c, l, k)| (c.file, c.name, c.start_line, l, k))
+        .collect();
+    let macro_text: Vec<_> = edges.iter().filter(|e| e.origin == "macro-text").collect();
+    assert!(!macro_text.is_empty(), "no edge comes from the macro text");
+    for e in macro_text {
+        let at = (
+            e.caller.file.clone(),
+            e.caller.name.clone(),
+            e.caller.start_line,
+            e.line,
+            e.col,
+        );
+        assert!(!scip.contains(&at), "SCIP resolved this call too: {e:#?}");
+    }
+}
+
+#[when("I change a file and do not commit it, and update the index")]
+fn change_uncommitted(world: &mut IndexWorld) {
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=kairos",
+                "-c",
+                "user.email=kairos@example.invalid",
+            ])
+            .args(args)
+            .current_dir(&world.root)
+            .output()
+            .expect("run git");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    };
+    git(&["init", "-q"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    let path = world.root.join("go/greet/greet.go");
+    let mut text = fs::read_to_string(&path).expect("read greet.go");
+    text.push_str("\n// Farewell builds the text of a farewell.\nfunc Farewell(name string) string {\n\treturn \"Bye, \" + Title(name)\n}\n");
+    fs::write(&path, text).expect("write greet.go");
+    let status = git(&["status", "--porcelain"]);
+    assert_eq!(
+        status.trim(),
+        "M go/greet/greet.go",
+        "the change must be uncommitted"
+    );
+    world.update(false);
+}
+
+#[then("the index describes the changed file")]
+fn index_has_the_change(world: &mut IndexWorld) {
+    let index = world.index();
+    let symbols = world.symbols();
+    let farewell = symbols
+        .iter()
+        .find(|s| s.file == "go/greet/greet.go" && s.name == "Farewell")
+        .expect("the new function is not in the index");
+    let key = farewell
+        .summary_key
+        .as_deref()
+        .expect("the new function has no summary key");
+    assert!(
+        index.summary(key).expect("read").is_some(),
+        "the new function has no summary"
+    );
+    assert!(
+        world
+            .edges()
+            .iter()
+            .any(|e| e.caller.name == "Farewell"
+                && e.callee.as_ref().is_some_and(|c| c.name == "Title")),
+        "the new call is not an edge"
+    );
+    let bytes = fs::read(world.root.join("go/greet/greet.go")).expect("read greet.go");
+    let file = world
+        .files()
+        .into_iter()
+        .find(|f| f.path == "go/greet/greet.go")
+        .expect("the file is in the index");
+    assert_eq!(
+        file.size,
+        bytes.len() as u64,
+        "the index has the committed file"
+    );
+    assert_eq!(world.symbol_requests(), ["go/greet/greet.go:Farewell"]);
 }
 
 /// The step "Given the Qwen3-4B model file is on disk". It is added only

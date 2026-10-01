@@ -1,11 +1,17 @@
 //! Build the index of a tree and summarize it with the real model: a
-//! measurement tool for COLLIERY-T-1850 until `kairos index` exists
-//! (COLLIERY-T-1852).
+//! measurement tool for COLLIERY-T-1850 and COLLIERY-T-1851 until
+//! `kairos index` exists (COLLIERY-T-1852).
 //!
 //! ```text
 //! cargo run --release -p kairos-index --features llama --example summarize -- \
-//!     <repository> <index.sqlite> [--under <path prefix>] [--max <symbols>] [--skip-build]
+//!     <repository> <index.sqlite> [--under <path prefix>]... [--max <symbols>]
+//!     [--skip-build | --update [--rust-edges]]
 //! ```
+//!
+//! `--update` updates the index from the tree: the structure is built again
+//! with the SCIP edges of the index for the Rust files that did not change
+//! (or with a SCIP run, with `--rust-edges`), and only the keys that the pool
+//! does not have are summarized.
 //!
 //! The model file comes from `KAIROS_INDEX_MODEL` or the default path (see
 //! `kairos_index::model_path`). The vectors use the local
@@ -18,7 +24,8 @@ use std::time::{Duration, Instant};
 
 use kairos_embed::local::{LocalConfig, LocalProvider};
 use kairos_index::{
-    Level, LlamaModelFile, SummarizeOptions, build_structure, model_path, summarize,
+    Level, LlamaModelFile, SummarizeOptions, UpdateOptions, build_structure, model_path, summarize,
+    update_structure,
 };
 
 fn main() -> ExitCode {
@@ -36,12 +43,18 @@ fn run() -> Result<(), String> {
     let mut positional = Vec::new();
     let mut options = SummarizeOptions::default();
     let mut skip_build = false;
+    let mut update = false;
+    let mut rust_edges = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             // Use the structure of an earlier run, so that the peak memory
             // of this process is the memory of the summaries only.
             "--skip-build" => skip_build = true,
-            "--under" => options.under = Some(args.next().ok_or("--under needs a value")?),
+            "--update" => update = true,
+            "--rust-edges" => rust_edges = true,
+            "--under" => options
+                .under
+                .push(args.next().ok_or("--under needs a value")?),
             "--max" => {
                 let value = args.next().ok_or("--max needs a value")?;
                 options.max_new_symbols = Some(
@@ -57,9 +70,36 @@ fn run() -> Result<(), String> {
     let [root, db] = positional.as_slice() else {
         return Err("Give the repository and the index file.".into());
     };
+    if rust_edges && !update {
+        return Err("--rust-edges needs --update.".into());
+    }
+    if update && skip_build {
+        return Err("--update and --skip-build cannot go together.".into());
+    }
 
     let started = Instant::now();
-    if !skip_build {
+    if update {
+        let built = update_structure(
+            root,
+            db,
+            &UpdateOptions {
+                rust_edges,
+                summarize: options.clone(),
+            },
+        )
+        .map_err(|e| e.to_string())?;
+        println!(
+            "structure update: {} files, {} symbols, SCIP run: {}, SCIP edges kept: {}, \
+             marked for SCIP: {}, macro-text: {}, {:.1} s",
+            built.files,
+            built.symbols,
+            built.scip.is_some(),
+            built.edges.kept_scip,
+            built.edges.pending,
+            built.edges.macro_text,
+            started.elapsed().as_secs_f64()
+        );
+    } else if !skip_build {
         let built = build_structure(root, db).map_err(|e| e.to_string())?;
         println!(
             "structure: {} files, {} symbols, {:.1} s",

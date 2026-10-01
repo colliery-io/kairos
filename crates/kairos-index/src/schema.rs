@@ -1,11 +1,17 @@
 //! The SQLite schema of an index (COLLIERY-I-0264, "The two parts of an
 //! index").
 //!
-//! - The structure: `files`, `symbols`, `edges` and `edge_candidates`. A build
-//!   deletes and writes it again.
+//! - The structure: `files`, `symbols`, `edges`, `edge_candidates` and
+//!   `scip_covered`. A build deletes and writes it again.
 //! - The summary pool: `summaries` and `pool_meta`. A build of the structure
-//!   keeps it. `files.summary_key` and `modules` link the structure to the
-//!   pool; the summarizer writes them (COLLIERY-T-1850).
+//!   keeps it. `symbols.summary_key`, `files.summary_key` and `modules` link
+//!   the structure to the pool; the summarizer writes them (COLLIERY-T-1850).
+//!
+//! Version 3 (COLLIERY-T-1851): the key of a symbol summary is no longer the
+//! tree hash (`symbols.summary_key`), the key of a file summary has the path,
+//! an edge can come from the text of a macro (`macro-text`) and can wait for
+//! a SCIP run (`scip_pending`), and `scip_covered` keeps what SCIP resolved.
+//! An index of an earlier version is refused.
 //!
 //! `PRAGMA user_version` holds the schema version.
 
@@ -14,7 +20,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -46,8 +52,9 @@ CREATE TABLE symbols (
     start_byte  INTEGER NOT NULL,
     end_byte    INTEGER NOT NULL,           -- not included
     signature   TEXT,
-    tree_hash   TEXT    NOT NULL,           -- sha256 of the normalized tree; the summary key
-    is_test     INTEGER NOT NULL CHECK (is_test IN (0, 1))
+    tree_hash   TEXT    NOT NULL,           -- sha256 of the normalized tree
+    is_test     INTEGER NOT NULL CHECK (is_test IN (0, 1)),
+    summary_key TEXT                        -- the key of its summary in the pool
 ) STRICT;
 CREATE INDEX symbols_file ON symbols (file_id);
 CREATE INDEX symbols_name ON symbols (name);
@@ -55,7 +62,10 @@ CREATE INDEX symbols_tree_hash ON symbols (tree_hash);
 
 -- Call and import edges (COLLIERY-T-1849). A certain edge names its callee;
 -- a possible edge lists its candidates in edge_candidates; an external edge
--- has only the name.
+-- has only the name. 'macro-text': a name class for a call that the text of
+-- a Rust macro invocation shows and SCIP did not resolve (COLLIERY-T-1851).
+-- scip_pending: a name class in a Rust file that changed after the last SCIP
+-- run. A run with the Rust edges replaces it.
 CREATE TABLE edges (
     id          INTEGER PRIMARY KEY,
     caller_id   INTEGER NOT NULL REFERENCES symbols (id) ON DELETE CASCADE,
@@ -63,9 +73,10 @@ CREATE TABLE edges (
     callee_name TEXT    NOT NULL,
     edge_kind   TEXT    NOT NULL CHECK (edge_kind IN ('call', 'import')),
     class       TEXT    NOT NULL CHECK (class IN ('certain', 'possible', 'external')),
-    origin      TEXT    NOT NULL CHECK (origin IN ('scip', 'name')),
+    origin      TEXT    NOT NULL CHECK (origin IN ('scip', 'name', 'macro-text')),
     line        INTEGER NOT NULL,
-    col         INTEGER NOT NULL
+    col         INTEGER NOT NULL,
+    scip_pending INTEGER NOT NULL DEFAULT 0 CHECK (scip_pending IN (0, 1))
 ) STRICT;
 CREATE INDEX edges_caller ON edges (caller_id);
 CREATE INDEX edges_callee ON edges (callee_id);
@@ -76,9 +87,18 @@ CREATE TABLE edge_candidates (
     PRIMARY KEY (edge_id, symbol_id)
 ) STRICT;
 
+-- The call sites of a Rust file that the last SCIP run resolved: with a SCIP
+-- edge, or with no edge (a tuple struct, an enum variant). An update that
+-- keeps the SCIP edges of an unchanged file gives these no name class.
+CREATE TABLE scip_covered (
+    file_id    INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    start_byte INTEGER NOT NULL,
+    PRIMARY KEY (file_id, start_byte)
+) STRICT, WITHOUT ROWID;
+
 -- The summary pool (COLLIERY-T-1850). The key is a hash of what made the
--- summary: the tree hash of a symbol, or the hash of the summaries below a
--- file or a module. The same code gives the same key, so 2 pools merge with
+-- summary: the tree hash and the callee signatures of a symbol, the path and
+-- the symbol summaries of a file, or the file summaries of a module. The same code gives the same key, so 2 pools merge with
 -- no conflict.
 CREATE TABLE summaries (
     key     TEXT PRIMARY KEY,

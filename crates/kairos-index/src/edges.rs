@@ -9,17 +9,25 @@
 //!   resolve:** the called name gives the class. `certain`: one function of
 //!   that name in the same file, or one in the repository. `possible`: more
 //!   than one; the edge lists them. `external`: none.
+//! - **Calls in the text of a Rust macro** (`macro-text`): a name class,
+//!   only where SCIP resolved nothing (COLLIERY-T-1851).
+//! - **A local update** runs no SCIP. A Rust file that did not change keeps
+//!   the SCIP edges of the base index. A changed Rust file gets name
+//!   classes, marked `scip_pending`, until a run with the Rust edges.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::EdgeStats;
+use rusqlite::Connection;
+
 use crate::calls::CallSite;
 use crate::scip::{self, proto};
+use crate::{EdgeStats, IndexError};
 
 /// A symbol of a parsed file, with its row id.
 pub struct Sym {
     pub id: i64,
     pub name: String,
+    pub container: Option<String>,
     pub kind: &'static str,
     pub start_byte: usize,
     pub end_byte: usize,
@@ -30,9 +38,11 @@ pub struct ParsedFile<'a> {
     pub path: &'a str,
     pub language: &'static str,
     pub text: &'a str,
+    pub content_hash: &'a str,
     pub symbols: Vec<Sym>,
     pub calls: &'a [CallSite],
     pub use_ranges: &'a [(usize, usize)],
+    pub macro_calls: &'a [CallSite],
 }
 
 /// An edge, ready to insert.
@@ -46,6 +56,197 @@ pub struct NewEdge {
     pub line: usize,
     pub col: usize,
     pub candidates: Vec<i64>,
+    pub scip_pending: bool,
+}
+
+/// Where the Rust edges come from.
+pub enum RustEdges<'a> {
+    /// Name classes only: the tree has no Cargo workspace at its root.
+    Names,
+    /// A SCIP run of the workspace, and the crate of each file.
+    Scip(&'a proto::Index, &'a scip::Crates),
+    /// No SCIP run. A Rust file with the content of a file of a base index,
+    /// whose edges wait for no SCIP run, keeps its SCIP edges. The other
+    /// Rust files get name classes, marked `scip_pending` if `mark`.
+    Base { bases: &'a [BaseIndex], mark: bool },
+}
+
+/// The edges of a build.
+pub struct Resolved {
+    pub edges: Vec<NewEdge>,
+    pub stats: EdgeStats,
+    /// The call sites that SCIP resolved, as (file, byte), for `scip_covered`.
+    pub covered: Vec<(usize, usize)>,
+}
+
+/// A symbol across 2 builds: its file, its container, its name, its kind,
+/// and its place among the symbols of that file with the same 3. Its lines
+/// can change.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SymKey {
+    pub file: String,
+    pub container: Option<String>,
+    pub name: String,
+    pub kind: String,
+    pub ordinal: usize,
+}
+
+/// The keys of the symbols of one file, in the order of the file.
+fn sym_keys<'a>(
+    file: &str,
+    symbols: impl Iterator<Item = (Option<&'a str>, &'a str, &'a str)>,
+) -> Vec<SymKey> {
+    let mut seen: HashMap<(Option<&str>, &str, &str), usize> = HashMap::new();
+    symbols
+        .map(|(container, name, kind)| {
+            let n = seen.entry((container, name, kind)).or_default();
+            let key = SymKey {
+                file: file.to_string(),
+                container: container.map(str::to_string),
+                name: name.to_string(),
+                kind: kind.to_string(),
+                ordinal: *n,
+            };
+            *n += 1;
+            key
+        })
+        .collect()
+}
+
+/// The Rust edges of an earlier index, for an update that runs no SCIP.
+#[derive(Debug, Default)]
+pub struct BaseIndex {
+    files: HashMap<String, BaseFile>,
+}
+
+#[derive(Debug, Default)]
+struct BaseFile {
+    content_hash: String,
+    /// No edge of the file waits for a SCIP run.
+    fresh: bool,
+    covered: Vec<usize>,
+    edges: Vec<BaseEdge>,
+}
+
+#[derive(Debug)]
+struct BaseEdge {
+    caller: SymKey,
+    callee: Option<SymKey>,
+    callee_name: String,
+    class: String,
+    line: usize,
+    col: usize,
+}
+
+impl BaseIndex {
+    /// Read the Rust files of the index at `conn`: their content hash, their
+    /// SCIP edges and the call sites that SCIP resolved.
+    pub fn read(conn: &Connection) -> Result<Self, IndexError> {
+        let mut files: HashMap<String, BaseFile> = HashMap::new();
+        let mut paths: HashMap<i64, String> = HashMap::new();
+        {
+            let mut stmt =
+                conn.prepare("SELECT id, path, content_hash FROM files WHERE language = 'rust'")?;
+            let rows = stmt.query_map([], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get(2)?))
+            })?;
+            for row in rows {
+                let (id, path, content_hash) = row?;
+                files.insert(
+                    path.clone(),
+                    BaseFile {
+                        content_hash,
+                        fresh: true,
+                        ..BaseFile::default()
+                    },
+                );
+                paths.insert(id, path);
+            }
+        }
+        // The key of each symbol, from the symbols of each file in order.
+        let mut keys: HashMap<i64, SymKey> = HashMap::new();
+        {
+            let mut stmt = conn.prepare(
+                "SELECT s.id, f.path, s.container, s.name, s.kind
+                 FROM symbols s JOIN files f ON f.id = s.file_id
+                 ORDER BY f.path, s.start_byte, s.end_byte DESC, s.kind, s.name",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })?;
+            let rows: Vec<_> = rows.collect::<Result<_, _>>()?;
+            for group in rows.chunk_by(|a, b| a.1 == b.1) {
+                let file_keys = sym_keys(
+                    &group[0].1,
+                    group
+                        .iter()
+                        .map(|(_, _, c, n, k)| (c.as_deref(), n.as_str(), k.as_str())),
+                );
+                for ((id, ..), key) in group.iter().zip(file_keys) {
+                    keys.insert(*id, key);
+                }
+            }
+        }
+        {
+            let mut stmt = conn.prepare(
+                "SELECT e.caller_id, e.callee_id, e.callee_name, e.class, e.origin, e.line, e.col,
+                        e.scip_pending
+                 FROM edges e JOIN symbols c ON c.id = e.caller_id
+                 WHERE c.language = 'rust' AND (e.origin = 'scip' OR e.scip_pending = 1)",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, Option<i64>>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, i64>(5)?,
+                    r.get::<_, i64>(6)?,
+                    r.get::<_, bool>(7)?,
+                ))
+            })?;
+            for row in rows {
+                let (caller, callee, callee_name, class, origin, line, col, pending) = row?;
+                let Some(caller) = keys.get(&caller).cloned() else {
+                    continue;
+                };
+                let Some(file) = files.get_mut(&caller.file) else {
+                    continue;
+                };
+                if pending {
+                    file.fresh = false;
+                }
+                if origin == "scip" {
+                    file.edges.push(BaseEdge {
+                        caller,
+                        callee: callee.and_then(|id| keys.get(&id).cloned()),
+                        callee_name,
+                        class,
+                        line: line as usize,
+                        col: col as usize,
+                    });
+                }
+            }
+        }
+        {
+            let mut stmt = conn.prepare("SELECT file_id, start_byte FROM scip_covered")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+            for row in rows {
+                let (file_id, byte) = row?;
+                if let Some(file) = paths.get(&file_id).and_then(|p| files.get_mut(p)) {
+                    file.covered.push(byte as usize);
+                }
+            }
+        }
+        Ok(BaseIndex { files })
+    }
 }
 
 /// The kinds that a call can start in.
@@ -148,6 +349,7 @@ impl<'a> Names<'a> {
             line,
             col,
             candidates,
+            scip_pending: false,
         }
     }
 }
@@ -235,26 +437,26 @@ fn choose(
     Target::Ambiguous
 }
 
-/// The edges of all parsed files. `scip` is the index of the Cargo
-/// workspace at the root and the crate of each file, if a run was made.
-pub fn resolve(
-    files: &[ParsedFile<'_>],
-    scip: Option<(&proto::Index, &scip::Crates)>,
-) -> (Vec<NewEdge>, EdgeStats) {
+/// The edges of all parsed files, with the Rust edges from `rust`.
+pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
     let no_crates = scip::Crates::default();
-    let crates = scip.map_or(&no_crates, |(_, c)| c);
+    let crates = match &rust {
+        RustEdges::Scip(_, c) => *c,
+        _ => &no_crates,
+    };
     let names = Names::new(files);
     let by_path: HashMap<&str, usize> =
         files.iter().enumerate().map(|(i, f)| (f.path, i)).collect();
     let starts: Vec<Vec<usize>> = files.iter().map(|f| line_starts(f.text)).collect();
     let mut stats = EdgeStats::default();
     let mut edges = Vec::new();
+    let mut covered = Vec::new();
 
     // The Rust documents of the SCIP index, by file, and the definition of
     // each symbol.
     let mut scip_docs: HashMap<usize, &proto::Document> = HashMap::new();
     let mut definitions: HashMap<&str, Vec<(Option<usize>, usize)>> = HashMap::new();
-    if let Some((index, _)) = scip {
+    if let RustEdges::Scip(index, _) = &rust {
         for doc in &index.documents {
             let file = by_path.get(doc.relative_path.as_str()).copied();
             if let Some(f) = file.filter(|&f| files[f].language == "rust") {
@@ -280,10 +482,29 @@ pub fn resolve(
             }
         }
     }
+    // For a base index: the id of each symbol, by its key.
+    let mut ids: HashMap<SymKey, i64> = HashMap::new();
+    if let RustEdges::Base { .. } = &rust {
+        for file in files {
+            let keys = sym_keys(
+                file.path,
+                file.symbols
+                    .iter()
+                    .map(|s| (s.container.as_deref(), s.name.as_str(), s.kind)),
+            );
+            for (s, key) in file.symbols.iter().zip(keys) {
+                ids.insert(key, s.id);
+            }
+        }
+    }
     let mut joins: HashMap<(usize, usize), Option<i64>> = HashMap::new();
 
     for (i, file) in files.iter().enumerate() {
+        // The places that SCIP resolved: no name class goes there.
         let mut resolved_at: HashSet<usize> = HashSet::new();
+        // The places where SCIP gave a name class (a fallback).
+        let mut fallback_at: HashSet<usize> = HashSet::new();
+        let mut pending = false;
         if let Some(doc) = scip_docs.get(&i) {
             for occ in &doc.occurrences {
                 if occ.range.len() < 3 {
@@ -320,6 +541,7 @@ pub fn resolve(
                 match choose(defs, file.path, files, crates) {
                     Target::Ambiguous => {
                         stats.scip_ambiguous += 1;
+                        fallback_at.insert(byte);
                         edges.push(names.edge(
                             file.language,
                             i,
@@ -357,10 +579,12 @@ pub fn resolve(
                                     line,
                                     col,
                                     candidates: Vec::new(),
+                                    scip_pending: false,
                                 });
                             }
                             None => {
                                 stats.scip_join_misses += 1;
+                                fallback_at.insert(byte);
                                 edges.push(names.edge(
                                     file.language,
                                     i,
@@ -385,14 +609,75 @@ pub fn resolve(
                             line,
                             col,
                             candidates: Vec::new(),
+                            scip_pending: false,
                         });
                     }
                 }
+            }
+        } else if let (RustEdges::Base { bases, mark }, "rust") = (&rust, file.language) {
+            let same: Vec<&BaseFile> = bases
+                .iter()
+                .filter_map(|b| b.files.get(file.path))
+                .filter(|f| f.content_hash == file.content_hash)
+                .collect();
+            match same.iter().find(|f| f.fresh) {
+                Some(base) => {
+                    resolved_at.extend(base.covered.iter().copied());
+                    for e in &base.edges {
+                        let Some(&caller_id) = ids.get(&e.caller) else {
+                            continue;
+                        };
+                        stats.kept_scip += 1;
+                        let callee_id = match &e.callee {
+                            None => None,
+                            Some(key) => match ids.get(key) {
+                                Some(id) => Some(*id),
+                                // The callee is gone or renamed: a name
+                                // class until the next SCIP run.
+                                None => {
+                                    let mut edge = names.edge(
+                                        file.language,
+                                        i,
+                                        caller_id,
+                                        &key.name,
+                                        &e.callee_name,
+                                        e.line,
+                                        e.col,
+                                        &mut stats,
+                                    );
+                                    edge.scip_pending = *mark;
+                                    stats.pending += usize::from(*mark);
+                                    edges.push(edge);
+                                    continue;
+                                }
+                            },
+                        };
+                        edges.push(NewEdge {
+                            caller_id,
+                            callee_id,
+                            callee_name: e.callee_name.clone(),
+                            class: if e.class == "certain" {
+                                "certain"
+                            } else {
+                                "external"
+                            },
+                            origin: "scip",
+                            line: e.line,
+                            col: e.col,
+                            candidates: Vec::new(),
+                            scip_pending: false,
+                        });
+                    }
+                }
+                None => pending = *mark,
             }
         }
 
         for call in file.calls {
             if resolved_at.contains(&call.start_byte) {
+                if !fallback_at.contains(&call.start_byte) {
+                    covered.push((i, call.start_byte));
+                }
                 continue;
             }
             let Some(caller_id) = caller_at(file, call.start_byte) else {
@@ -401,7 +686,7 @@ pub fn resolve(
             if file.language == "rust" {
                 stats.rust_unresolved += 1;
             }
-            edges.push(names.edge(
+            let mut edge = names.edge(
                 file.language,
                 i,
                 caller_id,
@@ -410,10 +695,43 @@ pub fn resolve(
                 call.line,
                 call.col,
                 &mut stats,
-            ));
+            );
+            edge.scip_pending = pending;
+            stats.pending += usize::from(pending);
+            edges.push(edge);
+        }
+        for call in file.macro_calls {
+            if resolved_at.contains(&call.start_byte) {
+                if !fallback_at.contains(&call.start_byte) {
+                    covered.push((i, call.start_byte));
+                }
+                continue;
+            }
+            let Some(caller_id) = caller_at(file, call.start_byte) else {
+                continue;
+            };
+            stats.macro_text += 1;
+            let mut edge = names.edge(
+                file.language,
+                i,
+                caller_id,
+                &call.name,
+                &call.written,
+                call.line,
+                call.col,
+                &mut stats,
+            );
+            edge.origin = "macro-text";
+            edge.scip_pending = pending;
+            stats.pending += usize::from(pending);
+            edges.push(edge);
         }
     }
-    (edges, stats)
+    Resolved {
+        edges,
+        stats,
+        covered,
+    }
 }
 
 #[cfg(test)]
@@ -438,6 +756,7 @@ mod tests {
         Sym {
             id,
             name: name.into(),
+            container: None,
             kind,
             start_byte: span.0,
             end_byte: span.1,
@@ -473,6 +792,8 @@ mod tests {
                 ],
                 calls: &a_calls,
                 use_ranges: &[],
+                macro_calls: &[],
+                content_hash: "",
             },
             ParsedFile {
                 path: "b.go",
@@ -484,6 +805,8 @@ mod tests {
                 ],
                 calls: &[],
                 use_ranges: &[],
+                macro_calls: &[],
+                content_hash: "",
             },
             ParsedFile {
                 path: "c.go",
@@ -492,9 +815,11 @@ mod tests {
                 symbols: vec![sym(5, "load", "function", (0, 9))],
                 calls: &[],
                 use_ranges: &[],
+                macro_calls: &[],
+                content_hash: "",
             },
         ];
-        let (edges, stats) = resolve(&files, None);
+        let Resolved { edges, stats, .. } = resolve(&files, RustEdges::Names);
         let got: Vec<_> = edges
             .iter()
             .map(|e| {

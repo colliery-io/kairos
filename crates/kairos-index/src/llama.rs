@@ -6,7 +6,8 @@
 //! (`~/code-index-eval/run_llamacpp.py`): the Qwen chat template with the
 //! system prompt, greedy decoding, a context of 8,192 tokens and a cap of 220
 //! output tokens. A code that does not fit keeps its first lines and is marked
-//! as cut, as in the benchmark.
+//! as cut, as in the benchmark. A file or a module with too many child
+//! summaries keeps its first ones, and a last line tells how many were cut.
 
 use std::num::NonZeroU32;
 use std::path::Path;
@@ -121,11 +122,23 @@ impl LlamaSummarizer<'_> {
     }
 
     /// The prompt tokens of `request`. If the code does not fit in the
-    /// context, keep its first lines, as the benchmark did.
+    /// context, keep its first lines, as the benchmark did. If the child
+    /// summaries of a file or a module do not fit, keep the first ones.
     fn prompt_tokens(&self, request: &SummaryRequest) -> Vec<LlamaToken> {
         let limit = N_CTX as usize - MAX_NEW_TOKENS - MARGIN;
         let mut tokens = self.tokens(&request.prompt());
         let Some(code) = request.code.as_deref() else {
+            let all = request.children.len();
+            let mut keep = all;
+            while tokens.len() > limit && keep > 1 {
+                keep = (keep * (N_CTX as usize - MAX_NEW_TOKENS - 200) / tokens.len())
+                    .clamp(1, keep - 1);
+                let mut cut = request.clone();
+                cut.children.truncate(keep);
+                cut.children
+                    .push(format!("- ... ({} more parts are cut)", all - keep));
+                tokens = self.tokens(&cut.prompt());
+            }
             return tokens;
         };
         let mut lines: Vec<&str> = code.lines().collect();

@@ -36,7 +36,7 @@ rule = "test-path"
 
 [[symbol]]
 file = "src/lib.rs"
-name = "queue"
+name = "labels"
 container = ""
 kind = "module"
 language = "rust"
@@ -45,7 +45,7 @@ is_test = false
 
 [[symbol]]
 file = "src/lib.rs"
-name = "shapes"
+name = "queue"
 container = ""
 kind = "module"
 language = "rust"
@@ -54,7 +54,7 @@ is_test = false
 
 [[symbol]]
 file = "src/lib.rs"
-name = "stack"
+name = "shapes"
 container = ""
 kind = "module"
 language = "rust"
@@ -63,11 +63,20 @@ is_test = false
 
 [[symbol]]
 file = "src/lib.rs"
+name = "stack"
+container = ""
+kind = "module"
+language = "rust"
+lines = [6, 6]
+is_test = false
+
+[[symbol]]
+file = "src/lib.rs"
 name = "enqueue_all"
 container = ""
 kind = "function"
 language = "rust"
-lines = [11, 17]
+lines = [12, 18]
 is_test = false
 
 [[symbol]]
@@ -76,7 +85,7 @@ name = "describe_all"
 container = ""
 kind = "function"
 language = "rust"
-lines = [20, 22]
+lines = [21, 23]
 is_test = false
 
 [[symbol]]
@@ -85,7 +94,7 @@ name = "total_area"
 container = ""
 kind = "function"
 language = "rust"
-lines = [25, 27]
+lines = [26, 28]
 is_test = false
 
 [[symbol]]
@@ -94,7 +103,7 @@ name = "tests"
 container = ""
 kind = "module"
 language = "rust"
-lines = [30, 38]
+lines = [31, 39]
 is_test = true
 
 [[symbol]]
@@ -103,8 +112,37 @@ name = "enqueue_all_keeps_each_item"
 container = "tests"
 kind = "function"
 language = "rust"
-lines = [34, 37]
+lines = [35, 38]
 is_test = true
+
+# Calls inside macro invocations (COLLIERY-T-1851). narsil gives the
+# macro_rules! definition no symbol.
+[[symbol]]
+file = "src/labels.rs"
+name = "count_text"
+container = ""
+kind = "function"
+language = "rust"
+lines = [11, 13]
+is_test = false
+
+[[symbol]]
+file = "src/labels.rs"
+name = "fixture_name"
+container = ""
+kind = "function"
+language = "rust"
+lines = [16, 18]
+is_test = false
+
+[[symbol]]
+file = "src/labels.rs"
+name = "label"
+container = ""
+kind = "function"
+language = "rust"
+lines = [22, 25]
+is_test = false
 
 [[symbol]]
 file = "src/stack.rs"
@@ -447,6 +485,15 @@ container = ""
 kind = "method"
 language = "go"
 lines = [21, 23]
+is_test = false
+
+[[symbol]]
+file = "go/greet/greet.go"
+name = "Title"
+container = ""
+kind = "function"
+language = "go"
+lines = [26, 31]
 is_test = false
 
 # --- scripts/ (a repository rule can exclude it) ----------------------------

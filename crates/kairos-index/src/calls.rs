@@ -21,7 +21,8 @@ pub struct CallSite {
 
 /// The call sites of a file, in source order. `language` is a name that
 /// `extract::language_of` gives. A Rust macro call is not a call site: its
-/// arguments are tokens for tree-sitter, and SCIP resolves the calls in it.
+/// arguments are tokens for tree-sitter. SCIP resolves the calls in a macro
+/// that it expands, and [`rust_macro_calls`] finds the others in the text.
 pub fn call_sites(language: &str, tree: &Tree, source: &[u8]) -> Vec<CallSite> {
     let mut out = Vec::new();
     let mut cursor = tree.walk();
@@ -49,6 +50,121 @@ pub fn rust_use_ranges(tree: &Tree) -> Vec<(usize, usize)> {
             continue;
         }
         stack.extend(node.children(&mut cursor));
+    }
+    out
+}
+
+/// The calls in the text of each Rust macro invocation, in source order:
+/// narsil's fallback (`macro_text_calls`, COLLIERY-T-1851). It finds
+/// `name(`, `obj.method(` and `Type::method(` in the tokens, with no code
+/// for one library. A name in a string literal of the macro is not a call.
+/// `edges` gives such a call a name class only where SCIP resolved nothing.
+pub fn rust_macro_calls(tree: &Tree, source: &[u8]) -> Vec<CallSite> {
+    let mut out: Vec<CallSite> = Vec::new();
+    let mut cursor = tree.walk();
+    let mut stack = vec![tree.root_node()];
+    let mut line_starts: Option<Vec<usize>> = None;
+    while let Some(node) = stack.pop() {
+        if node.kind() == "macro_invocation" {
+            let start = node.start_byte();
+            let Ok(text) = std::str::from_utf8(&source[start..node.end_byte()]) else {
+                continue;
+            };
+            let strings = string_ranges(text);
+            let starts = line_starts.get_or_insert_with(|| {
+                std::iter::once(0)
+                    .chain(
+                        source
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, b)| **b == b'\n')
+                            .map(|(i, _)| i + 1),
+                    )
+                    .collect()
+            });
+            for (offset, name) in kairos_narsil::callgraph::macro_text_calls(text) {
+                if strings.iter().any(|&(s, e)| s <= offset && offset < e) {
+                    continue;
+                }
+                let path_start = text[..offset]
+                    .rfind(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | ':' | '.')))
+                    .map_or(0, |i| i + 1);
+                let written = text[path_start..offset + name.len()]
+                    .trim_start_matches([':', '.'])
+                    .to_string();
+                let byte = start + offset;
+                let line = starts.partition_point(|&s| s <= byte);
+                out.push(CallSite {
+                    name: name.to_string(),
+                    written,
+                    start_byte: byte,
+                    end_byte: byte + name.len(),
+                    line,
+                    col: byte - starts[line - 1] + 1,
+                });
+            }
+            continue;
+        }
+        let children: Vec<Node<'_>> = node.children(&mut cursor).collect();
+        stack.extend(children.into_iter().rev());
+    }
+    out.sort_by_key(|c| c.start_byte);
+    out.dedup_by_key(|c| c.start_byte);
+    out
+}
+
+/// The byte ranges of the string literals in the text of a Rust macro:
+/// `"..."` with escapes, and raw strings `r"..."`, `r#"..."#`.
+fn string_ranges(text: &str) -> Vec<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            // A char literal: '"' or '\'' or 'x'. A lifetime has no closing quote.
+            b'\'' => {
+                let end = if bytes.get(i + 1) == Some(&b'\\') {
+                    i + 3
+                } else {
+                    i + 2
+                };
+                i = if bytes.get(end) == Some(&b'\'') {
+                    end + 1
+                } else {
+                    i + 1
+                };
+            }
+            b'"' => {
+                // The hashes of a raw string, before the quote.
+                let mut hashes = 0;
+                while i > hashes && bytes[i - 1 - hashes] == b'#' {
+                    hashes += 1;
+                }
+                let raw = i > hashes && bytes[i - 1 - hashes] == b'r';
+                let start = i;
+                i += 1;
+                while i < bytes.len() {
+                    if !raw && bytes[i] == b'\\' {
+                        i += 2;
+                        continue;
+                    }
+                    if bytes[i] == b'"'
+                        && bytes[i + 1..]
+                            .iter()
+                            .take(hashes)
+                            .filter(|b| **b == b'#')
+                            .count()
+                            == hashes
+                    {
+                        break;
+                    }
+                    i += 1;
+                }
+                out.push((start, (i + 1).min(bytes.len())));
+                i += 1 + hashes;
+            }
+            _ => i += 1,
+        }
     }
     out
 }
@@ -173,6 +289,26 @@ mod tests {
         assert_eq!(
             sites("a.go", "go", code),
             own(&[("Println", "fmt.Println", 3), ("g", "g", 3)])
+        );
+    }
+
+    #[test]
+    fn calls_in_the_text_of_a_rust_macro() {
+        let parser = LanguageParser::new().unwrap();
+        let code = "fn f() {\n    m!(g(1), \"h(2)\", Queue::new(), self.items.len());\n    println!(r#\"x(\"#, k ( 3 ));\n}\n";
+        let tree = parser.parse_to_tree(Path::new("a.rs"), code).unwrap();
+        let got: Vec<_> = rust_macro_calls(&tree, code.as_bytes())
+            .into_iter()
+            .map(|c| (c.name, c.written, c.line, c.col))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("g".to_string(), "g".to_string(), 2, 8),
+                ("new".to_string(), "Queue::new".to_string(), 2, 29),
+                ("len".to_string(), "self.items.len".to_string(), 2, 47),
+                ("k".to_string(), "k".to_string(), 3, 23),
+            ]
         );
     }
 

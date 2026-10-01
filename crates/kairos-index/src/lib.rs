@@ -14,6 +14,12 @@
 //! their names (see `edges`). [`summarize`] writes the summaries and their
 //! vectors (COLLIERY-T-1850), with a [`Summarizer`]: the fake one for tests,
 //! or `LlamaSummarizer` with the feature `llama`.
+//!
+//! [`update`] builds the structure again from the tree (with the changes
+//! that are not committed) and runs the summarizer only for the keys that
+//! the pool does not have. It runs no SCIP unless it is told to: a Rust file
+//! that did not change keeps its SCIP edges. [`merge`] is an update of the
+//! merged tree with the pools of 2 indexes (COLLIERY-T-1851).
 
 mod calls;
 mod edges;
@@ -78,6 +84,14 @@ pub struct EdgeStats {
     /// SCIP references to a symbol with more than one definition, where
     /// the crate of the reference does not choose one. They got a name class.
     pub scip_ambiguous: usize,
+    /// Calls in the text of a Rust macro that SCIP did not resolve. They got
+    /// a name class, with the origin `macro-text`.
+    pub macro_text: usize,
+    /// SCIP edges kept from a base index, for the Rust files that did not
+    /// change.
+    pub kept_scip: usize,
+    /// Name classes that wait for a SCIP run (`scip_pending`).
+    pub pending: usize,
 }
 
 /// One `rust-analyzer scip` run.
@@ -128,6 +142,8 @@ pub struct SymbolRecord {
     pub signature: Option<String>,
     pub tree_hash: String,
     pub is_test: bool,
+    /// The key of its summary in the pool, when it has one.
+    pub summary_key: Option<String>,
 }
 
 /// A symbol, as an edge names it.
@@ -156,6 +172,8 @@ pub struct EdgeRecord {
     pub col: u32,
     /// The symbols that the name matches, for a `possible` edge.
     pub candidates: Vec<SymbolRef>,
+    /// A name class in a changed Rust file, until a SCIP run replaces it.
+    pub scip_pending: bool,
 }
 
 /// An error of the index. The texts follow ASD-STE100: a user can see them.
@@ -199,6 +217,8 @@ pub enum IndexError {
     Embed(String),
     #[error("{0}")]
     Model(String),
+    #[error("The index {0} is there already. Give the name of a new file.")]
+    Exists(PathBuf),
 }
 
 /// Build the structure of the tree at `root` into the index at `db`.
@@ -212,6 +232,37 @@ pub enum IndexError {
 /// rustup components `rust-analyzer` and `rust-src`; with no
 /// `rust-analyzer`, the build fails and names the component.
 pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError> {
+    build(root, db, Mode::Scip)
+}
+
+/// Where a build gets the Rust edges.
+enum Mode<'a> {
+    /// A `rust-analyzer scip` run.
+    Scip,
+    /// The SCIP edges of these indexes, for the Rust files that did not
+    /// change.
+    Keep(&'a [edges::BaseIndex]),
+}
+
+/// Build the structure of the tree at `root` into the index at `db`, which
+/// is the base: its summary pool stays, and a Rust file that did not change
+/// keeps its SCIP edges, unless `options.rust_edges`.
+pub fn update_structure(
+    root: &Path,
+    db: &Path,
+    options: &UpdateOptions,
+) -> Result<BuildReport, IndexError> {
+    if options.rust_edges {
+        return build(root, db, Mode::Scip);
+    }
+    let conn = Connection::open(db)?;
+    schema::prepare(&conn)?;
+    let base = edges::BaseIndex::read(&conn)?;
+    drop(conn);
+    build(root, db, Mode::Keep(std::slice::from_ref(&base)))
+}
+
+fn build(root: &Path, db: &Path, mode: Mode<'_>) -> Result<BuildReport, IndexError> {
     if !root.is_dir() {
         return Err(IndexError::NotAFolder(root.to_path_buf()));
     }
@@ -276,16 +327,23 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
         });
     }
 
-    // 2. The SCIP index of the Cargo workspace at the root.
+    // 2. The SCIP index of the Cargo workspace at the root, or the SCIP
+    // edges of the base indexes.
     let has_rust = prepared
         .iter()
         .any(|p| p.language == Some("rust") && p.found.is_some());
-    let scip_index = if has_rust && root.join("Cargo.toml").is_file() {
+    let workspace = has_rust && root.join("Cargo.toml").is_file();
+    let scip_index = if workspace && matches!(mode, Mode::Scip) {
         let (run, index, crates) = scip::run(root)?;
         report.scip = Some(run);
         Some((index, crates))
     } else {
         None
+    };
+    let rust = match (&scip_index, &mode) {
+        (Some((index, crates)), _) => edges::RustEdges::Scip(index, crates),
+        (None, Mode::Keep(bases)) if workspace => edges::RustEdges::Base { bases, mark: true },
+        _ => edges::RustEdges::Names,
     };
 
     // 3. Write the structure.
@@ -293,8 +351,8 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
     schema::prepare(&conn)?;
     let tx = conn.transaction()?;
     tx.execute_batch(
-        "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM symbols; DELETE FROM files;
-         DELETE FROM modules;",
+        "DELETE FROM edge_candidates; DELETE FROM edges; DELETE FROM scip_covered;
+         DELETE FROM symbols; DELETE FROM files; DELETE FROM modules;",
     )?;
     {
         let mut insert_file = tx.prepare(
@@ -308,6 +366,7 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
         )?;
 
         let mut parsed = Vec::new();
+        let mut file_ids = Vec::new();
         for p in &prepared {
             insert_file.execute(params![
                 p.rel,
@@ -345,6 +404,7 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
                 symbols.push(edges::Sym {
                     id: tx.last_insert_rowid(),
                     name: s.name.clone(),
+                    container: s.container.clone(),
                     kind: s.kind,
                     start_byte: s.start_byte,
                     end_byte: s.end_byte,
@@ -355,17 +415,27 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
                 path: p.rel,
                 language,
                 text: &p.file.text,
+                content_hash: &p.file.content_hash,
                 symbols,
                 calls: &found.calls,
                 use_ranges: &found.use_ranges,
+                macro_calls: &found.macro_calls,
             });
+            file_ids.push(file_id);
         }
 
-        let (new_edges, stats) = edges::resolve(&parsed, scip_index.as_ref().map(|(i, c)| (i, c)));
-        report.edges = stats;
+        let resolved = edges::resolve(&parsed, rust);
+        report.edges = resolved.stats;
+        let new_edges = resolved.edges;
+        let mut insert_covered =
+            tx.prepare("INSERT OR IGNORE INTO scip_covered (file_id, start_byte) VALUES (?1, ?2)")?;
+        for (file, byte) in &resolved.covered {
+            insert_covered.execute(params![file_ids[*file], *byte as i64])?;
+        }
         let mut insert_edge = tx.prepare(
-            "INSERT INTO edges (caller_id, callee_id, callee_name, edge_kind, class, origin, line, col)
-             VALUES (?1, ?2, ?3, 'call', ?4, ?5, ?6, ?7)",
+            "INSERT INTO edges (caller_id, callee_id, callee_name, edge_kind, class, origin, line, col,
+                                scip_pending)
+             VALUES (?1, ?2, ?3, 'call', ?4, ?5, ?6, ?7, ?8)",
         )?;
         let mut insert_candidate = tx.prepare(
             "INSERT OR IGNORE INTO edge_candidates (edge_id, symbol_id) VALUES (?1, ?2)",
@@ -379,6 +449,7 @@ pub fn build_structure(root: &Path, db: &Path) -> Result<BuildReport, IndexError
                 e.origin,
                 e.line as i64,
                 e.col as i64,
+                e.scip_pending,
             ])?;
             let edge_id = tx.last_insert_rowid();
             for c in &e.candidates {
@@ -486,6 +557,12 @@ pub struct Index {
 impl Index {
     /// Open the index at `db`. It must exist.
     pub fn open(db: &Path) -> Result<Self, IndexError> {
+        if !db.is_file() {
+            return Err(IndexError::Io {
+                path: db.to_path_buf(),
+                source: std::io::Error::from(std::io::ErrorKind::NotFound),
+            });
+        }
         let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if version != SCHEMA_VERSION {
@@ -520,7 +597,7 @@ impl Index {
     pub fn symbols(&self) -> Result<Vec<SymbolRecord>, IndexError> {
         let mut stmt = self.conn.prepare(
             "SELECT f.path, s.name, s.container, s.kind, s.language, s.start_line, s.end_line,
-                    s.start_byte, s.end_byte, s.signature, s.tree_hash, s.is_test
+                    s.start_byte, s.end_byte, s.signature, s.tree_hash, s.is_test, s.summary_key
              FROM symbols s JOIN files f ON f.id = s.file_id
              ORDER BY f.path, s.start_byte, s.end_byte DESC, s.kind, s.name",
         )?;
@@ -538,6 +615,7 @@ impl Index {
                 signature: r.get(9)?,
                 tree_hash: r.get(10)?,
                 is_test: r.get(11)?,
+                summary_key: r.get(12)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -561,7 +639,7 @@ impl Index {
         let mut stmt = self.conn.prepare(
             "SELECT e.id, e.callee_name, e.edge_kind, e.class, e.origin, e.line, e.col,
                     cf.path, c.name, c.container, c.start_line,
-                    tf.path, t.name, t.container, t.start_line
+                    tf.path, t.name, t.container, t.start_line, e.scip_pending
              FROM edges e
              JOIN symbols c ON c.id = e.caller_id JOIN files cf ON cf.id = c.file_id
              LEFT JOIN symbols t ON t.id = e.callee_id LEFT JOIN files tf ON tf.id = t.file_id
@@ -580,6 +658,7 @@ impl Index {
                     line: r.get(5)?,
                     col: r.get(6)?,
                     candidates: Vec::new(),
+                    scip_pending: r.get(15)?,
                 },
             ))
         })?;
@@ -650,6 +729,82 @@ impl Index {
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+}
+
+/// How an update or a merge builds the index.
+#[derive(Debug, Clone, Default)]
+pub struct UpdateOptions {
+    /// Run `rust-analyzer scip` for the Rust edges (`--rust-edges`). Without
+    /// it, a Rust file that did not change keeps the SCIP edges of the base,
+    /// and the edges of a changed Rust file are name classes that wait for
+    /// the next run.
+    pub rust_edges: bool,
+    /// Which part of the index to summarize.
+    pub summarize: SummarizeOptions,
+}
+
+/// What an update or a merge did.
+#[derive(Debug, Clone)]
+pub struct UpdateReport {
+    pub build: BuildReport,
+    pub summary: SummaryReport,
+}
+
+/// Update the index at `db` for the tree at `root`, with the changes that
+/// are not committed.
+///
+/// The structure is built again from the tree. The summaries come from the
+/// pool by key; the summarizer runs only for the keys that the pool does not
+/// have, and only the new summaries get vectors. If `db` is not there, the
+/// update makes it with an empty pool.
+pub fn update(
+    root: &Path,
+    db: &Path,
+    summarizer: &mut dyn Summarizer,
+    embedder: &dyn kairos_embed::EmbeddingProvider,
+    options: &UpdateOptions,
+) -> Result<UpdateReport, IndexError> {
+    let build = update_structure(root, db, options)?;
+    let summary = summarize(root, db, summarizer, embedder, &options.summarize)?;
+    Ok(UpdateReport { build, summary })
+}
+
+/// Merge the indexes `bases` into the new index `out`, for the merged tree
+/// at `root`: an update of that tree with the pools of all of them.
+///
+/// The same key always means the same input, so the pools merge with no
+/// conflict. A Rust file keeps the SCIP edges of the first base that has its
+/// content and no edge that waits for SCIP. `out` must not exist. The pools
+/// must have the vectors of one model.
+pub fn merge(
+    root: &Path,
+    bases: &[&Path],
+    out: &Path,
+    summarizer: &mut dyn Summarizer,
+    embedder: &dyn kairos_embed::EmbeddingProvider,
+    options: &UpdateOptions,
+) -> Result<UpdateReport, IndexError> {
+    if out.exists() {
+        return Err(IndexError::Exists(out.to_path_buf()));
+    }
+    let mut kept = Vec::with_capacity(bases.len());
+    let mut conn = Connection::open(out)?;
+    schema::prepare(&conn)?;
+    for base in bases {
+        // Index::open refuses a missing file or another schema version.
+        let index = Index::open(base)?;
+        kept.push(edges::BaseIndex::read(&index.conn)?);
+        summary::copy_pool(&index.conn, &mut conn)?;
+    }
+    drop(conn);
+    let mode = if options.rust_edges {
+        Mode::Scip
+    } else {
+        Mode::Keep(&kept)
+    };
+    let build = build(root, out, mode)?;
+    let summary = summarize(root, out, summarizer, embedder, &options.summarize)?;
+    Ok(UpdateReport { build, summary })
 }
 
 /// One summary of the pool.

@@ -32,5 +32,7 @@ Changes from upstream:
      resolves to that declaration (COLLIERY-T-1849). Marked "KAIROS PATCH".
   4. lib.rs and Cargo.toml are new. Cargo.toml lists only the dependencies of
      the three files.
-
-callgraph.rs is not changed.
+  5. callgraph.rs: the tokenizer of extract_calls_from_macro_text is the free
+     function macro_text_calls, with no change to what it finds. kairos-index
+     uses it for the calls in the text of a Rust macro invocation
+     (COLLIERY-T-1851). Marked "KAIROS PATCH".

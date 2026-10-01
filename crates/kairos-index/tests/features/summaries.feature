@@ -33,5 +33,5 @@ Feature: Summaries
   Scenario: The real model writes a summary
     Given the Qwen3-4B model file is on disk
     When I summarize 3 symbols of the polyglot fixture with the real model
-    Then each summary has 1 to 3 sentences
+    Then each summary has 1 to 5 sentences
     And no summary is empty

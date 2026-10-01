@@ -10,8 +10,8 @@
 #   class       "certain", "possible" or "external" (COLLIERY-I-0264)
 #   callee      the called symbol, for a certain edge
 #   candidates  the symbols that the name matches, for a possible edge
-#   origin      "scip" or "name"; by default "scip" for a Rust caller and
-#               "name" for the other languages
+#   origin      "scip", "name" or "macro-text"; by default "scip" for a
+#               Rust caller and "name" for the other languages
 #   external    the called name, for an external edge: as SCIP names it
 #               for Rust (`Vec::push`), as the code writes it for the other
 #               languages (`fmt.Println`). When the part before the name is
@@ -19,86 +19,111 @@
 #               `line.rstrip("\n").split(",")`).
 #
 # A Rust macro call (assert_eq!) is not an edge, but a call in its arguments
-# is: SCIP resolves it.
+# is: SCIP resolves it. A call in the text of a macro that SCIP does not
+# expand as code gets a name class with the origin "macro-text"
+# (COLLIERY-T-1851).
 
 # --- Rust (from SCIP) ---------------------------------------------------------
 
 # The second `push`: enqueue_all calls Queue::push, not Stack::push.
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
-at = 12
+caller = { file = "src/lib.rs", name = "enqueue_all", line = 12 }
+at = 13
 class = "certain"
 callee = { file = "src/queue.rs", name = "new", line = 9 }
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
-at = 14
+caller = { file = "src/lib.rs", name = "enqueue_all", line = 12 }
+at = 15
 class = "certain"
 callee = { file = "src/queue.rs", name = "push", line = 15 }
 
 # A trait method called on a generic: the callee is the method of the trait.
 [[edge]]
-caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
-at = 21
+caller = { file = "src/lib.rs", name = "describe_all", line = 21 }
+at = 22
 class = "external"
 external = "[T]::iter"
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
-at = 21
+caller = { file = "src/lib.rs", name = "describe_all", line = 21 }
+at = 22
 class = "external"
 external = "Iterator::map"
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
-at = 21
+caller = { file = "src/lib.rs", name = "describe_all", line = 21 }
+at = 22
 class = "certain"
 callee = { file = "src/shapes.rs", name = "describe", line = 5 }
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "describe_all", line = 20 }
-at = 21
+caller = { file = "src/lib.rs", name = "describe_all", line = 21 }
+at = 22
 class = "external"
 external = "Iterator::collect"
 
 # A trait method with no body called on a generic: the callee is its
 # declaration in the trait.
 [[edge]]
-caller = { file = "src/lib.rs", name = "total_area", line = 25 }
-at = 26
+caller = { file = "src/lib.rs", name = "total_area", line = 26 }
+at = 27
 class = "external"
 external = "[T]::iter"
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "total_area", line = 25 }
-at = 26
+caller = { file = "src/lib.rs", name = "total_area", line = 26 }
+at = 27
 class = "external"
 external = "Iterator::map"
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "total_area", line = 25 }
-at = 26
+caller = { file = "src/lib.rs", name = "total_area", line = 26 }
+at = 27
 class = "certain"
 callee = { file = "src/shapes.rs", name = "area", line = 3 }
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "total_area", line = 25 }
-at = 26
+caller = { file = "src/lib.rs", name = "total_area", line = 26 }
+at = 27
 class = "external"
 external = "Iterator::sum"
 
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 34 }
-at = 35
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 35 }
+at = 36
 class = "certain"
-callee = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+callee = { file = "src/lib.rs", name = "enqueue_all", line = 12 }
 
 # In the arguments of assert_eq!.
 [[edge]]
-caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 34 }
-at = 36
+caller = { file = "src/lib.rs", name = "enqueue_all_keeps_each_item", line = 35 }
+at = 37
 class = "certain"
 callee = { file = "src/queue.rs", name = "len", line = 19 }
+
+[[edge]]
+caller = { file = "src/labels.rs", name = "count_text", line = 11 }
+at = 12
+class = "external"
+external = "T::to_string"
+
+# In the custom macro `quoted!`, which keeps its input as text: SCIP does
+# not see the call, so it comes from the macro text.
+[[edge]]
+caller = { file = "src/labels.rs", name = "label", line = 22 }
+at = 23
+class = "certain"
+origin = "macro-text"
+callee = { file = "src/labels.rs", name = "fixture_name", line = 16 }
+
+# In the arguments of format!: SCIP resolves it, so the macro text gives no
+# second edge.
+[[edge]]
+caller = { file = "src/labels.rs", name = "label", line = 22 }
+at = 24
+class = "certain"
+callee = { file = "src/labels.rs", name = "count_text", line = 11 }
 
 [[edge]]
 caller = { file = "src/queue.rs", name = "new", line = 9 }
@@ -149,7 +174,7 @@ external = "Vec::pop"
 caller = { file = "tests/common/mod.rs", name = "helper", line = 4 }
 at = 5
 class = "certain"
-callee = { file = "src/lib.rs", name = "enqueue_all", line = 11 }
+callee = { file = "src/lib.rs", name = "enqueue_all", line = 12 }
 
 [[edge]]
 caller = { file = "tests/common/mod.rs", name = "helper", line = 4 }
@@ -359,3 +384,17 @@ caller = { file = "go/greet/greet.go", name = "Greet", line = 21 }
 at = 22
 class = "certain"
 callee = { file = "go/greet/greet.go", name = "Message", line = 11 }
+
+# Greet calls Message, and Message calls Title: a chain of 3 for the key of
+# a symbol summary (COLLIERY-T-1851).
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Message", line = 11 }
+at = 12
+class = "certain"
+callee = { file = "go/greet/greet.go", name = "Title", line = 26 }
+
+[[edge]]
+caller = { file = "go/greet/greet.go", name = "Title", line = 26 }
+at = 27
+class = "external"
+external = "len"

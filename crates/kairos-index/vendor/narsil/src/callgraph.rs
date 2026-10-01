@@ -297,95 +297,42 @@ impl CallGraph {
         caller_file: &str,
         line: usize,
     ) {
-        // Simple tokenizer: find identifiers followed by '('
-        let bytes = text.as_bytes();
-        let len = bytes.len();
-        let mut i = 0;
+        // KAIROS PATCH: the scan is the free function `macro_text_calls`, so
+        // that kairos-index can use it without a CallGraph.
+        for (_, ident) in macro_text_calls(text) {
+            let callee_key = self.resolve_callee(ident, caller_file, None);
 
-        while i < len {
-            // Skip non-identifier chars
-            if !bytes[i].is_ascii_alphanumeric() && bytes[i] != b'_' {
-                i += 1;
-                continue;
+            // Add to caller's outgoing calls
+            if let Some(mut caller_node) = self.nodes.get_mut(caller_key) {
+                // Avoid duplicate edges
+                if !caller_node.calls.iter().any(|c| c.target == callee_key) {
+                    caller_node.calls.push(CallEdge {
+                        target: callee_key.clone(),
+                        file_path: caller_file.to_string(),
+                        line,
+                        column: 0,
+                        call_type: CallType::Direct,
+                        scope_hint: None,
+                    });
+                }
             }
 
-            // Collect identifier
-            let start = i;
-            while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-                i += 1;
-            }
-            let ident = &text[start..i];
-
-            // Skip whitespace
-            let mut j = i;
-            while j < len && bytes[j].is_ascii_whitespace() {
-                j += 1;
-            }
-
-            // Check if followed by '(' — this is a call
-            if j < len && bytes[j] == b'(' {
-                // Skip Rust keywords
-                if matches!(
-                    ident,
-                    "if" | "else"
-                        | "match"
-                        | "while"
-                        | "for"
-                        | "loop"
-                        | "let"
-                        | "mut"
-                        | "fn"
-                        | "pub"
-                        | "return"
-                        | "async"
-                        | "await"
-                        | "move"
-                        | "unsafe"
-                        | "Some"
-                        | "None"
-                        | "Ok"
-                        | "Err"
-                ) {
-                    i = j + 1;
-                    continue;
+            // Add to callee's incoming calls
+            if let Some(mut callee_node) = self.nodes.get_mut(callee_key.as_str()) {
+                if !callee_node
+                    .called_by
+                    .iter()
+                    .any(|c| c.target == *caller_key)
+                {
+                    callee_node.called_by.push(CallEdge {
+                        target: caller_key.to_string(),
+                        file_path: caller_file.to_string(),
+                        line,
+                        column: 0,
+                        call_type: CallType::Direct,
+                        scope_hint: None,
+                    });
                 }
-
-                let callee_key = self.resolve_callee(ident, caller_file, None);
-
-                // Add to caller's outgoing calls
-                if let Some(mut caller_node) = self.nodes.get_mut(caller_key) {
-                    // Avoid duplicate edges
-                    if !caller_node.calls.iter().any(|c| c.target == callee_key) {
-                        caller_node.calls.push(CallEdge {
-                            target: callee_key.clone(),
-                            file_path: caller_file.to_string(),
-                            line,
-                            column: 0,
-                            call_type: CallType::Direct,
-                            scope_hint: None,
-                        });
-                    }
-                }
-
-                // Add to callee's incoming calls
-                if let Some(mut callee_node) = self.nodes.get_mut(callee_key.as_str()) {
-                    if !callee_node
-                        .called_by
-                        .iter()
-                        .any(|c| c.target == *caller_key)
-                    {
-                        callee_node.called_by.push(CallEdge {
-                            target: caller_key.to_string(),
-                            file_path: caller_file.to_string(),
-                            line,
-                            column: 0,
-                            call_type: CallType::Direct,
-                            scope_hint: None,
-                        });
-                    }
-                }
-
-                i = j + 1;
             }
         }
     }
@@ -1224,6 +1171,72 @@ fn extract_function_name(node: Node, source: &[u8]) -> Option<String> {
     }
 
     None
+}
+
+// KAIROS PATCH: the tokenizer of `extract_calls_from_macro_text`, moved out
+// of the method without a change to what it finds. It gives the byte offset
+// and the text of each identifier followed by '(' in the text of a macro
+// invocation, with no Rust keywords and no `Some`, `None`, `Ok` or `Err`.
+pub fn macro_text_calls(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    // Simple tokenizer: find identifiers followed by '('
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // Skip non-identifier chars
+        if !bytes[i].is_ascii_alphanumeric() && bytes[i] != b'_' {
+            i += 1;
+            continue;
+        }
+
+        // Collect identifier
+        let start = i;
+        while i < len && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+            i += 1;
+        }
+        let ident = &text[start..i];
+
+        // Skip whitespace
+        let mut j = i;
+        while j < len && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+
+        // Check if followed by '(' — this is a call
+        if j < len && bytes[j] == b'(' {
+            // Skip Rust keywords
+            if matches!(
+                ident,
+                "if" | "else"
+                    | "match"
+                    | "while"
+                    | "for"
+                    | "loop"
+                    | "let"
+                    | "mut"
+                    | "fn"
+                    | "pub"
+                    | "return"
+                    | "async"
+                    | "await"
+                    | "move"
+                    | "unsafe"
+                    | "Some"
+                    | "None"
+                    | "Ok"
+                    | "Err"
+            ) {
+                i = j + 1;
+                continue;
+            }
+
+            out.push((start, ident));
+            i = j + 1;
+        }
+    }
+    out
 }
 
 #[cfg(test)]

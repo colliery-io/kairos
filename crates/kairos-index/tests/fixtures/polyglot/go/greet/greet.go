@@ -9,7 +9,7 @@ func Greet(name string) {
 
 // Message builds the text of a greeting.
 func Message(name string) string {
-	return "Hello, " + name
+	return "Hello, " + Title(name)
 }
 
 // Greeter greets with a prefix.
@@ -20,4 +20,12 @@ type Greeter struct {
 // Greet prints a greeting with the prefix.
 func (g Greeter) Greet(name string) {
 	fmt.Println(g.Prefix + Message(name))
+}
+
+// Title cuts the spaces at the start of a name.
+func Title(name string) string {
+	for len(name) > 0 && name[0] == ' ' {
+		name = name[1:]
+	}
+	return name
 }

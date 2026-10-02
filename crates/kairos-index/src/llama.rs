@@ -114,16 +114,20 @@ impl LlamaModelFile {
         Ok(LlamaModelFile { model })
     }
 
-    /// A summarizer with its own context of 8,192 tokens.
+    /// A summarizer with its own context of 8,192 tokens, on half the CPUs
+    /// of the host.
     pub fn summarizer(&self) -> Result<LlamaSummarizer<'_>, IndexError> {
         let threads = std::thread::available_parallelism()
             .map(|n| (n.get() / 2).max(1))
-            .unwrap_or(4) as i32;
-        let params = LlamaContextParams::default()
-            .with_n_ctx(NonZeroU32::new(N_CTX))
-            .with_n_batch(N_CTX)
-            .with_n_threads(threads)
-            .with_n_threads_batch(threads);
+            .unwrap_or(4) as u32;
+        self.summarizer_with_threads(threads)
+    }
+
+    /// A summarizer with its own context of 8,192 tokens, on `threads` CPU
+    /// threads (at least 1). The server gives `KAIROS_CODE_INDEX_THREADS`
+    /// (COLLIERY-T-2529).
+    pub fn summarizer_with_threads(&self, threads: u32) -> Result<LlamaSummarizer<'_>, IndexError> {
+        let params = context_params(threads);
         let ctx = self
             .model
             .new_context(backend()?, params)
@@ -134,6 +138,17 @@ impl LlamaModelFile {
             batch: LlamaBatch::new(N_CTX as usize, 1),
         })
     }
+}
+
+/// The context of a summarizer on `threads` CPU threads (at least 1), for
+/// the prompt and for the generation.
+fn context_params(threads: u32) -> LlamaContextParams {
+    let threads = threads.clamp(1, i32::MAX as u32) as i32;
+    LlamaContextParams::default()
+        .with_n_ctx(NonZeroU32::new(N_CTX))
+        .with_n_batch(N_CTX)
+        .with_n_threads(threads)
+        .with_n_threads_batch(threads)
 }
 
 /// Writes summaries with the loaded model. One request at a time.
@@ -235,5 +250,20 @@ impl Summarizer for LlamaSummarizer<'_> {
         }
         let bytes = vocab.detokenize(&output, false, false);
         Ok(String::from_utf8_lossy(&bytes).trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_context_uses_the_given_threads() {
+        for threads in [1, 4, 8] {
+            let params = context_params(threads);
+            assert_eq!(params.n_threads(), threads as i32);
+            assert_eq!(params.n_threads_batch(), threads as i32);
+        }
+        assert_eq!(context_params(0).n_threads(), 1, "at least 1 thread");
     }
 }

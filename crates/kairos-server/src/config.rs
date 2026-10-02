@@ -140,6 +140,10 @@ pub struct AppConfig {
     /// default branch (COLLIERY-T-1853). Default 300; `0` turns the builder
     /// off.
     pub code_index_poll_secs: u64,
+    /// `KAIROS_CODE_INDEX_THREADS` — the CPU threads of the summary model of
+    /// the builder (COLLIERY-T-2529). Default 4, at least 1. The builder
+    /// shares the host with the live services.
+    pub code_index_threads: u32,
     /// `KAIROS_WEB_CLIENT_ID` — the public OAuth client id the SPA uses
     /// for its PKCE flow (KAIROS-T-0039, A-0010). Default `kairos-web`,
     /// matching the dev Dex fixture (`.angreal/dex/config.yaml`).
@@ -487,6 +491,14 @@ impl AppConfig {
             }
         }
 
+        let code_index_threads: u32 = parse_num(&get, "KAIROS_CODE_INDEX_THREADS", 4)?;
+        if code_index_threads == 0 {
+            return Err(ConfigError::Invalid {
+                var: "KAIROS_CODE_INDEX_THREADS",
+                message: "must be at least 1".into(),
+            });
+        }
+
         Ok(Self {
             database_url,
             bind_addr,
@@ -504,6 +516,7 @@ impl AppConfig {
                 .unwrap_or(10),
             code_index_dir: get("KAIROS_CODE_INDEX_DIR").map(std::path::PathBuf::from),
             code_index_poll_secs: parse_num(&get, "KAIROS_CODE_INDEX_POLL_SECS", 300)?,
+            code_index_threads,
             web_client_id: get("KAIROS_WEB_CLIENT_ID").unwrap_or_else(|| "kairos-web".to_string()),
             api_bearer,
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),
@@ -585,6 +598,36 @@ mod tests {
         // Local auth is off unless asked for (KAIROS-T-0203).
         assert!(!config.local_auth);
         assert_eq!(config.session_ttl_secs, 14 * 24 * 60 * 60);
+    }
+
+    // ---------------------------------------------------------------------
+    // COLLIERY-T-2529: the threads of the code index builder.
+
+    #[test]
+    fn the_code_index_builder_uses_4_threads_by_default() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert_eq!(config.code_index_threads, 4);
+    }
+
+    #[test]
+    fn kairos_code_index_threads_sets_the_threads_of_the_builder() {
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_CODE_INDEX_THREADS", "8"));
+        let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+        assert_eq!(config.code_index_threads, 8);
+    }
+
+    #[test]
+    fn kairos_code_index_threads_refuses_0_and_text() {
+        for value in ["0", "four", "-2"] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_CODE_INDEX_THREADS", value));
+            let err = AppConfig::from_lookup(lookup(&vars)).expect_err(value);
+            assert!(
+                err.to_string().contains("KAIROS_CODE_INDEX_THREADS"),
+                "{value}: {err}"
+            );
+        }
     }
 
     // ---------------------------------------------------------------------

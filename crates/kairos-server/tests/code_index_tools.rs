@@ -339,3 +339,109 @@ fn a_failed_download_leaves_no_file() {
     assert!(reason.contains("The download of a tool failed"), "{reason}");
     assert!(reason.contains("http://127.0.0.1:1/"), "{reason}");
 }
+
+// COLLIERY-T-2529: the hash cache of the tools. After a full check, the
+// size and the modified time of each file are recorded in tools/. A file
+// whose size and modified time did not change is not hashed again. A file
+// that changed is hashed in full.
+
+/// Set the modified time of `path` to `secs` after the epoch, so that a
+/// change is seen also when the clock has a coarse resolution.
+fn set_modified(path: &Path, secs: u64) {
+    let file = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs))
+        .unwrap();
+}
+
+#[test]
+fn a_second_start_does_not_hash_the_tools_again() {
+    let fixture = fixture();
+    let server = FileServer::start(fixture.files.clone());
+    let work = tempfile::tempdir().unwrap();
+    let set = fixture.set(&server.base);
+
+    let first = prepare(Some(work.path()), &set).unwrap().expect("tools");
+    // The first start downloads each file and hashes it as it comes, and
+    // hashes the unpacked rust-analyzer.
+    assert_eq!(first.downloaded.len(), 6);
+    let second = prepare(Some(work.path()), &set).unwrap().expect("tools");
+    assert!(second.hashed.is_empty(), "{:?}", second.hashed);
+
+    // Files put in first are hashed one time, on the first start.
+    let put = tempfile::tempdir().unwrap();
+    let dir = put.path().join(TOOLS_DIR);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (name, bytes) in &fixture.files {
+        std::fs::write(dir.join(name), bytes).unwrap();
+    }
+    let set = fixture.set("http://127.0.0.1:1");
+    let first = prepare(Some(put.path()), &set).unwrap().expect("tools");
+    let mut hashed = first.hashed.clone();
+    hashed.sort();
+    let mut expected: Vec<String> = set.downloads().map(|d| d.file.clone()).collect();
+    expected.push("rust-analyzer".into());
+    expected.sort();
+    assert_eq!(hashed, expected);
+    let second = prepare(Some(put.path()), &set).unwrap().expect("tools");
+    assert!(second.hashed.is_empty(), "{:?}", second.hashed);
+}
+
+#[test]
+fn a_changed_file_is_hashed_in_full_and_refused_when_wrong() {
+    let fixture = fixture();
+    let server = FileServer::start(fixture.files.clone());
+    let work = tempfile::tempdir().unwrap();
+    let set = fixture.set(&server.base);
+    prepare(Some(work.path()), &set).unwrap().expect("tools");
+    let model = work.path().join(TOOLS_DIR).join(&set.model.file);
+    let right = std::fs::read(&model).unwrap();
+
+    // The same size, another content, another modified time.
+    let mut wrong = right.clone();
+    wrong[0] ^= 0xff;
+    std::fs::write(&model, &wrong).unwrap();
+    set_modified(&model, 1_000_000);
+    let reason = prepare(Some(work.path()), &set).unwrap_err();
+    assert!(reason.contains(&model.display().to_string()), "{reason}");
+    assert!(reason.contains(&set.model.sha256), "{reason}");
+    // Refused again at the next start: the wrong file is not recorded.
+    let reason = prepare(Some(work.path()), &set).unwrap_err();
+    assert!(reason.contains(&set.model.sha256), "{reason}");
+
+    // The right content again: hashed in full, then accepted.
+    std::fs::write(&model, &right).unwrap();
+    set_modified(&model, 2_000_000);
+    let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
+    assert_eq!(tools.hashed, vec![set.model.file.clone()]);
+    assert!(tools.downloaded.is_empty());
+}
+
+#[test]
+fn only_a_new_modified_time_hashes_the_file_again() {
+    let fixture = fixture();
+    let server = FileServer::start(fixture.files.clone());
+    let work = tempfile::tempdir().unwrap();
+    let set = fixture.set(&server.base);
+    prepare(Some(work.path()), &set).unwrap().expect("tools");
+    let model = work.path().join(TOOLS_DIR).join(&set.model.file);
+
+    set_modified(&model, 3_000_000);
+    let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
+    assert_eq!(tools.hashed, vec![set.model.file.clone()]);
+    let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
+    assert!(tools.hashed.is_empty(), "{:?}", tools.hashed);
+}
+
+#[test]
+fn a_new_pin_hashes_the_file_again() {
+    let fixture = fixture();
+    let server = FileServer::start(fixture.files.clone());
+    let work = tempfile::tempdir().unwrap();
+    let mut set = fixture.set(&server.base);
+    prepare(Some(work.path()), &set).unwrap().expect("tools");
+
+    // A release of Kairos with another pin for the same file name.
+    set.model.sha256 = "0".repeat(64);
+    let reason = prepare(Some(work.path()), &set).unwrap_err();
+    assert!(reason.contains(&set.model.sha256), "{reason}");
+}

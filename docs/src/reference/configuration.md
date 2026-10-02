@@ -282,6 +282,7 @@ updates the index after each push to the default branch.
 |---|---|---|---|
 | `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each indexed repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. |
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
+| `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
 
 The clone fetches from the `repo_url` of the repository with no credential, so
 the builder reads public repositories only. The first index of a repository
@@ -305,6 +306,12 @@ Then, at each start, the server checks the tools in
   download.
 - It checks each file against its pinned sha256. It does not download a file
   again when the file has the correct checksum.
+- After a check, it records the size and the modification time of each file
+  in `tools/.kairos-index-checked`. At the next start, it reads a file again
+  only if its size, its modification time or its pin changed. Then it reads
+  the full file and checks it again. Thus a start
+  after the first start does not read the 2.7 GB of files. To check all the
+  files again, remove `tools/.kairos-index-checked`.
 - If a download or a check fails, the builder stays off and the server logs
   one line, `the code index builder did not start`, with the file or the URL
   and the expected checksum. The server runs as usual. The next start tries
@@ -470,6 +477,7 @@ changed files.
 | `KAIROS_KEY`, then `KAIROS_MCP_KEY` | A service-account key, sent as the bearer. With neither, the CLI uses the credentials of `kairos login`. |
 | `--repository`, then `repository` in `.claude/kairos.local.md` | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
 | `--max-changed` | The most files that can change since the base index. The default is 200. |
+| `--link-only` | Do not run the summary model. The update links the summaries that are in the pool of the index, and it does not make new summaries. The background update of the Claude Code plugin uses this option. |
 
 The base is the nearest indexed commit at or below the merge base of `HEAD`
 and the default branch. If more files than the limit changed since that

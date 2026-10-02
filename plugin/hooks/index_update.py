@@ -10,11 +10,19 @@ Three modes, one for each hook:
   start of the session is not slower. With no `kairos` or no wiring: no
   output, no process.
 - `worker` (the background job): take a lock, take the list of changed
-  files, write it to the log, run `kairos index update` in the checkout, and
-  clear the list only when the update succeeds. A failed update puts the
+  files, write it to the log, run `kairos index update --link-only` in the
+  checkout, and clear the list only when the update succeeds. A failed update puts the
   list back for the next one. A second worker exits while one runs.
 - `record` (PostToolUse on Edit, Write, MultiEdit, NotebookEdit): append the
   path (relative to the checkout) of an edited source file to the list.
+
+The background update runs no model (COLLIERY-T-2529): `--link-only` links
+the summaries that are in the pool (from Kairos or from an earlier update)
+and makes no new ones, so a `kairos` built with `llama` does not summarize
+for minutes with about 4 GB of memory at each session start. Summaries come
+from the server, or from a `kairos index update` that a person runs. With
+KAIROS_INDEX_SUMMARIZE=1 in the environment of the session, the background
+update runs `kairos index update` with the model, as before.
 
 The update itself finds each changed file by its content hash (a check of
 about 0.1 s on Kairos), so the list does not make it faster today. The list
@@ -42,6 +50,14 @@ import sys
 SOURCE_SUFFIXES = (".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".go")
 SKIPPED_DIRS = (".kairos", ".git", "target", "node_modules")
 LOG_KEEP_BYTES = 256 * 1024
+
+
+def update_command():
+    """The command of the background update: link-only, unless
+    KAIROS_INDEX_SUMMARIZE is 1."""
+    if os.environ.get("KAIROS_INDEX_SUMMARIZE", "").strip() == "1":
+        return ["kairos", "index", "update"]
+    return ["kairos", "index", "update", "--link-only"]
 
 
 def project_dir():
@@ -128,8 +144,12 @@ def session_text(project, log):
         "gives the summary, the signature and the location of one symbol. "
         "`callers`, `callees` and `path` give the call graph. Then read only "
         "the files that the tools name.",
-        "`kairos index update` runs in the background now, so the index can "
-        f"be some seconds old at the start of the session. Its log: {log}.",
+        "`kairos index update --link-only` runs in the background now, so the "
+        "index can be some seconds old at the start of the session. It runs no "
+        "model: it links the summaries that are in the pool, and a changed "
+        "symbol can have no summary until Kairos or a person makes one "
+        "(`kairos index update`). KAIROS_INDEX_SUMMARIZE=1 in the environment "
+        f"makes the background update run the model. Its log: {log}.",
     ]
     if not os.path.isfile(os.path.join(project, ".kairos", "index.db")):
         lines.append(
@@ -207,7 +227,9 @@ def run_update(project, folder):
     rotate(log)
     with open(log, "a", encoding="utf-8") as out:
         now = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        command = update_command()
         out.write(f"\n=== {now} kairos index update in {project}\n")
+        out.write(f"Command: {' '.join(command)}\n")
         if entries:
             count = f"{len(entries)} file" + ("" if len(entries) == 1 else "s")
             out.write(f"Edited in a session since the last update: {count}\n")
@@ -217,7 +239,7 @@ def run_update(project, folder):
         out.flush()
         try:
             code = subprocess.run(
-                ["kairos", "index", "update"],
+                command,
                 cwd=project,
                 stdin=subprocess.DEVNULL,
                 stdout=out,

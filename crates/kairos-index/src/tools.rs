@@ -8,6 +8,11 @@
 //! - A file that is there is checked against its pinned sha256. A wrong
 //!   checksum is refused and named. It is not downloaded again: the operator
 //!   removes the file.
+//! - After a full check, the size and the modified time of the file go into
+//!   `.kairos-index-checked` in the folder (COLLIERY-T-2529). At the next
+//!   start, a file whose size and modified time did not change, and whose
+//!   pin did not change, is not hashed again: about 11 s for the 2.7 GB of
+//!   files. A file that changed is hashed in full.
 //! - A file that is not there is downloaded, checked, and only then put in
 //!   the folder. So a stopped download leaves no file.
 //! - rust-analyzer is unpacked from its archive, and the 3 archives of the
@@ -183,6 +188,10 @@ pub struct Tools {
     pub sysroot: PathBuf,
     /// The files that this call downloaded.
     pub downloaded: Vec<String>,
+    /// The files that this call read again to hash them in full: the files
+    /// that are not in the record of full checks, or that changed since
+    /// their check. A download is hashed as it comes and is not in this list.
+    pub hashed: Vec<String>,
 }
 
 impl Tools {
@@ -202,26 +211,174 @@ impl Tools {
 /// archives.
 const UNPACKED_MARK: &str = ".kairos-index-unpacked";
 
+/// The record of the full checks of the files in the tools folder.
+const CHECKED: &str = ".kairos-index-checked";
+
+/// The size and the modified time (in ns after the epoch) of a file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    size: u64,
+    modified_ns: u128,
+}
+
+impl Stamp {
+    fn of(path: &Path) -> Option<Stamp> {
+        let meta = fs::metadata(path).ok()?;
+        let modified = meta.modified().ok()?;
+        let modified_ns = modified
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos();
+        Some(Stamp {
+            size: meta.len(),
+            modified_ns,
+        })
+    }
+}
+
+/// The record of the full checks (COLLIERY-T-2529): for each file name, its
+/// stamp at the check and the sha256 that it had. One line for each file:
+/// `name<TAB>size<TAB>modified_ns<TAB>sha256`.
+struct Checked {
+    path: PathBuf,
+    entries: std::collections::BTreeMap<String, (Stamp, String)>,
+    changed: bool,
+}
+
+impl Checked {
+    /// The record in `dir`. A missing or bad record is empty: each file is
+    /// then hashed in full.
+    fn load(dir: &Path) -> Checked {
+        let path = dir.join(CHECKED);
+        let mut entries = std::collections::BTreeMap::new();
+        for line in fs::read_to_string(&path).unwrap_or_default().lines() {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if let [name, size, modified_ns, sha256] = parts[..]
+                && let (Ok(size), Ok(modified_ns)) = (size.parse(), modified_ns.parse())
+            {
+                let stamp = Stamp { size, modified_ns };
+                entries.insert(name.to_string(), (stamp, sha256.to_string()));
+            }
+        }
+        Checked {
+            path,
+            entries,
+            changed: false,
+        }
+    }
+
+    /// Whether the file `name` at `path` had the sha256 `expected` at its
+    /// last full check, and its size and modified time did not change.
+    fn is_checked(&self, name: &str, path: &Path, expected: &str) -> bool {
+        match (self.entries.get(name), Stamp::of(path)) {
+            (Some((stamp, sha256)), Some(now)) => *stamp == now && sha256 == expected,
+            _ => false,
+        }
+    }
+
+    fn record(&mut self, name: &str, path: &Path, sha256: &str) {
+        match Stamp::of(path) {
+            Some(stamp) => {
+                self.entries
+                    .insert(name.to_string(), (stamp, sha256.to_string()));
+            }
+            None => {
+                self.entries.remove(name);
+            }
+        }
+        self.changed = true;
+    }
+
+    fn forget(&mut self, name: &str) {
+        self.changed |= self.entries.remove(name).is_some();
+    }
+
+    /// Write the record when it changed: to a file next to it, then a
+    /// rename. A record that is not written costs only a full check at the
+    /// next start, so an error here is not an error of [`prepare`].
+    fn save(&self) {
+        if !self.changed {
+            return;
+        }
+        let text: String = self
+            .entries
+            .iter()
+            .map(|(name, (stamp, sha256))| {
+                format!("{name}\t{}\t{}\t{sha256}\n", stamp.size, stamp.modified_ns)
+            })
+            .collect();
+        let dir = self.path.parent().unwrap_or(Path::new("."));
+        if let Ok(mut partial) = tempfile::NamedTempFile::new_in(dir)
+            && partial.write_all(text.as_bytes()).is_ok()
+        {
+            let _ = partial.persist(&self.path);
+        }
+    }
+
+    /// Check the file `name` at `path` against `expected`: with no hash
+    /// when the record has it, else in full. A file that is wrong leaves the
+    /// record.
+    fn check(
+        &mut self,
+        name: &str,
+        path: &Path,
+        expected: &str,
+        hashed: &mut Vec<String>,
+    ) -> Result<(), IndexError> {
+        if self.is_checked(name, path, expected) {
+            return Ok(());
+        }
+        hashed.push(name.to_string());
+        match check_file(path, expected) {
+            Ok(()) => {
+                self.record(name, path, expected);
+                Ok(())
+            }
+            Err(e) => {
+                self.forget(name);
+                Err(e)
+            }
+        }
+    }
+}
+
 /// The longest wait for a connection to a download server.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Check each tool in `dir`, download each one that is not there, and unpack
 /// rust-analyzer and the toolchain. `on_download` is called before each
-/// download, with the file and its URL.
+/// download, with the file and its URL. A file that the record of full
+/// checks has, with the same size, modified time and pin, is not hashed
+/// again.
 pub fn prepare(
     dir: &Path,
     set: &ToolSet,
     on_download: &mut dyn FnMut(&Download),
 ) -> Result<Tools, IndexError> {
     fs::create_dir_all(dir).map_err(io(dir))?;
+    let mut checked = Checked::load(dir);
+    let result = prepare_checked(dir, set, on_download, &mut checked);
+    // Also after an error: the files checked before it keep their record.
+    checked.save();
+    result
+}
+
+fn prepare_checked(
+    dir: &Path,
+    set: &ToolSet,
+    on_download: &mut dyn FnMut(&Download),
+    checked: &mut Checked,
+) -> Result<Tools, IndexError> {
     let mut downloaded = Vec::new();
+    let mut hashed = Vec::new();
     let mut get = |d: &Download| -> Result<PathBuf, IndexError> {
         let path = dir.join(&d.file);
         if path.exists() {
-            check_file(&path, &d.sha256)?;
+            checked.check(&d.file, &path, &d.sha256, &mut hashed)?;
         } else {
             on_download(d);
             download(d, &path)?;
+            checked.record(&d.file, &path, &d.sha256);
             downloaded.push(d.file.clone());
         }
         Ok(path)
@@ -236,12 +393,13 @@ pub fn prepare(
         .collect::<Result<Vec<_>, _>>()?;
 
     let rust_analyzer = dir.join("rust-analyzer");
-    if check_file(&rust_analyzer, &set.rust_analyzer_binary_sha256).is_err() {
-        gunzip_binary(
-            &ra_archive,
-            &rust_analyzer,
-            &set.rust_analyzer_binary_sha256,
-        )?;
+    let ra_sha256 = &set.rust_analyzer_binary_sha256;
+    if checked
+        .check("rust-analyzer", &rust_analyzer, ra_sha256, &mut hashed)
+        .is_err()
+    {
+        gunzip_binary(&ra_archive, &rust_analyzer, ra_sha256)?;
+        checked.record("rust-analyzer", &rust_analyzer, ra_sha256);
     }
 
     let sysroot = dir.join(&set.toolchain_dir);
@@ -287,6 +445,7 @@ pub fn prepare(
         rust_src,
         sysroot,
         downloaded,
+        hashed,
     })
 }
 

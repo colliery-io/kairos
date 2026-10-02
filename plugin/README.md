@@ -106,13 +106,20 @@ Ralph loop of the session: the iteration and the tasks left.
 The plugin gives each session the code index of the checkout (COLLIERY-T-1855, COLLIERY-I-0264).
 
 - **The code tools.** `.claude-plugin/plugin.json` registers the local MCP server `kairos-code`
-  (`kairos index mcp`, stdio). It gives `module_map`, `code_search`, `symbol`, `callers`,
-  `callees` and `path`. Claude Code loads it in addition to the `.mcp.json` of the plugin root.
-  It is not in `plugin/.mcp.json`, because the plugin does not load that template. If `kairos`
-  is not on PATH, the server does not start and Claude Code shows the error.
+  (stdio). It starts `bin/kairos-code`, which runs `kairos index mcp`. It gives `module_map`,
+  `code_search`, `symbol`, `callers`, `callees` and `path`. Claude Code loads it in addition to
+  the `.mcp.json` of the plugin root. It is not in `plugin/.mcp.json`, because the plugin does
+  not load that template. If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
+  tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and
+  Claude Code shows no connection error.
 - **The update at the start.** `hooks/index_update.py start` is a `SessionStart` hook. If
   `kairos` is on PATH and the checkout has `.claude/kairos.local.md`, it starts
-  `kairos index update` as a detached process and does not wait for it. It also tells the agent
+  `kairos index update --link-only` as a detached process and does not wait for it. The
+  update runs no model: it links the summaries that are in the pool and makes no new ones
+  (COLLIERY-T-2529). Summaries come from Kairos, or from a `kairos index update` that a person
+  runs. Set `KAIROS_INDEX_SUMMARIZE=1` in the environment of Claude Code to make the background
+  update run the model (a `kairos` built with `llama` can then summarize for some minutes with
+  about 4 GB of memory). It also tells the agent
   to use the code tools before it reads files. Else it does nothing and gives no output. The
   update reads the deployment, the repository and the key (`KAIROS_KEY` or `KAIROS_MCP_KEY`)
   itself (COLLIERY-T-1854). The hook holds no credentials.
@@ -125,7 +132,7 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
 - **The state** is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/` holds
   `changed-files`, `update.log` (and `update.log.1`) and `lock`. `KAIROS_INDEX_STATE_DIR`
   overrides the parent folder. Only one update runs at a time for each checkout.
-- Tests: `hooks/test_index_update.py`, part of `angreal test unit`.
+- Tests: `hooks/test_index_update.py` (also `bin/kairos-code`), part of `angreal test unit`.
 
 ## Sessions are scoped to a team board and a repository
 

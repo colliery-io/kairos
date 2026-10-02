@@ -188,13 +188,15 @@ impl SummarizerSource for FakeSummarizers {
     }
 }
 
-/// Qwen3-4B through llama.cpp, from the model file at `model`. The model is
-/// loaded for each build and freed after it, so the server does not keep
-/// about 3 GB of memory between pushes.
+/// Qwen3-4B through llama.cpp, from the model file at `model`, on `threads`
+/// CPU threads (`KAIROS_CODE_INDEX_THREADS`). The model is loaded for each
+/// build and freed after it, so the server does not keep about 3 GB of
+/// memory between pushes.
 #[cfg(feature = "llama")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LlamaSummarizers {
     pub model: PathBuf,
+    pub threads: u32,
 }
 
 #[cfg(feature = "llama")]
@@ -204,7 +206,7 @@ impl SummarizerSource for LlamaSummarizers {
         job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
     ) -> Result<UpdateReport, IndexError> {
         let model = kairos_index::LlamaModelFile::load(&self.model)?;
-        let mut summarizer = model.summarizer()?;
+        let mut summarizer = model.summarizer_with_threads(self.threads)?;
         job(&mut summarizer)
     }
 }
@@ -223,18 +225,24 @@ pub fn has_summarizer() -> Result<(), String> {
 }
 
 /// The summarizer of this build of the server, with the model file of
-/// `tools`. The reason when the build has none.
-pub fn summarizers(tools: &Tools) -> Result<Arc<dyn SummarizerSource>, String> {
+/// `tools`, on `threads` CPU threads. The reason when the build has none.
+pub fn summarizers(tools: &Tools, threads: u32) -> Result<Arc<dyn SummarizerSource>, String> {
     #[cfg(feature = "llama")]
     {
-        Ok(Arc::new(LlamaSummarizers {
-            model: tools.model.clone(),
-        }))
+        Ok(Arc::new(llama_summarizers(tools, threads)))
     }
     #[cfg(not(feature = "llama"))]
     {
-        let _ = tools;
+        let _ = (tools, threads);
         Err(NO_SUMMARIZER.to_string())
+    }
+}
+
+#[cfg(feature = "llama")]
+fn llama_summarizers(tools: &Tools, threads: u32) -> LlamaSummarizers {
+    LlamaSummarizers {
+        model: tools.model.clone(),
+        threads,
     }
 }
 
@@ -586,4 +594,28 @@ pub(crate) fn used_rows(
             vector: row.vector,
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "llama"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_builder_summarizes_on_the_threads_of_the_setting() {
+        let tools = Tools {
+            model: PathBuf::from("/tools/model.gguf"),
+            rust_analyzer: PathBuf::from("/tools/rust-analyzer"),
+            rust_src: PathBuf::from("/tools/rust-src.tar.gz"),
+            sysroot: PathBuf::from("/tools/rust"),
+            downloaded: Vec::new(),
+            hashed: Vec::new(),
+        };
+        assert_eq!(
+            llama_summarizers(&tools, 6),
+            LlamaSummarizers {
+                model: PathBuf::from("/tools/model.gguf"),
+                threads: 6,
+            }
+        );
+    }
 }

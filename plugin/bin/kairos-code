@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""The `kairos-code` MCP server of the plugin (COLLIERY-T-1855,
+COLLIERY-T-2529).
+
+- With `kairos` on PATH: run `kairos index mcp` in place of this process
+  (exec), with the same stdin, stdout, folder and exit code.
+- With no `kairos` on PATH: serve MCP over stdio with no tools. The server
+  answers `initialize` (its instructions say why it has no tools),
+  `tools/list` (an empty list) and `ping`, and refuses each other request
+  with "method not found". It writes nothing to stderr. So Claude Code
+  connects to it and shows no connection error, and the session has no code
+  tools.
+
+Python stdlib only.
+"""
+
+import json
+import os
+import shutil
+import sys
+
+DEFAULT_PROTOCOL = "2025-06-18"
+INSTRUCTIONS = (
+    "The code tools of Kairos are off: `kairos` is not on PATH. Put the "
+    "`kairos` CLI on PATH and start the session again to get `module_map`, "
+    "`code_search`, `symbol`, `callers`, `callees` and `path`."
+)
+
+
+def answer(message_id, result=None, error=None):
+    reply = {"jsonrpc": "2.0", "id": message_id}
+    if error is not None:
+        reply["error"] = error
+    else:
+        reply["result"] = result
+    sys.stdout.write(json.dumps(reply) + "\n")
+    sys.stdout.flush()
+
+
+def handle(message):
+    if not isinstance(message, dict) or "method" not in message:
+        if isinstance(message, dict) and "id" in message:
+            answer(message["id"], error={"code": -32600, "message": "Invalid request"})
+        return
+    if "id" not in message:
+        return  # a notification: no answer
+    method = message["method"]
+    if method == "initialize":
+        params = message.get("params") or {}
+        answer(
+            message["id"],
+            {
+                "protocolVersion": params.get("protocolVersion") or DEFAULT_PROTOCOL,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "kairos-code", "version": "0"},
+                "instructions": INSTRUCTIONS,
+            },
+        )
+    elif method == "tools/list":
+        answer(message["id"], {"tools": []})
+    elif method == "ping":
+        answer(message["id"], {})
+    else:
+        answer(
+            message["id"],
+            error={"code": -32601, "message": f"Method not found: {method}"},
+        )
+
+
+def serve_no_tools():
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        try:
+            message = json.loads(line)
+        except ValueError:
+            answer(None, error={"code": -32700, "message": "Parse error"})
+            continue
+        handle(message)
+
+
+def main():
+    kairos = shutil.which("kairos")
+    if kairos is not None:
+        os.execv(kairos, ["kairos", "index", "mcp", *sys.argv[1:]])
+    try:
+        serve_no_tools()
+    except (BrokenPipeError, KeyboardInterrupt):
+        pass
+
+
+if __name__ == "__main__":
+    main()

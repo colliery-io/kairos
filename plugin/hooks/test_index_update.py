@@ -16,6 +16,7 @@ are the manual check on the task."""
 
 import fcntl
 import json
+import select
 import os
 import re
 import subprocess
@@ -27,6 +28,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "index_update.py")
 ROOT = os.path.dirname(os.path.dirname(HERE))
+WRAPPER = os.path.join(ROOT, "plugin", "bin", "kairos-code")
 
 WIRING = "---\ndeployment_url: http://127.0.0.1:1\nrepository: kairos\n---\n"
 
@@ -177,6 +179,12 @@ class SessionStart(Harness):
         self.assertIn("kairos-code", text)
         self.assertIn("update.log", text)
 
+    def test_the_text_says_that_the_background_update_runs_no_model(self):
+        result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
+        text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("kairos index update --link-only", text)
+        self.assertIn("KAIROS_INDEX_SUMMARIZE=1", text)
+
     def test_no_kairos_on_path_is_a_silent_no_op(self):
         os.remove(os.path.join(self.bin, "kairos"))
         result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
@@ -247,6 +255,33 @@ class ChangedFiles(Harness):
         self.assertLess(log.index("src/lib.rs"), log.index("Structure: 3 files"))
         self.assertIn("exit code 0", log)
 
+    def test_the_background_update_runs_no_model_by_default(self):
+        result = self.run_hook("worker", args=(self.project,))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.calls_text().splitlines()
+        self.assertIn("args: index update --link-only", calls)
+        with open(os.path.join(self.state_dir(), "update.log")) as handle:
+            log = handle.read()
+        self.assertIn("Command: kairos index update --link-only", log)
+
+    def test_kairos_index_summarize_runs_the_model_in_the_background(self):
+        result = self.run_hook(
+            "worker", env=self.env(KAIROS_INDEX_SUMMARIZE="1"), args=(self.project,)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("args: index update", self.calls_text().splitlines())
+        self.assertNotIn("--link-only", self.calls_text())
+        with open(os.path.join(self.state_dir(), "update.log")) as handle:
+            self.assertIn("Command: kairos index update\n", handle.read())
+
+    def test_other_values_of_kairos_index_summarize_run_no_model(self):
+        for value in ("", "0", "no"):
+            self.run_hook(
+                "worker", env=self.env(KAIROS_INDEX_SUMMARIZE=value), args=(self.project,)
+            )
+        calls = [c for c in self.calls_text().splitlines() if c.startswith("args:")]
+        self.assertEqual(calls, ["args: index update --link-only"] * 3)
+
     def test_a_failed_update_keeps_the_list(self):
         self.edit("Edit", os.path.join(self.project, "src", "lib.rs"))
         self.run_hook(
@@ -272,6 +307,110 @@ class ChangedFiles(Harness):
         self.assertEqual(self.changed(), ["src/lib.rs"])
 
 
+class KairosCodeWrapper(Harness):
+    """The `kairos-code` MCP server starts through `plugin/bin/kairos-code`
+    (COLLIERY-T-2529): with `kairos` on PATH it is `kairos index mcp`; with no
+    `kairos` it is an MCP server with no tools, so that Claude Code shows no
+    connection error."""
+
+    def start_wrapper(self, env):
+        return subprocess.Popen(
+            [WRAPPER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=self.project,
+        )
+
+    def ask(self, process, message):
+        process.stdin.write(json.dumps(message) + "\n")
+        process.stdin.flush()
+        if "id" not in message:
+            return None
+        ready, _, _ = select.select([process.stdout], [], [], 5)
+        self.assertTrue(ready, f"no answer to {message}")
+        return json.loads(process.stdout.readline())
+
+    def no_kairos_env(self):
+        os.remove(os.path.join(self.bin, "kairos"))
+        return self.env()
+
+    def test_the_wrapper_can_run(self):
+        self.assertTrue(os.access(WRAPPER, os.X_OK))
+
+    def test_with_kairos_on_path_the_wrapper_runs_kairos_index_mcp(self):
+        process = self.start_wrapper(self.env())
+        _, stderr = process.communicate("", timeout=10)
+        self.assertEqual(process.returncode, 0, stderr)
+        self.assertIn("args: index mcp", self.calls_text().splitlines())
+        self.assertIn(f"cwd: {self.project}", self.calls_text())
+
+    def test_with_kairos_on_path_the_exit_code_of_kairos_is_kept(self):
+        process = self.start_wrapper(self.env(FAKE_KAIROS_EXIT="3"))
+        process.communicate("", timeout=10)
+        self.assertEqual(process.returncode, 3)
+
+    def test_with_no_kairos_the_wrapper_is_a_server_with_no_tools(self):
+        process = self.start_wrapper(self.no_kairos_env())
+        try:
+            answer = self.ask(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "claude-code", "version": "2"},
+                    },
+                },
+            )
+            self.assertEqual(answer["id"], 1)
+            result = answer["result"]
+            self.assertEqual(result["protocolVersion"], "2025-06-18")
+            self.assertEqual(result["serverInfo"]["name"], "kairos-code")
+            self.assertIn("tools", result["capabilities"])
+            self.assertIn("`kairos` is not on PATH", result["instructions"])
+            self.assertIsNone(
+                self.ask(process, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+            )
+            answer = self.ask(process, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+            self.assertEqual(answer, {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}})
+            answer = self.ask(process, {"jsonrpc": "2.0", "id": "p", "method": "ping"})
+            self.assertEqual(answer, {"jsonrpc": "2.0", "id": "p", "result": {}})
+        finally:
+            _, stderr = process.communicate("", timeout=10)
+        self.assertEqual(process.returncode, 0)
+        self.assertEqual(stderr, "", "no error output")
+
+    def test_with_no_kairos_an_unknown_method_is_refused_and_named(self):
+        process = self.start_wrapper(self.no_kairos_env())
+        try:
+            answer = self.ask(
+                process, {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {}}
+            )
+        finally:
+            process.communicate("", timeout=10)
+        self.assertEqual(answer["id"], 7)
+        self.assertEqual(answer["error"]["code"], -32601)
+        self.assertIn("tools/call", answer["error"]["message"])
+
+    def test_with_no_kairos_bad_input_gets_a_parse_error(self):
+        process = self.start_wrapper(self.no_kairos_env())
+        process.stdin.write("not json\n")
+        process.stdin.flush()
+        ready, _, _ = select.select([process.stdout], [], [], 5)
+        self.assertTrue(ready)
+        answer = json.loads(process.stdout.readline())
+        _, stderr = process.communicate("", timeout=10)
+        self.assertEqual(answer["error"]["code"], -32700)
+        self.assertIsNone(answer["id"])
+        self.assertEqual(stderr, "")
+
+
 class Wiring(unittest.TestCase):
     """Scenarios: The code tools are registered; The Metis index is gone."""
 
@@ -283,7 +422,11 @@ class Wiring(unittest.TestCase):
         manifest = self.load(".claude-plugin", "plugin.json")
         self.assertEqual(
             manifest["mcpServers"]["kairos-code"],
-            {"type": "stdio", "command": "kairos", "args": ["index", "mcp"]},
+            {
+                "type": "stdio",
+                "command": "${CLAUDE_PLUGIN_ROOT}/plugin/bin/kairos-code",
+                "args": [],
+            },
         )
 
     def test_the_hooks_run_the_script(self):
@@ -322,10 +465,10 @@ class Wiring(unittest.TestCase):
         for tool in ("module_map", "code_search", "callers", "callees"):
             self.assertIn(f"`{tool}`", text)
 
-    def test_the_plugin_version_is_0_8_0(self):
-        self.assertEqual(self.load(".claude-plugin", "plugin.json")["version"], "0.8.0")
+    def test_the_plugin_version_is_0_9_0(self):
+        self.assertEqual(self.load(".claude-plugin", "plugin.json")["version"], "0.9.0")
         market = self.load(".claude-plugin", "marketplace.json")
-        self.assertEqual(market["plugins"][0]["version"], "0.8.0")
+        self.assertEqual(market["plugins"][0]["version"], "0.9.0")
 
 
 if __name__ == "__main__":

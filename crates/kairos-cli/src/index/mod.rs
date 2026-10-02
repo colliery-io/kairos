@@ -6,7 +6,9 @@
 //! - `kairos index update` builds the structure again from the tree and
 //!   summarizes only what changed. It keeps the Rust edges of the index for
 //!   each function whose code did not change, and runs no SCIP unless
-//!   `--rust-edges` is given. It starts from the nearest base index in
+//!   `--rust-edges` is given. With `--link-only`, it runs no model: it links
+//!   the summaries of the pool and makes no new ones (COLLIERY-T-2529, the
+//!   background update of the plugin). It starts from the nearest base index in
 //!   Kairos when the checkout has no index, or when the base is nearer to
 //!   the tree than the local index ([`base`], COLLIERY-T-1854). If more
 //!   files than the limit changed since the base, it builds nothing and
@@ -94,6 +96,9 @@ pub enum IndexCommand {
         /// Run rust-analyzer again for the Rust edges of the changed code
         #[arg(long)]
         rust_edges: bool,
+        /// Run no model: link the summaries of the pool and make no new ones
+        #[arg(long)]
+        link_only: bool,
         /// The most files that can change since the base index. Above it, the CLI builds nothing
         #[arg(long, default_value_t = DEFAULT_MAX_CHANGED)]
         max_changed: usize,
@@ -154,10 +159,11 @@ impl IndexCommand {
             IndexCommand::Update {
                 root,
                 rust_edges,
+                link_only,
                 max_changed,
                 remote,
             } => match resolve_root(root) {
-                Ok(root) => update(&root, rust_edges, max_changed, &remote).await,
+                Ok(root) => update(&root, rust_edges, link_only, max_changed, &remote).await,
                 Err(e) => Err(e),
             },
             IndexCommand::Status { root } => resolve_root(root).and_then(|root| status(&root)),
@@ -295,7 +301,7 @@ fn build(root: &Path) -> Result<(), IndexCommandError> {
     let started = Instant::now();
     let report = kairos_index::build_structure_with(root, &db, &BuildOptions::default())?;
     print_structure(&report, started);
-    print_summaries(summaries::run(root, &db)?);
+    print_summaries(summaries::run(root, &db, false)?);
     Ok(())
 }
 
@@ -311,6 +317,7 @@ enum Local {
 async fn update(
     root: &Path,
     rust_edges: bool,
+    link_only: bool,
     max_changed: usize,
     remote: &base::RemoteArgs,
 ) -> Result<(), IndexCommandError> {
@@ -380,7 +387,7 @@ async fn update(
     };
     let report = kairos_index::update_structure(root, &db, &options)?;
     print_structure(&report, started);
-    print_summaries(summaries::run(root, &db)?);
+    print_summaries(summaries::run(root, &db, link_only)?);
     Ok(())
 }
 
@@ -578,12 +585,20 @@ mod summaries {
         Made(SummaryReport, std::time::Duration),
     }
 
+    /// Why `--link-only` made no summaries.
+    pub const LINK_ONLY: &str =
+        "The update ran with --link-only. Run `kairos index update` to make them.";
+
     /// Link each key that the pool has, with no model (COLLIERY-T-1854). The
-    /// summarizer runs only if a key is not in the pool.
-    pub fn run(root: &Path, db: &Path) -> Result<Outcome, IndexCommandError> {
+    /// summarizer runs only if a key is not in the pool, and not with
+    /// `link_only` (COLLIERY-T-2529).
+    pub fn run(root: &Path, db: &Path, link_only: bool) -> Result<Outcome, IndexCommandError> {
         let linked = kairos_index::link(root, db, &SummarizeOptions::default())?;
         if linked.symbols.left + linked.files.left + linked.modules.left == 0 {
             return Ok(Outcome::Linked(linked));
+        }
+        if link_only {
+            return Ok(Outcome::NotMade(linked, LINK_ONLY.into()));
         }
         summarize(root, db, linked)
     }
@@ -712,6 +727,48 @@ mod tests {
         assert!(parse(&["kairos", "index", "--full", "update"]).is_err());
         assert!(parse(&["kairos", "index", "update", "--full"]).is_err());
         assert!(parse(&["kairos", "index", "update", "--depth", "3"]).is_err());
+    }
+
+    #[test]
+    fn link_only_is_a_flag_of_update() {
+        let args = parse(&["kairos", "index", "update", "--link-only"]).expect("update");
+        assert!(matches!(
+            args.command,
+            Some(IndexCommand::Update {
+                link_only: true,
+                ..
+            })
+        ));
+        let args = parse(&["kairos", "index", "update"]).expect("update");
+        assert!(matches!(
+            args.command,
+            Some(IndexCommand::Update {
+                link_only: false,
+                ..
+            })
+        ));
+        assert!(parse(&["kairos", "index", "build", "--link-only"]).is_err());
+        assert!(parse(&["kairos", "index", "--link-only"]).is_err());
+    }
+
+    #[test]
+    fn link_only_runs_no_model() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path();
+        std::fs::write(
+            root.join("tool.py"),
+            "def add(a, b):\n    \"\"\"Add two numbers.\"\"\"\n    return a + b\n",
+        )
+        .expect("write");
+        let db = root.join("index.db");
+        kairos_index::build_structure(root, &db).expect("structure");
+        match summaries::run(root, &db, true).expect("run") {
+            summaries::Outcome::NotMade(report, why) => {
+                assert_eq!(why, summaries::LINK_ONLY);
+                assert!(report.symbols.left > 0, "the symbol has no summary");
+            }
+            _ => panic!("a model ran, or each summary was in the pool"),
+        }
     }
 
     #[test]

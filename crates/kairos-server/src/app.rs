@@ -146,6 +146,7 @@ fn start_code_index_builder(state: &AppState) {
     // (COLLIERY-T-2525), off the start of the server: a download of about
     // 2.7 GB must not keep the server from serving.
     let blocking = state.blocking.clone();
+    let threads = state.config.code_index_threads;
     tokio::spawn(async move {
         let dir = service.dir().to_path_buf();
         let prepared =
@@ -155,7 +156,7 @@ fn start_code_index_builder(state: &AppState) {
         let summarizers = match prepared.and_then(|tools| {
             let tools = tools.ok_or("no KAIROS_CODE_INDEX_DIR")?;
             service.use_tools(&tools);
-            crate::code_index::summarizers(&tools)
+            crate::code_index::summarizers(&tools, threads)
         }) {
             Ok(summarizers) => summarizers,
             Err(reason) => {

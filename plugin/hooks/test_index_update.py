@@ -40,6 +40,12 @@ FAKE_KAIROS = """#!/bin/sh
   echo "args: $*"
   echo "cwd: $(pwd)"
 } >> "$FAKE_KAIROS_CALLS"
+if [ -n "$FAKE_KAIROS_OLD" ]; then
+  case " $* " in *" --link-only "*)
+    echo "error: unexpected argument '--link-only' found" >&2
+    exit 2;;
+  esac
+fi
 if [ -n "$FAKE_KAIROS_EDIT" ]; then
   echo "$FAKE_KAIROS_EDIT" >> "$FAKE_KAIROS_LIST"
 fi
@@ -154,10 +160,13 @@ class SessionStart(Harness):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertLess(result.elapsed, 1.0)
+        # Wait for the cwd line: the fake writes its args line first, and a
+        # read between the 2 lines saw only the args (a race under load).
         self.assertTrue(
-            self.wait_for(lambda: "args: index update" in self.calls_text()),
+            self.wait_for(lambda: "cwd: " in self.calls_text()),
             "the background worker did not run `kairos index update`",
         )
+        self.assertIn("args: index update", self.calls_text())
         self.assertIn(f"cwd: {self.project}", self.calls_text())
         # The update runs in the background; its log is outside the checkout.
         log = os.path.join(self.state_dir(), "update.log")
@@ -281,6 +290,25 @@ class ChangedFiles(Harness):
             )
         calls = [c for c in self.calls_text().splitlines() if c.startswith("args:")]
         self.assertEqual(calls, ["args: index update --link-only"] * 3)
+
+    def test_an_old_kairos_with_no_link_only_runs_the_plain_update(self):
+        # A kairos from before COLLIERY-T-2529 refuses --link-only with exit 2.
+        self.edit("Edit", os.path.join(self.project, "src", "lib.rs"))
+        self.run_hook("worker", env=self.env(FAKE_KAIROS_OLD="1"), args=(self.project,))
+        calls = [c for c in self.calls_text().splitlines() if c.startswith("args:")]
+        self.assertEqual(calls, ["args: index update --link-only", "args: index update"])
+        self.assertEqual(self.changed(), [])
+        with open(os.path.join(self.state_dir(), "update.log")) as handle:
+            log = handle.read()
+        self.assertIn("This kairos has no --link-only option", log)
+        self.assertIn("=== exit code 0", log)
+
+    def test_another_exit_2_is_not_retried(self):
+        self.edit("Edit", os.path.join(self.project, "src", "lib.rs"))
+        self.run_hook("worker", env=self.env(FAKE_KAIROS_EXIT="2"), args=(self.project,))
+        calls = [c for c in self.calls_text().splitlines() if c.startswith("args:")]
+        self.assertEqual(calls, ["args: index update --link-only"])
+        self.assertEqual(self.changed(), ["src/lib.rs"])
 
     def test_a_failed_update_keeps_the_list(self):
         self.edit("Edit", os.path.join(self.project, "src", "lib.rs"))

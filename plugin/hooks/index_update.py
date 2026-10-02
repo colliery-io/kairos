@@ -211,6 +211,37 @@ def worker(project):
         run_update(project, folder)
 
 
+def run_logged(command, project, out, log):
+    """Run command in project, with its output in the log. The exit code, or
+    None when kairos does not start."""
+    out.flush()
+    try:
+        code = subprocess.run(
+            command,
+            cwd=project,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            check=False,
+        ).returncode
+    except OSError as error:
+        out.write(f"Could not start kairos: {error}\n")
+        code = None
+    out.flush()
+    return code
+
+
+def refused_link_only(log):
+    """True when the last lines of the log are the refusal of an old kairos
+    for --link-only (clap: "unexpected argument '--link-only'")."""
+    try:
+        with open(log, encoding="utf-8", errors="replace") as handle:
+            tail = handle.read()[-2000:]
+    except OSError:
+        return False
+    return "--link-only" in tail and "unexpected argument" in tail
+
+
 def run_update(project, folder):
     changed = os.path.join(folder, "changed-files")
     taken = changed + ".taken"
@@ -237,18 +268,16 @@ def run_update(project, folder):
         else:
             out.write("Edited in a session since the last update: no files\n")
         out.flush()
-        try:
-            code = subprocess.run(
-                command,
-                cwd=project,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=subprocess.STDOUT,
-                check=False,
-            ).returncode
-        except OSError as error:
-            out.write(f"Could not start kairos: {error}\n")
-            code = None
+        code = run_logged(command, project, out, log)
+        if code == 2 and "--link-only" in command and refused_link_only(log):
+            # A kairos from before COLLIERY-T-2529 has no --link-only. Run the
+            # update that it has, so the index does not stop updating.
+            command = [part for part in command if part != "--link-only"]
+            out.write("This kairos has no --link-only option. Install a newer kairos. "
+                      "The update runs again with no option.\n")
+            out.write(f"Command: {' '.join(command)}\n")
+            out.flush()
+            code = run_logged(command, project, out, log)
         out.write(f"=== exit code {code}\n")
         if code == 0:
             os.remove(taken)

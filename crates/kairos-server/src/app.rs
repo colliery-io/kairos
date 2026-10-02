@@ -131,20 +131,47 @@ fn start_code_index_builder(state: &AppState) {
         tracing::warn!("the code index builder did not start: embeddings are off");
         return;
     };
-    let summarizers = match crate::code_index::summarizers() {
-        Ok(summarizers) => summarizers,
-        Err(reason) => {
-            tracing::warn!(%reason, "the code index builder did not start");
+    if let Err(reason) = crate::code_index::has_summarizer() {
+        tracing::warn!(%reason, "the code index builder did not start");
+        return;
+    }
+    let set = match kairos_index::tools::ToolSet::pinned() {
+        Ok(set) => set,
+        Err(e) => {
+            tracing::warn!(reason = %e, "the code index builder did not start");
             return;
         }
     };
-    tokio::spawn(crate::code_index::run_builder(
-        state.blocking.clone(),
-        service,
-        summarizers,
-        embedding.provider(),
-        std::time::Duration::from_secs(interval),
-    ));
+    // The tools are checked, and downloaded on the first start
+    // (COLLIERY-T-2525), off the start of the server: a download of about
+    // 2.7 GB must not keep the server from serving.
+    let blocking = state.blocking.clone();
+    tokio::spawn(async move {
+        let dir = service.dir().to_path_buf();
+        let prepared =
+            tokio::task::spawn_blocking(move || crate::code_index::prepare_tools(Some(&dir), &set))
+                .await
+                .unwrap_or_else(|e| Err(e.to_string()));
+        let summarizers = match prepared.and_then(|tools| {
+            let tools = tools.ok_or("no KAIROS_CODE_INDEX_DIR")?;
+            service.use_tools(&tools);
+            crate::code_index::summarizers(&tools)
+        }) {
+            Ok(summarizers) => summarizers,
+            Err(reason) => {
+                tracing::warn!(%reason, "the code index builder did not start");
+                return;
+            }
+        };
+        crate::code_index::run_builder(
+            blocking,
+            service,
+            summarizers,
+            embedding.provider(),
+            std::time::Duration::from_secs(interval),
+        )
+        .await;
+    });
 }
 
 /// Build the embedding service, or `None`.

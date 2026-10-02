@@ -80,6 +80,7 @@ fn build_options(rust_analyzer: Option<PathBuf>, std_source: Option<PathBuf>) ->
     BuildOptions {
         rust_analyzer,
         std_source,
+        sysroot: None,
         download: false,
     }
 }

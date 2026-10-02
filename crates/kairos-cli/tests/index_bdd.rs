@@ -274,6 +274,7 @@ impl CliWorld {
         let options = BuildOptions {
             rust_analyzer: None,
             std_source: None,
+            sysroot: None,
             download: false,
         };
         build_structure_with(&root, &db, &options).unwrap_or_else(|e| panic!("{e}"));

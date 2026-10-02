@@ -84,3 +84,5 @@ tower = { workspace = true, features = ["util"] }
 # version axum's `ws` feature already pulls in, so no duplicate copy.
 tokio-tungstenite = "0.29.0"
 futures-util = "0.3.31"
+# The gzip and tar fixtures of the tools scenarios (COLLIERY-T-2525).
+flate2 = "1"

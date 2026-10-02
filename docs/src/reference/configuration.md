@@ -280,15 +280,52 @@ updates the index after each push to the default branch.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each indexed repository and for the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit and does not build. Uploads and downloads still work. |
+| `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each indexed repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. |
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
-| `KAIROS_INDEX_MODEL` | file path | set by the image | The summary model (Qwen3-4B GGUF). The builder starts only when the server has the `llama` feature, this file and embeddings. |
-| `KAIROS_INDEX_RUST_ANALYZER` | file path | set by the image | The pinned rust-analyzer for the Rust call edges. |
-| `KAIROS_INDEX_RUST_SRC` | file path | set by the image | The pinned std source archive. |
 
 The clone fetches from the `repo_url` of the repository with no credential, so
 the builder reads public repositories only. The first index of a repository
 comes from an upload (`kairos index build`, then the upload).
+
+#### The tools of the builder
+
+The image does not contain the tools of the builder. The builder needs these
+conditions:
+
+- `KAIROS_CODE_INDEX_DIR` is set.
+- `KAIROS_CODE_INDEX_POLL_SECS` is not `0`.
+- Embeddings are on.
+- The server has the `llama` feature.
+
+Then, at each start, the server checks the tools in
+`KAIROS_CODE_INDEX_DIR/tools/`:
+
+- It downloads each file that is not there (about 2.7 GB on the first
+  start). The download runs in the background. The server serves during the
+  download.
+- It checks each file against its pinned sha256. It does not download a file
+  again when the file has the correct checksum.
+- If a download or a check fails, the builder stays off and the server logs
+  one line, `the code index builder did not start`, with the file or the URL
+  and the expected checksum. The server runs as usual. The next start tries
+  again. The server does not replace a file with an incorrect checksum.
+  Remove the file to download it again.
+
+| File in `tools/` | Download from | sha256 |
+|---|---|---|
+| `Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/ae44f08e1392f39c0e474af10c3ff8355c8b6688/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf` | `2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e` |
+| `rust-analyzer-<target>.gz` | `https://github.com/rust-lang/rust-analyzer/releases/download/2026-09-28/rust-analyzer-<target>.gz` | in `crates/kairos-index/src/rust_analyzer.rs` |
+| `rust-src-1.99.0.tar.gz` | `https://static.rust-lang.org/dist/2026-10-01/rust-src-1.99.0.tar.gz` | `82b978093b33c71bcbe69005b92181bfb76d3d0e434ef303e637812e21badcd7` |
+| `rustc-1.93.0-<target>.tar.gz`, `cargo-1.93.0-<target>.tar.gz`, `rust-std-1.93.0-<target>.tar.gz` | `https://static.rust-lang.org/dist/<file>` | in `crates/kairos-index/src/tools.rs` |
+
+`<target>` is `aarch64-unknown-linux-gnu` or `x86_64-unknown-linux-gnu` for
+the image. The server unpacks rust-analyzer to `tools/rust-analyzer` and the
+3 Rust archives to `tools/rust-1.93.0/`.
+
+**With no network:** download the files on a computer with network access.
+Keep their names. Put them in `KAIROS_CODE_INDEX_DIR/tools/` before the
+start. The user of the server (uid 10001 in the image) must be able to write
+the folder. Then the server downloads nothing.
 
 ### Development
 

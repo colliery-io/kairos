@@ -152,6 +152,10 @@ pub struct BuildOptions {
     /// The std source archive to use in place of the one at
     /// [`std_source_archive_path`]. It must have the pinned sha256 too.
     pub std_source: Option<PathBuf>,
+    /// The sysroot of the Rust toolchain, in place of `rustc --print sysroot`
+    /// in the repository. The server gives the toolchain of its tools folder
+    /// (COLLIERY-T-2525).
+    pub sysroot: Option<PathBuf>,
     /// Download the pinned release and the pinned std source if they are
     /// not there. The tests turn this off.
     pub download: bool,
@@ -162,6 +166,7 @@ impl Default for BuildOptions {
         BuildOptions {
             rust_analyzer: None,
             std_source: None,
+            sysroot: None,
             download: true,
         }
     }
@@ -429,6 +434,7 @@ mod tests {
         let options = BuildOptions {
             rust_analyzer: Some(path.clone()),
             std_source: None,
+            sysroot: None,
             download: true,
         };
         let text = resolve(&options).unwrap_err().to_string();
@@ -443,6 +449,7 @@ mod tests {
         let options = BuildOptions {
             rust_analyzer: Some(path.clone()),
             std_source: None,
+            sysroot: None,
             download: true,
         };
         assert!(matches!(
@@ -472,6 +479,7 @@ mod tests {
         let options = BuildOptions {
             rust_analyzer: None,
             std_source: Some(path.clone()),
+            sysroot: None,
             download: true,
         };
         let text = resolve_std_source(&options).unwrap_err().to_string();
@@ -488,6 +496,7 @@ mod tests {
         let options = BuildOptions {
             rust_analyzer: None,
             std_source: Some(path.clone()),
+            sysroot: None,
             download: true,
         };
         assert!(matches!(

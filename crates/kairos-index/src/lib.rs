@@ -36,6 +36,7 @@ mod scip;
 pub mod store;
 mod summary;
 mod tokens;
+pub mod tools;
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -286,6 +287,14 @@ pub enum IndexError {
     StdSourceMissing(PathBuf),
     #[error("The download of the std source failed: {0}.")]
     StdSourceDownload(String),
+    #[error("The tool file {path} has the sha256 {found}. The pinned value is {expected}.")]
+    ToolChecksum {
+        path: PathBuf,
+        found: String,
+        expected: String,
+    },
+    #[error("The download of a tool failed: {0}.")]
+    ToolDownload(String),
     #[error("The SCIP run did not turn off the build: {0}.")]
     BuildNotOff(String),
     #[error("The summarizer gave no summary for {name}: {message}.")]

@@ -135,15 +135,19 @@ pub fn run(
         .filter(|o| o.status.success())
         .ok_or_else(|| IndexError::Scip(format!("{} --version did not run", program.display())))?;
     let rust_analyzer = String::from_utf8_lossy(&version.stdout).trim().to_string();
-    // The rustup proxy chooses the toolchain of the repository.
-    let sysroot = Command::new("rustc")
-        .args(["--print", "sysroot"])
-        .current_dir(&root)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
-        .ok_or_else(|| IndexError::Scip("rustc --print sysroot did not run".into()))?;
+    // The given toolchain (the tools folder of the server), else the one
+    // that the rustup proxy chooses for the repository.
+    let sysroot = match &options.sysroot {
+        Some(sysroot) => sysroot.clone(),
+        None => Command::new("rustc")
+            .args(["--print", "sysroot"])
+            .current_dir(&root)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+            .ok_or_else(|| IndexError::Scip("rustc --print sysroot did not run".into()))?,
+    };
     // The pinned std source, with the sha256 of its archive checked.
     let std_source = crate::rust_analyzer::resolve_std_source(options)?;
 

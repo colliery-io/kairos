@@ -27,15 +27,24 @@
 //! and stores the result. [`run_builder`] runs a sweep on an interval, as the
 //! embedding refresher does. The first index of a repository comes from an
 //! upload: a full build of Kairos takes about 12 hours on a CPU.
+//!
+//! # The tools
+//!
+//! The image does not hold the tools of the builder (COLLIERY-T-2525). At
+//! each start, [`prepare_tools`] checks them in `tools/` of
+//! `KAIROS_CODE_INDEX_DIR`, and downloads the ones that are not there
+//! ([`kairos_index::tools`]). Without `KAIROS_CODE_INDEX_DIR`, nothing is
+//! downloaded.
 
 pub mod git;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use kairos_db::models::repositories::Repository;
+use kairos_index::tools::{ToolSet, Tools};
 use kairos_index::{IndexError, Summarizer, UpdateOptions, UpdateReport};
 
 use crate::blocking::BlockingTenantPool;
@@ -60,6 +69,9 @@ pub struct CodeIndexService {
     /// not try them again. Held here, not in the database: a restart tries
     /// them one more time.
     failed: Mutex<HashSet<(uuid::Uuid, String)>>,
+    /// The SCIP options of a build: the tools of [`prepare_tools`], when
+    /// they are ready.
+    build: OnceLock<kairos_index::BuildOptions>,
 }
 
 impl std::fmt::Debug for CodeIndexService {
@@ -79,7 +91,31 @@ impl CodeIndexService {
             remote_of,
             locks: Mutex::default(),
             failed: Mutex::default(),
+            build: OnceLock::new(),
         }
+    }
+
+    /// The folder of the clones and of the tools.
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Use `tools` for the SCIP run of each build. Only the first call
+    /// counts.
+    pub fn use_tools(&self, tools: &Tools) {
+        let _ = self.build.set(tools.build_options());
+    }
+
+    /// The SCIP options of a build: the tools, else the pinned files at
+    /// their default paths. Never a download.
+    pub fn build_options(&self) -> kairos_index::BuildOptions {
+        self.build
+            .get()
+            .cloned()
+            .unwrap_or_else(|| kairos_index::BuildOptions {
+                download: false,
+                ..Default::default()
+            })
     }
 
     /// A service that fetches each repository from its `repo_url`.
@@ -173,23 +209,54 @@ impl SummarizerSource for LlamaSummarizers {
     }
 }
 
-/// The summarizer of this build of the server, if it has one: the `llama`
-/// feature and the model file at [`kairos_index::model_path`]. The reason
-/// when it has none.
-pub fn summarizers() -> Result<Arc<dyn SummarizerSource>, String> {
+/// Why a build of the server without the `llama` feature has no builder.
+const NO_SUMMARIZER: &str = "this build of the server has no summarizer (the feature llama)";
+
+/// Whether this build of the server has a summarizer: the `llama` feature.
+/// The reason when it has none.
+pub fn has_summarizer() -> Result<(), String> {
+    if cfg!(feature = "llama") {
+        Ok(())
+    } else {
+        Err(NO_SUMMARIZER.to_string())
+    }
+}
+
+/// The summarizer of this build of the server, with the model file of
+/// `tools`. The reason when the build has none.
+pub fn summarizers(tools: &Tools) -> Result<Arc<dyn SummarizerSource>, String> {
     #[cfg(feature = "llama")]
     {
-        let model = kairos_index::model_path()
-            .ok_or_else(|| "KAIROS_INDEX_MODEL and HOME are not set".to_string())?;
-        if !model.is_file() {
-            return Err(format!("the summary model is not at {}", model.display()));
-        }
-        Ok(Arc::new(LlamaSummarizers { model }))
+        Ok(Arc::new(LlamaSummarizers {
+            model: tools.model.clone(),
+        }))
     }
     #[cfg(not(feature = "llama"))]
     {
-        Err("this build of the server has no summarizer (the feature llama)".to_string())
+        let _ = tools;
+        Err(NO_SUMMARIZER.to_string())
     }
+}
+
+/// The folder of the tools in `KAIROS_CODE_INDEX_DIR`.
+pub const TOOLS_DIR: &str = "tools";
+
+/// Check the tools of the builder in `tools/` of `code_index_dir`, and
+/// download each one that is not there (COLLIERY-T-2525). `Ok(None)`: the
+/// deployment has no `KAIROS_CODE_INDEX_DIR`, so nothing is checked or
+/// downloaded. The error names the file or the URL that failed.
+pub fn prepare_tools(
+    code_index_dir: Option<&Path>,
+    set: &ToolSet,
+) -> Result<Option<Tools>, String> {
+    let Some(dir) = code_index_dir else {
+        return Ok(None);
+    };
+    let tools = kairos_index::tools::prepare(&dir.join(TOOLS_DIR), set, &mut |d| {
+        tracing::info!(file = %d.file, url = %d.url, "the code index builder downloads a tool");
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(Some(tools))
 }
 
 /// What a sweep did for one repository.
@@ -395,6 +462,7 @@ async fn build_repository(
     // model for minutes.
     let built = {
         let head = head.clone();
+        let build_options = service.build_options();
         tokio::task::spawn_blocking(move || -> Result<_, String> {
             let work = tempfile::Builder::new()
                 .prefix("kairos-code-index-")
@@ -414,10 +482,7 @@ async fn build_repository(
                 // The server runs SCIP for each push (COLLIERY-I-0264,
                 // decision 5 of 2026-10-01).
                 rust_edges: true,
-                build: kairos_index::BuildOptions {
-                    download: false,
-                    ..Default::default()
-                },
+                build: build_options,
                 ..Default::default()
             };
             let report = summarizers

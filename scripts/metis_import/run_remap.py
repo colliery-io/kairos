@@ -488,6 +488,11 @@ def plan(docs, issues, order, args, state, staged_info, also, ctx=None):
         for row in rows:
             print("  PROBLEM %s: %s" % (name, row))
             problems += 1
+    for code in issues.get("ambiguous", ()):
+        files = sorted(d["metis_path"] for d in docs.values() if d.get("metis_code") == code)
+        print("  AMBIGUOUS %s: %d documents have this code (%s). Each one is imported with its "
+              "file in its footer. References to the code stay as written."
+              % (code, len(files), ", ".join(files)))
     for key, missing in remap.gaps(docs).items():
         print("  Numbers with no document, %s: %s" % (key, compact(missing)))
     phases = collections.Counter()
@@ -658,6 +663,16 @@ def verify(api, ctx, docs, order, args, state, staged, mapping):
 
 # --- entry ----------------------------------------------------------------
 
+def rewrite_codes(state, issues):
+    """The old -> new codes that the text rewrite uses. A code that 2 Metis
+    documents used is left out, so a reference to it stays as written: the
+    reference cannot say which of the 2 items it means. The `<code>~<n>` keys
+    are left out too; no text names them."""
+    ambiguous = set(issues.get("ambiguous", ()))
+    return {old: new for old, new in state["codes"].items()
+            if old not in ambiguous and "~" not in old}
+
+
 def main(args):
     docs, issues = inventory(args.metis, strict=False)
     order = remap.creation_order(docs)
@@ -688,7 +703,7 @@ def main(args):
     mapping = dict(also)
 
     if args.mode == "verify":
-        mapping.update(state["codes"])
+        mapping.update(rewrite_codes(state, issues))
         return 1 if verify(api, ctx, docs, order, args, state, staged, mapping) else 0
 
     if issues["duplicates"] or issues["unknown_level"]:
@@ -715,7 +730,7 @@ def main(args):
     print("Pass 1: %d items have a code." % len(state["codes"]))
     pass_edges(api, docs, order, args, state, state_path)
     print("Pass 2: %d steps are done, %d edges refused." % (len(state["done"]), len(state["refused"])))
-    mapping.update(state["codes"])
+    mapping.update(rewrite_codes(state, issues))
     changed = pass_references(api, docs, order, args, state, state_path, staged, mapping)
     print("Pass 3: %d items got new references." % changed)
     pass_archive(api, docs, args, state, state_path)

@@ -105,7 +105,7 @@ def footer(repository, doc):
     created = (doc.get("created_at") or "")[:10]
     parts = [
         "This item came from the Metis record of the repository %s." % repository,
-        "Its Metis code was %s." % doc["short_code"],
+        footer_marker(doc),
         ("Metis created it on %s." % created) if created
         else "Metis did not record the date when it was created.",
         ("Its Metis phase was %s." % doc["phase"]) if doc.get("phase")
@@ -118,7 +118,11 @@ def footer(repository, doc):
 
 def footer_marker(doc):
     """The words of the footer that identify the item: used to adopt an item
-    that a crash left out of the state file."""
+    that a crash left out of the state file. A code that 2 Metis documents
+    used also names the file, so that each of the 2 items has its own marker."""
+    if doc.get("metis_path"):
+        return ("Its Metis code was %s. A different Metis document had the same code. "
+                "This one was the file %s." % (doc["metis_code"], doc["metis_path"]))
     return "Its Metis code was %s." % doc["short_code"]
 
 

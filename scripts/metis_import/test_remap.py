@@ -216,8 +216,77 @@ class Files(unittest.TestCase):
         self.assertEqual((d["phase"], d["parent"], d["blocked_by"], d["archived"]),
                          ("todo", "X-I-0001", ["X-T-0001"], True))
         self.assertEqual(d["body"], "# Do it\n\nText.\n")
-        self.assertEqual(list(docs), ["X-T-0002"])
-        self.assertEqual(issues["duplicates"], ["X-T-0002"])
+        # strict=False keeps both files of a duplicated code (see
+        # test_two_documents_with_one_code_are_both_kept).
+        self.assertEqual(list(docs), ["X-T-0002", "X-T-0002~2"])
+        self.assertEqual(issues["ambiguous"], ["X-T-0002"])
+        with self.assertRaises(ValueError):
+            with tempfile.TemporaryDirectory() as tmp:
+                for name in ("a.md", "b.md"):
+                    with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                        f.write(text)
+                inventory(tmp, strict=True)
+
+    def _parse(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            return parse(path)
+
+    def test_a_code_in_id_and_inline_tags(self):
+        # SKADI-T-0577: the code is in `id`, and the tags are an inline list.
+        d = self._parse('---\nid: SKADI-T-0577\nlevel: task\ntitle: "Stop the audiobook"\n'
+                        'archived: false\nphase: completed\n'
+                        'tags: ["#task", "#phase/completed", "#android", "#bug"]\n---\n\n# Body\n')
+        self.assertEqual((d["short_code"], d["level"], d["phase"]),
+                         ("SKADI-T-0577", "task", "completed"))
+        self.assertIn("#bug", d["tags"])
+
+    def test_no_level_comes_from_the_level_tag(self):
+        # SKADI-T-0563: a short code, no level, a blank line before the tags.
+        d = self._parse('---\ntitle: "Ignore DROP TABLE"\nshort_code: "SKADI-T-0563"\n\n'
+                        'tags:\n  - "#task"\n  - "#phase/backlog"\n  - "#tech-debt"\n\n'
+                        'initiative_id: NULL\n---\n\n# Body\n')
+        self.assertEqual((d["short_code"], d["level"], d["phase"]),
+                         ("SKADI-T-0563", "task", "backlog"))
+
+    def test_no_level_and_no_level_tag_comes_from_the_code_letter(self):
+        d = self._parse('---\nshort_code: "SKADI-I-0070"\ntitle: "X"\ntags:\n  - "#phase/discovery"\n'
+                        '---\n\n# Body\n')
+        self.assertEqual(d["level"], "initiative")
+
+    def test_two_documents_with_one_code_are_both_kept(self):
+        # SKADI-T-0577 is in backlog/bugs/ and in backlog/features/.
+        with tempfile.TemporaryDirectory() as tmp:
+            for sub, title in (("bugs", "Stop the audiobook"), ("features", "Declutter pass")):
+                os.makedirs(os.path.join(tmp, sub))
+                with open(os.path.join(tmp, sub, "SKADI-T-0577.md"), "w", encoding="utf-8") as f:
+                    f.write('---\nshort_code: "SKADI-T-0577"\nlevel: task\ntitle: "%s"\n'
+                            'tags:\n  - "#phase/completed"\n---\n\n# %s\n' % (title, title))
+            docs, issues = inventory(tmp, strict=False)
+        self.assertEqual(sorted(docs), ["SKADI-T-0577", "SKADI-T-0577~2"])
+        self.assertEqual(issues["ambiguous"], ["SKADI-T-0577"])
+        self.assertEqual(issues["duplicates"], [])
+        first, second = docs["SKADI-T-0577"], docs["SKADI-T-0577~2"]
+        self.assertEqual((first["title"], second["title"]), ("Stop the audiobook", "Declutter pass"))
+        # Each footer has the real code and its own file, so each marker is unique.
+        self.assertIn("Its Metis code was SKADI-T-0577.", remap.footer("skadi", second))
+        self.assertIn("bugs/SKADI-T-0577.md", remap.footer_marker(first))
+        self.assertIn("features/SKADI-T-0577.md", remap.footer_marker(second))
+        self.assertNotIn(remap.footer_marker(first), remap.footer("skadi", second))
+        # The creation order can read the number of the second key.
+        self.assertEqual(len(remap.creation_order(docs)), 2)
+        # A reference to the ambiguous code is not rewritten.
+        from metis_import.run_remap import rewrite_codes
+        codes = rewrite_codes({"codes": {"SKADI-T-0577": "C-T-0001", "SKADI-T-0577~2": "C-T-0002",
+                                         "SKADI-T-0001": "C-T-0003"}}, issues)
+        self.assertEqual(codes, {"SKADI-T-0001": "C-T-0003"})
+        out, _ = remap.rewrite_text("See SKADI-T-0577 and SKADI-T-0001.", codes)
+        self.assertEqual(out, "See SKADI-T-0577 and C-T-0003.")
+
+    def test_an_id_that_is_not_a_code_is_not_a_short_code(self):
+        self.assertIsNone(self._parse('---\nid: some-slug\nlevel: task\n---\n\n# Body\n'))
 
     def test_also_map_and_signature(self):
         with tempfile.TemporaryDirectory() as tmp:

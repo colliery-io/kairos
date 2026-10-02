@@ -16,6 +16,11 @@
 //! of the tokens of a function or a method, and `symbols.token_count`, for the
 //! `near` kind of repeated code. A build reuses the vector of each tree hash that the index has.
 //!
+//! Version 5 (COLLIERY-T-2531): an edge that SCIP resolved to a definition
+//! with no symbol (a function that a macro makes) keeps the place of that
+//! definition: `edges.target_file_id`, `edges.target_line` and
+//! `edges.target_macro`.
+//!
 //! An index of an earlier version is refused.
 //!
 //! `PRAGMA user_version` holds the schema version.
@@ -25,7 +30,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -73,6 +78,10 @@ CREATE INDEX symbols_tree_hash ON symbols (tree_hash);
 -- a Rust macro invocation shows and SCIP did not resolve (COLLIERY-T-1851).
 -- scip_pending: a name class in a Rust file that changed after the last SCIP
 -- run. A run with the Rust edges replaces it.
+-- target_*: a certain SCIP edge to a definition with no symbol, for example
+-- a function that a macro makes, has no callee_id. It keeps the place of
+-- the definition, and target_macro = 1 if a macro invocation holds that
+-- place (COLLIERY-T-2531).
 CREATE TABLE edges (
     id          INTEGER PRIMARY KEY,
     caller_id   INTEGER NOT NULL REFERENCES symbols (id) ON DELETE CASCADE,
@@ -83,7 +92,11 @@ CREATE TABLE edges (
     origin      TEXT    NOT NULL CHECK (origin IN ('scip', 'name', 'macro-text')),
     line        INTEGER NOT NULL,
     col         INTEGER NOT NULL,
-    scip_pending INTEGER NOT NULL DEFAULT 0 CHECK (scip_pending IN (0, 1))
+    scip_pending INTEGER NOT NULL DEFAULT 0 CHECK (scip_pending IN (0, 1)),
+    target_file_id INTEGER REFERENCES files (id) ON DELETE CASCADE,
+    target_line    INTEGER,                 -- from 1
+    target_macro   INTEGER NOT NULL DEFAULT 0 CHECK (target_macro IN (0, 1)),
+    CHECK (target_file_id IS NULL OR (callee_id IS NULL AND target_line IS NOT NULL))
 ) STRICT;
 CREATE INDEX edges_caller ON edges (caller_id);
 CREATE INDEX edges_callee ON edges (callee_id);

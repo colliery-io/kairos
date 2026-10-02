@@ -46,3 +46,9 @@ Feature: The CLI and the code tools
   Scenario: An unknown argument of duplicates is refused
     When an agent calls duplicates with an argument that the tool does not have
     Then the call is refused, and the error names the argument
+
+  # COLLIERY-T-2531: path gives up to 3 chains, shortest first.
+  Scenario: path gives more than one chain
+    Given the polyglot fixture, where main reaches target by 2 different routes
+    When an agent calls path from main to target
+    Then the result has the 2 routes, shortest first

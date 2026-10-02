@@ -10,9 +10,14 @@
 #                  gives it.
 #   [[unrelated]]  2 symbols that are not repeated code. No group may hold
 #                  both.
+#   [[direct_call]] 2 functions with the same meaning, where the second
+#                  calls the first. A function and its callee are not
+#                  repeated code, so no group may hold both
+#                  (COLLIERY-T-2531).
 #
 # The `same-idea` group needs summaries with the same meaning: the scenarios
-# give the 2 functions the same summary text (tests/bdd.rs, SAME_IDEA).
+# give the 2 functions the same summary text (tests/bdd.rs, SAME_IDEA). The
+# [[direct_call]] pair also gets one summary text (SAME_IDEA_CALL).
 
 [[group]]
 kind = "exact"
@@ -75,4 +80,11 @@ symbols = [
 symbols = [
     { file = "web/src/totals.ts", name = "sumCents" },
     { file = "python/polyglot/stats.py", name = "summarize_rows" },
+]
+
+# The same summary, and listCents calls centsOf.
+[[direct_call]]
+symbols = [
+    { file = "web/src/cents.ts", name = "centsOf" },
+    { file = "web/src/cents.ts", name = "listCents" },
 ]

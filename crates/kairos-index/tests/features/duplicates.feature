@@ -44,3 +44,10 @@ Feature: Repeated code
     Given an index with token vectors
     When I change one function and update the index
     Then only that function's token vector is made again
+
+  # COLLIERY-T-2531: in the evaluation of COLLIERY-T-1856, 2 of the 3 wrong
+  # same-idea groups were a function and a function that it calls.
+  Scenario: same-idea skips a function and its direct callee
+    Given 2 functions with the same meaning, where one calls the other
+    When I ask for duplicates of kind same-idea
+    Then the pair is not a group

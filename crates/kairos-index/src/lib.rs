@@ -54,8 +54,8 @@ pub use duplicates::{
 #[cfg(feature = "llama")]
 pub use llama::{LlamaModelFile, LlamaSummarizer, MAX_NEW_TOKENS};
 pub use query::{
-    CallEdge, Counts, External, FileInfo, Lookup, ModuleInfo, PathStep, SearchHit, SearchMode,
-    SearchResult, SymbolInfo,
+    CallEdge, Callees, Counts, External, FileInfo, Lookup, ModuleInfo, NoSymbolCallee, PathStep,
+    SearchHit, SearchMode, SearchResult, SymbolInfo,
 };
 pub use rules::{Decision, Origin, RuleSet};
 pub use rust_analyzer::BuildOptions;
@@ -230,6 +230,19 @@ pub struct EdgeRecord {
     pub candidates: Vec<SymbolRef>,
     /// A name class in a changed Rust file, until a SCIP run replaces it.
     pub scip_pending: bool,
+    /// The place of the definition, for a `certain` edge with no callee: a
+    /// function that a macro makes (COLLIERY-T-2531).
+    pub target: Option<EdgeTarget>,
+}
+
+/// The place of a definition with no symbol (COLLIERY-T-2531).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeTarget {
+    pub file: String,
+    /// From 1.
+    pub line: u32,
+    /// A macro invocation holds the place: the macro makes the function.
+    pub macro_made: bool,
 }
 
 /// An error of the index. The texts follow ASD-STE100: a user can see them.
@@ -590,6 +603,7 @@ fn build(
                 calls: &found.calls,
                 use_ranges: &found.use_ranges,
                 macro_calls: &found.macro_calls,
+                macro_ranges: &found.macro_ranges,
             });
             file_ids.push(file_id);
         }
@@ -604,8 +618,8 @@ fn build(
         }
         let mut insert_edge = tx.prepare(
             "INSERT INTO edges (caller_id, callee_id, callee_name, edge_kind, class, origin, line, col,
-                                scip_pending)
-             VALUES (?1, ?2, ?3, 'call', ?4, ?5, ?6, ?7, ?8)",
+                                scip_pending, target_file_id, target_line, target_macro)
+             VALUES (?1, ?2, ?3, 'call', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )?;
         let mut insert_candidate = tx.prepare(
             "INSERT OR IGNORE INTO edge_candidates (edge_id, symbol_id) VALUES (?1, ?2)",
@@ -620,6 +634,9 @@ fn build(
                 e.line as i64,
                 e.col as i64,
                 e.scip_pending,
+                e.target.as_ref().map(|t| file_ids[t.file]),
+                e.target.as_ref().map(|t| t.line as i64),
+                e.target.as_ref().is_some_and(|t| t.macro_made),
             ])?;
             let edge_id = tx.last_insert_rowid();
             for c in &e.candidates {
@@ -823,10 +840,12 @@ impl Index {
         let mut stmt = self.conn.prepare(
             "SELECT e.id, e.callee_name, e.edge_kind, e.class, e.origin, e.line, e.col,
                     cf.path, c.name, c.container, c.start_line,
-                    tf.path, t.name, t.container, t.start_line, e.scip_pending
+                    tf.path, t.name, t.container, t.start_line, e.scip_pending,
+                    gf.path, e.target_line, e.target_macro
              FROM edges e
              JOIN symbols c ON c.id = e.caller_id JOIN files cf ON cf.id = c.file_id
              LEFT JOIN symbols t ON t.id = e.callee_id LEFT JOIN files tf ON tf.id = t.file_id
+             LEFT JOIN files gf ON gf.id = e.target_file_id
              ORDER BY cf.path, c.start_byte, e.line, e.col, e.callee_name",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -843,6 +862,17 @@ impl Index {
                     col: r.get(6)?,
                     candidates: Vec::new(),
                     scip_pending: r.get(15)?,
+                    target: match (
+                        r.get::<_, Option<String>>(16)?,
+                        r.get::<_, Option<u32>>(17)?,
+                    ) {
+                        (Some(file), Some(line)) => Some(EdgeTarget {
+                            file,
+                            line,
+                            macro_made: r.get(18)?,
+                        }),
+                        _ => None,
+                    },
                 },
             ))
         })?;

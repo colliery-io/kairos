@@ -46,11 +46,13 @@ fn fixture_root() -> PathBuf {
 
 /// The entry point that the path scenario starts from. The fixture has no
 /// binary, so each tool scenario adds this one: `main` calls `run`, `run`
-/// calls `enqueue_all`, and `enqueue_all` calls `Queue::push`.
+/// calls `enqueue_all`, and `enqueue_all` calls `Queue::push`. `main` also
+/// calls `routes::dispatch`, which reaches `routes::target` by 2 routes
+/// (COLLIERY-T-2531).
 const MAIN_RS: &str = r#"//! The entry point of the polyglot fixture (COLLIERY-T-1852).
 
 fn main() {
-    println!("{}", run());
+    println!("{} {}", run(), polyglot::routes::dispatch(true));
 }
 
 /// Puts 3 numbers on a queue and gives its length.
@@ -404,6 +406,15 @@ fn an_index(world: &mut CliWorld) {
     world.build_index();
 }
 
+#[given("the polyglot fixture, where main reaches target by 2 different routes")]
+fn an_index_with_two_routes(world: &mut CliWorld) {
+    world.copy_fixture();
+    let routes = fs::read_to_string(world.root().join("src/routes.rs")).expect("read routes.rs");
+    assert!(routes.contains("direct()") && routes.contains("indirect()"));
+    fs::write(world.root().join("src/main.rs"), MAIN_RS).expect("write src/main.rs");
+    world.build_index();
+}
+
 #[given("an index where a Python function has 1 certain caller and 1 possible caller")]
 fn an_index_with_two_callers(world: &mut CliWorld) {
     world.copy_fixture();
@@ -451,6 +462,11 @@ fn callers_of_load_with_possible(world: &mut CliWorld) {
 #[when("an agent calls path from the Rust entry point to a Rust function 3 calls deep")]
 fn path_from_main(world: &mut CliWorld) {
     world.call("path", json!({"from": "main", "to": "Queue::push"}));
+}
+
+#[when("an agent calls path from main to target")]
+fn path_from_main_to_target(world: &mut CliWorld) {
+    world.call("path", json!({"from": "main", "to": "target"}));
 }
 
 #[when("an agent calls symbol with an argument that the tool does not have")]
@@ -579,6 +595,46 @@ fn three_calls(world: &mut CliWorld) {
             step.contains(&format!(" {caller} calls {callee} ")),
             "the step {step:?} is not {caller} calls {callee}:\n{text}"
         );
+    }
+}
+
+#[then("the result has the 2 routes, shortest first")]
+fn two_routes(world: &mut CliWorld) {
+    let text = world.text();
+    // Each chain starts with a line "Chain N, ..." and has its calls as
+    // numbered lines.
+    let mut chains: Vec<Vec<&str>> = Vec::new();
+    for line in text.lines() {
+        if line.starts_with("Chain ") {
+            chains.push(Vec::new());
+        } else if let Some(chain) = chains.last_mut()
+            && !numbered(line).is_empty()
+        {
+            chain.push(line);
+        }
+    }
+    let expected: [&[(&str, &str)]; 2] = [
+        &[
+            ("main", "dispatch"),
+            ("dispatch", "direct"),
+            ("direct", "target"),
+        ],
+        &[
+            ("main", "dispatch"),
+            ("dispatch", "indirect"),
+            ("indirect", "relay"),
+            ("relay", "target"),
+        ],
+    ];
+    assert_eq!(chains.len(), expected.len(), "{text}");
+    for (chain, want) in chains.iter().zip(expected) {
+        assert_eq!(chain.len(), want.len(), "{text}");
+        for (step, (caller, callee)) in chain.iter().zip(want) {
+            assert!(
+                step.contains(&format!(" {caller} calls {callee} ")),
+                "the step {step:?} is not {caller} calls {callee}:\n{text}"
+            );
+        }
     }
 }
 

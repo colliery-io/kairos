@@ -17,6 +17,10 @@
 #               languages (`fmt.Println`). When the part before the name is
 #               not a plain path, only the name is kept (`split` in
 #               `line.rstrip("\n").split(",")`).
+#   target      the place of a definition with no symbol, for a certain
+#               edge with no callee: { file, line, macro }. `macro` is true
+#               when a macro invocation holds the place, so the macro makes
+#               the function (COLLIERY-T-2531).
 #
 # A Rust macro call (assert_eq!) is not an edge, but a call in its arguments
 # is: SCIP resolves it. A call in the text of a macro that SCIP does not
@@ -533,3 +537,77 @@ caller = { file = "web/src/totals.ts", name = "addUpCents", line = 14 }
 at = 18
 class = "external"
 external = "amounts.reduce"
+
+# --- The call graph does not guess (COLLIERY-T-2531) ----------------------------
+
+# A qualified call in the text of a macro: b::start. Module b has no start,
+# and the only start is in module c, so the path does not match and the edge
+# is possible, not certain.
+[[edge]]
+caller = { file = "src/a.rs", name = "run", line = 12 }
+at = 13
+class = "possible"
+origin = "macro-text"
+candidates = [
+    { file = "src/c.rs", name = "start", line = 5 },
+]
+
+# A call to the function that transition_fn! makes: SCIP gives its
+# definition in the macro invocation, where no symbol is. The edge keeps that
+# place and does not go to api::transition_task, the only symbol of that
+# name. So the handler has no edge to itself.
+[[edge]]
+caller = { file = "src/api.rs", name = "transition_task", line = 7 }
+at = 8
+class = "certain"
+target = { file = "src/boards.rs", line = 13, macro = true }
+
+[[edge]]
+caller = { file = "src/mcp.rs", name = "transition_item", line = 6 }
+at = 7
+class = "certain"
+target = { file = "src/boards.rs", line = 13, macro = true }
+
+# 2 routes from dispatch to target: direct, and indirect through relay.
+[[edge]]
+caller = { file = "src/routes.rs", name = "dispatch", line = 4 }
+at = 6
+class = "certain"
+callee = { file = "src/routes.rs", name = "direct", line = 13 }
+
+[[edge]]
+caller = { file = "src/routes.rs", name = "dispatch", line = 4 }
+at = 8
+class = "certain"
+callee = { file = "src/routes.rs", name = "indirect", line = 18 }
+
+[[edge]]
+caller = { file = "src/routes.rs", name = "direct", line = 13 }
+at = 14
+class = "certain"
+callee = { file = "src/routes.rs", name = "target", line = 28 }
+
+[[edge]]
+caller = { file = "src/routes.rs", name = "indirect", line = 18 }
+at = 19
+class = "certain"
+callee = { file = "src/routes.rs", name = "relay", line = 23 }
+
+[[edge]]
+caller = { file = "src/routes.rs", name = "relay", line = 23 }
+at = 24
+class = "certain"
+callee = { file = "src/routes.rs", name = "target", line = 28 }
+
+# A TypeScript function that calls a function with the same job.
+[[edge]]
+caller = { file = "web/src/cents.ts", name = "centsOf", line = 6 }
+at = 9
+class = "external"
+external = "out.push"
+
+[[edge]]
+caller = { file = "web/src/cents.ts", name = "listCents", line = 14 }
+at = 15
+class = "certain"
+callee = { file = "web/src/cents.ts", name = "centsOf", line = 6 }

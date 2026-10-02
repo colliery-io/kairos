@@ -10,7 +10,9 @@
 //! Only functions and methods are compared: a type or an `impl` block holds
 //! them, and would give each group again. A `near` pair has 2 symbols of one
 //! language; a `same-idea` pair can have 2 languages. A `same-idea` pair is
-//! left out when the 2 symbols are already in one `exact` or `near` group.
+//! left out when the 2 symbols are already in one `exact` or `near` group,
+//! or when a direct `certain` call edge joins them: a function and its
+//! callee are layers of one job (COLLIERY-T-2531).
 //!
 //! A group joins each pair over the threshold that shares a symbol, and its
 //! score is the lowest score of these pairs.
@@ -218,11 +220,22 @@ impl Index {
                 }
             }
             let nodes: Vec<Vec<usize>> = by_key.into_values().collect();
+            // A function and a function that it calls are layers of one
+            // job, not the same idea twice (COLLIERY-T-2531).
+            let calls = self.direct_calls()?;
+            let joined_by_call = |a: &[usize], b: &[usize]| {
+                a.iter().any(|&x| {
+                    b.iter().any(|&y| {
+                        let (x, y) = (candidates[x].info.id, candidates[y].info.id);
+                        calls.contains(&(x.min(y), x.max(y)))
+                    })
+                })
+            };
             let mut pairs = Vec::new();
             for a in 0..nodes.len() {
                 for b in a + 1..nodes.len() {
                     let (x, y) = (nodes[a][0], nodes[b][0]);
-                    if joined.find(x) == joined.find(y) {
+                    if joined.find(x) == joined.find(y) || joined_by_call(&nodes[a], &nodes[b]) {
                         continue;
                     }
                     let (Some(va), Some(vb)) =
@@ -253,6 +266,22 @@ impl Index {
                 .then_with(|| a.symbols[0].place().cmp(&b.symbols[0].place()))
         });
         Ok(found)
+    }
+
+    /// The pairs of symbols that a direct `certain` call edge joins, each as
+    /// (smaller id, larger id).
+    fn direct_calls(&self) -> Result<HashSet<(i64, i64)>, IndexError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT caller_id, callee_id FROM edges
+             WHERE class = 'certain' AND callee_id IS NOT NULL AND callee_id != caller_id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut out = HashSet::new();
+        for row in rows {
+            let (a, b) = row?;
+            out.insert((a.min(b), a.max(b)));
+        }
+        Ok(out)
     }
 
     /// The functions and methods that `options` keeps.

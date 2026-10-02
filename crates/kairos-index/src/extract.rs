@@ -9,7 +9,7 @@ use kairos_narsil::symbols::{Symbol, SymbolKind};
 use sha2::{Digest, Sha256};
 use tree_sitter::{Node, Tree};
 
-use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_use_ranges};
+use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_macro_ranges, rust_use_ranges};
 use crate::tokens;
 
 /// The language of a file, from its extension: the languages of the index
@@ -57,6 +57,8 @@ pub struct FileExtract {
     pub calls: Vec<CallSite>,
     pub use_ranges: Vec<(usize, usize)>,
     pub macro_calls: Vec<CallSite>,
+    /// The byte ranges of the Rust macro invocations (COLLIERY-T-2531).
+    pub macro_ranges: Vec<(usize, usize)>,
 }
 
 /// Parse `content` and return its symbols in source order, and its call
@@ -100,10 +102,14 @@ pub fn extract(
 
     let source = content.as_bytes();
     let calls = call_sites(language, &tree, source);
-    let (use_ranges, macro_calls) = if language == "rust" {
-        (rust_use_ranges(&tree), rust_macro_calls(&tree, source))
+    let (use_ranges, macro_calls, macro_ranges) = if language == "rust" {
+        (
+            rust_use_ranges(&tree),
+            rust_macro_calls(&tree, source),
+            rust_macro_ranges(&tree),
+        )
     } else {
-        (Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), Vec::new())
     };
     let symbols: Vec<Extracted> = symbols
         .iter()
@@ -147,6 +153,7 @@ pub fn extract(
         calls,
         use_ranges,
         macro_calls,
+        macro_ranges,
     })
 }
 

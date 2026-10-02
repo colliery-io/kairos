@@ -456,19 +456,50 @@ impl CodeTools {
             let index = self.open()?;
             let s = find(&index, &params.symbol, params.file.as_deref())?;
             let possible = params.possible.unwrap_or(false);
-            let (edges, externals) = index.callees(s.id, possible)?;
+            let kairos_index::Callees {
+                edges,
+                no_symbol,
+                externals,
+            } = index.callees(s.id, possible)?;
             let mut out = format!(
                 "{} calls {} in the checkout:",
                 described(&s),
-                plural(edges.len(), "function", "functions")
+                plural(edges.len() + no_symbol.len(), "function", "functions")
             );
-            for e in &edges {
-                out.push_str(&format!(
-                    "\n- {}, call at line {}, {}",
-                    described(&e.other),
-                    e.line,
-                    marks(e)
-                ));
+            // One line for each callee, in the order of the calls. A callee
+            // with no symbol (a function that a macro makes) shows the place
+            // of its definition (COLLIERY-T-2531).
+            let mut lines: Vec<(u32, String)> = edges
+                .iter()
+                .map(|e| {
+                    (
+                        e.line,
+                        format!(
+                            "\n- {}, call at line {}, {}",
+                            described(&e.other),
+                            e.line,
+                            marks(e)
+                        ),
+                    )
+                })
+                .collect();
+            lines.extend(no_symbol.iter().map(|c| {
+                let made = if c.macro_made {
+                    "made by a macro there, with no symbol"
+                } else {
+                    "defined there, with no symbol"
+                };
+                (
+                    c.call_line,
+                    format!(
+                        "\n- {} ({}:{}, {made}), call at line {}, {}",
+                        c.name, c.file, c.line, c.call_line, c.class
+                    ),
+                )
+            }));
+            lines.sort_by_key(|(line, _)| *line);
+            for (_, line) in lines {
+                out.push_str(&line);
             }
             if !externals.is_empty() {
                 let mut seen = std::collections::HashSet::new();
@@ -480,7 +511,7 @@ impl CodeTools {
                 out.push_str(&format!("\nOutside the checkout: {}", names.join(", ")));
             }
             if !possible {
-                let all = index.callees(s.id, true)?.0.len();
+                let all = index.callees(s.id, true)?.edges.len();
                 if all > edges.len() {
                     out.push_str(&format!(
                         "\n{} not shown. Set `possible` to true to see them.",
@@ -497,7 +528,7 @@ impl CodeTools {
     }
 
     #[tool(
-        description = "How one symbol of this checkout reaches another: the shortest chain of certain calls from `from` to `to`, one call on each line, in order. Possible calls are not followed."
+        description = "How one symbol of this checkout reaches another: the 3 shortest chains of certain calls from `from` to `to`, shortest first, each with other steps. Each chain has one call on each line, in order. Possible calls are not followed."
     )]
     async fn path(
         &self,
@@ -507,31 +538,39 @@ impl CodeTools {
             let index = self.open()?;
             let from = find(&index, &params.from, params.from_file.as_deref())?;
             let to = find(&index, &params.to, params.to_file.as_deref())?;
-            let Some(steps) = index.path(from.id, to.id)? else {
+            let chains = index.paths(from.id, to.id, MAX_CHAINS)?;
+            if chains.is_empty() {
                 return Ok(format!(
                     "No chain of certain calls goes from {} to {}.",
                     described(&from),
                     described(&to)
                 ));
-            };
+            }
             let mut out = format!(
-                "{} from {} to {}:",
-                plural(steps.len(), "call", "calls"),
+                "{} of certain calls from {} to {}, shortest first:",
+                plural(chains.len(), "chain", "chains"),
                 described(&from),
                 described(&to)
             );
-            for (i, step) in steps.iter().enumerate() {
+            for (n, steps) in chains.iter().enumerate() {
                 out.push_str(&format!(
-                    "\n{}. {} calls {} ({}), at {}:{}",
-                    i + 1,
-                    step.caller.qualified(),
-                    step.callee.qualified(),
-                    step.callee.place(),
-                    step.caller.file,
-                    step.line
+                    "\n\nChain {}, {}:",
+                    n + 1,
+                    plural(steps.len(), "call", "calls")
                 ));
-                if step.scip_pending {
-                    out.push_str(", by name until the next SCIP run");
+                for (i, step) in steps.iter().enumerate() {
+                    out.push_str(&format!(
+                        "\n{}. {} calls {} ({}), at {}:{}",
+                        i + 1,
+                        step.caller.qualified(),
+                        step.callee.qualified(),
+                        step.callee.place(),
+                        step.caller.file,
+                        step.line
+                    ));
+                    if step.scip_pending {
+                        out.push_str(", by name until the next SCIP run");
+                    }
                 }
             }
             Ok(out)
@@ -643,6 +682,9 @@ impl ServerHandler for CodeTools {
             ))
     }
 }
+
+/// The most chains that `path` gives (COLLIERY-T-2531).
+const MAX_CHAINS: usize = 3;
 
 fn display(path: &Path) -> String {
     path.display().to_string()

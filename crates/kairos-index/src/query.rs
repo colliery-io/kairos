@@ -10,8 +10,8 @@
 //! - [`Index::lookup`]: a symbol from the name that an agent gives.
 //! - [`Index::callers`] and [`Index::callees`]: `certain` edges, and the
 //!   `possible` ones on request.
-//! - [`Index::path`]: the shortest chain of `certain` calls from one symbol
-//!   to another.
+//! - [`Index::paths`]: the 3 shortest chains of `certain` calls from one
+//!   symbol to another, with other steps (COLLIERY-T-2531).
 //! - [`Index::module_map`]: the folders of source files with their
 //!   summaries. It replaces the Metis index.
 
@@ -99,6 +99,34 @@ pub struct CallEdge {
     pub candidates: usize,
     /// A name class that waits for a SCIP run.
     pub scip_pending: bool,
+}
+
+/// A call that SCIP resolved to a definition with no symbol: a function that
+/// a macro makes (COLLIERY-T-2531). The edge keeps the place of the
+/// definition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoSymbolCallee {
+    /// The called name, as SCIP names it (`boards::transition_task`).
+    pub name: String,
+    /// The place of the definition.
+    pub file: String,
+    pub line: u32,
+    /// The definition is in the invocation of a macro.
+    pub macro_made: bool,
+    pub class: String,
+    /// The line of the call, in the file of the caller.
+    pub call_line: u32,
+}
+
+/// What `callees` gives.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Callees {
+    /// The callees with a symbol.
+    pub edges: Vec<CallEdge>,
+    /// The callees with no symbol, at the place of their definition.
+    pub no_symbol: Vec<NoSymbolCallee>,
+    /// The calls to names outside the repository.
+    pub externals: Vec<External>,
 }
 
 /// A call to a name outside the repository.
@@ -360,17 +388,26 @@ impl Index {
     /// The callees of the symbol `id`: the `certain` edges from it, and with
     /// `possible`, each candidate of its `possible` edges. The calls to
     /// names outside the repository (`external`) are the second list.
-    pub fn callees(
-        &self,
-        id: i64,
-        possible: bool,
-    ) -> Result<(Vec<CallEdge>, Vec<External>), IndexError> {
+    pub fn callees(&self, id: i64, possible: bool) -> Result<Callees, IndexError> {
         let caller = self.symbol_by_id(id)?;
         let mut stmt = self.conn.prepare(
-            "SELECT e.id, e.callee_id, e.callee_name, e.class, e.origin, e.line, e.scip_pending
-             FROM edges e WHERE e.caller_id = ?1 ORDER BY e.line, e.col",
+            "SELECT e.id, e.callee_id, e.callee_name, e.class, e.origin, e.line, e.scip_pending,
+                    t.path, e.target_line, e.target_macro
+             FROM edges e LEFT JOIN files t ON t.id = e.target_file_id
+             WHERE e.caller_id = ?1 ORDER BY e.line, e.col",
         )?;
-        type Raw = (i64, Option<i64>, String, String, String, u32, bool);
+        type Raw = (
+            i64,
+            Option<i64>,
+            String,
+            String,
+            String,
+            u32,
+            bool,
+            Option<String>,
+            Option<u32>,
+            bool,
+        );
         let raw: Vec<Raw> = stmt
             .query_map([id], |r| {
                 Ok((
@@ -381,15 +418,31 @@ impl Index {
                     r.get(4)?,
                     r.get(5)?,
                     r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
                 ))
             })?
             .collect::<Result<_, _>>()?;
         let mut edges = Vec::new();
+        let mut no_symbol = Vec::new();
         let mut externals = Vec::new();
         let mut candidates = self
             .conn
             .prepare("SELECT symbol_id FROM edge_candidates WHERE edge_id = ?1")?;
-        for (edge_id, callee_id, name, class, origin, line, scip_pending) in raw {
+        for (
+            edge_id,
+            callee_id,
+            name,
+            class,
+            origin,
+            line,
+            scip_pending,
+            target_file,
+            target_line,
+            target_macro,
+        ) in raw
+        {
             let edge = |other: SymbolInfo, count: usize| CallEdge {
                 other,
                 class: class.clone(),
@@ -401,6 +454,18 @@ impl Index {
             };
             match (class.as_str(), callee_id) {
                 ("certain", Some(callee)) => edges.push(edge(self.symbol_by_id(callee)?, 0)),
+                ("certain", None) => {
+                    if let (Some(file), Some(at)) = (target_file, target_line) {
+                        no_symbol.push(NoSymbolCallee {
+                            name,
+                            file,
+                            line: at,
+                            macro_made: target_macro,
+                            class: class.clone(),
+                            call_line: line,
+                        });
+                    }
+                }
                 ("possible", _) if possible => {
                     let ids: Vec<i64> = candidates
                         .query_map([edge_id], |r| r.get(0))?
@@ -413,12 +478,18 @@ impl Index {
                 _ => {}
             }
         }
-        Ok((edges, externals))
+        Ok(Callees {
+            edges,
+            no_symbol,
+            externals,
+        })
     }
 
-    /// The shortest chain of `certain` calls from the symbol `from` to the
-    /// symbol `to`, or `None` if no chain of at most 16 calls joins them.
-    pub fn path(&self, from: i64, to: i64) -> Result<Option<Vec<PathStep>>, IndexError> {
+    /// The shortest chains of `certain` calls from the symbol `from` to the
+    /// symbol `to`, at most `max`, shortest first, each with other steps
+    /// (COLLIERY-T-2531). Each chain has at most 16 calls. Empty if no chain
+    /// joins them.
+    pub fn paths(&self, from: i64, to: i64, max: usize) -> Result<Vec<Vec<PathStep>>, IndexError> {
         let mut stmt = self.conn.prepare(
             "SELECT caller_id, callee_id, line, scip_pending FROM edges
              WHERE class = 'certain' AND callee_id IS NOT NULL
@@ -435,51 +506,32 @@ impl Index {
         })?;
         for row in rows {
             let (caller, callee, line, pending) = row?;
-            next.entry(caller)
-                .or_default()
-                .push((callee, line, pending));
-        }
-        // Breadth first, so the first chain found is a shortest one.
-        let mut came_from: HashMap<i64, (i64, u32, bool)> = HashMap::new();
-        let mut depth: HashMap<i64, usize> = HashMap::from([(from, 0)]);
-        let mut queue = VecDeque::from([from]);
-        while let Some(at) = queue.pop_front() {
-            if at == to {
-                break;
-            }
-            if depth[&at] >= MAX_PATH_DEPTH {
-                continue;
-            }
-            for &(callee, line, pending) in next.get(&at).map(Vec::as_slice).unwrap_or_default() {
-                if depth.contains_key(&callee) {
-                    continue;
-                }
-                depth.insert(callee, depth[&at] + 1);
-                came_from.insert(callee, (at, line, pending));
-                queue.push_back(callee);
+            let list = next.entry(caller).or_default();
+            // The first call of each callee is the step of a chain.
+            if !list.iter().any(|(c, _, _)| *c == callee) {
+                list.push((callee, line, pending));
             }
         }
-        if from == to || !came_from.contains_key(&to) {
-            return Ok(None);
+        let chains = shortest_chains(&next, from, to, max);
+        let mut out = Vec::with_capacity(chains.len());
+        for chain in chains {
+            let mut steps = Vec::with_capacity(chain.len() - 1);
+            for pair in chain.windows(2) {
+                let (_, line, scip_pending) = next[&pair[0]]
+                    .iter()
+                    .find(|(c, _, _)| *c == pair[1])
+                    .copied()
+                    .expect("a step of a chain is an edge");
+                steps.push(PathStep {
+                    caller: self.symbol_by_id(pair[0])?,
+                    callee: self.symbol_by_id(pair[1])?,
+                    line,
+                    scip_pending,
+                });
+            }
+            out.push(steps);
         }
-        let mut chain = Vec::new();
-        let mut at = to;
-        while at != from {
-            let (caller, line, pending) = came_from[&at];
-            chain.push((caller, at, line, pending));
-            at = caller;
-        }
-        chain.reverse();
-        let mut steps = Vec::with_capacity(chain.len());
-        for (caller, callee, line, scip_pending) in chain {
-            steps.push(PathStep {
-                caller: self.symbol_by_id(caller)?,
-                callee: self.symbol_by_id(callee)?,
-                line,
-                scip_pending,
-            });
-        }
-        Ok(Some(steps))
+        Ok(out)
     }
 
     /// The folders of the parsed source files, with their summaries, by
@@ -636,6 +688,101 @@ impl Index {
     }
 }
 
+/// The shortest chain of symbols from `from` to `to` over `next`, breadth
+/// first, that uses no symbol of `banned` and no call of `cut`. At most
+/// [`MAX_PATH_DEPTH`] calls.
+fn shortest_chain(
+    next: &HashMap<i64, Vec<(i64, u32, bool)>>,
+    from: i64,
+    to: i64,
+    banned: &HashSet<i64>,
+    cut: &HashSet<(i64, i64)>,
+) -> Option<Vec<i64>> {
+    let mut came_from: HashMap<i64, i64> = HashMap::new();
+    let mut depth: HashMap<i64, usize> = HashMap::from([(from, 0)]);
+    let mut queue = VecDeque::from([from]);
+    while let Some(at) = queue.pop_front() {
+        if at == to {
+            break;
+        }
+        if depth[&at] >= MAX_PATH_DEPTH {
+            continue;
+        }
+        for &(callee, _, _) in next.get(&at).map(Vec::as_slice).unwrap_or_default() {
+            if depth.contains_key(&callee)
+                || banned.contains(&callee)
+                || cut.contains(&(at, callee))
+            {
+                continue;
+            }
+            depth.insert(callee, depth[&at] + 1);
+            came_from.insert(callee, at);
+            queue.push_back(callee);
+        }
+    }
+    if from == to || !came_from.contains_key(&to) {
+        return None;
+    }
+    let mut chain = vec![to];
+    let mut at = to;
+    while at != from {
+        at = came_from[&at];
+        chain.push(at);
+    }
+    chain.reverse();
+    Some(chain)
+}
+
+/// The `max` shortest chains with other steps from `from` to `to`, shortest
+/// first: Yen's algorithm over [`shortest_chain`]. Each chain has no symbol
+/// twice and at most [`MAX_PATH_DEPTH`] calls.
+fn shortest_chains(
+    next: &HashMap<i64, Vec<(i64, u32, bool)>>,
+    from: i64,
+    to: i64,
+    max: usize,
+) -> Vec<Vec<i64>> {
+    let Some(first) = shortest_chain(next, from, to, &HashSet::new(), &HashSet::new()) else {
+        return Vec::new();
+    };
+    let mut found = vec![first];
+    // The candidates, by length and then in the order found.
+    let mut candidates: Vec<Vec<i64>> = Vec::new();
+    while found.len() < max {
+        let last = found.last().expect("a chain").clone();
+        for i in 0..last.len() - 1 {
+            let root = &last[..=i];
+            let cut: HashSet<(i64, i64)> = found
+                .iter()
+                .filter(|c| c.len() > i + 1 && c[..=i] == *root)
+                .map(|c| (c[i], c[i + 1]))
+                .collect();
+            let banned: HashSet<i64> = root[..i].iter().copied().collect();
+            let Some(spur) = shortest_chain(next, last[i], to, &banned, &cut) else {
+                continue;
+            };
+            let mut chain = root[..i].to_vec();
+            chain.extend(spur);
+            if chain.len() - 1 <= MAX_PATH_DEPTH
+                && !found.contains(&chain)
+                && !candidates.contains(&chain)
+            {
+                candidates.push(chain);
+            }
+        }
+        let Some(best) = candidates
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, c)| c.len())
+            .map(|(i, _)| i)
+        else {
+            break;
+        };
+        found.push(candidates.remove(best));
+    }
+    found
+}
+
 /// The documents with a score above 0, best first. Equal scores keep the
 /// order of the documents.
 fn ranked(scores: &[(usize, f64)]) -> Vec<(usize, f64)> {
@@ -736,6 +883,19 @@ mod tests {
                 "client"
             ]
         );
+    }
+
+    #[test]
+    fn shortest_chains_are_distinct_and_shortest_first() {
+        // 1 -> 2 -> 5, 1 -> 3 -> 4 -> 5, 1 -> 3 -> 5, and 2 -> 3.
+        let mut next: HashMap<i64, Vec<(i64, u32, bool)>> = HashMap::new();
+        for (a, b) in [(1, 2), (1, 3), (2, 5), (2, 3), (3, 4), (3, 5), (4, 5)] {
+            next.entry(a).or_default().push((b, 1, false));
+        }
+        let chains = shortest_chains(&next, 1, 5, 3);
+        assert_eq!(chains, [vec![1, 2, 5], vec![1, 3, 5], vec![1, 2, 3, 5]]);
+        assert_eq!(shortest_chains(&next, 1, 5, 1), [vec![1, 2, 5]]);
+        assert!(shortest_chains(&next, 5, 1, 3).is_empty());
     }
 
     #[test]

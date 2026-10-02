@@ -54,6 +54,24 @@ pub fn rust_use_ranges(tree: &Tree) -> Vec<(usize, usize)> {
     out
 }
 
+/// The byte ranges of the Rust macro invocations of a file, outermost only.
+/// A SCIP definition in one of them is a function that the macro makes
+/// (COLLIERY-T-2531).
+pub fn rust_macro_ranges(tree: &Tree) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut cursor = tree.walk();
+    let mut stack = vec![tree.root_node()];
+    while let Some(node) = stack.pop() {
+        if node.kind() == "macro_invocation" {
+            out.push((node.start_byte(), node.end_byte()));
+            continue;
+        }
+        stack.extend(node.children(&mut cursor));
+    }
+    out.sort_unstable();
+    out
+}
+
 /// The calls in the text of each Rust macro invocation, in source order:
 /// narsil's fallback (`macro_text_calls`, COLLIERY-T-1851). It finds
 /// `name(`, `obj.method(` and `Type::method(` in the tokens, with no code
@@ -310,6 +328,18 @@ mod tests {
                 ("k".to_string(), "k".to_string(), 3, 23),
             ]
         );
+    }
+
+    #[test]
+    fn rust_macro_invocations_are_found() {
+        let parser = LanguageParser::new().unwrap();
+        let code = "make!(f, 1);\nfn g() {\n    vec![1];\n}\n";
+        let tree = parser.parse_to_tree(Path::new("a.rs"), code).unwrap();
+        let got: Vec<&str> = rust_macro_ranges(&tree)
+            .into_iter()
+            .map(|(s, e)| &code[s..e])
+            .collect();
+        assert_eq!(got, ["make!(f, 1)", "vec![1]"]);
     }
 
     #[test]

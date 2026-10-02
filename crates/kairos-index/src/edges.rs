@@ -11,6 +11,16 @@
 //!   than one; the edge lists them. `external`: none.
 //! - **Calls in the text of a Rust macro** (`macro-text`): a name class,
 //!   only where SCIP resolved nothing (COLLIERY-T-1851).
+//! - **A qualified Rust call** (`boards::f`, `Type::f`, `crate::m::f`)
+//!   gets a `certain` name class only from a function whose container or
+//!   module matches the path. If none matches, the edge is `possible` with
+//!   the other functions of that name, or `external` (COLLIERY-T-2531).
+//! - **A method call** (`x.f()`) never goes to the caller itself by name:
+//!   the receiver is not known, so a name gives no evidence of recursion.
+//! - **A SCIP definition with no symbol** (a function that a macro makes):
+//!   the edge is `certain` with no callee, and keeps the place of the
+//!   definition as its target, marked if a macro invocation holds it. It
+//!   never goes to a function of the same name (COLLIERY-T-2531).
 //! - **A local update** runs no SCIP. Each Rust function whose code did not
 //!   change keeps the SCIP edges of the base index, also in a changed file
 //!   and when its lines moved. A changed function gets name classes, marked
@@ -46,6 +56,20 @@ pub struct ParsedFile<'a> {
     pub calls: &'a [CallSite],
     pub use_ranges: &'a [(usize, usize)],
     pub macro_calls: &'a [CallSite],
+    /// The byte ranges of the Rust macro invocations (COLLIERY-T-2531).
+    pub macro_ranges: &'a [(usize, usize)],
+}
+
+/// The place of a definition with no symbol: a function that a macro makes
+/// (COLLIERY-T-2531).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTarget {
+    /// The index of the parsed file.
+    pub file: usize,
+    /// From 1.
+    pub line: usize,
+    /// A macro invocation holds the place.
+    pub macro_made: bool,
 }
 
 /// An edge, ready to insert.
@@ -60,6 +84,8 @@ pub struct NewEdge {
     pub col: usize,
     pub candidates: Vec<i64>,
     pub scip_pending: bool,
+    /// The place of the definition, for a certain edge with no callee.
+    pub target: Option<NewTarget>,
 }
 
 /// Where the Rust edges come from.
@@ -150,6 +176,8 @@ struct BaseEdge {
     class: String,
     line: usize,
     col: usize,
+    /// The place of a definition with no symbol: file, line, macro mark.
+    target: Option<(String, usize, bool)>,
 }
 
 impl BaseIndex {
@@ -213,8 +241,9 @@ impl BaseIndex {
         {
             let mut stmt = conn.prepare(
                 "SELECT e.caller_id, e.callee_id, e.callee_name, e.class, e.origin, e.line, e.col,
-                        e.scip_pending
+                        e.scip_pending, t.path, e.target_line, e.target_macro
                  FROM edges e JOIN symbols c ON c.id = e.caller_id
+                 LEFT JOIN files t ON t.id = e.target_file_id
                  WHERE c.language = 'rust' AND (e.origin = 'scip' OR e.scip_pending = 1)",
             )?;
             let rows = stmt.query_map([], |r| {
@@ -227,10 +256,25 @@ impl BaseIndex {
                     r.get::<_, i64>(5)?,
                     r.get::<_, i64>(6)?,
                     r.get::<_, bool>(7)?,
+                    r.get::<_, Option<String>>(8)?,
+                    r.get::<_, Option<i64>>(9)?,
+                    r.get::<_, bool>(10)?,
                 ))
             })?;
             for row in rows {
-                let (caller, callee, callee_name, class, origin, line, col, pending) = row?;
+                let (
+                    caller,
+                    callee,
+                    callee_name,
+                    class,
+                    origin,
+                    line,
+                    col,
+                    pending,
+                    target_file,
+                    target_line,
+                    target_macro,
+                ) = row?;
                 let Some(caller) = keys.get(&caller) else {
                     continue;
                 };
@@ -248,6 +292,9 @@ impl BaseIndex {
                         class,
                         line: line as usize,
                         col: col as usize,
+                        target: target_file
+                            .zip(target_line)
+                            .map(|(f, l)| (f, l as usize, target_macro)),
                     });
                 }
             }
@@ -333,15 +380,79 @@ fn caller_at(file: &ParsedFile<'_>, byte: usize) -> Option<i64> {
         .map(|s| s.id)
 }
 
+/// The module of a Rust file, from its path: the folder of the crate root
+/// (`crates/kairos-db/src`), the crate name (`kairos_db`) and the modules
+/// under the root (`["boards"]`). `lib.rs`, `main.rs` and `mod.rs` add no
+/// module.
+struct RustModule {
+    root: String,
+    crate_name: Option<String>,
+    modules: Vec<String>,
+}
+
+fn rust_module(path: &str) -> RustModule {
+    let parts: Vec<&str> = path.split('/').collect();
+    let at = parts[..parts.len().saturating_sub(1)]
+        .iter()
+        .rposition(|p| matches!(*p, "src" | "tests" | "examples" | "benches"));
+    let (root, crate_name, rest) = match at {
+        Some(i) => (
+            parts[..=i].join("/"),
+            i.checked_sub(1).map(|j| parts[j].replace('-', "_")),
+            &parts[i + 1..],
+        ),
+        None => (String::new(), None, &parts[..]),
+    };
+    let mut modules: Vec<String> = rest
+        .iter()
+        .map(|p| p.strip_suffix(".rs").unwrap_or(p).to_string())
+        .collect();
+    if modules
+        .last()
+        .is_some_and(|m| matches!(m.as_str(), "lib" | "main" | "mod"))
+    {
+        modules.pop();
+    }
+    RustModule {
+        root,
+        crate_name,
+        modules,
+    }
+}
+
+/// A container without its generic part: `Stack<T>` gives `Stack`.
+fn plain(container: Option<&str>) -> Option<&str> {
+    container.map(|c| c.split('<').next().unwrap_or(c).trim())
+}
+
+/// The path before the name of a qualified Rust call, by part:
+/// `crate::boards::f` gives `["crate", "boards"]`. `None` for a call with no
+/// `::` path.
+fn rust_qualifier<'w>(written: &'w str, name: &str) -> Option<Vec<&'w str>> {
+    let path = written.strip_suffix(name)?.strip_suffix("::")?;
+    let parts: Vec<&str> = path.split("::").collect();
+    (!parts.is_empty() && parts.iter().all(|p| !p.is_empty() && !p.contains('.'))).then_some(parts)
+}
+
+/// A function that a name can call: (file index, symbol id).
+type Hit = (usize, i64);
+
 struct Names<'a> {
+    files: &'a [ParsedFile<'a>],
     /// (language family, name) to (file index, symbol id).
     by_name: HashMap<(&'a str, &'a str), Vec<(usize, i64)>>,
+    /// The module of each Rust file, by file index.
+    modules: HashMap<usize, RustModule>,
 }
 
 impl<'a> Names<'a> {
     fn new(files: &'a [ParsedFile<'a>]) -> Self {
         let mut by_name: HashMap<(&str, &str), Vec<(usize, i64)>> = HashMap::new();
+        let mut modules = HashMap::new();
         for (i, file) in files.iter().enumerate() {
+            if file.language == "rust" {
+                modules.insert(i, rust_module(file.path));
+            }
             for s in &file.symbols {
                 if is_callable(file.language, s.kind) {
                     by_name
@@ -351,10 +462,61 @@ impl<'a> Names<'a> {
                 }
             }
         }
-        Names { by_name }
+        Names {
+            files,
+            by_name,
+            modules,
+        }
     }
 
-    /// The name class of a call of `name` from file `file`.
+    fn sym(&self, file: usize, id: i64) -> Option<&Sym> {
+        self.files[file].symbols.iter().find(|s| s.id == id)
+    }
+
+    /// Whether the function `id` of file `file` matches the path `qualifier`
+    /// of a call from `caller` in file `from`: its container or its module
+    /// is the last part of the path (COLLIERY-T-2531).
+    fn matches_path(
+        &self,
+        qualifier: &[&str],
+        from: usize,
+        caller: Option<&Sym>,
+        file: usize,
+        id: i64,
+    ) -> bool {
+        let (Some(here), Some(there), Some(s)) = (
+            self.modules.get(&from),
+            self.modules.get(&file),
+            self.sym(file, id),
+        ) else {
+            return false;
+        };
+        let same_crate = here.root == there.root;
+        match *qualifier.last().expect("a qualifier has a part") {
+            "self" => file == from,
+            "Self" => {
+                let own = plain(caller.and_then(|c| c.container.as_deref()));
+                own.is_some() && plain(s.container.as_deref()) == own
+            }
+            "crate" => same_crate && there.modules.is_empty(),
+            "super" => {
+                same_crate
+                    && (file == from
+                        || here.modules.split_last().map(|(_, parent)| parent)
+                            == Some(&there.modules[..]))
+            }
+            part => {
+                plain(s.container.as_deref()) == Some(part)
+                    || there.modules.last().is_some_and(|m| m == part)
+                    || (there.modules.is_empty() && there.crate_name.as_deref() == Some(part))
+            }
+        }
+    }
+
+    /// The name class of a call of `name` from file `file`. A qualified Rust
+    /// call (`a::f`) goes only to a function whose container or module
+    /// matches its path. A method call (`x.f`) does not go to the caller
+    /// itself (COLLIERY-T-2531).
     #[allow(clippy::too_many_arguments)]
     fn edge(
         &self,
@@ -372,26 +534,56 @@ impl<'a> Names<'a> {
             .get(&(family(language), name))
             .map(Vec::as_slice)
             .unwrap_or_default();
-        let same_file: Vec<i64> = all
-            .iter()
-            .filter(|(f, _)| *f == file)
-            .map(|(_, id)| *id)
-            .collect();
-        let chosen: Vec<i64> = if same_file.is_empty() {
-            all.iter().map(|(_, id)| *id).collect()
-        } else {
-            same_file
+        let prefer_same_file = |pool: Vec<(usize, i64)>| -> Vec<i64> {
+            let same: Vec<i64> = pool
+                .iter()
+                .filter(|(f, _)| *f == file)
+                .map(|(_, id)| *id)
+                .collect();
+            if same.is_empty() {
+                pool.iter().map(|(_, id)| *id).collect()
+            } else {
+                same
+            }
         };
-        let (class, callee_id, candidates) = match chosen.as_slice() {
-            [] => {
+        let qualifier = if language == "rust" {
+            rust_qualifier(written, name)
+        } else {
+            None
+        };
+        let (chosen, unmatched) = match &qualifier {
+            Some(qualifier) => {
+                let caller = self.sym(file, caller_id);
+                let (matching, other): (Vec<Hit>, Vec<Hit>) = all
+                    .iter()
+                    .partition(|(f, id)| self.matches_path(qualifier, file, caller, *f, *id));
+                let other: Vec<i64> = other
+                    .into_iter()
+                    .map(|(_, id)| id)
+                    .filter(|id| *id != caller_id)
+                    .collect();
+                (prefer_same_file(matching), other)
+            }
+            None => {
+                let method_call = written.contains('.');
+                let pool: Vec<(usize, i64)> = all
+                    .iter()
+                    .copied()
+                    .filter(|(_, id)| !(method_call && *id == caller_id))
+                    .collect();
+                (prefer_same_file(pool), Vec::new())
+            }
+        };
+        let (class, callee_id, candidates) = match (chosen.as_slice(), unmatched.as_slice()) {
+            ([], []) => {
                 stats.external_name += 1;
                 ("external", None, Vec::new())
             }
-            [one] => {
+            ([one], _) => {
                 stats.certain_name += 1;
                 ("certain", Some(*one), Vec::new())
             }
-            many => {
+            ([], many) | (many, _) => {
                 stats.possible_name += 1;
                 ("possible", None, many.to_vec())
             }
@@ -406,6 +598,7 @@ impl<'a> Names<'a> {
             col,
             candidates,
             scip_pending: false,
+            target: None,
         }
     }
 }
@@ -644,21 +837,35 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                                     col,
                                     candidates: Vec::new(),
                                     scip_pending: false,
+                                    target: None,
                                 });
                             }
+                            // A definition with no symbol: a function that a
+                            // macro makes. The edge keeps its place and goes
+                            // to no function by name (COLLIERY-T-2531).
                             None => {
                                 stats.scip_join_misses += 1;
-                                fallback_at.insert(byte);
-                                edges.push(names.edge(
-                                    file.language,
-                                    i,
+                                stats.certain_scip += 1;
+                                let def = &files[def_file];
+                                edges.push(NewEdge {
                                     caller_id,
-                                    &name,
-                                    &short,
+                                    callee_id: None,
+                                    callee_name: short,
+                                    class: "certain",
+                                    origin: "scip",
                                     line,
                                     col,
-                                    &mut stats,
-                                ));
+                                    candidates: Vec::new(),
+                                    scip_pending: false,
+                                    target: Some(NewTarget {
+                                        file: def_file,
+                                        line: starts[def_file].partition_point(|&s| s <= def_byte),
+                                        macro_made: def
+                                            .macro_ranges
+                                            .iter()
+                                            .any(|&(s, e)| s <= def_byte && def_byte < e),
+                                    }),
+                                });
                             }
                         }
                     }
@@ -674,6 +881,7 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                             col,
                             candidates: Vec::new(),
                             scip_pending: false,
+                            target: None,
                         });
                     }
                 }
@@ -712,6 +920,45 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                 );
                 for e in &b.edges {
                     let line = e.line + s.start_line - b.start_line;
+                    // A definition with no symbol keeps its place while the
+                    // line there still has the called name; else a name
+                    // class until the next SCIP run (COLLIERY-T-2531).
+                    let mut target = None;
+                    if let (None, Some((path, at, macro_made))) = (&e.callee, &e.target) {
+                        let last = e.callee_name.rsplit("::").next().unwrap_or_default();
+                        let place = by_path.get(path.as_str()).copied().filter(|&f| {
+                            files[f]
+                                .text
+                                .lines()
+                                .nth(at.saturating_sub(1))
+                                .is_some_and(|l| !last.is_empty() && l.contains(last))
+                        });
+                        match place {
+                            Some(f) => {
+                                target = Some(NewTarget {
+                                    file: f,
+                                    line: *at,
+                                    macro_made: *macro_made,
+                                });
+                            }
+                            None => {
+                                let mut edge = names.edge(
+                                    file.language,
+                                    i,
+                                    caller_id,
+                                    last,
+                                    &e.callee_name,
+                                    line,
+                                    e.col,
+                                    &mut stats,
+                                );
+                                edge.scip_pending = *mark;
+                                stats.pending += usize::from(*mark);
+                                edges.push(edge);
+                                continue;
+                            }
+                        }
+                    }
                     let callee_id = match &e.callee {
                         None => None,
                         Some(key) => match ids.get(key) {
@@ -751,6 +998,7 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                         col: e.col,
                         candidates: Vec::new(),
                         scip_pending: false,
+                        target,
                     });
                 }
             }
@@ -882,6 +1130,7 @@ mod tests {
                 calls: &a_calls,
                 use_ranges: &[],
                 macro_calls: &[],
+                macro_ranges: &[],
             },
             ParsedFile {
                 path: "b.go",
@@ -894,6 +1143,7 @@ mod tests {
                 calls: &[],
                 use_ranges: &[],
                 macro_calls: &[],
+                macro_ranges: &[],
             },
             ParsedFile {
                 path: "c.go",
@@ -903,6 +1153,7 @@ mod tests {
                 calls: &[],
                 use_ranges: &[],
                 macro_calls: &[],
+                macro_ranges: &[],
             },
         ];
         let Resolved { edges, stats, .. } = resolve(&files, RustEdges::Names);
@@ -951,6 +1202,7 @@ mod tests {
             class: if name == "b" { "certain" } else { "external" }.into(),
             line: 1,
             col,
+            target: None,
         };
         let sym = |start: usize, end: usize, line: usize, edges| BaseSym {
             tree_hash: format!("hash {start}"),
@@ -990,6 +1242,7 @@ mod tests {
             calls,
             use_ranges: &[],
             macro_calls: &[],
+            macro_ranges: &[],
         }
     }
 
@@ -1054,5 +1307,184 @@ mod tests {
                 ("Vec::new", "external", "scip", false)
             ]
         );
+    }
+
+    /// A function of `path` with a container.
+    fn file<'a>(
+        path: &'a str,
+        text: &'a str,
+        symbols: Vec<Sym>,
+        calls: &'a [CallSite],
+    ) -> ParsedFile<'a> {
+        ParsedFile {
+            path,
+            ..rust_file(text, symbols, calls)
+        }
+    }
+
+    #[test]
+    fn a_qualified_call_needs_its_module_or_its_container() {
+        let mut new = sym(3, "new", "function", (0, 9));
+        new.container = Some("Stack".into());
+        let mut get = sym(4, "get", "function", (0, 40));
+        get.container = Some("Wrapper".into());
+        let run_calls = [
+            call("start", "b::start", 1),
+            call("start", "c::start", 2),
+            call("new", "Stack::new", 3),
+            call("start", "crate::c::start", 4),
+            call("start", "super::start", 5),
+        ];
+        let get_calls = [call("get", "self.inner.get", 10)];
+        let files = [
+            file(
+                "crates/x-y/src/a.rs",
+                "",
+                vec![sym(1, "run", "function", (0, 9))],
+                &run_calls,
+            ),
+            file(
+                "crates/x-y/src/c.rs",
+                "",
+                vec![sym(2, "start", "function", (0, 9))],
+                &[],
+            ),
+            file("crates/x-y/src/stack.rs", "", vec![new], &[]),
+            file("crates/x-y/src/wrapper.rs", "", vec![get], &get_calls),
+        ];
+        let Resolved { edges, .. } = resolve(&files, RustEdges::Names);
+        let got: Vec<_> = edges
+            .iter()
+            .map(|e| {
+                (
+                    e.callee_name.as_str(),
+                    e.class,
+                    e.callee_id,
+                    e.candidates.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                // Module b has no start: not the start of module c.
+                ("b::start", "possible", None, vec![2]),
+                ("c::start", "certain", Some(2), vec![]),
+                ("Stack::new", "certain", Some(3), vec![]),
+                ("crate::c::start", "certain", Some(2), vec![]),
+                // The parent of module a is the crate root, which has no
+                // start.
+                ("super::start", "possible", None, vec![2]),
+                // A method call does not go to the caller by name.
+                ("self.inner.get", "external", None, vec![]),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_module_of_a_rust_file_comes_from_its_path() {
+        let m = rust_module("crates/kairos-db/src/boards.rs");
+        assert_eq!(
+            (m.root.as_str(), m.crate_name.as_deref(), m.modules),
+            (
+                "crates/kairos-db/src",
+                Some("kairos_db"),
+                vec!["boards".to_string()]
+            )
+        );
+        let m = rust_module("crates/kairos-server/src/api/mod.rs");
+        assert_eq!(m.modules, ["api"]);
+        let m = rust_module("src/lib.rs");
+        assert_eq!(
+            (m.root.as_str(), m.crate_name, m.modules.len()),
+            ("src", None, 0)
+        );
+        let m = rust_module("tests/common/mod.rs");
+        assert_eq!(m.modules, ["common"]);
+    }
+
+    /// A base where `a` (line 1) calls `m::f`, which `make!` (line 2) makes.
+    fn macro_base() -> BaseIndex {
+        let text = "fn a() { m::f(); }\nmake!(f);\n";
+        let a_end = text.find('\n').unwrap();
+        let file = BaseFile {
+            covered: vec![12],
+            symbols: HashMap::from([(
+                key("a"),
+                BaseSym {
+                    tree_hash: "hash a".into(),
+                    start_line: 1,
+                    end_line: 1,
+                    start_byte: 0,
+                    end_byte: a_end,
+                    pending: false,
+                    edges: vec![BaseEdge {
+                        callee: None,
+                        callee_name: "m::f".into(),
+                        class: "certain".into(),
+                        line: 1,
+                        col: 13,
+                        target: Some(("src/lib.rs".into(), 2, true)),
+                    }],
+                },
+            )]),
+        };
+        BaseIndex {
+            files: HashMap::from([("src/lib.rs".to_string(), file)]),
+        }
+    }
+
+    #[test]
+    fn a_kept_edge_keeps_the_place_of_a_made_function() {
+        let mut a = sym(1, "a", "function", (0, 18));
+        a.tree_hash = "hash a".into();
+        let calls = [call("f", "m::f", 12)];
+        let bases = [macro_base()];
+        let resolve_text = |text: &str| {
+            let files = [rust_file(text, vec![sym_like(&a)], &calls)];
+            resolve(
+                &files,
+                RustEdges::Base {
+                    bases: &bases,
+                    mark: true,
+                },
+            )
+            .edges
+        };
+        let kept = resolve_text("fn a() { m::f(); }\nmake!(f);\n");
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert_eq!(
+            (kept[0].class, kept[0].origin, kept[0].callee_id),
+            ("certain", "scip", None)
+        );
+        assert_eq!(
+            kept[0].target,
+            Some(NewTarget {
+                file: 0,
+                line: 2,
+                macro_made: true
+            })
+        );
+        // The made function is gone: a name class until the next SCIP run.
+        let gone = resolve_text("fn a() { m::f(); }\nmake!(g);\n");
+        assert_eq!(gone.len(), 1, "{gone:?}");
+        assert_eq!(
+            (gone[0].origin, gone[0].scip_pending, gone[0].target.clone()),
+            ("name", true, None)
+        );
+    }
+
+    fn sym_like(s: &Sym) -> Sym {
+        Sym {
+            id: s.id,
+            name: s.name.clone(),
+            container: s.container.clone(),
+            kind: s.kind,
+            start_line: s.start_line,
+            end_line: s.end_line,
+            start_byte: s.start_byte,
+            end_byte: s.end_byte,
+            tree_hash: s.tree_hash.clone(),
+        }
     }
 }

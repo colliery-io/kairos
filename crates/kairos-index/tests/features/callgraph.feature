@@ -54,3 +54,26 @@ Feature: The call graph
     Given the polyglot fixture, where 2 Rust test crates each define a function "setup"
     When I build the index
     Then the call of setup in each test crate goes to the setup of that crate
+
+  # COLLIERY-T-2531: the call graph does not guess. In the evaluation of
+  # COLLIERY-T-1856, the name class took the only function with the name of
+  # a qualified call, and a call to a function that a macro makes went to a
+  # REST handler of the same name.
+  Scenario: A qualified call does not go to a symbol of another module
+    Given the polyglot fixture, where module a has fn run that calls b::start, and module c has the only fn start
+    When I build the index
+    Then the edge from a::run is not a certain edge to c::start
+
+  Scenario: A call to a function that a macro makes keeps its location
+    Given the polyglot fixture, where a macro_rules! macro makes fn transition_task in module boards
+    And a function in module mcp calls boards::transition_task
+    And module api has a different fn transition_task
+    When I build the index
+    Then the callees of the function in mcp include the macro location in boards
+    And they do not include api::transition_task
+
+  Scenario: No self-edge comes from a name only
+    Given the polyglot fixture, where a macro_rules! macro makes fn transition_task in module boards
+    And module api has a different fn transition_task
+    When I build the index
+    Then api::transition_task has no edge to itself

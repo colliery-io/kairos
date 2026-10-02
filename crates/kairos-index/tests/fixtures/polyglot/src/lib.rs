@@ -42,3 +42,14 @@ mod tests {
 // at the end, so that the lines above do not move.
 pub mod checksum;
 pub mod legacy;
+
+// The modules of the call-graph scenarios of COLLIERY-T-2531: a qualified
+// call (a, b, c), a function that a macro makes (boards, api, mcp) and 2
+// routes to one function (routes).
+pub mod a;
+pub mod api;
+pub mod b;
+pub mod boards;
+pub mod c;
+pub mod mcp;
+pub mod routes;

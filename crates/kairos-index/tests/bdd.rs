@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 use cucumber::{World, given, then, when};
 use kairos_embed::DeterministicProvider;
 use kairos_index::{
-    BuildOptions, BuildReport, DuplicateOptions, Duplicates, EdgeRecord, FakeSummarizer,
-    FileRecord, Index, Level, SUMMARIZED_KINDS, SearchResult, SummarizeOptions, Summarizer,
-    SummaryReport, SummaryRequest, SymbolRecord, SymbolRef, UpdateOptions, UpdateReport,
-    build_structure_with, merge, rust_analyzer, summarize, update,
+    BuildOptions, BuildReport, DuplicateKind, DuplicateOptions, Duplicates, EdgeRecord,
+    FakeSummarizer, FileRecord, Index, Level, Lookup, SUMMARIZED_KINDS, SearchResult,
+    SummarizeOptions, Summarizer, SummaryReport, SummaryRequest, SymbolRecord, SymbolRef,
+    UpdateOptions, UpdateReport, build_structure_with, merge, rust_analyzer, summarize, update,
 };
 use serde::Deserialize;
 use tempfile::TempDir;
@@ -379,6 +379,19 @@ struct ExpectedEdge {
     /// "scip" or "name". The default: "scip" for a Rust caller, "name" for
     /// the other languages.
     origin: Option<String>,
+    /// The place of a definition with no symbol, for a certain edge with no
+    /// callee (COLLIERY-T-2531).
+    target: Option<ExpectedTarget>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[serde(deny_unknown_fields)]
+struct ExpectedTarget {
+    file: String,
+    line: u32,
+    /// A macro invocation holds the place.
+    #[serde(rename = "macro")]
+    macro_made: bool,
 }
 
 /// An edge in a form that 2 edge lists can compare: the caller, the line of
@@ -393,6 +406,7 @@ struct EdgeKey {
     callee: Option<EdgeEnd>,
     candidates: Vec<EdgeEnd>,
     external: Option<String>,
+    target: Option<ExpectedTarget>,
 }
 
 impl From<ExpectedEdge> for EdgeKey {
@@ -414,6 +428,7 @@ impl From<ExpectedEdge> for EdgeKey {
             callee: e.callee,
             candidates,
             external: e.external,
+            target: e.target,
         }
     }
 }
@@ -430,6 +445,11 @@ impl From<&EdgeRecord> for EdgeKey {
             callee: e.callee.as_ref().map(EdgeEnd::from),
             candidates,
             external: (e.class == "external").then(|| e.callee_name.clone()),
+            target: e.target.as_ref().map(|t| ExpectedTarget {
+                file: t.file.clone(),
+                line: t.line,
+                macro_made: t.macro_made,
+            }),
         }
     }
 }
@@ -601,6 +621,82 @@ fn two_test_crates_define(world: &mut IndexWorld, name: String) {
         called: name,
         ..Focus::default()
     });
+}
+
+// --- Given: the call graph does not guess (COLLIERY-T-2531) ----------------
+
+/// The text of a file of the fixture.
+fn fixture_text(file: &str) -> String {
+    fs::read_to_string(fixture_root().join(file)).expect("read a fixture file")
+}
+
+/// The line (from 1) of the first line of `file` that holds `text`.
+fn line_of(file: &str, text: &str) -> u32 {
+    let found = fixture_text(file)
+        .lines()
+        .position(|l| l.contains(text))
+        .unwrap_or_else(|| panic!("{file} has no line with {text:?}"));
+    found as u32 + 1
+}
+
+#[given(
+    "the polyglot fixture, where module a has fn run that calls b::start, and module c has the only fn start"
+)]
+fn a_qualified_call(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let start = expected_named("start", "rust");
+    assert!(
+        start.len() == 1 && start[0].file == "src/c.rs",
+        "the only Rust start must be in src/c.rs: {start:#?}"
+    );
+    assert!(fixture_text("src/a.rs").contains("b::start()"));
+    assert!(!fixture_text("src/b.rs").contains("fn start"));
+    world.focus = Some(Focus {
+        caller_file: "src/a.rs".into(),
+        caller_name: "run".into(),
+        called: "start".into(),
+        ..Focus::default()
+    });
+}
+
+#[given(
+    "the polyglot fixture, where a macro_rules! macro makes fn transition_task in module boards"
+)]
+fn a_made_function(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let boards = fixture_text("src/boards.rs");
+    assert!(boards.contains("macro_rules! transition_fn"), "{boards}");
+    assert!(
+        boards.contains("transition_fn!(transition_task"),
+        "{boards}"
+    );
+    // The made function has no symbol.
+    assert!(
+        expected_named("transition_task", "rust")
+            .iter()
+            .all(|s| s.file != "src/boards.rs"),
+        "the made function must have no symbol"
+    );
+}
+
+#[given("a function in module mcp calls boards::transition_task")]
+fn mcp_calls_the_made_function(world: &mut IndexWorld) {
+    assert!(fixture_text("src/mcp.rs").contains("boards::transition_task("));
+    world.focus = Some(Focus {
+        caller_file: "src/mcp.rs".into(),
+        caller_name: "transition_item".into(),
+        called: "transition_task".into(),
+        ..Focus::default()
+    });
+}
+
+#[given("module api has a different fn transition_task")]
+fn api_has_transition_task(_world: &mut IndexWorld) {
+    let found = expected_named("transition_task", "rust");
+    assert!(
+        found.len() == 1 && found[0].file == "src/api.rs",
+        "the only symbol transition_task must be in src/api.rs: {found:#?}"
+    );
 }
 
 // --- When ---------------------------------------------------------------------
@@ -946,6 +1042,76 @@ fn has_no_other_edge(world: &mut IndexWorld) {
         extra.is_empty(),
         "edges in the index that expected-edges.toml does not list: {extra:#?}"
     );
+}
+
+// --- Then: the call graph does not guess (COLLIERY-T-2531) -----------------
+
+#[then("the edge from a::run is not a certain edge to c::start")]
+fn not_certain_to_c_start(world: &mut IndexWorld) {
+    for edge in world.focus_edges() {
+        assert!(
+            !(edge.class == "certain"
+                && edge
+                    .callee
+                    .as_ref()
+                    .is_some_and(|c| c.file == "src/c.rs" && c.name == "start")),
+            "a qualified call went to a function of another module: {edge:#?}"
+        );
+    }
+}
+
+/// The id of the function `name` in `file`.
+fn symbol_id(index: &Index, name: &str, file: &str) -> i64 {
+    match index.lookup(name, Some(file)).expect("look up a symbol") {
+        Lookup::Found(s) => s.id,
+        other => panic!("{name} in {file}: {other:?}"),
+    }
+}
+
+#[then("the callees of the function in mcp include the macro location in boards")]
+fn callees_have_the_macro_place(world: &mut IndexWorld) {
+    let index = world.index();
+    let id = symbol_id(&index, "transition_item", "src/mcp.rs");
+    let callees = index.callees(id, true).expect("callees");
+    let line = line_of("src/boards.rs", "transition_fn!(transition_task");
+    assert!(
+        callees.no_symbol.iter().any(|c| c.file == "src/boards.rs"
+            && c.line == line
+            && c.macro_made
+            && c.class == "certain"),
+        "no callee at src/boards.rs:{line}, made by a macro: {callees:#?}"
+    );
+}
+
+#[then("they do not include api::transition_task")]
+fn callees_not_api(world: &mut IndexWorld) {
+    let index = world.index();
+    let id = symbol_id(&index, "transition_item", "src/mcp.rs");
+    let callees = index.callees(id, true).expect("callees");
+    assert!(
+        callees
+            .edges
+            .iter()
+            .all(|e| !(e.other.file == "src/api.rs" && e.other.name == "transition_task")),
+        "a callee is api::transition_task: {callees:#?}"
+    );
+}
+
+#[then("api::transition_task has no edge to itself")]
+fn no_self_edge(world: &mut IndexWorld) {
+    let from_api: Vec<EdgeRecord> = world
+        .edges()
+        .into_iter()
+        .filter(|e| e.caller.file == "src/api.rs" && e.caller.name == "transition_task")
+        .collect();
+    assert!(!from_api.is_empty(), "api::transition_task has no edge");
+    for edge in &from_api {
+        let to_itself = |s: &SymbolRef| s.file == edge.caller.file && s.name == edge.caller.name;
+        assert!(
+            !edge.callee.as_ref().is_some_and(to_itself) && !edge.candidates.iter().any(to_itself),
+            "an edge goes to itself: {edge:#?}"
+        );
+    }
 }
 
 // --- The pinned rust-analyzer (COLLIERY-T-1858) -------------------------------
@@ -2433,6 +2599,10 @@ fn index_has_the_change(world: &mut IndexWorld) {
 /// can show.
 const SAME_IDEA: &str = "Adds up the cents of each price and returns the sum.";
 
+/// The summary text that the 2 functions of the `[[direct_call]]` pair get
+/// (COLLIERY-T-2531): the same meaning, and one calls the other.
+const SAME_IDEA_CALL: &str = "Gives the cents of each price, in a list.";
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExpectedDuplicates {
@@ -2440,6 +2610,9 @@ struct ExpectedDuplicates {
     small: Vec<ExpectedGroup>,
     test: Vec<ExpectedGroup>,
     unrelated: Vec<UnrelatedPair>,
+    /// 2 functions with the same meaning, where one calls the other: not a
+    /// group (COLLIERY-T-2531).
+    direct_call: Vec<UnrelatedPair>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -2563,6 +2736,15 @@ impl Summarizer for SameIdea {
                 .any(|s| s.file == request.path && s.name == request.name)
         {
             return Ok(SAME_IDEA.to_string());
+        }
+        if request.level == Level::Symbol
+            && expected_duplicates()
+                .direct_call
+                .iter()
+                .flat_map(|pair| &pair.symbols)
+                .any(|s| s.file == request.path && s.name == request.name)
+        {
+            return Ok(SAME_IDEA_CALL.to_string());
         }
         self.fake.summarize(request)
     }
@@ -2753,6 +2935,60 @@ fn small_and_test_pairs(world: &mut IndexWorld) {
 #[when("I ask for duplicates")]
 fn ask_for_duplicates(world: &mut IndexWorld) {
     world.ask_for_duplicates(&DuplicateOptions::default());
+}
+
+#[given("2 functions with the same meaning, where one calls the other")]
+fn a_caller_and_its_callee(world: &mut IndexWorld) {
+    world.root = fixture_root();
+    let pairs = expected_duplicates().direct_call;
+    assert_eq!(pairs.len(), 1, "1 [[direct_call]] pair was expected");
+    let [callee, caller] = &pairs[0].symbols;
+    assert!(
+        function_text(&caller.file, &caller.name).contains(&format!("{}(", callee.name)),
+        "{} must call {}",
+        caller.name,
+        callee.name
+    );
+}
+
+#[when("I ask for duplicates of kind same-idea")]
+fn ask_for_same_idea(world: &mut IndexWorld) {
+    world.ask_for_duplicates(&DuplicateOptions {
+        kinds: vec![DuplicateKind::SameIdea],
+        ..DuplicateOptions::default()
+    });
+}
+
+#[then("the pair is not a group")]
+fn the_pair_is_not_a_group(world: &mut IndexWorld) {
+    let pair = &expected_duplicates().direct_call[0];
+    // The 2 functions have the same summary, so only the call edge keeps
+    // them apart.
+    let index = world.index();
+    let symbols = world.symbols();
+    let summaries: BTreeSet<String> = pair
+        .symbols
+        .iter()
+        .map(|p| {
+            let s = symbols
+                .iter()
+                .find(|s| s.file == p.file && s.name == p.name)
+                .unwrap_or_else(|| panic!("no symbol {p:?}"));
+            let key = s.summary_key.as_deref().expect("a summary key");
+            index
+                .summary(key)
+                .expect("read a summary")
+                .expect("a summary")
+                .summary
+        })
+        .collect();
+    assert_eq!(summaries, BTreeSet::from([SAME_IDEA_CALL.to_string()]));
+    for (kind, symbols, _) in found_groups(world) {
+        assert!(
+            !(symbols.contains(&pair.symbols[0]) && symbols.contains(&pair.symbols[1])),
+            "a {kind} group has a function and its callee: {symbols:?}"
+        );
+    }
 }
 
 #[when("I ask for duplicates with no size limit and with test code")]

@@ -107,6 +107,33 @@ diesel::table! {
 }
 
 diesel::table! {
+    code_index_summaries (repository_id, key) {
+        repository_id -> Uuid,
+        key -> Text,
+        level -> Text,
+        summary -> Text,
+        vector -> Nullable<Bytea>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    code_indexes (repository_id, commit_sha) {
+        repository_id -> Uuid,
+        commit_sha -> Text,
+        ref_name -> Nullable<Text>,
+        source -> Text,
+        structure -> Bytea,
+        structure_bytes -> Int8,
+        summary_keys -> Int4,
+        vector_model -> Nullable<Text>,
+        created_by -> Nullable<Uuid>,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     delivery_streams (id) {
         id -> Uuid,
         name -> Text,
@@ -524,6 +551,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     board_member_capabilities,
     board_transitions,
     boards,
+    code_index_summaries,
+    code_indexes,
     delivery_streams,
     documents,
     edge_proposals,

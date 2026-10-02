@@ -41,6 +41,9 @@ FROM rust:1.93-slim-trixie AS builder
 #     Without it the release build fails at the link step with
 #     `cannot find -lstdc++` — which is how this was found.
 #   - ca-certificates: cargo/trunk fetch over TLS.
+#   - cmake + make + libclang-dev: the summarizer of the code index (COLLIERY-T-1853,
+#     the server feature `llama`) builds llama.cpp from C++ source with cmake,
+#     and bindgen reads its headers through libclang.
 # reqwest uses rustls (no openssl), so no libssl-dev is needed.
 # The base image tag is pinned; pinning apt point versions across bookworm
 # updates is brittle and buys nothing here.
@@ -49,6 +52,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         pkg-config \
         libpq-dev \
         g++ \
+        cmake \
+        make \
+        libclang-dev \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -78,7 +84,11 @@ RUN trunk build --release
 WORKDIR /build
 # The C++ link ordering `ort` needs lives in `.cargo/config.toml`, so it applies
 # here, in CI and to a developer on Linux alike rather than only to this build.
-RUN cargo build --release -p kairos-server --features embed-web \
+# `llama` (COLLIERY-T-1853): the builder of the base code index writes its
+# summaries with llama.cpp on the CPU (OpenMP). llama.cpp is built for the
+# baseline CPU of the target (GGML_NATIVE off), so the image runs on any host
+# of its architecture.
+RUN cargo build --release -p kairos-server --features embed-web,llama \
     && strip target/release/kairos-server
 
 # 3) Bake the local embedding model into the image (KAIROS-T-0189, A-0021 rule
@@ -92,6 +102,15 @@ RUN cargo build --release -p kairos-server --features embed-web \
 #    request in production. ~65 MB (bge-small-en-v1.5, statically quantized),
 #    chosen by measurement: see crates/kairos-embed/src/local.rs.
 RUN cargo run --release -p kairos-embed --bin fetch-model -- /build/models
+
+# 4) The pinned rust-analyzer and the pinned std source of the code index
+#    (COLLIERY-T-1858, COLLIERY-T-1860), for the Rust call edges of the
+#    builder. The same rule as the model above: fetched and checked by sha256
+#    HERE, so the builder downloads nothing at run time. The std source is
+#    unpacked next to its archive.
+RUN KAIROS_INDEX_RUST_ANALYZER=/build/kairos-index/bin/rust-analyzer \
+    KAIROS_INDEX_RUST_SRC=/build/kairos-index/rust-src/rust-src-1.99.0.tar.gz \
+    cargo run --release -p kairos-index --example fetch_rust_analyzer
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime: minimal Debian + libpq only
@@ -116,14 +135,39 @@ FROM debian:trixie-slim AS runtime
 #     than at build.
 # ca-certificates: OIDC discovery over TLS against the customer IdP
 # (KAIROS-A-0016). curl: HEALTHCHECK + an ops probe tool.
+# The builder of the base code index (COLLIERY-T-1853):
+#   - libgomp1: llama.cpp runs its CPU threads with OpenMP;
+#   - git: the bare clone of each indexed repository.
 # hadolint ignore=DL3008  # base image tag is pinned; see builder-stage note.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         libstdc++6 \
+        libgomp1 \
+        git \
         ca-certificates \
         curl \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home --shell /usr/sbin/nologin kairos
+
+# The Rust toolchain of the SCIP run of the code index (COLLIERY-T-1849): it
+# reads `rustc --print sysroot` and `cargo metadata`, and links the bin/ and
+# lib/ of the sysroot into its stand-in sysroot. It builds nothing. The
+# minimal profile (rustc, cargo, rust-std) of the toolchain of this
+# repository; the pinned std source replaces rust-src (COLLIERY-T-1860).
+# RUSTUP_TOOLCHAIN makes each repository use it, so a rust-toolchain.toml of
+# another version installs nothing at run time. cargo keeps its registry
+# under the code index folder, which the runtime user can write.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    PATH=/usr/local/cargo/bin:$PATH \
+    RUSTUP_TOOLCHAIN=1.93.0 \
+    RUSTUP_AUTO_INSTALL=0
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | CARGO_HOME=/usr/local/cargo sh -s -- -y --no-modify-path \
+            --profile minimal --default-toolchain 1.93.0 \
+    && rm -rf /usr/local/rustup/downloads /usr/local/rustup/tmp \
+        /usr/local/rustup/toolchains/*/share/doc \
+    && rustc --version && cargo --version \
+    && install -d -o 10001 -g 10001 /var/lib/kairos/code-index
 
 # OCI provenance. `licenses` is the machine-readable answer to "what may I do
 # with this image?"; scanners and registries read it, and until 0.2.0 the
@@ -139,6 +183,16 @@ COPY --from=builder /build/target/release/kairos-server /usr/local/bin/kairos-se
 COPY --from=builder /build/LICENSE /build/NOTICE /usr/share/doc/kairos/
 # The embedding model, owned by the runtime user so nothing needs to write here.
 COPY --from=builder --chown=10001:10001 /build/models /var/lib/kairos/models
+# The pinned rust-analyzer and the pinned std source (unpacked) of the code
+# index.
+COPY --from=builder --chown=10001:10001 /build/kairos-index /var/lib/kairos/code-index-tools
+# The summary model of the code index (COLLIERY-T-1850): Qwen3-4B-Instruct-2507,
+# GGUF Q4_K_M from bartowski, about 2.5 GB, at a fixed revision and checked by
+# sha256 at build time.
+ADD --chown=10001:10001 \
+    --checksum=sha256:2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e \
+    https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/ae44f08e1392f39c0e474af10c3ff8355c8b6688/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+    /var/lib/kairos/models/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf
 
 USER kairos
 
@@ -148,9 +202,17 @@ USER kairos
 # (the LocalConfig default): if the model layer above ever failed to copy, the
 # operator gets an error naming the directory rather than a container that
 # quietly pulls 65 MB from the internet on first use.
+# The KAIROS_INDEX_* paths point the builder of the code index at the baked
+# model, rust-analyzer and std source; it downloads none of them. The builder
+# stays off until an operator sets KAIROS_CODE_INDEX_DIR (for example to
+# /var/lib/kairos/code-index, on a volume).
 ENV KAIROS_BIND_ADDR=0.0.0.0:8080 \
     KAIROS_LOG_FORMAT=json \
-    KAIROS_EMBED_CACHE=/var/lib/kairos/models
+    KAIROS_EMBED_CACHE=/var/lib/kairos/models \
+    KAIROS_INDEX_MODEL=/var/lib/kairos/models/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+    KAIROS_INDEX_RUST_ANALYZER=/var/lib/kairos/code-index-tools/bin/rust-analyzer \
+    KAIROS_INDEX_RUST_SRC=/var/lib/kairos/code-index-tools/rust-src/rust-src-1.99.0.tar.gz \
+    CARGO_HOME=/var/lib/kairos/code-index/cargo
 
 EXPOSE 8080
 

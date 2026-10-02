@@ -56,6 +56,14 @@ rmcp = { workspace = true, features = [
 mime_guess = { workspace = true }
 rust-embed = { workspace = true, optional = true }
 hmac = "0.12"
+# The base code index (COLLIERY-T-1853): the split and the assembly of an
+# index file, and the update after a push. The summarizer with llama.cpp is
+# the feature `llama`.
+kairos-index = { path = "../kairos-index" }
+# The work folders of the builder, and the tree of a commit from
+# `git archive`.
+tempfile = "3.14.0"
+tar = "0.4"
 
 [features]
 # Embed the built GUI (crates/kairos-web/dist) into the binary — the
@@ -64,6 +72,9 @@ hmac = "0.12"
 # recipe: `angreal web build --release`, then
 # `cargo build -p kairos-server --release --features embed-web`.
 embed-web = ["dep:rust-embed"]
+# The builder of the base code index writes summaries with llama.cpp and
+# Qwen3-4B (COLLIERY-T-1853). Needs cmake and a C++ compiler at build time.
+llama = ["kairos-index/llama"]
 
 [dev-dependencies]
 # In-process router exercise (`Router::oneshot`) + reading response bodies.

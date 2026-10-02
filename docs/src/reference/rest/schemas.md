@@ -249,6 +249,21 @@ Response of `GET /api/{entity_type}/{short_code}/children-progress` (KAIROS-T-00
 | `short_code` | `string` | yes | The parent item's short code. |
 | `total` | `integer` | yes | Direct live children (soft-deleted excluded; supports/informs material never counts). |
 
+## CodeIndex
+
+One indexed commit of a repository.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `commit` | `string` | yes | The commit, 40 (or 64) lower-case hex characters. |
+| `created_at` | `string` | yes | When the index was first written, RFC 3339. |
+| `ref` | `string`, nullable | no | The branch, the pull request or the tag that the index is for, if the sender gave it. |
+| `source` | `string` | yes | `upload`, or `build` (the server built it after a push). |
+| `structure_bytes` | `integer` | yes | The size of the structure (the index with no summaries), in bytes. |
+| `summary_keys` | `integer` | yes | The summaries that the structure uses. |
+| `updated_at` | `string` | yes | When the index was last written, RFC 3339. |
+| `vector_model` | `string`, nullable | no | The model of the vectors, as `provider/model/dimension`. |
+
 ## CreateAdrRequest
 
 Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule: both set (on-board) or both omitted (off-board; creation is then org-admin-only, KAIROS-A-0006 fallback).
@@ -736,6 +751,10 @@ One document or ADR that impacts a repository (COLLIERY-T-0269), in [`Repository
 | `short_code` | `string` | yes | The short code of the item. |
 | `title` | `string` | yes |  |
 
+## IndexFile
+
+An index file in the OpenAPI document: the bytes of a `kairos-index` SQLite file.
+
 ## Initiative
 
 An initiative (Flight Level 2), as returned by `/api/initiatives`.
@@ -1038,6 +1057,16 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 | `board` | `string` | yes |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## NearestCodeIndex
+
+The answer to `GET /api/repositories/{slug}/code-indexes/nearest`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `distance` | `integer` | yes | The commits from the indexed commit to `from`. 0 when `from` has an index. |
+| `from` | `string` | yes | The commit that the request gave. |
+| `index` | [`CodeIndex`](schemas.md#codeindex) | yes | The nearest indexed commit at or below `from`. |
 
 ## NotReached
 
@@ -1828,4 +1857,14 @@ Body of `PATCH /api/templates/{id}` (org admin). Omitted fields are unchanged; `
 | `slug` | `string`, nullable | no |  |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## UploadedCodeIndex
+
+The answer to `PUT /api/repositories/{slug}/code-indexes/{commit}`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `index` | [`CodeIndex`](schemas.md#codeindex) | yes | The index as Kairos keeps it now. |
+| `new_summaries` | `integer` | yes | The summaries of the upload that the pool of the repository did not have. |
+| `pool_size` | `integer` | yes | The summaries in the pool of the repository after the upload. |
 

@@ -1300,6 +1300,89 @@ impl KairosClient {
         self.delete(&format!("/api/repositories/{reference}")).await
     }
 
+    /// `GET /api/repositories/{slug}/code-indexes` — each indexed commit
+    /// of a repository (COLLIERY-T-1853).
+    pub async fn list_code_indexes(
+        &self,
+        reference: &str,
+    ) -> Result<Vec<crate::types_code_index::CodeIndex>, Error> {
+        self.get(&format!("/api/repositories/{reference}/code-indexes"))
+            .await
+    }
+
+    /// `PUT /api/repositories/{slug}/code-indexes/{commit}` — send the
+    /// index file of a commit (the bytes of a `kairos-index` SQLite file).
+    /// The answer is 201 for a new commit and 200 for a commit that had an
+    /// index; both are a success here.
+    pub async fn upload_code_index(
+        &self,
+        reference: &str,
+        commit: &str,
+        r#ref: Option<&str>,
+        index_file: Vec<u8>,
+    ) -> Result<crate::types_code_index::UploadedCodeIndex, Error> {
+        let path = format!("/api/repositories/{reference}/code-indexes/{commit}");
+        let query = crate::types_code_index::UploadCodeIndexQuery {
+            r#ref: r#ref.map(str::to_string),
+        };
+        let builder = self
+            .http
+            .put(self.url(&path))
+            .query(&query)
+            .header(reqwest::header::CONTENT_TYPE, "application/vnd.sqlite3")
+            .body(index_file);
+        let response = self.authorize(builder).await?.send().await?;
+        let status = response.status().as_u16();
+        let body = response.text().await?;
+        if status == 200 || status == 201 {
+            return serde_json::from_str(&body).map_err(|source| Error::Decode {
+                context: format!("PUT {path}"),
+                source,
+            });
+        }
+        match serde_json::from_str::<ErrorEnvelope>(&body) {
+            Ok(envelope) => Err(Error::from_envelope(status, envelope)),
+            Err(_) => Err(Error::UnexpectedResponse { status, body }),
+        }
+    }
+
+    /// `GET /api/repositories/{slug}/code-indexes/{commit}` — the index
+    /// file of a commit, with the summaries that it uses.
+    pub async fn download_code_index(
+        &self,
+        reference: &str,
+        commit: &str,
+    ) -> Result<Vec<u8>, Error> {
+        let path = format!("/api/repositories/{reference}/code-indexes/{commit}");
+        let builder = self.http.get(self.url(&path));
+        let response = self.authorize(builder).await?.send().await?;
+        let status = response.status().as_u16();
+        if status == 200 {
+            return Ok(response.bytes().await?.to_vec());
+        }
+        let body = response.text().await?;
+        match serde_json::from_str::<ErrorEnvelope>(&body) {
+            Ok(envelope) => Err(Error::from_envelope(status, envelope)),
+            Err(_) => Err(Error::UnexpectedResponse { status, body }),
+        }
+    }
+
+    /// `GET /api/repositories/{slug}/code-indexes/nearest?commit=` — the
+    /// nearest indexed commit at or below `commit`.
+    pub async fn nearest_code_index(
+        &self,
+        reference: &str,
+        commit: &str,
+    ) -> Result<crate::types_code_index::NearestCodeIndex, Error> {
+        self.get_query(
+            &format!("/api/repositories/{reference}/code-indexes/nearest"),
+            &crate::types_code_index::NearestCodeIndexQuery {
+                commit: commit.to_string(),
+            },
+        )
+        .await
+    }
+
     /// `DELETE /api/forge-connections/{id}` (org admin).
     pub async fn delete_forge_connection(&self, id: &str) -> Result<OrgDeleteResponse, Error> {
         self.delete(&format!("/api/forge-connections/{id}")).await

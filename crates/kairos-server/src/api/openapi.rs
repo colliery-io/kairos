@@ -163,6 +163,11 @@ use crate::app::AppState;
         crate::api::org::repositories::create_repository,
         crate::api::org::repositories::update_repository,
         crate::api::org::repositories::delete_repository,
+        // The base code index of a repository (COLLIERY-T-1853).
+        crate::api::org::code_indexes::list_code_indexes,
+        crate::api::org::code_indexes::upload_code_index,
+        crate::api::org::code_indexes::download_code_index,
+        crate::api::org::code_indexes::nearest_code_index,
         crate::api::org::teams::list_teams,
         crate::api::org::teams::get_team,
         crate::api::org::teams::get_team_by_slug,

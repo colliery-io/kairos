@@ -33,6 +33,7 @@ pub mod rules;
 pub mod rust_analyzer;
 mod schema;
 mod scip;
+pub mod store;
 mod summary;
 mod tokens;
 

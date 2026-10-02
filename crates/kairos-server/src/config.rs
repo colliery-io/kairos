@@ -130,6 +130,16 @@ pub struct AppConfig {
     /// content hash that no longer matches — so a sweep is self-healing, where a
     /// queue would be a second source of truth able to drift from the first.
     pub embed_refresh_secs: u64,
+    /// `KAIROS_CODE_INDEX_DIR` — the folder of the base code indexes
+    /// (COLLIERY-T-1853): a bare clone of each indexed repository, and the
+    /// work folders of the builder. Unset: no clone, so no nearest-commit
+    /// answer and no builder. The indexes themselves are in Postgres.
+    pub code_index_dir: Option<std::path::PathBuf>,
+    /// `KAIROS_CODE_INDEX_POLL_SECS` — how often the builder fetches each
+    /// indexed repository and updates the index of a new commit of its
+    /// default branch (COLLIERY-T-1853). Default 300; `0` turns the builder
+    /// off.
+    pub code_index_poll_secs: u64,
     /// `KAIROS_WEB_CLIENT_ID` — the public OAuth client id the SPA uses
     /// for its PKCE flow (KAIROS-T-0039, A-0010). Default `kairos-web`,
     /// matching the dev Dex fixture (`.angreal/dex/config.yaml`).
@@ -492,6 +502,8 @@ impl AppConfig {
             embed_refresh_secs: get("KAIROS_EMBED_REFRESH_SECS")
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(10),
+            code_index_dir: get("KAIROS_CODE_INDEX_DIR").map(std::path::PathBuf::from),
+            code_index_poll_secs: parse_num(&get, "KAIROS_CODE_INDEX_POLL_SECS", 300)?,
             web_client_id: get("KAIROS_WEB_CLIENT_ID").unwrap_or_else(|| "kairos-web".to_string()),
             api_bearer,
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),

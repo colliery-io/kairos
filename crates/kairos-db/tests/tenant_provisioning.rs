@@ -41,7 +41,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 34] = [
+const EXPECTED_TABLES: [&str; 36] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -49,6 +49,10 @@ const EXPECTED_TABLES: [&str; 34] = [
     "board_member_capabilities",
     "board_transitions",
     "boards",
+    // COLLIERY-T-1853: the base code index (the summary pool, the structure
+    // of each commit).
+    "code_index_summaries",
+    "code_indexes",
     "delivery_streams",
     "documents",
     // KAIROS-T-0192 (A-0021 rule 6): edges an agent proposed, awaiting a human.

@@ -190,6 +190,8 @@ async fn cli_login_whoami_refresh_logout_live() {
         log_format: LogFormat::Json,
         // No background embedding sweep in a CLI test fixture.
         embed_refresh_secs: 0,
+        code_index_dir: None,
+        code_index_poll_secs: 0,
         dev_ui: false,
         // GUI serving fields (KAIROS-T-0039): irrelevant to the CLI suite.
         web_dist: None,

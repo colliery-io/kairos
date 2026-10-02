@@ -137,6 +137,12 @@ impl EmbeddingService {
         Self { provider, model }
     }
 
+    /// The provider, for a caller that makes vectors of its own (the builder
+    /// of the base code index, COLLIERY-T-1853).
+    pub fn provider(&self) -> Arc<dyn EmbeddingProvider> {
+        Arc::clone(&self.provider)
+    }
+
     /// The model every stored row is compared against.
     pub fn model(&self) -> &StoredModel {
         &self.model

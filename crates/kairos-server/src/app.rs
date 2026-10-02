@@ -51,6 +51,10 @@ pub struct AppState {
     /// process-global would let one in-process test router's lockouts refuse
     /// another's requests.
     pub throttle: Option<Arc<crate::rate_limit::AuthThrottle>>,
+    /// The clones of the indexed repositories (COLLIERY-T-1853), when
+    /// `KAIROS_CODE_INDEX_DIR` is set. `None`: no nearest-commit answer and no
+    /// builder; the upload and the download of an index still work.
+    pub code_index: Option<Arc<crate::code_index::CodeIndexService>>,
 }
 
 /// Why [`build_state`] failed (startup-time, fail-fast).
@@ -88,6 +92,7 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
             Authenticator::disabled()
         }
     };
+    let code_index = code_index_service(&config);
     let throttle = crate::rate_limit::from_config(&config).map(Arc::new);
     Ok(AppState {
         config: Arc::new(config),
@@ -97,7 +102,49 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
         embedding: build_embedding_service(),
         metrics: Arc::new(crate::metrics::Metrics::new()),
         throttle,
+        code_index,
     })
+}
+
+/// The clones of the base code index (COLLIERY-T-1853), or `None` when
+/// `KAIROS_CODE_INDEX_DIR` is not set.
+fn code_index_service(config: &AppConfig) -> Option<Arc<crate::code_index::CodeIndexService>> {
+    let dir = config.code_index_dir.clone()?;
+    Some(Arc::new(
+        crate::code_index::CodeIndexService::from_repo_url(dir),
+    ))
+}
+
+/// Start the builder of the base code index (COLLIERY-T-1853), when the
+/// deployment has the clones, the vectors and a summarizer. **Never fails
+/// the server**: when a part is missing, it logs why and does not start.
+fn start_code_index_builder(state: &AppState) {
+    let interval = state.config.code_index_poll_secs;
+    let Some(service) = state.code_index.clone() else {
+        return;
+    };
+    if interval == 0 {
+        tracing::info!("the code index builder is off (KAIROS_CODE_INDEX_POLL_SECS=0)");
+        return;
+    }
+    let Some(embedding) = state.embedding.clone() else {
+        tracing::warn!("the code index builder did not start: embeddings are off");
+        return;
+    };
+    let summarizers = match crate::code_index::summarizers() {
+        Ok(summarizers) => summarizers,
+        Err(reason) => {
+            tracing::warn!(%reason, "the code index builder did not start");
+            return;
+        }
+    };
+    tokio::spawn(crate::code_index::run_builder(
+        state.blocking.clone(),
+        service,
+        summarizers,
+        embedding.provider(),
+        std::time::Duration::from_secs(interval),
+    ));
 }
 
 /// Build the embedding service, or `None`.
@@ -155,6 +202,7 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
         embedding: None,
         metrics: Arc::new(crate::metrics::Metrics::new()),
         throttle,
+        code_index: None,
     }
 }
 
@@ -556,6 +604,8 @@ pub async fn serve(config: AppConfig) -> Result<(), String> {
             crate::embedding::REFRESH_BATCH,
         ));
     }
+
+    start_code_index_builder(&state);
 
     let app = router(state);
 

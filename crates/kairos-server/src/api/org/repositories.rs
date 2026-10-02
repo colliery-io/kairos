@@ -239,7 +239,7 @@ pub(crate) fn add(
 /// The repository that `reference` names (slug or UUID), when `user` can
 /// change it: the gate of [`change`], evaluated against the CURRENT owner
 /// (COLLIERY-T-0266).
-fn changeable(
+pub(crate) fn changeable(
     conn: &mut PgConnection,
     tenant_slug: &str,
     user: Uuid,

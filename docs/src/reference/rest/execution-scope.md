@@ -102,6 +102,77 @@ Request body (required): `application/json`, [`UpdateRepositoryRequest`](schemas
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Slug already taken |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad slug, unknown team, or a field that does not have its form |
 
+### `GET /api/repositories/{slug}/code-indexes`
+
+Each indexed commit of a repository, newest write first.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | array of [`CodeIndex`](schemas.md#codeindex) | The indexed commits |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+
+### `GET /api/repositories/{slug}/code-indexes/nearest`
+
+The nearest indexed commit at or below a commit, from the bare clone of
+the repository. The clone fetches first when it does not have the
+commit.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+| `commit` | query | yes | `string` | The commit to start from (a full commit id). |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`NearestCodeIndex`](schemas.md#nearestcodeindex) | The nearest indexed commit |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository or commit, or no indexed commit below it |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad commit |
+| `501` | [`ErrorEnvelope`](schemas.md#errorenvelope) | This deployment keeps no clones (KAIROS_CODE_INDEX_DIR) |
+| `502` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The fetch from the repository failed |
+
+### `GET /api/repositories/{slug}/code-indexes/{commit}`
+
+The index file of a commit, with the summaries that its structure uses.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+| `commit` | path | yes | `string` | The full commit id |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`IndexFile`](schemas.md#indexfile) | A kairos-index SQLite file |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository, or no index of the commit |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad commit |
+
+### `PUT /api/repositories/{slug}/code-indexes/{commit}`
+
+Send the index file of a commit. Kairos adds its summaries to the pool
+of the repository and keeps its structure for the commit. A commit that
+has an index gets the new one.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+| `commit` | path | yes | `string` | The full commit id |
+| `ref` | query | no | `string` | The branch, the pull request or the tag that the index is for, for example `main`, `pull/12` or `v1.0.0`. |
+
+Request body (required): `application/vnd.sqlite3`, [`IndexFile`](schemas.md#indexfile)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`UploadedCodeIndex`](schemas.md#uploadedcodeindex) | Stored; it replaces the index of the commit |
+| `201` | [`UploadedCodeIndex`](schemas.md#uploadedcodeindex) | Stored; the commit had no index |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No right to change the repository |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The vectors are of another model than the pool of the repository |
+| `413` | — | The file is larger than 256 MiB |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad commit or ref, or a body that is not an index file |
+
 ## forge
 
 ### `GET /api/forge-connections`

@@ -271,6 +271,25 @@ Neither `KAIROS_WEBHOOK_SIGNING_KEY` nor `KAIROS_PUBLIC_URL` has a dedicated
 Helm value or `.env.example` entry; both are set through the chart's
 `extraEnv` or the container environment directly.
 
+### The base code index
+
+Kairos keeps the code index of each indexed commit of a repository
+(`/api/repositories/{slug}/code-indexes`). The indexes are in Postgres. These
+variables control the clones of the repositories and the builder. The builder
+updates the index after each push to the default branch.
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each indexed repository and for the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit and does not build. Uploads and downloads still work. |
+| `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
+| `KAIROS_INDEX_MODEL` | file path | set by the image | The summary model (Qwen3-4B GGUF). The builder starts only when the server has the `llama` feature, this file and embeddings. |
+| `KAIROS_INDEX_RUST_ANALYZER` | file path | set by the image | The pinned rust-analyzer for the Rust call edges. |
+| `KAIROS_INDEX_RUST_SRC` | file path | set by the image | The pinned std source archive. |
+
+The clone fetches from the `repo_url` of the repository with no credential, so
+the builder reads public repositories only. The first index of a repository
+comes from an upload (`kairos index build`, then the upload).
+
 ### Development
 
 | Variable | Type | Default | Description |

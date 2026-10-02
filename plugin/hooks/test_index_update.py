@@ -493,10 +493,12 @@ class Wiring(unittest.TestCase):
         for tool in ("module_map", "code_search", "callers", "callees"):
             self.assertIn(f"`{tool}`", text)
 
-    def test_the_plugin_version_is_0_9_0(self):
-        self.assertEqual(self.load(".claude-plugin", "plugin.json")["version"], "0.9.0")
+    def test_the_two_manifests_have_the_same_plugin_version(self):
+        # The version goes up once per release, not per task, so the test
+        # checks that the manifests agree and not a fixed number.
+        version = self.load(".claude-plugin", "plugin.json")["version"]
         market = self.load(".claude-plugin", "marketplace.json")
-        self.assertEqual(market["plugins"][0]["version"], "0.9.0")
+        self.assertEqual(market["plugins"][0]["version"], version)
 
 
 if __name__ == "__main__":

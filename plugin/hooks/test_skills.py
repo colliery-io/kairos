@@ -125,5 +125,29 @@ class KairosVocabulary(unittest.TestCase):
                 self.assertIn("kairos-vocabulary", text)
 
 
+
+class GrillInitiative(unittest.TestCase):
+    """COLLIERY-T-1864."""
+
+    def setUp(self):
+        path = os.path.join(SKILLS, "workflow", "grill-initiative", "SKILL.md")
+        self.fields = frontmatter(path)
+        self.text = read(path)
+
+    def test_the_skill_is_user_invoked(self):
+        self.assertTrue(is_user_invoked(self.fields))
+
+    def test_it_uses_the_grilling_loop_and_writes_as_it_goes(self):
+        self.assertIn("`grilling`", self.text)
+        self.assertIn("## Decisions (<who>, <date>)", self.text)
+        self.assertIn("`edit_item`", self.text)
+
+    def test_it_never_moves_the_item(self):
+        self.assertIn("Never call `transition_item`", self.text)
+
+    def test_it_offers_the_next_skills(self):
+        self.assertIn("/kairos:decompose", self.text)
+
+
 if __name__ == "__main__":
     unittest.main()

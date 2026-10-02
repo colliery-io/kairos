@@ -27,6 +27,7 @@
     "./plugin/skills/review/diataxis-review",
     "./plugin/skills/workflow/cancel-ralph",
     "./plugin/skills/workflow/decompose",
+    "./plugin/skills/workflow/grill-initiative",
     "./plugin/skills/workflow/implement",
     "./plugin/skills/workflow/ralph",
     "./plugin/skills/workflow/ralph-initiative",

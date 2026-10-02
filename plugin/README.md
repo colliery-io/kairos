@@ -6,7 +6,7 @@ repo root in `.claude-plugin/plugin.json`; layout per KAIROS-A-0014).
 ```
 plugin/
 ├── skills/
-│   ├── workflow/     # to-initiative, decompose, triage, implement, ralph, ralph-initiative, cancel-ralph
+│   ├── workflow/     # grill-initiative, to-initiative, decompose, triage, implement, ralph, ralph-initiative, cancel-ralph
 │   ├── engineering/  # tdd, diagnosing-bugs, prototype, research, code-review, ...
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), kairos-vocabulary, grill-me, grilling, handoff, writing-great-skills, bootstrap
@@ -25,8 +25,10 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
   team board from the team of the principal — and writes `.claude/kairos.local.md`).
   It reads `/api/config` to choose the authentication path: OAuth, or a service account
   with an API key on a deployment with no issuer.
-- `workflow/` — `to-initiative`, `decompose`, `triage`, `ralph`, `ralph-initiative`,
-  `cancel-ralph` (user-invoked), `implement` (model-invoked per KAIROS-A-0014)
+- `workflow/` — `grill-initiative` (an interview that writes each settled answer into the
+  initiative or strategy at once, and never moves it), `to-initiative`, `decompose`, `triage`,
+  `ralph`, `ralph-initiative`, `cancel-ralph` (user-invoked), `implement` (model-invoked per
+  KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
   `research`, `domain-modeling`, `codebase-design`, `code-review` (model-invoked)
 - `review/` — `architecture-review`, `diataxis-review` (user-invoked, driven by the

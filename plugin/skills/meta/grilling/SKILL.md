@@ -10,3 +10,5 @@ Ask the questions one at a time, waiting for feedback on each question before co
 If a *fact* can be found by exploring the codebase, look it up rather than asking me. The *decisions*, though, are mine — put each one to me and wait for my answer.
 
 Do not enact the plan until I confirm we have reached a shared understanding.
+
+Name work the way Kairos does: an existing item by its short code, a proposed item by its quoted title marked "not yet created", and no numbered decisions (`D1`, `D2`). The rules are in the `kairos-vocabulary` skill.

@@ -20,6 +20,8 @@ Everything this skill needs is already in the conversation — stress-testing a 
    - `create_item(item_type: initiative, board: <coordination board>, title: ...)` — a title in the domain glossary's words, content stating the problem and intended outcome in a few sentences.
    - `create_item(item_type: document, template: prd, parent: <initiative short code>, title: ..., content: <the PRD>)` using the template below. The `parent` edge attaches the PRD to the initiative — no other wiring needed. The PRD is done when every decision made in the conversation lands in a template section — implementation, testing, or Out of Scope; nothing decided in-chat is left implicit.
 
+   Name the initiative and the PRD only by the short codes in the results of `create_item`. Work for later is a quoted title, not "phase 2" (the `kairos-vocabulary` skill).
+
    Finish by telling the user both short codes. Breaking the initiative into tasks is `/kairos:decompose`, when the user is ready.
 
 <prd-template>

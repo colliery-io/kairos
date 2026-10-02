@@ -9,7 +9,7 @@ plugin/
 │   ├── workflow/     # to-initiative, decompose, triage, implement, ralph, ralph-initiative, cancel-ralph
 │   ├── engineering/  # tdd, diagnosing-bugs, prototype, research, code-review, ...
 │   ├── review/       # architecture-review, diataxis-review
-│   └── meta/         # kairos (router), grill-me, grilling, handoff, writing-great-skills, bootstrap
+│   └── meta/         # kairos (router), kairos-vocabulary, grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
 ├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction
 └── .mcp.json         # MCP endpoint template (see below)
@@ -17,7 +17,9 @@ plugin/
 
 Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
 
-- `meta/` — `kairos` (the `/kairos` router), `grilling` (model-invoked), `grill-me`,
+- `meta/` — `kairos` (the `/kairos` router), `grilling` and `kairos-vocabulary` (model-invoked;
+  `kairos-vocabulary` names work only by short codes and Kairos words, with `ITEM-TYPES.md`
+  from outside words to item types), `grill-me`,
   `handoff`, `writing-great-skills` (the normative authoring reference), `bootstrap`
   (wires a repo to a deployment — detects the repository from the git remote, takes the
   team board from the team of the principal — and writes `.claude/kairos.local.md`).

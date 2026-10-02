@@ -225,7 +225,8 @@ def lint():
 def unit():
     """Run unit tests for all workspace crates, then the plugin hooks'
     stdlib unit tests (KAIROS-T-0108, the Ralph loop COLLIERY-T-1861, the active
-    work after a compaction COLLIERY-T-1862), then the stdlib unit tests of the
+    work after a compaction COLLIERY-T-1862, the skill set COLLIERY-T-1866), then
+    the stdlib unit tests of the
     Metis import script (scripts/metis_import, COLLIERY-I-0019)."""
     _no_incremental()
     code = run_cargo_command(["test", "--workspace", "--lib", "--bins"])
@@ -236,6 +237,7 @@ def unit():
         os.path.join(hooks, "test_session_start.py"),
         os.path.join(hooks, "test_ralph.py"),  # the Ralph loop, COLLIERY-T-1861
         os.path.join(hooks, "test_active_work.py"),  # after a compaction, COLLIERY-T-1862
+        os.path.join(hooks, "test_skills.py"),  # the skill set in sync, COLLIERY-T-1866
     ]
     code = subprocess.run(
         [sys.executable, "-B", "-m", "unittest", *hook_tests],

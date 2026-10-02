@@ -21,6 +21,7 @@
     "./plugin/skills/meta/grilling",
     "./plugin/skills/meta/handoff",
     "./plugin/skills/meta/kairos",
+    "./plugin/skills/meta/kairos-vocabulary",
     "./plugin/skills/meta/writing-great-skills",
     "./plugin/skills/review/architecture-review",
     "./plugin/skills/review/diataxis-review",

@@ -35,6 +35,8 @@ Resolve the board with `whoami`/`my_boards` (the user's delivery board) unless t
 
 Let the lead pick where to start.
 
+Name each item by its short code and the title. Take the column names from the board, not from memory, and translate the lead's words ("ticket", "epic", "sprint") to the Kairos item types: the `kairos-vocabulary` skill and its [ITEM-TYPES.md](../../meta/kairos-vocabulary/ITEM-TYPES.md).
+
 ## Triage a specific item
 
 1. **Gather context.** `get_item` for content, metadata, and relationships; `get_history` for prior triage notes so you don't re-ask resolved questions. Note the item's lane and `repository` (`get_item` prints both). A **request** from a different team is in the entry column, in the support lane, and needs no repository. Triage it like any other item; its author owes the answers to "needs info" questions. Check redundancy: `search` the boards for a duplicate item, and search the codebase for an existing implementation of the requested behavior by domain concept, not just the request's wording — report where you looked.

@@ -27,19 +27,19 @@ Break the plan into **tracer bullet** tasks, following the **Vertical slice rule
 
 ### 4. Quiz the user
 
-Present the proposed breakdown as a numbered list. For each slice, show:
+Present the proposed breakdown as a list of quoted titles, each marked "not yet created". The tasks do not exist yet, so they have no short code. Do not give them a temporary name ("Slice 1", "T1", "task A"). A number in the list is for the user's answer in this message only. For each proposed task, show:
 
-- **Title**: short descriptive name
-- **Blocked by**: which other slices (if any) must complete first
-- **User stories covered**: which user stories this addresses (if the source material has them) — and show the uncovered list, so nothing vanishes silently
+- **Title**: the full title in quotes, in the domain glossary's words
+- **Blocked by**: the quoted titles of the proposed tasks that must complete first, or the short codes of existing items
+- **User stories covered**: the user stories that the task covers, as the short code of the PRD and the story number. Also show the stories that no task covers, so that nothing vanishes silently
 
 Ask the user:
 
 - Does the granularity feel right? (too coarse / too fine)
 - Are the dependency relationships correct?
-- Should any slices be merged or split further?
+- Should any tasks be merged or split further?
 
-Iterate until the user approves the breakdown.
+Iterate until the user approves the breakdown. The naming rules are in the `kairos-vocabulary` skill.
 
 ### 5. Publish the tasks to Kairos
 
@@ -53,6 +53,8 @@ Publish in dependency order — blockers first — so every blocking edge names 
 - For each of its blockers: `link_items(source: <blocker short code>, target: <this task's short code>, relationship: blocks)`.
 
 Columns and blocking edges are native to Kairos — new tasks go to the entry column of the board, and that's where they belong; leave them for the team to pull. The initiative itself stays untouched: decompose only adds children.
+
+From here on, name each task only by the short code in the result of its `create_item`. Do not use its working title or its number in the step 4 list.
 
 Finish by listing the created short codes in dependency order, each with its board and its repository (and, for a request, a note that it is in the support lane of that team).
 

@@ -29,6 +29,8 @@ The task must be workable: acceptance criteria present and independently verifia
 
 The task item is your **working memory**. Every few significant steps, `edit_item` findings, decisions, dead ends ruled out, and plan changes into it — the item must let any session, or another agent, resume cold after this conversation's context is gone. Reference commits, files, and other items by hash, path, or short code rather than restating them. End each note with a `Next step:` line: after a context compaction, the plugin gives you that line again for each Active task.
 
+To find code, use the code tools of the `kairos-code` MCP server before you read files: `module_map`, `code_search`, `callers` and `callees` (and `symbol` and `path`). Then read only the files that they name.
+
 Use the `tdd` skill at pre-agreed seams where possible. Run the repo's fast checks — formatter, typecheck, single test files — as you go; the full suite once at the end.
 
 ## The completion gate

@@ -1,5 +1,5 @@
 {
-  "description": "SessionStart board-context injection (KAIROS-A-0014): emits the repo's .claude/kairos.local.md wiring as additionalContext and instructs the agent to pull live board state via the authenticated kairos MCP tools. Hooks hold no credentials (tokens live with the MCP client); offline degrades to a note. Silent no-op when the repo is not bootstrapped. Stop: the Ralph loop (COLLIERY-T-1861) blocks the stop and gives the next step while a loop of this session is active (state in ~/.claude/kairos-ralph/<session_id>.json); no loop -> silent no-op. SessionStart `compact` + PostToolUse on the kairos item tools (COLLIERY-T-1862): after a compaction, active_work.py gives the agent its Active tasks, their initiatives and next steps, and the Ralph loop, from a local record per session (~/.claude/kairos-work/<session_id>.json); no Kairos read, no credentials.",
+  "description": "SessionStart board-context injection (KAIROS-A-0014): emits the repo's .claude/kairos.local.md wiring as additionalContext and instructs the agent to pull live board state via the authenticated kairos MCP tools. Hooks hold no credentials (tokens live with the MCP client); offline degrades to a note. Silent no-op when the repo is not bootstrapped. Stop: the Ralph loop (COLLIERY-T-1861) blocks the stop and gives the next step while a loop of this session is active (state in ~/.claude/kairos-ralph/<session_id>.json); no loop -> silent no-op. SessionStart `compact` + PostToolUse on the kairos item tools (COLLIERY-T-1862): after a compaction, active_work.py gives the agent its Active tasks, their initiatives and next steps, and the Ralph loop, from a local record per session (~/.claude/kairos-work/<session_id>.json); no Kairos read, no credentials. SessionStart `*` + PostToolUse on Edit|Write|MultiEdit|NotebookEdit (COLLIERY-T-1855): index_update.py starts `kairos index update` as a detached background job (no wait; skipped when `kairos` is not on PATH or the checkout has no .claude/kairos.local.md), tells the agent to use the code tools of the kairos-code MCP server before it reads files, and keeps a list of edited source files that the background job logs and clears after a successful update (state and log in ~/.claude/kairos-index/<name>-<hash>/).",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,11 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/session_start.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/index_update.py\" start",
             "timeout": 10
           }
         ]
@@ -41,6 +46,16 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/active_work.py\" record",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^(Edit|Write|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/index_update.py\" record",
             "timeout": 10
           }
         ]

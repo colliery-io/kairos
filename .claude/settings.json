@@ -1,19 +1,5 @@
 {
   "enabledPlugins": {
     "metis@colliery-io-metis": false
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v metis >/dev/null 2>&1 && (cd \"$CLAUDE_PROJECT_DIR\" && metis index --incremental >/dev/null 2>&1) || true",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
   }
 }

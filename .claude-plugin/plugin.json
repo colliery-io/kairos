@@ -1,12 +1,19 @@
 {
   "name": "kairos",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Kairos's agentic workflow layer: Claude Code skills, hooks, and MCP wiring that operate on Kairos boards.",
   "author": {
     "name": "Dylan Storey",
     "email": "dylan.storey@gmail.com"
   },
   "hooks": "./plugin/hooks/hooks.json",
+  "mcpServers": {
+    "kairos-code": {
+      "type": "stdio",
+      "command": "kairos",
+      "args": ["index", "mcp"]
+    }
+  },
   "skills": [
     "./plugin/skills/engineering/code-review",
     "./plugin/skills/engineering/codebase-design",

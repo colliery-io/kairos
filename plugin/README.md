@@ -11,7 +11,7 @@ plugin/
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), kairos-vocabulary, grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
-├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction
+├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction, the code index
 └── .mcp.json         # MCP endpoint template (see below)
 ```
 
@@ -100,6 +100,32 @@ Ralph loop of the session: the iteration and the tasks left.
   record, that instruction is all the text. Each error gives no output; the hook never blocks a
   tool call or a compaction.
 - Tests: `hooks/test_active_work.py`, part of `angreal test unit`.
+
+## Each session gets the code index
+
+The plugin gives each session the code index of the checkout (COLLIERY-T-1855, COLLIERY-I-0264).
+
+- **The code tools.** `.claude-plugin/plugin.json` registers the local MCP server `kairos-code`
+  (`kairos index mcp`, stdio). It gives `module_map`, `code_search`, `symbol`, `callers`,
+  `callees` and `path`. Claude Code loads it in addition to the `.mcp.json` of the plugin root.
+  It is not in `plugin/.mcp.json`, because the plugin does not load that template. If `kairos`
+  is not on PATH, the server does not start and Claude Code shows the error.
+- **The update at the start.** `hooks/index_update.py start` is a `SessionStart` hook. If
+  `kairos` is on PATH and the checkout has `.claude/kairos.local.md`, it starts
+  `kairos index update` as a detached process and does not wait for it. It also tells the agent
+  to use the code tools before it reads files. Else it does nothing and gives no output. The
+  update reads the deployment, the repository and the key (`KAIROS_KEY` or `KAIROS_MCP_KEY`)
+  itself (COLLIERY-T-1854). The hook holds no credentials.
+- **The list of changed files.** `hooks/index_update.py record` is a `PostToolUse` hook on
+  `Edit`, `Write`, `MultiEdit` and `NotebookEdit`. It adds the path of each edited source file
+  of the checkout (`.rs`, `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.go`) to a list. The background
+  job takes the list first, writes it to the log, runs the update, and clears the list only when
+  the update succeeds. The update finds each changed file by its content hash, also with no
+  list, so the list does not make the update faster today.
+- **The state** is outside the checkout: `~/.claude/kairos-index/<name>-<hash>/` holds
+  `changed-files`, `update.log` (and `update.log.1`) and `lock`. `KAIROS_INDEX_STATE_DIR`
+  overrides the parent folder. Only one update runs at a time for each checkout.
+- Tests: `hooks/test_index_update.py`, part of `angreal test unit`.
 
 ## Sessions are scoped to a team board and a repository
 

@@ -290,7 +290,7 @@ PROCEDURE = """Each task goes through the steps of /kairos:implement (the `imple
 2. Do the repository check: the repository of the task must be the repository of this checkout.
 3. Make sure that the task is workable: it has acceptance criteria that you can check, and no open blocker.
 4. `transition_item` the task to Todo if necessary, then to Active, before the first change.
-5. Do the work. Every few steps, `edit_item` short progress notes on the task.
+5. Do the work. Every few steps, `edit_item` short progress notes on the task. End each note with a `Next step:` line.
 6. Do the completion gate. Run the formatter check, the linter with warnings denied, and the full test suite.
 7. For each acceptance criterion, write the command and its output on the task as evidence.
 8. Review the diff (the `code-review` skill). Commit to the current branch.

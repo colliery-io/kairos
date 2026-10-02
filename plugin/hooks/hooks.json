@@ -1,5 +1,5 @@
 {
-  "description": "SessionStart board-context injection (KAIROS-A-0014): emits the repo's .claude/kairos.local.md wiring as additionalContext and instructs the agent to pull live board state via the authenticated kairos MCP tools. Hooks hold no credentials (tokens live with the MCP client); offline degrades to a note. Silent no-op when the repo is not bootstrapped. Stop: the Ralph loop (COLLIERY-T-1861) blocks the stop and gives the next step while a loop of this session is active (state in ~/.claude/kairos-ralph/<session_id>.json); no loop -> silent no-op.",
+  "description": "SessionStart board-context injection (KAIROS-A-0014): emits the repo's .claude/kairos.local.md wiring as additionalContext and instructs the agent to pull live board state via the authenticated kairos MCP tools. Hooks hold no credentials (tokens live with the MCP client); offline degrades to a note. Silent no-op when the repo is not bootstrapped. Stop: the Ralph loop (COLLIERY-T-1861) blocks the stop and gives the next step while a loop of this session is active (state in ~/.claude/kairos-ralph/<session_id>.json); no loop -> silent no-op. SessionStart `compact` + PostToolUse on the kairos item tools (COLLIERY-T-1862): after a compaction, active_work.py gives the agent its Active tasks, their initiatives and next steps, and the Ralph loop, from a local record per session (~/.claude/kairos-work/<session_id>.json); no Kairos read, no credentials.",
   "hooks": {
     "SessionStart": [
       {
@@ -11,6 +11,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/active_work.py\" compact",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
@@ -19,6 +29,18 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/ralph.py\" stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__(plugin_kairos_)?kairos[A-Za-z0-9_-]*__(get_item|transition_item|edit_item|update_item)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/plugin/hooks/active_work.py\" record",
             "timeout": 10
           }
         ]

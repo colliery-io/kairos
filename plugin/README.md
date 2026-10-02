@@ -11,7 +11,7 @@ plugin/
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
-├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook)
+├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook), the active work after a compaction
 └── .mcp.json         # MCP endpoint template (see below)
 ```
 
@@ -69,6 +69,31 @@ does not read `KAIROS_MCP_KEY`.
   the loop and wrote the reason on the task and its initiative), or until the iteration limit.
   Each error in the hook lets the session stop.
 - Tests: `hooks/test_ralph.py`, part of `angreal test unit`.
+
+## The active work comes back after a compaction
+
+After a context compaction, `hooks/active_work.py compact` gives the agent its active work
+again (COLLIERY-T-1862). It names the Active (and Blocked) tasks of this repository that the
+session worked on. For each task, it gives the title, the initiative and the next step. It also names the
+Ralph loop of the session: the iteration and the tasks left.
+
+- It is a `SessionStart` hook with the matcher `compact`. A `PreCompact` hook cannot do this:
+  it has no `additionalContext`, Claude Code writes its stdout to the debug log only, and it
+  discards its `systemMessage`. `SessionStart` fires again after each compaction, and its
+  `additionalContext` is a system reminder on the next request.
+- The hook does not read Kairos and holds no credentials. `hooks/active_work.py record` is a
+  `PostToolUse` hook on the kairos `get_item`, `transition_item`, `edit_item` and
+  `update_item` tools. It keeps a local record for each session in
+  `~/.claude/kairos-work/<session_id>.json` (`KAIROS_WORK_STATE_DIR` overrides the folder).
+  The record has the title, repository, column and parent from the `get_item` result. It has
+  the column from `transition_item`, and the next step from the text that the agent writes. The next step is
+  the text after the last `Next step:` (or `Next:`) in the notes; without one, the last line.
+  The hook removes records older than 30 days.
+- The record can be stale, so the text always tells the agent to confirm with `get_item`, and
+  to find its Active tasks with `board_items` (`repository=<repo>`, `column=Active`). With no
+  record, that instruction is all the text. Each error gives no output; the hook never blocks a
+  tool call or a compaction.
+- Tests: `hooks/test_active_work.py`, part of `angreal test unit`.
 
 ## Sessions are scoped to a team board and a repository
 

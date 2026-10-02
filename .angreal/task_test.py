@@ -223,16 +223,22 @@ def lint():
     ),
 )
 def unit():
-    """Run unit tests for all workspace crates, then the plugin hook's
-    stdlib unit tests (KAIROS-T-0108), then the stdlib unit tests of the
+    """Run unit tests for all workspace crates, then the plugin hooks'
+    stdlib unit tests (KAIROS-T-0108, the Ralph loop COLLIERY-T-1861), then the stdlib unit tests of the
     Metis import script (scripts/metis_import, COLLIERY-I-0019)."""
     _no_incremental()
     code = run_cargo_command(["test", "--workspace", "--lib", "--bins"])
     if code:
         return code
-    hook_tests = os.path.join(PROJECT_ROOT, "plugin", "hooks", "test_session_start.py")
+    hooks = os.path.join(PROJECT_ROOT, "plugin", "hooks")
+    hook_tests = [
+        os.path.join(hooks, "test_session_start.py"),
+        os.path.join(hooks, "test_ralph.py"),  # the Ralph loop, COLLIERY-T-1861
+    ]
     code = subprocess.run(
-        [sys.executable, "-m", "unittest", hook_tests], cwd=PROJECT_ROOT, check=False
+        [sys.executable, "-B", "-m", "unittest", *hook_tests],
+        cwd=PROJECT_ROOT,
+        check=False,
     ).returncode
     if code:
         return code

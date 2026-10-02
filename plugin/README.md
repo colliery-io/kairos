@@ -6,12 +6,12 @@ repo root in `.claude-plugin/plugin.json`; layout per KAIROS-A-0014).
 ```
 plugin/
 ├── skills/
-│   ├── workflow/     # to-initiative, decompose, triage, implement
+│   ├── workflow/     # to-initiative, decompose, triage, implement, ralph, ralph-initiative, cancel-ralph
 │   ├── engineering/  # tdd, diagnosing-bugs, prototype, research, code-review, ...
 │   ├── review/       # architecture-review, diataxis-review
 │   └── meta/         # kairos (router), grill-me, grilling, handoff, writing-great-skills, bootstrap
 ├── references/       # rendered review specs (see below)
-├── hooks/            # SessionStart context injection
+├── hooks/            # SessionStart context injection, the Ralph loop (Stop hook)
 └── .mcp.json         # MCP endpoint template (see below)
 ```
 
@@ -23,8 +23,8 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
   team board from the team of the principal — and writes `.claude/kairos.local.md`).
   It reads `/api/config` to choose the authentication path: OAuth, or a service account
   with an API key on a deployment with no issuer.
-- `workflow/` — `to-initiative`, `decompose`, `triage` (user-invoked), `implement`
-  (model-invoked per KAIROS-A-0014)
+- `workflow/` — `to-initiative`, `decompose`, `triage`, `ralph`, `ralph-initiative`,
+  `cancel-ralph` (user-invoked), `implement` (model-invoked per KAIROS-A-0014)
 - `engineering/` — `grill-with-docs` (user-invoked); `tdd`, `diagnosing-bugs`, `prototype`,
   `research`, `domain-modeling`, `codebase-design`, `code-review` (model-invoked)
 - `review/` — `architecture-review`, `diataxis-review` (user-invoked, driven by the
@@ -48,6 +48,27 @@ Hooks cannot drive the client's OAuth flow (KAIROS-A-0011) and tokens live with 
 (KAIROS-A-0014), so the hook deliberately never authenticates; offline degrades to a note.
 That holds on the service-account path too: the MCP client sends the API key, and the hook
 does not read `KAIROS_MCP_KEY`.
+
+## The Ralph loop runs tasks with no stop between them
+
+`/kairos:ralph <code>... [--max-iterations N]` and `/kairos:ralph-initiative <code>
+[--max-iterations N]` run tasks one by one, each through the steps of `implement`
+(COLLIERY-T-1861, ported from the Metis plugin 2.3.0). `/kairos:cancel-ralph` stops the loop.
+
+- The skill reads each item with the kairos MCP tools, then runs `hooks/ralph.py start` (or
+  `start-initiative`, with the open tasks and their blockers as JSON on stdin). The script
+  refuses a missing code, a malformed code, an unknown option and an unknown field, and names
+  it. For an initiative it puts each blocker before the task that it blocks, and it skips a
+  Blocked task, a task whose blocker is not done, and a cycle.
+- The state is one JSON file for each Claude Code session, outside the repository:
+  `~/.claude/kairos-ralph/<session_id>.json` (`KAIROS_RALPH_STATE_DIR` overrides the folder).
+  The skill gives the session ID with `${CLAUDE_SESSION_ID}`; the Stop hook gets it in its input.
+- `hooks/ralph.py stop` is the `Stop` hook. With no state for its session it does nothing.
+  Otherwise it blocks the stop and gives the next instruction, until the last reply ends with
+  `<promise>ALL TASKS COMPLETE</promise>` or `<promise>LOOP STOPPED</promise>` (the agent stopped
+  the loop and wrote the reason on the task and its initiative), or until the iteration limit.
+  Each error in the hook lets the session stop.
+- Tests: `hooks/test_ralph.py`, part of `angreal test unit`.
 
 ## Sessions are scoped to a team board and a repository
 

@@ -41,10 +41,50 @@ fn backend() -> Result<&'static LlamaBackend, IndexError> {
             llama_cpp_2::send_logs_to_tracing(
                 llama_cpp_2::LogOptions::default().with_logs_enabled(false),
             );
+            #[cfg(not(target_os = "macos"))]
+            load_cpu_backend()?;
             LlamaBackend::init().map_err(|e| e.to_string())
         })
         .as_ref()
         .map_err(|e| IndexError::Model(format!("llama.cpp did not start: {e}")))
+}
+
+/// Load the best CPU backend of ggml for this host (COLLIERY-T-2526). Off a
+/// Mac, ggml is built with one CPU backend for each level of the
+/// architecture, as shared libraries (`libggml-cpu-*.so`). They are looked
+/// for next to the program (the server image puts them there), then in the
+/// build folder of `llama-cpp-sys-2` (a development build).
+#[cfg(not(target_os = "macos"))]
+fn load_cpu_backend() -> Result<(), String> {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+    if let Some(dir) = exe_dir.as_deref().filter(|d| has_cpu_backend_file(d)) {
+        llama_cpp_2::llama_backend::load_backends_from_path(dir);
+    } else {
+        llama_cpp_2::llama_backend::load_backends();
+    }
+    if llama_cpp_2::list_llama_ggml_backend_devices().is_empty() {
+        return Err(format!(
+            "no CPU backend of ggml (libggml-cpu-*.so) loads from {} or from the build folder of llama-cpp-sys-2",
+            exe_dir.map_or_else(
+                || "the folder of the program".into(),
+                |d| d.display().to_string()
+            )
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn has_cpu_backend_file(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.starts_with("libggml-cpu") && name.ends_with(".so")
+        })
+    })
 }
 
 /// The model file, loaded. Make a [`LlamaSummarizer`] from it.

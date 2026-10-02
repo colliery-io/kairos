@@ -44,11 +44,19 @@ kairos-embed = { path = "../kairos-embed", default-features = false }
 # The llama.cpp summarizer (feature `llama`). llama-cpp-sys-2 builds
 # llama.cpp from C++ source with cmake, which takes minutes. So it is not in
 # the default build. Metal on a Mac; the CPU, with OpenMP, on Linux.
+#
+# `dynamic-backends` on Linux (COLLIERY-T-2526): ggml builds one CPU backend
+# for each level of the architecture (on arm64: armv8.0, armv8.2 with dotprod
+# and fp16, armv8.6 with i8mm, ...) and loads the best one for the host at run
+# time. Without it, the build script of llama-cpp-sys-2 compiles ggml for
+# `-march=armv8-a` on arm64 Linux: no dotprod, and a prompt 3.4 times slower.
+# The backends and the shared libraries of llama.cpp go next to the binary
+# (see the Dockerfile).
 [target.'cfg(target_os = "macos")'.dependencies]
 llama-cpp-2 = { version = "=0.1.158", default-features = false, features = ["metal"], optional = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-llama-cpp-2 = { version = "=0.1.158", default-features = false, features = ["openmp"], optional = true }
+llama-cpp-2 = { version = "=0.1.158", default-features = false, features = ["openmp", "dynamic-backends"], optional = true }
 
 [features]
 default = []

@@ -85,11 +85,16 @@ WORKDIR /build
 # The C++ link ordering `ort` needs lives in `.cargo/config.toml`, so it applies
 # here, in CI and to a developer on Linux alike rather than only to this build.
 # `llama` (COLLIERY-T-1853): the builder of the base code index writes its
-# summaries with llama.cpp on the CPU (OpenMP). llama.cpp is built for the
-# baseline CPU of the target (GGML_NATIVE off), so the image runs on any host
-# of its architecture.
+# summaries with llama.cpp on the CPU (OpenMP). llama.cpp is a set of shared
+# libraries, with one CPU backend of ggml for each level of the architecture
+# (COLLIERY-T-2526): at run time ggml loads the best one for the host (on
+# arm64, dotprod and fp16 when the CPU has them). So the image runs on any
+# host of its architecture and still uses its vector instructions.
 RUN cargo build --release -p kairos-server --features embed-web,llama \
-    && strip target/release/kairos-server
+    && strip target/release/kairos-server \
+    && mkdir -p /build/llama/lib /build/llama/backends \
+    && cp -P target/release/build/llama-cpp-sys-2-*/out/lib/lib*.so* /build/llama/lib/ \
+    && cp target/release/build/llama-cpp-sys-2-*/out/backends/libggml-cpu-*.so /build/llama/backends/
 
 # 3) Bake the local embedding model into the image (KAIROS-T-0189, A-0021 rule
 #    1). fastembed resolves models from a cache directory and downloads on a
@@ -178,6 +183,11 @@ LABEL org.opencontainers.image.title="kairos" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 COPY --from=builder /build/target/release/kairos-server /usr/local/bin/kairos-server
+# The shared libraries of llama.cpp, and the CPU backends of ggml next to the
+# binary, where the summarizer looks for them (COLLIERY-T-2526).
+COPY --from=builder /build/llama/lib/ /usr/local/lib/
+COPY --from=builder /build/llama/backends/ /usr/local/bin/
+RUN ldconfig && ! ldd /usr/local/bin/kairos-server | grep "not found"
 # Apache-2.0 section 4(d): a redistributable build carries the licence and the
 # NOTICE, so an operator who only ever has the image can still read both.
 COPY --from=builder /build/LICENSE /build/NOTICE /usr/share/doc/kairos/

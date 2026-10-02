@@ -12,6 +12,20 @@ use crate::error::CliError;
 pub enum IndexCommandError {
     #[error("No index is at {0}. Run `kairos index build` first.")]
     NoIndex(PathBuf),
+    #[error(
+        "No index that this CLI can update is at {path}, and Kairos gave no base index, because {why}. Run `kairos index --full`."
+    )]
+    NoStart { path: PathBuf, why: String },
+    #[error(
+        "{changed} files changed since {commit}, the nearest indexed commit in Kairos. The limit is {limit}, so the CLI built nothing. Rebase on {branch}, or run `kairos index --full`. A full build takes {estimate}."
+    )]
+    TooFar {
+        changed: usize,
+        commit: String,
+        limit: usize,
+        branch: String,
+        estimate: String,
+    },
     #[error("The folder {0} is not there.")]
     NoRoot(PathBuf),
     #[error("Git did not run in {path}: {message}.")]

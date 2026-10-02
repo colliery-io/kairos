@@ -305,7 +305,7 @@ pub(super) fn duplicates_text(
     Ok(out)
 }
 
-fn plural(count: usize, one: &str, many: &str) -> String {
+pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
     if count == 1 {
         format!("1 {one}")
     } else {

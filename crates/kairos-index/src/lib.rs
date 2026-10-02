@@ -61,7 +61,7 @@ pub use rust_analyzer::BuildOptions;
 pub use schema::SCHEMA_VERSION;
 pub use summary::{
     FakeSummarizer, Level, LevelCount, MODEL_FILE_NAME, SUMMARIZED_KINDS, SYSTEM_PROMPT,
-    SummarizeOptions, Summarizer, SummaryCall, SummaryReport, SummaryRequest, model_path,
+    SummarizeOptions, Summarizer, SummaryCall, SummaryReport, SummaryRequest, link, model_path,
     summarize,
 };
 
@@ -118,10 +118,24 @@ pub struct EdgeStats {
     /// a name class, with the origin `macro-text`.
     pub macro_text: usize,
     /// SCIP edges kept from a base index, for the Rust functions whose code
-    /// did not change.
+    /// did not change. They are not in `certain_scip` or `external_scip`.
+    /// A kept edge whose callee is gone is a name class, counted there.
     pub kept_scip: usize,
     /// Name classes that wait for a SCIP run (`scip_pending`).
     pub pending: usize,
+}
+
+impl EdgeStats {
+    /// Each edge of the build: from the SCIP run, by name, and kept from
+    /// the base (COLLIERY-T-1854).
+    pub fn total(&self) -> usize {
+        self.certain_scip
+            + self.external_scip
+            + self.certain_name
+            + self.possible_name
+            + self.external_name
+            + self.kept_scip
+    }
 }
 
 /// One `rust-analyzer scip` run.
@@ -368,6 +382,28 @@ pub fn update_structure(
     let base = edges::BaseIndex::read(&conn)?;
     drop(conn);
     build(root, db, Mode::Keep(std::slice::from_ref(&base)), &known)
+}
+
+/// The files of the tree at `root` that differ from the index at `db`
+/// (COLLIERY-T-1854): a file with another content, a file that the index
+/// does not have, and a file of the index that the tree does not have.
+/// Sorted. An index of another schema version is refused.
+pub fn changed_files(root: &Path, db: &Path) -> Result<Vec<String>, IndexError> {
+    let mut known: HashMap<String, String> = Index::open(db)?
+        .files()?
+        .into_iter()
+        .map(|f| (f.path, f.content_hash))
+        .collect();
+    let mut changed = Vec::new();
+    for (rel, abs) in walk(root)? {
+        let hash = read_file(&abs)?.content_hash;
+        if known.remove(&rel).is_none_or(|known| known != hash) {
+            changed.push(rel);
+        }
+    }
+    changed.extend(known.into_keys());
+    changed.sort();
+    Ok(changed)
 }
 
 fn build(
@@ -1028,5 +1064,90 @@ mod tests {
         std::fs::write(repo.join(".kairos/index-rules.toml"), "").unwrap();
         let paths: Vec<String> = walk(repo).unwrap().into_iter().map(|(p, _)| p).collect();
         assert_eq!(paths, [".kairos/index-rules.toml"]);
+    }
+
+    #[test]
+    fn changed_files_compare_the_tree_with_the_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("a.py"), "def a():\n    return 1\n").unwrap();
+        std::fs::write(repo.join("b.py"), "def b():\n    return 2\n").unwrap();
+        std::fs::write(repo.join("c.py"), "def c():\n    return 3\n").unwrap();
+        let db = dir.path().join("index.sqlite");
+        build_structure(&repo, &db).unwrap();
+        assert!(changed_files(&repo, &db).unwrap().is_empty());
+
+        std::fs::write(repo.join("a.py"), "def a():\n    return 10\n").unwrap();
+        std::fs::remove_file(repo.join("b.py")).unwrap();
+        std::fs::write(repo.join("d.py"), "def d():\n    return 4\n").unwrap();
+        assert_eq!(changed_files(&repo, &db).unwrap(), ["a.py", "b.py", "d.py"]);
+    }
+
+    /// COLLIERY-T-1854: with no model, each key that the pool has is linked,
+    /// and each other key is counted as left.
+    #[test]
+    fn link_needs_no_model() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join("pkg")).unwrap();
+        std::fs::write(
+            repo.join("pkg/a.py"),
+            "def a():\n    return 1\n\n\ndef b():\n    return a()\n",
+        )
+        .unwrap();
+        let db = dir.path().join("index.sqlite");
+        let embedder = kairos_embed::DeterministicProvider::default();
+        let mut fake = FakeSummarizer::default();
+        update(&repo, &db, &mut fake, &embedder, &UpdateOptions::default()).unwrap();
+        let summarized = Index::open(&db).unwrap().symbols().unwrap();
+
+        // The same tree: the structure is made again, and each key links.
+        update_structure(&repo, &db, &UpdateOptions::default()).unwrap();
+        let report = link(&repo, &db, &SummarizeOptions::default()).unwrap();
+        assert_eq!(
+            (
+                report.symbols.reused,
+                report.files.reused,
+                report.modules.reused
+            ),
+            (2, 1, 1)
+        );
+        assert_eq!(
+            report.symbols.left + report.files.left + report.modules.left,
+            0
+        );
+        assert!(report.calls.is_empty() && report.vectors == 0);
+        let index = Index::open(&db).unwrap();
+        assert_eq!(index.symbols().unwrap(), summarized);
+        assert_eq!(index.modules().unwrap().len(), 1);
+
+        // A changed function: it, its file and its module are left.
+        std::fs::write(
+            repo.join("pkg/a.py"),
+            "def a():\n    return 2\n\n\ndef b():\n    return a()\n",
+        )
+        .unwrap();
+        update_structure(&repo, &db, &UpdateOptions::default()).unwrap();
+        let report = link(&repo, &db, &SummarizeOptions::default()).unwrap();
+        assert_eq!(
+            (report.symbols.reused, report.symbols.left),
+            (1, 1),
+            "{report:?}"
+        );
+        assert_eq!((report.files.left, report.modules.left), (1, 1));
+        let index = Index::open(&db).unwrap();
+        let keys: Vec<(String, bool)> = index
+            .symbols()
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.name, s.summary_key.is_some()))
+            .collect();
+        assert_eq!(keys, [("a".to_string(), false), ("b".to_string(), true)]);
+        assert!(index.modules().unwrap().is_empty());
+        assert_eq!(
+            index.file_summary_keys().unwrap(),
+            [("pkg/a.py".to_string(), None)]
+        );
     }
 }

@@ -6,7 +6,13 @@
 //! - `kairos index update` builds the structure again from the tree and
 //!   summarizes only what changed. It keeps the Rust edges of the index for
 //!   each function whose code did not change, and runs no SCIP unless
-//!   `--rust-edges` is given.
+//!   `--rust-edges` is given. It starts from the nearest base index in
+//!   Kairos when the checkout has no index, or when the base is nearer to
+//!   the tree than the local index ([`base`], COLLIERY-T-1854). If more
+//!   files than the limit changed since the base, it builds nothing and
+//!   tells the developer to rebase, or to run `kairos index --full`.
+//! - `kairos index --full` builds the index again with no base: the same as
+//!   `kairos index build`.
 //! - `kairos index status` gives the counts.
 //! - `kairos index duplicates` finds repeated code: exact copies, near copies
 //!   and the same idea in other code (COLLIERY-T-1857). It gives the text of the
@@ -25,6 +31,7 @@
 //! structure and the edges, and says that it made no summaries and why.
 
 mod arguments;
+mod base;
 mod error;
 mod mcp;
 
@@ -43,6 +50,36 @@ pub use error::IndexCommandError;
 
 use crate::error::CliError;
 
+/// The default limit of the files changed since the base index
+/// (COLLIERY-I-0264, "The flow").
+pub const DEFAULT_MAX_CHANGED: usize = 200;
+
+/// `kairos index`: a subcommand, or `--full`.
+#[derive(clap::Args)]
+#[command(args_conflicts_with_subcommands = true, arg_required_else_help = true)]
+pub struct IndexArgs {
+    /// Build the whole index of the checkout again, with no base index: the same as `kairos index build`
+    #[arg(long)]
+    full: bool,
+    #[command(flatten)]
+    root: RootArg,
+    #[command(subcommand)]
+    command: Option<IndexCommand>,
+}
+
+impl IndexArgs {
+    pub async fn run(self) -> Result<(), CliError> {
+        match self.command {
+            Some(command) => command.run().await,
+            None if self.full => Ok(resolve_root(self.root).and_then(|root| build(&root))?),
+            None => Err(CliError::Failure(
+                "Give a subcommand of `kairos index`, or `--full`. See `kairos index --help`."
+                    .into(),
+            )),
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum IndexCommand {
     /// Build the index of the checkout: the structure, the call edges and the summaries
@@ -50,13 +87,18 @@ pub enum IndexCommand {
         #[command(flatten)]
         root: RootArg,
     },
-    /// Update the index for the changes in the checkout, also those not committed
+    /// Update the index for the changes in the checkout, also those not committed. With no index, start from the nearest base index in Kairos
     Update {
         #[command(flatten)]
         root: RootArg,
         /// Run rust-analyzer again for the Rust edges of the changed code
         #[arg(long)]
         rust_edges: bool,
+        /// The most files that can change since the base index. Above it, the CLI builds nothing
+        #[arg(long, default_value_t = DEFAULT_MAX_CHANGED)]
+        max_changed: usize,
+        #[command(flatten)]
+        remote: base::RemoteArgs,
     },
     /// Show the counts of the index: files, symbols, edges and summaries
     Status {
@@ -109,9 +151,15 @@ impl IndexCommand {
     pub async fn run(self) -> Result<(), CliError> {
         let result = match self {
             IndexCommand::Build { root } => resolve_root(root).and_then(|root| build(&root)),
-            IndexCommand::Update { root, rust_edges } => {
-                resolve_root(root).and_then(|root| update(&root, rust_edges))
-            }
+            IndexCommand::Update {
+                root,
+                rust_edges,
+                max_changed,
+                remote,
+            } => match resolve_root(root) {
+                Ok(root) => update(&root, rust_edges, max_changed, &remote).await,
+                Err(e) => Err(e),
+            },
             IndexCommand::Status { root } => resolve_root(root).and_then(|root| status(&root)),
             IndexCommand::Duplicates {
                 root,
@@ -251,12 +299,79 @@ fn build(root: &Path) -> Result<(), IndexCommandError> {
     Ok(())
 }
 
-fn update(root: &Path, rust_edges: bool) -> Result<(), IndexCommandError> {
+/// The local index of the checkout, before an update.
+enum Local {
+    Missing,
+    /// An index that this CLI cannot update: another schema version.
+    Old,
+    /// The count of the files of the tree that differ from it.
+    Current(usize),
+}
+
+async fn update(
+    root: &Path,
+    rust_edges: bool,
+    max_changed: usize,
+    remote: &base::RemoteArgs,
+) -> Result<(), IndexCommandError> {
     let db = db_path(root);
-    if !db.is_file() {
-        return Err(IndexCommandError::NoIndex(db));
+    let local = if !db.is_file() {
+        Local::Missing
+    } else {
+        match kairos_index::changed_files(root, &db) {
+            Ok(changed) => Local::Current(changed.len()),
+            Err(_) => Local::Old,
+        }
+    };
+
+    // Where the update starts: the local index, or the base from Kairos.
+    let mut download = None;
+    match (base::find(root, remote).await, &local) {
+        (base::Found::Base(b), Local::Current(n)) if *n <= b.changed => {
+            if *n > max_changed {
+                return Err(too_far(root, &b, max_changed));
+            }
+            println!(
+                "Kairos: the local index is nearer to the tree than the index of {} \
+                 ({n} changed files, against {}). The CLI updates the local index.",
+                b.short(),
+                b.changed
+            );
+        }
+        (base::Found::Base(b), _) => {
+            if b.changed > max_changed {
+                return Err(too_far(root, &b, max_changed));
+            }
+            download = Some(b);
+        }
+        (found, Local::Current(_)) => println!(
+            "Kairos: no base index, because {}. The CLI updates the local index.",
+            reason(&found)
+        ),
+        (found, Local::Missing | Local::Old) => {
+            return Err(IndexCommandError::NoStart {
+                path: db,
+                why: reason(&found),
+            });
+        }
     }
+
     prepare(root)?;
+    if let Some(b) = download {
+        let bytes = b
+            .download()
+            .await
+            .map_err(|why| IndexCommandError::NoStart {
+                path: db.clone(),
+                why: format!("the download of the index of {} failed ({why})", b.short()),
+            })?;
+        install(&db, &bytes, matches!(local, Local::Current(_)))?;
+        println!(
+            "Kairos: downloaded the index of {}, {} files changed since it.",
+            b.short(),
+            b.changed
+        );
+    }
     println!("Index: {}", db.display());
     let started = Instant::now();
     let options = UpdateOptions {
@@ -269,16 +384,67 @@ fn update(root: &Path, rust_edges: bool) -> Result<(), IndexCommandError> {
     Ok(())
 }
 
+/// Why the CLI got no base index from Kairos, as a part of a sentence.
+fn reason(found: &base::Found) -> String {
+    match found {
+        base::Found::Base(b) => format!("the index of {} is not used", b.short()),
+        base::Found::NotSet => {
+            "no Kairos deployment is set (KAIROS_URL, .claude/kairos.local.md or `kairos login`)"
+                .to_string()
+        }
+        base::Found::Unreachable { url, why } => {
+            format!("the CLI could not reach Kairos at {url} ({why})")
+        }
+        base::Found::NoBase(why) => why.clone(),
+    }
+}
+
+/// The rebase answer: more than `limit` files changed since the base.
+fn too_far(root: &Path, b: &base::Base, limit: usize) -> IndexCommandError {
+    IndexCommandError::TooFar {
+        changed: b.changed,
+        commit: b.short().to_string(),
+        limit,
+        branch: b.branch.clone(),
+        estimate: base::full_build_estimate(base::file_count(root), b.summaries),
+    }
+}
+
+/// Put the downloaded index at `db`. With `keep_pool`, the summaries of the
+/// local index go into it first, so that none is lost.
+fn install(db: &Path, bytes: &[u8], keep_pool: bool) -> Result<(), IndexCommandError> {
+    let download = db.with_extension("db.download");
+    let write = |source| IndexCommandError::Write {
+        path: download.clone(),
+        source,
+    };
+    std::fs::write(&download, bytes).map_err(write)?;
+    if let Err(e) = Index::open(&download) {
+        let _ = std::fs::remove_file(&download);
+        return Err(e.into());
+    }
+    if keep_pool && let Err(e) = kairos_index::store::copy_pool(db, &download) {
+        println!("The summaries of the local index are not kept: {e}");
+    }
+    std::fs::rename(&download, db).map_err(|source| IndexCommandError::Write {
+        path: db.to_path_buf(),
+        source,
+    })
+}
+
 fn print_structure(report: &BuildReport, started: Instant) {
     let e = &report.edges;
-    let edges =
-        e.certain_scip + e.external_scip + e.certain_name + e.possible_name + e.external_name;
+    let kept = if e.kept_scip > 0 {
+        format!(" ({} kept from the index)", e.kept_scip)
+    } else {
+        String::new()
+    };
     println!(
-        "Structure: {} files ({} parsed), {} symbols, {} edges, in {:.1} s.",
+        "Structure: {} files ({} parsed), {} symbols, {} edges{kept}, in {:.1} s.",
         report.files,
         report.parsed_files,
         report.symbols,
-        edges,
+        e.total(),
         started.elapsed().as_secs_f64()
     );
     match &report.scip {
@@ -302,8 +468,20 @@ fn print_structure(report: &BuildReport, started: Instant) {
 }
 
 fn print_summaries(outcome: summaries::Outcome) {
+    let linked =
+        |r: &kairos_index::SummaryReport| r.symbols.reused + r.files.reused + r.modules.reused;
     match outcome {
-        summaries::Outcome::NotMade(why) => println!("Summaries: not made. {why}"),
+        summaries::Outcome::Linked(r) => println!(
+            "Summaries: {} linked from the pool. No model ran.",
+            linked(&r)
+        ),
+        summaries::Outcome::NotMade(r, why) => println!(
+            "Summaries: {} linked from the pool. Not made: {}, {} and {}. {why}",
+            linked(&r),
+            mcp::plural(r.symbols.left, "symbol", "symbols"),
+            mcp::plural(r.files.left, "file", "files"),
+            mcp::plural(r.modules.left, "module", "modules"),
+        ),
         #[cfg(feature = "llama")]
         summaries::Outcome::Made(r, elapsed) => println!(
             "Summaries: {} symbols, {} files and {} modules made, {} reused, in {:.1} s.",
@@ -389,16 +567,35 @@ mod summaries {
 
     use super::IndexCommandError;
 
+    use kairos_index::{SummarizeOptions, SummaryReport};
+
     pub enum Outcome {
-        /// Why the run made no summaries.
-        NotMade(String),
+        /// Each key was in the pool: the link pass did all, with no model.
+        Linked(SummaryReport),
+        /// The link pass, and why no model made the summaries that it left.
+        NotMade(SummaryReport, String),
         #[cfg(feature = "llama")]
-        Made(kairos_index::SummaryReport, std::time::Duration),
+        Made(SummaryReport, std::time::Duration),
+    }
+
+    /// Link each key that the pool has, with no model (COLLIERY-T-1854). The
+    /// summarizer runs only if a key is not in the pool.
+    pub fn run(root: &Path, db: &Path) -> Result<Outcome, IndexCommandError> {
+        let linked = kairos_index::link(root, db, &SummarizeOptions::default())?;
+        if linked.symbols.left + linked.files.left + linked.modules.left == 0 {
+            return Ok(Outcome::Linked(linked));
+        }
+        summarize(root, db, linked)
     }
 
     #[cfg(not(feature = "llama"))]
-    pub fn run(_root: &Path, _db: &Path) -> Result<Outcome, IndexCommandError> {
+    fn summarize(
+        _root: &Path,
+        _db: &Path,
+        linked: SummaryReport,
+    ) -> Result<Outcome, IndexCommandError> {
         Ok(Outcome::NotMade(
+            linked,
             "This kairos binary has no summarizer. Build it with the feature `llama`.".into(),
         ))
     }
@@ -424,17 +621,24 @@ mod summaries {
     }
 
     #[cfg(feature = "llama")]
-    pub fn run(root: &Path, db: &Path) -> Result<Outcome, IndexCommandError> {
-        use kairos_index::{LlamaModelFile, MODEL_FILE_NAME, SummarizeOptions, model_path};
+    fn summarize(
+        root: &Path,
+        db: &Path,
+        linked: SummaryReport,
+    ) -> Result<Outcome, IndexCommandError> {
+        use kairos_index::{LlamaModelFile, MODEL_FILE_NAME, model_path};
         let Some(model) = model_path().filter(|p| p.is_file()) else {
-            return Ok(Outcome::NotMade(format!(
-                "The model file is not on disk. Put {MODEL_FILE_NAME} in \
-                 ~/.cache/kairos-index/models/, or set KAIROS_INDEX_MODEL."
-            )));
+            return Ok(Outcome::NotMade(
+                linked,
+                format!(
+                    "The model file is not on disk. Put {MODEL_FILE_NAME} in \
+                     ~/.cache/kairos-index/models/, or set KAIROS_INDEX_MODEL."
+                ),
+            ));
         };
         let embedder = match local_embedder() {
             Ok(embedder) => embedder,
-            Err(why) => return Ok(Outcome::NotMade(why)),
+            Err(why) => return Ok(Outcome::NotMade(linked, why)),
         };
         let started = std::time::Instant::now();
         let model = LlamaModelFile::load(&model)?;
@@ -453,6 +657,62 @@ mod summaries {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(clap::Parser)]
+    struct Kairos {
+        #[command(subcommand)]
+        command: Top,
+    }
+
+    #[derive(clap::Subcommand)]
+    enum Top {
+        Index(IndexArgs),
+    }
+
+    fn parse(args: &[&str]) -> Result<IndexArgs, clap::Error> {
+        use clap::Parser;
+        Kairos::try_parse_from(args).map(|k| match k.command {
+            Top::Index(args) => args,
+        })
+    }
+
+    #[test]
+    fn full_is_a_flag_of_index_and_not_of_a_subcommand() {
+        let args = parse(&["kairos", "index", "--full"]).expect("--full");
+        assert!(args.full && args.command.is_none());
+        let args = parse(&[
+            "kairos",
+            "index",
+            "update",
+            "--max-changed",
+            "5",
+            "--repository",
+            "kairos",
+        ])
+        .expect("update");
+        match args.command {
+            Some(IndexCommand::Update {
+                max_changed,
+                remote,
+                ..
+            }) => {
+                assert_eq!(max_changed, 5);
+                assert_eq!(remote.repository.as_deref(), Some("kairos"));
+            }
+            _ => panic!("not update"),
+        }
+        let default = parse(&["kairos", "index", "update"]).expect("update");
+        assert!(matches!(
+            default.command,
+            Some(IndexCommand::Update {
+                max_changed: DEFAULT_MAX_CHANGED,
+                ..
+            })
+        ));
+        assert!(parse(&["kairos", "index", "--full", "update"]).is_err());
+        assert!(parse(&["kairos", "index", "update", "--full"]).is_err());
+        assert!(parse(&["kairos", "index", "update", "--depth", "3"]).is_err());
+    }
 
     #[test]
     fn the_deterministic_vectors_have_a_query_provider() {

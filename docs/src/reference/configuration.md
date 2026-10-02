@@ -347,8 +347,8 @@ Stored in `public.system_board_defaults`, one row per level.
 
 ## CLI configuration
 
-The CLI reads no server variables. Its whole configuration surface is where it
-keeps cached credentials.
+The CLI reads no server variables. Its configuration surface is where it keeps
+cached credentials, and the settings of `kairos index update` below.
 
 | Variable | Description |
 |---|---|
@@ -419,6 +419,26 @@ token never expires mid-request. The CLI does not refresh a local session. The
 CLI uses it until its `expires_at`. After that, each command fails with exit 2
 and gives the `kairos login` command. A file that does not parse as JSON is an
 authentication error (exit 2) naming the file.
+
+### `kairos index update` and the base index
+
+`kairos index update` asks Kairos for the nearest base index of the checkout.
+It downloads that index if the checkout has no index. It also downloads it if
+the base is nearer to the tree than the local index. Then it indexes the
+changed files.
+
+| Setting | Description |
+|---|---|
+| `--url`, then `KAIROS_URL`, then `deployment_url` in `.claude/kairos.local.md` | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
+| `KAIROS_KEY`, then `KAIROS_MCP_KEY` | A service-account key, sent as the bearer. With neither, the CLI uses the credentials of `kairos login`. |
+| `--repository`, then `repository` in `.claude/kairos.local.md` | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
+| `--max-changed` | The most files that can change since the base index. The default is 200. |
+
+The base is the nearest indexed commit at or below the merge base of `HEAD`
+and the default branch. If more files than the limit changed since that
+commit, the CLI builds nothing. It tells you to rebase on the default branch,
+or to run `kairos index --full`. It also gives the time of a full build. If
+the CLI cannot reach Kairos, it updates the local index and says so.
 
 ## Helm chart values
 

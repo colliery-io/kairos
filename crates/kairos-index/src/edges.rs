@@ -712,7 +712,6 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                 );
                 for e in &b.edges {
                     let line = e.line + s.start_line - b.start_line;
-                    stats.kept_scip += 1;
                     let callee_id = match &e.callee {
                         None => None,
                         Some(key) => match ids.get(key) {
@@ -737,6 +736,7 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                             }
                         },
                     };
+                    stats.kept_scip += 1;
                     edges.push(NewEdge {
                         caller_id,
                         callee_id,

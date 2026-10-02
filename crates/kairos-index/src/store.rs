@@ -115,6 +115,18 @@ pub fn assemble(
     Ok(())
 }
 
+/// Copy the summary pool of the index file `from` into the index file `to`
+/// (COLLIERY-T-1854): a checkout that downloads a base index keeps the
+/// summaries of its old local index. A key that `to` has keeps its summary.
+/// The 2 pools must have the vectors of one model.
+pub fn copy_pool(from: &Path, to: &Path) -> Result<(), IndexError> {
+    let source = Connection::open_with_flags(from, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    check_version(&source)?;
+    let mut target = Connection::open(to)?;
+    check_version(&target)?;
+    crate::summary::copy_pool(&source, &mut target)
+}
+
 /// The summary keys that the index file at `db` uses. Sorted.
 pub fn keys_of(db: &Path) -> Result<Vec<String>, IndexError> {
     let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;

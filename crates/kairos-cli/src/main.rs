@@ -62,7 +62,7 @@ use commands::streams::StreamsCommand;
 use commands::teams::TeamsCommand;
 use credentials::{CredentialStore, DeploymentCredentials, unix_now};
 use error::CliError;
-use index::IndexCommand;
+use index::IndexArgs;
 use kairos_client::types_auth::LoginRequest;
 use kairos_client::types_org::WhoamiResponse;
 use kairos_client::{Error as ApiError, KairosClient};
@@ -181,8 +181,7 @@ enum Command {
     #[command(subcommand)]
     Admin(AdminCommand),
     /// The code index of a checkout, and its code tools for an agent (COLLIERY-T-1852)
-    #[command(subcommand)]
-    Index(IndexCommand),
+    Index(IndexArgs),
 }
 
 #[tokio::main]

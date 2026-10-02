@@ -7,6 +7,12 @@
 //! does. The indexes of the tool scenarios are built with the library and a
 //! fake summarizer that gives fixed texts, and with the deterministic
 //! vectors, so that each result is the same on each run.
+//!
+//! The scenarios of the base index in Kairos (COLLIERY-T-1854) are in
+//! [`base`].
+
+#[path = "index_bdd/base.rs"]
+mod base;
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -235,6 +241,8 @@ struct CliWorld {
     agent: Option<Agent>,
     /// The result of the last tool call.
     result: Option<ToolResult>,
+    /// The scenarios of the base index.
+    base: base::BaseWorld,
 }
 
 impl CliWorld {
@@ -488,7 +496,9 @@ fn status_counts(world: &mut CliWorld) {
     assert!(!symbols.is_empty() && !edges.is_empty(), "{out}");
     // This binary has no summarizer: the build says so and why.
     assert!(
-        world.build_out.contains("Summaries: not made."),
+        world
+            .build_out
+            .contains("This kairos binary has no summarizer."),
         "{}",
         world.build_out
     );

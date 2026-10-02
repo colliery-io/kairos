@@ -293,10 +293,43 @@ pub fn summarize(
     embedder: &dyn EmbeddingProvider,
     options: &SummarizeOptions,
 ) -> Result<SummaryReport, IndexError> {
+    run(root, db, Some((summarizer, embedder)), options)
+}
+
+/// Link each symbol, file and module of the index at `db` whose key is in
+/// the pool to its summary, with no model (COLLIERY-T-1854).
+///
+/// It is [`summarize`] with no summarizer: a key that the pool does not have
+/// is counted as `left`, and its file and module get no summary. No vector
+/// is made. So a binary with no model shows the summaries of a base index
+/// that it downloaded. The `summarized` counts of the report are 0.
+pub fn link(
+    root: &Path,
+    db: &Path,
+    options: &SummarizeOptions,
+) -> Result<SummaryReport, IndexError> {
+    run(root, db, None, options)
+}
+
+/// The summarizer and the vector provider of a run.
+type Model<'a> = (&'a mut dyn Summarizer, &'a dyn EmbeddingProvider);
+
+fn run(
+    root: &Path,
+    db: &Path,
+    mut model: Option<Model<'_>>,
+    options: &SummarizeOptions,
+) -> Result<SummaryReport, IndexError> {
     let mut conn = Connection::open(db)?;
     schema::prepare(&conn)?;
-    let vector_model = model_name(embedder);
-    check_vector_model(&conn, &vector_model)?;
+    let vector_model = match &model {
+        Some((_, embedder)) => {
+            let name = model_name(*embedder);
+            check_vector_model(&conn, &name)?;
+            Some(name)
+        }
+        None => None,
+    };
 
     let in_scope =
         |path: &str| options.under.is_empty() || options.under.iter().any(|u| path.starts_with(u));
@@ -340,6 +373,10 @@ pub fn summarize(
             report.symbols.reused += 1;
             continue;
         }
+        let Some((summarizer, _)) = model.as_mut() else {
+            report.symbols.left += 1;
+            continue;
+        };
         if options
             .max_new_symbols
             .is_some_and(|max| new_symbols >= max)
@@ -361,7 +398,7 @@ pub fn summarize(
         };
         run_one(
             &conn,
-            summarizer,
+            *summarizer,
             &request,
             format!("{}:{}", file.path, s.qualified()),
             &mut report,
@@ -415,9 +452,13 @@ pub fn summarize(
         };
         if in_pool(&conn, &key)? {
             report.files.reused += 1;
-        } else {
-            run_one(&conn, summarizer, &request, f.path.clone(), &mut report)?;
+        } else if let Some((summarizer, _)) = model.as_mut() {
+            run_one(&conn, *summarizer, &request, f.path.clone(), &mut report)?;
             report.files.summarized += 1;
+        } else {
+            report.files.left += 1;
+            file_keys.insert(f.path.clone(), None);
+            continue;
         }
         file_keys.insert(f.path.clone(), Some(key));
     }
@@ -453,7 +494,7 @@ pub fn summarize(
         let key = children_key(Level::Module, "", "", &lines);
         if in_pool(&conn, &key)? {
             report.modules.reused += 1;
-        } else {
+        } else if let Some((summarizer, _)) = model.as_mut() {
             let request = SummaryRequest {
                 level: Level::Module,
                 key: key.clone(),
@@ -465,8 +506,11 @@ pub fn summarize(
                 callees: Vec::new(),
                 children: lines,
             };
-            run_one(&conn, summarizer, &request, folder.clone(), &mut report)?;
+            run_one(&conn, *summarizer, &request, folder.clone(), &mut report)?;
             report.modules.summarized += 1;
+        } else {
+            report.modules.left += 1;
+            continue;
         }
         module_keys.push((folder.clone(), key));
     }
@@ -506,14 +550,16 @@ pub fn summarize(
         tx.commit()?;
     }
 
-    // 5. The vectors of each summary that has none.
-    let started = Instant::now();
-    let names: HashMap<&str, &str> = symbols
-        .iter()
-        .filter_map(|s| Some((symbol_keys.get(&s.id)?.as_str(), s.name.as_str())))
-        .collect();
-    report.vectors = embed_missing(&mut conn, embedder, &vector_model, &names)?;
-    report.embed_elapsed = started.elapsed();
+    // 5. The vectors of each summary that has none. A link run makes none.
+    if let (Some((_, embedder)), Some(vector_model)) = (model, vector_model) {
+        let started = Instant::now();
+        let names: HashMap<&str, &str> = symbols
+            .iter()
+            .filter_map(|s| Some((symbol_keys.get(&s.id)?.as_str(), s.name.as_str())))
+            .collect();
+        report.vectors = embed_missing(&mut conn, embedder, &vector_model, &names)?;
+        report.embed_elapsed = started.elapsed();
+    }
     Ok(report)
 }
 

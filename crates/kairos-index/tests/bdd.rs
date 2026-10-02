@@ -197,6 +197,19 @@ impl IndexWorld {
             },
         )
         .unwrap_or_else(|e| panic!("{e}"));
+        // COLLIERY-T-1854: the counts of the report give each edge of the
+        // index, the edges kept from the base too.
+        let edges = Index::open(&db)
+            .expect("open the index")
+            .edges()
+            .expect("read the edges")
+            .len();
+        assert_eq!(
+            report.build.edges.total(),
+            edges,
+            "{:?}",
+            report.build.edges
+        );
         self.requests = fake.requests;
         self.update_report = Some(report);
     }

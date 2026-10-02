@@ -58,6 +58,8 @@ From here on, name each task only by the short code in the result of its `create
 
 Finish by listing the created short codes in dependency order, each with its board and its repository (and, for a request, a note that it is in the support lane of that team).
 
+Then offer `/kairos:grill-decomposition <initiative short code>`. It reviews the tasks as a set before a Ralph loop runs them: the slice boundaries, the `blocks` edges, criteria that the loop can check, and scope leaks.
+
 ## Reference
 
 ### Vertical slice rules

@@ -149,5 +149,34 @@ class GrillInitiative(unittest.TestCase):
         self.assertIn("/kairos:decompose", self.text)
 
 
+
+class GrillDecomposition(unittest.TestCase):
+    """COLLIERY-T-1865."""
+
+    def setUp(self):
+        path = os.path.join(SKILLS, "workflow", "grill-decomposition", "SKILL.md")
+        self.fields = frontmatter(path)
+        self.text = read(path)
+
+    def test_the_skill_is_user_invoked(self):
+        self.assertTrue(is_user_invoked(self.fields))
+
+    def test_it_reviews_the_four_questions(self):
+        for heading in ("Slice boundaries", "Order and risk", "Done criteria", "Scope and repositories"):
+            self.assertIn(heading, self.text)
+        self.assertIn("`blocks`", self.text)
+        self.assertIn("`set_repository`", self.text)
+
+    def test_it_goes_back_up_and_never_moves_an_item(self):
+        self.assertIn("/kairos:grill-initiative", self.text)
+        self.assertIn("Never call `transition_item`", self.text)
+        self.assertIn("/kairos:ralph-initiative", self.text)
+
+    def test_decompose_offers_it_at_the_end(self):
+        text = read(os.path.join(SKILLS, "workflow", "decompose", "SKILL.md"))
+        step5 = text.split("### 5.", 1)[1].split("## Reference", 1)[0]
+        self.assertIn("/kairos:grill-decomposition", step5)
+
+
 if __name__ == "__main__":
     unittest.main()

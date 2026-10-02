@@ -1,6 +1,6 @@
 {
   "name": "kairos",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Kairos's agentic workflow layer: Claude Code skills, hooks, and MCP wiring that operate on Kairos boards.",
   "author": {
     "name": "Dylan Storey",
@@ -27,6 +27,7 @@
     "./plugin/skills/review/diataxis-review",
     "./plugin/skills/workflow/cancel-ralph",
     "./plugin/skills/workflow/decompose",
+    "./plugin/skills/workflow/grill-decomposition",
     "./plugin/skills/workflow/grill-initiative",
     "./plugin/skills/workflow/implement",
     "./plugin/skills/workflow/ralph",

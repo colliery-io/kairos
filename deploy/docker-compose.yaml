@@ -119,6 +119,16 @@ services:
       KAIROS_BOOTSTRAP_ADMIN: ${KAIROS_BOOTSTRAP_ADMIN:-}
       KAIROS_BOOTSTRAP_PASSWORD: ${KAIROS_BOOTSTRAP_PASSWORD:-}
       KAIROS_BOOTSTRAP_PASSWORD_HASH: ${KAIROS_BOOTSTRAP_PASSWORD_HASH:-}
+      # COLLIERY-T-1853: the base code index builder. Empty turns it off. The
+      # first start downloads about 2.7 GB of tools into this folder.
+      KAIROS_CODE_INDEX_DIR: ${KAIROS_CODE_INDEX_DIR:-}
+      KAIROS_CODE_INDEX_POLL_SECS: ${KAIROS_CODE_INDEX_POLL_SECS:-}
+      KAIROS_CODE_INDEX_THREADS: ${KAIROS_CODE_INDEX_THREADS:-}
+      # COLLIERY-T-3105: encrypts the read token of each repository. Keep it
+      # with the database password; a lost key means every token is set again.
+      KAIROS_SECRETS_KEY: ${KAIROS_SECRETS_KEY:-}
+    volumes:
+      - code_index:/var/lib/kairos/code-index
     # The image applies pending migrations on boot (KAIROS-T-0007) before it
     # binds, so no separate migrate step is required. Liveness is the image's
     # own HEALTHCHECK against /healthz.
@@ -309,3 +319,6 @@ volumes:
   # The tailnet node's identity. Losing it means re-authenticating and a new
   # node in the admin console; back it up alongside postgres_data.
   tailscale_state:
+  # Clones and tools of the code index builder. It can be made again, so it
+  # needs no backup.
+  code_index:

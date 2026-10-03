@@ -215,7 +215,7 @@ pub fn run(
     let (left_out_targets, crates) = loop {
         let (prepared, left_out_targets, crates) = prepare_metadata(&root, &metadata, leave_out)?;
         fs::write(&metadata_path, prepared.to_string()).map_err(io(&metadata_path))?;
-        let output = Command::new(&program)
+        let output = with_toolchain(&mut Command::new(&program), &fake_bin)
             .arg("--log-file")
             .arg(&log_path)
             .arg("scip")
@@ -317,6 +317,24 @@ fn write_cargo_script(
     make_executable(path)
 }
 
+/// Run `command` with the tools of `bin`: `RUSTC` is its `rustc`, and `PATH`
+/// starts with it. Cargo finds `rustc` through `RUSTC` or `PATH`, and the
+/// server image has no `rustc` on `PATH`: its toolchain is in the tools
+/// folder (COLLIERY-T-3107).
+fn with_toolchain<'c>(command: &'c mut Command, bin: &Path) -> &'c mut Command {
+    let mut paths = vec![bin.to_path_buf()];
+    paths.extend(
+        std::env::var_os("PATH")
+            .iter()
+            .flat_map(std::env::split_paths),
+    );
+    command.env("RUSTC", bin.join("rustc"));
+    if let Ok(path) = std::env::join_paths(paths) {
+        command.env("PATH", path);
+    }
+    command
+}
+
 #[cfg(unix)]
 fn make_executable(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -352,7 +370,7 @@ fn cargo_metadata(
     // A repository can pin either, so try the old form and fall back.
     let run = |form: LockfileForm| {
         let mut command = Command::new(sysroot.join("bin/cargo"));
-        command
+        with_toolchain(&mut command, &sysroot.join("bin"))
             .arg("metadata")
             .args(["--format-version", "1"])
             .arg("--manifest-path")
@@ -862,6 +880,64 @@ mod tests {
             "error: unexpected argument '--lockfile-path' found\n\n  tip: a similar argument exists: '--locked'"
         ));
         assert!(!refuses_lockfile_flag("error: failed to parse manifest"));
+    }
+
+    /// COLLIERY-T-3107: in the server image, `rustc` is not on `PATH`. The
+    /// metadata step must use the `rustc` of the given toolchain. The test
+    /// toolchain has a `rustc` that records each call, so a `rustc` found on
+    /// `PATH` does not make the test pass.
+    #[cfg(unix)]
+    #[test]
+    fn cargo_metadata_uses_the_rustc_of_the_toolchain() {
+        let Some(real) = Command::new("rustc")
+            .args(["--print", "sysroot"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()))
+        else {
+            eprintln!("no rustc on this computer; the test does nothing");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("toolchain/bin");
+        fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink(real.join("bin/cargo"), bin.join("cargo")).unwrap();
+        let marker = dir.path().join("rustc-called");
+        fs::write(
+            bin.join("rustc"),
+            format!(
+                "#!/bin/sh\ntouch '{}'\nexec '{}' \"$@\"\n",
+                marker.display(),
+                real.join("bin/rustc").display()
+            ),
+        )
+        .unwrap();
+        make_executable(&bin.join("rustc")).unwrap();
+
+        let root = dir.path().join("crate");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"t\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "").unwrap();
+        let work = dir.path().join("work");
+        fs::create_dir(&work).unwrap();
+
+        let metadata = cargo_metadata(
+            &root,
+            &root.join("Cargo.toml"),
+            &dir.path().join("toolchain"),
+            &work,
+        )
+        .unwrap();
+        assert_eq!(metadata["packages"][0]["name"], "t");
+        assert!(
+            marker.exists(),
+            "cargo did not run the rustc of the toolchain"
+        );
     }
 
     fn short(symbol: &str) -> Option<String> {

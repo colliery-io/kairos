@@ -300,6 +300,17 @@ class Files(unittest.TestCase):
         self.assertNotEqual(mapping_signature(mapping), mapping_signature({"F-T-0001": "x"}))
 
 
+class OldCodesLeft(unittest.TestCase):
+    """verify: a reference that the rewrite did not change (COLLIERY-T-3103)."""
+
+    def test_a_code_that_keeps_its_number_is_not_an_old_code(self):
+        mapping = {"SKADI-T-0001": "SKADI-T-0001", "SKADI-I-0002": "COLLIERY-I-0408"}
+        self.assertEqual(remap.old_codes_left("After SKADI-T-0001.", mapping), [])
+        self.assertEqual(remap.old_codes_left("Part of SKADI-I-0002 and [[SKADI-I-0002]], after SKADI-T-0001.",
+                                              mapping), ["SKADI-I-0002"])
+        self.assertEqual(remap.old_codes_left("FIDIUS-T-0001 is in no mapping.", mapping), [])
+
+
 class KeepCodes(unittest.TestCase):
     """`--codes keep` (COLLIERY-T-3104): which items keep their number."""
 

@@ -180,6 +180,14 @@ def codes_in(text):
     return [m.group("wiki") or m.group("bare") for m in REFERENCE.finditer(text)]
 
 
+def old_codes_left(text, mapping):
+    """The codes in text that `mapping` changes to a different code: the
+    references that the rewrite did not change. In keep mode a code that
+    keeps its number maps to itself (COLLIERY-T-3103), and a reference to it
+    is correct as it is."""
+    return sorted({c for c in codes_in(text) if mapping.get(c, c) != c})
+
+
 def parse_staged(text):
     """A staged file: its first line is `# <title>`, the rest is the body.
     Returns (title, body). Raises ValueError for a file with no title line."""

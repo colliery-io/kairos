@@ -667,7 +667,6 @@ def verify(api, ctx, docs, order, args, state, staged, mapping, wanted=None):
         if remap.kind_of(d) == "document" and remap.owner(d, docs)[0] == "parent":
             incoming[d["short_code"]].add(("supports", d["parent"]))
     new_to_old = {v: k for k, v in state["codes"].items()}
-    old_keys = set(mapping)
     for doc in order:
         old = doc["short_code"]
         kind = remap.kind_of(doc)
@@ -693,7 +692,7 @@ def verify(api, ctx, docs, order, args, state, staged, mapping, wanted=None):
         body, foot = remap.split_footer(item["content"])
         if remap.footer_marker(doc) not in foot:
             bad.append("FOOTER   %s has no footer with %s" % (new, old))
-        left = sorted({c for c in remap.codes_in(item["title"] + "\n" + body) if c in old_keys})
+        left = remap.old_codes_left(item["title"] + "\n" + body, mapping)
         if left:
             bad.append("OLD CODE %s still names %s" % (new, ", ".join(left)))
         if kind in remap.COLUMN:

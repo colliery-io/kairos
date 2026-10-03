@@ -1,27 +1,22 @@
-// COLLIERY-T-3100 — a retired short code still finds its item and names
-// the current code, on the GUI item page.
+// COLLIERY-T-3100 and COLLIERY-T-3101 — a move with a rename retires the
+// old code, and a retired short code still finds its item and names the
+// current code, on the GUI item page.
 //
-// The journey: a task gets a new code, and its old code is retired. The
-// page `/items/{old code}` goes to the page of the current code (the
-// history entry is replaced) and shows a notice that names the two codes.
-//
-// **The fixture is written to the database.** The move with a rename
-// (COLLIERY-T-3101) is the only surface that will retire a code, and it
-// does not exist yet. So this spec changes the code and retires the old
-// one with psql in the dev container `kairos-dev-postgres` (the container
-// of `angreal test e2e`), in the same order as the rename will. When
-// COLLIERY-T-3101 lands, this spec must use the rename instead.
+// The journey: alice moves a task from platform-delivery to web-delivery
+// with the switch "Give it a code of the new board" (COLLIERY-T-3101). The
+// page goes to the page of the new code. Then the page `/items/{old code}`
+// goes to the page of the current code (the history entry is replaced) and
+// shows a notice that names the two codes.
 //
 // **Fixture discipline** (see archived.spec.ts): the card is archived at
 // the end, so no board shows it to the specs that count cards.
 
-import { execFileSync } from 'node:child_process';
 import { test, expect, type Page } from '@playwright/test';
 import { mintToken } from '../helpers/auth';
 
 const SERVER = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 const BOARD_SLUG = 'platform-delivery';
-const SCHEMA = 'org_demo';
+const TARGET_SLUG = 'web-delivery';
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
@@ -45,20 +40,6 @@ async function api(
   return text ? JSON.parse(text) : null;
 }
 
-/** One SQL statement in the dev database; the value of the first column. */
-function psql(sql: string): string {
-  return execFileSync(
-    'docker',
-    [
-      'exec', '-i', 'kairos-dev-postgres',
-      'psql', '-U', 'kairos', '-d', 'kairos', '-v', 'ON_ERROR_STOP=1', '-qtA', '-c', sql,
-    ],
-    { encoding: 'utf8' },
-  )
-    .trim()
-    .split('\n')[0];
-}
-
 async function login(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForSelector('#login', { timeout: 30_000 });
@@ -70,7 +51,7 @@ async function login(page: Page): Promise<void> {
   });
 }
 
-test('the item page of a retired code goes to the current code and names the two codes', async ({
+test('a move with rename retires the old code, and its item page goes to the current code', async ({
   page,
 }) => {
   const token = await mintToken();
@@ -86,25 +67,31 @@ test('the item page of a retired code goes to the current code and names the two
   });
   const oldCode: string = task.short_code;
   expect(oldCode).toMatch(/^[A-Z][A-Z0-9]*-T-\d{4,}$/);
-  const prefix = oldCode.split('-')[0];
-
-  // The code changes to the next code of the sequence, then the old code
-  // is retired (the order of the rename, COLLIERY-T-3101).
-  const newCode = psql(
-    `WITH seq AS (
-       UPDATE ${SCHEMA}.short_code_sequences SET last_number = last_number + 1
-        WHERE code_prefix = '${prefix}' AND item_type = 'T' RETURNING last_number)
-     UPDATE ${SCHEMA}.tasks
-        SET short_code = '${prefix}-T-' || lpad((SELECT last_number FROM seq)::text, 4, '0')
-      WHERE id = '${task.id}' RETURNING short_code`,
-  );
-  expect(newCode).not.toBe(oldCode);
-  psql(
-    `INSERT INTO ${SCHEMA}.retired_codes (code, item_id, reason)
-     VALUES ('${oldCode}', '${task.id}', 'e2e: COLLIERY-T-3100') RETURNING code`,
-  );
+  let newCode = '';
 
   await test.step('login as alice', () => login(page));
+
+  await test.step('a move with rename gives the task a code of the new board', async () => {
+    await page.goto(`/items/${oldCode}`);
+    const mover = page.locator('[data-testid="move-board"]');
+    await expect(mover).toBeVisible({ timeout: 15_000 });
+    await mover.locator('select').selectOption(TARGET_SLUG);
+    const rename = mover.getByRole('switch', { name: 'Give it a code of the new board' });
+    await expect(rename).toHaveAttribute('aria-checked', 'false');
+    await rename.click();
+    await expect(rename).toHaveAttribute('aria-checked', 'true');
+    await mover.getByRole('button', { name: 'Move board' }).click();
+    // The page goes to the page of the new code, with no notice.
+    await expect(page).toHaveURL(
+      (url) => /^\/items\/WEB-T-\d{4,}$/.test(url.pathname) && !url.searchParams.has('retired'),
+      { timeout: 15_000 },
+    );
+    newCode = new URL(page.url()).pathname.split('/').pop() ?? '';
+    expect(newCode).not.toBe(oldCode);
+    await expect(page.locator('[data-testid="retired-code-notice"]')).toHaveCount(0);
+    const moved = await api(token, 'GET', `/api/tasks/${newCode}`);
+    expect(moved.short_code).toBe(newCode);
+  });
 
   await test.step('the old code goes to the page of the current code', async () => {
     await page.goto(`/items/${oldCode}`);

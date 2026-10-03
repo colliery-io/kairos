@@ -41,6 +41,9 @@ pub enum BoardError {
     /// No board with this id exists (or it is soft-deleted).
     #[error("The board {0} does not exist.")]
     BoardNotFound(Uuid),
+    /// The rename of a move was refused (COLLIERY-T-3101).
+    #[error(transparent)]
+    Rename(#[from] crate::code_rename::RenameError),
     /// No column with this id exists.
     #[error("The column {0} does not exist.")]
     ColumnNotFound(Uuid),
@@ -944,12 +947,15 @@ transition_item_fn!(
 // ---------------------------------------------------------------------------
 
 /// The placement a task has after [`move_task`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskMove {
     pub from_board_id: Uuid,
     pub board_id: Uuid,
     pub column_id: Uuid,
     pub team_id: Option<Uuid>,
+    /// The rename of [`move_task_with`] with `rename`; `None` when the
+    /// task kept its code (COLLIERY-T-3101).
+    pub rename: Option<crate::code_rename::CodeRename>,
 }
 
 /// Move a live task to another live **delivery** board: it lands in the
@@ -970,6 +976,21 @@ pub fn move_task(
     task_id: Uuid,
     to_board_id: Uuid,
     actor_id: Uuid,
+) -> Result<TaskMove, BoardError> {
+    move_task_with(conn, task_id, to_board_id, actor_id, false)
+}
+
+/// [`move_task`], and with `rename` the task also gets the next code of the
+/// target board in the same transaction
+/// ([`crate::code_rename::rename_item`], COLLIERY-T-3101): the old code is
+/// retired and the references to it change one time. A refused rename
+/// ([`BoardError::Rename`]) leaves the task where it was.
+pub fn move_task_with(
+    conn: &mut PgConnection,
+    task_id: Uuid,
+    to_board_id: Uuid,
+    actor_id: Uuid,
+    rename: bool,
 ) -> Result<TaskMove, BoardError> {
     conn.transaction::<_, BoardError, _>(|conn| {
         use crate::schema::boards::dsl as boards_dsl;
@@ -1019,6 +1040,19 @@ pub fn move_task(
             "task",
             format!("board:{from_board_id}->{to_board_id} column:{from_column_id}->{to_column_id}"),
         )?;
+        let renamed = if rename {
+            let target_slug = target.slug.clone();
+            Some(crate::code_rename::rename_item(
+                conn,
+                ItemType::Task,
+                task_id,
+                Some(to_board_id),
+                actor_id,
+                &format!("The task moved to the board {target_slug}."),
+            )?)
+        } else {
+            None
+        };
         // The board it LEFT gets the event with the source board so its
         // subscribers refetch; the board it joined gets the placement.
         let short_code: String = dsl::tasks
@@ -1048,6 +1082,7 @@ pub fn move_task(
             board_id: to_board_id,
             column_id: to_column_id,
             team_id: target.team_id,
+            rename: renamed,
         })
     })
 }

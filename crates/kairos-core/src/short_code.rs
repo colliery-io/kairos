@@ -185,9 +185,160 @@ pub fn numbered_prefix(prefix: &str, n: u32) -> String {
     out
 }
 
+/// The start of the provenance footer that the Metis importer writes
+/// (`scripts/metis_import/remap.py`, `FOOTER_RULE + FOOTER_LEAD`). The footer
+/// names the Metis code of the item, and a rename does not change it.
+const IMPORT_FOOTER: &str = "\n\n---\n\nThis item came from the Metis record of the repository ";
+
+/// The characters that end a token around a code: white space and the
+/// brackets, quotes and punctuation that markdown puts around a reference.
+fn ends_token(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(
+            c,
+            '(' | ')' | '[' | ']' | '<' | '>' | '{' | '}' | '"' | '\'' | '`' | '|' | ',' | ';'
+        )
+}
+
+/// A character that can be a part of a word or a code. A reference is a
+/// whole code: `X-T-0001` is not a reference in `X-T-00012` or `AX-T-0001`.
+fn is_word(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Replace each reference to the short code `old` in `text` with `new`
+/// (COLLIERY-T-3101: a move that renames an item). `None` when `text` has
+/// no reference to change.
+///
+/// A reference is the whole code. The rules for the text around it:
+///
+/// - A code in a URL (a token with `://`) or in a path (a token with `/` or
+///   `\`) does not change: the URL or the file has its own name. The token
+///   is the text between white space, brackets and quotes.
+/// - The Kairos item link `/items/{code}` changes: it names the item.
+/// - A file name (`{code}.md`: a `.` and then a letter or a digit) does not
+///   change.
+/// - The import footer does not change: it records the Metis code of the
+///   item, the same as `rewrite_content` of the Metis importer.
+pub fn rewrite_code_references(text: &str, old: &str, new: &str) -> Option<String> {
+    if old.is_empty() || !text.contains(old) {
+        return None;
+    }
+    let (body, footer) = match text.rfind(IMPORT_FOOTER) {
+        Some(at) => text.split_at(at),
+        None => (text, ""),
+    };
+    let mut out = String::with_capacity(text.len());
+    let mut copied = 0;
+    let mut changed = false;
+    for (start, _) in body.match_indices(old) {
+        let end = start + old.len();
+        let before = body[..start].chars().next_back();
+        let after = body[end..].chars().next();
+        if before.is_some_and(is_word) || after.is_some_and(is_word) {
+            continue;
+        }
+        let rest = &body[end..];
+        if rest.starts_with('.')
+            && rest[1..]
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        let token_start = body[..start]
+            .char_indices()
+            .rev()
+            .find(|(_, c)| ends_token(*c))
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        let token_end = body[end..].find(ends_token).map_or(body.len(), |i| end + i);
+        let token = &body[token_start..token_end];
+        let lead = &body[token_start..start];
+        let item_link = lead == "/items/";
+        if token.contains("://") {
+            continue;
+        }
+        if (token.contains('/') || token.contains('\\')) && !item_link {
+            continue;
+        }
+        out.push_str(&body[copied..start]);
+        out.push_str(new);
+        copied = end;
+        changed = true;
+    }
+    if !changed {
+        return None;
+    }
+    out.push_str(&body[copied..]);
+    out.push_str(footer);
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reference_changes_to_the_new_code() {
+        let rw = |t: &str| rewrite_code_references(t, "COLLIERY-T-0100", "SKADI-T-0001");
+        assert_eq!(
+            rw("See COLLIERY-T-0100. Then (COLLIERY-T-0100), `COLLIERY-T-0100`, [[COLLIERY-T-0100]], **COLLIERY-T-0100**: done").as_deref(),
+            Some("See SKADI-T-0001. Then (SKADI-T-0001), `SKADI-T-0001`, [[SKADI-T-0001]], **SKADI-T-0001**: done")
+        );
+        assert_eq!(
+            rw("COLLIERY-T-0100").as_deref(),
+            Some("SKADI-T-0001"),
+            "a code with no text around it"
+        );
+        assert_eq!(
+            rw("[COLLIERY-T-0100](/items/COLLIERY-T-0100)").as_deref(),
+            Some("[SKADI-T-0001](/items/SKADI-T-0001)"),
+            "the Kairos item link names the item"
+        );
+    }
+
+    #[test]
+    fn a_code_in_a_url_a_path_or_a_file_name_does_not_change() {
+        let rw = |t: &str| rewrite_code_references(t, "COLLIERY-T-0100", "SKADI-T-0001");
+        for kept in [
+            "https://example.com/COLLIERY-T-0100.md",
+            "<https://example.com/x/COLLIERY-T-0100>",
+            "[the file](https://example.com/COLLIERY-T-0100)",
+            "https://kairos.example/items/COLLIERY-T-0100",
+            "docs/COLLIERY-T-0100/notes",
+            "`.metis/tasks/COLLIERY-T-0100`",
+            "C:\\work\\COLLIERY-T-0100",
+            "COLLIERY-T-0100.md",
+            "COLLIERY-T-01000 and XCOLLIERY-T-0100 and COLLIERY-T-0100_x",
+            "no reference here",
+        ] {
+            assert_eq!(rw(kept), None, "{kept}");
+        }
+        assert_eq!(
+            rw("COLLIERY-T-0100 is at https://example.com/COLLIERY-T-0100.md").as_deref(),
+            Some("SKADI-T-0001 is at https://example.com/COLLIERY-T-0100.md")
+        );
+    }
+
+    #[test]
+    fn the_import_footer_does_not_change() {
+        let text = "Body COLLIERY-T-0100.\n\n---\n\nThis item came from the Metis record of the \
+                    repository kairos. Its Metis code was COLLIERY-T-0100.\n";
+        assert_eq!(
+            rewrite_code_references(text, "COLLIERY-T-0100", "SKADI-T-0001").as_deref(),
+            Some(
+                "Body SKADI-T-0001.\n\n---\n\nThis item came from the Metis record of the \
+                 repository kairos. Its Metis code was COLLIERY-T-0100.\n"
+            )
+        );
+        let only_footer = "Body.\n\n---\n\nThis item came from the Metis record of the \
+                           repository kairos. Its Metis code was COLLIERY-T-0100.\n";
+        assert_eq!(
+            rewrite_code_references(only_footer, "COLLIERY-T-0100", "SKADI-T-0001"),
+            None
+        );
+    }
 
     #[test]
     fn type_letters_match_s0004() {

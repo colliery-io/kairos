@@ -543,10 +543,23 @@ impl KairosClient {
     /// board (slug or UUID); it lands in the entry column (KAIROS-I-0012).
     /// The task keeps its repository (COLLIERY-T-0217).
     pub async fn move_task(&self, short_code: &str, board: &str) -> Result<Task, Error> {
+        self.move_task_with(short_code, board, false).await
+    }
+
+    /// [`Self::move_task`], and with `rename` the task also gets the next
+    /// code of the target board (COLLIERY-T-3101). The response has the new
+    /// code.
+    pub async fn move_task_with(
+        &self,
+        short_code: &str,
+        board: &str,
+        rename: bool,
+    ) -> Result<Task, Error> {
         self.post_ok(
             &format!("/api/tasks/{short_code}/move"),
             &crate::types::MoveTaskRequest {
                 board: board.to_string(),
+                rename,
             },
         )
         .await
@@ -1125,10 +1138,23 @@ impl KairosClient {
         short_code: &str,
         board: Option<&str>,
     ) -> Result<Document, Error> {
+        self.set_document_board_with(short_code, board, false).await
+    }
+
+    /// [`Self::set_document_board`], and with `rename` the document also
+    /// gets the next code of its new owner board (COLLIERY-T-3101). A
+    /// rename needs a new board.
+    pub async fn set_document_board_with(
+        &self,
+        short_code: &str,
+        board: Option<&str>,
+        rename: bool,
+    ) -> Result<Document, Error> {
         self.patch(
             &format!("/api/documents/{short_code}/board"),
             &SetDocumentBoardRequest {
                 board: Some(board.map(str::to_string)),
+                rename,
             },
         )
         .await

@@ -399,6 +399,11 @@ pub struct SetDocumentBoardRequest {
     )]
     #[schema(value_type = Option<String>)]
     pub board: Option<Option<String>>,
+    /// COLLIERY-T-3101 (default `false`): the document also gets the next
+    /// code of its new owner board. Kairos retires the old code and changes
+    /// the references to it one time. A rename needs a new board.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rename: bool,
 }
 
 /// A field that is present, with its value or its null. With
@@ -469,6 +474,10 @@ pub struct TransitionRequest {
 #[serde(deny_unknown_fields)]
 pub struct MoveTaskRequest {
     pub board: String,
+    /// Give the task the next code of the target board (COLLIERY-T-3101).
+    /// Kairos retires the old code. The references to it change one time.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rename: bool,
 }
 
 // ---------------------------------------------------------------------------

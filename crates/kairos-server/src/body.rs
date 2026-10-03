@@ -90,6 +90,19 @@ pub(crate) fn innermost(error: &dyn std::error::Error) -> String {
 /// `status` is 422, and 400 for `POST /api/search`.
 pub fn shape_error(status: StatusCode, serde_message: &str) -> ApiError {
     match unknown_field(serde_message) {
+        // COLLIERY-T-3101: `code_prefix` is a field of the create of a board
+        // (and of a team). A body of a different route that has it is an
+        // attempt to change the prefix, which does not change
+        // (COLLIERY-T-3099). Say that, not only "this route does not accept
+        // that field".
+        Some((field, allowed)) if field == "code_prefix" => ApiError::new(
+            status,
+            "CODE_PREFIX_IS_FIXED",
+            "The short-code prefix of a board does not change. The codes of the items on \
+             the board use it. Remove code_prefix from the request. To give an item a code \
+             with a different prefix, move it to a different board with rename.",
+        )
+        .with_details(json!({ "field": field, "allowed": allowed })),
         Some((field, allowed)) => {
             let known = if allowed.is_empty() {
                 "The body of this route has no fields.".to_string()
@@ -174,6 +187,31 @@ pub fn unknown_field(serde_message: &str) -> Option<(String, Vec<String>)> {
 mod tests {
     use super::*;
     use serde::Deserialize;
+
+    /// COLLIERY-T-3101: a body that has `code_prefix` on a route that does
+    /// not take it gets the refusal that a prefix does not change.
+    #[test]
+    fn a_code_prefix_gets_the_refusal_that_a_prefix_does_not_change() {
+        let message = serde_json::from_value::<Three>(json!({"code_prefix": "SKD"}))
+            .expect_err("an unknown field")
+            .to_string();
+        let error = shape_error(StatusCode::UNPROCESSABLE_ENTITY, &message);
+        assert_eq!(error.code, "CODE_PREFIX_IS_FIXED");
+        assert!(
+            error.message.contains("does not change"),
+            "{}",
+            error.message
+        );
+        assert_eq!(error.details["field"], "code_prefix");
+        // A different unknown field keeps the general refusal.
+        let message = serde_json::from_value::<Three>(json!({"board_level": "delivery"}))
+            .expect_err("an unknown field")
+            .to_string();
+        assert_eq!(
+            shape_error(StatusCode::UNPROCESSABLE_ENTITY, &message).code,
+            "VALIDATION"
+        );
+    }
 
     #[derive(Debug, Deserialize)]
     #[serde(deny_unknown_fields)]

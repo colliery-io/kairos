@@ -13,7 +13,7 @@ One `activity_log` row, as returned by `GET /api/activity`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
+| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
 | `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |
@@ -1058,6 +1058,7 @@ Body of `POST /api/tasks/{short_code}/move` (KAIROS-I-0012): the delivery board 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board` | `string` | yes |  |
+| `rename` | `boolean` | no | Give the task the next code of the target board (COLLIERY-T-3101). Kairos retires the old code. The references to it change one time. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
@@ -1456,6 +1457,7 @@ Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): set, change
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board` | `string`, nullable | no |  |
+| `rename` | `boolean` | no | COLLIERY-T-3101 (default `false`): the document also gets the next code of its new owner board. Kairos retires the old code and changes the references to it one time. A rename needs a new board. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

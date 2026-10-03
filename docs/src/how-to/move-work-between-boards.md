@@ -30,6 +30,53 @@ column it was in belonged to the old board's workflow.
 
 The task keeps its repository. The move does not look at the repository.
 
+## Give it a code of the new board
+
+A move keeps the short code of the task. To give the task the next code of
+the target board, add the rename option:
+
+| Surface | How |
+|---|---|
+| CLI | `kairos tasks move <CODE> --to-board <slug\|uuid> --rename` |
+| API | `POST /api/tasks/{short_code}/move` with `{"board": "<slug\|uuid>", "rename": true}` |
+| MCP | `move_item {short_code, to_board, rename: true}` |
+| GUI | the switch **Give it a code of the new board**, then **Move board** |
+
+```sh
+kairos tasks move COLLIERY-T-0100 --to-board skadi --rename
+```
+
+A rename does these steps in one transaction:
+
+1. The task gets the next code of the target board, for example
+   `SKADI-T-0001`.
+2. Kairos retires the old code and does not issue it again. A read with the
+   old code finds the task and names the new code
+   ([Errors](../reference/errors.md)).
+3. Each reference to the old code in the title and the content of each item
+   changes to the new code. Each item that changes gets a new version by you.
+   This occurs one time: a later edit that writes the old code stays as it is.
+4. The activity log records the rename: the old code, the new code, and who
+   did it. `get_history` shows it under **Renames**.
+
+These references do not change:
+
+- A code in a URL, for example `https://example.com/COLLIERY-T-0100.md`.
+- A code in a path, for example `docs/COLLIERY-T-0100/notes`.
+- A file name, for example `COLLIERY-T-0100.md`.
+- The footer of an item from the Metis importer. The footer records the
+  Metis code.
+
+The Kairos link `/items/COLLIERY-T-0100` changes, because it names the item.
+
+Kairos refuses a rename to a board whose prefix the code has already
+(`RENAME_NOT_NEEDED`). Then the task does not move. Do the move with no
+rename.
+
+A document can get a code of its new owner board too: `move_item` with
+`to_board` and `rename: true`, or `kairos documents move <CODE> --to-board
+<BOARD> --rename`. A rename of a document needs a new board.
+
 ## When it is refused
 
 Every one of these is a 422 (a tool error over MCP) carrying a stable code —
@@ -41,6 +88,7 @@ statuses and `details` shapes are in [Errors](../reference/errors.md):
 | `NOT_DELIVERY_BOARD` | The target is a strategy or initiative board. Only delivery boards accept moves. |
 | `NO_ENTRY_COLUMN` | The target board has no columns. Give it one — [Set up a board](set-up-a-board.md). |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so there is nothing to move. Documents never do. |
+| `RENAME_NOT_NEEDED` | The code has the prefix of the target board already. Do the move with no rename. |
 
 A 403 means the capability, and the message names which side is missing it.
 

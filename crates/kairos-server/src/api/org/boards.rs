@@ -438,6 +438,10 @@ pub(crate) async fn create_board(
 /// The body has the fields `name`, `slug` and `team_id` only. A different
 /// field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
 /// names the field (COLLIERY-T-0249).
+///
+/// The short-code prefix of a board does not change (COLLIERY-T-3099). A
+/// body with `code_prefix` is a 422 `CODE_PREFIX_IS_FIXED` that says so
+/// (COLLIERY-T-3101), and the update writes nothing.
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}",
@@ -449,7 +453,7 @@ pub(crate) async fn create_board(
         (status = 403, description = "Missing capability", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "No field to update, or BOARD_TEAM_IS_FIXED", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "No field to update, BOARD_TEAM_IS_FIXED, or CODE_PREFIX_IS_FIXED", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn update_board(

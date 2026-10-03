@@ -829,6 +829,9 @@ pub async fn remove_impact(
 #[derive(Debug, Serialize)]
 struct MoveTaskBody<'a> {
     board: &'a str,
+    /// COLLIERY-T-3101: the task also gets the next code of the board.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    rename: bool,
 }
 
 /// `POST /api/tasks/{short_code}/move` — re-home a task onto another
@@ -838,11 +841,19 @@ struct MoveTaskBody<'a> {
 /// `SAME_BOARD` / `NOT_DELIVERY_BOARD` / `NO_ENTRY_COLUMN`, 403 without
 /// `manage_tasks` on BOTH boards, 404 for an unknown board. The server no
 /// longer refuses a move because of the task's repository (COLLIERY-T-0217).
-pub async fn move_task(auth: Auth, code: &str, board: &str) -> Result<ItemDetail, ApiError> {
+///
+/// With `rename` (COLLIERY-T-3101) the task also gets the next code of the
+/// target board, and the response has the new code.
+pub async fn move_task(
+    auth: Auth,
+    code: &str,
+    board: &str,
+    rename: bool,
+) -> Result<ItemDetail, ApiError> {
     crate::api::post_json(
         auth,
         &format!("/api/tasks/{code}/move"),
-        &MoveTaskBody { board },
+        &MoveTaskBody { board, rename },
     )
     .await
 }
@@ -1228,9 +1239,20 @@ mod tests {
     fn move_body_serializes_and_response_carries_new_placement() {
         let body = serde_json::to_value(MoveTaskBody {
             board: "web-delivery",
+            rename: false,
         })
         .expect("serializes");
         assert_eq!(body, serde_json::json!({"board": "web-delivery"}));
+        // COLLIERY-T-3101: `rename` goes on the wire only when it is set.
+        let body = serde_json::to_value(MoveTaskBody {
+            board: "web-delivery",
+            rename: true,
+        })
+        .expect("serializes");
+        assert_eq!(
+            body,
+            serde_json::json!({"board": "web-delivery", "rename": true})
+        );
 
         let moved = serde_json::json!({
             "id": "1b2c3d4e-0000-0000-0000-000000000001",

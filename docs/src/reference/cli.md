@@ -226,6 +226,11 @@ kairos <noun> get <SHORT_CODE> [OPTIONS]
 
 Prints the item including its markdown content.
 
+A retired short code finds the item. Then the command writes a notice on
+stderr. The notice names the current code, for example `The code
+COLLIERY-T-0100 is retired. The current code of this item is SKADI-T-0001.`
+The output on stdout is the item, and `--json` stays clean.
+
 `documents get` prints the line `owner board`. It has the id of the board that
 the document names. It has `-` for a document that names no board. The board
 of the item that the document supports owns that document.
@@ -332,6 +337,7 @@ kairos tasks move <SHORT_CODE> --to-board <BOARD> [OPTIONS]
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The task's short code. |
 | `--to-board <BOARD>` | slug or UUID | required | Target delivery board. |
+| `--rename` | flag | off | Give the task the next code of the target board. Kairos retires the old code and changes the references to it one time. |
 
 The task lands in the target board's entry column and follows that board's
 team. The command needs `manage_tasks` on both boards. The task keeps its
@@ -350,6 +356,7 @@ kairos documents move <SHORT_CODE> --no-board [OPTIONS]
 | `<SHORT_CODE>` | string | required | The short code of the document. |
 | `--to-board <BOARD>` | slug or UUID | required unless `--no-board` is given | The new owner board. It can be a board of each level. |
 | `--no-board` | flag | off | Remove the owner board. Conflicts with `--to-board`. |
+| `--rename` | flag | off | Give the document the next code of the new owner board. It needs `--to-board`. |
 
 The command changes the owner board of the document. The document gets no
 column. The command needs `manage_documents` on the board that owns the

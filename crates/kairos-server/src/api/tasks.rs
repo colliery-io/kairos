@@ -601,6 +601,12 @@ pub(crate) async fn set_repository(
 /// bypass, as everywhere). The move does not look at the repository of the
 /// task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023). The
 /// creator of the task gets no right here (COLLIERY-T-0228).
+///
+/// `rename: true` (COLLIERY-T-3101) also gives the task the next code of the
+/// target board, in the same transaction. Kairos retires the old code. Each
+/// reference to the old code in the text of the items changes to the new
+/// code, one time. A code in a URL or a path does not change. The response
+/// has the new code. Without `rename`, the task keeps its code.
 #[utoipa::path(
     post,
     path = "/api/tasks/{short_code}/move",
@@ -611,7 +617,7 @@ pub(crate) async fn set_repository(
         (status = 200, description = "Moved (new board, entry column)", body = dto::Task),
         (status = 403, description = "Missing manage_tasks on either board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code or board", body = dto::ErrorEnvelope),
-        (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN", body = dto::ErrorEnvelope),
+        (status = 422, description = "SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board)", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn move_task(
@@ -636,8 +642,10 @@ pub(crate) async fn move_task(
             // (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             require_capability(conn, &slug, Some(target), user, MANAGE)?;
-            boards::move_task(conn, task.id, target, user).map_err(map_board_error)?;
-            let moved = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+            let moved = boards::move_task_with(conn, task.id, target, user, body.rename)
+                .map_err(map_board_error)?;
+            let code = moved.rename.map_or(short_code, |rename| rename.new_code);
+            let moved = load(conn, &code, Liveness::LiveOnly)?.into_dto();
             attach_repository(conn, moved).map_err(ApiError::internal)
         })
         .await?;

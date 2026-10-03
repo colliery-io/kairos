@@ -206,6 +206,12 @@ pub struct MoveArgs {
     /// on both boards. The task keeps its repository.
     #[arg(long = "to-board", value_name = "BOARD")]
     pub to_board: String,
+    /// Also give the task the next code of the target board. The old code
+    /// is retired, and each reference to it in the text of the items
+    /// changes to the new code. A code in a URL or a path does not change.
+    /// Without this flag, the task keeps its code
+    #[arg(long)]
+    pub rename: bool,
     #[command(flatten)]
     pub common: Common,
 }
@@ -230,6 +236,11 @@ pub struct DocumentMoveArgs {
     /// its board
     #[arg(long = "no-board")]
     pub no_board: bool,
+    /// Also give the document the next code of its new owner board. The
+    /// old code is retired, and each reference to it in the text of the
+    /// items changes to the new code. It needs --to-board
+    #[arg(long, conflicts_with = "no_board")]
+    pub rename: bool,
     #[command(flatten)]
     pub common: Common,
 }
@@ -630,7 +641,7 @@ pub fn emit_transitioned<T: EntityView>(common: &Common, item: &T) -> Result<(),
 /// Render a board move (KAIROS-I-0012). Tasks only — they are the one
 /// family on per-team boards — so this takes the DTO directly rather than
 /// widening [`EntityView`] with a board accessor.
-pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
+pub fn emit_moved(common: &Common, before: &str, task: &Task) -> Result<(), CliError> {
     if common.json {
         return print_json(task);
     }
@@ -638,7 +649,34 @@ pub fn emit_moved(common: &Common, task: &Task) -> Result<(), CliError> {
         "Kairos moved the task {} to the board {} (column {}).",
         task.short_code, task.board_id, task.column_id
     );
+    if let Some(line) = renamed_line(before, &task.short_code) {
+        println!("{line}");
+    }
     Ok(())
+}
+
+/// The notice of `get` when the code that was asked for is not the code
+/// of the item that the server gave: the code is retired, and the server
+/// followed it to the item (COLLIERY-T-3100). `None` when the codes are the
+/// same.
+fn retired_code_notice(asked: &str, current: &str) -> Option<String> {
+    (!asked.eq_ignore_ascii_case(current)).then(|| {
+        format!(
+            "The code {asked} is retired. The current code of this item is {current}. Use \
+             {current} for a change to the item."
+        )
+    })
+}
+
+/// The line for a move that gave the item a new code (COLLIERY-T-3101).
+/// `None` when the code did not change.
+fn renamed_line(before: &str, after: &str) -> Option<String> {
+    (before != after).then(|| {
+        format!(
+            "Kairos gave it the code {after}. The code {before} is retired: a read with it \
+             finds the item."
+        )
+    })
 }
 
 /// Render the change of the owner board of a document (COLLIERY-T-0269).
@@ -1029,6 +1067,14 @@ macro_rules! entity_family_cli {
                     Self::Get(args) => {
                         let client = client(&args.common)?;
                         let item = client.$get(&args.short_code).await?;
+                        // COLLIERY-T-3100: a retired code finds the item.
+                        // Say so on stderr, so that the output stays the
+                        // item (and the JSON stays clean).
+                        if let Some(notice) =
+                            retired_code_notice(&args.short_code, &item.short_code)
+                        {
+                            eprintln!("{notice}");
+                        }
                         emit_get(&args.common, &item)
                     }
                     Self::Create(args) => {
@@ -1056,8 +1102,10 @@ macro_rules! entity_family_cli {
                     $(
                     Self::$move_variant(args) => {
                         let client = client(&args.common)?;
-                        let item = client.$move_fn(&args.short_code, &args.to_board).await?;
-                        emit_moved(&args.common, &item)
+                        let item = client
+                            .$move_fn(&args.short_code, &args.to_board, args.rename)
+                            .await?;
+                        emit_moved(&args.common, &args.short_code, &item)
                     }
                     )?
                     $(
@@ -1068,9 +1116,15 @@ macro_rules! entity_family_cli {
                         // normal 200.
                         let before = client.$get(&args.short_code).await?.board_id;
                         let item = client
-                            .$owner_fn(&args.short_code, args.to_board.as_deref())
+                            .$owner_fn(&args.short_code, args.to_board.as_deref(), args.rename)
                             .await?;
-                        emit_document_moved(&args.common, before.as_deref(), &item)
+                        emit_document_moved(&args.common, before.as_deref(), &item)?;
+                        if !args.common.json {
+                            if let Some(line) = renamed_line(&args.short_code, &item.short_code) {
+                                println!("{line}");
+                            }
+                        }
+                        Ok(())
                     }
                     )?
                     Self::Delete(args) => {
@@ -1130,7 +1184,7 @@ entity_family_cli!(
     delete = delete_task,
     restore = restore_task,
     transition(Transition) = transition_task,
-    board_move(Move) = move_task
+    board_move(Move) = move_task_with
 );
 
 entity_family_cli!(
@@ -1144,7 +1198,7 @@ entity_family_cli!(
     update = update_document,
     delete = delete_document,
     restore = restore_document,
-    owner_move(Move) = set_document_board
+    owner_move(Move) = set_document_board_with
 );
 
 entity_family_cli!(
@@ -1165,6 +1219,21 @@ entity_family_cli!(
 mod tests {
     use super::*;
     use crate::error::EXIT_FAILURE;
+
+    /// COLLIERY-T-3100 / T-3101: `get` with a retired code says so, and a
+    /// move that renames names the two codes. The same code says nothing.
+    #[test]
+    fn a_retired_code_and_a_rename_get_a_line() {
+        assert_eq!(retired_code_notice("ACME-T-0001", "ACME-T-0001"), None);
+        assert_eq!(retired_code_notice("acme-t-0001", "ACME-T-0001"), None);
+        let notice = retired_code_notice("ACME-T-0001", "WEB-T-0004").expect("a notice");
+        assert!(notice.contains("ACME-T-0001 is retired"), "{notice}");
+        assert!(notice.contains("WEB-T-0004"), "{notice}");
+        assert_eq!(renamed_line("ACME-T-0001", "ACME-T-0001"), None);
+        let line = renamed_line("ACME-T-0001", "WEB-T-0004").expect("a line");
+        assert!(line.contains("the code WEB-T-0004"), "{line}");
+        assert!(line.contains("ACME-T-0001 is retired"), "{line}");
+    }
 
     /// COLLIERY-T-0234: `delete` names each descendant that stays, with
     /// the reason, and prints no line when none stays.

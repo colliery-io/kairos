@@ -2590,8 +2590,8 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         (
             true,
             "VALIDATION: The call has the argument \"column\". This tool does not accept \
-             that argument. The arguments of this tool are: short_code, to_board.\n\
-             details: {\"allowed\":[\"short_code\",\"to_board\"],\"argument\":\"column\"}"
+             that argument. The arguments of this tool are: short_code, to_board, rename.\n\
+             details: {\"allowed\":[\"short_code\",\"to_board\",\"rename\"],\"argument\":\"column\"}"
                 .to_string(),
         ),
     );

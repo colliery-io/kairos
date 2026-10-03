@@ -149,6 +149,10 @@ The body has the fields `name`, `slug` and `team_id` only. A different
 field of the board (`id`, `board_level`) is a 422 `VALIDATION` that
 names the field (COLLIERY-T-0249).
 
+The short-code prefix of a board does not change (COLLIERY-T-3099). A
+body with `code_prefix` is a 422 `CODE_PREFIX_IS_FIXED` that says so
+(COLLIERY-T-3101), and the update writes nothing.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |
@@ -161,7 +165,7 @@ Request body (required): `application/json`, [`UpdateBoardRequest`](schemas.md#u
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug; details.board names it |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No field to update, or BOARD_TEAM_IS_FIXED |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No field to update, BOARD_TEAM_IS_FIXED, or CODE_PREFIX_IS_FIXED |
 
 ### `GET /api/boards/{id}/columns`
 

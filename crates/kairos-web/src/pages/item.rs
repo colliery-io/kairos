@@ -28,7 +28,7 @@ mod owner;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
-    Stack, Text,
+    Stack, Switch, Text,
 };
 use aurora_dark::data::{RelativeTime, Segment, SegmentedBar};
 use aurora_dark::frame::{TabItem, Tabs, use_toaster};
@@ -1117,8 +1117,13 @@ fn MoveBoardControl(
     let code = StoredValue::new(code);
     let here = StoredValue::new(board_slug.clone());
     let value = RwSignal::new(THIS_BOARD.to_string());
+    // COLLIERY-T-3101: a move can also give the task a code of the new
+    // board. Off by default: a move keeps the code.
+    let rename = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    let toaster = use_toaster();
+    let navigate = leptos_router::hooks::use_navigate();
     // Source half: the same `manage_tasks` mirror as the board's create
     // affordance and the repository picker.
     let can_move = board_power(
@@ -1159,8 +1164,21 @@ fn MoveBoardControl(
             .unwrap_or_else(|| chosen.clone());
         busy.set(true);
         error.set(None);
+        let rename = rename.get_untracked();
+        let navigate = navigate.clone();
         leptos::task::spawn_local(async move {
-            match api::move_task(auth, &code.get_value(), &chosen).await {
+            let old = code.get_value();
+            match api::move_task(auth, &old, &chosen, rename).await {
+                // A rename: the page of the old code is not the page of
+                // the item now. Go to the page of the new code (a new
+                // page, so no reload here).
+                Ok(moved) if moved.short_code != old => {
+                    toaster.success(format!(
+                        "Moved to {label}. The new code is {}. The code {old} is retired.",
+                        moved.short_code
+                    ));
+                    navigate(&format!("/items/{}", moved.short_code), Default::default());
+                }
                 // Success refetches the whole detail (on_moved bumps the
                 // reload), which re-renders this panel with the new board
                 // and its entry column — no busy reset, this view is gone.
@@ -1184,6 +1202,7 @@ fn MoveBoardControl(
                             .collect()
                         value=value
                     />
+                    <Switch checked=rename label="Give it a code of the new board"/>
                     <Button
                         size="xs"
                         disabled=move || value.get() == THIS_BOARD

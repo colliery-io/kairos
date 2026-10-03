@@ -384,6 +384,13 @@ pub struct MoveItemParams {
     /// board, of each level. To remove the owner board of a document,
     /// omit this argument, or send null or an empty string.
     pub to_board: Option<String>,
+    /// Give the item the next code of the target board (default false).
+    /// The old code is retired: a read with it finds the item. Each
+    /// reference to the old code in the text of the items changes to the
+    /// new code, one time. A code in a URL or a path does not change. A
+    /// document needs `to_board` for a rename.
+    #[serde(default)]
+    pub rename: bool,
 }
 
 /// Parameters for `set_repository` (COLLIERY-T-0220).
@@ -1230,6 +1237,7 @@ impl KairosMcp {
                     edited_at.format("%Y-%m-%dT%H:%M:%SZ")
                 ));
             }
+            out.push_str(&rename_history(conn, item.id)?);
             Ok(out)
         })
         .await
@@ -1490,7 +1498,7 @@ impl KairosMcp {
     // of a move: the capability on the board that the item leaves and on
     // the board that it goes to, and nothing for the creator.
     #[tool(
-        description = "Move a TASK to another delivery board, or a DOCUMENT to another owner board. `to_board` is a board slug or UUID. A task: what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. A document: `to_board` is the new owner board, of each level. The owner board gives the right to edit the document. The document is not a card, and it gets no column. Needs `manage_documents` on both the board that owns the document now and the target. The creator of the document gets no right to move it. To remove the owner board of a document, omit `to_board`: the owner is then the board of the item that the document supports. A document that supports no item keeps its board (LAST_OWNER). The links of the document do not change. To move an item between COLUMNS of its own board, use `transition_item`."
+        description = "Move a TASK to another delivery board, or a DOCUMENT to another owner board. `to_board` is a board slug or UUID. A task: what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. A document: `to_board` is the new owner board, of each level. The owner board gives the right to edit the document. The document is not a card, and it gets no column. Needs `manage_documents` on both the board that owns the document now and the target. The creator of the document gets no right to move it. To remove the owner board of a document, omit `to_board`: the owner is then the board of the item that the document supports. A document that supports no item keeps its board (LAST_OWNER). The links of the document do not change. Rename: with `rename: true` the item also gets the next code of the target board (for example COLLIERY-T-0100 becomes SKADI-T-0001). The old code is retired and is never issued again, and get_item with it finds the item. Each reference to the old code in the text of the items changes to the new code, one time; a code in a URL or a path does not change. Without `rename`, the item keeps its code. To move an item between COLUMNS of its own board, use `transition_item`."
     )]
     pub async fn move_item(
         &self,
@@ -1504,7 +1512,7 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let to_board = crate::api::documents::board_to_set(params.to_board.as_deref());
             if item.item_type == ItemType::Document {
-                return move_document(conn, &slug, user, &item, to_board);
+                return move_document(conn, &slug, user, &item, to_board, params.rename);
             }
             if item.item_type != ItemType::Task {
                 return Err(ApiError::validation(format!(
@@ -1554,17 +1562,21 @@ impl KairosMcp {
                 &item,
             )?;
             let from_board = board_by_ref(conn, &from_board_id.to_string())?;
-            let moved =
-                boards::move_task(conn, item.id, target.id, user).map_err(map_board_error)?;
+            let moved = boards::move_task_with(conn, item.id, target.id, user, params.rename)
+                .map_err(map_board_error)?;
             let column = board_columns(conn, target.id)?
                 .into_iter()
                 .find(|c| c.id == moved.column_id)
                 .map(|c| c.name)
                 .unwrap_or_default();
-            Ok(format!(
+            let mut out = format!(
                 "Moved {}: {} -> {} / {}.",
                 item.short_code, from_board.slug, target.slug, column
-            ))
+            );
+            if let Some(rename) = &moved.rename {
+                out.push_str(&rename_lines(rename));
+            }
+            Ok(out)
         })
         .await
     }
@@ -2905,8 +2917,9 @@ fn move_document(
     user: Uuid,
     item: &ItemView,
     to_board: Option<&str>,
+    rename: bool,
 ) -> Result<String, ApiError> {
-    let change = crate::api::documents::change_board(conn, slug, user, item.id, to_board)?;
+    let change = crate::api::documents::change_board(conn, slug, user, item.id, to_board, rename)?;
     let name = |board: &Option<Board>| {
         board
             .as_ref()
@@ -2921,12 +2934,74 @@ fn move_document(
             None => format!("No change to {}: it names no owner board.", item.short_code),
         });
     }
-    Ok(format!(
+    let mut out = format!(
         "Moved {}: owner board {} -> {}.",
         item.short_code,
         name(&change.from),
         name(&change.to)
-    ))
+    );
+    if let Some(rename) = &change.rename {
+        out.push_str(&rename_lines(rename));
+    }
+    Ok(out)
+}
+
+/// The renames of an item for `get_history` (COLLIERY-T-3101): the
+/// `rename` rows of the activity log, oldest first, with the old code, the
+/// new code, the time and who did it. Empty when the item has none.
+fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError> {
+    use kairos_db::schema::{activity_log, users};
+    let rows: Vec<(String, DateTime<Utc>, Uuid)> = activity_log::table
+        .filter(activity_log::entity_id.eq(item_id))
+        .filter(activity_log::action.eq(kairos_db::models::enums::ActivityAction::Rename))
+        .order(activity_log::occurred_at.asc())
+        .select((
+            activity_log::details,
+            activity_log::occurred_at,
+            activity_log::actor_id,
+        ))
+        .load(conn)
+        .map_err(ApiError::internal)?;
+    if rows.is_empty() {
+        return Ok(String::new());
+    }
+    let actor_ids: Vec<Uuid> = rows.iter().map(|(_, _, actor)| *actor).collect();
+    let names: HashMap<Uuid, String> = users::table
+        .filter(users::id.eq_any(actor_ids))
+        .select((users::id, users::display_name))
+        .load::<(Uuid, String)>(conn)
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .collect();
+    let mut out = "\n## Renames\n".to_string();
+    for (details, at, actor) in rows {
+        let codes: &str = details.strip_prefix("code:").unwrap_or(&details);
+        let codes = codes.replace("->", " -> ");
+        out.push_str(&format!(
+            "- {codes} — {} by {}\n",
+            at.format("%Y-%m-%dT%H:%M:%SZ"),
+            names.get(&actor).map_or("unknown", String::as_str)
+        ));
+    }
+    Ok(out)
+}
+
+/// The lines of a `move_item` answer for a rename (COLLIERY-T-3101).
+fn rename_lines(rename: &kairos_db::code_rename::CodeRename) -> String {
+    let mut out = format!(
+        "\nRenamed {} -> {}. The code {} is retired: a read with it finds the item.",
+        rename.old_code, rename.new_code, rename.old_code
+    );
+    if rename.references.is_empty() {
+        out.push_str(" No text of an item named the old code.");
+    } else {
+        out.push_str(&format!(
+            " The references changed in {} item(s): {}.",
+            rename.references.len(),
+            rename.references.join(", ")
+        ));
+    }
+    out
 }
 
 /// A live item by short code WITH its type (the edge-permission check needs

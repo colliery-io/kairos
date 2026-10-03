@@ -52,6 +52,7 @@ use diesel::sql_types::{Text, Uuid as SqlUuid};
 use kairos_client::types as dto;
 use kairos_core::board::TransitionError;
 use kairos_core::short_code::ItemType;
+use kairos_db::code_rename::RenameError;
 use kairos_db::models::enums::RelationshipType;
 use kairos_db::{AbacError, BoardError, GraphError, ItemError, abac};
 use serde_json::json;
@@ -1014,7 +1015,29 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         // are configuration calls too.
         | BoardError::LastDeliveryBoard { .. }
         | BoardError::BoardTeamIsFixed { .. }) => ApiError::internal(e),
+        BoardError::Rename(e) => map_rename_error(e),
         BoardError::Database(e) => ApiError::internal(e),
+    }
+}
+
+/// [`RenameError`] → HTTP, for a move with `rename` (COLLIERY-T-3101). A
+/// rename to the prefix that the code has already is 422
+/// `RENAME_NOT_NEEDED`. A code that cannot be retired is a bug: the rename
+/// gives the item its new code first.
+pub fn map_rename_error(e: RenameError) -> ApiError {
+    match e {
+        RenameError::NotNeeded { code, prefix } => ApiError::unprocessable(
+            "RENAME_NOT_NEEDED",
+            RenameError::NotNeeded {
+                code: code.clone(),
+                prefix: prefix.clone(),
+            }
+            .to_string(),
+        )
+        .with_details(json!({ "argument": "rename", "short_code": code, "code_prefix": prefix })),
+        RenameError::Item(e) => map_item_error(e),
+        RenameError::Retire(e) => ApiError::internal(e),
+        RenameError::Database(e) => ApiError::internal(e),
     }
 }
 

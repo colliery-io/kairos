@@ -273,6 +273,7 @@ text_enum! {
         BoardMove => "board_move",
         Restore => "restore",
         Update => "update",
+        Rename => "rename",
     }
 }
 
@@ -410,6 +411,7 @@ mod tests {
                 "board_move",
                 "restore",
                 "update",
+                "rename",
             ]
         );
     }

@@ -164,6 +164,7 @@ const ACTIONS: &[&str] = &[
     "board_move",
     "restore",
     "update",
+    "rename",
 ];
 
 /// Map a `{PREFIX}-{LETTER}-{NNNN}` short code (S-0004) onto its API
@@ -211,7 +212,7 @@ fn action_color(action: &str) -> &'static str {
     match action {
         "create" | "restore" => token::OK,
         "delete" => token::BAD,
-        "transition" | "board_move" => token::ICE,
+        "transition" | "board_move" | "rename" => token::ICE,
         "update" => token::GOLD,
         "relationship_add" | "relationship_remove" => token::VIOLET,
         "capability_grant" | "capability_revoke" => token::GOLD,
@@ -1301,8 +1302,8 @@ mod tests {
     /// server (`kairos_db::models::enums::ActivityAction`).
     #[test]
     fn the_filter_has_each_action() {
-        assert_eq!(ACTIONS.len(), 14);
-        for action in ["update", "restore", "board_move", "repository"] {
+        assert_eq!(ACTIONS.len(), 15);
+        for action in ["update", "restore", "board_move", "repository", "rename"] {
             assert!(ACTIONS.contains(&action), "{action}");
         }
     }

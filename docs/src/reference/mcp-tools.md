@@ -48,6 +48,7 @@ Codes an agent can receive, and what each means.
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
 | `LAST_PARENT` | An `unlink_items` of the last `supports` edge of a document that names no board. |
 | `LAST_OWNER` | A `move_item` that removes the owner board of a document that supports no item. |
+| `RENAME_NOT_NEEDED` | A `move_item` with `rename` to a board whose prefix the code has already. |
 
 **Each tool refuses an argument that it does not know.** Each tool has the
 rule of the routes of the REST API, the tools that read too. The tool does not
@@ -371,6 +372,14 @@ An item's content version history — version, editor, timestamp, newest first.
 
 Archived items' history is returned, marked archived.
 
+The list of an item that a move renamed has the section **Renames**. Each
+line has the old code, the new code, the time and who did the move:
+
+```text
+## Renames
+- COLLIERY-T-0100 -> SKADI-T-0001 — 2026-10-03T18:20:00Z by Dylan
+```
+
 Refuses: `NOT_FOUND` for an unknown short code, or for a `version` with no
 snapshot.
 
@@ -660,6 +669,7 @@ owner board of a document.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The short code of the task or of the document. |
 | `to_board` | string | no in the schema | — | Target board, slug or UUID. A task must have it, and the board is a delivery board. For a document, see below. |
+| `rename` | boolean | no | `false` | Give the item the next code of the target board. See [A rename](#a-rename). |
 
 Requires `manage_tasks` on both the task's current board and the target. A
 move is not an edit. The creator of the task gets no right to move it.
@@ -668,6 +678,32 @@ The task keeps its repository. The move does not look at the repository.
 
 Column-to-column moves on an item's own board are `transition_item`, not this
 tool.
+
+#### A rename
+
+With `rename: true`, the item also gets the next code of the target board, in
+the transaction of the move. Without it, the item keeps its code.
+
+- Kairos retires the old code and does not issue it again. `get_item` with
+  the old code finds the item.
+- Each reference to the old code in the title and the content of each item
+  changes to the new code, one time. Each item that changes gets a new
+  version. A code in a URL, a path or a file name does not change. The
+  footer of an item from the Metis importer does not change.
+- The activity log gets an entry with the action `rename`
+  (`code:{old}->{new}`). `get_history` lists it under **Renames**, with the
+  time and who did it.
+
+The result has a second line:
+
+```text
+Moved COLLIERY-T-0100: colliery-io-delivery -> skadi / Backlog.
+Renamed COLLIERY-T-0100 -> SKADI-T-0001. The code COLLIERY-T-0100 is retired: a read with it finds the item. The references changed in 1 item(s): COLLIERY-T-0101.
+```
+
+A rename of a document needs `to_board`, and the board must be a different
+board. Kairos refuses a rename to a board whose prefix the code has already
+(`RENAME_NOT_NEEDED`). Then the item does not move.
 
 #### A document
 
@@ -721,6 +757,7 @@ The tool refuses with these codes:
 | `FORBIDDEN` | The caller does not hold `manage_tasks` on the two boards of a task. The caller does not hold `manage_documents` on the two boards of a document, and the message names the board. |
 | `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `NO_ENTRY_COLUMN` | For a task only. |
 | `LAST_OWNER` | The call removes the owner board of a document that supports no item. |
+| `RENAME_NOT_NEEDED` | A rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. |
 
 ## Relationships
 

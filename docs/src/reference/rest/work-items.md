@@ -327,6 +327,12 @@ bypass, as everywhere). The move does not look at the repository of the
 task, and the task keeps it (COLLIERY-T-0217, COLLIERY-A-0023). The
 creator of the task gets no right here (COLLIERY-T-0228).
 
+`rename: true` (COLLIERY-T-3101) also gives the task the next code of the
+target board, in the same transaction. Kairos retires the old code. Each
+reference to the old code in the text of the items changes to the new
+code, one time. A code in a URL or a path does not change. The response
+has the new code. Without `rename`, the task keeps its code.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Task short code |
@@ -338,7 +344,7 @@ Request body (required): `application/json`, [`MoveTaskRequest`](schemas.md#move
 | `200` | [`Task`](schemas.md#task) | Moved (new board, entry column) |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on either board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code or board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board) |
 
 ### `PUT /api/tasks/{short_code}/repository`
 
@@ -526,6 +532,12 @@ and the server writes nothing. Not a content edit: no version bump and
 no history row. The activity log gets one entry with the action
 `update`.
 
+`rename: true` (COLLIERY-T-3101) also gives the document the next code
+of the new board. Kairos retires the old code. The references to the old
+code in the text of the items change one time. The server refuses a
+rename (422 `RENAME_NOT_NEEDED`) when the board does not change. It also
+refuses it when the code has the prefix of the new board.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `short_code` | path | yes | `string` | Document short code |
@@ -537,7 +549,7 @@ Request body (required): `application/json`, [`SetDocumentBoardRequest`](schemas
 | `200` | [`Document`](schemas.md#document) | The document, with its owner board |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_documents on the board that owns the document now, or on the new board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code, or unknown board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_OWNER: the document supports no item. VALIDATION: the body has no board |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_OWNER: the document supports no item. VALIDATION: the body has no board, or a rename has no board. RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code |
 
 ### `PATCH /api/documents/{short_code}/lifecycle`
 

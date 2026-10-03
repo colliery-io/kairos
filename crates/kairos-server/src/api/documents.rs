@@ -562,6 +562,8 @@ pub(crate) struct BoardChange {
     /// The call changed the document. `false` = the document named that
     /// board already, and the call wrote nothing.
     pub changed: bool,
+    /// The rename of a call with `rename` (COLLIERY-T-3101).
+    pub rename: Option<kairos_db::code_rename::CodeRename>,
 }
 
 /// THE CHANGE OF THE OWNER of a document (COLLIERY-T-0269): set, change or
@@ -610,13 +612,27 @@ pub(crate) struct BoardChange {
 /// too, and it runs in ONE transaction. So the remove of the last parent
 /// and the remove of the board cannot each see the owner that the other
 /// removes.
+///
+/// With `rename` (COLLIERY-T-3101), the document also gets the next code of
+/// its new board, in the same transaction
+/// ([`kairos_db::code_rename::rename_item`]). A rename needs a new board:
+/// a call with no board, or with the board that the document names
+/// already, is refused before anything changes.
 pub(crate) fn change_board(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     document_id: Uuid,
     board: Option<&str>,
+    rename: bool,
 ) -> Result<BoardChange, ApiError> {
+    if rename && board.is_none() {
+        return Err(ApiError::validation(
+            "A rename gives the document the next code of its new owner board. Name the \
+             new board, or do the change with no rename.",
+        )
+        .with_details(json!({ "argument": "rename" })));
+    }
     atomically(conn, |conn| {
         abac::lock_document(conn, document_id).map_err(map_abac_error)?;
         let document = load_by_id(conn, document_id)?;
@@ -670,11 +686,40 @@ pub(crate) fn change_board(
         let change =
             items::set_document_board(conn, document_id, to.as_ref().map(|board| board.id), user)
                 .map_err(map_item_error)?;
+        let mut document = change.document;
+        let mut renamed = None;
+        if rename {
+            let target = to.as_ref().map(|board| (board.id, board.slug.clone()));
+            let Some((target_id, target_slug)) = target.filter(|_| change.changed) else {
+                return Err(ApiError::unprocessable(
+                    "RENAME_NOT_NEEDED",
+                    format!(
+                        "The owner board of {} does not change. A rename happens only on a \
+                         move to a different board.",
+                        document.short_code
+                    ),
+                )
+                .with_details(json!({ "argument": "rename" })));
+            };
+            renamed = Some(
+                kairos_db::code_rename::rename_item(
+                    conn,
+                    kairos_core::short_code::ItemType::Document,
+                    document_id,
+                    Some(target_id),
+                    user,
+                    &format!("The document moved to the owner board {target_slug}."),
+                )
+                .map_err(crate::api::map_rename_error)?,
+            );
+            document = load_by_id(conn, document_id)?;
+        }
         Ok(BoardChange {
-            document: change.document,
+            document,
             from,
             to,
             changed: change.changed,
+            rename: renamed,
         })
     })
 }
@@ -757,6 +802,12 @@ pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
 /// and the server writes nothing. Not a content edit: no version bump and
 /// no history row. The activity log gets one entry with the action
 /// `update`.
+///
+/// `rename: true` (COLLIERY-T-3101) also gives the document the next code
+/// of the new board. Kairos retires the old code. The references to the old
+/// code in the text of the items change one time. The server refuses a
+/// rename (422 `RENAME_NOT_NEEDED`) when the board does not change. It also
+/// refuses it when the code has the prefix of the new board.
 #[utoipa::path(
     patch,
     path = "/api/documents/{short_code}/board",
@@ -767,7 +818,7 @@ pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
         (status = 200, description = "The document, with its owner board", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that owns the document now, or on the new board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code, or unknown board", body = dto::ErrorEnvelope),
-        (status = 422, description = "LAST_OWNER: the document supports no item. VALIDATION: the body has no board", body = dto::ErrorEnvelope),
+        (status = 422, description = "LAST_OWNER: the document supports no item. VALIDATION: the body has no board, or a rename has no board. RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn set_board(
@@ -797,6 +848,7 @@ pub(crate) async fn set_board(
                 user,
                 document.id,
                 board_to_set(board.as_deref()),
+                body.rename,
             )?;
             render(conn, change.document)
         })

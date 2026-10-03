@@ -11,6 +11,7 @@ pub mod api_keys;
 pub mod board_items;
 pub mod boards;
 pub mod code_indexes;
+pub mod code_rename;
 pub mod embeddings;
 pub mod events;
 pub mod forge;

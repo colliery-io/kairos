@@ -241,6 +241,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `BOARD_OWNS_DOCUMENTS` | 422 | The board is the owner of live documents. Name a different board for each document, or archive it. The delete of a team gives this code for a delivery board of the team | `board_id`, `item_count` and `items`: the short codes of the documents, **capped at 20** |
 | `LAST_DELIVERY_BOARD` | 422 | The board is the only delivery board of a team. Delete the team to remove the team and its board together | `board_id` and `team` (`id`, `name`) |
 | `BOARD_TEAM_IS_FIXED` | 422 | The update of a board has a `team_id` that is not the team of the board. The team of a board does not change. Move the task to give work to a different team | `board_id` and `team_id`, the team that the board has |
+| `CODE_PREFIX_IS_FIXED` | 422 | The body of a route other than a create has the field `code_prefix`, for example the update of a board. The short-code prefix of a board does not change. To give an item a code with a different prefix, move it to a different board with a rename | `field`: `code_prefix`, and `allowed`: the fields of the body |
 
 ### Moving and restoring work
 
@@ -248,6 +249,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
+| `RENAME_NOT_NEEDED` | 422 | A move with a rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. Nothing changes. Do the move with no rename | `argument`: `rename`. For a prefix, also `short_code` and `code_prefix` |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
 | `LAST_OWNER` | 422 | The request removes the owner board of a document that supports no item. [A document always has an owner](capabilities.md#a-document-always-has-an-owner). Link the document to a work item first, or name a different board | `document` (the short code) and `board` (the slug of the owner board) |
 

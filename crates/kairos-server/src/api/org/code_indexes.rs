@@ -387,29 +387,43 @@ pub(crate) async fn nearest_code_index(
             .await?
     };
     let repo_id = repo.id;
+    // The read token of the repository, when it has one (COLLIERY-T-3105).
+    let token = {
+        let key = service.secrets_key().cloned();
+        let tenant_slug = tenant.slug.clone();
+        state
+            .blocking
+            .run(&tenant.slug, move |conn| {
+                crate::credentials::read_token(conn, &tenant_slug, repo_id, key.as_ref())
+                    .map_err(crate::credentials::token_refusal)
+            })
+            .await?
+    };
     let ancestors = {
         let tenant = tenant.slug.clone();
         let wanted = commit.clone();
-        tokio::task::spawn_blocking(move || service.ancestors(&tenant, &repo, &wanted))
-            .await
-            .map_err(ApiError::internal)?
-            .map_err(|e| {
-                ApiError::new(
-                    StatusCode::BAD_GATEWAY,
-                    "GIT_FETCH_FAILED",
-                    format!(
-                        "The server cannot fetch the repository {slug:?}. Make sure that it \
+        tokio::task::spawn_blocking(move || {
+            service.ancestors(&tenant, &repo, &wanted, token.as_ref())
+        })
+        .await
+        .map_err(ApiError::internal)?
+        .map_err(|e| {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "GIT_FETCH_FAILED",
+                format!(
+                    "The server cannot fetch the repository {slug:?}. Make sure that it \
                          can read the repo_url of the repository."
-                    ),
-                )
-                .with_details(json!({ "error": e.to_string() }))
-            })?
-            .ok_or_else(|| {
-                ApiError::not_found(format!(
-                    "The repository {slug:?} has no commit {commit}. Push the commit, then \
+                ),
+            )
+            .with_details(json!({ "error": e.to_string() }))
+        })?
+        .ok_or_else(|| {
+            ApiError::not_found(format!(
+                "The repository {slug:?} has no commit {commit}. Push the commit, then \
                      ask again."
-                ))
-            })?
+            ))
+        })?
     };
     let nearest = state
         .blocking

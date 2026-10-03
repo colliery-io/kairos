@@ -503,6 +503,7 @@ mod tests {
             delivery_board_id: None,
             open_tasks: 0,
             has_webhook: false,
+            credential: Default::default(),
         }
     }
 

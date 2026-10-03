@@ -173,6 +173,73 @@ Request body (required): `application/vnd.sqlite3`, [`IndexFile`](schemas.md#ind
 | `413` | — | The file is larger than 256 MiB |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad commit or ref, or a body that is not an index file |
 
+### `GET /api/repositories/{slug}/credential`
+
+The status of the read token of a repository. It never has the token.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`RepositoryCredential`](schemas.md#repositorycredential) | The status of the token |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+
+### `PUT /api/repositories/{slug}/credential`
+
+Set or replace the read token of a repository (an organization admin, or
+a member of the owner team). Kairos encrypts the token. The response is the status, with no
+token.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+Request body (required): `application/json`, [`SetRepositoryCredentialRequest`](schemas.md#setrepositorycredentialrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`RepositoryCredential`](schemas.md#repositorycredential) | The token is set |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an organization admin, and not a member of the owner team |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | An unknown field, or a token that is empty, too long or has a space |
+| `501` | [`ErrorEnvelope`](schemas.md#errorenvelope) | This deployment has no KAIROS_SECRETS_KEY |
+
+### `DELETE /api/repositories/{slug}/credential`
+
+Remove the read token of a repository (an organization admin, or a
+member of the owner team).
+The next fetch has no credential.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`RepositoryCredential`](schemas.md#repositorycredential) | The token is removed |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an organization admin, and not a member of the owner team |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository, or the repository has no token |
+
+### `POST /api/repositories/{slug}/credential/check`
+
+Test the read token: `git ls-remote` of the URL of the repository with
+the token. The result is kept, and the response has it. A failed check
+is a 200 with `last_check_ok: false` and the error of git, with the
+token removed.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`RepositoryCredential`](schemas.md#repositorycredential) | The check ran. `last_check_ok` has the result |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an organization admin, and not a member of the owner team |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository, or the repository has no token |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The stored token does not decrypt with the key of the deployment |
+
 ## forge
 
 ### `GET /api/forge-connections`

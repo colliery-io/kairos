@@ -1209,6 +1209,7 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `created_at` | `string` | yes | RFC 3339. |
+| `credential` | [`RepositoryCredential`](schemas.md#repositorycredential) | no | The status of the read token of the repository (COLLIERY-T-3105). It never has the token. |
 | `default_branch` | `string` | yes |  |
 | `delivery_board_id` | `string`, nullable | no | The delivery board of the owning team (UUID). It is a fact about the owner, not where tasks go: the board or the team of a task decides that (COLLIERY-T-0219, COLLIERY-A-0023). `None` only in a misconfigured tenant (team without a delivery board). |
 | `description` | `string` | yes | Short "how to work here" blurb agents read before starting. |
@@ -1221,6 +1222,20 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 | `slug` | `string` | yes | Tenant-unique slug (`^[a-z0-9][a-z0-9-]{1,62}$`). |
 | `team` | [`RepositoryTeam`](schemas.md#repositoryteam) | yes | The one owning team. |
 | `updated_at` | `string` | yes | RFC 3339. |
+
+## RepositoryCredential
+
+The status of the read token of a repository (COLLIERY-T-3105): what `GET /api/repositories/{slug}/credential` gives, and what each [`Repository`] carries. Kairos keeps the token encrypted, and no read gives it back.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `last_check_error` | `string`, nullable | no | The error of git at the last check, with the token removed. |
+| `last_check_ok` | `boolean`, nullable | no | Whether git could read the repository with the token at the last check. |
+| `last_checked_at` | `string`, nullable | no | When the last access check ran, RFC 3339. Null until a check runs for this token. |
+| `set` | `boolean` | yes | Whether the repository has a read token. |
+| `set_at` | `string`, nullable | no | When the token was set, RFC 3339. |
+| `set_by` | `string`, nullable | no | The user who set the token (UUID). |
+| `set_by_name` | `string`, nullable | no | The name of that user, else the email. |
 
 ## RepositoryDetail
 
@@ -1461,6 +1476,16 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `password` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## SetRepositoryCredentialRequest
+
+Body of `PUT /api/repositories/{slug}/credential` (COLLIERY-T-3105): the read token of the repository. Use a GitHub fine-grained personal access token with only "Contents: read" on the one repository.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `token` | `string` | yes | The token. Kairos encrypts it, and no read gives it back. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

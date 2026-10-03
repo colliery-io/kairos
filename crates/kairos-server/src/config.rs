@@ -170,6 +170,13 @@ pub struct AppConfig {
     /// [`crate::forge::auth`]). Absent ⇒ forge connections cannot be
     /// created or verified; the feature is simply off.
     pub webhook_signing_key: Option<String>,
+    /// `KAIROS_SECRETS_KEY` (COLLIERY-T-3105): 32 bytes in base64, the
+    /// AES-256-GCM key of the secrets that Kairos keeps in the database (the
+    /// read token of a repository, [`crate::secrets`]). Absent: a write of a
+    /// token is refused with a text that names the setting, and the builder
+    /// fetches each repository with no credential. A value that is not 32
+    /// bytes of base64 stops the start.
+    pub secrets_key: Option<crate::secrets::SecretsKey>,
     /// `KAIROS_OTEL_ENDPOINT` (KAIROS-T-0196): the OTLP/HTTP traces endpoint,
     /// e.g. `http://otel-collector:4318/v1/traces`. **Unset means no tracing at
     /// all** — no exporter is built and no span leaves the process. This is the
@@ -499,6 +506,17 @@ impl AppConfig {
             });
         }
 
+        let secrets_key = get(crate::secrets::SECRETS_KEY_VAR)
+            .map(|raw| {
+                crate::secrets::SecretsKey::from_base64(&raw).map_err(|message| {
+                    ConfigError::Invalid {
+                        var: crate::secrets::SECRETS_KEY_VAR,
+                        message,
+                    }
+                })
+            })
+            .transpose()?;
+
         Ok(Self {
             database_url,
             bind_addr,
@@ -522,6 +540,7 @@ impl AppConfig {
             web_client_secret: get("KAIROS_WEB_CLIENT_SECRET"),
             public_url: get("KAIROS_PUBLIC_URL").map(|url| url.trim_end_matches('/').to_string()),
             webhook_signing_key: get("KAIROS_WEBHOOK_SIGNING_KEY"),
+            secrets_key,
             otel_endpoint: get("KAIROS_OTEL_ENDPOINT"),
             otel_sample_ratio,
             auth_max_failures,
@@ -598,6 +617,34 @@ mod tests {
         // Local auth is off unless asked for (KAIROS-T-0203).
         assert!(!config.local_auth);
         assert_eq!(config.session_ttl_secs, 14 * 24 * 60 * 60);
+    }
+
+    // ---------------------------------------------------------------------
+    // COLLIERY-T-3105: the key of the secrets in the database.
+
+    #[test]
+    fn kairos_secrets_key_is_optional_and_32_bytes_of_base64() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert!(config.secrets_key.is_none());
+
+        let mut vars = MINIMAL.to_vec();
+        vars.push((
+            "KAIROS_SECRETS_KEY",
+            "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        ));
+        let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+        assert_eq!(
+            config.secrets_key.expect("a key").id(),
+            crate::secrets::SecretsKey::from_bytes([1u8; 32]).id()
+        );
+
+        for bad in ["AQEBAQ==", "not base64!"] {
+            let mut vars = MINIMAL.to_vec();
+            vars.push(("KAIROS_SECRETS_KEY", bad));
+            let err = AppConfig::from_lookup(lookup(&vars)).expect_err(bad);
+            assert!(err.to_string().contains("KAIROS_SECRETS_KEY"), "{err}");
+            assert!(!err.to_string().contains(bad), "the value is not in {err}");
+        }
     }
 
     // ---------------------------------------------------------------------

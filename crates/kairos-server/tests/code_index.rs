@@ -282,11 +282,30 @@ struct World {
     a: String,
     /// Index files made by the scenario.
     files: tempfile::TempDir,
+    /// The git server with basic auth of a private repository
+    /// (COLLIERY-T-3105), when the world has one.
+    git_http: Option<common::git_http::GitHttp>,
     _work: tempfile::TempDir,
 }
 
+/// The user and the token that the git server of a private repository
+/// takes (COLLIERY-T-3105).
+const TOKEN_USER: &str = "x-access-token";
+const TOKEN: &str = "github_pat_t3105_SECRET_value";
+
 impl World {
     async fn new(scratch_db: &str) -> World {
+        Self::build(scratch_db, false).await
+    }
+
+    /// A world whose repository is private (COLLIERY-T-3105): the server
+    /// fetches it over HTTP from a git server that needs [`TOKEN`], and the
+    /// deployment has a `KAIROS_SECRETS_KEY`.
+    async fn private(scratch_db: &str) -> World {
+        Self::build(scratch_db, true).await
+    }
+
+    async fn build(scratch_db: &str, private: bool) -> World {
         let _admin_conn = recreate_scratch_db(scratch_db);
         let scratch_url = with_database(&common::admin_database_url(), scratch_db);
         let mut conn =
@@ -306,11 +325,23 @@ impl World {
         let git = work.path().join("payments-api");
         std::fs::create_dir_all(&git).unwrap();
         let a = repository_at_a(&git);
-        let remote = git.display().to_string();
-        let service = Arc::new(CodeIndexService::new(
-            work.path().join("clones"),
-            Arc::new(move |_: &kairos_db::models::repositories::Repository| remote.clone()),
-        ));
+        let key = kairos_server::secrets::SecretsKey::from_bytes([42u8; 32]);
+        let git_http = if private {
+            Some(common::git_http::serve(work.path().to_path_buf(), TOKEN_USER, TOKEN).await)
+        } else {
+            None
+        };
+        let remote = match &git_http {
+            Some(server) => format!("{}/payments-api/.git", server.base_url),
+            None => git.display().to_string(),
+        };
+        let service = Arc::new(
+            CodeIndexService::new(
+                work.path().join("clones"),
+                Arc::new(move |_: &kairos_db::models::repositories::Repository| remote.clone()),
+            )
+            .with_secrets_key(private.then(|| key.clone())),
+        );
 
         let http = reqwest::Client::new();
         let svc_token = user_token(&http, "svc").await;
@@ -322,7 +353,9 @@ impl World {
                 .await
                 .expect("OIDC discovery against live Dex"),
         );
-        let mut state = app::state_with(base_config(&scratch_url), pool, auth);
+        let mut config = base_config(&scratch_url);
+        config.secrets_key = private.then(|| key.clone());
+        let mut state = app::state_with(config, pool, auth);
         state.code_index = Some(service.clone());
         let server = spawn_server(app::router(state.clone())).await;
         let svc = server.client(&svc_token, "acme");
@@ -394,6 +427,7 @@ impl World {
             git,
             a,
             files: tempfile::tempdir().unwrap(),
+            git_http,
             _work: work,
         }
     }
@@ -700,4 +734,95 @@ async fn unknown_input_is_refused_and_named() {
         .await
         .expect_err("a body that is not an index");
     assert!(matches!(err, Error::Validation { .. }), "{err}");
+}
+
+/// Whether a file below `dir` has `needle` in it.
+fn any_file_contains(dir: &Path, needle: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        if path.is_dir() {
+            any_file_contains(&path, needle)
+        } else {
+            std::fs::read(&path)
+                .is_ok_and(|bytes| bytes.windows(needle.len()).any(|w| w == needle.as_bytes()))
+        }
+    })
+}
+
+// ===========================================================================
+// Scenario: The builder fetches a private repository with the stored read
+// token (COLLIERY-T-3105)
+// ===========================================================================
+#[tokio::test]
+async fn a_private_repository_is_fetched_with_the_stored_read_token() {
+    // Given a private repository with an index of commit A, and a push of B
+    let w = World::private("kairos_code_index_t3105_private").await;
+    let server = w.git_http.as_ref().expect("a git server");
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let b = commit_b(&w.git);
+
+    // When the builder runs and the repository has no token
+    let started = std::time::Instant::now();
+    let outcomes = w.sweep().await;
+    let elapsed = started.elapsed();
+
+    // Then the fetch fails at once, with no prompt
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let note = outcomes[0].note.clone().unwrap_or_default();
+    assert!(note.starts_with("failed: git fetch failed"), "{note}");
+    assert!(outcomes[0].report.is_none());
+    assert!(elapsed < std::time::Duration::from_secs(20), "{elapsed:?}");
+    assert!(server.seen().iter().all(|s| s.user.is_none()));
+    println!("no token: {note} ({elapsed:?})");
+
+    // When a member of the owner team sets the token
+    let status = w
+        .bob
+        .set_repository_credential(
+            "payments-api",
+            &kairos_client::types_auth::Secret::new(TOKEN),
+        )
+        .await
+        .expect("the token is set");
+    assert!(status.set);
+
+    // Then the builder fetches with it, and indexes B
+    let outcomes = w.sweep().await;
+    let built: Vec<_> = outcomes.iter().filter(|o| o.report.is_some()).collect();
+    assert_eq!(built.len(), 1, "{outcomes:?}");
+    assert_eq!(built[0].commit, b);
+    println!("with the token: built {}", built[0].commit);
+
+    // And git sent the token in the Authorization header, with the user
+    // x-access-token, and never in a URL
+    let seen = server.seen();
+    assert!(
+        seen.iter().any(|s| s.user.as_deref() == Some(TOKEN_USER)),
+        "{seen:?}"
+    );
+    assert!(seen.iter().all(|s| !s.uri.contains(TOKEN)), "{seen:?}");
+    // And no file of the clones (the config of the clone included) has it
+    assert!(!any_file_contains(&w._work.path().join("clones"), TOKEN));
+
+    // When the token is removed, and C is pushed
+    w.bob
+        .remove_repository_credential("payments-api")
+        .await
+        .expect("the token is removed");
+    commit_c(&w.git);
+    let before = server.seen().len();
+    let outcomes = w.sweep().await;
+
+    // Then the next fetch has no token
+    let note = outcomes[0].note.clone().unwrap_or_default();
+    assert!(note.starts_with("failed: git fetch failed"), "{note}");
+    assert!(server.seen()[before..].iter().all(|s| s.user.is_none()));
+    assert!(!note.contains(TOKEN));
 }

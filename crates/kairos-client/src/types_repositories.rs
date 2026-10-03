@@ -159,6 +159,10 @@ pub struct Repository {
     pub open_tasks: i64,
     /// Whether a live webhook connection exists for it.
     pub has_webhook: bool,
+    /// The status of the read token of the repository (COLLIERY-T-3105).
+    /// It never has the token.
+    #[serde(default)]
+    pub credential: RepositoryCredential,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -250,4 +254,115 @@ pub struct UpdateRepositoryRequest {
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+/// The status of the read token of a repository (COLLIERY-T-3105): what
+/// `GET /api/repositories/{slug}/credential` gives, and what each
+/// [`Repository`] carries. Kairos keeps the token encrypted, and no read
+/// gives it back.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct RepositoryCredential {
+    /// Whether the repository has a read token.
+    pub set: bool,
+    /// The user who set the token (UUID).
+    #[serde(default)]
+    pub set_by: Option<String>,
+    /// The name of that user, else the email.
+    #[serde(default)]
+    pub set_by_name: Option<String>,
+    /// When the token was set, RFC 3339.
+    #[serde(default)]
+    pub set_at: Option<String>,
+    /// When the last access check ran, RFC 3339. Null until a check runs
+    /// for this token.
+    #[serde(default)]
+    pub last_checked_at: Option<String>,
+    /// Whether git could read the repository with the token at the last
+    /// check.
+    #[serde(default)]
+    pub last_check_ok: Option<bool>,
+    /// The error of git at the last check, with the token removed.
+    #[serde(default)]
+    pub last_check_error: Option<String>,
+}
+
+impl RepositoryCredential {
+    /// One line about the token, for the CLI and the MCP tools: `not set`,
+    /// or who set it, when, and the result of the last check.
+    pub fn summary(&self) -> String {
+        if !self.set {
+            return "not set".to_string();
+        }
+        let by = self
+            .set_by_name
+            .as_deref()
+            .or(self.set_by.as_deref())
+            .unwrap_or("-");
+        let at = self.set_at.as_deref().unwrap_or("-");
+        let check = match (self.last_check_ok, self.last_checked_at.as_deref()) {
+            (Some(true), Some(when)) => format!("; the last check at {when} passed"),
+            (Some(false), Some(when)) => format!(
+                "; the last check at {when} failed: {}",
+                self.last_check_error.as_deref().unwrap_or("-")
+            ),
+            _ => "; not checked".to_string(),
+        };
+        format!("set by {by} at {at}{check}")
+    }
+}
+
+/// Body of `PUT /api/repositories/{slug}/credential` (COLLIERY-T-3105):
+/// the read token of the repository. Use a GitHub fine-grained personal
+/// access token with only "Contents: read" on the one repository.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetRepositoryCredentialRequest {
+    /// The token. Kairos encrypts it, and no read gives it back.
+    #[schema(value_type = String, format = Password)]
+    pub token: crate::types_auth::Secret,
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+
+    #[test]
+    fn the_summary_says_who_set_the_token_and_the_last_check() {
+        assert_eq!(RepositoryCredential::default().summary(), "not set");
+        let status = RepositoryCredential {
+            set: true,
+            set_by: Some("u-1".into()),
+            set_by_name: Some("Ada".into()),
+            set_at: Some("2026-10-03T00:00:00+00:00".into()),
+            last_checked_at: Some("2026-10-03T01:00:00+00:00".into()),
+            last_check_ok: Some(false),
+            last_check_error: Some("git ls-remote failed".into()),
+        };
+        assert_eq!(
+            status.summary(),
+            "set by Ada at 2026-10-03T00:00:00+00:00; the last check at \
+             2026-10-03T01:00:00+00:00 failed: git ls-remote failed"
+        );
+        let unchecked = RepositoryCredential {
+            last_checked_at: None,
+            last_check_ok: None,
+            set_by_name: None,
+            ..status
+        };
+        assert_eq!(
+            unchecked.summary(),
+            "set by u-1 at 2026-10-03T00:00:00+00:00; not checked"
+        );
+    }
+
+    #[test]
+    fn the_request_refuses_an_unknown_field_and_hides_the_token() {
+        let err =
+            serde_json::from_str::<SetRepositoryCredentialRequest>(r#"{"token":"t","user":"x"}"#)
+                .unwrap_err();
+        assert!(err.to_string().contains("user"), "{err}");
+        let ok: SetRepositoryCredentialRequest =
+            serde_json::from_str(r#"{"token":"ghp_x"}"#).unwrap();
+        assert!(!format!("{ok:?}").contains("ghp_x"));
+    }
 }

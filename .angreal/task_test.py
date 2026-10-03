@@ -454,6 +454,9 @@ def _gui_server_env(env, extra=None):
         # (without these the connection endpoints answer 501).
         "KAIROS_PUBLIC_URL": E2E_GUI_BASE_URL,
         "KAIROS_WEBHOOK_SIGNING_KEY": "e2e-webhook-signing-key",
+        # COLLIERY-T-3105: the admin Repositories page sets the read token of a
+        # repository, which needs a key (32 bytes in base64; a test value).
+        "KAIROS_SECRETS_KEY": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
         # KAIROS-T-0193: retrieval is a tested surface, so the test server runs
         # the real local model rather than degrading to lexical. Without the
         # cache the provider declines to start (by design — an image is built

@@ -19,6 +19,7 @@ pub mod blocking;
 pub mod body;
 pub mod code_index;
 pub mod config;
+pub mod credentials;
 pub mod embedding;
 pub mod error;
 pub mod forge;
@@ -28,6 +29,7 @@ pub mod login;
 pub mod metrics;
 pub mod middleware;
 pub mod rate_limit;
+pub mod secrets;
 pub mod ws;
 
 pub mod mcp;

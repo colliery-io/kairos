@@ -31,6 +31,8 @@
 //      (forge webhook against a freshly connected repo)
 //   6. the admin Repositories page registers a repo and connects its
 //      webhook, showing the secret once
+//   7. the admin Repositories page sets the read token of a repository in a
+//      password field, shows who set it, and removes it (COLLIERY-T-3105)
 //
 // Conventions match the other specs: visible-text/role selectors plus the
 // stable `.kairos-*`/`.cl-*` classes and data-testid hooks, in-app
@@ -511,5 +513,38 @@ test('repositories: team panel → board lens → cross-team filing → any repo
     await secret.getByRole('button', { name: 'I have copied them' }).click();
     await expect(secret).toHaveCount(0);
     await expect(page.locator(`[data-repo="${notifier}"]`).first()).toContainText('webhooks');
+  });
+
+  // 7. Admin page: the read token of a repository (COLLIERY-T-3105) -----------
+  await test.step('admin sets and removes the read token of a repository', async () => {
+    const notifier = `notifier-${RUN}`;
+    const row = () => page.locator(`[data-repo="${notifier}"]`).first();
+    await expect(row().locator('[data-testid="credential-status"]')).toHaveText(
+      'Read token: not set.',
+    );
+    await row().getByRole('button', { name: 'Edit' }).click();
+    const form = row().locator('[data-testid="credential-form"]');
+    const input = form.locator('input');
+    // A password field, and the page never fills it.
+    await expect(input).toHaveAttribute('type', 'password');
+    await expect(input).toHaveValue('');
+    const token = `github_pat_e2e_${RUN}`;
+    await input.fill(token);
+    await form.getByRole('button', { name: 'Set token' }).click();
+    await expect(page.getByText(`Kairos keeps the read token of "${notifier}".`)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(row().locator('[data-testid="credential-status"]')).toContainText(
+      'Read token: set by',
+    );
+    // No part of the page has the token.
+    expect(await page.content()).not.toContain(token);
+    await row().getByRole('button', { name: 'Edit' }).click();
+    await expect(row().locator('[data-testid="credential-form"] input')).toHaveValue('');
+    await row().getByRole('button', { name: 'Remove token' }).click();
+    await expect(row().locator('[data-testid="credential-status"]')).toHaveText(
+      'Read token: not set.',
+      { timeout: 10_000 },
+    );
   });
 });

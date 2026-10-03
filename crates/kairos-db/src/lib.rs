@@ -23,6 +23,7 @@ pub mod models;
 pub mod pool;
 pub mod proposals;
 pub mod repositories;
+pub mod repository_credentials;
 pub mod retention;
 pub mod schema;
 pub mod scim;

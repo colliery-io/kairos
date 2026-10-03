@@ -388,6 +388,15 @@ pub async fn patch_json_refusal<B: Serialize, T: DeserializeOwned>(
     write_json_refusal(auth, gloo_net::http::Request::patch(path), path, body).await
 }
 
+/// [`put_json`], with the field of a refusal.
+pub async fn put_json_refusal<B: Serialize, T: DeserializeOwned>(
+    auth: Auth,
+    path: &str,
+    body: &B,
+) -> Result<T, Refusal> {
+    write_json_refusal(auth, gloo_net::http::Request::put(path), path, body).await
+}
+
 /// mirror of: `kairos_client::types::ErrorEnvelope` (S-0005).
 #[derive(Debug, Deserialize)]
 struct ErrorEnvelope {

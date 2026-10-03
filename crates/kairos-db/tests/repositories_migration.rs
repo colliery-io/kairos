@@ -30,6 +30,13 @@ const DOWN_SQL: &str = include_str!("../migrations/tenant/2026-09-22-000000_repo
 /// "the newest one" stopped being this one as soon as a later tenant
 /// migration landed (KAIROS-T-0161's was the first to prove it).
 const REPOSITORIES_VERSION: &str = "20260922000000";
+/// A later migration whose table has a foreign key to `repositories`
+/// (COLLIERY-T-3105). A real migration down to before `repositories` reverts
+/// it first, so this test does the same, and `migrate_all_tenants` applies
+/// it again after `repositories`.
+const CREDENTIALS_DOWN_SQL: &str =
+    include_str!("../migrations/tenant/2026-10-03-000001_repository_credentials/down.sql");
+const CREDENTIALS_VERSION: &str = "20261003000001";
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())
@@ -75,6 +82,12 @@ fn revert_repositories_migration(conn: &mut PgConnection) {
     sql_query("SET search_path TO org_acme, public")
         .execute(conn)
         .expect("pinning search_path");
+    conn.batch_execute(CREDENTIALS_DOWN_SQL)
+        .expect("running the down.sql of repository_credentials");
+    sql_query("DELETE FROM org_acme.__diesel_schema_migrations WHERE version = $1")
+        .bind::<Text, _>(CREDENTIALS_VERSION)
+        .execute(conn)
+        .expect("forgetting the repository_credentials migration");
     conn.batch_execute(DOWN_SQL).expect("running down.sql");
     let forgotten = sql_query("DELETE FROM org_acme.__diesel_schema_migrations WHERE version = $1")
         .bind::<Text, _>(REPOSITORIES_VERSION)
@@ -220,8 +233,8 @@ fn repositories_migration_on_populated_tables() {
     assert_eq!(outcomes.len(), 1);
     assert_eq!(
         outcomes[0].applied.len(),
-        1,
-        "exactly the repositories migration"
+        2,
+        "exactly the repositories migration, and repository_credentials after it"
     );
 
     let mut slugs = texts(
@@ -317,7 +330,8 @@ fn repositories_migration_on_populated_tables() {
 
     // ---- 4. up re-applies cleanly (re-runnability) -------------------------
     let outcomes = migrate_all_tenants(&mut conn).expect("re-applying up after down");
-    assert_eq!(outcomes[0].applied.len(), 1);
+    // The repositories migration, and repository_credentials after it.
+    assert_eq!(outcomes[0].applied.len(), 2);
     assert_eq!(
         count(
             &mut conn,

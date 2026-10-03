@@ -372,6 +372,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    repository_credentials (repository_id) {
+        repository_id -> Uuid,
+        ciphertext -> Bytea,
+        nonce -> Bytea,
+        key_id -> Text,
+        set_by -> Uuid,
+        set_at -> Timestamptz,
+        last_checked_at -> Nullable<Timestamptz>,
+        last_check_ok -> Nullable<Bool>,
+        last_check_error -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     scim_tokens (id) {
         id -> Uuid,
         name -> Text,
@@ -537,6 +551,7 @@ diesel::joinable!(item_metadata -> metadata_definitions (metadata_definition_id)
 diesel::joinable!(metadata_definition_scopes -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(metadata_enum_options -> metadata_definitions (metadata_definition_id));
 diesel::joinable!(repositories -> teams (team_id));
+diesel::joinable!(repository_credentials -> repositories (repository_id));
 diesel::joinable!(strategies -> board_columns (column_id));
 diesel::joinable!(strategies -> boards (board_id));
 diesel::joinable!(tasks -> board_columns (column_id));
@@ -579,6 +594,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     metadata_definitions,
     metadata_enum_options,
     repositories,
+    repository_credentials,
     scim_tokens,
     short_code_sequences,
     strategies,

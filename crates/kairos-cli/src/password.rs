@@ -38,6 +38,21 @@ pub fn read(email: &str) -> Result<Secret, CliError> {
     )
 }
 
+/// Read a secret that is not a password (the read token of a repository,
+/// COLLIERY-T-3105) from the terminal or from standard input, by the same
+/// rules as [`read`]. `noun` names the secret in the texts.
+pub fn read_secret(prompt: &str, noun: &str) -> Result<Secret, CliError> {
+    let stdin = std::io::stdin();
+    let is_terminal = stdin.is_terminal();
+    read_named(
+        is_terminal,
+        prompt,
+        noun,
+        |prompt| rpassword::prompt_password(prompt),
+        &mut stdin.lock(),
+    )
+}
+
 /// [`read`], with its two sources as parameters.
 ///
 /// `prompt_hidden` asks on the terminal with the echo off. `piped` is
@@ -52,18 +67,32 @@ pub fn read_from<P>(
 where
     P: FnOnce(&str) -> std::io::Result<String>,
 {
+    read_named(is_terminal, prompt, "password", prompt_hidden, piped)
+}
+
+/// [`read_from`] for the secret that `noun` names.
+pub fn read_named<P>(
+    is_terminal: bool,
+    prompt: &str,
+    noun: &str,
+    prompt_hidden: P,
+    piped: &mut dyn BufRead,
+) -> Result<Secret, CliError>
+where
+    P: FnOnce(&str) -> std::io::Result<String>,
+{
     let password = if is_terminal {
         prompt_hidden(prompt).map_err(|err| {
             CliError::Failure(format!(
-                "The CLI cannot read the password from the terminal: {err}.\n\
-                 Run the command in a terminal, or send the password on standard input."
+                "The CLI cannot read the {noun} from the terminal: {err}.\n\
+                 Run the command in a terminal, or send the {noun} on standard input."
             ))
         })?
     } else {
         let mut line = String::new();
         piped.read_line(&mut line).map_err(|err| {
             CliError::Failure(format!(
-                "The CLI cannot read the password from standard input: {err}."
+                "The CLI cannot read the {noun} from standard input: {err}."
             ))
         })?;
         line
@@ -75,11 +104,10 @@ where
         .map(|rest| rest.strip_suffix('\r').unwrap_or(rest))
         .unwrap_or(&password);
     if password.is_empty() {
-        return Err(CliError::Failure(
-            "The command got no password.\n\
-             Type the password at the prompt, or send it on standard input."
-                .to_string(),
-        ));
+        return Err(CliError::Failure(format!(
+            "The command got no {noun}.\n\
+             Type the {noun} at the prompt, or send it on standard input."
+        )));
     }
     Ok(Secret::new(password))
 }
@@ -180,6 +208,27 @@ mod tests {
         .expect_err("no terminal");
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         assert!(err.to_string().contains("standard input"), "{err}");
+    }
+
+    /// COLLIERY-T-3105: the read token of a repository comes the same way,
+    /// and the texts name the token.
+    #[test]
+    fn a_token_is_read_like_a_password() {
+        let token = read_named(
+            false,
+            "Token: ",
+            "token",
+            no_terminal,
+            &mut Cursor::new("github_pat_x\n"),
+        )
+        .expect("token");
+        assert_eq!(token.expose(), "github_pat_x");
+        let err = read_named(false, "Token: ", "token", no_terminal, &mut Cursor::new(""))
+            .expect_err("empty");
+        assert!(
+            err.to_string().contains("The command got no token"),
+            "{err}"
+        );
     }
 
     /// The value that comes back does not print itself.

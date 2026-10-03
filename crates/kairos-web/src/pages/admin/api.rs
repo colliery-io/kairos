@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 
 pub use crate::api::Refusal;
 use crate::api::{
-    delete_json, get_json, patch_json, patch_json_refusal, post_json, post_json_refusal,
+    delete_json, get_json, patch_json, patch_json_refusal, post_empty, post_json,
+    post_json_refusal, put_json_refusal,
 };
 use crate::auth::Auth;
 
@@ -782,6 +783,45 @@ pub async fn connect_webhook(
         auth,
         "/api/forge-connections",
         &json!({ "repository": repository }),
+    )
+    .await
+}
+
+pub use crate::pages::repositories::api::RepositoryCredential;
+
+/// `PUT /api/repositories/{slug}/credential` — set or replace the read
+/// token (COLLIERY-T-3105). The response is the status, with no token. A
+/// refusal keeps the field that the server names (`token`).
+pub async fn set_repository_credential(
+    auth: Auth,
+    reference: &str,
+    token: &str,
+) -> Result<RepositoryCredential, Refusal> {
+    put_json_refusal(
+        auth,
+        &format!("/api/repositories/{reference}/credential"),
+        &json!({ "token": token }),
+    )
+    .await
+}
+
+/// `DELETE /api/repositories/{slug}/credential` — remove the read token.
+pub async fn remove_repository_credential(
+    auth: Auth,
+    reference: &str,
+) -> Result<RepositoryCredential, ApiError> {
+    delete_json(auth, &format!("/api/repositories/{reference}/credential")).await
+}
+
+/// `POST /api/repositories/{slug}/credential/check` — test the read token
+/// with `git ls-remote` on the server.
+pub async fn check_repository_credential(
+    auth: Auth,
+    reference: &str,
+) -> Result<RepositoryCredential, ApiError> {
+    post_empty(
+        auth,
+        &format!("/api/repositories/{reference}/credential/check"),
     )
     .await
 }

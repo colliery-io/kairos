@@ -16,8 +16,11 @@
 //!
 //! The nearest indexed commit below a commit, and the tree of a new commit,
 //! come from a bare clone of the repository in `KAIROS_CODE_INDEX_DIR`
-//! ([`git`]). The clone fetches from the `repo_url` of the repository, with
-//! no credential.
+//! ([`git`]). The clone fetches from the `repo_url` of the repository. When
+//! the repository has a read token (COLLIERY-T-3105), the fetch gives it to
+//! git through an askpass helper ([`git`]); [`crate::credentials`] reads and
+//! decrypts it with `KAIROS_SECRETS_KEY`. With no token, the fetch has no
+//! credential, and a remote that asks for one fails at once.
 //!
 //! # The builder
 //!
@@ -49,6 +52,7 @@ use kairos_index::{IndexError, Summarizer, UpdateOptions, UpdateReport};
 
 use crate::blocking::BlockingTenantPool;
 use crate::error::ApiError;
+use crate::secrets::SecretsKey;
 
 /// The most commits that a search for the nearest indexed commit reads
 /// below the given commit.
@@ -72,6 +76,9 @@ pub struct CodeIndexService {
     /// The SCIP options of a build: the tools of [`prepare_tools`], when
     /// they are ready.
     build: OnceLock<kairos_index::BuildOptions>,
+    /// `KAIROS_SECRETS_KEY`, to decrypt the read token of a repository
+    /// (COLLIERY-T-3105).
+    secrets: Option<SecretsKey>,
 }
 
 impl std::fmt::Debug for CodeIndexService {
@@ -92,7 +99,26 @@ impl CodeIndexService {
             locks: Mutex::default(),
             failed: Mutex::default(),
             build: OnceLock::new(),
+            secrets: None,
         }
+    }
+
+    /// Decrypt the read token of each repository with `key`
+    /// (`KAIROS_SECRETS_KEY`, COLLIERY-T-3105). With no key, a repository
+    /// that has a token fails to fetch with a text that names the setting.
+    pub fn with_secrets_key(mut self, key: Option<SecretsKey>) -> Self {
+        self.secrets = key;
+        self
+    }
+
+    /// The key of [`Self::with_secrets_key`].
+    pub fn secrets_key(&self) -> Option<&SecretsKey> {
+        self.secrets.as_ref()
+    }
+
+    /// The URL to fetch `repo` from.
+    pub fn remote_of(&self, repo: &Repository) -> String {
+        (self.remote_of)(repo)
     }
 
     /// The folder of the clones and of the tools.
@@ -136,12 +162,18 @@ impl CodeIndexService {
         Arc::clone(locks.entry(path.to_path_buf()).or_default())
     }
 
-    /// Fetch `repo` into its clone, and give the folder of the clone.
-    pub(crate) fn fetch(&self, tenant: &str, repo: &Repository) -> Result<PathBuf, git::GitError> {
+    /// Fetch `repo` into its clone, with its read token when it has one, and
+    /// give the folder of the clone.
+    pub fn fetch(
+        &self,
+        tenant: &str,
+        repo: &Repository,
+        token: Option<&git::GitToken>,
+    ) -> Result<PathBuf, git::GitError> {
         let path = self.clone_dir(tenant, repo);
         let lock = self.lock(&path);
         let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
-        git::fetch(&path, &(self.remote_of)(repo))?;
+        git::fetch(&path, &(self.remote_of)(repo), token)?;
         Ok(path)
     }
 
@@ -153,10 +185,11 @@ impl CodeIndexService {
         tenant: &str,
         repo: &Repository,
         commit: &str,
+        token: Option<&git::GitToken>,
     ) -> Result<Option<Vec<String>>, git::GitError> {
         let mut path = self.clone_dir(tenant, repo);
         if !git::has_commit(&path, commit) {
-            path = self.fetch(tenant, repo)?;
+            path = self.fetch(tenant, repo, token)?;
             if !git::has_commit(&path, commit) {
                 return Ok(None);
             }
@@ -388,13 +421,35 @@ async fn build_repository(
         outcome
     };
 
+    // The read token of the repository, when it has one (COLLIERY-T-3105).
+    let token = {
+        let key = service.secrets_key().cloned();
+        let tenant_slug = tenant.to_string();
+        let repo_id = repo.id;
+        blocking
+            .run(tenant, move |conn| {
+                Ok(crate::credentials::read_token(
+                    conn,
+                    &tenant_slug,
+                    repo_id,
+                    key.as_ref(),
+                ))
+            })
+            .await
+    };
+    let token = match token {
+        Ok(Ok(token)) => token,
+        Ok(Err(e)) => return done(outcome, format!("failed: {e}")),
+        Err(e) => return done(outcome, format!("failed: {e:?}")),
+    };
+
     // The clone and the head of the default branch.
     let fetched = {
         let service = Arc::clone(service);
         let tenant = tenant.to_string();
         let repo = repo.clone();
         tokio::task::spawn_blocking(move || {
-            let path = service.fetch(&tenant, &repo)?;
+            let path = service.fetch(&tenant, &repo, token.as_ref())?;
             let head = git::branch_head(&path, &repo.default_branch)?;
             let ancestors = match &head {
                 Some(head) => git::ancestors(&path, head, MAX_DISTANCE)?,

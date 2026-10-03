@@ -17,6 +17,11 @@
 //! is about, and it gives no right. `bind` is for a task, and it says
 //! where the code of the task is. `get` lists the documents and the ADRs
 //! that impact the repository.
+//!
+//! `credential set|remove|check` manage the read token that the builder of
+//! the code index gives to git (COLLIERY-T-3105). `set` reads the token from
+//! standard input or from a prompt with no echo, never from an argument.
+//! `get` (alias `show`) prints the status of the token, never the token.
 
 use kairos_client::EntityKind;
 use kairos_client::types_repositories::{
@@ -40,7 +45,9 @@ pub enum ReposCommand {
         common: Common,
     },
     /// Show one repository: owner, the owner's board, how-to-work-here,
-    /// the documents and ADRs that impact it, in-flight PRs
+    /// the status of its read token, the documents and ADRs that impact it,
+    /// in-flight PRs
+    #[command(visible_alias = "show")]
     Get {
         /// Repository slug (or UUID)
         repository: String,
@@ -151,6 +158,95 @@ pub enum ReposCommand {
         #[command(flatten)]
         common: Common,
     },
+    /// Set, remove or check the read token of a repository. The builder of
+    /// the code index gives the token to git to fetch a private repository.
+    /// Kairos keeps the token encrypted, and no command shows it
+    Credential {
+        #[command(subcommand)]
+        command: CredentialCommand,
+    },
+}
+
+/// The read token of a repository (COLLIERY-T-3105). An organization admin
+/// or a member of the owner team uses these commands.
+#[derive(clap::Subcommand, Debug)]
+pub enum CredentialCommand {
+    /// Set or replace the read token. The command reads the token from
+    /// standard input, or asks for it on the terminal. It does not take the
+    /// token as an argument, so the token is not in the shell history. Use
+    /// a GitHub fine-grained token with only "Contents: read" on the one
+    /// repository
+    Set {
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Remove the read token. The next fetch has no credential
+    Remove {
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Test the read token with `git ls-remote` on the server. The command
+    /// fails when git cannot read the repository with the token
+    Check {
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+}
+
+impl CredentialCommand {
+    async fn run(self) -> Result<(), CliError> {
+        match self {
+            Self::Set { repository, common } => {
+                let token = crate::password::read_secret(
+                    &format!("Read token for the repository {repository}: "),
+                    "token",
+                )?;
+                let client = client(&common)?;
+                let status = client
+                    .set_repository_credential(&repository, &token)
+                    .await?;
+                if common.json {
+                    return print_json(&status);
+                }
+                println!(
+                    "Kairos keeps the read token of the repository {repository}, encrypted. \
+                     To test it, run: kairos repos credential check {repository}"
+                );
+                Ok(())
+            }
+            Self::Remove { repository, common } => {
+                let client = client(&common)?;
+                let status = client.remove_repository_credential(&repository).await?;
+                if common.json {
+                    return print_json(&status);
+                }
+                println!("Kairos removed the read token of the repository {repository}.");
+                Ok(())
+            }
+            Self::Check { repository, common } => {
+                let client = client(&common)?;
+                let status = client.check_repository_credential(&repository).await?;
+                if common.json {
+                    print_json(&status)?;
+                } else {
+                    println!("read token: {}", status.summary());
+                }
+                match status.last_check_ok {
+                    Some(true) => Ok(()),
+                    _ => Err(CliError::Failure(format!(
+                        "git cannot read the repository {repository} with the token. Make \
+                         sure that the token can read the repository, and set it again."
+                    ))),
+                }
+            }
+        }
+    }
 }
 
 /// The entity family of a short code, from its type letter
@@ -269,6 +365,7 @@ impl ReposCommand {
                     "webhook:        {}",
                     detail.connection_id.as_deref().unwrap_or("not connected")
                 );
+                println!("read token:     {}", detail.repository.credential.summary());
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");
@@ -465,6 +562,7 @@ impl ReposCommand {
                 );
                 Ok(())
             }
+            Self::Credential { command } => command.run().await,
         }
     }
 }

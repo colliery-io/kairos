@@ -41,7 +41,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 37] = [
+const EXPECTED_TABLES: [&str; 38] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -73,6 +73,8 @@ const EXPECTED_TABLES: [&str; 37] = [
     "metadata_definitions",
     "metadata_enum_options",
     "repositories",
+    // COLLIERY-T-3105: the encrypted read token of a repository.
+    "repository_credentials",
     "scim_tokens",
     // COLLIERY-T-3099: the sequence of each (prefix, type).
     "short_code_sequences",

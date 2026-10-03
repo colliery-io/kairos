@@ -111,7 +111,8 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
 fn code_index_service(config: &AppConfig) -> Option<Arc<crate::code_index::CodeIndexService>> {
     let dir = config.code_index_dir.clone()?;
     Some(Arc::new(
-        crate::code_index::CodeIndexService::from_repo_url(dir),
+        crate::code_index::CodeIndexService::from_repo_url(dir)
+            .with_secrets_key(config.secrets_key.clone()),
     ))
 }
 

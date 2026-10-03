@@ -19,6 +19,11 @@
 //! URL and of the default branch before the user sends them. A refusal of
 //! the server about one of these fields shows next to that field.
 //! COLLIERY-T-0265: the slug has its rule and its refusal too.
+//!
+//! COLLIERY-T-3105: each row shows the status of the read token (who set it,
+//! when, the last check). The editor sets, replaces, checks and removes the
+//! token. The field is a password field; the page never fills it, and it
+//! clears it at each send. No response has the token.
 
 use aurora_dark::components::{
     Anchor, Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select,
@@ -72,6 +77,15 @@ const BRANCH_HINT: &str = "Default branch: a branch name that git accepts, with 
 /// The fields that have a refusal next to them. The slug is one of them
 /// since COLLIERY-T-0265.
 const FORM_FIELDS: [&str; 4] = ["repo_full_name", "repo_url", "default_branch", "slug"];
+
+/// The field of the read token form (COLLIERY-T-3105).
+const TOKEN_FIELDS: [&str; 1] = ["token"];
+
+/// The rule of the read token (COLLIERY-T-3105).
+const TOKEN_HINT: &str = "Read token: the builder of the code index gives it to git to fetch a \
+                          private repository. Use a GitHub fine-grained token with only \
+                          Contents: read on this repository. Kairos keeps it encrypted and \
+                          never shows it again.";
 
 /// `/admin/repositories`.
 #[component]
@@ -305,6 +319,12 @@ fn RepositoryRow(
     let description = repo.description.clone();
     let documents_slug = repo.slug.clone();
     let owner_team = repo.team.id.clone();
+    // COLLIERY-T-3105: the status of the read token, never the token. The
+    // field of the token starts empty and is cleared at each send.
+    let credential_summary = repo.credential.summary();
+    let has_token = repo.credential.set;
+    let token_input = RwSignal::new(String::new());
+    let token_refused: RwSignal<Option<api::Refusal>> = RwSignal::new(None);
 
     let on_save = move |_| {
         let reference = slug.get_value();
@@ -368,6 +388,59 @@ fn RepositoryRow(
             },
         );
     };
+    let on_set_token = move |_| {
+        let reference = slug.get_value();
+        let token = token_input.get_untracked();
+        token_input.set(String::new());
+        run_form_mutation(
+            busy,
+            outcome,
+            reload,
+            token_refused,
+            &TOKEN_FIELDS,
+            format!("Kairos keeps the read token of \"{reference}\"."),
+            async move {
+                api::set_repository_credential(auth, &reference, &token)
+                    .await
+                    .map(|_| ())
+            },
+        );
+    };
+    let on_remove_token = move |_| {
+        let reference = slug.get_value();
+        run_mutation(
+            busy,
+            outcome,
+            reload,
+            format!("Kairos removed the read token of \"{reference}\"."),
+            async move {
+                api::remove_repository_credential(auth, &reference)
+                    .await
+                    .map(|_| ())
+            },
+        );
+    };
+    let on_check_token = move |_| {
+        let reference = slug.get_value();
+        run_mutation(
+            busy,
+            outcome,
+            reload,
+            format!("git can read \"{reference}\" with the read token."),
+            async move {
+                let status = api::check_repository_credential(auth, &reference).await?;
+                if status.last_check_ok == Some(true) {
+                    return Ok(());
+                }
+                // The row shows the failed check too.
+                reload.update(|n| *n += 1);
+                Err(ApiError::Unknown(format!(
+                    "git cannot read \"{reference}\" with the read token: {}",
+                    status.last_check_error.unwrap_or_default()
+                )))
+            },
+        );
+    };
     let on_disconnect = move |_| {
         let reference = slug.get_value();
         run_mutation(
@@ -427,6 +500,9 @@ fn RepositoryRow(
             {(!description.is_empty()).then(|| view! {
                 <Text dimmed=true size="sm">{description}</Text>
             })}
+            <Text dimmed=true size="xs" attr:data-testid="credential-status">
+                {credential_summary}
+            </Text>
             <crate::pages::repositories::documents::RepositoryDocuments
                 slug=documents_slug owner_team/>
             <Show when=move || editing.get()>
@@ -456,6 +532,31 @@ fn RepositoryRow(
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>
+                    <Group gap="sm" wrap=true top=true attr:data-testid="credential-form">
+                        {move || view! {
+                            <TextInput
+                                label=if has_token { "Replace the read token" } else { "Read token" }
+                                value=token_input
+                                input_type="password"
+                                autocomplete="new-password"
+                                spellcheck=false
+                                name="read-token"
+                                error=refusal_for(token_refused, "token")/>
+                        }}
+                        <Button size="xs" on_click=Callback::new(on_set_token)>
+                            {if has_token { "Replace token" } else { "Set token" }}
+                        </Button>
+                        {has_token.then(|| view! {
+                            <Button variant="default" size="xs" on_click=Callback::new(on_check_token)>
+                                "Check token"
+                            </Button>
+                            <Button variant="default" size="xs" bad=true
+                                on_click=Callback::new(on_remove_token)>
+                                "Remove token"
+                            </Button>
+                        })}
+                    </Group>
+                    <Text dimmed=true size="xs">{TOKEN_HINT}</Text>
                 </Stack>
             </Show>
             <Divider/>

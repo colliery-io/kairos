@@ -9,12 +9,15 @@ Take a backup you can actually restore from, and restore from it.
 - Back up exactly two things, and nothing else: **the database** — `public` plus
   every `org_<slug>` schema, in one dump — and **the deployment secrets that live
   outside it**: `DATABASE_URL`, `KAIROS_WEBHOOK_SIGNING_KEY`,
-  `KAIROS_WEB_CLIENT_SECRET`, plus database roles if you manage them in the
-  cluster. There is nothing on the pods to capture: the image is stateless and
+  `KAIROS_SECRETS_KEY`, `KAIROS_WEB_CLIENT_SECRET`, plus database roles if you
+  manage them in the cluster. There is nothing on the pods to capture: the image is stateless and
   the chart mounts no volume.
 - Keep `KAIROS_WEBHOOK_SIGNING_KEY` with the database password. Losing it is not
   data loss but it is an outage — every forge connection has to be rotated and
   re-pasted in the forge.
+- Keep `KAIROS_SECRETS_KEY` with the database password too. The database holds
+  the read tokens of the repositories, encrypted with this key. Without the
+  key, you must set each read token again.
 
 ## 1. Dump the database
 

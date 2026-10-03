@@ -50,6 +50,54 @@ pub struct Repository {
     pub open_tasks: i64,
     #[serde(default)]
     pub has_webhook: bool,
+    /// The status of the read token (COLLIERY-T-3105). Never the token.
+    #[serde(default)]
+    pub credential: RepositoryCredential,
+}
+
+/// mirror of: `kairos_client::types_repositories::RepositoryCredential`:
+/// the status of the read token of a repository (COLLIERY-T-3105). The
+/// server never sends the token.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct RepositoryCredential {
+    #[serde(default)]
+    pub set: bool,
+    #[serde(default)]
+    pub set_by_name: Option<String>,
+    #[serde(default)]
+    pub set_by: Option<String>,
+    #[serde(default)]
+    pub set_at: Option<String>,
+    #[serde(default)]
+    pub last_checked_at: Option<String>,
+    #[serde(default)]
+    pub last_check_ok: Option<bool>,
+    #[serde(default)]
+    pub last_check_error: Option<String>,
+}
+
+impl RepositoryCredential {
+    /// The text of the status on the admin page.
+    pub fn summary(&self) -> String {
+        if !self.set {
+            return "Read token: not set.".to_string();
+        }
+        let by = self
+            .set_by_name
+            .as_deref()
+            .or(self.set_by.as_deref())
+            .unwrap_or("-");
+        let at = self.set_at.as_deref().unwrap_or("-");
+        let check = match (self.last_check_ok, self.last_checked_at.as_deref()) {
+            (Some(true), Some(when)) => format!(" The last check at {when} passed."),
+            (Some(false), Some(when)) => format!(
+                " The last check at {when} failed: {}",
+                self.last_check_error.as_deref().unwrap_or("-")
+            ),
+            _ => " Not checked.".to_string(),
+        };
+        format!("Read token: set by {by} at {at}.{check}")
+    }
 }
 
 /// `GET /api/repositories[?team=]` — the directory, optionally one team's.
@@ -152,6 +200,25 @@ mod tests {
         .expect("defaults fill absent optionals");
         assert_eq!((bare.open_tasks, bare.has_webhook), (0, false));
         assert!(bare.delivery_board_id.is_none());
+        assert!(!bare.credential.set);
+        assert_eq!(bare.credential.summary(), "Read token: not set.");
+
+        // COLLIERY-T-3105: the status of the read token.
+        let with_token: Repository = serde_json::from_value(serde_json::json!({
+            "id": "r-3", "slug": "skadi", "forge": "github",
+            "repo_full_name": "skadi-media/skadi",
+            "repo_url": "https://github.com/skadi-media/skadi",
+            "default_branch": "main",
+            "team": {"id": "t-1", "slug": "platform", "name": "Platform"},
+            "credential": {"set": true, "set_by": "u-1", "set_by_name": "Ada",
+                           "set_at": "2026-10-03T00:00:00+00:00", "last_checked_at": null,
+                           "last_check_ok": null, "last_check_error": null}
+        }))
+        .expect("the credential decodes");
+        assert_eq!(
+            with_token.credential.summary(),
+            "Read token: set by Ada at 2026-10-03T00:00:00+00:00. Not checked."
+        );
 
         let embedded: RepositoryRef =
             serde_json::from_value(serde_json::json!({"id": "r-1", "slug": "payments-api"}))

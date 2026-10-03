@@ -1300,6 +1300,52 @@ impl KairosClient {
         self.delete(&format!("/api/repositories/{reference}")).await
     }
 
+    /// `GET /api/repositories/{slug}/credential` — the status of the read
+    /// token of a repository (COLLIERY-T-3105). It never has the token.
+    pub async fn get_repository_credential(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_repositories::RepositoryCredential, Error> {
+        self.get(&format!("/api/repositories/{reference}/credential"))
+            .await
+    }
+
+    /// `PUT /api/repositories/{slug}/credential` — set or replace the read
+    /// token of a repository (org admin, or a member of the owner team).
+    pub async fn set_repository_credential(
+        &self,
+        reference: &str,
+        token: &crate::types_auth::Secret,
+    ) -> Result<crate::types_repositories::RepositoryCredential, Error> {
+        self.put_ok(
+            &format!("/api/repositories/{reference}/credential"),
+            &crate::types_repositories::SetRepositoryCredentialRequest {
+                token: token.clone(),
+            },
+        )
+        .await
+    }
+
+    /// `DELETE /api/repositories/{slug}/credential` — remove the read
+    /// token of a repository.
+    pub async fn remove_repository_credential(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_repositories::RepositoryCredential, Error> {
+        self.delete(&format!("/api/repositories/{reference}/credential"))
+            .await
+    }
+
+    /// `POST /api/repositories/{slug}/credential/check` — test the read
+    /// token with `git ls-remote`, and keep the result.
+    pub async fn check_repository_credential(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_repositories::RepositoryCredential, Error> {
+        self.post_empty(&format!("/api/repositories/{reference}/credential/check"))
+            .await
+    }
+
     /// `GET /api/repositories/{slug}/code-indexes` — each indexed commit
     /// of a repository (COLLIERY-T-1853).
     pub async fn list_code_indexes(

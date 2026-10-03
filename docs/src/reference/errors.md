@@ -267,6 +267,8 @@ reports a state conflict rather than a malformed request.
 | `WEBHOOK_REJECTED` | 401 | A forge webhook failed signature verification, or named an unknown tenant or connection — one indistinguishable refusal for all of them |
 | `FORGE_NOT_CONFIGURED` | 501 | The operation needs a forge connection the tenant has not set up |
 | `PUBLIC_URL_NOT_CONFIGURED` | 501 | The operation needs a publicly reachable URL the deployment has not been given |
+| `SECRETS_NOT_CONFIGURED` | 501 | The deployment has no `KAIROS_SECRETS_KEY`, so the server cannot keep the read token of a repository. `details.setting` names the setting |
+| `CREDENTIAL_UNREADABLE` | 409 | The stored read token of a repository does not decrypt: the key changed, the key is not set, or the row was changed. Set the token again |
 | `IDP_UNREACHABLE` | 502 | The OIDC issuer could not be reached |
 | `WEB_DIST_MISSING` | 503 | The GUI bundle is absent from the running binary |
 
@@ -301,6 +303,8 @@ The refusals a reader most often arrives here from:
   [The owner of a document](capabilities.md#the-owner-of-a-document)
 - `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
   [Connect a git forge](../how-to/connect-a-git-forge.md)
+- `SECRETS_NOT_CONFIGURED`, `CREDENTIAL_UNREADABLE` →
+  [Read a private repository](../how-to/read-a-private-repository.md)
 
 ## Related reading
 

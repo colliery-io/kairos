@@ -64,6 +64,38 @@ async fn run_cli(config_dir: &std::path::Path, args: &[&str]) -> (i32, String, S
     )
 }
 
+/// [`run_cli`], with `input` on standard input (a pipe, not a terminal).
+async fn run_cli_stdin(
+    config_dir: &std::path::Path,
+    args: &[&str],
+    input: &str,
+) -> (i32, String, String) {
+    use tokio::io::AsyncWriteExt;
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
+        .args(args)
+        .env("KAIROS_CONFIG_DIR", config_dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("running the kairos binary");
+    let mut stdin = child.stdin.take().expect("stdin");
+    stdin
+        .write_all(input.as_bytes())
+        .await
+        .expect("stdin write");
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .expect("the kairos binary runs");
+    (
+        output.status.code().expect("exit code"),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 /// Approve a pending device grant headlessly (T-0036's proven recipe):
 /// submit the user code, then alice's credentials, exactly as a browser
 /// would.
@@ -223,6 +255,8 @@ async fn cli_command_tree_golden_path_live() {
         web_client_secret: None,
         public_url: None,
         webhook_signing_key: None,
+        // COLLIERY-T-3105: `repos credential set` needs a key.
+        secrets_key: Some(kairos_server::secrets::SecretsKey::from_bytes([9u8; 32])),
 
         otel_endpoint: None,
 
@@ -629,6 +663,60 @@ async fn cli_command_tree_golden_path_live() {
     assert_eq!(code, 0, "repos get failed: {stderr}");
     assert!(stdout.contains("cargo test before every PR"), "{stdout}");
     assert!(stdout.contains("How to work here"), "{stdout}");
+    assert!(stdout.contains("read token:     not set"), "{stdout}");
+
+    // --- repos credential (COLLIERY-T-3105) -----------------------------------
+    // The token comes on standard input, never as an argument.
+    const TOKEN: &str = "github_pat_cli_t3105_SECRET";
+    let (code, _stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["repos", "credential", "set", "payments-api", TOKEN],
+    )
+    .await;
+    assert_ne!(code, 0, "the token is not an argument");
+    assert!(stderr.contains("unexpected argument"), "{stderr}");
+    let (code, stdout, stderr) = run_cli_stdin(
+        config_dir.path(),
+        &["repos", "credential", "set", "payments-api"],
+        &format!("{TOKEN}\n"),
+    )
+    .await;
+    assert_eq!(code, 0, "repos credential set failed: {stderr}");
+    println!("credential set: {stdout}");
+    assert!(
+        stdout.contains("Kairos keeps the read token of the repository payments-api"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains(TOKEN) && !stderr.contains(TOKEN));
+    // `show` is `get`: the status, never the token.
+    let (code, stdout, stderr) =
+        run_cli(config_dir.path(), &["repos", "show", "payments-api"]).await;
+    assert_eq!(code, 0, "repos show failed: {stderr}");
+    println!("repos show: {stdout}");
+    assert!(stdout.contains("read token:     set by "), "{stdout}");
+    assert!(stdout.contains("; not checked"), "{stdout}");
+    assert!(!stdout.contains(TOKEN), "{stdout}");
+    let (code, stdout, _) = run_cli(
+        config_dir.path(),
+        &["repos", "get", "payments-api", "--json"],
+    )
+    .await;
+    assert_eq!(code, 0);
+    let detail: serde_json::Value = serde_json::from_str(&stdout).expect("detail JSON");
+    assert_eq!(detail["credential"]["set"], true, "{detail}");
+    assert!(!stdout.contains(TOKEN), "{stdout}");
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["repos", "credential", "remove", "payments-api"],
+    )
+    .await;
+    assert_eq!(code, 0, "repos credential remove failed: {stderr}");
+    assert!(
+        stdout.contains("Kairos removed the read token of the repository payments-api."),
+        "{stdout}"
+    );
+    let (_, stdout, _) = run_cli(config_dir.path(), &["repos", "show", "payments-api"]).await;
+    assert!(stdout.contains("read token:     not set"), "{stdout}");
 
     // COLLIERY-T-0219: a task on the board of a different team links to the
     // repository. That is normal work (COLLIERY-A-0023). `repos get` counts

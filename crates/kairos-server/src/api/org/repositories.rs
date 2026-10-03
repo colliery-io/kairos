@@ -379,6 +379,9 @@ pub(crate) fn render(
         .into_iter()
         .map(|c| (c.repository_id, (c.open_tasks, c.has_webhook)))
         .collect();
+    // COLLIERY-T-3105: the status of the read token, never the token.
+    let credentials =
+        kairos_db::repository_credentials::statuses(conn, &ids).map_err(ApiError::internal)?;
 
     rows.into_iter()
         .map(|repo| {
@@ -402,6 +405,7 @@ pub(crate) fn render(
                 delivery_board_id: board_of.get(&repo.team_id).map(|b| b.to_string()),
                 open_tasks,
                 has_webhook,
+                credential: crate::credentials::status_dto(credentials.get(&repo.id)),
                 created_at: repo.created_at.to_rfc3339(),
                 updated_at: repo.updated_at.to_rfc3339(),
             })

@@ -715,6 +715,8 @@ kairos repos list [OPTIONS]
 kairos repos get <REPOSITORY> [OPTIONS]
 ```
 
+`kairos repos show` is the same command.
+
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<REPOSITORY>` | slug or UUID | required | The repository. |
@@ -726,7 +728,10 @@ columns. `OWNER_BOARD` is the delivery board of the owning team. `OPEN` is the
 count of open tasks that link to the repository, on all boards.
 
 After the row, the command prints the URL, the default branch and the webhook
-connection. Then it prints three sections:
+connection. It also prints the status of the read token (`read token:`). The
+status is
+`not set`, or who set the token, when, and the result of the last check. The
+command never prints the token. Then it prints three sections:
 
 - the how-to-work-here description
 - the documents and the ADRs that impact the repository
@@ -876,6 +881,52 @@ Kairos removed the link: ACME-D-0004 does not impact the repository fidius.
 ```
 
 The server gives 404 `NOT_FOUND` for a link that is not there.
+
+### `kairos repos credential set`
+
+```
+kairos repos credential set <REPOSITORY> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<REPOSITORY>` | slug or UUID | required | The repository. |
+
+Sets or replaces the read token of the repository. The builder of the code
+index gives the token to git to fetch a private repository. You must be an
+organization admin or a member of the owner team.
+
+The command reads the token from standard input. When standard input is a
+terminal, the command asks for the token and does not show it. The command
+has no argument for the token, so the token is not in the shell history:
+
+```sh
+printf '%s' "$TOKEN" | kairos repos credential set skadi
+```
+
+Use a GitHub fine-grained personal access token with only the permission
+"Contents: read" on the one repository. The server refuses the token with 501
+`SECRETS_NOT_CONFIGURED` when the deployment has no `KAIROS_SECRETS_KEY`.
+
+### `kairos repos credential remove`
+
+```
+kairos repos credential remove <REPOSITORY> [OPTIONS]
+```
+
+Removes the read token. The next fetch has no credential. The server gives 404
+`NOT_FOUND` when the repository has no token.
+
+### `kairos repos credential check`
+
+```
+kairos repos credential check <REPOSITORY> [OPTIONS]
+```
+
+The server runs `git ls-remote` on the URL of the repository with the token,
+and keeps the result. The command prints the status. It fails when git cannot
+read the repository with the token. The error of git does not contain the
+token.
 
 Repositories are the codebases that tasks link to. See
 [Repositories as execution scope](../explanation/repositories-as-execution-scope.md).

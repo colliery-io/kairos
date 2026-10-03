@@ -284,9 +284,20 @@ updates the index after each push to the default branch.
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
 | `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
 
-The clone fetches from the `repo_url` of the repository with no credential, so
-the builder reads public repositories only. The first index of a repository
-comes from an upload (`kairos index build`, then the upload).
+The clone fetches from the `repo_url` of the repository. For a private
+repository, set a read token on the repository (see
+[Read a private repository](../how-to/read-a-private-repository.md)). With no
+token, the clone has no credential, and a fetch that needs one fails at once.
+The first index of a repository comes from an upload (`kairos index build`,
+then the upload).
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `KAIROS_SECRETS_KEY` | 32 bytes in base64 | unset | The key that encrypts the read token of each repository (AES-256-GCM). Make it with `openssl rand -base64 32`. When it is not set, the server refuses a token with 501 `SECRETS_NOT_CONFIGURED`, and the builder reads public repositories only. A value that is not 32 bytes of base64 stops the start of the server. Keep the key outside the database, with the database password. |
+
+When you change `KAIROS_SECRETS_KEY`, the stored tokens do not decrypt. Each
+fetch of such a repository then fails with the error "Set the token again".
+After a change of the key, set each token again.
 
 #### The tools of the builder
 

@@ -372,6 +372,14 @@ pub fn soft_delete(conn: &mut PgConnection, id: Uuid, actor: Uuid) -> Result<(),
                 dsl::updated_at.eq(Utc::now()),
             ))
             .execute(conn)?;
+        // COLLIERY-T-3105: a removed repository keeps no read token. The
+        // foreign key cascades only on a delete of the row, and this delete
+        // only sets `deleted_at`.
+        diesel::delete(
+            crate::schema::repository_credentials::table
+                .filter(crate::schema::repository_credentials::repository_id.eq(id)),
+        )
+        .execute(conn)?;
         log_activity(
             conn,
             actor,

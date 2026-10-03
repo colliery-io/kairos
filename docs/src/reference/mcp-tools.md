@@ -127,6 +127,9 @@ One repository in full. The output has these parts:
 - `owner's delivery board`: the delivery board of that team
 - `open tasks (all boards)`: the open task count
 - `webhooks`: `connected` or `not connected`
+- `read token`: `not set`, or who set the read token of the builder of the
+  code index, when, and the result of the last check. No tool gives or sets
+  the token.
 - the team's description of how to work in the repository
 - the documents and the ADRs that impact the repository
 - the in-flight branches and pull requests, each with its work item

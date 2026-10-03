@@ -201,6 +201,7 @@ async fn cli_login_whoami_refresh_logout_live() {
         web_client_secret: None,
         public_url: None,
         webhook_signing_key: None,
+        secrets_key: None,
 
         otel_endpoint: None,
 

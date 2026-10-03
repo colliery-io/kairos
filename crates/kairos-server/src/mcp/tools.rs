@@ -665,7 +665,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "One repository in full: owner team, the delivery board of that team, the open task count on all boards, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), the documents and the ADRs that impact the repository (its vision, its architecture, the decisions about it: read them with `get_item` before you plan work in the repository), and its in-flight branches and pull requests with the work items they belong to. `repository` is a slug or UUID. `include_deleted: true` adds the archived documents and ADRs, each marked [archived]."
+        description = "One repository in full: owner team, the delivery board of that team, the open task count on all boards, default branch, the team's `description` of how to work in it (READ THIS before working in or filing against an unfamiliar repo), the documents and the ADRs that impact the repository (its vision, its architecture, the decisions about it: read them with `get_item` before you plan work in the repository), and its in-flight branches and pull requests with the work items they belong to. The line `read token` says whether the builder of the code index has a token for the repository, who set it and the last check; no tool gives or sets the token. `repository` is a slug or UUID. `include_deleted: true` adds the archived documents and ADRs, each marked [archived]."
     )]
     pub async fn get_repository(
         &self,
@@ -699,7 +699,7 @@ impl KairosMcp {
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
                     .map_err(ApiError::internal)?;
             let mut out = format!(
-                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n",
+                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n- read token: {}\n",
                 rendered.slug,
                 rendered.forge,
                 rendered.repo_full_name,
@@ -710,6 +710,9 @@ impl KairosMcp {
                 delivery_board,
                 rendered.open_tasks,
                 if rendered.has_webhook { "connected" } else { "not connected" },
+                // COLLIERY-T-3105: the status only. No tool sets or gives
+                // the token.
+                rendered.credential.summary(),
             );
             // No line about "stale" tasks (COLLIERY-T-0219). It counted the
             // linked tasks on a board of a team that does not own the

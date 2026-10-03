@@ -186,6 +186,9 @@ pub fn code_prefix_for(
 /// A pair with no row gets a row that starts after the highest number of
 /// the existing codes of the pair.
 ///
+/// A retired code is never issued again (COLLIERY-T-3100): the sequence
+/// moves past it to the next number.
+///
 /// Call it in the transaction of the create: the row stays locked until
 /// that transaction ends.
 pub fn next_short_code(
@@ -195,18 +198,24 @@ pub fn next_short_code(
 ) -> Result<String, ItemError> {
     let prefix = code_prefix_for(conn, board_id)?;
     ensure_code_sequence(conn, &prefix, item_type)?;
-    let seq: SeqValue = sql_query(
-        "UPDATE short_code_sequences SET last_number = last_number + 1 \
-          WHERE code_prefix = $1 AND item_type = $2 RETURNING last_number AS value",
-    )
-    .bind::<Text, _>(&prefix)
-    .bind::<Text, _>(item_type.letter().to_string())
-    .get_result(conn)?;
-    Ok(short_code::format_short_code(&prefix, item_type, seq.value))
+    loop {
+        let seq: SeqValue = sql_query(
+            "UPDATE short_code_sequences SET last_number = last_number + 1 \
+              WHERE code_prefix = $1 AND item_type = $2 RETURNING last_number AS value",
+        )
+        .bind::<Text, _>(&prefix)
+        .bind::<Text, _>(item_type.letter().to_string())
+        .get_result(conn)?;
+        let code = short_code::format_short_code(&prefix, item_type, seq.value);
+        if !crate::retired_codes::is_retired(conn, &code)? {
+            return Ok(code);
+        }
+    }
 }
 
-/// The highest number of the existing codes `{prefix}-{letter}-{N}` of the
-/// table of `item_type`, live or deleted. 0 when there is none.
+/// The highest number of the codes `{prefix}-{letter}-{N}`: the codes of
+/// the table of `item_type`, live or deleted, and the retired codes
+/// (COLLIERY-T-3100). 0 when there is none.
 fn highest_code_number(
     conn: &mut PgConnection,
     prefix: &str,
@@ -222,7 +231,8 @@ fn highest_code_number(
     let pattern = format!("{prefix}-{}-", item_type.letter());
     let row: SeqValue = sql_query(format!(
         "SELECT COALESCE(max(substring(short_code FROM length($1) + 1)::bigint), 0) AS value \
-           FROM {table} \
+           FROM (SELECT short_code FROM {table} \
+                 UNION ALL SELECT code FROM retired_codes) AS codes \
           WHERE left(short_code, length($1)) = $1 \
             AND substring(short_code FROM length($1) + 1) ~ '^[0-9]{{1,18}}$'"
     ))

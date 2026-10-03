@@ -37,6 +37,11 @@
 //!    `idx_*_tsv` GIN indexes stopped being partial in the same change,
 //!    because a partial index cannot serve a query that declines its
 //!    predicate.
+//!
+//!    A `q` that is a short code (any case) also matches the item with that
+//!    code, and the item of that code when it is retired (COLLIERY-T-3100):
+//!    the result has the item with its current code. That item ranks first.
+//!    The root of a traverse follows a retired code the same way.
 //! 3. **Metadata filter** (if present): one pre-pass query over
 //!    `item_metadata`/`metadata_definitions` (pairs unnested server-side)
 //!    returning ids that satisfy EVERY entry; values use the T-0011 LIKE
@@ -191,6 +196,9 @@ pub fn execute_search_with_stats(
     let mut relevance: HashMap<Uuid, f32> = HashMap::new();
     if let Some(q) = &request.q {
         relevance = text_match_ids(conn, q, include_deleted, &mut stats)?;
+        for id in code_match_ids(conn, q, include_deleted, &mut stats)? {
+            relevance.insert(id, CODE_MATCH_SCORE);
+        }
         intersect(&mut candidates, relevance.keys().copied().collect());
     }
     if let Some(metadata) = filter
@@ -310,8 +318,11 @@ fn resolve_root(
     };
     stats.total_queries += 1;
     let row: Option<IdRow> = match (&from.short_code, from.id) {
+        // COLLIERY-T-3100: a retired code names the item that had it.
         (Some(short_code), None) => sql_query(format!(
-            "SELECT id FROM entity_directory WHERE short_code = $1{live_only}"
+            "SELECT id FROM entity_directory \
+              WHERE (short_code = $1 \
+                     OR id = (SELECT item_id FROM retired_codes WHERE code = $1)){live_only}"
         ))
         .bind::<Text, _>(short_code)
         .get_result(conn)
@@ -422,6 +433,39 @@ fn text_match_ids(
     .bind::<Text, _>(q)
     .load(conn)?;
     Ok(rows.into_iter().map(|r| (r.id, r.score)).collect())
+}
+
+/// The relevance of the item whose code (current or retired) is the query.
+/// `ts_rank_cd` gives much less than this, so that item ranks first.
+const CODE_MATCH_SCORE: f32 = 1.0e6;
+
+/// The item whose short code is `q`, or whose retired code is `q`
+/// (COLLIERY-T-3100, module docs step 2). Empty, with no query, when `q`
+/// is not a short code. Live-only unless `include_deleted`.
+fn code_match_ids(
+    conn: &mut PgConnection,
+    q: &str,
+    include_deleted: bool,
+    stats: &mut SearchStats,
+) -> Result<Vec<Uuid>, SearchError> {
+    let code = q.trim().to_ascii_uppercase();
+    if kairos_core::short_code::parse_short_code(&code).is_none() {
+        return Ok(Vec::new());
+    }
+    let live_only = if include_deleted {
+        ""
+    } else {
+        " AND d.deleted_at IS NULL"
+    };
+    stats.total_queries += 1;
+    let rows: Vec<IdRow> = sql_query(format!(
+        "SELECT d.id FROM entity_directory d \
+          WHERE (d.short_code = $1 \
+                 OR d.id = (SELECT item_id FROM retired_codes WHERE code = $1)){live_only}"
+    ))
+    .bind::<Text, _>(code)
+    .load(conn)?;
+    Ok(rows.into_iter().map(|r| r.id).collect())
 }
 
 /// Ids satisfying EVERY metadata entry (module docs, step 3): one query,

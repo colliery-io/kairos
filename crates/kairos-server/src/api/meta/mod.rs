@@ -142,9 +142,22 @@ pub fn resolve_family_item(
              initiatives, tasks, documents, adrs."
         ))
     })?;
-    resolve_short_code(conn, short_code, liveness)?
-        .filter(|(_, resolved)| *resolved == item_type)
-        .ok_or_else(|| short_code_not_found(item_type.entity_type(), short_code))
+    let found = resolve_short_code(conn, short_code, liveness)?
+        .filter(|(_, resolved)| *resolved == item_type);
+    // COLLIERY-T-3100: a read follows a retired code; a write is refused.
+    // A rename keeps the type letter, so the family stays the same.
+    crate::api::found_or_follow_retired(
+        conn,
+        found,
+        item_type.entity_type(),
+        short_code,
+        liveness,
+        |conn, current, liveness| {
+            resolve_short_code(conn, current, liveness)?
+                .filter(|(_, resolved)| *resolved == item_type)
+                .ok_or_else(|| short_code_not_found(item_type.entity_type(), current))
+        },
+    )
 }
 
 /// A metadata definition's option values, in display order (empty for

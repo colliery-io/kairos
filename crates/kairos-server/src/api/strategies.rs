@@ -16,7 +16,7 @@ use serde_json::json;
 use super::convert::IntoDto;
 use super::{
     Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, parse_opt_uuid,
-    parse_uuid, require_capability, require_item_edit, short_code_not_found,
+    parse_uuid, require_capability, require_item_edit,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -59,12 +59,13 @@ fn load(
     if liveness == Liveness::LiveOnly {
         query = query.filter(dsl::deleted_at.is_null());
     }
-    query
+    let found = query
         .select(Strategy::as_select())
         .first(conn)
         .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| short_code_not_found("strategy", short_code))
+        .map_err(ApiError::internal)?;
+    // COLLIERY-T-3100: a read follows a retired code; a write is refused.
+    super::found_or_follow_retired(conn, found, "strategy", short_code, liveness, load)
 }
 
 /// List strategies (open tenant-wide, S-0005 list envelope).

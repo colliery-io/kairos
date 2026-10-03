@@ -1005,7 +1005,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An `impacts` link says what the item is about, and it gives no right."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code."
     )]
     pub async fn get_item(
         &self,
@@ -1017,6 +1017,15 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::IncludeArchived)?;
 
             let mut out = format!("# {} — {}\n", item.short_code, item.title);
+            // COLLIERY-T-3100: the code that was asked for is retired. Say
+            // so first, so that the agent uses the current code from now on.
+            if item.short_code != params.short_code {
+                out.push_str(&format!(
+                    "\n> **RETIRED CODE** The code {} is retired. The current code of \
+                     this item is {}. Use the current code.\n",
+                    params.short_code, item.short_code
+                ));
+            }
             // Before anything else: an agent that cannot tell retired work
             // from live work will try to act on it and be refused by every
             // write path, with no idea why (KAIROS-A-0020).
@@ -1064,6 +1073,12 @@ impl KairosMcp {
                 "- updated: {}\n",
                 item.updated_at.format("%Y-%m-%dT%H:%M:%SZ")
             ));
+            // COLLIERY-T-3100: the codes that the item had before.
+            let earlier = kairos_db::retired_codes::codes_of_item(conn, item.id)
+                .map_err(ApiError::internal)?;
+            if !earlier.is_empty() {
+                out.push_str(&format!("- retired codes: {}\n", earlier.join(", ")));
+            }
             if let Some(hypothesis) = &item.hypothesis {
                 out.push_str(&format!("- hypothesis: {hypothesis}\n"));
             }
@@ -1334,7 +1349,20 @@ impl KairosMcp {
                 .filter_map(|t| t.repository_id)
                 .collect();
             let repo_slugs = repo_slug_map(conn, &repo_ids)?;
-            Ok(render_search_results(&results, &repo_slugs))
+            let mut out = String::new();
+            // COLLIERY-T-3100: a query that is a retired code finds the
+            // item; say which code is current.
+            if let Some(q) = request.q.as_deref() {
+                let code = q.trim().to_ascii_uppercase();
+                if let Some(current) = crate::api::retired_to_current(conn, &code)? {
+                    out.push_str(&format!(
+                        "> The code {code} is retired. The current code of the item is \
+                         {current}.\n\n"
+                    ));
+                }
+            }
+            out.push_str(&render_search_results(&results, &repo_slugs));
+            Ok(out)
         })
         .await
     }
@@ -2123,7 +2151,16 @@ fn load_item(
             ApiError::not_found(format!("No item has the short code {short_code:?}."))
         }
     };
-    let (id, item_type) = resolve_short_code(conn, short_code, liveness)?.ok_or_else(missing)?;
+    // COLLIERY-T-3100: a read follows a retired code to the item (the view
+    // has the current code); a write is refused, and the refusal names the
+    // current code.
+    let (id, item_type) = match resolve_short_code(conn, short_code, liveness)? {
+        Some(found) => found,
+        None => match crate::api::follow_retired(conn, short_code, liveness)? {
+            Some(current) => resolve_short_code(conn, &current, liveness)?.ok_or_else(missing)?,
+            None => return Err(missing()),
+        },
+    };
 
     let view = match item_type {
         ItemType::Strategy => {

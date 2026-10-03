@@ -21,6 +21,7 @@ These hold for every tool.
 | Tenant | There is no tenant argument. The tenant is the one resolved from the connection's host or the `X-Tenant` header. |
 | Identity | Every tool runs as the authenticated principal — a human user or a service account — under the same attribute-based access control as the REST handlers. Archiving is not a permission boundary: whoever could read an item before it was archived can read it after. |
 | Item identity | Items are named by short code, e.g. `ACME-T-0012`, in every input and every output. |
+| Retired codes | When an item gets a new short code, its old code is retired. Kairos does not issue a retired code again. A read tool (`get_item`, `get_history`, `search`) finds the item from a retired code and shows the current code. A write tool refuses a retired code with `NOT_FOUND`, and the refusal gives the current code. |
 | Board and team references | A `board`, `to_board`, `team` or `repository` argument accepts either a slug or a UUID. A `column` or `to_column` argument accepts either a column name, case-insensitively, or a UUID. |
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](errors.md) for what each code's `details` carries. |
@@ -341,6 +342,21 @@ the item itself is in a done column, the two labels change to
 `blocked by (resolved: this item is done)` and
 `blocks (resolved: this item is done)`.
 
+A retired short code finds the item. The first line has the current code, and
+a notice follows it:
+
+```text
+# SKADI-T-0577 — Find the downloads
+
+> **RETIRED CODE** The code COLLIERY-T-2430 is retired. The current code of this item is SKADI-T-0577. Use the current code.
+```
+
+An item that had other codes has the line `retired codes`:
+
+```text
+- retired codes: COLLIERY-T-2430
+```
+
 Refuses: `NOT_FOUND` only when the short code names nothing at all.
 
 ### `get_history`
@@ -368,7 +384,7 @@ are compact and grouped by type.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `q` | string | no | — | Full-text query. Websearch syntax: quoted phrases, `OR`, `-negation`. Must not be blank. |
+| `q` | string | no | — | Full-text query. Websearch syntax: quoted phrases, `OR`, `-negation`. Must not be blank. When `q` is a short code, the result also has the item with that code, first. When `q` is a retired code, the result has the item with its current code, and a notice gives the current code. |
 | `filter` | object | no | — | See below. Fields AND together. |
 | `traverse` | object | no | — | See below. |
 | `sort` | object | no | `created_at` descending | See below. |

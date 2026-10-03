@@ -19,7 +19,6 @@ use super::convert::{IntoDto, attach_repositories, attach_repository};
 use super::{
     Liveness, board_id_by_ref, clamp_list, map_board_error, map_item_error, opt_board_id_by_ref,
     parse_enum, parse_opt_uuid, parse_uuid, require_capability, require_item_edit,
-    short_code_not_found,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -202,12 +201,13 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
     if liveness == Liveness::LiveOnly {
         query = query.filter(dsl::deleted_at.is_null());
     }
-    query
+    let found = query
         .select(Task::as_select())
         .first(conn)
         .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| short_code_not_found("task", short_code))
+        .map_err(ApiError::internal)?;
+    // COLLIERY-T-3100: a read follows a retired code; a write is refused.
+    super::found_or_follow_retired(conn, found, "task", short_code, liveness, load)
 }
 
 /// List tasks (open tenant-wide, S-0005 list envelope).

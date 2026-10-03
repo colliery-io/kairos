@@ -25,6 +25,7 @@ pub mod proposals;
 pub mod repositories;
 pub mod repository_credentials;
 pub mod retention;
+pub mod retired_codes;
 pub mod schema;
 pub mod scim;
 pub mod search;

@@ -386,6 +386,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    retired_codes (code) {
+        code -> Text,
+        item_id -> Uuid,
+        retired_at -> Timestamptz,
+        reason -> Text,
+    }
+}
+
+diesel::table! {
     scim_tokens (id) {
         id -> Uuid,
         name -> Text,
@@ -595,6 +604,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     metadata_enum_options,
     repositories,
     repository_credentials,
+    retired_codes,
     scim_tokens,
     short_code_sequences,
     strategies,

@@ -768,6 +768,72 @@ pub fn resolve_short_code(
     .transpose()
 }
 
+/// The current code of the item that had the retired `short_code`
+/// (COLLIERY-T-3100). `Ok(None)` when the code is not retired, or when its
+/// item is not there now.
+pub fn retired_to_current(
+    conn: &mut PgConnection,
+    short_code: &str,
+) -> Result<Option<String>, ApiError> {
+    Ok(kairos_db::retired_codes::current_code(conn, short_code)
+        .map_err(ApiError::internal)?
+        .and_then(|retired| retired.current.map(|(code, _)| code)))
+}
+
+/// What a lookup does with a retired code (COLLIERY-T-3100), from its
+/// [`Liveness`]: a read ([`Liveness::IncludeArchived`]) follows the code to
+/// the current code; a write ([`Liveness::LiveOnly`]) is refused with
+/// [`retired_code_refused`], because a write must name the item it changes.
+/// `Ok(None)` when the code is not retired.
+pub fn follow_retired(
+    conn: &mut PgConnection,
+    short_code: &str,
+    liveness: Liveness,
+) -> Result<Option<String>, ApiError> {
+    match retired_to_current(conn, short_code)? {
+        None => Ok(None),
+        Some(current) => match liveness {
+            Liveness::IncludeArchived => Ok(Some(current)),
+            Liveness::LiveOnly => Err(retired_code_refused(short_code, &current)),
+        },
+    }
+}
+
+/// The 404 for a write that names a retired code (COLLIERY-T-3100). It
+/// names the current code in the message and in `details.current_code`.
+pub fn retired_code_refused(short_code: &str, current: &str) -> ApiError {
+    ApiError::not_found(format!(
+        "The item of the short code {short_code:?} has a new code: {current:?}. The old \
+         code is a retired code. Use the new code."
+    ))
+    .with_details(json!({
+        "retired_code": short_code,
+        "current_code": current,
+    }))
+}
+
+/// The end of a load by short code in one family (COLLIERY-T-3100): the
+/// row that was `found`, or else the row of the current code when
+/// `short_code` is retired (a read; a write is refused, see
+/// [`follow_retired`]), or else the 404 of [`short_code_not_found`]. The
+/// current code is never retired, so `load` runs one more time at most.
+pub fn found_or_follow_retired<T>(
+    conn: &mut PgConnection,
+    found: Option<T>,
+    entity_type: &str,
+    short_code: &str,
+    liveness: Liveness,
+    load: impl FnOnce(&mut PgConnection, &str, Liveness) -> Result<T, ApiError>,
+) -> Result<T, ApiError> {
+    if let Some(row) = found {
+        return Ok(row);
+    }
+    match follow_retired(conn, short_code, liveness)? {
+        Some(current) => load(conn, &current, liveness),
+        None => Err(short_code_not_found(entity_type, short_code)),
+    }
+}
+
 /// The type of a live item by id (documents included), via the same
 /// directory view — for callers that hold an id, not a code
 /// (KAIROS-T-0111: the edge-permission check on an existing relationship).

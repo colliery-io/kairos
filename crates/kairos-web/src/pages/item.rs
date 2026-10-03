@@ -77,6 +77,24 @@ pub fn ItemPage() -> impl IntoView {
             // `?view=` query param — plain history entries, so back and
             // refresh keep the choice with zero effect plumbing.
             let graph_mode = query.read().get("view").as_deref() == Some("graph");
+            // COLLIERY-T-3100: the page came here from a retired code (see
+            // `ItemDetailView`). The notice names the two codes.
+            let retired_notice = query
+                .read()
+                .get("retired")
+                .filter(|retired| Family::of_short_code(retired).is_some() && *retired != code)
+                .map(|retired| {
+                    let text = format!(
+                        "The code {retired} is retired. The current code of this item is {code}."
+                    );
+                    view! {
+                        <div class="kairos-retired-code" data-testid="retired-code-notice">
+                            <Alert title="Retired code" color=token::GOLD>
+                                <Text size="sm">{text}</Text>
+                            </Alert>
+                        </div>
+                    }
+                });
             // KAIROS-T-0124 #2: the param can be empty for a frame while
             // the router settles — render nothing clickable until it is
             // resolved, so no tab is ever built from an empty code.
@@ -110,6 +128,7 @@ pub fn ItemPage() -> impl IntoView {
                         }.into_any()
                     } else {
                         view! {
+                            {retired_notice}
                             {tabs}
                             <ItemDetailView family code/>
                         }.into_any()
@@ -145,6 +164,25 @@ fn ItemDetailView(family: Family, #[prop(into)] code: String) -> impl IntoView {
         api::fetch_item(auth, family, code.get_value())
     });
     let retry = Callback::new(move |_| reload.update(|n| *n += 1));
+    // COLLIERY-T-3100: the server follows a retired code to the item, and
+    // the item has its current code. Go to the page of the current code
+    // (the history entry is replaced), with the retired code in `?retired=`
+    // for the notice of `ItemPage`.
+    let navigate = leptos_router::hooks::use_navigate();
+    Effect::new(move |_| {
+        if let Some(Ok(item)) = detail.get() {
+            let asked = code.get_value();
+            if item.short_code != asked {
+                navigate(
+                    &format!("/items/{}?retired={asked}", item.short_code),
+                    leptos_router::NavigateOptions {
+                        replace: true,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    });
     let on_saved = Callback::new(move |version: i32| {
         toaster.success(format!("Saved — the item is now at v{version}."));
         reload.update(|n| *n += 1);

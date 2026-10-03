@@ -200,6 +200,20 @@ There is **one exception**: `search` refuses an unresolvable `traverse.from`
 with `NOT_FOUND`, not `VALIDATION`, even though it is a reference in the body.
 A client applying the general rule would branch wrongly here.
 
+### A retired short code
+
+When an item gets a new short code, its old code becomes a retired code. A
+read, for example `GET /api/tasks/{short_code}` or the history, finds the item
+from a retired code. The response has the item with its current `short_code`.
+
+Kairos refuses a write with a retired code with `NOT_FOUND`. The message names
+the current code, and `details` has these fields:
+
+| Field | Value |
+|---|---|
+| `retired_code` | The retired code of the request. |
+| `current_code` | The current code of the item. Send the write again with this code. |
+
 ### A `limit` or an `offset` that is out of the range
 
 The server does not refuse a `limit` or an `offset` that is out of the range.

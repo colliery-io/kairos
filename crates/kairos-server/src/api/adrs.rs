@@ -23,7 +23,7 @@ use super::convert::{IntoDto, attach_impact, attach_impacts};
 use super::documents::{clamp_impact_list, impacting_ids};
 use super::{
     Liveness, map_board_error, map_item_error, opt_board_id_by_ref, parse_opt_uuid, parse_uuid,
-    require_capability, require_item_edit, short_code_not_found,
+    require_capability, require_item_edit,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -59,12 +59,13 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
     if liveness == Liveness::LiveOnly {
         query = query.filter(dsl::deleted_at.is_null());
     }
-    query
+    let found = query
         .select(Adr::as_select())
         .first(conn)
         .optional()
-        .map_err(ApiError::internal)?
-        .ok_or_else(|| short_code_not_found("adr", short_code))
+        .map_err(ApiError::internal)?;
+    // COLLIERY-T-3100: a read follows a retired code; a write is refused.
+    super::found_or_follow_retired(conn, found, "adr", short_code, liveness, load)
 }
 
 /// List ADRs (open tenant-wide, S-0005 list envelope).

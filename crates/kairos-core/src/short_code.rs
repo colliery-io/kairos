@@ -100,6 +100,39 @@ pub fn format_short_code(prefix: &str, item_type: ItemType, number: i64) -> Stri
     format!("{prefix}-{}-{number:04}", item_type.letter())
 }
 
+/// The parts of a short code: `SKADI-T-0577` gives `("SKADI", Task, 577)`.
+/// `None` when `code` does not have the form `{PREFIX}-{TYPE_LETTER}-{NNNN}`
+/// (COLLIERY-T-3100). The prefix is a capital letter, then capital letters
+/// or digits. It can be longer than [`PREFIX_RULE`] allows, because a code
+/// from before COLLIERY-T-3099 has the [`default_prefix`] of the tenant. The
+/// number has 4 digits at least and 18 at most.
+pub fn parse_short_code(code: &str) -> Option<(&str, ItemType, i64)> {
+    let mut parts = code.splitn(3, '-');
+    let prefix = parts.next()?;
+    let letter = parts.next()?;
+    let number = parts.next()?;
+    let prefix_ok = prefix
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_uppercase)
+        && prefix
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit());
+    let item_type = match letter {
+        "S" => ItemType::Strategy,
+        "I" => ItemType::Initiative,
+        "T" => ItemType::Task,
+        "D" => ItemType::Document,
+        "A" => ItemType::Adr,
+        _ => return None,
+    };
+    let number_ok = (4..=18).contains(&number.len()) && number.bytes().all(|b| b.is_ascii_digit());
+    if !prefix_ok || !number_ok {
+        return None;
+    }
+    Some((prefix, item_type, number.parse().ok()?))
+}
+
 /// The letters and digits of a slug, in capitals (`acme-co` → `ACMECO`).
 /// Each other character is dropped. Before COLLIERY-T-3099 this was the
 /// prefix of each item of the tenant (KAIROS-T-0012). Old codes have it,
@@ -241,6 +274,42 @@ mod tests {
             assert!(is_valid_prefix(&prefix_from_slug(slug)), "{slug}");
         }
         assert_eq!(tenant_prefix("colliery"), "COLLIERY");
+    }
+
+    #[test]
+    fn a_short_code_parses_into_its_parts() {
+        assert_eq!(
+            parse_short_code("SKADI-T-0577"),
+            Some(("SKADI", ItemType::Task, 577))
+        );
+        assert_eq!(
+            parse_short_code("COLLIERY-I-0407"),
+            Some(("COLLIERY", ItemType::Initiative, 407))
+        );
+        assert_eq!(
+            parse_short_code("ACMECORPORATION-D-10000"),
+            Some(("ACMECORPORATION", ItemType::Document, 10000))
+        );
+        for bad in [
+            "",
+            "SKADI",
+            "SKADI-T",
+            "SKADI-T-577",
+            "SKADI-X-0577",
+            "skadi-T-0577",
+            "1SK-T-0577",
+            "SKADI-T-0577-1",
+            "SKADI-T-05a7",
+            "SK ADI-T-0577",
+            "-T-0577",
+            "SKADI-T-1234567890123456789",
+        ] {
+            assert_eq!(parse_short_code(bad), None, "{bad}");
+        }
+        for t in ItemType::ALL {
+            let code = format_short_code("ACME", *t, 42);
+            assert_eq!(parse_short_code(&code), Some(("ACME", *t, 42)));
+        }
     }
 
     #[test]

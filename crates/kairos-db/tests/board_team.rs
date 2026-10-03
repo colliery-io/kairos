@@ -91,6 +91,7 @@ fn a_delivery_board_always_has_a_team() {
         BoardLevel::Delivery,
         "Nobody's",
         "nobodys-delivery",
+        kairos_db::CodePrefix::FromSlug,
         None,
         Some(alice),
     )
@@ -124,6 +125,7 @@ fn a_delivery_board_always_has_a_team() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(team_id),
         Some(alice),
     )
@@ -138,8 +140,16 @@ fn a_delivery_board_always_has_a_team() {
         (BoardLevel::Initiative, "second-initiatives"),
         (BoardLevel::Adr, "second-adrs"),
     ] {
-        let board = create_board(&mut conn, level, slug, slug, None, Some(alice))
-            .unwrap_or_else(|e| panic!("a {level} board with no team: {e}"));
+        let board = create_board(
+            &mut conn,
+            level,
+            slug,
+            slug,
+            kairos_db::CodePrefix::FromSlug,
+            None,
+            Some(alice),
+        )
+        .unwrap_or_else(|e| panic!("a {level} board with no team: {e}"));
         assert_eq!(board.team_id, None);
     }
 

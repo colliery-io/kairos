@@ -131,6 +131,7 @@ impl Stack {
             .create_team(&CreateTeamRequest {
                 name: name.into(),
                 slug: slug.into(),
+                code_prefix: kairos_core::short_code::prefix_from_slug(slug),
                 team_type: None,
             })
             .await
@@ -202,6 +203,9 @@ fn old_delivery_board(conn: &mut PgConnection, slug: &str, team: Uuid) -> String
             slug: slug.into(),
             board_level: BoardLevel::Delivery,
             team_id: Some(team),
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(boards::id)
         .get_result(conn)
@@ -228,6 +232,7 @@ fn delivery_board(name: &str, slug: &str, team: impl ToString) -> Value {
         "slug": slug,
         "board_level": "delivery",
         "team_id": team.to_string(),
+        "code_prefix": kairos_core::short_code::prefix_from_slug(slug),
     })
 }
 
@@ -375,6 +380,7 @@ async fn the_only_delivery_board_of_a_team_is_not_deleted_against_live_stack() {
                 "name": "Second Strategy",
                 "slug": "second-strategy",
                 "board_level": "strategy",
+                "code_prefix": "SECOND",
             })),
         )
         .await;
@@ -415,6 +421,7 @@ async fn a_board_of_the_organization_has_no_team_id_against_live_stack() {
                     "slug": slug,
                     "board_level": level,
                     "team_id": data.to_string(),
+                    "code_prefix": kairos_core::short_code::prefix_from_slug(&slug),
                 })),
             )
             .await;
@@ -440,6 +447,7 @@ async fn a_board_of_the_organization_has_no_team_id_against_live_stack() {
                     "slug": slug,
                     "board_level": level,
                     "team_id": null,
+                    "code_prefix": kairos_core::short_code::prefix_from_slug(&slug),
                 })),
             )
             .await;

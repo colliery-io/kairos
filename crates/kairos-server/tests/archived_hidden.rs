@@ -223,6 +223,7 @@ async fn archived_work_is_absent_from_every_default_listing() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         None,
     )

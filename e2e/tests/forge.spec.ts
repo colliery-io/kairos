@@ -63,7 +63,7 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
       .locator('article.kairos-card', { hasText: 'Password-less email auth' })
       .locator('a.kairos-card__code')
       .click();
-    await page.waitForURL(/\/items\/DEMO-T-0002/);
+    await page.waitForURL(/\/items\/PLATFORM-T-0001/);
 
     const dev = panel(page, 'Development');
     await expect(dev).toBeVisible();
@@ -87,11 +87,11 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
   await test.step('a signed delivery appears without a reload', async () => {
     const opened = githubPullRequest({
       number: 501,
-      code: 'DEMO-T-0002',
+      code: 'PLATFORM-T-0001',
       repoFullName: REPO,
       state: 'open',
       updatedAt: '2026-09-02T09:00:00Z',
-      title: 'Checkout wiring for DEMO-T-0002',
+      title: 'Checkout wiring for PLATFORM-T-0001',
     });
     const status = await deliverGithubWebhook(GUI, connection, 'pull_request', opened);
     expect(status).toBe(200);
@@ -107,12 +107,12 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
   await test.step('merging flips the chip live', async () => {
     const merged = githubPullRequest({
       number: 501,
-      code: 'DEMO-T-0002',
+      code: 'PLATFORM-T-0001',
       repoFullName: REPO,
       state: 'closed',
       merged: true,
       updatedAt: '2026-09-02T11:00:00Z',
-      title: 'Checkout wiring for DEMO-T-0002',
+      title: 'Checkout wiring for PLATFORM-T-0001',
     });
     const status = await deliverGithubWebhook(GUI, connection, 'pull_request', merged);
     expect(status).toBe(200);
@@ -130,11 +130,11 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
   await test.step('replaying the earlier open does not un-merge it', async () => {
     const stale = githubPullRequest({
       number: 501,
-      code: 'DEMO-T-0002',
+      code: 'PLATFORM-T-0001',
       repoFullName: REPO,
       state: 'open',
       updatedAt: '2026-09-02T09:00:00Z',
-      title: 'Checkout wiring for DEMO-T-0002',
+      title: 'Checkout wiring for PLATFORM-T-0001',
     });
     const status = await deliverGithubWebhook(GUI, connection, 'pull_request', stale);
     expect(status).toBe(200);
@@ -154,7 +154,7 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
   await test.step('a bad signature is rejected', async () => {
     const forged = githubPullRequest({
       number: 502,
-      code: 'DEMO-T-0002',
+      code: 'PLATFORM-T-0001',
       repoFullName: REPO,
       state: 'open',
       updatedAt: '2026-09-02T12:00:00Z',
@@ -192,7 +192,7 @@ test('forge: seeded links → signed delivery → live merge → replay is ignor
     // share one item (the seeded PR and branch, plus the one delivered
     // above), so scope to the first rather than asserting uniqueness.
     await expect(
-      inflight.getByRole('link', { name: /DEMO-T-0002/ }).first(),
+      inflight.getByRole('link', { name: /PLATFORM-T-0001/ }).first(),
     ).toBeVisible();
     // The seeded MERGED pull request is not in-flight work.
     await expect(inflight.getByText('#43', { exact: false })).toHaveCount(0);

@@ -1,21 +1,41 @@
 //! Pure short-code semantics (KAIROS-S-0004 "Short Code Sequences",
-//! KAIROS-T-0012): the entity-type vocabulary, the
-//! `{PREFIX}-{TYPE_LETTER}-{NNNN}` format, and the per-tenant default
-//! prefix.
+//! KAIROS-T-0012, COLLIERY-T-3099): the entity-type vocabulary, the
+//! `{PREFIX}-{TYPE_LETTER}-{NNNN}` format, and the rule for a prefix.
 //!
 //! Per KAIROS-A-0009 everything here is a function over in-memory data — no
 //! diesel, no I/O. `kairos-db::items::next_short_code` supplies the number
-//! (a PostgreSQL `seq_*_code` sequence, concurrency-safe by construction)
-//! and calls [`format_short_code`] to render it.
+//! (a row of the table `short_code_sequences` for each prefix and type) and
+//! calls [`format_short_code`] to render it.
 //!
-//! # Prefix (interpretation recorded in KAIROS-T-0012)
+//! # Prefix (COLLIERY-T-3099, COLLIERY-I-0407)
 //!
-//! S-0004 says the PREFIX "is application config per tenant" but the DDL has
-//! no per-org prefix column. The DEFAULT is therefore derived from the
-//! tenant's organization slug: upper-cased and sanitized to `[A-Z0-9]`
-//! ([`default_prefix`], e.g. slug `acme-co` → `ACMECO`). A per-organization
-//! override is a future API-layer setting; when it lands it replaces the
-//! default at the call site, not the format.
+//! Each board has a prefix (`boards.code_prefix`). An admin sets it when
+//! the board is created, and it does not change. It matches [`PREFIX_RULE`]
+//! ([`is_valid_prefix`]). An item takes the prefix of its board: the board
+//! of a strategy, an initiative, a task or an ADR, and the owner board of a
+//! document.
+//!
+//! An item with no board (an ADR off the boards, a document with no owner
+//! board) takes the prefix of the tenant ([`tenant_prefix`]). Before
+//! COLLIERY-T-3099 each item took that prefix (KAIROS-T-0012).
+//!
+//! [`prefix_from_slug`] makes a prefix from a slug. The migration, the
+//! provisioning of a tenant and a SCIM group use it, because they have no
+//! admin to choose a prefix.
+
+/// The rule of a board prefix (COLLIERY-T-3099): a capital letter, then 1
+/// to 9 capital letters or digits.
+pub const PREFIX_RULE: &str = "^[A-Z][A-Z0-9]{1,9}$";
+
+/// True when `prefix` matches [`PREFIX_RULE`].
+pub fn is_valid_prefix(prefix: &str) -> bool {
+    let bytes = prefix.as_bytes();
+    (2..=10).contains(&bytes.len())
+        && bytes[0].is_ascii_uppercase()
+        && bytes[1..]
+            .iter()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+}
 
 /// The five content-bearing entity types that carry short codes, versions,
 /// and history (KAIROS-A-0001/A-0004).
@@ -80,19 +100,56 @@ pub fn format_short_code(prefix: &str, item_type: ItemType, number: i64) -> Stri
     format!("{prefix}-{}-{number:04}", item_type.letter())
 }
 
-/// The DEFAULT per-tenant short-code prefix: the organization slug
-/// upper-cased and sanitized to `[A-Z0-9]` (`-`/`_` and anything else
-/// dropped). Slugs match `^[a-z][a-z0-9_-]{1,62}$` (S-0004), so the result
-/// is never empty for a valid slug.
-///
-/// See the module docs: a per-organization override is a future API-layer
-/// setting; this default is the KAIROS-T-0012 interpretation of S-0004's
-/// "application config per tenant".
+/// The letters and digits of a slug, in capitals (`acme-co` → `ACMECO`).
+/// Each other character is dropped. Before COLLIERY-T-3099 this was the
+/// prefix of each item of the tenant (KAIROS-T-0012). Old codes have it,
+/// and it can be longer than 10 characters.
 pub fn default_prefix(slug: &str) -> String {
     slug.chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .map(|c| c.to_ascii_uppercase())
         .collect()
+}
+
+/// A prefix that matches [`PREFIX_RULE`], made from a slug: the
+/// [`default_prefix`] of the slug, with the characters before the first
+/// letter dropped, cut to 10 characters, and with `0` added at the end
+/// while it has fewer than 2 characters. A slug with no letter gives `X0`.
+///
+/// It does not make the prefix unique. The caller does that
+/// (`kairos_db::boards::free_code_prefix`).
+pub fn prefix_from_slug(slug: &str) -> String {
+    let all = default_prefix(slug);
+    let mut prefix: String = all
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .chars()
+        .take(10)
+        .collect();
+    if prefix.is_empty() {
+        prefix.push('X');
+    }
+    while prefix.len() < 2 {
+        prefix.push('0');
+    }
+    prefix
+}
+
+/// The prefix of the tenant (COLLIERY-T-3099): the [`prefix_from_slug`] of
+/// the slug of the organization (`colliery` → `COLLIERY`). The boards that
+/// a new tenant gets have it, and an item with no board takes it.
+pub fn tenant_prefix(slug: &str) -> String {
+    prefix_from_slug(slug)
+}
+
+/// The prefix with a number at the end, for a prefix that a board has
+/// already: `n` = 2 gives `ABC2`. The prefix is cut so that the result has
+/// 10 characters at most.
+pub fn numbered_prefix(prefix: &str, n: u32) -> String {
+    let number = n.to_string();
+    let keep = 10usize.saturating_sub(number.len());
+    let mut out: String = prefix.chars().take(keep).collect();
+    out.push_str(&number);
+    out
 }
 
 #[cfg(test)]
@@ -137,5 +194,59 @@ mod tests {
         // Valid slugs always start with a letter, so never empty; junk input
         // degrades to the alphanumerics present.
         assert_eq!(default_prefix("a-_-b"), "AB");
+    }
+
+    #[test]
+    fn the_prefix_rule() {
+        for good in [
+            "AB",
+            "COLLIERY",
+            "SKADI",
+            "GQLITE",
+            "A1",
+            "ABCDEFGHIJ",
+            "CRT",
+        ] {
+            assert!(is_valid_prefix(good), "{good}");
+        }
+        for bad in [
+            "",
+            "A",
+            "sk-adi",
+            "SKADI-",
+            "1AB",
+            "ABCDEFGHIJK",
+            "Skadi",
+            "SK_ADI",
+            "ÄB",
+        ] {
+            assert!(!is_valid_prefix(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_prefix_from_a_slug_matches_the_rule() {
+        assert_eq!(prefix_from_slug("skadi"), "SKADI");
+        assert_eq!(prefix_from_slug("colliery-io-delivery"), "COLLIERYIO");
+        assert_eq!(prefix_from_slug("graphqlite"), "GRAPHQLITE");
+        assert_eq!(prefix_from_slug("a_"), "A0");
+        assert_eq!(prefix_from_slug("a-2"), "A2");
+        for slug in [
+            "acme",
+            "a_",
+            "web",
+            "x-1-2-3-4-5-6-7-8-9",
+            "colliery-io-delivery",
+        ] {
+            assert!(is_valid_prefix(&prefix_from_slug(slug)), "{slug}");
+        }
+        assert_eq!(tenant_prefix("colliery"), "COLLIERY");
+    }
+
+    #[test]
+    fn a_numbered_prefix_has_10_characters_at_most() {
+        assert_eq!(numbered_prefix("ABC", 2), "ABC2");
+        assert_eq!(numbered_prefix("ABCDEFGHIJ", 2), "ABCDEFGHI2");
+        assert_eq!(numbered_prefix("ABCDEFGHIJ", 12), "ABCDEFGH12");
     }
 }

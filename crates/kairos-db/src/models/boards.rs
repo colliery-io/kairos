@@ -30,6 +30,9 @@ pub struct Board {
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The short-code prefix of the board (COLLIERY-T-3099). It is set when
+    /// the board is created and never changes.
+    pub code_prefix: String,
 }
 
 /// Insert for [`Board`].
@@ -40,6 +43,8 @@ pub struct NewBoard {
     pub slug: String,
     pub board_level: BoardLevel,
     pub team_id: Option<Uuid>,
+    /// It must match `kairos_core::short_code::PREFIX_RULE`.
+    pub code_prefix: String,
 }
 
 /// Partial update for [`Board`].

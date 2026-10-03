@@ -102,6 +102,7 @@ fn refreshing_embeds_only_what_changed() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )
@@ -295,6 +296,7 @@ fn a_sweep_reaches_items_beyond_the_first_page() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )
@@ -401,6 +403,7 @@ async fn the_refresher_picks_up_work_created_after_it_started() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )

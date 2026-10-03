@@ -6,7 +6,7 @@
 // pre-creates every row at render time; the picker only reveals them.
 //
 //   1. REAL PKCE login (alice)
-//   2. DEMO-T-0003 (no metadata): pick Complexity in the add-a-field
+//   2. PLATFORM-T-0002 (no metadata): pick Complexity in the add-a-field
 //      dropdown → the editor row appears, the picker resets to its
 //      placeholder
 //   3. choose a value → Save enables → save → the refetched panel shows
@@ -14,7 +14,7 @@
 //   4. stamped editing still works: change the now-stamped value and
 //      Save re-enables
 //
-// Mutates DEMO-T-0003's metadata only (fresh per seed; retry-safe since
+// Mutates PLATFORM-T-0002's metadata only (fresh per seed; retry-safe since
 // re-adding an already-stamped field is impossible — it renders as an
 // editor on retry, so the spec tolerates both states via the early
 // stamped check).
@@ -36,10 +36,10 @@ test('metadata: add a field via the picker, save, edit stamped', async ({
   await page.locator('.kairos-board-tile', { hasText: 'Platform Delivery' }).click();
   await page.waitForURL(/\/boards\/platform-delivery/);
   await page
-    .locator('article.kairos-card', { hasText: 'DEMO-T-0003' })
+    .locator('article.kairos-card', { hasText: 'PLATFORM-T-0002' })
     .locator('a.kairos-card__code')
     .click();
-  await page.waitForURL(/\/items\/DEMO-T-0003/);
+  await page.waitForURL(/\/items\/PLATFORM-T-0002/);
 
   const metadata = page.locator('.kairos-metadata');
   await expect(metadata).toBeVisible();

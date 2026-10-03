@@ -62,6 +62,8 @@ test('board pages: a board with more than 1000 cards shows each card', async ({ 
       const team = await call(alice, 'POST', '/api/teams', {
         name: `Pages ${RUN}`,
         slug: TEAM,
+        // COLLIERY-T-3099: the short-code prefix of the delivery board.
+        code_prefix: `PG${RUN.toUpperCase()}`.slice(0, 10),
       });
       teamId = team.id;
       boardId = team.delivery_board_id;

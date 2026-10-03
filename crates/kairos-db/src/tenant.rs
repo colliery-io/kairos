@@ -34,7 +34,7 @@ use diesel::sql_query;
 use diesel::sql_types::{Bool, Text};
 use diesel_migrations::MigrationHarness;
 
-use crate::boards::{BoardError, create_board};
+use crate::boards::{BoardError, CodePrefix, create_board};
 use crate::migrations::TENANT_MIGRATIONS;
 use crate::models::enums::BoardLevel;
 
@@ -412,10 +412,21 @@ pub fn provision_tenant(
         // KAIROS-A-0002: default boards (strategy/initiative/adr; delivery
         // boards are created per-team later — see module docs). Seeding is
         // owned by crate::boards::create_board (KAIROS-T-0010); actor is
-        // None because no user exists at provision time.
+        // None because no user exists at provision time. Each of them has
+        // the prefix of the tenant (COLLIERY-T-3099): each holds a
+        // different type, so they can share it.
         let mut boards_created = Vec::new();
+        let prefix = kairos_core::short_code::tenant_prefix(slug);
         for (level, board_name, board_slug) in PROVISION_BOARDS {
-            create_board(conn, level, board_name, board_slug, None, None)?;
+            create_board(
+                conn,
+                level,
+                board_name,
+                board_slug,
+                CodePrefix::Given(&prefix),
+                None,
+                None,
+            )?;
             boards_created.push(board_slug.to_string());
         }
 

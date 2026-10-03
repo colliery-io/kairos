@@ -178,6 +178,7 @@ fn seed(conn: &mut PgConnection, corpus: &Corpus) -> Seeded {
         BoardLevel::Delivery,
         "Delivery",
         "colliery-io-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(team),
         Some(alice),
     )
@@ -188,6 +189,7 @@ fn seed(conn: &mut PgConnection, corpus: &Corpus) -> Seeded {
         BoardLevel::Initiative,
         "Initiatives",
         "colliery-initiatives",
+        kairos_db::CodePrefix::FromSlug,
         None,
         Some(alice),
     )

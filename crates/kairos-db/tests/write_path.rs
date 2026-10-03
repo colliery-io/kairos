@@ -231,6 +231,9 @@ fn write_path_lifecycle() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant: it holds tasks, and the boards of the
+        // tenant hold the other types (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(delivery_team),
         Some(alice),
     )

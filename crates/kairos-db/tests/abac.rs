@@ -690,6 +690,9 @@ fn team_membership_implies_delivery_capabilities() {
             slug: "platform-delivery".into(),
             board_level: BoardLevel::Delivery,
             team_id: Some(team_id),
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(schema::boards::id)
         .get_result(&mut conn)
@@ -827,6 +830,9 @@ fn archived_items_resolve_the_same_capabilities_as_live_ones() {
             slug: "platform-delivery".into(),
             board_level: BoardLevel::Delivery,
             team_id: Some(team_id),
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(schema::boards::id)
         .get_result(&mut conn)

@@ -58,7 +58,7 @@ use diesel::sql_query;
 use diesel::sql_types::{Bool, Text};
 use uuid::Uuid;
 
-use crate::boards::{BoardError, create_board};
+use crate::boards::{BoardError, CodePrefix, create_board};
 use crate::graph::{GraphError, link_items};
 use crate::items::{
     CreateAdr, CreateDocument, CreateInitiative, CreateStrategy, CreateTask, ItemError, create_adr,
@@ -284,6 +284,7 @@ fn seed_team(
     conn: &mut PgConnection,
     name: &str,
     slug: &str,
+    code_prefix: &str,
     team_type: TeamType,
     member_ids: &[Uuid],
     actor: Uuid,
@@ -303,6 +304,7 @@ fn seed_team(
         BoardLevel::Delivery,
         &format!("{name} Delivery"),
         &format!("{slug}-delivery"),
+        CodePrefix::Given(code_prefix),
         Some(team.id),
         Some(actor),
     )?;
@@ -397,12 +399,20 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
             conn,
             "Platform",
             "platform",
+            "PLATFORM",
             TeamType::Platform,
             &[alice, bob],
             alice,
         )?;
-        let (web, web_board) =
-            seed_team(conn, "Web", "web", TeamType::StreamAligned, &[carol], alice)?;
+        let (web, web_board) = seed_team(
+            conn,
+            "Web",
+            "web",
+            "WEB",
+            TeamType::StreamAligned,
+            &[carol],
+            alice,
+        )?;
 
         let stream_id: Uuid = diesel::insert_into(crate::schema::delivery_streams::table)
             .values(NewDeliveryStream {

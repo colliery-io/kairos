@@ -31,6 +31,9 @@ pub struct Board {
     pub slug: String,
     pub board_level: String,
     pub team_id: Option<String>,
+    /// The short-code prefix of the board (COLLIERY-T-3099).
+    #[serde(default)]
+    pub code_prefix: String,
 }
 
 /// mirror of: `kairos_client::types_org::BoardColumn` (partial).
@@ -80,6 +83,7 @@ pub async fn create_board(
     slug: &str,
     board_level: &str,
     team_id: Option<&str>,
+    code_prefix: &str,
 ) -> Result<Board, Refusal> {
     post_json_refusal(
         auth,
@@ -89,6 +93,7 @@ pub async fn create_board(
             "slug": slug,
             "board_level": board_level,
             "team_id": team_id,
+            "code_prefix": code_prefix,
         }),
     )
     .await
@@ -247,11 +252,17 @@ pub async fn create_team(
     name: &str,
     slug: &str,
     team_type: &str,
+    code_prefix: &str,
 ) -> Result<Team, Refusal> {
     post_json_refusal(
         auth,
         "/api/teams",
-        &json!({ "name": name, "slug": slug, "team_type": team_type }),
+        &json!({
+            "name": name,
+            "slug": slug,
+            "team_type": team_type,
+            "code_prefix": code_prefix,
+        }),
     )
     .await
 }

@@ -82,6 +82,7 @@ async fn the_board_decides_the_team_against_live_stack() {
     let team = |name: &str, slug: &str| CreateTeamRequest {
         name: name.into(),
         slug: slug.into(),
+        code_prefix: kairos_core::short_code::prefix_from_slug(slug),
         team_type: None,
     };
     let platform = svc

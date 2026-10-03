@@ -23,6 +23,7 @@ impl IntoDto<dto::Board> for Board {
             slug: self.slug,
             board_level: self.board_level.to_string(),
             team_id: self.team_id.map(|id| id.to_string()),
+            code_prefix: self.code_prefix,
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
         }

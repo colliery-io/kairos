@@ -157,7 +157,7 @@ async fn the_read_routes_of_a_board_take_a_slug_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     let board_id = team["delivery_board_id"]
@@ -313,7 +313,7 @@ async fn the_read_routes_of_a_board_take_a_slug_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Web", "slug": "web"})),
+            Some(json!({"name": "Web", "slug": "web", "code_prefix": "WEB"})),
         )
         .await;
     let web_board = web["delivery_board_id"]

@@ -12,16 +12,20 @@
 //!
 //! # Short codes
 //!
-//! Numbers come from the per-type `seq_*_code` PostgreSQL sequences
-//! (S-0004) via `nextval` — concurrency-safe by construction (sequences
-//! never hand out the same value twice; aborted transactions may leave
-//! numeric gaps, which is expected sequence behavior). The PREFIX default
-//! is derived from the tenant: `current_schema()` is `org_{slug}` on every
-//! tenant-pinned connection, and the prefix is
-//! [`kairos_core::short_code::default_prefix`] of the slug (upper-cased,
-//! `[A-Z0-9]`). A per-organization prefix override is a future API-layer
-//! setting (no DDL column exists); interpretation recorded in
-//! KAIROS-T-0012.
+//! A code is `{PREFIX}-{TYPE_LETTER}-{NNNN}` (COLLIERY-T-3099). The PREFIX
+//! is the `code_prefix` of the board of the item: the board of a strategy,
+//! an initiative, a task or an ADR, and the owner board of a document. An
+//! item with no board takes the prefix of the tenant
+//! ([`kairos_core::short_code::tenant_prefix`] of the slug in
+//! `current_schema()`, which is `org_{slug}` on each tenant connection).
+//!
+//! The NUMBER comes from the row (prefix, type) of `short_code_sequences`
+//! ([`next_short_code`]). The update of the row locks it until the
+//! transaction of the create ends, so two creates cannot get the same
+//! number. A create that fails rolls the row back, so a sequence has no
+//! gaps from failed creates. Boards that share a prefix for one type (a
+//! document of a board of a different level) share the row, so their codes
+//! are unique.
 //!
 //! # Versioning contract (KAIROS-A-0004)
 //!
@@ -130,17 +134,6 @@ pub enum ItemError {
 // Short codes (S-0004 sequences + core formatting)
 // ---------------------------------------------------------------------------
 
-/// The S-0004 sequence backing each entity type's short-code numbers.
-fn sequence_name(item_type: ItemType) -> &'static str {
-    match item_type {
-        ItemType::Strategy => "seq_strategy_code",
-        ItemType::Initiative => "seq_initiative_code",
-        ItemType::Task => "seq_task_code",
-        ItemType::Document => "seq_document_code",
-        ItemType::Adr => "seq_adr_code",
-    }
-}
-
 #[derive(QueryableByName)]
 struct SeqValue {
     #[diesel(sql_type = BigInt)]
@@ -153,27 +146,146 @@ struct SchemaName {
     name: String,
 }
 
-/// Allocate the next short code for `item_type` in the current tenant
-/// schema: `nextval` on the type's `seq_*_code` sequence (atomic, no two
-/// callers ever receive the same number), formatted by
-/// [`kairos_core::short_code::format_short_code`] with the tenant's default
-/// prefix (see module docs — derived from `current_schema()`; a `org_`
-/// prefix is stripped, so `org_acme` yields `ACME-T-0001`).
-pub fn next_short_code(conn: &mut PgConnection, item_type: ItemType) -> Result<String, ItemError> {
+/// The prefix of the tenant of the current schema (see the module docs).
+pub fn tenant_code_prefix(conn: &mut PgConnection) -> Result<String, DieselError> {
     let schema: SchemaName =
         sql_query("SELECT COALESCE(current_schema()::text, 'public') AS name").get_result(conn)?;
     let slug = schema
         .name
         .strip_prefix("org_")
         .unwrap_or(schema.name.as_str());
-    let prefix = short_code::default_prefix(slug);
+    Ok(short_code::tenant_prefix(slug))
+}
 
-    let seq: SeqValue = sql_query(format!(
-        "SELECT nextval('{}') AS value",
-        sequence_name(item_type)
-    ))
+/// The prefix that an item on `board_id` gets (COLLIERY-T-3099): the
+/// `code_prefix` of the board, or the prefix of the tenant for an item with
+/// no board. A board that does not exist gives
+/// [`ItemError::BoardNotFound`].
+pub fn code_prefix_for(
+    conn: &mut PgConnection,
+    board_id: Option<Uuid>,
+) -> Result<String, ItemError> {
+    match board_id {
+        Some(board_id) => {
+            use crate::schema::boards::dsl;
+            dsl::boards
+                .filter(dsl::id.eq(board_id))
+                .select(dsl::code_prefix)
+                .first::<String>(conn)
+                .optional()?
+                .ok_or(ItemError::BoardNotFound(board_id))
+        }
+        None => Ok(tenant_code_prefix(conn)?),
+    }
+}
+
+/// Allocate the next short code for an item of `item_type` on `board_id`
+/// (`None` for an item with no board) in the current tenant schema
+/// (COLLIERY-T-3099). The prefix comes from [`code_prefix_for`]. The number
+/// is the next value of the row (prefix, type) of `short_code_sequences`.
+/// A pair with no row gets a row that starts after the highest number of
+/// the existing codes of the pair.
+///
+/// Call it in the transaction of the create: the row stays locked until
+/// that transaction ends.
+pub fn next_short_code(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    board_id: Option<Uuid>,
+) -> Result<String, ItemError> {
+    let prefix = code_prefix_for(conn, board_id)?;
+    ensure_code_sequence(conn, &prefix, item_type)?;
+    let seq: SeqValue = sql_query(
+        "UPDATE short_code_sequences SET last_number = last_number + 1 \
+          WHERE code_prefix = $1 AND item_type = $2 RETURNING last_number AS value",
+    )
+    .bind::<Text, _>(&prefix)
+    .bind::<Text, _>(item_type.letter().to_string())
     .get_result(conn)?;
     Ok(short_code::format_short_code(&prefix, item_type, seq.value))
+}
+
+/// The highest number of the existing codes `{prefix}-{letter}-{N}` of the
+/// table of `item_type`, live or deleted. 0 when there is none.
+fn highest_code_number(
+    conn: &mut PgConnection,
+    prefix: &str,
+    item_type: ItemType,
+) -> Result<i64, DieselError> {
+    let table = match item_type {
+        ItemType::Strategy => "strategies",
+        ItemType::Initiative => "initiatives",
+        ItemType::Task => "tasks",
+        ItemType::Document => "documents",
+        ItemType::Adr => "adrs",
+    };
+    let pattern = format!("{prefix}-{}-", item_type.letter());
+    let row: SeqValue = sql_query(format!(
+        "SELECT COALESCE(max(substring(short_code FROM length($1) + 1)::bigint), 0) AS value \
+           FROM {table} \
+          WHERE left(short_code, length($1)) = $1 \
+            AND substring(short_code FROM length($1) + 1) ~ '^[0-9]{{1,18}}$'"
+    ))
+    .bind::<Text, _>(pattern)
+    .get_result(conn)?;
+    Ok(row.value)
+}
+
+/// Make the row (prefix, type) of `short_code_sequences` if it is not
+/// there. A new row starts after the highest number of the existing codes
+/// of the pair. A row that is there does not change.
+pub fn ensure_code_sequence(
+    conn: &mut PgConnection,
+    prefix: &str,
+    item_type: ItemType,
+) -> Result<(), DieselError> {
+    use crate::schema::short_code_sequences::dsl;
+    let letter = item_type.letter().to_string();
+    let exists: Option<i64> = dsl::short_code_sequences
+        .filter(dsl::code_prefix.eq(prefix))
+        .filter(dsl::item_type.eq(&letter))
+        .select(dsl::last_number)
+        .first(conn)
+        .optional()?;
+    if exists.is_some() {
+        return Ok(());
+    }
+    let highest = highest_code_number(conn, prefix, item_type)?;
+    diesel::insert_into(dsl::short_code_sequences)
+        .values((
+            dsl::code_prefix.eq(prefix),
+            dsl::item_type.eq(&letter),
+            dsl::last_number.eq(highest),
+        ))
+        .on_conflict((dsl::code_prefix, dsl::item_type))
+        .do_nothing()
+        .execute(conn)?;
+    Ok(())
+}
+
+/// Move the row (prefix, type) of `short_code_sequences` past the highest
+/// number of the existing codes of the pair, and return its last number.
+/// The row does not move back. For a change that writes codes directly,
+/// for example a re-key (COLLIERY-T-3103), so that the next create does not
+/// give a code that an item has.
+pub fn sync_code_sequence(
+    conn: &mut PgConnection,
+    prefix: &str,
+    item_type: ItemType,
+) -> Result<i64, DieselError> {
+    conn.transaction(|conn| {
+        ensure_code_sequence(conn, prefix, item_type)?;
+        let highest = highest_code_number(conn, prefix, item_type)?;
+        let seq: SeqValue = sql_query(
+            "UPDATE short_code_sequences SET last_number = GREATEST(last_number, $3) \
+              WHERE code_prefix = $1 AND item_type = $2 RETURNING last_number AS value",
+        )
+        .bind::<Text, _>(prefix)
+        .bind::<Text, _>(item_type.letter().to_string())
+        .bind::<BigInt, _>(highest)
+        .get_result(conn)?;
+        Ok(seq.value)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -507,7 +619,7 @@ pub fn create_strategy(
 ) -> Result<Strategy, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         let column_id = resolve_column(conn, input.board_id, input.column_id)?;
-        let code = next_short_code(conn, ItemType::Strategy)?;
+        let code = next_short_code(conn, ItemType::Strategy, Some(input.board_id))?;
         let created: Strategy = diesel::insert_into(crate::schema::strategies::table)
             .values(NewStrategy {
                 short_code: code,
@@ -556,7 +668,7 @@ pub fn create_initiative(
 ) -> Result<Initiative, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         let column_id = resolve_column(conn, input.board_id, input.column_id)?;
-        let code = next_short_code(conn, ItemType::Initiative)?;
+        let code = next_short_code(conn, ItemType::Initiative, Some(input.board_id))?;
         let created: Initiative = diesel::insert_into(crate::schema::initiatives::table)
             .values(NewInitiative {
                 short_code: code,
@@ -641,7 +753,7 @@ pub fn create_task(
         // already refused a board that does not exist, so a missing row here
         // is a teamless board (`None`), which is a valid answer.
         let team_id = board_team(conn, input.board_id)?;
-        let code = next_short_code(conn, ItemType::Task)?;
+        let code = next_short_code(conn, ItemType::Task, Some(input.board_id))?;
         let created: Task = diesel::insert_into(crate::schema::tasks::table)
             .values(NewTask {
                 short_code: code,
@@ -1072,7 +1184,7 @@ pub fn create_document_on_board(
             .content
             .unwrap_or_else(|| template.as_ref().map_or("", |t| t.content.as_str()));
 
-        let code = next_short_code(conn, ItemType::Document)?;
+        let code = next_short_code(conn, ItemType::Document, board_id)?;
         let created: Document = diesel::insert_into(crate::schema::documents::table)
             .values((
                 NewDocument {
@@ -1158,7 +1270,7 @@ pub fn create_adr(
             Some(board_id) => Some((board_id, resolve_column(conn, board_id, input.column_id)?)),
             None => None,
         };
-        let code = next_short_code(conn, ItemType::Adr)?;
+        let code = next_short_code(conn, ItemType::Adr, placement.map(|(board_id, _)| board_id))?;
         let created: Adr = diesel::insert_into(crate::schema::adrs::table)
             .values(NewAdr {
                 short_code: code,

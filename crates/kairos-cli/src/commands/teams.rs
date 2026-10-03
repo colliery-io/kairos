@@ -34,6 +34,11 @@ pub enum TeamsCommand {
         /// (defaults to stream_aligned)
         #[arg(long = "type", value_name = "TEAM_TYPE")]
         team_type: Option<String>,
+        /// The short-code prefix of the delivery board, for example SKADI
+        /// (a capital letter, then 1 to 9 capital letters or digits). It
+        /// does not change later.
+        #[arg(long = "code-prefix", value_name = "PREFIX")]
+        code_prefix: String,
         #[command(flatten)]
         common: Common,
     },
@@ -163,6 +168,7 @@ impl TeamsCommand {
                 name,
                 slug,
                 team_type,
+                code_prefix,
                 common,
             } => {
                 let client = client(&common)?;
@@ -171,6 +177,7 @@ impl TeamsCommand {
                         name,
                         slug,
                         team_type,
+                        code_prefix,
                     })
                     .await?;
                 if common.json {

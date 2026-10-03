@@ -50,6 +50,9 @@ fn old_board(conn: &mut PgConnection, slug: &str, level: BoardLevel, team: Optio
             slug: slug.into(),
             board_level: level,
             team_id: team,
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(boards::id)
         .get_result(conn)

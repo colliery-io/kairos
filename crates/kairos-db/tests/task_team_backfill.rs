@@ -57,6 +57,7 @@ fn seed_team(conn: &mut PgConnection, name: &str, slug: &str, actor: Uuid) -> (U
         BoardLevel::Delivery,
         name,
         &format!("{slug}-delivery"),
+        kairos_db::CodePrefix::FromSlug,
         Some(team_id),
         Some(actor),
     )

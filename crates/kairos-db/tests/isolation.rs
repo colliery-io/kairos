@@ -267,6 +267,9 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant, so the codes of the 2 tenants differ
+        // (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given(&kairos_core::short_code::tenant_prefix(slug)),
         Some(delivery_team),
         None,
     )

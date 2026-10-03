@@ -15,8 +15,8 @@ use leptos::prelude::*;
 
 use super::api;
 use super::{
-    MutationNotice, MutationOutcome, SLUG_FIELD, SLUG_HINT, is_form_refusal, refusal_for,
-    run_form_mutation, run_mutation,
+    BOARD_FORM_FIELDS, MutationNotice, MutationOutcome, PREFIX_HINT, SLUG_FIELD, SLUG_HINT,
+    is_form_refusal, refusal_for, run_form_mutation, run_mutation,
 };
 use crate::auth::use_auth;
 
@@ -50,6 +50,7 @@ pub fn AdminTeamsPage() -> impl IntoView {
 
     let name = RwSignal::new(String::new());
     let slug = RwSignal::new(String::new());
+    let code_prefix = RwSignal::new(String::new());
     let team_type = RwSignal::new("stream_aligned".to_string());
 
     let on_create = move |_| {
@@ -57,13 +58,14 @@ pub fn AdminTeamsPage() -> impl IntoView {
             return;
         }
         busy.set(true);
-        let (n, s, t) = (
+        let (n, s, t, p) = (
             name.get_untracked(),
             slug.get_untracked(),
             team_type.get_untracked(),
+            code_prefix.get_untracked(),
         );
         leptos::task::spawn_local(async move {
-            let result = api::create_team(auth, &n, &s, &t).await;
+            let result = api::create_team(auth, &n, &s, &t, &p).await;
             busy.set(false);
             match result {
                 Ok(team) => {
@@ -72,9 +74,10 @@ pub fn AdminTeamsPage() -> impl IntoView {
                     outcome.set(None);
                     reload.update(|count| *count += 1);
                 }
-                // COLLIERY-T-0265: a refusal about the slug shows below
-                // the field, and the form keeps its values.
-                Err(refusal) if is_form_refusal(&refusal, &SLUG_FIELD) => {
+                // COLLIERY-T-0265: a refusal about the slug (or, since
+                // COLLIERY-T-3099, the prefix) shows below the field, and
+                // the form keeps its values.
+                Err(refusal) if is_form_refusal(&refusal, &BOARD_FORM_FIELDS) => {
                     outcome.set(None);
                     refused.set(Some(refusal));
                 }
@@ -139,11 +142,17 @@ pub fn AdminTeamsPage() -> impl IntoView {
                             <TextInput label="Slug" value=slug placeholder="e.g. payments"
                                 error=refusal_for(refused, "slug")/>
                         }}
+                        // COLLIERY-T-3099: the prefix of the delivery board.
+                        {move || view! {
+                            <TextInput label="Prefix" value=code_prefix placeholder="e.g. PAY"
+                                error=refusal_for(refused, "code_prefix")/>
+                        }}
                         <Select label="Type"
                             options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
                             value=team_type/>
                     </Group>
                     <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
+                    <Text dimmed=true size="xs" attr:data-testid="prefix-rule">{PREFIX_HINT}</Text>
                     <Group>
                         <Button on_click=Callback::new(on_create)>"Create team"</Button>
                     </Group>

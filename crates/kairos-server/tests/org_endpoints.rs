@@ -613,6 +613,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
             slug: "sandbox".into(),
             board_level: "strategy".into(),
             team_id: None,
+            code_prefix: "SANDBOX".into(),
         })
         .await
         .expect("creating sandbox board");
@@ -640,6 +641,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
             .create_team(&CreateTeamRequest {
                 name: "Platform".into(),
                 slug: "platform".into(),
+                code_prefix: "PLATFORM".into(),
                 team_type: None,
             })
             .await,
@@ -650,6 +652,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: Some("platform".into()),
         })
         .await
@@ -680,6 +683,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
         svc.create_team(&CreateTeamRequest {
             name: "Platform 2".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await,

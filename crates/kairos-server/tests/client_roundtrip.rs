@@ -172,6 +172,7 @@ async fn typed_error_mapping_roundtrip() {
         .create_team(&CreateTeamRequest {
             name: "Delivery".into(),
             slug: "delivery".into(),
+            code_prefix: "DELIVERY".into(),
             team_type: None,
         })
         .await

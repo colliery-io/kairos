@@ -5,7 +5,7 @@
 //      N-of-M micro-badge (its seeded children: 1 in web Completed, the
 //      rest open — 1/5 done)
 //   3. its detail page renders the segmented bar + "1 of 5 done"
-//   4. a childless item (DEMO-T-0002 detail) renders NO progress UI
+//   4. a childless item (PLATFORM-T-0001 detail) renders NO progress UI
 //
 // Runs before smoke alphabetically; neither adds children to the seeded
 // initiative, so the counts are stable within a run.
@@ -68,10 +68,10 @@ test('children progress: card badge and detail bar for a seeded parent', async (
     await page.locator('.kairos-board-tile', { hasText: 'Platform Delivery' }).click();
     await page.waitForURL(/\/boards\/platform-delivery/);
     await page
-      .locator('article.kairos-card', { hasText: 'DEMO-T-0002' })
+      .locator('article.kairos-card', { hasText: 'PLATFORM-T-0001' })
       .locator('a.kairos-card__code')
       .click();
-    await page.waitForURL(/\/items\/DEMO-T-0002/);
+    await page.waitForURL(/\/items\/PLATFORM-T-0001/);
     // The editor renders; the progress bar does not.
     await expect(page.locator('.kairos-editor')).toBeVisible();
     await expect(page.locator('.kairos-progress')).toHaveCount(0);

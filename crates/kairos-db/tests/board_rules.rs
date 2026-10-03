@@ -290,6 +290,7 @@ fn board_rules_lifecycle() {
         BoardLevel::Delivery,
         "Alpha Delivery",
         "alpha-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(team.id),
         Some(actor_id),
     )

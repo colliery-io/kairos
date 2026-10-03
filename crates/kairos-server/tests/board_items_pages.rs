@@ -218,7 +218,7 @@ async fn the_items_of_a_board_come_in_pages_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     let board_id = team["delivery_board_id"]
@@ -399,7 +399,7 @@ async fn the_items_of_a_board_come_in_pages_against_live_stack() {
         .ok(
             Method::POST,
             "/api/boards",
-            Some(json!({"name": "Plans", "slug": "plans", "board_level": "initiative"})),
+            Some(json!({"name": "Plans", "slug": "plans", "board_level": "initiative", "code_prefix": "PLANS"})),
         )
         .await;
     let plans_id = plans["id"].as_str().expect("board id").to_string();

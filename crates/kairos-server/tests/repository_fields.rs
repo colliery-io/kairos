@@ -210,6 +210,7 @@ async fn repository_fields_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await

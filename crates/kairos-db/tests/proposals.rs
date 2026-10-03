@@ -96,6 +96,7 @@ fn edge_proposal_lifecycle() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )

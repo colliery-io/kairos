@@ -169,7 +169,7 @@ impl Stack {
         self.send(
             Method::POST,
             "/api/boards",
-            Some(json!({"name": name, "slug": slug, "board_level": "initiative"})),
+            Some(json!({"name": name, "slug": slug, "board_level": "initiative", "code_prefix": kairos_core::short_code::prefix_from_slug(slug)})),
         )
         .await
     }
@@ -349,7 +349,7 @@ async fn a_team_is_not_created_without_its_board_against_live_stack() {
         .send(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     assert_slug_taken(status, &answer, "payments-delivery", &holder);
@@ -425,7 +425,7 @@ async fn a_team_is_not_created_without_its_board_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     assert!(team["delivery_board_id"].is_string(), "{team}");
@@ -570,7 +570,7 @@ async fn a_sent_slug_has_the_form_of_a_board_slug_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Long", "slug": team_slug})),
+            Some(json!({"name": "Long", "slug": team_slug, "code_prefix": kairos_core::short_code::prefix_from_slug(&team_slug)})),
         )
         .await;
     let board_id = team["delivery_board_id"].as_str().expect("board id");

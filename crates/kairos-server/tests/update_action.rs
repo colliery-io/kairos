@@ -177,7 +177,7 @@ async fn a_change_has_the_action_update_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     let team_id = team["id"].as_str().expect("team id").to_string();

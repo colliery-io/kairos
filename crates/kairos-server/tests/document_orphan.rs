@@ -572,6 +572,7 @@ async fn a_document_keeps_a_parent_and_a_link_gives_no_authority_against_live_st
             svc.create_team(&CreateTeamRequest {
                 name: name.into(),
                 slug: slug.into(),
+                code_prefix: kairos_core::short_code::prefix_from_slug(slug),
                 team_type: None,
             })
             .await

@@ -68,6 +68,8 @@ export function teamFixture(alice: Persona, ledger: Ledger, suffix = 'mobile'): 
       const teamSlug = named(suffix);
       const team = await cli.json([
         'teams', 'create', '--name', `UAT ${suffix} (${teamSlug})`, '--slug', teamSlug, '--type', 'stream_aligned',
+        // COLLIERY-T-3099: the short-code prefix of the delivery board.
+        '--code-prefix', `U${teamSlug.replace(/[^a-z0-9]/gi, '').slice(-9)}`.toUpperCase(),
       ]);
       fixture.teamId = team.id;
       fixture.teamSlug = team.slug;

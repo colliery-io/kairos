@@ -174,6 +174,7 @@ async fn meta_endpoints_against_live_stack() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         None,
     )

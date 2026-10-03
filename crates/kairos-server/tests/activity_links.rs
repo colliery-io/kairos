@@ -158,7 +158,7 @@ async fn an_entry_has_the_short_code_of_its_item_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Payments", "slug": "payments"})),
+            Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
         )
         .await;
     let team_id = team["id"].as_str().expect("team id").to_string();

@@ -73,11 +73,12 @@ fn rejection<T: std::fmt::Debug>(result: Result<T, Error>) -> Error {
 /// board. A delivery board always has a team (COLLIERY-T-0230), so the
 /// board comes from the create of the team.
 /// Returns (task short code, strategy short code, delivery board id).
-async fn seed_tenant(admin: &KairosClient) -> (String, String, String) {
+async fn seed_tenant(admin: &KairosClient, prefix: &str) -> (String, String, String) {
     let team = admin
         .create_team(&CreateTeamRequest {
             name: "Delivery".into(),
             slug: "delivery".into(),
+            code_prefix: prefix.into(),
             team_type: None,
         })
         .await
@@ -187,8 +188,8 @@ async fn http_level_two_tenant_isolation() {
     assert_eq!(err.code(), Some("MEMBERSHIP_REQUIRED"), "{err}");
 
     // --- same-shaped data in BOTH tenants, created through the API --------------
-    let (acme_task, acme_strategy, acme_board) = seed_tenant(&alice).await;
-    let (widgets_task, widgets_strategy, widgets_board) = seed_tenant(&bob).await;
+    let (acme_task, acme_strategy, acme_board) = seed_tenant(&alice, "ACME").await;
+    let (widgets_task, widgets_strategy, widgets_board) = seed_tenant(&bob, "WIDGETS").await;
     assert!(acme_task.starts_with("ACME-T-"), "{acme_task}");
     assert!(widgets_task.starts_with("WIDGETS-T-"), "{widgets_task}");
     assert_ne!(acme_board, widgets_board);

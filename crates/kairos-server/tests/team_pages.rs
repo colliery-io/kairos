@@ -176,6 +176,7 @@ async fn team_pages_endpoints_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await
@@ -538,6 +539,7 @@ async fn team_pages_endpoints_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Web".into(),
             slug: "web".into(),
+            code_prefix: "WEB".into(),
             team_type: None,
         })
         .await

@@ -62,7 +62,7 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
     await expect(blocked.locator('.cl-pill', { hasText: 'blocked by 1' })).toBeVisible();
 
     await blocker.locator('.kairos-card__blocks').first().click();
-    await page.waitForURL(/\/items\/DEMO-T-0002\?view=graph/);
+    await page.waitForURL(/\/items\/PLATFORM-T-0001\?view=graph/);
   });
 
   // 3. Canvas shape + deterministic reload ----------------------------------
@@ -71,8 +71,8 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
     await expect(page.locator('.cl-dag__header', { hasText: 'Strategy' })).toBeVisible();
     await expect(page.locator('.cl-dag__header', { hasText: 'Initiative' })).toBeVisible();
     await expect(page.locator('.cl-dag__header', { hasText: 'Task' })).toBeVisible();
-    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0002');
-    await expect(focusNode(page).locator('.cl-dag__sublabel')).toHaveText('DEMO-T-0002');
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'PLATFORM-T-0001');
+    await expect(focusNode(page).locator('.cl-dag__sublabel')).toHaveText('PLATFORM-T-0001');
     await expect(page.locator('svg.cl-dag path.cl-dag__edge').first()).toBeVisible();
     await expect(page.locator('.cl-dag__lane').first()).toBeVisible();
     expect(await canvas(page).count()).toBeGreaterThanOrEqual(3);
@@ -111,21 +111,21 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
       .poll(async () => canvas(page).count(), { timeout: 15_000 })
       .toBeGreaterThan(before);
     // Still on the item's graph tab — expansion never navigates.
-    expect(new URL(page.url()).pathname).toBe('/items/DEMO-T-0002');
+    expect(new URL(page.url()).pathname).toBe('/items/PLATFORM-T-0001');
   });
 
   // 5. Refocus + trail + browser back ---------------------------------------
   await test.step('refocus extends the trail; back returns', async () => {
     // Click a non-focus node (the blocked task): a click selects it, and
     // the selection refocuses the graph.
-    await nodeOf(page, 'DEMO-T-0003').click();
-    await page.waitForURL(/\/search\/relationships\/DEMO-T-0003\?trail=DEMO-T-0002/);
+    await nodeOf(page, 'PLATFORM-T-0002').click();
+    await page.waitForURL(/\/search\/relationships\/PLATFORM-T-0002\?trail=PLATFORM-T-0001/);
     await expect(page.getByText('trail:')).toBeVisible();
-    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0003');
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'PLATFORM-T-0002');
 
     await page.goBack();
-    await page.waitForURL(/\/items\/DEMO-T-0002\?view=graph/);
-    await expect(focusNode(page)).toHaveAttribute('data-id', 'DEMO-T-0002', {
+    await page.waitForURL(/\/items\/PLATFORM-T-0001\?view=graph/);
+    await expect(focusNode(page)).toHaveAttribute('data-id', 'PLATFORM-T-0001', {
       timeout: 15_000,
     });
   });
@@ -151,15 +151,15 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
       throw new Error(`no column named ${name}`);
     };
     // The seeded delivery graph allows Active <-> Blocked, so the move is
-    // reversible: the suite's later specs pin DEMO-T-0002 in Active.
+    // reversible: the suite's later specs pin PLATFORM-T-0001 in Active.
     const focus = focusNode(page);
     await expect(focus.locator('.cl-dag__detail')).toHaveText('Active');
-    await transitionTask(GUI, token, 'DEMO-T-0002', columnIdOf('Blocked'));
+    await transitionTask(GUI, token, 'PLATFORM-T-0001', columnIdOf('Blocked'));
     await expect(focus.locator('.cl-dag__detail')).toHaveText('Blocked', {
       timeout: 20_000,
     });
     // Revert — and the canvas follows again (two live updates proven).
-    await transitionTask(GUI, token, 'DEMO-T-0002', columnIdOf('Active'));
+    await transitionTask(GUI, token, 'PLATFORM-T-0001', columnIdOf('Active'));
     await expect(focus.locator('.cl-dag__detail')).toHaveText('Active', {
       timeout: 20_000,
     });

@@ -270,6 +270,7 @@ async fn cli_command_tree_golden_path_live() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await
@@ -637,6 +638,7 @@ async fn cli_command_tree_golden_path_live() {
         .create_team(&CreateTeamRequest {
             name: "Web".into(),
             slug: "web".into(),
+            code_prefix: "WEB".into(),
             team_type: None,
         })
         .await

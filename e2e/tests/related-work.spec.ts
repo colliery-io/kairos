@@ -36,8 +36,8 @@ test('related work: an item page asks what else touches this, and answers as pro
   });
 
   await test.step('the panel is present and has not searched yet', async () => {
-    await page.goto('/items/DEMO-T-0002');
-    await page.waitForURL(/\/items\/DEMO-T-0002$/);
+    await page.goto('/items/PLATFORM-T-0001');
+    await page.waitForURL(/\/items\/PLATFORM-T-0001$/);
 
     const related = panel(page, 'Possibly related');
     await expect(related).toBeVisible();

@@ -89,7 +89,7 @@ const PAGES: MainPage[] = [
   {
     name: 'item',
     open: async (page) => {
-      await page.goto('/items/DEMO-T-0002');
+      await page.goto('/items/PLATFORM-T-0001');
       await expect(page.locator('.kairos-editor')).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.kairos-metadata')).toBeVisible();
     },
@@ -97,7 +97,7 @@ const PAGES: MainPage[] = [
   {
     name: 'graph',
     open: async (page) => {
-      await page.goto('/items/DEMO-T-0002?view=graph');
+      await page.goto('/items/PLATFORM-T-0001?view=graph');
       await expect(page.locator('.cl-dag__node--current')).toBeVisible({ timeout: 20_000 });
     },
   },

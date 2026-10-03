@@ -176,7 +176,7 @@ async fn the_server_filters_the_activity_by_team_against_live_stack() {
             .ok(
                 Method::POST,
                 "/api/teams",
-                Some(json!({"name": name, "slug": slug})),
+                Some(json!({"name": name, "slug": slug, "code_prefix": kairos_core::short_code::prefix_from_slug(slug)})),
             )
             .await;
         let id = team["id"].as_str().expect("team id").to_string();

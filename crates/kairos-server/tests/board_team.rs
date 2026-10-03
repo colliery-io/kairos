@@ -125,6 +125,7 @@ async fn a_board_always_has_a_team_against_live_stack() {
             slug: "nobodys-delivery".into(),
             board_level: "delivery".into(),
             team_id: None,
+            code_prefix: "NOBODYSDEL".into(),
         })
         .await
         .expect_err("a delivery board with no team");
@@ -153,6 +154,7 @@ async fn a_board_always_has_a_team_against_live_stack() {
             "slug": "nobodys-delivery",
             "board_level": "delivery",
             "team_id": null,
+            "code_prefix": "NOBODYS",
         })),
     )
     .await;
@@ -204,6 +206,7 @@ async fn a_board_always_has_a_team_against_live_stack() {
             slug: "data-delivery".into(),
             board_level: "delivery".into(),
             team_id: Some(bare_team.to_string()),
+            code_prefix: "DATADELIVE".into(),
         })
         .await
         .expect("a delivery board with a team");
@@ -217,6 +220,7 @@ async fn a_board_always_has_a_team_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await

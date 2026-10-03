@@ -133,7 +133,8 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
       .locator('input')
       .fill(title);
     await form.getByRole('button', { name: 'Create document' }).click();
-    await page.waitForURL(/\/items\/DEMO-D-\d+$/, { timeout: 30_000 });
+    // COLLIERY-T-3099: the document takes the prefix of its owner board.
+    await page.waitForURL(/\/items\/PLATFORM-D-\d+$/, { timeout: 30_000 });
     code = codeOf(page);
   });
 

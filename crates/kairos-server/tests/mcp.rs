@@ -486,6 +486,8 @@ async fn mcp_endpoint_against_live_stack() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        // The prefix of the tenant (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(platform.id),
         None,
     )
@@ -1638,6 +1640,7 @@ async fn mcp_endpoint_against_live_stack() {
         BoardLevel::Delivery,
         "Web Delivery",
         "web-delivery",
+        kairos_db::CodePrefix::Given("WEB"),
         Some(web_team),
         None,
     )
@@ -1873,7 +1876,7 @@ async fn mcp_endpoint_against_live_stack() {
             }),
         )
         .await;
-    let linked = extract_code(&text, "ACME-T-");
+    let linked = extract_code(&text, "WEB-T-");
     assert!(text.contains("board web-delivery"), "{text}");
     let text = session
         .call_ok("get_item", json!({"short_code": linked}))
@@ -2457,6 +2460,7 @@ fn team_with_board(
             BoardLevel::Delivery,
             &format!("{name} Delivery"),
             &format!("{slug}-delivery"),
+            kairos_db::CodePrefix::FromSlug,
             Some(team.id),
             None,
         )

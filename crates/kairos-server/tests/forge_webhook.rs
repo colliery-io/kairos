@@ -154,6 +154,7 @@ async fn forge_webhook_ingestion_against_live_stack() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(svc_id),
     )
@@ -182,6 +183,7 @@ async fn forge_webhook_ingestion_against_live_stack() {
         .create_team(&kairos_client::types_org::CreateTeamRequest {
             name: "Infra".into(),
             slug: "infra".into(),
+            code_prefix: "INFRA".into(),
             team_type: None,
         })
         .await
@@ -380,6 +382,7 @@ async fn forge_webhook_ingestion_against_live_stack() {
         .create_team(&kairos_client::types_org::CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await

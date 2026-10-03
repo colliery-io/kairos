@@ -45,7 +45,7 @@ const GUI = process.env.E2E_GUI_BASE_URL ?? 'http://localhost:41080';
 // (COLLIERY-T-0252). It is a card of the Support lane of Platform Delivery,
 // so the capture archives it AFTER the image of that board, and restores it
 // at the end.
-const PUT_AWAY = 'DEMO-T-0011';
+const PUT_AWAY = 'PLATFORM-T-0007';
 
 /** One image of the book: the viewport, when the fonts are there. */
 async function shot(page: Page, file: string): Promise<void> {

@@ -37,7 +37,7 @@ pub use abac::{
     resolve_authorization_board, revoke_capability,
 };
 pub use boards::{
-    BoardError, SeveralDeliveryBoards, add_column, add_transition, check_board_delete,
+    BoardError, CodePrefix, SeveralDeliveryBoards, add_column, add_transition, check_board_delete,
     check_board_team, create_board, dead_end_columns, delivery_boards_for_team_delete,
     remove_column, remove_transition, rename_column, reorder_columns,
     teams_with_several_delivery_boards, transition_adr, transition_initiative, transition_strategy,

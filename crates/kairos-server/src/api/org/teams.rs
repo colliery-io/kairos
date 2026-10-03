@@ -347,6 +347,13 @@ pub(crate) async fn list_work_documents(
 /// A live board can have the slug `{slug}-delivery` already
 /// (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
 /// board, and the server creates no team.
+///
+/// `code_prefix` is the short-code prefix of the delivery board
+/// (COLLIERY-T-3099). It is required. A prefix that does not match
+/// `^[A-Z][A-Z0-9]{1,9}$` is a 422 `VALIDATION` with `details.field` =
+/// `code_prefix`. A prefix that a live delivery board has is a 409
+/// `CONFLICT` that names that board. In each case the server creates no
+/// team.
 #[utoipa::path(
     post,
     path = "/api/teams",
@@ -355,8 +362,8 @@ pub(crate) async fn list_work_documents(
     responses(
         (status = 201, description = "Created; delivery_board_id names the team's new board", body = dto::Team),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live team has the slug, or a live board has the slug of the delivery board", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad team_type, or the slug does not have the form of a slug", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad team_type, the slug does not have the form of a slug, or the code_prefix is absent or does not match the rule", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_team(
@@ -408,6 +415,8 @@ pub(crate) async fn create_team(
                     BoardLevel::Delivery,
                     &format!("{} Delivery", body.name),
                     &format!("{}-delivery", body.slug),
+                    // COLLIERY-T-3099: the prefix of the delivery board.
+                    boards::CodePrefix::Given(&body.code_prefix),
                     Some(team.id),
                     Some(user),
                 )

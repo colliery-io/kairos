@@ -103,6 +103,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        code_prefix -> Text,
     }
 }
 
@@ -382,6 +383,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    short_code_sequences (code_prefix, item_type) {
+        code_prefix -> Text,
+        item_type -> Text,
+        last_number -> Int8,
+    }
+}
+
+diesel::table! {
     strategies (id) {
         id -> Uuid,
         short_code -> Text,
@@ -571,6 +580,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     metadata_enum_options,
     repositories,
     scim_tokens,
+    short_code_sequences,
     strategies,
     tasks,
     team_announcements,

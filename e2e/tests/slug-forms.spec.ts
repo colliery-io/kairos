@@ -27,6 +27,15 @@ const REPOSITORY_SLUG_RULE =
   'Slug: 2 to 63 characters. The first character is a lowercase letter or a digit. Each ' +
   'other character is a lowercase letter, a digit or -. The slug cannot have the form of a UUID.';
 
+// COLLIERY-T-3099: the rule of the short-code prefix of a board.
+const PREFIX_RULE =
+  'Prefix: 2 to 10 characters. The first character is a capital letter. Each other character ' +
+  'is a capital letter or a digit. Each item on the board gets a code with the prefix, for ' +
+  'example SKADI-T-0001. The prefix does not change later.';
+const prefixRefusal = (prefix: string) =>
+  `The prefix "${prefix}" is not correct. A board prefix must match ^[A-Z][A-Z0-9]{1,9}$: a ` +
+  'capital letter, then 1 to 9 capital letters or digits. Send a different code_prefix.';
+
 const refusal = (kind: string, slug: string) =>
   `The ${kind} slug "${slug}" is not correct. A ${kind} slug must match ` +
   '^[a-z][a-z0-9_-]{1,62}$, and it cannot have the form of a UUID. Send a different slug.';
@@ -109,6 +118,15 @@ test('slug forms: each form gives the rule and shows the refusal below the field
     // The form keeps the values, and the other field has no refusal.
     await expect(field(form, 'Name').locator('input')).toHaveValue('Road map');
     await expect(field(form, 'Name').locator('.cl-field__error')).toHaveCount(0);
+    // COLLIERY-T-3099: the prefix of the delivery board of the team.
+    await expect(form.getByTestId('prefix-rule')).toHaveText(PREFIX_RULE);
+    await field(form, 'Slug').locator('input').fill('road-map');
+    await field(form, 'Prefix').locator('input').fill('road');
+    await form.getByRole('button', { name: 'Create team' }).click();
+    await expect(field(form, 'Prefix').locator('.cl-field__error')).toHaveText(
+      prefixRefusal('road'),
+      { timeout: 10_000 },
+    );
     await refusedInEditor(panel(page, 'All teams'), SLUG_RULE, '9lives', refusal('team', '9lives'));
   });
 
@@ -142,6 +160,17 @@ test('slug forms: each form gives the rule and shows the refusal below the field
       refusal('board', '_roadmap'),
       { timeout: 10_000 },
     );
+    // COLLIERY-T-3099: the form gives the rule of the prefix, and a
+    // refusal about the prefix shows below the field.
+    await expect(form.getByTestId('prefix-rule')).toHaveText(PREFIX_RULE);
+    await field(form, 'Slug').locator('input').fill('roadmap-prefix');
+    await field(form, 'Prefix').locator('input').fill('sk-adi');
+    await form.getByRole('button', { name: 'Create board' }).click();
+    await expect(field(form, 'Prefix').locator('.cl-field__error')).toHaveText(
+      prefixRefusal('sk-adi'),
+      { timeout: 10_000 },
+    );
+    await expect(field(form, 'Slug').locator('.cl-field__error')).toHaveCount(0);
   });
 
   await test.step('repositories: the create form and the editor of a row', async () => {

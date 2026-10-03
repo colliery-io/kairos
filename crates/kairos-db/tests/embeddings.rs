@@ -125,6 +125,7 @@ fn embedding_store_lifecycle() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )
@@ -187,6 +188,7 @@ fn embedding_store_lifecycle() {
         BoardLevel::Initiative,
         "Initiatives",
         "initiatives-embed",
+        kairos_db::CodePrefix::FromSlug,
         None,
         Some(alice),
     )

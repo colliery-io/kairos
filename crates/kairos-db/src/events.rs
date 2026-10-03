@@ -55,8 +55,8 @@
 //! The services run on connections whose `search_path` is pinned to the
 //! tenant schema and never receive the slug as an argument, so the tenant
 //! tag is derived from `current_schema()` (`org_{slug}` → `{slug}`) — the
-//! same derivation [`crate::items::next_short_code`] uses for the
-//! short-code prefix.
+//! same derivation [`crate::items::tenant_code_prefix`] uses for the
+//! prefix of an item with no board.
 
 use chrono::Utc;
 use diesel::pg::PgConnection;

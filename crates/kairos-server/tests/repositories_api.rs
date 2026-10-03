@@ -122,6 +122,7 @@ async fn repository_api_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await
@@ -130,6 +131,7 @@ async fn repository_api_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Web".into(),
             slug: "web".into(),
+            code_prefix: "WEB".into(),
             team_type: None,
         })
         .await
@@ -658,6 +660,7 @@ async fn open_tasks_count_a_linked_task_on_the_board_of_a_different_team() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await
@@ -666,6 +669,7 @@ async fn open_tasks_count_a_linked_task_on_the_board_of_a_different_team() {
         .create_team(&CreateTeamRequest {
             name: "Web".into(),
             slug: "web".into(),
+            code_prefix: "WEB".into(),
             team_type: None,
         })
         .await

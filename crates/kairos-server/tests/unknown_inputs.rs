@@ -409,7 +409,7 @@ async fn a_known_input_passes_and_a_refusal_writes_nothing_against_live_stack() 
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Platform", "slug": "platform"})),
+            Some(json!({"name": "Platform", "slug": "platform", "code_prefix": "PLATFORM"})),
         )
         .await;
     let team_id = team["id"].as_str().expect("team id").to_string();

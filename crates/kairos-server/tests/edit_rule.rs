@@ -443,6 +443,12 @@ async fn edit_rule_and_link_rule_against_live_stack() {
             svc.create_team(&CreateTeamRequest {
                 name: name.into(),
                 slug: slug.into(),
+                // Platform has the prefix of the tenant (COLLIERY-T-3099).
+                code_prefix: if slug == "platform" {
+                    "ACME".into()
+                } else {
+                    kairos_core::short_code::prefix_from_slug(slug)
+                },
                 team_type: None,
             })
             .await

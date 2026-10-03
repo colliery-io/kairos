@@ -375,9 +375,12 @@ fn seed_demo_fixture_lifecycle() {
     // --- force: drop + reseed ---------------------------------------------------
     let report = seed_demo(&mut conn, true).expect("forced reseed succeeds");
     assert!(report.recreated);
-    // Fresh schema: short-code sequences restarted at 0001.
+    // Fresh schema: short-code sequences restarted at 0001. Each delivery
+    // board has its own prefix (COLLIERY-T-3099).
     assert!(
-        report.short_codes.contains(&"DEMO-T-0001".to_string()),
+        report.short_codes.contains(&"DEMO-S-0001".to_string())
+            && report.short_codes.contains(&"PLATFORM-T-0001".to_string())
+            && report.short_codes.contains(&"WEB-T-0001".to_string()),
         "forced reseed restarts short codes: {:?}",
         report.short_codes
     );

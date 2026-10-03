@@ -116,6 +116,7 @@ async fn cascade_preview_matches_actual_cascade() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         None,
     )

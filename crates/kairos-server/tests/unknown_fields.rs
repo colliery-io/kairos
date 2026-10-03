@@ -246,7 +246,7 @@ async fn a_write_with_an_unknown_field_is_refused_against_live_stack() {
     // =======================================================================
     // The cast: a team with its board, 2 tasks, a repository, a definition
     // =======================================================================
-    let team_body = json!({"name": "Platform", "slug": "platform"});
+    let team_body = json!({"name": "Platform", "slug": "platform", "code_prefix": "PLATFORM"});
 
     // --- team create --------------------------------------------------------
     let before = (rows(&mut stack.conn, "teams"), activity(&mut stack.conn));
@@ -275,6 +275,7 @@ async fn a_write_with_an_unknown_field_is_refused_against_live_stack() {
         "name": "Second Strategy",
         "slug": "second-strategy",
         "board_level": "strategy",
+        "code_prefix": "SECOND",
     });
     let before = (rows(&mut stack.conn, "boards"), activity(&mut stack.conn));
     stack

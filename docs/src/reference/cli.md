@@ -576,13 +576,14 @@ kairos teams get <TEAM_ID> [OPTIONS]
 ### `kairos teams create`
 
 ```
-kairos teams create --name <NAME> --slug <SLUG> [OPTIONS]
+kairos teams create --name <NAME> --slug <SLUG> --code-prefix <PREFIX> [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `--name <NAME>` | string | required | Team name. |
 | `--slug <SLUG>` | string | required | Team slug. The team's delivery board becomes `{slug}-delivery`. |
+| `--code-prefix <PREFIX>` | string | required | The short-code prefix of the delivery board, for example `SKADI`. A capital letter, then 1 to 9 capital letters or digits. A task on the board gets the code `SKADI-T-0001`. The prefix does not change later. |
 | `--type <TEAM_TYPE>` | `stream_aligned` \| `platform` \| `enabling` \| `complicated_subsystem` | `stream_aligned` | Team Topologies type. |
 
 Creating a team also creates its delivery board.

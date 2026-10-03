@@ -134,6 +134,7 @@ impl Stack {
             .create_team(&CreateTeamRequest {
                 name: name.into(),
                 slug: slug.into(),
+                code_prefix: kairos_core::short_code::prefix_from_slug(slug),
                 team_type: None,
             })
             .await
@@ -224,6 +225,9 @@ fn old_delivery_board(conn: &mut PgConnection, name: &str, slug: &str, team: Uui
             slug: slug.into(),
             board_level: BoardLevel::Delivery,
             team_id: Some(team),
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(boards::id)
         .get_result(conn)

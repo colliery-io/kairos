@@ -142,6 +142,9 @@ fn old_board(conn: &mut PgConnection, slug: &str, level: BoardLevel, team: Optio
             slug: slug.into(),
             board_level: level,
             team_id: team,
+            // A prefix of its own (COLLIERY-T-3099).
+            code_prefix: format!("B{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+                .to_uppercase(),
         })
         .returning(Board::as_returning())
         .get_result(conn)
@@ -199,6 +202,7 @@ fn a_team_has_one_delivery_board() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform),
         Some(alice),
     )
@@ -211,6 +215,7 @@ fn a_team_has_one_delivery_board() {
         BoardLevel::Delivery,
         "Platform Two",
         "platform-two",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform),
         Some(alice),
     )
@@ -244,6 +249,7 @@ fn a_team_has_one_delivery_board() {
         BoardLevel::Delivery,
         "Data Delivery",
         "data-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(data),
         Some(alice),
     )
@@ -256,6 +262,7 @@ fn a_team_has_one_delivery_board() {
         BoardLevel::Delivery,
         "Platform Work",
         "platform-work",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform),
         Some(alice),
     )
@@ -283,6 +290,7 @@ fn a_team_has_one_delivery_board() {
                         BoardLevel::Delivery,
                         &format!("Race {round} {writer}"),
                         &format!("race-{round}-{writer}"),
+                        kairos_db::CodePrefix::FromSlug,
                         Some(team),
                         Some(alice),
                     )
@@ -318,6 +326,7 @@ fn the_only_delivery_board_of_a_team_is_not_deleted() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform),
         Some(alice),
     )
@@ -357,8 +366,16 @@ fn the_only_delivery_board_of_a_team_is_not_deleted() {
         (BoardLevel::Initiative, "second-initiatives"),
         (BoardLevel::Adr, "second-adrs"),
     ] {
-        let board = create_board(conn, level, slug, slug, None, Some(alice))
-            .unwrap_or_else(|e| panic!("a {level} board: {e}"));
+        let board = create_board(
+            conn,
+            level,
+            slug,
+            slug,
+            kairos_db::CodePrefix::FromSlug,
+            None,
+            Some(alice),
+        )
+        .unwrap_or_else(|e| panic!("a {level} board: {e}"));
         check_board_delete(conn, &board).unwrap_or_else(|e| panic!("a {level} board: {e}"));
     }
 
@@ -387,8 +404,16 @@ fn a_board_of_the_organization_has_no_team_id() {
         (BoardLevel::Initiative, "team-initiatives", "initiative"),
         (BoardLevel::Adr, "team-adrs", "adr"),
     ] {
-        let err = create_board(conn, level, slug, slug, Some(platform), Some(alice))
-            .expect_err("a board of the organization with a team");
+        let err = create_board(
+            conn,
+            level,
+            slug,
+            slug,
+            kairos_db::CodePrefix::FromSlug,
+            Some(platform),
+            Some(alice),
+        )
+        .expect_err("a board of the organization with a team");
         assert!(
             matches!(err, BoardError::OrganizationBoardHasNoTeam(l) if l == level),
             "{level}: {err}"
@@ -402,8 +427,16 @@ fn a_board_of_the_organization_has_no_team_id() {
         );
         assert_eq!(boards_with_slug(conn, slug), 0, "{level}");
         // With no team, the same create succeeds.
-        let board = create_board(conn, level, slug, slug, None, Some(alice))
-            .unwrap_or_else(|e| panic!("a {level} board with no team: {e}"));
+        let board = create_board(
+            conn,
+            level,
+            slug,
+            slug,
+            kairos_db::CodePrefix::FromSlug,
+            None,
+            Some(alice),
+        )
+        .unwrap_or_else(|e| panic!("a {level} board with no team: {e}"));
         assert_eq!(board.team_id, None);
     }
     // The team did not use its one delivery board.
@@ -426,6 +459,7 @@ fn the_team_of_a_board_does_not_change() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform),
         Some(alice),
     )
@@ -435,6 +469,7 @@ fn the_team_of_a_board_does_not_change() {
         BoardLevel::Strategy,
         "Second Strategy",
         "second-strategy",
+        kairos_db::CodePrefix::FromSlug,
         None,
         Some(alice),
     )

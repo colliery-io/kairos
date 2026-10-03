@@ -305,6 +305,19 @@ pub(crate) const REPOSITORY_SLUG_HINT: &str = "Slug: 2 to 63 characters. The fir
 /// The fields of a form that has a slug only.
 pub(crate) const SLUG_FIELD: [&str; 1] = ["slug"];
 
+/// The rule of the short-code prefix of a board, below the field `Prefix`
+/// of a form (COLLIERY-T-3099). A mirror of
+/// `kairos_core::short_code::is_valid_prefix`.
+pub(crate) const PREFIX_HINT: &str = "Prefix: 2 to 10 characters. The first character is a \
+                                      capital letter. Each other character is a capital letter \
+                                      or a digit. Each item on the board gets a code with the \
+                                      prefix, for example SKADI-T-0001. The prefix does not \
+                                      change later.";
+
+/// The fields of a form that makes a board: the slug and the prefix
+/// (COLLIERY-T-3099).
+pub(crate) const BOARD_FORM_FIELDS: [&str; 2] = ["slug", "code_prefix"];
+
 /// Whether a form with the fields `fields` shows `refusal` below one of
 /// them (COLLIERY-T-0265). Each other refusal goes to the notice of the
 /// page. Pure, host-tested.

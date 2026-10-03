@@ -140,6 +140,7 @@ A board (`/api/boards` list element).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board_level` | `string` | yes | `strategy|initiative|delivery|adr`. |
+| `code_prefix` | `string` | yes | The short-code prefix of the board (COLLIERY-T-3099): an item on the board gets a code `{code_prefix}-{type letter}-{number}`. It is set when the board is created and never changes. The default is for the client only: a response of an older server has no prefix. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Board id (UUID). |
 | `name` | `string` | yes |  |
@@ -297,6 +298,7 @@ Body of `POST /api/boards`: creates a board seeded with the system default colum
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board_level` | `string` | yes | `strategy|initiative|delivery|adr`. |
+| `code_prefix` | `string` | yes | The short-code prefix of the board (COLLIERY-T-3099). Required. It must match `^[A-Z][A-Z0-9]{1,9}$`, and no live board of the same level can have it: each pair (prefix, type) is unique, and the level gives the types of a board. It never changes. A bad prefix is a 422 `VALIDATION` with `details.field` = `code_prefix`. A prefix that a live board of the same level has is a 409 `CONFLICT` that names that board. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 | `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Leave it out for a board of the organization. |
@@ -513,6 +515,7 @@ Body of `POST /api/teams`. Creating a team also creates its delivery board (slug
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `code_prefix` | `string` | yes | The short-code prefix of the delivery board of the team (COLLIERY-T-3099). Required. The rules are those of `code_prefix` in `POST /api/boards`. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
 | `team_type` | `string`, nullable | no | `stream_aligned|platform|enabling|complicated_subsystem`; defaults to `stream_aligned`. |

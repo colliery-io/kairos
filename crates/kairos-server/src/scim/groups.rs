@@ -632,11 +632,18 @@ pub(crate) async fn create_group(
                 })?;
             // The team's delivery board is created WITH the team, from the
             // seeded defaults — the same rule as POST /api/teams.
+            //
+            // COLLIERY-T-3099: a SCIM group has no field for the prefix of
+            // the board. The prefix comes from the slug of the team, with a
+            // number at the end when a delivery board has it.
+            let code_prefix = boards::free_code_prefix(conn, &team.slug, BoardLevel::Delivery)
+                .map_err(ScimError::internal)?;
             boards::create_board(
                 conn,
                 BoardLevel::Delivery,
                 &format!("{} Delivery", team.name),
                 &format!("{}-delivery", team.slug),
+                boards::CodePrefix::Given(&code_prefix),
                 Some(team.id),
                 Some(ctx.actor_id),
             )

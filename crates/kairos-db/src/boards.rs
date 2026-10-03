@@ -28,6 +28,7 @@ use diesel::result::Error as DieselError;
 use uuid::Uuid;
 
 use kairos_core::board as rules;
+use kairos_core::short_code::{self, ItemType};
 
 use crate::models::boards::{Board, BoardColumn, NewBoard, NewBoardColumn, NewBoardTransition};
 use crate::models::enums::{ActivityAction, BoardLevel};
@@ -127,6 +128,30 @@ pub enum BoardError {
         slug: String,
         board_id: Uuid,
         board_name: String,
+    },
+    /// `create_board`: the prefix does not match
+    /// [`kairos_core::short_code::PREFIX_RULE`] (COLLIERY-T-3099).
+    #[error(
+        "The prefix {0:?} is not correct. A board prefix must match {rule}: a capital letter, \
+         then 1 to 9 capital letters or digits. Send a different code_prefix.",
+        rule = kairos_core::short_code::PREFIX_RULE
+    )]
+    InvalidCodePrefix(String),
+    /// `create_board`: a live board of the same level has the prefix
+    /// (COLLIERY-T-3099). The level of a board gives the types that it
+    /// holds, and each pair (prefix, type) is unique among the live boards,
+    /// so that a code names one board. Carries the board that has it.
+    #[error(
+        "The live board {board_slug:?} has the prefix {code_prefix:?} for {}. Two live \
+         boards cannot have the same prefix for the same type. Send a different code_prefix.",
+        held_types(*level)
+    )]
+    CodePrefixTaken {
+        code_prefix: String,
+        level: BoardLevel,
+        board_id: Uuid,
+        board_name: String,
+        board_slug: String,
     },
     /// No `system_board_defaults` row is seeded for this level.
     #[error("The table system_board_defaults has no row for the level {0}.")]
@@ -493,6 +518,117 @@ pub fn check_board_team(board: &Board, sent: Option<Option<Uuid>>) -> Result<(),
 }
 
 // ---------------------------------------------------------------------------
+// The prefix of a board (COLLIERY-T-3099)
+// ---------------------------------------------------------------------------
+
+/// The prefix of a new board: the value that an admin sent, or a prefix
+/// from the slug of the board for an entry point that has no admin to
+/// choose (a SCIM group, the demo seed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodePrefix<'a> {
+    /// The prefix that the caller sent. It must match
+    /// [`kairos_core::short_code::PREFIX_RULE`], and no live board of the
+    /// same level can have it.
+    Given(&'a str),
+    /// [`free_code_prefix`] of the slug of the board.
+    FromSlug,
+}
+
+/// The item types that a board of `level` holds (COLLIERY-T-3099). The sets
+/// of the levels do not overlap, so a unique (prefix, level) of the live
+/// boards gives a unique (prefix, type).
+///
+/// A document of a board of each level takes the prefix of its board. The
+/// rule counts the documents for the delivery boards only: a document of a
+/// different board shares the sequence of its prefix, so its code is
+/// unique.
+pub fn level_item_types(level: BoardLevel) -> &'static [ItemType] {
+    match level {
+        BoardLevel::Strategy => &[ItemType::Strategy],
+        BoardLevel::Initiative => &[ItemType::Initiative],
+        BoardLevel::Delivery => &[ItemType::Task, ItemType::Document],
+        BoardLevel::Adr => &[ItemType::Adr],
+    }
+}
+
+/// The words for the types of [`level_item_types`], for a refusal.
+fn held_types(level: BoardLevel) -> &'static str {
+    match level {
+        BoardLevel::Strategy => "strategies",
+        BoardLevel::Initiative => "initiatives",
+        BoardLevel::Delivery => "tasks and documents",
+        BoardLevel::Adr => "ADRs",
+    }
+}
+
+/// The name of the partial unique index on (prefix, level) of a live board
+/// (migration `board_code_prefixes`).
+const LIVE_CODE_PREFIX_INDEX: &str = "boards_live_code_prefix_key";
+
+/// The live board of `level` that has `prefix`, if one has it.
+fn live_board_with_prefix(
+    conn: &mut PgConnection,
+    prefix: &str,
+    level: BoardLevel,
+) -> Result<Option<Board>, DieselError> {
+    use crate::schema::boards::dsl;
+    dsl::boards
+        .filter(dsl::code_prefix.eq(prefix))
+        .filter(dsl::board_level.eq(level))
+        .filter(dsl::deleted_at.is_null())
+        .select(Board::as_select())
+        .first(conn)
+        .optional()
+}
+
+/// Refuse a prefix for a new board of `level` (COLLIERY-T-3099): a prefix
+/// that does not match the rule ([`BoardError::InvalidCodePrefix`]), or a
+/// prefix that a live board of the same level has
+/// ([`BoardError::CodePrefixTaken`], which names that board).
+///
+/// The index `boards_live_code_prefix_key` is the rule for two creates at
+/// the same time, and [`create_board`] gives its refusal the same form.
+pub fn check_code_prefix(
+    conn: &mut PgConnection,
+    prefix: &str,
+    level: BoardLevel,
+) -> Result<(), BoardError> {
+    if !short_code::is_valid_prefix(prefix) {
+        return Err(BoardError::InvalidCodePrefix(prefix.to_string()));
+    }
+    match live_board_with_prefix(conn, prefix, level)? {
+        Some(board) => Err(BoardError::CodePrefixTaken {
+            code_prefix: prefix.to_string(),
+            level,
+            board_id: board.id,
+            board_name: board.name,
+            board_slug: board.slug,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// A prefix for a new board of `level` from `slug`, that no live board of
+/// that level has: [`kairos_core::short_code::prefix_from_slug`], with a
+/// number at the end when a board has it (`WEB`, `WEB2`, `WEB3`, ...). The
+/// rule of the migration `board_code_prefixes` for a board with no Metis
+/// footer.
+pub fn free_code_prefix(
+    conn: &mut PgConnection,
+    slug: &str,
+    level: BoardLevel,
+) -> Result<String, DieselError> {
+    let base = short_code::prefix_from_slug(slug);
+    let mut candidate = base.clone();
+    let mut n = 2;
+    while live_board_with_prefix(conn, &candidate, level)?.is_some() {
+        candidate = short_code::numbered_prefix(&base, n);
+        n += 1;
+    }
+    Ok(candidate)
+}
+
+// ---------------------------------------------------------------------------
 // Board creation (defaults seeding, KAIROS-A-0002)
 // ---------------------------------------------------------------------------
 
@@ -558,11 +694,24 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
 /// and not a unique index: a tenant can have a team with two delivery
 /// boards in old data, and the migration that adds the index fails on that
 /// tenant.
+///
+/// # Each board has a prefix (COLLIERY-T-3099)
+///
+/// `code_prefix` gives the short-code prefix of the board, which never
+/// changes. A [`CodePrefix::Given`] prefix that does not match the rule is
+/// refused with [`BoardError::InvalidCodePrefix`]. A prefix that a live
+/// board of the same level has is refused with
+/// [`BoardError::CodePrefixTaken`], which names that board: each pair
+/// (prefix, type) is unique among the live boards
+/// ([`level_item_types`]). The index `boards_live_code_prefix_key` is the
+/// rule for two creates at the same time. The create also makes the row of
+/// `short_code_sequences` for each type of the board, if it is not there.
 pub fn create_board(
     conn: &mut PgConnection,
     level: BoardLevel,
     name: &str,
     slug: &str,
+    code_prefix: CodePrefix<'_>,
     team_id: Option<Uuid>,
     actor: Option<Uuid>,
 ) -> Result<Board, BoardError> {
@@ -572,12 +721,25 @@ pub fn create_board(
     if level != BoardLevel::Delivery && team_id.is_some() {
         return Err(BoardError::OrganizationBoardHasNoTeam(level));
     }
+    if let CodePrefix::Given(prefix) = code_prefix
+        && !short_code::is_valid_prefix(prefix)
+    {
+        return Err(BoardError::InvalidCodePrefix(prefix.to_string()));
+    }
+    let mut chosen_prefix = String::new();
     let created = conn.transaction::<_, BoardError, _>(|conn| {
         use crate::schema::system_board_defaults;
         use crate::schema::{board_columns, board_transitions, boards};
 
         // COLLIERY-T-0255: two live boards cannot have the same slug.
         check_board_slug(conn, slug, None)?;
+
+        // COLLIERY-T-3099: the prefix of the board.
+        chosen_prefix = match code_prefix {
+            CodePrefix::Given(prefix) => prefix.to_string(),
+            CodePrefix::FromSlug => free_code_prefix(conn, slug, level)?,
+        };
+        check_code_prefix(conn, &chosen_prefix, level)?;
 
         if let Some(team_id) = team_id {
             lock_team(conn, team_id)?;
@@ -605,9 +767,13 @@ pub fn create_board(
                 slug: slug.to_string(),
                 board_level: level,
                 team_id,
+                code_prefix: chosen_prefix.clone(),
             })
             .returning(Board::as_returning())
             .get_result(conn)?;
+        for item_type in level_item_types(level) {
+            crate::items::ensure_code_sequence(conn, &board.code_prefix, *item_type)?;
+        }
 
         let mut column_ids: HashMap<&str, Uuid> = HashMap::new();
         for (position, column) in config.columns.iter().enumerate() {
@@ -647,12 +813,29 @@ pub fn create_board(
         }
         Ok(board)
     });
-    // A create at the same time got the slug first: the index refused this
-    // one. The transaction is rolled back, so the read is permitted.
+    // A create at the same time got the slug or the prefix first: the index
+    // refused this one. The transaction is rolled back, so the read is
+    // permitted.
     created.map_err(|e| match e {
+        BoardError::Database(db) if is_code_prefix_violation(&db) => {
+            match check_code_prefix(conn, &chosen_prefix, level) {
+                Err(taken) => taken,
+                Ok(()) => BoardError::Database(db),
+            }
+        }
         BoardError::Database(db) => slug_violation(conn, slug, None, db),
         e => e,
     })
+}
+
+/// True for the refusal of the database that the index of the prefix
+/// gives.
+fn is_code_prefix_violation(e: &DieselError) -> bool {
+    matches!(
+        e,
+        DieselError::DatabaseError(diesel::result::DatabaseErrorKind::UniqueViolation, info)
+            if info.constraint_name() == Some(LIVE_CODE_PREFIX_INDEX)
+    )
 }
 
 // ---------------------------------------------------------------------------

@@ -275,6 +275,7 @@ async fn ws_events_against_live_stack() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         None,
     )
@@ -290,6 +291,7 @@ async fn ws_events_against_live_stack() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         None,
     )
@@ -403,6 +405,7 @@ async fn ws_events_against_live_stack() {
         BoardLevel::Delivery,
         "Second Delivery",
         "second-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(second_delivery_team),
         None,
     )

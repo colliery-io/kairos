@@ -248,6 +248,7 @@ async fn completed_work_does_not_block_and_is_not_blocked() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(platform_delivery_team),
         None,
     )

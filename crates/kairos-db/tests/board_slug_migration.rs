@@ -125,10 +125,12 @@ fn old_board_with_id(
 ) {
     let at = format!("2026-01-{created:02}T00:00:00Z");
     sql_query(
-        "INSERT INTO boards (id, name, slug, board_level, deleted_at, created_at, updated_at) \
+        "INSERT INTO boards (id, name, slug, board_level, deleted_at, created_at, updated_at, \
+                             code_prefix) \
          VALUES ($1, $2, $3, 'initiative', \
                  CASE WHEN $4 THEN NULL ELSE $5::timestamptz END, \
-                 $5::timestamptz, $5::timestamptz)",
+                 $5::timestamptz, $5::timestamptz, \
+                 'B' || upper(substr(md5(random()::text), 1, 8)))",
     )
     .bind::<SqlUuid, _>(id)
     .bind::<Text, _>(name)
@@ -338,8 +340,9 @@ fn old_board_insert(
     live: bool,
 ) -> Result<usize, diesel::result::Error> {
     sql_query(
-        "INSERT INTO boards (name, slug, board_level, deleted_at) \
-         VALUES ('A new board', $1, 'initiative', CASE WHEN $2 THEN NULL ELSE now() END)",
+        "INSERT INTO boards (name, slug, board_level, deleted_at, code_prefix) \
+         VALUES ('A new board', $1, 'initiative', CASE WHEN $2 THEN NULL ELSE now() END, \
+                 'B' || upper(substr(md5(random()::text), 1, 8)))",
     )
     .bind::<Text, _>(slug)
     .bind::<diesel::sql_types::Bool, _>(live)
@@ -358,6 +361,7 @@ fn the_migration_changes_nothing_on_a_tenant_without_duplicates() {
         BoardLevel::Initiative,
         "Roadmap",
         "roadmap",
+        kairos_db::CodePrefix::FromSlug,
         None,
         None,
     )
@@ -391,6 +395,7 @@ fn create_board_refuses_the_slug_of_a_live_board() {
         BoardLevel::Initiative,
         "Roadmap",
         "roadmap",
+        kairos_db::CodePrefix::FromSlug,
         None,
         None,
     )
@@ -401,6 +406,7 @@ fn create_board_refuses_the_slug_of_a_live_board() {
         BoardLevel::Strategy,
         "A second roadmap",
         "roadmap",
+        kairos_db::CodePrefix::FromSlug,
         None,
         None,
     ) {
@@ -444,6 +450,7 @@ fn create_board_refuses_the_slug_of_a_live_board() {
         BoardLevel::Strategy,
         "A second roadmap",
         "roadmap",
+        kairos_db::CodePrefix::FromSlug,
         None,
         None,
     )

@@ -85,9 +85,9 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await page.locator('.kairos-board-tile', { hasText: 'Platform Delivery' }).click();
     await page.waitForURL(/\/boards\/platform-delivery/);
     // Seeded placements (crates/kairos-db/src/seed.rs):
-    await expect(cardIn(page, 'Active', 'DEMO-T-0002')).toBeVisible();
-    await expect(cardIn(page, 'Todo', 'DEMO-T-0003')).toBeVisible();
-    await expect(cardIn(page, 'Backlog', 'DEMO-T-0006')).toBeVisible();
+    await expect(cardIn(page, 'Active', 'PLATFORM-T-0001')).toBeVisible();
+    await expect(cardIn(page, 'Todo', 'PLATFORM-T-0002')).toBeVisible();
+    await expect(cardIn(page, 'Backlog', 'PLATFORM-T-0004')).toBeVisible();
   });
 
   // 4. Create a task via the GLOBAL header action (KAIROS-T-0062):
@@ -148,10 +148,10 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await watchedCard.evaluate((el) => ((el as any).__kairosStamp = 'alive'));
 
     const token = await mintToken({ server: GUI });
-    // Move some other seeded task (never DEMO-T-0002 — the edit step below
+    // Move some other seeded task (never PLATFORM-T-0001 — the edit step below
     // needs it stationary in Active — and never the created card whose
     // DOM node we are watching). Dynamic pick keeps this retry-safe.
-    const move = await pickMovableTask(GUI, token, ['DEMO-T-0002', createdCode]);
+    const move = await pickMovableTask(GUI, token, ['PLATFORM-T-0001', createdCode]);
     await transitionTask(GUI, token, move.code, move.toColumnId);
 
     // WS-driven: expect-polling, no sleeps.
@@ -169,10 +169,10 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
   await test.step('item detail edit, save, and 409 merge path', async () => {
     // Navigate in-app (preserve the in-memory session): click the card's
     // short code (KAIROS-T-0076 — the identifier is the link).
-    await cardIn(page, 'Active', 'DEMO-T-0002')
+    await cardIn(page, 'Active', 'PLATFORM-T-0001')
       .locator('a.kairos-card__code')
       .click();
-    await page.waitForURL(/\/items\/DEMO-T-0002/);
+    await page.waitForURL(/\/items\/PLATFORM-T-0001/);
     const editor = page.locator('.kairos-editor');
     const contentArea = editor.locator('textarea.kairos-editor__textarea');
     await expect(contentArea).toBeVisible();
@@ -208,13 +208,13 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
 
     // The page refetched; wait for the editor to settle on the saved version.
     const token = await mintToken({ server: GUI });
-    const saved = await getTask(GUI, token, 'DEMO-T-0002');
+    const saved = await getTask(GUI, token, 'PLATFORM-T-0001');
     await expect(editor.getByText(`editing v${saved.version}`)).toBeVisible();
 
     // --- force a 409 via API mid-edit ---
     await contentArea.fill(`My conflicting edit ${Date.now()}`);
     const serverContent = `Server won ${Date.now()}`;
-    await patchTask(GUI, token, 'DEMO-T-0002', {
+    await patchTask(GUI, token, 'PLATFORM-T-0001', {
       title: saved.title,
       content: serverContent,
       version: saved.version,

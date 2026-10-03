@@ -19,8 +19,8 @@ use super::api;
 use super::capabilities::{CapabilityEditor, CapabilityPills, EditorState};
 use super::gating;
 use super::{
-    MutationNotice, MutationOutcome, SLUG_FIELD, SLUG_HINT, refusal_for, run_form_mutation,
-    run_mutation,
+    BOARD_FORM_FIELDS, MutationNotice, MutationOutcome, PREFIX_HINT, SLUG_HINT, refusal_for,
+    run_form_mutation, run_mutation,
 };
 use crate::auth::use_auth;
 
@@ -146,6 +146,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
     // Create form state.
     let name = RwSignal::new(String::new());
     let slug = RwSignal::new(String::new());
+    let code_prefix = RwSignal::new(String::new());
     let level = RwSignal::new("initiative".to_string());
     let team_slug = RwSignal::new(String::new());
     // COLLIERY-T-0265: the refusal of the create form that is about a
@@ -162,10 +163,11 @@ pub fn AdminBoardsPage() -> impl IntoView {
                     .find(|team| team.slug == team_slug.get_untracked())
                     .map(|team| team.id.clone())
             });
-        let (n, s, l) = (
+        let (n, s, l, p) = (
             name.get_untracked(),
             slug.get_untracked(),
             level.get_untracked(),
+            code_prefix.get_untracked(),
         );
         let team_id = team_for_level(&l, team_id);
         // COLLIERY-T-0230: a delivery board needs a team. The server
@@ -181,10 +183,10 @@ pub fn AdminBoardsPage() -> impl IntoView {
             outcome,
             reload,
             refused,
-            &SLUG_FIELD,
+            &BOARD_FORM_FIELDS,
             format!("Kairos made the board \"{n}\" with the default columns of the level {l}."),
             async move {
-                api::create_board(auth, &n, &s, &l, team_id.as_deref())
+                api::create_board(auth, &n, &s, &l, team_id.as_deref(), &p)
                     .await
                     .map(|_| ())
             },
@@ -226,6 +228,10 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     <Anchor href=config_href>{board.name.clone()}</Anchor>
                                     <Code>{board.slug.clone()}</Code>
                                     <Pill color=token::TEAL>{board.board_level.clone()}</Pill>
+                                    // COLLIERY-T-3099: the prefix of the codes.
+                                    <Code attr:data-testid="board-prefix">
+                                        {board.code_prefix.clone()}
+                                    </Code>
                                 </Group>
                                 // Delete is org-admin-only (KAIROS-T-0052).
                                 <Show when=move || is_admin()>
@@ -285,9 +291,15 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     placeholder="e.g. platform-initiatives"
                                     error=refusal_for(refused, "slug")/>
                             }}
+                            {move || view! {
+                                <TextInput label="Prefix" value=code_prefix
+                                    placeholder="e.g. PLAT"
+                                    error=refusal_for(refused, "code_prefix")/>
+                            }}
                             <Select label="Level" options=LEVELS.iter().map(|l| l.to_string()).collect() value=level/>
                         </Group>
                         <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
+                        <Text dimmed=true size="xs" attr:data-testid="prefix-rule">{PREFIX_HINT}</Text>
                         <Show when=move || level.get() == "delivery">
                             {move || {
                                 let options = match teams.get() {
@@ -355,6 +367,10 @@ pub fn AdminBoardPage() -> impl IntoView {
                         <Group gap="sm">
                             <Code>{detail.board.slug.clone()}</Code>
                             <Pill color=token::TEAL>{detail.board.board_level.clone()}</Pill>
+                            // COLLIERY-T-3099: the prefix of the codes.
+                            <Text size="xs" dimmed=true attr:data-testid="board-prefix">
+                                {format!("Prefix {}", detail.board.code_prefix)}
+                            </Text>
                             <Anchor href="/admin/boards">"All boards"</Anchor>
                         </Group>
                         <MutationNotice outcome/>
@@ -933,6 +949,7 @@ mod tests {
             slug: id.to_string(),
             board_level: level.to_string(),
             team_id: team_id.map(str::to_string),
+            code_prefix: id.to_uppercase(),
         }
     }
 

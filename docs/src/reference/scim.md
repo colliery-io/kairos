@@ -137,6 +137,12 @@ No other `displayName` is meaningful, and Kairos accepts no other `displayName`.
 a UUID. This is the rule of a team [slug](glossary.md#slug) of the REST API.
 `GET /scim/v2/Groups` lists every live team, not only the SCIM-created ones.
 
+A group has no field for the short-code prefix of the delivery board. Kairos
+makes the prefix from the letters and digits of the team slug, in capitals. The
+prefix has 10 characters at most. `kairos-team-platform` gives `PLATFORM`. If a
+live
+delivery board has that prefix, Kairos adds a number (`PLATFORM2`).
+
 Group members must already be provisioned Users of *this* tenant. A
 `public.users` row is not enough. A member who is not one is 400
 `invalidValue`. Push Users before group memberships; issuers do this naturally.

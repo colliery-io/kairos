@@ -54,14 +54,27 @@ slug of a live board is a 409 `CONFLICT`. The refusal names the slug
 and the board that has it (`details.slug`, `details.board`). A deleted
 board does not keep its slug.
 
+Each board has a short-code prefix, `code_prefix` (COLLIERY-T-3099). It
+is required, and it never changes. An item on the board gets the code
+`{code_prefix}-{type letter}-{number}`. The number comes from the
+sequence of the prefix and the type.
+
+A prefix that does not match `^[A-Z][A-Z0-9]{1,9}$` is a 422
+`VALIDATION` with `details.field` = `code_prefix`.
+
+Boards can share a prefix when they hold different types. The level
+gives the types. A prefix that a live board of the same level has is a
+409 `CONFLICT`. The refusal names the prefix and the board that has it
+(`details.code_prefix`, `details.board`).
+
 Request body (required): `application/json`, [`CreateBoardRequest`](schemas.md#createboardrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`BoardDetail`](schemas.md#boarddetail) | Created, with the seeded configuration |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
-| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug; details.board names it |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, a slug that does not have the form of a board slug, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug, or a live board of the same level has the prefix; details.board names it |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD |
 
 ### `GET /api/boards/{id}`
 
@@ -421,14 +434,21 @@ A live board can have the slug `{slug}-delivery` already
 (COLLIERY-T-0255). Then the request is a 409 `CONFLICT` that names that
 board, and the server creates no team.
 
+`code_prefix` is the short-code prefix of the delivery board
+(COLLIERY-T-3099). It is required. A prefix that does not match
+`^[A-Z][A-Z0-9]{1,9}$` is a 422 `VALIDATION` with `details.field` =
+`code_prefix`. A prefix that a live delivery board has is a 409
+`CONFLICT` that names that board. In each case the server creates no
+team.
+
 Request body (required): `application/json`, [`CreateTeamRequest`](schemas.md#createteamrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Team`](schemas.md#team) | Created; delivery_board_id names the team's new board |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
-| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live team has the slug, or a live board has the slug of the delivery board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type, or the slug does not have the form of a slug |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live team has the slug, a live board has the slug of the delivery board, or a live delivery board has the prefix |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Bad team_type, the slug does not have the form of a slug, or the code_prefix is absent or does not match the rule |
 
 ### `GET /api/teams/by-slug/{slug}`
 

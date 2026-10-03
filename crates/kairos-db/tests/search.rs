@@ -225,6 +225,7 @@ fn unified_search_pipeline() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(auth_team.id),
         Some(alice),
     )
@@ -239,6 +240,7 @@ fn unified_search_pipeline() {
         BoardLevel::Delivery,
         "Scratch",
         "scratch",
+        kairos_db::CodePrefix::FromSlug,
         Some(scratch_team),
         Some(alice),
     )
@@ -351,6 +353,7 @@ fn unified_search_pipeline() {
         BoardLevel::Delivery,
         "Relevance",
         "relevance",
+        kairos_db::CodePrefix::FromSlug,
         Some(relevance_team),
         Some(alice),
     )

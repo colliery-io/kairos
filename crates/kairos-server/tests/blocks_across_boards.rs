@@ -134,9 +134,17 @@ async fn a_board_hears_a_blocker_on_a_different_board() {
     let board = |conn: &mut PgConnection, name: &str, slug: &str| {
         // COLLIERY-T-0230: a delivery board always has a team.
         let team = common::seed_team(conn, &format!("{name} Team"), &format!("{slug}-team"));
-        boards::create_board(conn, BoardLevel::Delivery, name, slug, Some(team), None)
-            .expect("creating a delivery board")
-            .id
+        boards::create_board(
+            conn,
+            BoardLevel::Delivery,
+            name,
+            slug,
+            kairos_db::CodePrefix::FromSlug,
+            Some(team),
+            None,
+        )
+        .expect("creating a delivery board")
+        .id
     };
     // `watched` holds the cards under test. `elsewhere` holds the work at
     // the other end of their `blocks` edges.

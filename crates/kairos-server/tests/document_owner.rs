@@ -706,6 +706,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             svc.create_team(&CreateTeamRequest {
                 name: name.into(),
                 slug: slug.into(),
+                code_prefix: kairos_core::short_code::prefix_from_slug(slug),
                 team_type: None,
             })
             .await

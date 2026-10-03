@@ -16,6 +16,11 @@ them reachable, and give them the fields they fill in.
   cannot change the team of a board.
 - A strategy, initiative or ADR board has no team. Do not send `team_id` for
   these boards.
+- A new board needs a short-code prefix, for example `PLAT`. Send it as
+  `code_prefix`. It has 2 to 10 capital letters or digits, and the first
+  character is a letter. Each item on the board gets a code with the prefix
+  (`PLAT-T-0001`). The prefix does not change later. Two live boards of the
+  same level cannot have the same prefix (409 `CONFLICT`).
 - You hold `configure_boards` on that board, or you are an org admin. Steps 1
   to 3 return 403 without it.
 - **Step 4 needs org admin specifically.** Metadata definitions are

@@ -113,6 +113,7 @@ fn related_work_proposes_and_degrades() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_team),
         Some(alice),
     )
@@ -123,6 +124,7 @@ fn related_work_proposes_and_degrades() {
         BoardLevel::Initiative,
         "Initiatives",
         "related-initiatives",
+        kairos_db::CodePrefix::FromSlug,
         None,
         Some(alice),
     )

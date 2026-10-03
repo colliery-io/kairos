@@ -255,6 +255,8 @@ async fn file_backlog_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            // The prefix of the tenant (COLLIERY-T-3099).
+            code_prefix: "ACME".into(),
             team_type: None,
         })
         .await
@@ -263,6 +265,7 @@ async fn file_backlog_against_live_stack() {
         .create_team(&CreateTeamRequest {
             name: "Web".into(),
             slug: "web".into(),
+            code_prefix: "WEB".into(),
             team_type: None,
         })
         .await
@@ -1148,7 +1151,8 @@ async fn file_backlog_against_live_stack() {
         )
         .await;
     assert!(!is_error, "{text}");
-    let code_start = text.find("ACME-T-").expect("short code in the reply");
+    // The board of Web has the prefix WEB (COLLIERY-T-3099).
+    let code_start = text.find("WEB-T-").expect("short code in the reply");
     let code: String = text[code_start..]
         .chars()
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')

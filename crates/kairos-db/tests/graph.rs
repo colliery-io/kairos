@@ -224,6 +224,9 @@ fn relationship_graph_service() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant: it holds tasks, and the boards of the
+        // tenant hold the other types (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(delivery_team),
         Some(alice),
     )
@@ -803,6 +806,7 @@ fn children_progress_rollups() {
         BoardLevel::Delivery,
         "Delivery A",
         "delivery-a",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_a_team),
         Some(alice),
     )
@@ -815,6 +819,7 @@ fn children_progress_rollups() {
         BoardLevel::Delivery,
         "Delivery B",
         "delivery-b",
+        kairos_db::CodePrefix::FromSlug,
         Some(delivery_b_team),
         Some(alice),
     )
@@ -1004,6 +1009,9 @@ fn focal_subgraph_contract() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant: it holds tasks, and the boards of the
+        // tenant hold the other types (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(delivery_team),
         Some(alice),
     )
@@ -1286,6 +1294,9 @@ fn archived_children_are_listed_marked_but_never_counted() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant: it holds tasks, and the boards of the
+        // tenant hold the other types (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(delivery_team),
         Some(alice),
     )
@@ -1478,6 +1489,9 @@ fn done_work_does_not_block_and_is_not_blocked() {
         BoardLevel::Delivery,
         "Delivery",
         "delivery",
+        // The prefix of the tenant: it holds tasks, and the boards of the
+        // tenant hold the other types (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(delivery_team),
         Some(alice),
     )

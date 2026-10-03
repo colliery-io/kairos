@@ -382,6 +382,21 @@ pub fn map_config_error(e: BoardError) -> ApiError {
             "slug": slug,
             "board": { "id": board_id, "name": board_name },
         })),
+        // COLLIERY-T-3099: the prefix of a new board.
+        e @ BoardError::InvalidCodePrefix(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "code_prefix" }))
+        }
+        BoardError::CodePrefixTaken {
+            ref code_prefix,
+            board_id,
+            ref board_name,
+            ref board_slug,
+            ..
+        } => ApiError::conflict(e.to_string()).with_details(json!({
+            "field": "code_prefix",
+            "code_prefix": code_prefix,
+            "board": { "id": board_id, "name": board_name, "slug": board_slug },
+        })),
         e @ (BoardError::MissingDefaults(_) | BoardError::InvalidDefaults { .. }) => {
             // Provisioning seeds all four default configs; absence is an
             // operator/data problem, not a client mistake.

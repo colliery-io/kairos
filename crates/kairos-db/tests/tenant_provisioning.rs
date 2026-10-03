@@ -41,7 +41,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 36] = [
+const EXPECTED_TABLES: [&str; 37] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -74,6 +74,8 @@ const EXPECTED_TABLES: [&str; 36] = [
     "metadata_enum_options",
     "repositories",
     "scim_tokens",
+    // COLLIERY-T-3099: the sequence of each (prefix, type).
+    "short_code_sequences",
     "strategies",
     "tasks",
     "team_announcements",
@@ -103,8 +105,10 @@ const EXPECTED_SEQUENCES: [&str; 5] = [
 /// block no longer re-pins (KAIROS-T-0093), and it now compares the whole schema
 /// rather than named objects — so this list is a readable statement of what a
 /// tenant carries, not a rescue from a test that kept forgetting.
-const EXPECTED_INDEXES: [&str; 23] = [
+const EXPECTED_INDEXES: [&str; 24] = [
     "board_columns_live_name_key",
+    // COLLIERY-T-3099: (prefix, level) is unique among the live boards.
+    "boards_live_code_prefix_key",
     "board_columns_live_position_key",
     "idx_activity_log_actor",
     "idx_activity_log_entity",

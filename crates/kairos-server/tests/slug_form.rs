@@ -208,7 +208,7 @@ async fn a_sent_team_slug_has_the_form_of_a_slug_against_live_stack() {
             .send(
                 Method::POST,
                 "/api/teams",
-                Some(json!({"name": "Payments", "slug": slug})),
+                Some(json!({"name": "Payments", "slug": slug, "code_prefix": kairos_core::short_code::prefix_from_slug(&slug)})),
             )
             .await;
         // THE DEFECT: before COLLIERY-T-0260 each of these creates gave 201.
@@ -229,7 +229,7 @@ async fn a_sent_team_slug_has_the_form_of_a_slug_against_live_stack() {
             .ok(
                 Method::POST,
                 "/api/teams",
-                Some(json!({"name": "Payments", "slug": slug})),
+                Some(json!({"name": "Payments", "slug": slug, "code_prefix": kairos_core::short_code::prefix_from_slug(slug)})),
             )
             .await;
         assert_eq!(team["slug"], slug, "{team}");
@@ -244,7 +244,7 @@ async fn a_sent_team_slug_has_the_form_of_a_slug_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Long", "slug": long})),
+            Some(json!({"name": "Long", "slug": long, "code_prefix": kairos_core::short_code::prefix_from_slug(&long)})),
         )
         .await;
     let board_id = team["delivery_board_id"].as_str().expect("board id");
@@ -258,7 +258,7 @@ async fn a_sent_team_slug_has_the_form_of_a_slug_against_live_stack() {
         .ok(
             Method::POST,
             "/api/teams",
-            Some(json!({"name": "Platform", "slug": "platform"})),
+            Some(json!({"name": "Platform", "slug": "platform", "code_prefix": "PLATFORM"})),
         )
         .await;
     let team_id = team["id"].as_str().expect("team id").to_string();

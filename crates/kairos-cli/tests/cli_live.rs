@@ -248,6 +248,7 @@ async fn cli_login_whoami_refresh_logout_live() {
         .create_team(&CreateTeamRequest {
             name: "Platform".into(),
             slug: "platform".into(),
+            code_prefix: "PLATFORM".into(),
             team_type: None,
         })
         .await

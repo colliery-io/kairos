@@ -303,7 +303,7 @@ async fn my_boards_counts_in_the_database_against_live_stack() {
     let payments = send(
         Method::POST,
         "/api/teams",
-        Some(json!({"name": "Payments", "slug": "payments"})),
+        Some(json!({"name": "Payments", "slug": "payments", "code_prefix": "PAYMENTS"})),
     )
     .await;
     send(
@@ -386,7 +386,7 @@ async fn my_boards_counts_in_the_database_against_live_stack() {
     let billing = send(
         Method::POST,
         "/api/teams",
-        Some(json!({"name": "Billing", "slug": "billing"})),
+        Some(json!({"name": "Billing", "slug": "billing", "code_prefix": "BILLING"})),
     )
     .await;
     send(
@@ -410,7 +410,7 @@ async fn my_boards_counts_in_the_database_against_live_stack() {
     send(
         Method::POST,
         "/api/teams",
-        Some(json!({"name": "Web", "slug": "web"})),
+        Some(json!({"name": "Web", "slug": "web", "code_prefix": "WEB"})),
     )
     .await;
 

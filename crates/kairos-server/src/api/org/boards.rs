@@ -332,6 +332,19 @@ pub(crate) async fn get_board(
 /// slug of a live board is a 409 `CONFLICT`. The refusal names the slug
 /// and the board that has it (`details.slug`, `details.board`). A deleted
 /// board does not keep its slug.
+///
+/// Each board has a short-code prefix, `code_prefix` (COLLIERY-T-3099). It
+/// is required, and it never changes. An item on the board gets the code
+/// `{code_prefix}-{type letter}-{number}`. The number comes from the
+/// sequence of the prefix and the type.
+///
+/// A prefix that does not match `^[A-Z][A-Z0-9]{1,9}$` is a 422
+/// `VALIDATION` with `details.field` = `code_prefix`.
+///
+/// Boards can share a prefix when they hold different types. The level
+/// gives the types. A prefix that a live board of the same level has is a
+/// 409 `CONFLICT`. The refusal names the prefix and the board that has it
+/// (`details.code_prefix`, `details.board`).
 #[utoipa::path(
     post,
     path = "/api/boards",
@@ -340,8 +353,8 @@ pub(crate) async fn get_board(
     responses(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
-        (status = 409, description = "A live board has the slug; details.board names it", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_board(
@@ -382,9 +395,18 @@ pub(crate) async fn create_board(
             }
             // COLLIERY-T-0255: a slug that a live board has is a 409 that
             // names the board (`BoardError::SlugTaken`).
-            let board =
-                boards::create_board(conn, level, &body.name, &body.slug, team_id, Some(user))
-                    .map_err(map_config_error)?;
+            // COLLIERY-T-3099: a bad prefix is a 422, and a prefix that a
+            // live board of the same level has is a 409 that names the board.
+            let board = boards::create_board(
+                conn,
+                level,
+                &body.name,
+                &body.slug,
+                boards::CodePrefix::Given(&body.code_prefix),
+                team_id,
+                Some(user),
+            )
+            .map_err(map_config_error)?;
             board_detail(conn, board, false)
         })
         .await?;

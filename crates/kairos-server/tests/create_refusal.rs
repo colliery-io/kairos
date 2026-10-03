@@ -387,6 +387,8 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         BoardLevel::Delivery,
         "Platform Delivery",
         "platform-delivery",
+        // The prefix of the tenant (COLLIERY-T-3099).
+        kairos_db::CodePrefix::Given("ACME"),
         Some(platform_delivery_team),
         None,
     )

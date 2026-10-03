@@ -14,7 +14,8 @@
 //! | The body | Status | `details` |
 //! |---|---|---|
 //! | has a field that the route does not know | 422 | `field`, `allowed` |
-//! | has a different fault of shape (a field is absent, a type is wrong) | 422 | — |
+//! | has no field that the route must have | 422 | `field` |
+//! | has a different fault of shape (a type is wrong) | 422 | — |
 //! | is not JSON | 400 | — |
 //! | has no `Content-Type: application/json` | 415 | — |
 //!
@@ -105,12 +106,39 @@ pub fn shape_error(status: StatusCode, serde_message: &str) -> ApiError {
             )
             .with_details(json!({ "field": field, "allowed": allowed }))
         }
-        None => ApiError::new(
-            status,
-            "VALIDATION",
-            format!("The body is not correct for this route: {serde_message}."),
-        ),
+        None => {
+            let error = ApiError::new(
+                status,
+                "VALIDATION",
+                format!("The body is not correct for this route: {serde_message}."),
+            );
+            // COLLIERY-T-3099: a refusal of an absent field names the field
+            // in `details`, as the refusal of an unknown field does.
+            match missing_field(serde_message) {
+                Some(field) => error.with_details(json!({ "field": field })),
+                None => error,
+            }
+        }
     }
+}
+
+/// The field that a message of `serde` says is absent: ``missing field
+/// `x` ``, after the path of the field for a nested field. `None` when the
+/// message is about a different fault.
+fn missing_field(serde_message: &str) -> Option<String> {
+    let (path, rest) = serde_message.split_once("missing field `")?;
+    let (field, _) = rest.split_once('`')?;
+    // The message of a nested field starts with its path: `a.b: missing
+    // field `c``. A value that has the text is not a fault of this kind.
+    if !(path.is_empty() || path.ends_with(": ")) || path.contains('"') {
+        return None;
+    }
+    let parent = path.trim_end_matches(": ");
+    Some(if parent.is_empty() || parent == "." {
+        field.to_string()
+    } else {
+        format!("{parent}.{field}")
+    })
 }
 
 /// The unknown field that a message of `serde` names, and the fields that
@@ -271,6 +299,6 @@ mod tests {
         let err = shape_error(StatusCode::UNPROCESSABLE_ENTITY, &message);
         assert_eq!(err.code, "VALIDATION");
         assert!(err.message.contains("missing field `name`"), "{err:?}");
-        assert_eq!(err.details, json!({}));
+        assert_eq!(err.details, json!({ "field": "name" }));
     }
 }

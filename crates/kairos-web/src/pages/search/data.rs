@@ -41,7 +41,7 @@ pub fn family_of(short_code: &str) -> Option<&'static str> {
 fn family_or_err(short_code: &str) -> Result<&'static str, ApiError> {
     family_of(short_code).ok_or_else(|| {
         ApiError::Unknown(format!(
-            "{short_code:?} is not a short code. A short code has the form DEMO-T-0001."
+            "{short_code:?} is not a short code. A short code has the form PLATFORM-T-0001."
         ))
     })
 }

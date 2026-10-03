@@ -191,10 +191,10 @@ access](../explanation/capabilities-and-access.md).
 ```
 
 ```
-Kairos made the task DEMO-T-0013 (version 1): Try Kairos out
+Kairos made the task PLATFORM-T-0008 (version 1): Try Kairos out
 ```
 
-Your short code may differ — mine was `DEMO-T-0013`. Use yours below.
+Your short code may differ — mine was `PLATFORM-T-0008`. Use yours below.
 
 Notice that we said two things. The **board** says whose work this is: the
 task is on the Platform team's board, so it is the Platform team's task. The
@@ -212,9 +212,9 @@ board:
 Board: Platform Delivery (slug platform-delivery, level delivery, id aa525a31-…)
 
 == Backlog (3 items, id 76e86e75-1590-415e-8f48-cc37fa222a2b)
-   DEMO-T-0006  [task] Invoice webhook handler
-   DEMO-T-0011  [task] Portal needs a bulk invoice export endpoint
-   DEMO-T-0013  [task] Try Kairos out
+   PLATFORM-T-0004  [task] Invoice webhook handler
+   PLATFORM-T-0007  [task] Portal needs a bulk invoice export endpoint
+   PLATFORM-T-0008  [task] Try Kairos out
 ```
 
 Your task is in **Backlog**, the column new work arrives in.
@@ -225,11 +225,11 @@ Each column's id is printed next to its name above. Copy the id of the
 **Todo** column, and move your task there:
 
 ```sh
-./target/debug/kairos tasks transition DEMO-T-0013 --to <the Todo column id>
+./target/debug/kairos tasks transition PLATFORM-T-0008 --to <the Todo column id>
 ```
 
 ```
-Kairos moved the task DEMO-T-0013 to the column 9b2a0dd5-c9ef-48e9-a947-d866dcf21618.
+Kairos moved the task PLATFORM-T-0008 to the column 9b2a0dd5-c9ef-48e9-a947-d866dcf21618.
 ```
 
 Now go back to the browser and reload Platform Delivery. Your card has moved

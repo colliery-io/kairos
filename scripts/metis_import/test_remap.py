@@ -300,6 +300,82 @@ class Files(unittest.TestCase):
         self.assertNotEqual(mapping_signature(mapping), mapping_signature({"F-T-0001": "x"}))
 
 
+class KeepCodes(unittest.TestCase):
+    """`--codes keep` (COLLIERY-T-3104): which items keep their number."""
+
+    def record(self):
+        docs = {
+            "SKADI-V-0001": doc("SKADI-V-0001", "vision"),
+            "SKADI-S-0001": doc("SKADI-S-0001", "specification"),
+            "SKADI-S-0003": doc("SKADI-S-0003", "specification"),
+            "SKADI-S-0004": doc("SKADI-S-0004", "specification", parent="SKADI-I-0002"),
+            "SKADI-I-0002": doc("SKADI-I-0002", "initiative"),
+            "SKADI-T-0009": doc("SKADI-T-0009", "task"),
+            "SKADI-T-0005": doc("SKADI-T-0005", "task"),
+            "SKADI-T-0005~2": dict(doc("SKADI-T-0005", "task"), short_code="SKADI-T-0005~2",
+                                   metis_code="SKADI-T-0005", metis_path="backlog/b.md"),
+            "SKADI-A-0001": doc("SKADI-A-0001", "adr"),
+        }
+        docs["SKADI-T-0005"].update(metis_code="SKADI-T-0005", metis_path="backlog/a.md")
+        return docs
+
+    def test_the_board_prefix_and_the_metis_number(self):
+        docs = self.record()
+        prefixes = {"delivery": "SKADI", "adr": "SKADI", "initiative": "COLLIERY"}
+        wanted, displaced, order = remap.keep_codes(docs, remap.creation_order(docs), "SKADI", prefixes)
+        self.assertEqual(wanted, {
+            "SKADI-A-0001": "SKADI-A-0001",
+            "SKADI-V-0001": "SKADI-D-0001",
+            "SKADI-S-0003": "SKADI-D-0003",
+            "SKADI-T-0005": "SKADI-T-0005",
+            "SKADI-T-0009": "SKADI-T-0009",
+        })
+        # The vision comes first, so the specification SKADI-S-0001 and the
+        # second file of SKADI-T-0005 get the next free number.
+        self.assertEqual(displaced, {
+            "SKADI-S-0001": ("SKADI-D-0001", "SKADI-V-0001"),
+            "SKADI-T-0005~2": ("SKADI-T-0005", "SKADI-T-0005"),
+        })
+        # The initiative (board prefix COLLIERY) and the document that
+        # supports it (no board) get a new code.
+        self.assertNotIn("SKADI-I-0002", wanted)
+        self.assertNotIn("SKADI-S-0004", wanted)
+        codes = [d["short_code"] for d in order]
+        self.assertEqual(codes, [
+            "SKADI-I-0002", "SKADI-A-0001",
+            "SKADI-V-0001", "SKADI-S-0003", "SKADI-S-0001", "SKADI-S-0004",
+            "SKADI-T-0005", "SKADI-T-0009", "SKADI-T-0005~2",
+        ])
+
+    def test_a_board_with_a_different_prefix_keeps_no_number(self):
+        docs = self.record()
+        prefixes = {"delivery": "SKADI", "adr": "COLLIERY", "initiative": "COLLIERY"}
+        wanted, _, _ = remap.keep_codes(docs, remap.creation_order(docs), "SKADI", prefixes)
+        self.assertNotIn("SKADI-A-0001", wanted)
+        self.assertIn("SKADI-T-0009", wanted)
+
+    def test_the_footer_says_why_an_item_has_the_next_free_number(self):
+        docs = self.record()
+        note = remap.keep_note("SKADI-T-0005", "SKADI-T-0005", docs)
+        self.assertEqual(note, "It did not get the code SKADI-T-0005, because the item of the Metis "
+                               "file backlog/a.md has that code. It got the next free number.")
+        note = remap.keep_note("SKADI-D-0001", "SKADI-V-0001", docs)
+        self.assertIn("the Metis document SKADI-V-0001", note)
+        d = dict(docs["SKADI-S-0001"], keep_note=note)
+        self.assertTrue(remap.footer("skadi", d).rstrip("\n").endswith(note))
+        _, foot = remap.split_footer("Body." + remap.footer("skadi", d))
+        self.assertIn(note, foot)
+
+    def test_the_board_that_gives_the_code(self):
+        docs = self.record()
+        self.assertEqual(remap.role_of(docs["SKADI-T-0009"], docs), "delivery")
+        self.assertEqual(remap.role_of(docs["SKADI-S-0003"], docs), "delivery")
+        self.assertIsNone(remap.role_of(docs["SKADI-S-0004"], docs))
+        self.assertEqual(remap.role_of(docs["SKADI-A-0001"], docs), "adr")
+        self.assertTrue(remap.new_code_ok("ACME-D-0004", None, "document"))
+        self.assertFalse(remap.new_code_ok("ACME-T-0004", None, "document"))
+
+
 class Client(unittest.TestCase):
     def test_local_urls(self):
         self.assertTrue(is_local("http://127.0.0.1:41080"))

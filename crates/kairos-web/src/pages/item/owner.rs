@@ -14,14 +14,19 @@
 //!
 //! - the change of the owner board is a MOVE. The user needs
 //!   `manage_documents` on the board that owns the document now and on the
-//!   new board, and the creator of the document gets no right to it;
+//!   new board, and the creator of the document gets no right to it. As in
+//!   the move of a task, a switch can give the document a code of the new
+//!   board (COLLIERY-T-3101, COLLIERY-T-3104);
 //! - an impacts link is an EDIT. The edit rule applies
 //!   ([`boards::may_edit_item`]): the creator of the item, or the
 //!   `manage_<type>` capability on its board.
 //!
 //! The server remains the authority. A refusal shows in the panel.
 
-use aurora_dark::components::{Alert, Anchor, Button, Group, Panel, Pill, Select, Stack, Text};
+use aurora_dark::components::{
+    Alert, Anchor, Button, Group, Panel, Pill, Select, Stack, Switch, Text,
+};
+use aurora_dark::frame::use_toaster;
 use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 
@@ -93,8 +98,13 @@ pub fn OwnerBoardPanel(
     let auth = use_auth();
     let code = StoredValue::new(code);
     let value = RwSignal::new(NO_CHOICE.to_string());
+    // COLLIERY-T-3104: the move can also give the document a code of the
+    // new board. Off by default: a move keeps the code.
+    let rename = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let error: RwSignal<Option<ApiError>> = RwSignal::new(None);
+    let toaster = use_toaster();
+    let navigate = leptos_router::hooks::use_navigate();
     let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
     let all_boards = LocalResource::new(move || {
         let _ = auth.token();
@@ -136,11 +146,25 @@ pub fn OwnerBoardPanel(
         owner_board_targets(&me, &list, here.as_ref().map(|(slug, _)| slug.as_str()))
     });
 
-    let change = move |target: Option<String>| {
+    let change: Callback<Option<String>> = Callback::new(move |target: Option<String>| {
         busy.set(true);
         error.set(None);
+        // A rename needs a new board: the remove never sends it.
+        let rename = target.is_some() && rename.get_untracked();
+        let navigate = navigate.clone();
         leptos::task::spawn_local(async move {
-            match api::set_document_board(auth, &code.get_value(), target.as_deref()).await {
+            let old = code.get_value();
+            match api::set_document_board(auth, &old, target.as_deref(), rename).await {
+                // A rename: the page of the old code is not the page of
+                // the document now. Go to the page of the new code.
+                Ok(moved) if moved.short_code != old => {
+                    toaster.success(format!(
+                        "The owner board is {}. The new code is {}. The code {old} is retired.",
+                        target.unwrap_or_default(),
+                        moved.short_code
+                    ));
+                    navigate(&format!("/items/{}", moved.short_code), Default::default());
+                }
                 // Success reads the item again, and the new page has the
                 // new board: no busy reset, this view is gone.
                 Ok(_) => on_moved.run(match target {
@@ -153,14 +177,14 @@ pub fn OwnerBoardPanel(
                 }
             }
         });
-    };
+    });
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
         if chosen != NO_CHOICE {
-            change(Some(chosen));
+            change.run(Some(chosen));
         }
     });
-    let remove: Callback<()> = Callback::new(move |()| change(None));
+    let remove: Callback<()> = Callback::new(move |()| change.run(None));
 
     view! {
         <Panel title="Owner board" caption="who can edit">
@@ -204,6 +228,7 @@ pub fn OwnerBoardPanel(
                                     .collect()
                                     value=value
                                 />
+                                <Switch checked=rename label="Give it a code of the new board"/>
                                 <Button
                                     size="xs"
                                     disabled=move || busy.get() || value.get() == NO_CHOICE

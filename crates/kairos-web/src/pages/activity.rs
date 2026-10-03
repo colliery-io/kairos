@@ -330,7 +330,9 @@ fn actor_label(members: &HashMap<String, String>, actor_id: &str) -> String {
 async fn fetch_item_head(auth: Auth, code: String) -> Result<(ItemHead, &'static str), ApiError> {
     let family = family_of_short_code(&code).ok_or_else(|| ApiError::Http {
         status: 404,
-        message: format!("{code:?} is not a short code. A short code has the form DEMO-T-0001."),
+        message: format!(
+            "{code:?} is not a short code. A short code has the form PLATFORM-T-0001."
+        ),
         code: Some("NOT_FOUND".to_string()),
     })?;
     let head = api::get_json::<ItemHead>(auth, &format!("/api/{family}/{code}")).await?;
@@ -559,7 +561,7 @@ pub fn ActivityPage() -> impl IntoView {
                     <Group gap="sm" top=true wrap=true>
                         <TextInput
                             label="Entity short code"
-                            placeholder="e.g. DEMO-T-0001"
+                            placeholder="e.g. PLATFORM-T-0001"
                             value=entity_input
                         />
                         {move || {

@@ -141,6 +141,7 @@ use crate::app::AppState;
         crate::api::org::boards::update_board,
         crate::api::org::boards::delete_board,
         crate::api::org::boards::board_items,
+        crate::api::org::boards::set_code_sequence,
         crate::api::org::boards::list_columns,
         crate::api::org::boards::add_column,
         crate::api::org::boards::update_column,

@@ -162,6 +162,31 @@ pub struct UpdateBoardRequest {
     pub team_id: Option<Option<String>>,
 }
 
+/// Body of `PUT /api/boards/{id}/code-sequences/{item_type}`
+/// (COLLIERY-T-3104): the number of the next code of the type on the
+/// board.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetCodeSequenceRequest {
+    /// The next create of the type on the board gets this number. It must
+    /// be above the last number of the sequence, and above the number of
+    /// each code of the prefix and type that exists or is retired.
+    pub next_number: i64,
+}
+
+/// The sequence of a prefix and a type (COLLIERY-T-3104).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CodeSequence {
+    /// The short-code prefix of the board.
+    pub code_prefix: String,
+    /// `strategy|initiative|task|document|adr`.
+    pub item_type: String,
+    /// The last number that the sequence gave.
+    pub last_number: i64,
+    /// The code that the next create of the type gets.
+    pub next_code: String,
+}
+
 /// A field that is present, with its value or its null. With
 /// `#[serde(default)]`, a field that is absent is `None` and a null is
 /// `Some(None)`.

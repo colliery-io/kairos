@@ -176,6 +176,47 @@ Request body (required): `application/json`, [`UpdateBoardRequest`](schemas.md#u
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug; details.board names it |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No field to update, BOARD_TEAM_IS_FIXED, or CODE_PREFIX_IS_FIXED |
 
+### `PUT /api/boards/{id}/code-sequences/{item_type}`
+
+Set the number of the next code of a type on a board (COLLIERY-T-3104).
+Org-admin-only.
+
+The next create of `item_type` on the board gets the code
+`{code_prefix}-{type letter}-{next_number}`. The Metis import uses this
+route to keep the Metis numbers on a board (`--codes keep`).
+
+A sequence never goes back. `next_number` must be above the last
+number of the sequence of the prefix and the type. It must also be above
+the number of each code of that prefix and type: live, archived or
+retired. The next number of the sequence changes nothing. Thus you can
+send the same request 2 times.
+
+- A code that an item has (live or archived) is a 409 `CODE_IN_USE`.
+- A retired code (COLLIERY-T-3100) is a 409 `CODE_RETIRED`, with
+  `details.current_code` when the item exists.
+- A different number at or below the sequence is a 409
+  `SEQUENCE_IS_PAST`, with `details.next_code`.
+- An `item_type` that the board does not hold is a 422 `VALIDATION` with
+  `details.parameter` = `item_type` and `details.allowed`. A board holds
+  the type of its level and documents.
+- A `next_number` below 1 is a 422 `VALIDATION` with `details.field` =
+  `next_number`. An unknown field is a 422 that names it.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
+| `item_type` | path | yes | `string` | `strategy|initiative|task|document|adr`: a type that the board holds |
+
+Request body (required): `application/json`, [`SetCodeSequenceRequest`](schemas.md#setcodesequencerequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`CodeSequence`](schemas.md#codesequence) | The sequence; next_code is the code of the next create |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an org admin |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | CODE_IN_USE, CODE_RETIRED, or SEQUENCE_IS_PAST |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | An item_type that the board does not hold, a next_number below 1, or an unknown field |
+
 ### `GET /api/boards/{id}/columns`
 
 List a board's columns in position order (open tenant-wide).

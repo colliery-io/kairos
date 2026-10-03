@@ -63,6 +63,7 @@ checklist.
 - [Events](reference/events.md)
 - [SCIM](reference/scim.md)
 - [Capabilities](reference/capabilities.md)
+- [Short codes](reference/short-codes.md)
 - [Errors](reference/errors.md)
 - [Glossary](reference/glossary.md)
 

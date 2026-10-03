@@ -417,8 +417,9 @@ code, and restoring it is what makes its value clearable.
 ## organization
 
 The tenant. One organization per tenant, holding its own schema, boards, teams
-and work. Every short code's prefix defaults to the organization slug,
-upper-cased and reduced to `A-Z0-9`.
+and work. An item with no board takes the prefix of the organization: the
+organization slug in capitals, with letters and digits only. Each other item
+takes the prefix of its board. See [short code](#short-code).
 
 ## owner board
 
@@ -584,11 +585,15 @@ and afterwards only by prefix.
 
 ## short code
 
-An item's stable, human-usable identifier, formatted
-`{PREFIX}-{LETTER}-{NNNN}` — for example `ACME-T-0012`. The prefix defaults
-from the organization slug, the letter is the item type, and the number comes
-from a per-type sequence. Short codes identify items in every API, every CLI
-command and every MCP tool.
+The identifier of an item, with the form `{PREFIX}-{LETTER}-{NNNN}`, for
+example `SKADI-T-0577`. The prefix is the code prefix of the board of the
+item. The letter is the type of the item. The number comes from the sequence
+of the prefix and the type. Each API, each CLI command and each MCP tool
+accepts a short code.
+
+A move with a rename gives an item a new code and retires the old code. A
+read with a retired code finds the item. See
+[Short codes](short-codes.md).
 
 ## slug
 

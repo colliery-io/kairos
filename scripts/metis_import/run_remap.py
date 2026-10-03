@@ -1,4 +1,12 @@
-"""`--codes remap`: plan, apply and verify.
+"""`--codes remap` and `--codes keep`: plan, apply and verify.
+
+The two modes are one pipeline. In keep mode (COLLIERY-T-3104) an item
+keeps its Metis number when the board that gives its code has the prefix
+`--prefix` (remap.keep_codes). Before the create of such an item, the script
+sets the sequence of the board (`PUT /api/boards/{id}/code-sequences/{type}`,
+org admin) so that the next code has the Metis number. Then it checks the
+code that the create gives. A refused number (the code is retired or in use,
+or the sequence is past it) stops the run and names the code and the reason.
 
 apply runs four passes. Each pass records what it did in the state file
 after each step, so a new run continues where the last one stopped and does
@@ -131,6 +139,13 @@ class Context:
             board = api.json("GET", "/api/boards/%s" % slug)
             board["by_name"] = {c["name"]: c["id"] for c in board["columns"] if not c.get("removed_at")}
             self.boards[role] = board
+        # The code prefix of each board (COLLIERY-T-3099).
+        self.prefixes = {role: board.get("code_prefix") for role, board in self.boards.items()}
+        delivery = self.boards["delivery"]
+        if delivery.get("code_prefix") != args.prefix:
+            raise Stop("--prefix is %s, but the delivery board %s has the prefix %s. --prefix must "
+                       "be the prefix of the delivery board."
+                       % (args.prefix, delivery["slug"], delivery.get("code_prefix")))
         repos = api.json("GET", "/api/repositories")
         match = [r for r in repos if r["slug"] == args.repository]
         if not match:
@@ -140,6 +155,15 @@ class Context:
 
     def board_of(self, kind):
         return self.boards[{"task": "delivery", "initiative": "initiative", "adr": "adr"}[kind]]
+
+    def prefix_of(self, doc, docs):
+        """The prefix of the board that gives the code of doc, or None (a
+        document that supports a parent: the tenant prefix gives it)."""
+        role = remap.role_of(doc, docs)
+        return self.prefixes[role] if role else None
+
+    def is_admin(self):
+        return self.me["organization"].get("role") == "admin"
 
     def key_has(self, role, capability):
         if self.me["organization"].get("role") == "admin":
@@ -244,9 +268,9 @@ def create_body(doc, docs, ctx, args, state, staged):
     return body
 
 
-def create(api, doc, body, admin, args):
+def create(api, doc, body, admin, args, before_post=None):
     """Create one item. Before each try, adopt an item that has the footer.
-    Returns (row, adopted)."""
+    before_post (keep mode) runs before each POST. Returns (row, adopted)."""
     route = "/api/" + remap.ROUTE[remap.kind_of(doc)]
     last = None
     for wait in (0,) + (1, 2, 4):
@@ -255,6 +279,8 @@ def create(api, doc, body, admin, args):
         row = find_existing(api, doc, args.repository)
         if row is not None:
             return row, True
+        if before_post is not None:
+            before_post()
         try:
             status, raw, _ = api.call("POST", route, body, admin=admin, retry=False)
         except Stop as e:
@@ -267,8 +293,29 @@ def create(api, doc, body, admin, args):
                "Run the command again to continue." % (doc["short_code"], last))
 
 
-def pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admin):
+def set_next_number(api, ctx, doc, docs, code, admin):
+    """Keep mode: set the sequence of the board of doc, so that its next
+    code is `code`. A refusal stops the run and says why."""
+    kind = remap.kind_of(doc)
+    board = ctx.boards[remap.role_of(doc, docs)]
+    path = "/api/boards/%s/code-sequences/%s" % (board["id"], kind)
+    status, raw, _ = api.call("PUT", path, {"next_number": number(code)}, admin=admin)
+    if status == 200:
+        return
+    try:
+        error = json.loads(raw).get("error", {})
+    except ValueError:
+        error = {}
+    raise Stop("%s cannot keep its Metis number: the server refused the code %s on the board %s "
+               "(HTTP %s %s: %s). Nothing was created for %s. The state file is correct."
+               % (doc["short_code"], code, board["slug"], status, error.get("code", "?"),
+                  error.get("message", raw[:300]), doc["short_code"]))
+
+
+def pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admin,
+                wanted=None, seq_admin=False):
     made = 0
+    wanted = wanted or {}
     for doc in order:
         old = doc["short_code"]
         if old in state["codes"]:
@@ -276,11 +323,20 @@ def pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admi
         kind = remap.kind_of(doc)
         admin = use_admin[create_class(doc, docs)]
         body = create_body(doc, docs, ctx, args, state, staged)
-        row, adopted = create(api, doc, body, admin, args)
+        before_post = None
+        if old in wanted:
+            def before_post(doc=doc, code=wanted[old]):
+                set_next_number(api, ctx, doc, docs, code, seq_admin)
+        row, adopted = create(api, doc, body, admin, args, before_post)
         new = row.get("short_code")
-        if not remap.new_code_ok(new, args.prefix, kind):
+        if old in wanted and new != wanted[old]:
+            raise Stop("%s came back as %r, expected %s. Another create on the board took the "
+                       "number. STOP: look at the item %r before the next run."
+                       % (old, new, wanted[old], new))
+        prefix = ctx.prefix_of(doc, docs)
+        if not remap.new_code_ok(new, prefix, kind):
             raise Stop("%s came back as %r, not a %s code of the prefix %s"
-                       % (old, new, kind, args.prefix))
+                       % (old, new, kind, prefix or "of the tenant"))
         state["codes"][old] = new
         state["ids"][old] = row.get("id")
         state["by"][old] = "admin" if admin else "key"
@@ -460,10 +516,37 @@ def archive_one(api, docs, state, state_path, doc):
 
 # --- plan -----------------------------------------------------------------
 
-def plan(docs, issues, order, args, state, staged_info, also, ctx=None):
+def plan_keep(docs, order, args, keep, ctx):
+    """The keep part of plan: which items keep their Metis number."""
+    wanted, displaced = keep
+    if ctx is None:
+        print("Keep mode with no --url: the plan supposes that only the delivery board has the "
+              "prefix %s. Give --url to read the prefix of each board." % args.prefix)
+    kept = collections.defaultdict(list)
+    for doc in order:
+        if doc["short_code"] in wanted:
+            kept[remap.kind_of(doc)].append(number(wanted[doc["short_code"]]))
+    print("Keep mode: %d items keep their Metis number with the prefix %s."
+          % (len(wanted), args.prefix))
+    for kind in remap.ORDER:
+        if kept[kind]:
+            print("  %-10s %4d  %s" % (kind, len(kept[kind]), compact(sorted(kept[kind]))))
+    for old, (code, holder) in sorted(displaced.items()):
+        print("  NEXT FREE %s: %s is the code of the item of %s. It gets the next free number."
+              % (old, code, holder))
+    others = collections.Counter(remap.kind_of(d) for d in order
+                                 if d["short_code"] not in wanted and d["short_code"] not in displaced)
+    if others:
+        print("  New codes of their board: %s."
+              % ", ".join("%d %s" % (n, k) for k, n in sorted(others.items())))
+
+
+def plan(docs, issues, order, args, state, staged_info, also, ctx=None, keep=None):
     staged, ignored, bad = staged_info
     print("Metis record %s: %d documents. The state file has %d of them."
           % (args.metis, len(docs), len(state["codes"])))
+    if keep is not None:
+        plan_keep(docs, order, args, keep, ctx)
     counts = collections.Counter((remap.kind_of(d), d["level"], d["phase"] or "-", d["archived"])
                                  for d in docs.values())
     for (kind, level, phase, arch), n in sorted(counts.items()):
@@ -572,8 +655,9 @@ def compact(nums):
 
 # --- verify ---------------------------------------------------------------
 
-def verify(api, ctx, docs, order, args, state, staged, mapping):
+def verify(api, ctx, docs, order, args, state, staged, mapping, wanted=None):
     bad = []
+    wanted = wanted or {}
     edges, _ = remap.relations(docs)
     incoming = collections.defaultdict(set)
     for rel, src, dst in edges:
@@ -591,8 +675,11 @@ def verify(api, ctx, docs, order, args, state, staged, mapping):
         if not new:
             bad.append("MISSING  %s has no item" % old)
             continue
-        if not remap.new_code_ok(new, args.prefix, kind):
-            bad.append("TYPE     %s (%s) is not a %s code" % (new, old, kind))
+        if not remap.new_code_ok(new, ctx.prefix_of(doc, docs), kind):
+            bad.append("TYPE     %s (%s) is not a %s code of its board" % (new, old, kind))
+        if old in wanted and new != wanted[old]:
+            bad.append("KEPT     %s (%s) does not have its Metis number: expected %s"
+                       % (new, old, wanted[old]))
         status, raw, _ = api.call("GET", "/api/%s/%s" % (remap.ROUTE[kind], new))
         if status != 200:
             bad.append("MISSING  %s (%s): HTTP %s" % (new, old, status))
@@ -673,6 +760,15 @@ def rewrite_codes(state, issues):
             if old not in ambiguous and "~" not in old}
 
 
+def keep_order(docs, order, args, prefixes):
+    """remap.keep_codes, and the footer sentence of each item that does not
+    get its Metis number. Returns (wanted, displaced, order)."""
+    wanted, displaced, order = remap.keep_codes(docs, order, args.prefix, prefixes)
+    for old, (code, holder) in displaced.items():
+        docs[old]["keep_note"] = remap.keep_note(code, holder, docs)
+    return wanted, displaced, order
+
+
 def main(args):
     docs, issues = inventory(args.metis, strict=False)
     order = remap.creation_order(docs)
@@ -684,11 +780,21 @@ def main(args):
     key = os.environ.get("KAIROS_KEY")
     admin_token = os.environ.get("KAIROS_ADMIN_TOKEN")
 
+    if state["codes"] and state.get("mode", "remap") != args.codes:
+        raise Stop("the state file %s is for --codes %s, not --codes %s. Use --state to name a "
+                   "different state file." % (state_path, state.get("mode", "remap"), args.codes))
+    state["mode"] = args.codes
+
     if args.mode == "plan":
         ctx = None
         if args.url:
             ctx = Context(Api(args.url, key, admin_token, args.tenant), args)
-        problems = plan(docs, issues, order, args, state, staged_info, also, ctx)
+        keep = None
+        if args.codes == "keep":
+            prefixes = ctx.prefixes if ctx else {"delivery": args.prefix}
+            wanted, displaced, order = keep_order(docs, order, args, prefixes)
+            keep = (wanted, displaced)
+        problems = plan(docs, issues, order, args, state, staged_info, also, ctx, keep)
         return 1 if problems else 0
 
     if not args.url:
@@ -701,10 +807,13 @@ def main(args):
     api = Api(args.url, key, admin_token, args.tenant)
     ctx = Context(api, args)
     mapping = dict(also)
+    wanted = {}
+    if args.codes == "keep":
+        wanted, _, order = keep_order(docs, order, args, ctx.prefixes)
 
     if args.mode == "verify":
         mapping.update(rewrite_codes(state, issues))
-        return 1 if verify(api, ctx, docs, order, args, state, staged, mapping) else 0
+        return 1 if verify(api, ctx, docs, order, args, state, staged, mapping, wanted) else 0
 
     if issues["duplicates"] or issues["unknown_level"]:
         raise Stop("the record has duplicate short codes or unknown levels. Run plan.")
@@ -717,14 +826,21 @@ def main(args):
                        % (state_path, field, state[field], value))
         state[field] = value
     use_admin = rights(ctx, docs, admin_token)
-    if use_admin and any(use_admin.values()):
+    # Keep mode: the sequence route is for an organization admin.
+    seq_admin = bool(wanted) and not ctx.is_admin()
+    if seq_admin and not admin_token:
+        raise Stop("--codes keep sets the code sequence of the board, and only an organization "
+                   "admin can do that. KAIROS_KEY is not an organization admin. Set "
+                   "KAIROS_ADMIN_TOKEN.")
+    if seq_admin or (use_admin and any(use_admin.values())):
         me = api.json("GET", "/api/whoami", admin=True)
         if me["organization"].get("role") != "admin":
             raise Stop("KAIROS_ADMIN_TOKEN is not an organization admin")
     started = time.time()
     before = api.requests
     start_count = dict(api.count)
-    if not pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admin):
+    if not pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admin,
+                       wanted, seq_admin):
         print("%d requests in %.1f s." % (api.requests - before, time.time() - started))
         return 0
     print("Pass 1: %d items have a code." % len(state["codes"]))

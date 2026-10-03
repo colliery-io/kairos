@@ -298,6 +298,141 @@ pub fn sync_code_sequence(
     })
 }
 
+/// A refusal of [`set_next_code_number`] (COLLIERY-T-3104).
+#[derive(Debug, thiserror::Error)]
+pub enum CodeSequenceError {
+    /// The number is 0 or less.
+    #[error("next_number must be 1 or more. The request had {0}.")]
+    NotPositive(i64),
+    /// An item (live or archived) has the code.
+    #[error("An item has the code {code}. Kairos does not give a code 2 times.")]
+    CodeInUse { code: String },
+    /// The code is retired (COLLIERY-T-3100).
+    #[error(
+        "The code {code} is retired{}. Kairos does not give a retired code again.",
+        current_code.as_deref().map(|c| format!(" (the item now has the code {c})")).unwrap_or_default()
+    )]
+    CodeRetired {
+        code: String,
+        current_code: Option<String>,
+    },
+    /// The sequence is at or past the number. A sequence does not go back.
+    #[error(
+        "The sequence of {prefix}-{letter} is at {last_number}, so the next code is {next_code}. \
+         A sequence does not go back. Send a next_number above {last_number}."
+    )]
+    Behind {
+        prefix: String,
+        letter: char,
+        last_number: i64,
+        next_code: String,
+    },
+    #[error(transparent)]
+    Db(#[from] DieselError),
+}
+
+/// The sequence (prefix, type) after [`set_next_code_number`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSequence {
+    pub code_prefix: String,
+    pub item_type: ItemType,
+    /// The last number that the sequence gave.
+    pub last_number: i64,
+    /// The code that the next create gets.
+    pub next_code: String,
+}
+
+/// Move the row (prefix, type) of `short_code_sequences` forward, so that
+/// the next create of `item_type` with `prefix` gets the number
+/// `next_number` (COLLIERY-T-3104). The Metis import uses it to keep the
+/// Metis numbers: it sets the number, creates the item, and checks the code.
+///
+/// The row never goes back. The floor is the larger of the last number of
+/// the row and the highest number of the existing and retired codes of the
+/// pair (so a number above the floor is never retired and never in use).
+/// A `next_number` at or below the floor is refused: with
+/// [`CodeSequenceError::CodeInUse`] when an item has that code, with
+/// [`CodeSequenceError::CodeRetired`] when the code is retired, and with
+/// [`CodeSequenceError::Behind`] if not. `next_number` = floor + 1 changes
+/// nothing, so a second call with the same number passes.
+pub fn set_next_code_number(
+    conn: &mut PgConnection,
+    prefix: &str,
+    item_type: ItemType,
+    next_number: i64,
+) -> Result<CodeSequence, CodeSequenceError> {
+    if next_number < 1 {
+        return Err(CodeSequenceError::NotPositive(next_number));
+    }
+    conn.transaction(|conn| {
+        ensure_code_sequence(conn, prefix, item_type)?;
+        let letter = item_type.letter().to_string();
+        let last: SeqValue = sql_query(
+            "SELECT last_number AS value FROM short_code_sequences \
+              WHERE code_prefix = $1 AND item_type = $2 FOR UPDATE",
+        )
+        .bind::<Text, _>(prefix)
+        .bind::<Text, _>(&letter)
+        .get_result(conn)?;
+        let floor = last
+            .value
+            .max(highest_code_number(conn, prefix, item_type)?);
+        let code = short_code::format_short_code(prefix, item_type, next_number);
+        if next_number <= floor {
+            if code_in_use(conn, item_type, &code)? {
+                return Err(CodeSequenceError::CodeInUse { code });
+            }
+            if let Some(retired) = crate::retired_codes::current_code(conn, &code)? {
+                return Err(CodeSequenceError::CodeRetired {
+                    code,
+                    current_code: retired.current.map(|(current, _)| current),
+                });
+            }
+            return Err(CodeSequenceError::Behind {
+                prefix: prefix.to_string(),
+                letter: item_type.letter(),
+                last_number: floor,
+                next_code: short_code::format_short_code(prefix, item_type, floor + 1),
+            });
+        }
+        sql_query(
+            "UPDATE short_code_sequences SET last_number = $3 \
+              WHERE code_prefix = $1 AND item_type = $2",
+        )
+        .bind::<Text, _>(prefix)
+        .bind::<Text, _>(&letter)
+        .bind::<BigInt, _>(next_number - 1)
+        .execute(conn)?;
+        Ok(CodeSequence {
+            code_prefix: prefix.to_string(),
+            item_type,
+            last_number: next_number - 1,
+            next_code: code,
+        })
+    })
+}
+
+/// True when an item of `item_type` (live or archived) has `code`.
+fn code_in_use(
+    conn: &mut PgConnection,
+    item_type: ItemType,
+    code: &str,
+) -> Result<bool, DieselError> {
+    let table = match item_type {
+        ItemType::Strategy => "strategies",
+        ItemType::Initiative => "initiatives",
+        ItemType::Task => "tasks",
+        ItemType::Document => "documents",
+        ItemType::Adr => "adrs",
+    };
+    let row: SeqValue = sql_query(format!(
+        "SELECT count(*) AS value FROM {table} WHERE short_code = $1"
+    ))
+    .bind::<Text, _>(code)
+    .get_result(conn)?;
+    Ok(row.value > 0)
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

@@ -77,9 +77,9 @@ Name the short code in the branch — the convention worth adopting team-wide �
 or in the PR title or description. All three of these link:
 
 ```text
-dylan/DEMO-T-0002-fix-auth
-Fix login (DEMO-T-0002)
-…a description mentioning DEMO-T-0002
+dylan/PLATFORM-T-0001-fix-auth
+Fix login (PLATFORM-T-0001)
+…a description mentioning PLATFORM-T-0001
 ```
 
 The link appears when the branch is pushed or the PR is opened, and merging

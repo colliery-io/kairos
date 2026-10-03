@@ -18,11 +18,12 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use kairos_client::types::{ListEnvelope, Pagination};
 use kairos_client::types_org as dto;
+use kairos_core::short_code::ItemType;
 use kairos_db::models::boards::{Board, BoardColumn, BoardTransition};
 use kairos_db::models::enums::{ActivityAction, BoardLevel};
 use kairos_db::models::graph::NewActivityLogEntry;
 use kairos_db::models::items::{Adr, Initiative, Strategy, Task};
-use kairos_db::{abac, boards};
+use kairos_db::{abac, boards, items};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -52,6 +53,10 @@ pub fn router() -> Router<AppState> {
             get(get_board).patch(update_board).delete(delete_board),
         )
         .route("/api/boards/{id}/items", get(board_items))
+        .route(
+            "/api/boards/{id}/code-sequences/{item_type}",
+            axum::routing::put(set_code_sequence),
+        )
         .route(
             "/api/boards/{id}/columns",
             get(list_columns).post(add_column),
@@ -640,6 +645,138 @@ pub(crate) async fn delete_board(
         })
         .await?;
     Ok(Json(outcome))
+}
+
+// ---------------------------------------------------------------------------
+// Code sequences (COLLIERY-T-3104)
+// ---------------------------------------------------------------------------
+
+/// The types of item that a board of `level` gives a code to. Each board
+/// can own documents (COLLIERY-T-0269).
+fn types_of_level(level: BoardLevel) -> &'static [ItemType] {
+    match level {
+        BoardLevel::Strategy => &[ItemType::Strategy, ItemType::Document],
+        BoardLevel::Initiative => &[ItemType::Initiative, ItemType::Document],
+        BoardLevel::Delivery => &[ItemType::Task, ItemType::Document],
+        BoardLevel::Adr => &[ItemType::Adr, ItemType::Document],
+    }
+}
+
+/// Set the number of the next code of a type on a board (COLLIERY-T-3104).
+/// Org-admin-only.
+///
+/// The next create of `item_type` on the board gets the code
+/// `{code_prefix}-{type letter}-{next_number}`. The Metis import uses this
+/// route to keep the Metis numbers on a board (`--codes keep`).
+///
+/// A sequence never goes back. `next_number` must be above the last
+/// number of the sequence of the prefix and the type. It must also be above
+/// the number of each code of that prefix and type: live, archived or
+/// retired. The next number of the sequence changes nothing. Thus you can
+/// send the same request 2 times.
+///
+/// - A code that an item has (live or archived) is a 409 `CODE_IN_USE`.
+/// - A retired code (COLLIERY-T-3100) is a 409 `CODE_RETIRED`, with
+///   `details.current_code` when the item exists.
+/// - A different number at or below the sequence is a 409
+///   `SEQUENCE_IS_PAST`, with `details.next_code`.
+/// - An `item_type` that the board does not hold is a 422 `VALIDATION` with
+///   `details.parameter` = `item_type` and `details.allowed`. A board holds
+///   the type of its level and documents.
+/// - A `next_number` below 1 is a 422 `VALIDATION` with `details.field` =
+///   `next_number`. An unknown field is a 422 that names it.
+#[utoipa::path(
+    put,
+    path = "/api/boards/{id}/code-sequences/{item_type}",
+    tag = "boards",
+    params(
+        ("id" = String, Path, description = "The slug or the id (UUID) of the board"),
+        ("item_type" = String, Path, description = "`strategy|initiative|task|document|adr`: a type that the board holds"),
+    ),
+    request_body = dto::SetCodeSequenceRequest,
+    responses(
+        (status = 200, description = "The sequence; next_code is the code of the next create", body = dto::CodeSequence),
+        (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "CODE_IN_USE, CODE_RETIRED, or SEQUENCE_IS_PAST", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "An item_type that the board does not hold, a next_number below 1, or an unknown field", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn set_code_sequence(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path((id, item_type)): Path<(String, String)>,
+    ApiJson(body): ApiJson<dto::SetCodeSequenceRequest>,
+) -> Result<Json<dto::CodeSequence>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let sequence = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            require_capability(conn, &slug, None, user, CONFIGURE)?;
+            let board = load_board_by_ref(conn, &id)?;
+            let allowed = types_of_level(board.board_level);
+            let Some(item_type) = allowed
+                .iter()
+                .copied()
+                .find(|t| t.entity_type() == item_type)
+            else {
+                let names: Vec<&str> = allowed.iter().map(|t| t.entity_type()).collect();
+                return Err(ApiError::validation(format!(
+                    "The board {:?} does not give codes to the type {item_type:?}. Use one of \
+                     these values for item_type: {}.",
+                    board.slug,
+                    names.join(", ")
+                ))
+                .with_details(json!({ "parameter": "item_type", "allowed": names })));
+            };
+            let sequence =
+                items::set_next_code_number(conn, &board.code_prefix, item_type, body.next_number)
+                    .map_err(map_code_sequence_error)?;
+            log_activity(
+                conn,
+                user,
+                ActivityAction::Update,
+                board.id,
+                "board",
+                format!("code_sequence:{}", sequence.next_code),
+            )?;
+            Ok(dto::CodeSequence {
+                code_prefix: sequence.code_prefix,
+                item_type: sequence.item_type.entity_type().to_string(),
+                last_number: sequence.last_number,
+                next_code: sequence.next_code,
+            })
+        })
+        .await?;
+    Ok(Json(sequence))
+}
+
+/// [`items::CodeSequenceError`] to its HTTP refusal.
+fn map_code_sequence_error(e: items::CodeSequenceError) -> ApiError {
+    use items::CodeSequenceError as E;
+    match e {
+        E::NotPositive(_) => {
+            ApiError::validation(e.to_string()).with_details(json!({ "field": "next_number" }))
+        }
+        E::CodeInUse { ref code } => {
+            ApiError::new(StatusCode::CONFLICT, "CODE_IN_USE", e.to_string())
+                .with_details(json!({ "code": code }))
+        }
+        E::CodeRetired {
+            ref code,
+            ref current_code,
+        } => ApiError::new(StatusCode::CONFLICT, "CODE_RETIRED", e.to_string())
+            .with_details(json!({ "code": code, "current_code": current_code })),
+        E::Behind {
+            last_number,
+            ref next_code,
+            ..
+        } => ApiError::new(StatusCode::CONFLICT, "SEQUENCE_IS_PAST", e.to_string())
+            .with_details(json!({ "last_number": last_number, "next_code": next_code })),
+        E::Db(e) => ApiError::internal(e),
+    }
 }
 
 // ---------------------------------------------------------------------------

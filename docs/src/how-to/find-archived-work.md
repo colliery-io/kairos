@@ -13,7 +13,7 @@ hits come back **marked**.
 
 ![The Kairos search page with "Include work that has been put away" switched
 on and a text query of "invoice". The results show one initiative and two
-tasks. The task DEMO-T-0006 is live. The task DEMO-T-0011 has a gold "put away"
+tasks. The task PLATFORM-T-0004 is live. The task PLATFORM-T-0007 has a gold "put away"
 badge and a gold left edge. The caption of the Tasks group reads "2 on this
 page · 1 put away".](../images/search-put-away-results.png)
 
@@ -35,15 +35,15 @@ it away.
 ## Read what it said
 
 ```sh
-kairos tasks get DEMO-T-0041
+kairos tasks get PLATFORM-T-0009
 ```
 
 Or over MCP, which is what an agent does: `get_item` renders the item with
 `ARCHIVED` on it, and `get_history` reads back the versions.
 
 ```text
-get_history {short_code: DEMO-T-0041}             # the version list
-get_history {short_code: DEMO-T-0041, version: 1} # what v1 actually said
+get_history {short_code: PLATFORM-T-0009}             # the version list
+get_history {short_code: PLATFORM-T-0009, version: 1} # what v1 actually said
 ```
 
 Both the item and its history answer for put-away work, and the item says of
@@ -84,7 +84,7 @@ Two things about the widened board listing, because they look like bugs:
 ## Put it back
 
 ```sh
-kairos tasks restore DEMO-T-0041
+kairos tasks restore PLATFORM-T-0009
 ```
 
 Also the **Restore** button on the item page, and MCP `restore_item`. The card

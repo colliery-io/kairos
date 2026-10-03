@@ -1,5 +1,5 @@
-"""The pure parts of `--codes remap`: no network, no files other than the
-staged text. Unit tests: test_remap.py.
+"""The pure parts of `--codes remap` and `--codes keep`: no network, no files
+other than the staged text. Unit tests: test_remap.py.
 
 Decisions (COLLIERY-I-0019, COLLIERY-I-0021):
 
@@ -11,6 +11,10 @@ Decisions (COLLIERY-I-0019, COLLIERY-I-0021):
   `[[X-T-0042]]` becomes the plain new code (the web view of Kairos renders
   plain text and links no code, so a wiki link would show its brackets).
 - The provenance footer keeps the old code. The rewrite never touches it.
+
+`--codes keep` (COLLIERY-T-3104) is the same pipeline. The difference: an
+item keeps its Metis number when the board that gives its code has the
+prefix `--prefix` (see keep_codes). The other items get a new code.
 """
 
 import re
@@ -113,6 +117,8 @@ def footer(repository, doc):
     ]
     if doc.get("archived"):
         parts.append("Metis archived it.")
+    if doc.get("keep_note"):
+        parts.append(doc["keep_note"])
     return FOOTER_RULE + " ".join(parts) + "\n"
 
 
@@ -186,9 +192,71 @@ def parse_staged(text):
 
 
 def new_code_ok(new_code, prefix, kind):
-    """The code that the server gave has the organization prefix and the
-    letter of the type."""
-    return bool(re.fullmatch(re.escape(prefix) + r"-" + LETTER[kind] + r"-\d{4,}", new_code or ""))
+    """The code that the server gave has the prefix of the board that gives
+    it and the letter of the type. prefix None: any prefix (a document that
+    supports a parent names no board, so the tenant prefix gives its code)."""
+    lead = re.escape(prefix) if prefix else r"[A-Z][A-Z0-9]*"
+    return bool(re.fullmatch(lead + r"-" + LETTER[kind] + r"-\d{4,}", new_code or ""))
+
+
+def role_of(doc, docs):
+    """The board that gives the code of doc: "delivery", "initiative" or
+    "adr". None for a document that supports a parent: it names no board."""
+    kind = kind_of(doc)
+    if kind == "task":
+        return "delivery"
+    if kind in ("initiative", "adr"):
+        return kind
+    how, _ = owner(doc, docs)
+    return "delivery" if how == "board" else None
+
+
+def keep_codes(docs, order, prefix, prefixes):
+    """The codes of `--codes keep` (COLLIERY-T-3104).
+
+    prefixes: role -> the code prefix of that board. An item keeps its Metis
+    number when the board that gives its code (role_of) has `prefix`: the
+    code is `<prefix>-<Kairos letter>-<Metis number>`. Each other item gets
+    the next code of its board.
+
+    When 2 documents want one code (a duplicated Metis code, or the vision
+    X-V-0001 and the specification X-S-0001, which both become D-0001), the
+    first in `order` keeps it. The other gets the next free number.
+
+    Returns (wanted, displaced, order):
+    - wanted: old code -> the code that the item must get;
+    - displaced: old code -> (the code it wanted, the old code that has it);
+    - order: the creation order of the keep mode. Within each type, the
+      items that keep a number come first, in ascending number, so that the
+      sequence of the board only goes forward. The other items follow.
+    """
+    wanted, displaced, claimed = {}, {}, {}
+    for doc in order:
+        role = role_of(doc, docs)
+        if role is None or prefixes.get(role) != prefix:
+            continue
+        code = "%s-%s-%04d" % (prefix, LETTER[kind_of(doc)], number(doc["short_code"]))
+        if code in claimed:
+            displaced[doc["short_code"]] = (code, claimed[code])
+        else:
+            claimed[code] = doc["short_code"]
+            wanted[doc["short_code"]] = code
+    out = []
+    for kind in ORDER:
+        group = [d for d in order if kind_of(d) == kind]
+        kept = sorted((d for d in group if d["short_code"] in wanted),
+                      key=lambda d: number(wanted[d["short_code"]]))
+        out.extend(kept + [d for d in group if d["short_code"] not in wanted])
+    return wanted, displaced, out
+
+
+def keep_note(wanted_code, holder, docs):
+    """The footer sentence of an item that did not get its Metis number."""
+    other = docs[holder]
+    name = (("the Metis file %s" % other["metis_path"]) if other.get("metis_path")
+            else ("the Metis document %s" % other["short_code"]))
+    return ("It did not get the code %s, because the item of %s has that code. "
+            "It got the next free number." % (wanted_code, name))
 
 
 def owner(doc, docs):

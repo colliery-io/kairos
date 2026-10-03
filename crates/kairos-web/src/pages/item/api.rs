@@ -762,23 +762,30 @@ pub async fn create_document(
 #[derive(Debug, Serialize)]
 struct SetDocumentBoardBody<'a> {
     board: Option<&'a str>,
+    /// COLLIERY-T-3101: the document also gets the next code of the new
+    /// board. On the wire only when it is set (COLLIERY-T-3104).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    rename: bool,
 }
 
 /// `PATCH /api/documents/{short_code}/board` — set, change or remove the
-/// owner board of a document (COLLIERY-T-0269). Refusals the panel shows
-/// inline: 403 without `manage_documents` on the two boards, 422
-/// `LAST_OWNER` for a document that supports no item, 404 for an unknown
-/// board.
+/// owner board of a document (COLLIERY-T-0269). With `rename`, the
+/// document gets the next code of the new board, and the old code is
+/// retired (COLLIERY-T-3101). Refusals the panel shows inline: 403 without
+/// `manage_documents` on the two boards, 422 `LAST_OWNER` for a document
+/// that supports no item, 422 `RENAME_NOT_NEEDED` for a new board with the
+/// same prefix, 404 for an unknown board.
 pub async fn set_document_board(
     auth: Auth,
     code: &str,
     board: Option<&str>,
+    rename: bool,
 ) -> Result<ItemDetail, ApiError> {
     send_json(
         auth,
         Verb::Patch,
         &format!("/api/documents/{code}/board"),
-        Some(&SetDocumentBoardBody { board }),
+        Some(&SetDocumentBoardBody { board, rename }),
     )
     .await
 }
@@ -1230,6 +1237,33 @@ mod tests {
         });
         let envelope: DetailedErrorEnvelope = serde_json::from_value(none).expect("parses");
         assert!(envelope.error.details.current.is_none());
+    }
+
+    /// COLLIERY-T-3104: the owner-board body has `rename` only when it is
+    /// set, and `board` always (a null removes the owner board).
+    #[test]
+    fn the_owner_board_body_has_rename_only_when_it_is_set() {
+        let body = serde_json::to_value(SetDocumentBoardBody {
+            board: Some("web-delivery"),
+            rename: false,
+        })
+        .expect("serializes");
+        assert_eq!(body, serde_json::json!({"board": "web-delivery"}));
+        let body = serde_json::to_value(SetDocumentBoardBody {
+            board: Some("web-delivery"),
+            rename: true,
+        })
+        .expect("serializes");
+        assert_eq!(
+            body,
+            serde_json::json!({"board": "web-delivery", "rename": true})
+        );
+        let body = serde_json::to_value(SetDocumentBoardBody {
+            board: None,
+            rename: false,
+        })
+        .expect("serializes");
+        assert_eq!(body, serde_json::json!({"board": null}));
     }
 
     /// The move body carries the target board under the exact wire name

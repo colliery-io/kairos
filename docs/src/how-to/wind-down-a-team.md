@@ -58,7 +58,7 @@ kairos teams delete <team-id> --confirm
 
 ```text
 422 BOARD_NOT_EMPTY — The delivery board "Mobile Delivery" of the team "Mobile"
-has 2 live cards: [DEMO-T-0041, DEMO-T-0043]. Move each card to a different board
+has 2 live cards: [MOBILE-T-0001, MOBILE-T-0002]. Move each card to a different board
 (POST /api/tasks/{code}/move) or delete it. Then delete the team.
 ```
 
@@ -68,7 +68,7 @@ a puzzle. Two ways to clear each one, and the choice matters:
 - **The work continues somewhere else** → move it:
 
   ```sh
-  kairos tasks move DEMO-T-0041 --to-board platform-delivery
+  kairos tasks move MOBILE-T-0001 --to-board platform-delivery
   ```
 
   See [Move work between boards](move-work-between-boards.md), which is also
@@ -79,7 +79,7 @@ a puzzle. Two ways to clear each one, and the choice matters:
 - **The work is finished** → archive it:
 
   ```sh
-  kairos tasks delete DEMO-T-0043 --confirm
+  kairos tasks delete MOBILE-T-0002 --confirm
   ```
 
   Despite the verb this is a soft delete, and **archived cards do not hold the

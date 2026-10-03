@@ -122,3 +122,55 @@ test('a move with rename retires the old code, and its item page goes to the cur
   // Leave the seeded board as it was found: the card goes away.
   await api(token, 'DELETE', `/api/tasks/${newCode}`);
 });
+
+// COLLIERY-T-3104: the owner control of a document has the same switch. A
+// document that platform-delivery owns moves to web-delivery with a rename:
+// it gets a WEB-D code, and the old code goes to the page of the new code.
+test('a document that moves to a new owner board with rename gets a code of that board', async ({
+  page,
+}) => {
+  const token = await mintToken();
+  const document = await api(token, 'POST', '/api/documents', {
+    title: `E2E: a document with a new code ${Date.now().toString(36)}`,
+    content: 'The owner board changes, and the code too.',
+    board: BOARD_SLUG,
+  });
+  const oldCode: string = document.short_code;
+  expect(oldCode).toMatch(/^PLATFORM-D-\d{4,}$/);
+
+  await test.step('login as alice', () => login(page));
+
+  let newCode = '';
+  await test.step('the owner control moves the document with rename', async () => {
+    await page.goto(`/items/${oldCode}`);
+    const control = page.locator('[data-testid="owner-board-control"]');
+    await expect(control).toBeVisible({ timeout: 15_000 });
+    await control.locator('select').selectOption(TARGET_SLUG);
+    const rename = control.getByRole('switch', { name: 'Give it a code of the new board' });
+    await expect(rename).toHaveAttribute('aria-checked', 'false');
+    await rename.click();
+    await expect(rename).toHaveAttribute('aria-checked', 'true');
+    await control.getByRole('button', { name: 'Set owner board' }).click();
+    await expect(page).toHaveURL(
+      (url) => /^\/items\/WEB-D-\d{4,}$/.test(url.pathname) && !url.searchParams.has('retired'),
+      { timeout: 15_000 },
+    );
+    newCode = new URL(page.url()).pathname.split('/').pop() ?? '';
+    const moved = await api(token, 'GET', `/api/documents/${newCode}`);
+    expect(moved.short_code).toBe(newCode);
+    expect(moved.content).toBe('The owner board changes, and the code too.');
+  });
+
+  await test.step('the old code goes to the page of the current code', async () => {
+    await page.goto(`/items/${oldCode}`);
+    await expect(page).toHaveURL(
+      (url) => url.pathname === `/items/${newCode}` && url.searchParams.get('retired') === oldCode,
+      { timeout: 15_000 },
+    );
+    await expect(page.locator('[data-testid="retired-code-notice"]')).toContainText(
+      `The code ${oldCode} is retired. The current code of this item is ${newCode}.`,
+    );
+  });
+
+  await api(token, 'DELETE', `/api/documents/${newCode}`);
+});

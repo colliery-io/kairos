@@ -100,8 +100,10 @@ Work is managed in Kairos itself since 2026-09-26. The record was copied there
 with its numbers kept, so `KAIROS-T-0042` in a commit or a comment is
 `COLLIERY-T-0042` on the board; a specification `KAIROS-S-n` is the document
 `COLLIERY-D-n`, and the vision is the strategy `COLLIERY-S-0001`.
+The first version of
 [`scripts/migrate-metis-to-kairos.py`](scripts/migrate-metis-to-kairos.py) did
-the copy and `.metis/kairos-migration.json` is its ledger. `.metis/` stays in the
+the copy and `.metis/kairos-migration.json` is its ledger. The script now has
+board prefixes: `--codes keep` keeps the Metis numbers on the boards of a team. `.metis/` stays in the
 repository because the code, the commits and the book cite it. Nothing new is
 written there except `code-index.md`, which a session hook keeps current.
 

@@ -30,7 +30,7 @@ Viewport is 1440×900, signed in as `alice@kairos.test` / `alice-password`
 against the `demo` tenant.
 
 The last one needs a put-away item that matches the query. The capture
-archives `DEMO-T-0011` after the image of the board, and restores it at the
+archives `PLATFORM-T-0007` after the image of the board, and restores it at the
 end.
 
 Two runs on one day give the same images. The search results show the date of

@@ -25,7 +25,12 @@ import { COVERAGE } from '../run/reporter';
  * defend — "pending <ticket>" while one is open, a real reason otherwise.
  * The gate also fails on STALE entries, so this map cannot rot quietly.
  */
-const ALLOW: Record<string, string> = {};
+const ALLOW: Record<string, string> = {
+  'cli:index':
+    'the code index works on a local checkout (git, rust-analyzer, an optional model), not on the ' +
+    'deployment that the persona journeys drive. The BDD suites of kairos-cli (index.feature, ' +
+    'base_index.feature) and kairos-index cover it (COLLIERY-I-0264).',
+};
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** The journey ids the suite HAS, from the files on disk. */

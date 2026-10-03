@@ -346,19 +346,30 @@ fn cargo_metadata(
     if lock.is_file() {
         fs::copy(&lock, &lock_copy).map_err(|source| IndexError::Io { path: lock, source })?;
     }
-    let output = Command::new(sysroot.join("bin/cargo"))
-        .arg("metadata")
-        .args(["--format-version", "1", "-Zunstable-options"])
-        .arg("--manifest-path")
-        .arg(manifest)
-        .arg("--lockfile-path")
-        .arg(&lock_copy)
-        .current_dir(root)
-        // The same switch as rust-analyzer, for the unstable --lockfile-path.
-        .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
-        .env("CARGO_TARGET_DIR", work_dir.join("target"))
-        .output()
-        .map_err(|e| IndexError::Scip(format!("cargo metadata did not run: {e}")))?;
+    // Cargo up to about 1.95 takes the unstable `-Zunstable-options
+    // --lockfile-path <path>`. Later cargo (1.96 tested) refuses that flag and
+    // takes `-Zlockfile-path --config resolver.lockfile-path=<path>` instead.
+    // A repository can pin either, so try the old form and fall back.
+    let run = |form: LockfileForm| {
+        let mut command = Command::new(sysroot.join("bin/cargo"));
+        command
+            .arg("metadata")
+            .args(["--format-version", "1"])
+            .arg("--manifest-path")
+            .arg(manifest)
+            .args(lockfile_args(form, &lock_copy))
+            .current_dir(root)
+            // The same switch as rust-analyzer, for the unstable lockfile path.
+            .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly")
+            .env("CARGO_TARGET_DIR", work_dir.join("target"));
+        command
+            .output()
+            .map_err(|e| IndexError::Scip(format!("cargo metadata did not run: {e}")))
+    };
+    let mut output = run(LockfileForm::Flag)?;
+    if !output.status.success() && refuses_lockfile_flag(&String::from_utf8_lossy(&output.stderr)) {
+        output = run(LockfileForm::Config)?;
+    }
     if !output.status.success() {
         return Err(IndexError::Scip(format!(
             "cargo metadata failed: {}",
@@ -579,6 +590,43 @@ fn path_attribute(item: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> 
     None
 }
 
+/// How `cargo metadata` is told to write its lock file to a copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LockfileForm {
+    /// `-Zunstable-options --lockfile-path <path>`: cargo up to about 1.95.
+    Flag,
+    /// `-Zlockfile-path --config resolver.lockfile-path=<path>`: later cargo.
+    Config,
+}
+
+fn lockfile_args(form: LockfileForm, lock_copy: &Path) -> Vec<std::ffi::OsString> {
+    match form {
+        LockfileForm::Flag => vec![
+            "-Zunstable-options".into(),
+            "--lockfile-path".into(),
+            lock_copy.as_os_str().to_owned(),
+        ],
+        LockfileForm::Config => {
+            // A TOML string; the path is quoted and its backslashes and quotes escaped.
+            let path = lock_copy
+                .to_string_lossy()
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
+            vec![
+                "-Zlockfile-path".into(),
+                "--config".into(),
+                format!("resolver.lockfile-path=\"{path}\"").into(),
+            ]
+        }
+    }
+}
+
+/// True when cargo refused the old `--lockfile-path` flag (cargo 1.96 and
+/// later), so the run must use [`LockfileForm::Config`].
+fn refuses_lockfile_flag(stderr: &str) -> bool {
+    stderr.contains("unexpected argument '--lockfile-path'")
+}
+
 /// The panic message of rust-analyzer, or the last lines of its output.
 fn failure_text(stderr: &str) -> String {
     let lines: Vec<&str> = stderr.lines().collect();
@@ -787,6 +835,34 @@ pub fn function_name(descriptors: &[Descriptor]) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lock_file_copy_has_a_form_for_old_and_new_cargo() {
+        let lock = Path::new("/tmp/w x/Cargo.lock");
+        assert_eq!(
+            lockfile_args(LockfileForm::Flag, lock),
+            [
+                "-Zunstable-options",
+                "--lockfile-path",
+                "/tmp/w x/Cargo.lock"
+            ]
+            .map(std::ffi::OsString::from)
+        );
+        assert_eq!(
+            lockfile_args(LockfileForm::Config, lock),
+            [
+                "-Zlockfile-path",
+                "--config",
+                "resolver.lockfile-path=\"/tmp/w x/Cargo.lock\"",
+            ]
+            .map(std::ffi::OsString::from)
+        );
+        // The refusal of cargo 1.96.1 (weir pins it), and not another failure.
+        assert!(refuses_lockfile_flag(
+            "error: unexpected argument '--lockfile-path' found\n\n  tip: a similar argument exists: '--locked'"
+        ));
+        assert!(!refuses_lockfile_flag("error: failed to parse manifest"));
+    }
 
     fn short(symbol: &str) -> Option<String> {
         function_name(&descriptors(symbol)?).map(|(_, s)| s)

@@ -696,7 +696,10 @@ fn band_models(
         if of_level.is_empty() {
             continue;
         }
-        let groups = if *level == "delivery" {
+        // COLLIERY-T-3102: an ADR board can have a team too. The ADR band
+        // has a group for each team, and the ADR boards with no team are
+        // the boards of the organization.
+        let groups = if *level == "delivery" || *level == "adr" {
             // One group per team (team order = teams list order), then the
             // two fallback groups for old or unreadable data.
             let mut groups: Vec<BoardGroup> = Vec::new();
@@ -734,10 +737,12 @@ fn band_models(
                 .cloned()
                 .collect();
             if !needs_team.is_empty() {
-                groups.push((
-                    Some((NEEDS_TEAM_GROUP.to_string(), String::new())),
-                    needs_team,
-                ));
+                let heading = if *level == "adr" {
+                    ORGANIZATION_GROUP
+                } else {
+                    NEEDS_TEAM_GROUP
+                };
+                groups.push((Some((heading.to_string(), String::new())), needs_team));
             }
             groups
         } else {
@@ -2541,6 +2546,26 @@ mod tests {
         }
         let delivery = bands.iter().find(|b| b.level == "delivery").expect("band");
         assert_eq!(headings(delivery), vec![Some("platform")]);
+    }
+
+    /// COLLIERY-T-3102: the Decisions band has a group for each team that
+    /// has an ADR board, then the ADR boards of the organization.
+    #[test]
+    fn band_models_groups_the_adr_boards_by_team() {
+        let boards = vec![
+            board("org-adrs", "adr", None),
+            board("skadi-adrs", "adr", Some("t1")),
+            board("skadi", "delivery", Some("t1")),
+        ];
+        let bands = band_models(boards, &[team("t1", "skadi")]);
+        let adr = bands.iter().find(|b| b.level == "adr").expect("band");
+        assert_eq!(headings(adr), vec![Some("skadi"), Some("Organization")]);
+        assert_eq!(
+            adr.groups[0].0.as_ref().map(|(_, href)| href.as_str()),
+            Some("/teams/skadi")
+        );
+        assert_eq!(adr.groups[0].1[0].slug, "skadi-adrs");
+        assert_eq!(adr.groups[1].1[0].slug, "org-adrs");
     }
 
     /// COLLIERY-T-0230: a delivery board with no team is not created any

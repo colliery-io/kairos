@@ -30,6 +30,9 @@ const LEVELS: [&str; 4] = ["strategy", "initiative", "delivery", "adr"];
 /// organization.
 const DELIVERY: &str = "delivery";
 
+/// The level of an ADR board. It can have a team (COLLIERY-T-3102).
+const ADR: &str = "adr";
+
 /// What the create form says when a delivery board has no team
 /// (COLLIERY-T-0230). The server refuses the same request with a 422. The
 /// form says it first, in the words of the form, and sends nothing.
@@ -44,11 +47,22 @@ fn create_refusal(level: &str, team_id: Option<&str>) -> Option<&'static str> {
     (level == DELIVERY && team_id.is_none()).then_some(SELECT_TEAM)
 }
 
-/// The team to send with a new board. Only a delivery board has a delivery
-/// team (COLLIERY-T-0230). The team control stays set after the level
-/// changes, so the level decides, not the control. Pure, host-tested.
+/// The team to send with a new board. A delivery board has a delivery team
+/// (COLLIERY-T-0230), and an ADR board can have a team (COLLIERY-T-3102).
+/// The team control stays set after the level changes, so the level
+/// decides, not the control. Pure, host-tested.
 fn team_for_level(level: &str, team_id: Option<String>) -> Option<String> {
-    team_id.filter(|_| level == DELIVERY)
+    team_id.filter(|_| level == DELIVERY || level == ADR)
+}
+
+/// The label of the team control: required for a delivery board, optional
+/// for an ADR board (COLLIERY-T-3102). Pure, host-tested.
+fn team_label(level: &str) -> &'static str {
+    if level == ADR {
+        "Team (optional; the ADR board of a team has the prefix of the team)"
+    } else {
+        "Owner team (required)"
+    }
 }
 
 /// The title and the caption of the members panel of a board
@@ -300,7 +314,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
                         </Group>
                         <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
                         <Text dimmed=true size="xs" attr:data-testid="prefix-rule">{PREFIX_HINT}</Text>
-                        <Show when=move || level.get() == "delivery">
+                        <Show when=move || matches!(level.get().as_str(), DELIVERY | ADR)>
                             {move || {
                                 let options = match teams.get() {
                                     Some(Ok(teams)) => {
@@ -312,7 +326,7 @@ pub fn AdminBoardsPage() -> impl IntoView {
                                     _ => vec![String::new()],
                                 };
                                 view! {
-                                    <Select label="Owner team (required)" options value=team_slug/>
+                                    <Select label=team_label(&level.get()) options value=team_slug/>
                                 }
                             }}
                         </Show>
@@ -906,7 +920,7 @@ mod tests {
     /// for none and sends none, whatever the team control holds.
     #[test]
     fn a_board_of_the_organization_is_sent_with_no_team() {
-        for level in ["strategy", "initiative", "adr"] {
+        for level in ["strategy", "initiative"] {
             assert_eq!(create_refusal(level, None), None, "{level}");
             assert_eq!(team_for_level(level, Some("t1".into())), None, "{level}");
         }
@@ -914,6 +928,20 @@ mod tests {
             team_for_level("delivery", Some("t1".into())),
             Some("t1".to_string())
         );
+    }
+
+    /// COLLIERY-T-3102: an ADR board can have a team, and the team is
+    /// optional.
+    #[test]
+    fn an_adr_board_is_sent_with_its_team_or_with_none() {
+        assert_eq!(create_refusal("adr", None), None);
+        assert_eq!(
+            team_for_level("adr", Some("t1".into())),
+            Some("t1".to_string())
+        );
+        assert_eq!(team_for_level("adr", None), None);
+        assert!(team_label("adr").contains("optional"));
+        assert!(team_label("delivery").contains("required"));
     }
 
     /// COLLIERY-T-0230: on a board of the organization the members are the

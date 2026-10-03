@@ -26,8 +26,9 @@ pub struct Board {
     pub slug: String,
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
-    /// Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A
-    /// board of the organization has none: its team is the list of its
+    /// Owning team (UUID). A delivery board has one (COLLIERY-T-0230). An
+    /// ADR board can have one: the ADR board of the team (COLLIERY-T-3102).
+    /// A board of the organization has none: its team is the list of its
     /// members.
     pub team_id: Option<String>,
     /// The short-code prefix of the board (COLLIERY-T-3099): an item on
@@ -124,7 +125,9 @@ pub struct CreateBoardRequest {
     /// `strategy|initiative|delivery|adr`.
     pub board_level: String,
     /// Owning team (UUID). Required for a delivery board
-    /// (COLLIERY-T-0230). Leave it out for a board of the organization.
+    /// (COLLIERY-T-0230). Optional for an ADR board: the ADR board of the
+    /// team, with the prefix of the team (COLLIERY-T-3102). Leave it out
+    /// for a strategy or initiative board.
     #[serde(default)]
     pub team_id: Option<String>,
     /// The short-code prefix of the board (COLLIERY-T-3099). Required. It

@@ -137,6 +137,7 @@ From the results pick, confirming with the user whenever there is more than one 
 - **repository** — the slug detected above
 - **delivery stream / team board** — the team found above and its delivery board
 - **initiative board** — the default initiative-level board for new initiatives
+- **ADR board** — the ADR board of the team found above: in `my_boards`, the ADR board that names the team (`ADR board of the team <team>`). If the team has no ADR board, the ADR board of the organization. A team ADR board is for the delivery ADRs of the team (COLLIERY-T-3102).
 
 If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; on the service-account path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
 
@@ -152,6 +153,7 @@ repository: payments-api
 delivery_stream: platform
 team_board: platform-delivery
 initiative_board: initiatives
+adr_board: platform-adrs
 ---
 
 # Kairos wiring for this repo
@@ -163,7 +165,7 @@ from the origin remote; boards from the team of alice 2026-09-22. Re-run
 missing and what unblocks it.>
 ```
 
-Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`. `repository` is the slug (KAIROS-A-0019); `team_board` and `initiative_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
+Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`, `adr_board`. `repository` is the slug (KAIROS-A-0019); `team_board`, `initiative_board` and `adr_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
 
 When the principal is a service account, the first line of the prose names it. It also names the person who set it up, if known:
 

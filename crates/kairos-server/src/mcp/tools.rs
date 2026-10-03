@@ -782,7 +782,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List boards in this organization grouped by level (strategy/initiative/delivery/adr), with column names and per-column item counts for my delivery boards. Optional `level` filter."
+        description = "List boards in this organization grouped by level (strategy/initiative/delivery/adr), with column names and per-column item counts for my delivery boards. Each ADR board names its team, or the organization. Optional `level` filter."
     )]
     pub async fn my_boards(
         &self,
@@ -847,6 +847,25 @@ impl KairosMcp {
                     .push(format!("{} ({})", column.name, column.count));
             }
 
+            // COLLIERY-T-3102: an ADR board can have a team. The list names
+            // the team of each team ADR board, so that an agent can find the
+            // ADR board of its team.
+            let team_slugs: HashMap<Uuid, String> = {
+                use kairos_db::schema::teams;
+                let ids: Vec<Uuid> = all_boards
+                    .iter()
+                    .filter(|board| board.board_level == BoardLevel::Adr)
+                    .filter_map(|board| board.team_id)
+                    .collect();
+                teams::table
+                    .filter(teams::id.eq_any(ids))
+                    .select((teams::id, teams::slug))
+                    .load::<(Uuid, String)>(conn)
+                    .map_err(ApiError::internal)?
+                    .into_iter()
+                    .collect()
+            };
+
             let mut out = String::from("# Boards\n");
             let mut current_level: Option<BoardLevel> = None;
             if all_boards.is_empty() {
@@ -858,6 +877,12 @@ impl KairosMcp {
                     current_level = Some(board.board_level);
                 }
                 out.push_str(&format!("- {} — {}", board.slug, board.name));
+                if board.board_level == BoardLevel::Adr {
+                    match board.team_id.and_then(|id| team_slugs.get(&id)) {
+                        Some(team) => out.push_str(&format!(" (ADR board of the team {team})")),
+                        None => out.push_str(" (ADR board of the organization)"),
+                    }
+                }
                 if is_mine(&board) {
                     out.push_str(" [mine]\n");
                     let rendered = columns_of.remove(&board.id).unwrap_or_default();
@@ -1376,7 +1401,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Documents: a document must have an owner, so send `board`, or `parent`, or the two. `board` is the owner board: you need `manage_documents` on it, and it gives the right to edit the document. The document is not a card of the board. With `parent` and no `board`, the owner is the board of the parent. A document that is about a repository as a whole (its vision, its architecture) names the board of the team and impacts the repository: create it with `board`, then call `link_items` with the relationship `impacts`. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Documents: a document must have an owner, so send `board`, or `parent`, or the two. `board` is the owner board: you need `manage_documents` on it, and it gives the right to edit the document. The document is not a card of the board. With `parent` and no `board`, the owner is the board of the parent. A document that is about a repository as a whole (its vision, its architecture) names the board of the team and impacts the repository: create it with `board`, then call `link_items` with the relationship `impacts`. ADRs: `board` is the ADR board. A team can have an ADR board for its delivery ADRs, with the prefix of the team: `my_boards` names the team of each ADR board. Returns the new short code."
     )]
     pub async fn create_item(
         &self,

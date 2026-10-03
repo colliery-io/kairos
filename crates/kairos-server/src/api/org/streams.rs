@@ -11,7 +11,7 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use kairos_client::types::{ListEnvelope, Pagination};
 use kairos_client::types_org as dto;
-use kairos_db::models::enums::ActivityAction;
+use kairos_db::models::enums::{ActivityAction, BoardLevel};
 use kairos_db::models::graph::NewActivityLogEntry;
 use kairos_db::models::teams::{
     DeliveryStream, DeliveryStreamChangeset, NewDeliveryStream, Team, TeamDeliveryStream,
@@ -395,6 +395,8 @@ pub(crate) async fn list_stream_teams(
             let team_ids: Vec<Uuid> = rows.iter().map(|t| t.id).collect();
             let delivery_boards: Vec<(Option<Uuid>, Uuid)> = boards::table
                 .filter(boards::team_id.eq_any(&team_ids))
+                // COLLIERY-T-3102: a team can have an ADR board too.
+                .filter(boards::board_level.eq(BoardLevel::Delivery))
                 .filter(boards::deleted_at.is_null())
                 .select((boards::team_id, boards::id))
                 .load(conn)

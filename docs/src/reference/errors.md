@@ -238,6 +238,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `DUPLICATE_TRANSITION` | 422 | That edge already exists | — |
 | `NO_ENTRY_COLUMN` | 422 | The target board has no column to admit an arriving item | — |
 | `TEAM_HAS_DELIVERY_BOARD` | 422 | The team has a live delivery board. A team has only one delivery board | `team_id` and `board` (`id`, `name`, `slug`), the board that the team has |
+| `TEAM_HAS_ADR_BOARD` | 422 | The team has a live ADR board. A team has only one ADR board | `team_id` and `board` (`id`, `name`, `slug`), the board that the team has |
 | `BOARD_OWNS_DOCUMENTS` | 422 | The board is the owner of live documents. Name a different board for each document, or archive it. The delete of a team gives this code for a delivery board of the team | `board_id`, `item_count` and `items`: the short codes of the documents, **capped at 20** |
 | `LAST_DELIVERY_BOARD` | 422 | The board is the only delivery board of a team. Delete the team to remove the team and its board together | `board_id` and `team` (`id`, `name`) |
 | `BOARD_TEAM_IS_FIXED` | 422 | The update of a board has a `team_id` that is not the team of the board. The team of a board does not change. Move the task to give work to a different team | `board_id` and `team_id`, the team that the board has |

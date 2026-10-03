@@ -145,7 +145,7 @@ A board (`/api/boards` list element).
 | `id` | `string` | yes | Board id (UUID). |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID). A delivery board has one (COLLIERY-T-0230). A board of the organization has none: its team is the list of its members. |
+| `team_id` | `string`, nullable | no | Owning team (UUID). A delivery board has one (COLLIERY-T-0230). An ADR board can have one: the ADR board of the team (COLLIERY-T-3102). A board of the organization has none: its team is the list of its members. |
 | `updated_at` | `string` | yes | RFC 3339. |
 
 ## BoardColumn
@@ -301,7 +301,7 @@ Body of `POST /api/boards`: creates a board seeded with the system default colum
 | `code_prefix` | `string` | yes | The short-code prefix of the board (COLLIERY-T-3099). Required. It must match `^[A-Z][A-Z0-9]{1,9}$`, and no live board of the same level can have it: each pair (prefix, type) is unique, and the level gives the types of a board. It never changes. A bad prefix is a 422 `VALIDATION` with `details.field` = `code_prefix`. A prefix that a live board of the same level has is a 409 `CONFLICT` that names that board. |
 | `name` | `string` | yes |  |
 | `slug` | `string` | yes |  |
-| `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Leave it out for a board of the organization. |
+| `team_id` | `string`, nullable | no | Owning team (UUID). Required for a delivery board (COLLIERY-T-0230). Optional for an ADR board: the ADR board of the team, with the prefix of the team (COLLIERY-T-3102). Leave it out for a strategy or initiative board. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

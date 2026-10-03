@@ -603,19 +603,28 @@ pub(crate) async fn delete_team(
             // (COLLIERY-T-0240), and old data can have more. Each live
             // delivery board must be empty, and each goes with the team.
             run_in_transaction(conn, |conn| {
-                let team_boards = kairos_db::delivery_boards_for_team_delete(conn, team_id)
-                    .map_err(ApiError::internal)?;
+                // COLLIERY-T-3102: the ADR board of the team goes with it
+                // too, and it must be empty.
+                let team_boards =
+                    kairos_db::boards_for_team_delete(conn, team_id).map_err(ApiError::internal)?;
                 for board in &team_boards {
                     let item_count = count_live_board_items(conn, board.id)?;
                     if item_count > 0 {
                         let items = super::live_board_item_codes(conn, board.id, 20)?;
+                        let (kind, how) = if board.board_level == BoardLevel::Adr {
+                            ("ADR", "Archive each ADR")
+                        } else {
+                            (
+                                "delivery",
+                                "Move each card to a different board \
+                                 (POST /api/tasks/{code}/move) or delete it",
+                            )
+                        };
                         return Err(ApiError::unprocessable(
                             "BOARD_NOT_EMPTY",
                             format!(
-                                "The delivery board {:?} of the team {:?} has {item_count} live \
-                                 card{}: [{}]. Move each card to a different board \
-                                 (POST /api/tasks/{{code}}/move) or delete it. Then delete the \
-                                 team.",
+                                "The {kind} board {:?} of the team {:?} has {item_count} live \
+                                 card{}: [{}]. {how}. Then delete the team.",
                                 board.name,
                                 team.name,
                                 if item_count == 1 { "" } else { "s" },

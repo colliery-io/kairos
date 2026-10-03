@@ -685,6 +685,11 @@ async fn mcp_endpoint_against_live_stack() {
     assert!(text.contains("platform-delivery"), "{text}");
     assert!(text.contains("columns:"), "{text}");
     assert!(text.contains(&format!("{first_column} (0)")), "{text}");
+    // COLLIERY-T-3102: each ADR board names its team, or the organization.
+    assert!(
+        text.contains("- adrs — Architecture Decisions (ADR board of the organization)"),
+        "{text}"
+    );
 
     // --- create_item: initiative (board defaulted), then a child task -------
     let text = session

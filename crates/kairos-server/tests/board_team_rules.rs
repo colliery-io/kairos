@@ -10,6 +10,9 @@
 //!   organization (422 `VALIDATION`).
 //! - T-0243: `PATCH /api/boards/{id}` does not change the team of a board
 //!   (422 `BOARD_TEAM_IS_FIXED`).
+//! - COLLIERY-T-3102: `POST /api/boards` gives a team one ADR board, with
+//!   the prefix of the team (422 `TEAM_HAS_ADR_BOARD`), and
+//!   `DELETE /api/teams/{id}` removes it with the team.
 //!
 //! REST is the only surface that creates, updates or deletes a board alone:
 //! the MCP server and the CLI have no tool or command for it.
@@ -410,7 +413,8 @@ async fn a_board_of_the_organization_has_no_team_id_against_live_stack() {
     let mut stack = Stack::boot("kairos_board_rules_t0242_server_test").await;
 
     let data = seed_team(&mut stack.conn, "Data", "data");
-    for level in ["strategy", "initiative", "adr"] {
+    // An ADR board can have a team (COLLIERY-T-3102, team_adr_boards.rs).
+    for level in ["strategy", "initiative"] {
         let slug = format!("team-{level}");
         let (status, body) = stack
             .send(
@@ -430,8 +434,8 @@ async fn a_board_of_the_organization_has_no_team_id_against_live_stack() {
         assert_eq!(
             message(&body),
             format!(
-                "Only a delivery board has a team. Do not send team_id for a board of level \
-                 {level}."
+                "Only a delivery board or an ADR board has a team. Do not send team_id for a \
+                 board of level {level}."
             )
         );
         assert_eq!(body["error"]["details"]["field"], "team_id", "{body}");
@@ -584,6 +588,112 @@ async fn the_team_of_a_board_does_not_change_against_live_stack() {
     assert_eq!(
         board_row(&mut stack.conn, &strategy),
         ("Strategy 2027".to_string(), None, true)
+    );
+
+    stack.shutdown();
+}
+
+/// COLLIERY-T-3102: a team has at most one ADR board, with the prefix of
+/// the team. `POST /api/boards` refuses a second one (422
+/// `TEAM_HAS_ADR_BOARD`, which names the board) and a different prefix
+/// (422 `VALIDATION`). `DELETE /api/teams/{id}` removes the ADR board with
+/// the team, and refuses while the ADR board has a live ADR.
+#[tokio::test]
+async fn a_team_has_one_adr_board_against_live_stack() {
+    let mut stack = Stack::boot("kairos_board_rules_t3102_server_test").await;
+
+    let skadi = stack.team("Skadi", "skadi").await;
+    assert_eq!(kairos_core::short_code::prefix_from_slug("skadi"), "SKADI");
+    let adr_board = |slug: &str, prefix: &str| {
+        json!({
+            "name": "Skadi ADRs",
+            "slug": slug,
+            "board_level": "adr",
+            "team_id": skadi.id,
+            "code_prefix": prefix,
+        })
+    };
+
+    // --- a prefix that is not the prefix of the team
+    let (status, body) = stack
+        .send(
+            Method::POST,
+            "/api/boards",
+            Some(adr_board("skadi-adrs", "SKADIA")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(error_code(&body), "VALIDATION");
+    assert_eq!(body["error"]["details"]["field"], "code_prefix", "{body}");
+    assert_eq!(body["error"]["details"]["expected"], "SKADI", "{body}");
+
+    // --- When an admin creates an ADR board for the team "skadi" with
+    // --- prefix "SKADI", Then the board exists, and an ADR on it gets the
+    // --- code "SKADI-A-0001".
+    let (status, body) = stack
+        .send(
+            Method::POST,
+            "/api/boards",
+            Some(adr_board("skadi-adrs", "SKADI")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["team_id"], json!(skadi.id), "{body}");
+    assert_eq!(body["code_prefix"], "SKADI", "{body}");
+    let board_id = body["id"].as_str().expect("id").to_string();
+    let (status, body) = stack
+        .send(
+            Method::POST,
+            "/api/adrs",
+            Some(json!({ "board_id": "skadi-adrs", "title": "Use Postgres" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["short_code"], "SKADI-A-0001", "{body}");
+
+    // --- Given the team "skadi" has an ADR board, When an admin creates a
+    // --- second ADR board for "skadi", Then the create is refused, and the
+    // --- error names the board that exists.
+    let (status, body) = stack
+        .send(
+            Method::POST,
+            "/api/boards",
+            Some(adr_board("skadi-adrs-2", "SKADI")),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(error_code(&body), "TEAM_HAS_ADR_BOARD");
+    assert_eq!(
+        message(&body),
+        "The team has the ADR board \"skadi-adrs\". A team has only one ADR board. Use that \
+         board."
+    );
+    assert_eq!(body["error"]["details"]["board"]["slug"], "skadi-adrs");
+    assert_eq!(body["error"]["details"]["board"]["id"], json!(board_id));
+    assert_eq!(boards_with_slug(&mut stack.conn, "skadi-adrs-2"), 0);
+
+    // --- the delete of the team: the ADR board must be empty
+    let (status, body) = stack
+        .send(Method::DELETE, &format!("/api/teams/{}", skadi.id), None)
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(error_code(&body), "BOARD_NOT_EMPTY");
+    assert!(
+        message(&body)
+            .starts_with("The ADR board \"Skadi ADRs\" of the team \"Skadi\" has 1 live card"),
+        "{body}"
+    );
+    let (status, body) = stack
+        .send(Method::DELETE, "/api/adrs/SKADI-A-0001", None)
+        .await;
+    assert!(status.is_success(), "{status}: {body}");
+    let (status, body) = stack
+        .send(Method::DELETE, &format!("/api/teams/{}", skadi.id), None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        !board_row(&mut stack.conn, &board_id).2,
+        "the ADR board is deleted"
     );
 
     stack.shutdown();

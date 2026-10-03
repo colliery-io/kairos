@@ -92,7 +92,9 @@ Refuses: nothing beyond transport-level authentication.
 ### `my_boards`
 
 Boards in the organization, grouped by level, with column names and per-column
-item counts for the caller's delivery boards.
+item counts for the caller's delivery boards. Each ADR board names its team
+(`ADR board of the team <slug>`), or the organization. A team ADR board holds
+the delivery ADRs of the team, with the prefix of the team.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -485,6 +487,10 @@ Creates a work item and returns its new short code.
 `board` may be omitted when the tenant has exactly one live board of the
 matching level. For a task, that level is `delivery`. A `repository` does not
 replace `board`. The tool has no `team` argument.
+
+An ADR goes on the board that `board` names. When the organization has more
+than one ADR board, send `board`. For a delivery
+ADR, send the ADR board of your team.
 
 An ADR can have a `parent`. The `parent` names a strategy, an initiative or a
 task. The tool creates the `supports` edge from that item to the ADR. The

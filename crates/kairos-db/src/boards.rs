@@ -93,11 +93,35 @@ pub enum BoardError {
         board_name: String,
         board_slug: String,
     },
-    /// `create_board`: a board of the organization was sent with a team
+    /// `create_board`: a strategy or initiative board was sent with a team
     /// (COLLIERY-T-0242). The team of such a board is the list of its
-    /// members, so it has no `team_id`.
-    #[error("Only a delivery board has a team. Do not send team_id for a board of level {0}.")]
+    /// members, so it has no `team_id`. A delivery board and an ADR board
+    /// can have a team (COLLIERY-T-3102).
+    #[error(
+        "Only a delivery board or an ADR board has a team. Do not send team_id for a board of \
+         level {0}."
+    )]
     OrganizationBoardHasNoTeam(BoardLevel),
+    /// `create_board`: the team has a live ADR board (COLLIERY-T-3102). A
+    /// team has at most one ADR board. Carries the board that the team has.
+    #[error(
+        "The team has the ADR board {board_slug:?}. A team has only one ADR board. Use that \
+         board."
+    )]
+    TeamHasAdrBoard {
+        team_id: Uuid,
+        board_id: Uuid,
+        board_name: String,
+        board_slug: String,
+    },
+    /// `create_board`: the prefix of a team ADR board is not the prefix of
+    /// the delivery board of the team (COLLIERY-T-3102). The ADRs of a team
+    /// have the codes of the team: `SKADI-T-...` and `SKADI-A-...`.
+    #[error(
+        "The ADR board of the team must have the prefix of the team, {expected:?}, not \
+         {given:?}. Send {expected:?} as code_prefix."
+    )]
+    TeamAdrBoardPrefix { expected: String, given: String },
     /// `check_board_delete`: the board is the only live delivery board of
     /// a live team (COLLIERY-T-0241). The delete of the team removes the
     /// team and its board together.
@@ -381,6 +405,36 @@ fn live_delivery_boards(conn: &mut PgConnection, team_id: Uuid) -> Result<Vec<Bo
         .order((dsl::created_at.asc(), dsl::id.asc()))
         .select(Board::as_select())
         .load(conn)
+}
+
+/// The live ADR boards of a team, oldest first. One at most, by the rule
+/// (COLLIERY-T-3102).
+fn live_adr_boards(conn: &mut PgConnection, team_id: Uuid) -> Result<Vec<Board>, DieselError> {
+    use crate::schema::boards::dsl;
+    dsl::boards
+        .filter(dsl::team_id.eq(team_id))
+        .filter(dsl::board_level.eq(BoardLevel::Adr))
+        .filter(dsl::deleted_at.is_null())
+        .order((dsl::created_at.asc(), dsl::id.asc()))
+        .select(Board::as_select())
+        .load(conn)
+}
+
+/// Each live board of a team, for the delete of the team: the delivery
+/// boards (COLLIERY-T-0250), then the ADR board (COLLIERY-T-3102). The
+/// delete of a team removes each of them, and each must be empty.
+///
+/// Call it in the transaction that deletes the team. It locks the row of
+/// the team, so a create of a board for the team cannot run between the
+/// read and the delete.
+pub fn boards_for_team_delete(
+    conn: &mut PgConnection,
+    team_id: Uuid,
+) -> Result<Vec<Board>, DieselError> {
+    lock_team(conn, team_id)?;
+    let mut boards = live_delivery_boards(conn, team_id)?;
+    boards.extend(live_adr_boards(conn, team_id)?);
+    Ok(boards)
 }
 
 /// The live delivery boards of a team, for the delete of the team
@@ -681,8 +735,23 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
 /// - A delivery board for a team that has a LIVE delivery board is refused
 ///   with [`BoardError::TeamHasDeliveryBoard`], which names that board. A
 ///   deleted board does not count: it is not a board of the team any more.
-/// - A board of the organization with a `team_id` is refused with
+/// - A strategy or initiative board with a `team_id` is refused with
 ///   [`BoardError::OrganizationBoardHasNoTeam`].
+///
+/// # A team has at most one ADR board (COLLIERY-T-3102)
+///
+/// An ADR board can have a team: the board of the delivery ADRs of the
+/// team. With no team, it is an ADR board of the organization.
+///
+/// - An ADR board for a team that has a live ADR board is refused with
+///   [`BoardError::TeamHasAdrBoard`], which names that board.
+/// - The prefix of a team ADR board is the prefix of the live delivery
+///   board of the team. A different [`CodePrefix::Given`] is refused with
+///   [`BoardError::TeamAdrBoardPrefix`], and [`CodePrefix::FromSlug`] takes
+///   the prefix of the team.
+///
+/// The same lock of the row of the team makes two creates at the same time
+/// give one ADR board.
 ///
 /// # A live board has its slug alone (COLLIERY-T-0255)
 ///
@@ -721,7 +790,7 @@ pub fn create_board(
     if level == BoardLevel::Delivery && team_id.is_none() {
         return Err(BoardError::DeliveryBoardNeedsTeam);
     }
-    if level != BoardLevel::Delivery && team_id.is_some() {
+    if !matches!(level, BoardLevel::Delivery | BoardLevel::Adr) && team_id.is_some() {
         return Err(BoardError::OrganizationBoardHasNoTeam(level));
     }
     if let CodePrefix::Given(prefix) = code_prefix
@@ -737,24 +806,50 @@ pub fn create_board(
         // COLLIERY-T-0255: two live boards cannot have the same slug.
         check_board_slug(conn, slug, None)?;
 
-        // COLLIERY-T-3099: the prefix of the board.
-        chosen_prefix = match code_prefix {
-            CodePrefix::Given(prefix) => prefix.to_string(),
-            CodePrefix::FromSlug => free_code_prefix(conn, slug, level)?,
-        };
-        check_code_prefix(conn, &chosen_prefix, level)?;
-
+        // The prefix of the team, for a team ADR board (COLLIERY-T-3102).
+        let mut team_prefix: Option<String> = None;
         if let Some(team_id) = team_id {
             lock_team(conn, team_id)?;
-            if let Some(board) = live_delivery_boards(conn, team_id)?.into_iter().next() {
-                return Err(BoardError::TeamHasDeliveryBoard {
-                    team_id,
-                    board_id: board.id,
-                    board_name: board.name,
-                    board_slug: board.slug,
-                });
+            let delivery = live_delivery_boards(conn, team_id)?.into_iter().next();
+            match level {
+                BoardLevel::Adr => {
+                    if let Some(board) = live_adr_boards(conn, team_id)?.into_iter().next() {
+                        return Err(BoardError::TeamHasAdrBoard {
+                            team_id,
+                            board_id: board.id,
+                            board_name: board.name,
+                            board_slug: board.slug,
+                        });
+                    }
+                    team_prefix = delivery.map(|board| board.code_prefix);
+                }
+                _ => {
+                    if let Some(board) = delivery {
+                        return Err(BoardError::TeamHasDeliveryBoard {
+                            team_id,
+                            board_id: board.id,
+                            board_name: board.name,
+                            board_slug: board.slug,
+                        });
+                    }
+                }
             }
         }
+
+        // COLLIERY-T-3099: the prefix of the board. A team ADR board has the
+        // prefix of the delivery board of its team (COLLIERY-T-3102).
+        chosen_prefix = match (code_prefix, &team_prefix) {
+            (CodePrefix::Given(prefix), Some(expected)) if prefix != expected => {
+                return Err(BoardError::TeamAdrBoardPrefix {
+                    expected: expected.clone(),
+                    given: prefix.to_string(),
+                });
+            }
+            (CodePrefix::Given(prefix), _) => prefix.to_string(),
+            (CodePrefix::FromSlug, Some(expected)) => expected.clone(),
+            (CodePrefix::FromSlug, None) => free_code_prefix(conn, slug, level)?,
+        };
+        check_code_prefix(conn, &chosen_prefix, level)?;
 
         let defaults: SystemBoardDefault = system_board_defaults::table
             .filter(system_board_defaults::board_level.eq(level))

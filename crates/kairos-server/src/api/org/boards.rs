@@ -314,10 +314,19 @@ pub(crate) async fn get_board(
 /// check is in `kairos_db::boards::create_board`, which every entry point
 /// shares.
 ///
-/// A board of the organization (strategy, initiative, adr) has no
-/// `team_id`. Its team is the list of its members
-/// (`GET /api/boards/{id}/members`). A request for such a board with a
-/// `team_id` is a 422 (COLLIERY-T-0242).
+/// A strategy or initiative board has no `team_id`. Its team is the list
+/// of its members (`GET /api/boards/{id}/members`). A request for such a
+/// board with a `team_id` is a 422 (COLLIERY-T-0242).
+///
+/// An ADR board can have a team (COLLIERY-T-3102). That board holds the
+/// delivery ADRs of the team. Its `code_prefix` must be the
+/// prefix of the delivery board of the team. If not, the request is a 422
+/// `VALIDATION` with `details.field` = `code_prefix` and
+/// `details.expected`. An ADR board with no `team_id` is a board of the
+/// organization.
+///
+/// A team has one ADR board. A request for a second one is a 422
+/// `TEAM_HAS_ADR_BOARD`, and the refusal names the board that the team has.
 ///
 /// A team has one delivery board (COLLIERY-T-0240). A request for a
 /// delivery board for a team that has a live delivery board is a 422
@@ -354,7 +363,7 @@ pub(crate) async fn get_board(
         (status = 201, description = "Created, with the seeded configuration", body = dto::BoardDetail),
         (status = 403, description = "Not an org admin", body = kairos_client::types::ErrorEnvelope),
         (status = 409, description = "A live board has the slug, or a live board of the same level has the prefix; details.board names it", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a board of the organization with a team, or TEAM_HAS_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "Bad level/team reference, a slug that does not have the form of a board slug, a code_prefix that is absent or does not match the rule, a delivery board with no team, a strategy or initiative board with a team, the prefix of a team ADR board that is not the prefix of the team, TEAM_HAS_DELIVERY_BOARD, or TEAM_HAS_ADR_BOARD", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_board(

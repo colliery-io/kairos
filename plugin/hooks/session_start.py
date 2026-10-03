@@ -35,6 +35,7 @@ FRONTMATTER_KEYS = (
     "delivery_stream",
     "team_board",
     "initiative_board",
+    "adr_board",
 )
 
 
@@ -80,6 +81,9 @@ def live_state_hint(values):
     # `team_board` is a board SLUG (what `board_items` resolves), per the
     # bootstrap contract.
     team_board = values.get("team_board") or "unset"
+    # `adr_board` (COLLIERY-T-3102): the ADR board of the team, or the ADR
+    # board of the organization when the team has none.
+    adr_board = values.get("adr_board") or "unset"
     if repository:
         return (
             f"This checkout is repository `{repository}`. For live state, call the "
@@ -98,7 +102,9 @@ def live_state_hint(values):
             f"`repository={repository}` says where the code is and does not "
             "choose the board. Work for a different team is a request: name the "
             "delivery board of that team in `board`. The request goes to the "
-            "entry column, in the support lane. The "
+            "entry column, in the support lane. An ADR about the work of your "
+            "team goes on the ADR board of your team: `create_item` with "
+            f"`item_type: adr` and `board={adr_board}`. The "
             "MCP client holds the authenticated session; this hook "
             "intentionally carries no credentials."
         )

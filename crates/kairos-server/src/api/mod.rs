@@ -1006,6 +1006,9 @@ pub fn map_board_error(e: BoardError) -> ApiError {
         | BoardError::DeliveryBoardNeedsTeam
         | BoardError::TeamHasDeliveryBoard { .. }
         | BoardError::OrganizationBoardHasNoTeam(_)
+        // The create of an ADR board for a team (COLLIERY-T-3102).
+        | BoardError::TeamHasAdrBoard { .. }
+        | BoardError::TeamAdrBoardPrefix { .. }
         // The create and the update of a board (COLLIERY-T-0255).
         | BoardError::SlugTaken { .. }
         // The create of a board (COLLIERY-T-3099).

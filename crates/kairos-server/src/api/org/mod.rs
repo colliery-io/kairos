@@ -360,6 +360,19 @@ pub fn map_config_error(e: BoardError) -> ApiError {
                 "board": { "id": board_id, "name": board_name, "slug": board_slug },
             }))
         }
+        // COLLIERY-T-3102: a team has at most one ADR board. The same form
+        // as TEAM_HAS_DELIVERY_BOARD.
+        BoardError::TeamHasAdrBoard {
+            team_id,
+            board_id,
+            ref board_name,
+            ref board_slug,
+        } => ApiError::unprocessable("TEAM_HAS_ADR_BOARD", e.to_string()).with_details(json!({
+            "team_id": team_id,
+            "board": { "id": board_id, "name": board_name, "slug": board_slug },
+        })),
+        BoardError::TeamAdrBoardPrefix { ref expected, .. } => ApiError::validation(e.to_string())
+            .with_details(json!({ "field": "code_prefix", "expected": expected })),
         // COLLIERY-T-0241.
         BoardError::LastDeliveryBoard {
             board_id,

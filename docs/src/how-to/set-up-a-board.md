@@ -14,8 +14,14 @@ them reachable, and give them the fields they fill in.
   returns 422 `TEAM_HAS_DELIVERY_BOARD`, and the response names the board that
   the team has. You cannot delete the only delivery board of a team, and you
   cannot change the team of a board.
-- A strategy, initiative or ADR board has no team. Do not send `team_id` for
-  these boards.
+- A strategy or initiative board has no team. Do not send `team_id` for these
+  boards.
+- An ADR board can have a team. A team ADR board holds the delivery ADRs of
+  the team. Send `team_id`, and send the prefix of the team (the prefix of its
+  delivery board) as `code_prefix`. A different prefix returns 422
+  `VALIDATION`. An ADR board with no team is an ADR board of the organization.
+- A team has one ADR board. A second ADR board for the same team returns 422
+  `TEAM_HAS_ADR_BOARD`. The response names the board that the team has.
 - A new board needs a short-code prefix, for example `PLAT`. Send it as
   `code_prefix`. It has 2 to 10 capital letters or digits, and the first
   character is a letter. Each item on the board gets a code with the prefix

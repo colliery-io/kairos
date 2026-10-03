@@ -48,6 +48,14 @@ schema can say so; at the coordination and strategy levels the owner is a role
 grants rather than as entities. Putting a `team_id` on a strategy board would
 invent an organisational structure that most tenants do not have.
 
+ADR boards are the exception at the upper level. A decision about how one team
+builds its own product is delivery work, and its owner is that team. An ADR
+board can therefore have a team: the ADR board of the team, which holds the
+delivery ADRs of the team and takes the prefix of the team, so that the
+decisions of Skadi read `SKADI-A-0001` next to its tasks. A team has at most
+one. An ADR board with no team stays a board of the organisation, for the
+decisions that cross teams.
+
 ## Every board has a team
 
 A board cannot have no team. The rule has two forms, one for each kind of
@@ -58,7 +66,7 @@ directory, and the board holds it in `team_id`. Kairos refuses to create a
 delivery board with no team, and the refusal names the missing team. A live
 delivery board cannot lose its team: no operation clears the team of a board
 or moves a board to a different team. When a team is deleted, its delivery
-board is put away with it.
+board and its ADR board are put away with it.
 
 A board of the organisation has no record in the team directory and no
 `team_id`. Its team is the list of the members of the board. Admission is

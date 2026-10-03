@@ -58,6 +58,8 @@ pub(crate) fn first_owner_board(
 ) -> Option<String> {
     boards
         .iter()
+        // COLLIERY-T-3102: the delivery board of the team, not its ADR board.
+        .filter(|board| board.board_level == "delivery")
         .filter(|board| board.team_id.as_deref() == Some(owner_team))
         .map(|board| &board.slug)
         .find(|slug| targets.iter().any(|(target, _)| target == *slug))
@@ -408,5 +410,19 @@ mod tests {
             Some("initiatives")
         );
         assert_eq!(first_owner_board(&[], &boards, "t-platform"), None);
+    }
+
+    /// COLLIERY-T-3102: the ADR board of the owner team is not its
+    /// delivery board, also when it comes first in the list.
+    #[test]
+    fn the_adr_board_of_the_owner_team_is_not_first() {
+        let mut adrs = board("platform-adrs", Some("t-platform"));
+        adrs.board_level = "adr".into();
+        let boards = vec![adrs, board("platform-delivery", Some("t-platform"))];
+        let each = vec![target("platform-adrs"), target("platform-delivery")];
+        assert_eq!(
+            first_owner_board(&each, &boards, "t-platform").as_deref(),
+            Some("platform-delivery")
+        );
     }
 }

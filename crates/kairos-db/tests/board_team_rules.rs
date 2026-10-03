@@ -402,7 +402,7 @@ fn a_board_of_the_organization_has_no_team_id() {
     for (level, slug, name) in [
         (BoardLevel::Strategy, "team-strategy", "strategy"),
         (BoardLevel::Initiative, "team-initiatives", "initiative"),
-        (BoardLevel::Adr, "team-adrs", "adr"),
+        // An ADR board can have a team (COLLIERY-T-3102, team_adr_boards.rs).
     ] {
         let err = create_board(
             conn,
@@ -421,8 +421,8 @@ fn a_board_of_the_organization_has_no_team_id() {
         assert_eq!(
             err.to_string(),
             format!(
-                "Only a delivery board has a team. Do not send team_id for a board of level \
-                 {name}."
+                "Only a delivery board or an ADR board has a team. Do not send team_id for a \
+                 board of level {name}."
             )
         );
         assert_eq!(boards_with_slug(conn, slug), 0, "{level}");

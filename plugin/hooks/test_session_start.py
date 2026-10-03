@@ -34,10 +34,12 @@ class ReadFrontmatter(unittest.TestCase):
             "delivery_stream: platform\n"
             "team_board: platform-delivery\n"
             "initiative_board: initiatives\n"
+            "adr_board: platform-adrs\n"
             "---\n\n# prose\n"
         )
         values = session_start.read_frontmatter(path)
         self.assertEqual(values["repository"], "payments-api")
+        self.assertEqual(values["adr_board"], "platform-adrs")
         self.assertEqual(values["team_board"], "platform-delivery")
         self.assertEqual(set(values), set(session_start.FRONTMATTER_KEYS))
 
@@ -52,6 +54,18 @@ class ReadFrontmatter(unittest.TestCase):
 
 
 class LiveStateHint(unittest.TestCase):
+    def test_an_adr_goes_on_the_adr_board_of_the_team(self):
+        # COLLIERY-T-3102: a team can have an ADR board of its own.
+        hint = session_start.live_state_hint(
+            {
+                "repository": "payments-api",
+                "team_board": "platform-delivery",
+                "adr_board": "platform-adrs",
+            }
+        )
+        self.assertIn("`board=platform-adrs`", hint)
+        self.assertIn("ADR board of your team", hint)
+
     def repo_hint(self):
         return session_start.live_state_hint(
             {"repository": "payments-api", "team_board": "platform-delivery"}

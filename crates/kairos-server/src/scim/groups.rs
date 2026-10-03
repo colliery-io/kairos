@@ -790,13 +790,19 @@ pub(crate) async fn delete_group(
         // transaction holds the check and the delete. Each live delivery
         // board of the team must be empty, and each goes with the team.
         scim_transaction(conn, |conn| {
-            let team_boards = boards::delivery_boards_for_team_delete(conn, team.id)
-                .map_err(ScimError::internal)?;
+            // COLLIERY-T-3102: the ADR board of the team goes with it too.
+            let team_boards =
+                boards::boards_for_team_delete(conn, team.id).map_err(ScimError::internal)?;
             for board in &team_boards {
+                let kind = if board.board_level == BoardLevel::Adr {
+                    "ADR"
+                } else {
+                    "delivery"
+                };
                 let item_count = count_board_items(conn, board.id)?;
                 if item_count > 0 {
                     return Err(ScimError::mutability(format!(
-                        "The delivery board {:?} of the team {:?} has {item_count} live \
+                        "The {kind} board {:?} of the team {:?} has {item_count} live \
                          item{}. Move or delete each item. Then delete the group.",
                         board.name,
                         team.slug,
@@ -809,7 +815,7 @@ pub(crate) async fn delete_group(
                     .map_err(ScimError::internal)?;
                 if !documents.is_empty() {
                     return Err(ScimError::mutability(format!(
-                        "The delivery board {:?} of the team {:?} is the owner of {} live \
+                        "The {kind} board {:?} of the team {:?} is the owner of {} live \
                          document{}. Name a different board for each document or archive \
                          it. Then delete the group.",
                         board.name,

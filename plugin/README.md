@@ -138,7 +138,8 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
 
 `/kairos:bootstrap` records the checkout's repository (`repository:` in
 `.claude/kairos.local.md`, matched from `git remote get-url origin` against the tenant's
-directory) and the delivery board of the team of the principal that connects (`team_board:`).
+directory), the delivery board of the team of the principal that connects (`team_board:`), and the
+ADR board of that team, or of the organization when the team has none (`adr_board:`).
 The team decides the board of a task; the repository is an optional link that says where the
 code is (COLLIERY-A-0023). Every repository has exactly one owning team, and a task on any
 team's board may link to it. `implement` works the team board filtered by this repository and

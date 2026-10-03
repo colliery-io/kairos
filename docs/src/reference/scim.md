@@ -1,5 +1,7 @@
 # `/scim/v2` — inbound SCIM 2.0 provisioning
 
+This page describes Kairos 0.5.0.
+
 OpenAPI (`GET /api/openapi.json`) specifies the rest of the HTTP
 surface. But this endpoint speaks the RFC 7643/7644 wire protocol to identity
 providers rather than the `/api` envelope. Thus this page describes it.

@@ -123,12 +123,12 @@ VERSION_SITES = [
     ),
     (
         "docs/src/reference/events.md",
-        rf"^Kairos {SEMVER}\. This is the deployment's only push channel",
+        rf"^This page describes Kairos {SEMVER}\.",
         "the events reference's stated version",
     ),
     (
         "docs/src/reference/scim.md",
-        rf"^Kairos {SEMVER}\. The rest of the HTTP surface",
+        rf"^This page describes Kairos {SEMVER}\.",
         "the SCIM reference's stated version",
     ),
     (

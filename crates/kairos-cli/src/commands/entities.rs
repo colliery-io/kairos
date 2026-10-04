@@ -223,23 +223,14 @@ pub struct DocumentMoveArgs {
     pub short_code: String,
     /// The new owner board (slug or UUID), of each level. The owner board
     /// gives the right to edit the document. You need `manage_documents`
-    /// on the board that owns the document now and on this board
-    #[arg(
-        long = "to-board",
-        value_name = "BOARD",
-        required_unless_present = "no_board",
-        conflicts_with = "no_board"
-    )]
-    pub to_board: Option<String>,
-    /// Remove the owner board. The owner is then the board of the item
-    /// that the document supports. A document that supports no item keeps
-    /// its board
-    #[arg(long = "no-board")]
-    pub no_board: bool,
+    /// on the board that owns the document now and on this board. Each
+    /// document has an owner board, so you cannot remove it
+    #[arg(long = "to-board", value_name = "BOARD")]
+    pub to_board: String,
     /// Also give the document the next code of its new owner board. The
     /// old code is retired, and each reference to it in the text of the
-    /// items changes to the new code. It needs --to-board
-    #[arg(long, conflicts_with = "no_board")]
+    /// items changes to the new code
+    #[arg(long)]
     pub rename: bool,
     #[command(flatten)]
     pub common: Common,
@@ -486,9 +477,9 @@ impl EntityView for Document {
     fn fields(&self) -> Vec<(&'static str, String)> {
         vec![
             ("id", self.id.clone()),
-            // COLLIERY-T-0269. The board that the document names. With
-            // `-`, the owner is the board of the item that it supports.
-            ("owner board", or_dash(&self.board_id)),
+            // COLLIERY-T-0269. The board that the document names. Each
+            // document has one (COLLIERY-T-3109).
+            ("owner board", self.board_id.clone()),
             ("impacts", impacts_cell(&self.impacts)),
             ("template", or_dash(&self.template_id)),
             ("lifecycle", self.lifecycle.clone()),
@@ -683,7 +674,7 @@ fn renamed_line(before: &str, after: &str) -> Option<String> {
 /// `before` is the owner board that the document named before the call.
 pub fn emit_document_moved(
     common: &Common,
-    before: Option<&str>,
+    before: &str,
     document: &Document,
 ) -> Result<(), CliError> {
     if common.json {
@@ -691,30 +682,20 @@ pub fn emit_document_moved(
     }
     println!(
         "{}",
-        document_moved_line(&document.short_code, before, document.board_id.as_deref())
+        document_moved_line(&document.short_code, before, &document.board_id)
     );
     Ok(())
 }
 
 /// The line of [`emit_document_moved`].
-fn document_moved_line(short_code: &str, before: Option<&str>, after: Option<&str>) -> String {
-    match (before, after) {
-        (before, after) if before == after => match after {
-            Some(board) => format!(
-                "Kairos did not change the document {short_code}. Its owner board is {board} \
-                 already."
-            ),
-            None => {
-                format!("Kairos did not change the document {short_code}. It names no owner board.")
-            }
-        },
-        (_, Some(board)) => {
-            format!("Kairos moved the document {short_code} to the owner board {board}.")
-        }
-        (_, None) => format!(
-            "Kairos removed the owner board of the document {short_code}. Its owner is the \
-             board of the item that it supports."
-        ),
+fn document_moved_line(short_code: &str, before: &str, after: &str) -> String {
+    if before == after {
+        format!(
+            "Kairos did not change the document {short_code}. Its owner board is {after} \
+             already."
+        )
+    } else {
+        format!("Kairos moved the document {short_code} to the owner board {after}.")
     }
 }
 
@@ -924,12 +905,12 @@ pub struct DocumentCreateArgs {
     pub title: String,
     /// The owner board of the document (slug or UUID), of each level. It
     /// gives the right to edit the document, and you need
-    /// `manage_documents` on it. The document is not a card of the board.
-    /// A document must have --board, or --parent, or the two
-    #[arg(long, value_name = "BOARD", required_unless_present = "parent")]
-    pub board: Option<String>,
-    /// Short code of the workflow item this document supports. With no
-    /// --board, the document takes the board of that item as its owner
+    /// `manage_documents` on it. The code of the document gets the prefix
+    /// of this board. The document is not a card of the board
+    #[arg(long, value_name = "BOARD")]
+    pub board: String,
+    /// Short code of the workflow item this document supports (optional).
+    /// It does not give the document an owner board
     #[arg(long, value_name = "SHORT_CODE")]
     pub parent: Option<String>,
     /// Markdown content (omit with --template to stamp the template's
@@ -1044,8 +1025,7 @@ macro_rules! entity_family_cli {
             $move_variant(MoveArgs),
             )?
             $(
-            #[command(about = concat!("Move a ", $noun, " to another owner board, ",
-                                      "or remove its owner board (--no-board)"))]
+            #[command(about = concat!("Move a ", $noun, " to another owner board"))]
             $owner_variant(DocumentMoveArgs),
             )?
             #[command(about = concat!("Soft-delete a ", $noun,
@@ -1116,9 +1096,9 @@ macro_rules! entity_family_cli {
                         // normal 200.
                         let before = client.$get(&args.short_code).await?.board_id;
                         let item = client
-                            .$owner_fn(&args.short_code, args.to_board.as_deref(), args.rename)
+                            .$owner_fn(&args.short_code, &args.to_board, args.rename)
                             .await?;
-                        emit_document_moved(&args.common, before.as_deref(), &item)?;
+                        emit_document_moved(&args.common, &before, &item)?;
                         if !args.common.json {
                             if let Some(line) = renamed_line(&args.short_code, &item.short_code) {
                                 println!("{line}");
@@ -1316,25 +1296,12 @@ mod tests {
     #[test]
     fn the_move_of_a_document_says_what_changed() {
         assert_eq!(
-            document_moved_line("ACME-D-0001", None, Some("b-1")),
-            "Kairos moved the document ACME-D-0001 to the owner board b-1."
-        );
-        assert_eq!(
-            document_moved_line("ACME-D-0001", Some("b-1"), Some("b-2")),
+            document_moved_line("ACME-D-0001", "b-1", "b-2"),
             "Kairos moved the document ACME-D-0001 to the owner board b-2."
         );
         assert_eq!(
-            document_moved_line("ACME-D-0001", Some("b-1"), None),
-            "Kairos removed the owner board of the document ACME-D-0001. Its owner is the \
-             board of the item that it supports."
-        );
-        assert_eq!(
-            document_moved_line("ACME-D-0001", Some("b-1"), Some("b-1")),
+            document_moved_line("ACME-D-0001", "b-1", "b-1"),
             "Kairos did not change the document ACME-D-0001. Its owner board is b-1 already."
-        );
-        assert_eq!(
-            document_moved_line("ACME-D-0001", None, None),
-            "Kairos did not change the document ACME-D-0001. It names no owner board."
         );
     }
 

@@ -147,6 +147,7 @@ journey(
       const doc = await cli.json([
         'documents', 'create',
         '--title', named('note: rolling out the outbound queue'),
+        '--board', 'initiatives',
         '--parent', initiative,
         '--content', '# Rollout\n\nOne service at a time, starting with sign-up mail.\n',
       ]);

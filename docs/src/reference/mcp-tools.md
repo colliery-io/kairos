@@ -46,8 +46,6 @@ Codes an agent can receive, and what each means.
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
-| `LAST_PARENT` | An `unlink_items` of the last `supports` edge of a document that names no board. |
-| `LAST_OWNER` | A `move_item` that removes the owner board of a document that supports no item. |
 | `RENAME_NOT_NEEDED` | A `move_item` with `rename` to a board whose prefix the code has already. |
 
 **Each tool refuses an argument that it does not know.** Each tool has the
@@ -320,14 +318,9 @@ supporting documents.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 
-A document has no column. It shows its owner in the line `owner board`. The
-line has one of three forms:
-
-| Line | Meaning |
-|---|---|
-| `- owner board: platform-delivery` | The document names this board. |
-| `- owner board: web-delivery (the board of ACME-T-0007, which the document supports)` | The document names no board. The board of its earliest parent is its owner. |
-| `- owner board: (none)` | The document names no board and supports no item. |
+A document has no column. It shows its owner board in the line `owner board`,
+for example `- owner board: platform-delivery`. Each document has an owner
+board.
 
 A document or an ADR that impacts a repository has the line `impacts` in the
 section of the relationships. The mark `[archived]` shows a repository that is
@@ -476,7 +469,7 @@ Creates a work item and returns its new short code.
 |---|---|---|---|---|
 | `item_type` | string | yes | — | `strategy`, `initiative`, `task`, `document`, `adr`. |
 | `title` | string | yes | — | The item's title. |
-| `board` | string | no | see below | Target board, slug or UUID. For a task, the board decides the team of the task. For a document, it is the owner board, and it has no default. |
+| `board` | string | no (yes for a document) | see below | Target board, slug or UUID. For a task, the board decides the team of the task. For a document, it is the owner board: it is required, and it has no default. |
 | `parent` | string | no | — | Parent item's short code. Creates the `parent` edge. For a document or an ADR, creates the `supports` edge. |
 | `content` | string | no | empty, or the template's | Initial markdown content. |
 | `template` | string | no | — | Documents only. Template id, slug or name. |
@@ -490,7 +483,7 @@ Creates a work item and returns its new short code.
 | `decision_date` | string | no | — | ADRs only. `YYYY-MM-DD`. |
 
 `board` may be omitted when the tenant has exactly one live board of the
-matching level. For a task, that level is `delivery`. A `repository` does not
+matching level. A document is different: it must have `board`. For a task, that level is `delivery`. A `repository` does not
 replace `board`. The tool has no `team` argument.
 
 An ADR goes on the board that `board` names. When the organization has more
@@ -507,13 +500,19 @@ it.
 The same applies to each `parent`: the caller who creates an item can link it
 to that parent.
 
-A document must have an owner. The call has `board`, or `parent`, or the two.
+A document must have an owner board. The call must have `board`, with
+`parent` or with no `parent`. The owner board can be a live board of each
+level. The caller needs `manage_documents` on that board.
 
-| The call has | The owner of the document | The caller needs |
-|---|---|---|
-| `board` | The board that `board` names. It can be a live board of each level. | `manage_documents` on that board |
-| `parent` | The board of the parent. The parent is a strategy, an initiative or a task. | `manage_documents` on the board of the parent |
-| `board` and `parent` | The board that `board` names. The document supports the parent too. | `manage_documents` on the board that `board` names |
+The code of the document gets the prefix of that board. With `parent`, the
+document also supports that item: a strategy, an initiative or a task. The
+parent gives no owner board.
+
+A call with no `board` gets `VALIDATION`, and `details.argument` is `board`:
+
+```text
+VALIDATION: The call has no `board`. Each document must have an owner board. Send `board`: the slug or the id of the board that owns the document. The code of the document gets the prefix of that board.
+```
 
 The document is not a card of its owner board. It has no column, and
 `board_items` does not show it. See [owner board](glossary.md#owner-board).
@@ -522,12 +521,11 @@ The document is not a card of its owner board. It has no column, and
 repository, create the document. Then call [`link_items`](#link_items) with
 the relationship `impacts`.
 
-The result for a document is one line. It has one of three forms:
+The result for a document is one line. It has one of two forms:
 
 ```text
-Created document ACME-D-0004: The vision of fidius (version 1), owner board platform-delivery.
-Created document ACME-D-0005: PRD of the portal (version 1), supports ACME-I-0002.
-Created document ACME-D-0006: Rollout plan (version 1), owner board platform-delivery, supports ACME-I-0002.
+Created document PLATFORM-D-0004: The vision of fidius (version 1), owner board platform-delivery.
+Created document PLATFORM-D-0006: Rollout plan (version 1), owner board platform-delivery, supports ACME-I-0002.
 ```
 
 The default of `work_class` depends on the caller:
@@ -723,9 +721,9 @@ board. Kairos refuses a rename to a board whose prefix the code has already
 each level. The document gets no column. Its edges and its `impacts` links do
 not change.
 
-To remove the owner board, omit `to_board`, or send null or an empty string.
-The board of the earliest item that the document supports becomes the owner.
-A document that supports no item keeps its board: the refusal is `LAST_OWNER`.
+Each document has an owner board, so the tool cannot remove it. A call with
+no `to_board`, or with null or an empty string, gets `VALIDATION`, and
+`details.argument` is `to_board`.
 
 The move of a document is not an edit. The caller needs `manage_documents` on
 two boards:
@@ -734,27 +732,22 @@ two boards:
 - the board that owns the document after the move
 
 An organization admin can move each document. The creator of the document gets
-no right to move it. For a document that names no board, the board of its
-earliest parent owns it now. For a remove, that board owns it after the move.
+no right to move it.
 
 The tool writes no new version of the document. The activity log gets one
 entry with the action `update`.
 
-The result is one line. `(none)` shows a document that names no board.
+The result is one line:
 
 ```text
 Moved ACME-D-0004: owner board platform-delivery -> web-delivery.
-Moved ACME-D-0005: owner board (none) -> web-delivery.
-Moved ACME-D-0005: owner board web-delivery -> (none).
 ```
 
 A call can name the board that the document has. That call is a success, and
-it writes nothing. The same applies to a remove for a document that names no
-board.
+it writes nothing.
 
 ```text
 No change to ACME-D-0004: its owner board is web-delivery already.
-No change to ACME-D-0005: it names no owner board.
 ```
 
 #### Refusals
@@ -764,11 +757,10 @@ The tool refuses with these codes:
 | Code | When |
 |---|---|
 | `NOT_FOUND` | The short code is unknown, or the item is archived. The `to_board` is unknown or archived. |
-| `VALIDATION` | The item is not a task and not a document. A task has no `to_board`. |
+| `VALIDATION` | The item is not a task and not a document. A task or a document has no `to_board`. |
 | `ITEM_NOT_ON_BOARD` | The task has no placement. |
 | `FORBIDDEN` | The caller does not hold `manage_tasks` on the two boards of a task. The caller does not hold `manage_documents` on the two boards of a document, and the message names the board. |
 | `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `NO_ENTRY_COLUMN` | For a task only. |
-| `LAST_OWNER` | The call removes the owner board of a document that supports no item. |
 | `RENAME_NOT_NEEDED` | A rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. |
 
 ## Relationships
@@ -791,8 +783,7 @@ The caller can edit an item that the caller created. So a request that the
 caller sent to a different team can block an item of the caller. The caller
 can also edit an item with `manage_<type>` on its authorization board.
 
-One exception is a `supports` edge to a document with no parent and no owner
-board. The caller must be able to edit the document. See
+A `supports` edge to a document gives no right on the document. See
 [The `supports` edge of a document](capabilities.md#the-supports-edge-of-a-document).
 
 A `blocks` edge counts only while the items at both ends can move. Complete
@@ -801,14 +792,15 @@ when the item at either end is in a done column. The edge stays, and `get_item`
 marks the done end `[done]`. `link_items` does not refuse an edge to an item in
 a done column.
 
-Refuses: `VALIDATION` for a `relationship` outside the vocabulary, for a
-`source` or `target` that does not name a live item, and for a self-link where
-`source` and `target` are the same item; `FORBIDDEN` when the caller can edit
-neither end, and the message names the capability for each end; `FORBIDDEN`
-for `supports` to a document with no parent and no owner board, when the
-caller cannot edit the document;
-`RELATIONSHIP_RULE` when that relationship is not allowed between
-those two item types; `CYCLE_DETECTED`; `ALREADY_LINKED`.
+The tool refuses with these codes:
+
+| Code | When |
+|---|---|
+| `VALIDATION` | The `relationship` is not in the vocabulary. The `source` or the `target` does not name a live item. The `source` and the `target` are the same item. |
+| `FORBIDDEN` | The caller can edit neither end. The message names the capability for each end. |
+| `RELATIONSHIP_RULE` | That relationship is not possible between those two item types. |
+| `CYCLE_DETECTED` | The edge makes a cycle. |
+| `ALREADY_LINKED` | The edge is there. |
 
 #### The relationship `impacts`
 
@@ -856,14 +848,8 @@ Removes a relationship edge. The arguments and the link rule are those of
 To remove a `supports` edge of a document, the caller must be able to edit
 the document. The right to edit the source is not sufficient.
 
-A document always has an owner. For a document that names no board, the tool
-refuses to remove the last `supports` edge. Do one of these steps first:
-
-- Link the document to a different item.
-- Name an owner board for the document with [`move_item`](#move_item).
-
-If the document has no more use, archive it. A document that names a board
-can lose its last `supports` edge. See
+Each `supports` edge of a document can go, the last one too. The document
+keeps its owner board. See
 [A document always has an owner](capabilities.md#a-document-always-has-an-owner).
 
 For `impacts`, the rule is that of `link_items`: the caller can edit the
@@ -876,8 +862,7 @@ Unlinked ACME-D-0004 -[impacts]-> repository fidius.
 Refuses: as `link_items`, except that a `relationship` with no such edge
 between those items is `NOT_FOUND`. An `impacts` link that is not there is
 `NOT_FOUND` too. The tool gives `FORBIDDEN` for a
-`supports` edge of a document that the caller cannot edit. The tool gives
-`LAST_PARENT` for the last `supports` edge of a document that names no board.
+`supports` edge of a document that the caller cannot edit.
 
 ## Finding related work
 

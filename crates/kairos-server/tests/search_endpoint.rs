@@ -379,6 +379,7 @@ async fn search_endpoint_against_live_stack() {
     let d1 = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Search design notes",
             content: Some("Hydration pipeline and traversal sketches"),
             template_id: None,

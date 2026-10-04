@@ -668,14 +668,14 @@ async fn ws_events_against_live_stack() {
         },
     )
     .expect("creating the repository");
-    let vision = items::create_document_on_board(
+    let vision = items::create_document(
         &mut acme,
         kairos_db::items::CreateDocument {
+            board_id: acme_strategy_board,
             title: "The vision of fidius",
             content: Some("…"),
             template_id: None,
         },
-        Some(acme_strategy_board),
         alice_id,
     )
     .expect("creating the document");
@@ -698,7 +698,7 @@ async fn ws_events_against_live_stack() {
     let (event, raw) = recv_event(&mut stream).await;
     document_changed(&event, &raw, "the add of an impacts link");
 
-    let change = items::set_document_board(&mut acme, vision.id, Some(acme_delivery), alice_id)
+    let change = items::set_document_board(&mut acme, vision.id, acme_delivery, alice_id)
         .expect("the change of the owner board");
     assert!(change.changed);
     let (event, raw) = recv_event(&mut stream).await;
@@ -706,7 +706,7 @@ async fn ws_events_against_live_stack() {
 
     // The board that the document has: no write, and no event. The next
     // event is that of the remove of the link.
-    let again = items::set_document_board(&mut acme, vision.id, Some(acme_delivery), alice_id)
+    let again = items::set_document_board(&mut acme, vision.id, acme_delivery, alice_id)
         .expect("the same owner board");
     assert!(!again.changed);
     kairos_db::impacts::unlink(&mut acme, vision.id, repository.id, alice_id)

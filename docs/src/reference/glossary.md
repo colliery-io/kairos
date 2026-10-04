@@ -109,8 +109,7 @@ with `manage_<type>` on that board can edit the item.
 | Item | Authorization board |
 |---|---|
 | Strategy, initiative, task, ADR on a board | The board of the item |
-| Document that names a board | Its [owner board](#owner-board) |
-| Document that names no board | The board of the earliest item that it supports |
+| Document | Its [owner board](#owner-board) |
 
 An ADR that is on no board has no authorization board. See
 [Capabilities](capabilities.md#how-a-board-is-resolved).
@@ -263,16 +262,9 @@ A document can support a strategy, an initiative or a task, through a
 `supports` edge. That item is a parent of the document. A document can have
 more than one parent, and it can have none.
 
-A document always has an owner. The owner is a board:
-
-- the [owner board](#owner-board) that the document names, or
-- the board of the earliest parent, when the document names no board.
-
-The create of a document needs a board, or a parent, or the two. The server
-refuses each write that leaves a document with no owner:
-
-- `LAST_PARENT` for the last `supports` edge of a document that names no board
-- `LAST_OWNER` for the owner board of a document that supports no item
+Each document has an [owner board](#owner-board). The create of a document
+needs a board, and nobody can remove the owner board later. The code of a
+document has the prefix of its owner board.
 
 A document can [impact](#impacts) a repository. That link says what the
 document is about. See
@@ -434,8 +426,8 @@ Each live board can be an owner board. Its level can be `strategy`,
 The document is not a card of its owner board. It has no column and no
 transition, and the board view does not show it.
 
-A document can name no board. The board of the earliest item that it supports
-owns that document.
+Each document has an owner board. The create of a document needs it, and a
+change of the owner board cannot remove it.
 
 The change of the owner board is a move. The principal needs
 `manage_documents` on the board that owns the document now and on the new

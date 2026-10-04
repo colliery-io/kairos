@@ -111,16 +111,15 @@ pub fn OwnerBoardPanel(
         boards::data::list_boards(auth)
     });
     // The board of now, as `(slug, team)`. `None` while the read is not
-    // there, and `Some(None)` for a document that names no board.
+    // there. `Some(None)` does not occur: each document has an owner board
+    // (COLLIERY-T-3109).
     let here: Memo<Option<Option<NamedBoard>>> = Memo::new(move |_| {
         board
             .get()
             .and_then(Result::ok)
             .map(|board| board.map(|board| (board.slug.clone(), board.team_id.clone())))
     });
-    // The half of the rule about the board of now. With no board, the
-    // owner is the board of a parent, which the page does not know: the
-    // mirror is then "on some board", and the server decides.
+    // The half of the rule about the board of now. The server decides.
     let can_move = Memo::new(move |_| {
         let me = whoami
             .and_then(|resource| resource.get())
@@ -146,31 +145,29 @@ pub fn OwnerBoardPanel(
         owner_board_targets(&me, &list, here.as_ref().map(|(slug, _)| slug.as_str()))
     });
 
-    let change: Callback<Option<String>> = Callback::new(move |target: Option<String>| {
+    // COLLIERY-T-3109: each document has an owner board, so the panel only
+    // changes it. It has no control that removes it.
+    let change: Callback<String> = Callback::new(move |target: String| {
         busy.set(true);
         error.set(None);
-        // A rename needs a new board: the remove never sends it.
-        let rename = target.is_some() && rename.get_untracked();
+        let rename = rename.get_untracked();
         let navigate = navigate.clone();
         leptos::task::spawn_local(async move {
             let old = code.get_value();
-            match api::set_document_board(auth, &old, target.as_deref(), rename).await {
+            match api::set_document_board(auth, &old, &target, rename).await {
                 // A rename: the page of the old code is not the page of
                 // the document now. Go to the page of the new code.
                 Ok(moved) if moved.short_code != old => {
                     toaster.success(format!(
-                        "The owner board is {}. The new code is {}. The code {old} is retired.",
-                        target.unwrap_or_default(),
+                        "The owner board is {target}. The new code is {}. The code {old} is \
+                         retired.",
                         moved.short_code
                     ));
                     navigate(&format!("/items/{}", moved.short_code), Default::default());
                 }
                 // Success reads the item again, and the new page has the
                 // new board: no busy reset, this view is gone.
-                Ok(_) => on_moved.run(match target {
-                    Some(slug) => format!("The owner board is {slug}."),
-                    None => "The document names no owner board.".to_string(),
-                }),
+                Ok(_) => on_moved.run(format!("The owner board is {target}.")),
                 Err(e) => {
                     error.set(Some(e));
                     busy.set(false);
@@ -181,10 +178,9 @@ pub fn OwnerBoardPanel(
     let submit: Callback<()> = Callback::new(move |()| {
         let chosen = value.get_untracked();
         if chosen != NO_CHOICE {
-            change.run(Some(chosen));
+            change.run(chosen);
         }
     });
-    let remove: Callback<()> = Callback::new(move |()| change.run(None));
 
     view! {
         <Panel title="Owner board" caption="who can edit">
@@ -194,11 +190,10 @@ pub fn OwnerBoardPanel(
                     Some(Err(error)) => view! {
                         <Text size="sm" dimmed=true>{api::error_text(&error)}</Text>
                     }.into_any(),
+                    // Each document has an owner board (COLLIERY-T-3109):
+                    // the page did not get it.
                     Some(Ok(None)) => view! {
-                        <Text size="sm" dimmed=true>
-                            "This document names no board. Its owner is the board of the item \
-                             that it supports."
-                        </Text>
+                        <Text size="sm" dimmed=true>"Kairos did not find the owner board."</Text>
                     }.into_any(),
                     Some(Ok(Some(board))) => view! {
                         <Stack gap="xs">
@@ -211,7 +206,6 @@ pub fn OwnerBoardPanel(
                     }.into_any(),
                 }}
                 {move || (!archived && can_move.get()).then(|| {
-                    let named = matches!(here.get(), Some(Some(_)));
                     view! {
                         <Group gap="sm" attr:data-testid="owner-board-control">
                             // A closure: the list of boards can come after
@@ -235,11 +229,6 @@ pub fn OwnerBoardPanel(
                                     on_click=submit
                                 >
                                     "Set owner board"
-                                </Button>
-                            })}
-                            {named.then(|| view! {
-                                <Button variant="default" size="xs" disabled=busy on_click=remove>
-                                    "Remove owner board"
                                 </Button>
                             })}
                         </Group>

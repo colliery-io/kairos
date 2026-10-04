@@ -37,6 +37,7 @@ journey(
     let definitionId = '';
     let templateId = '';
     let request = '';
+    let requestBoard = '';
     let writeUp = '';
 
     await step(alice, 'defines the field every support request will need', async () => {
@@ -99,9 +100,10 @@ journey(
       const me = await (await bob.api()).whoami();
       const team = (me.teams ?? [])[0]?.slug as string;
       expect(team, 'bob is on a team').toBeTruthy();
+      requestBoard = `${team}-delivery`;
       const created = await mcp.call('create_item', {
         item_type: 'task',
-        board: `${team}-delivery`,
+        board: requestBoard,
         task_type: 'support',
         title: named('support: invoices stopped arriving for one tenant'),
         content: 'Reported by the customer at 09:12.',
@@ -124,6 +126,8 @@ journey(
       const mcp = await bob.mcp();
       const created = await mcp.call('create_item', {
         item_type: 'document',
+        // COLLIERY-T-3109: each document names its owner board.
+        board: requestBoard,
         parent: request,
         template: templateSlug,
         title: named('intake: invoices stopped arriving'),

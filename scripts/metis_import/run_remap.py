@@ -157,10 +157,8 @@ class Context:
         return self.boards[{"task": "delivery", "initiative": "initiative", "adr": "adr"}[kind]]
 
     def prefix_of(self, doc, docs):
-        """The prefix of the board that gives the code of doc, or None (a
-        document that supports a parent: the tenant prefix gives it)."""
-        role = remap.role_of(doc, docs)
-        return self.prefixes[role] if role else None
+        """The prefix of the board that gives the code of doc."""
+        return self.prefixes[remap.role_of(doc, docs)]
 
     def is_admin(self):
         return self.me["organization"].get("role") == "admin"
@@ -187,9 +185,8 @@ def create_class(doc, docs):
         return "initiative", "manage_initiatives"
     if kind == "adr":
         return "adr", "manage_adrs"
-    how, parent = remap.owner(doc, docs)
-    if how == "parent":
-        return ("initiative" if docs[parent]["level"] == "initiative" else "delivery"), "manage_documents"
+    # COLLIERY-T-3109: the create gate of a document is its owner board, the
+    # delivery board, also for a document that supports a parent.
     return "delivery", "manage_documents"
 
 
@@ -258,13 +255,14 @@ def create_body(doc, docs, ctx, args, state, staged):
             if tag in remap.TASK_TYPE:
                 body["task_type"] = remap.TASK_TYPE[tag]
     elif kind == "document":
+        # COLLIERY-T-3109: each document has an owner board, also a document
+        # that supports a parent. The owner is the delivery board.
+        body["board"] = ctx.boards["delivery"]["id"]
         how, parent = remap.owner(doc, docs)
         if how == "parent":
             if parent not in state["codes"]:
                 raise Stop("%s: its parent %s has no item yet" % (doc["short_code"], parent))
             body["parent_short_code"] = state["codes"][parent]
-        else:
-            body["board"] = ctx.boards["delivery"]["id"]
     return body
 
 
@@ -336,7 +334,7 @@ def pass_create(api, ctx, docs, order, args, state, state_path, staged, use_admi
         prefix = ctx.prefix_of(doc, docs)
         if not remap.new_code_ok(new, prefix, kind):
             raise Stop("%s came back as %r, not a %s code of the prefix %s"
-                       % (old, new, kind, prefix or "of the tenant"))
+                       % (old, new, kind, prefix))
         state["codes"][old] = new
         state["ids"][old] = row.get("id")
         state["by"][old] = "admin" if admin else "key"
@@ -711,8 +709,7 @@ def verify(api, ctx, docs, order, args, state, staged, mapping, wanted=None):
             if args.repository not in slugs:
                 bad.append("IMPACTS  %s does not impact %s" % (new, args.repository))
         if kind == "document":
-            how, _ = remap.owner(doc, docs)
-            want_board = ctx.boards["delivery"]["id"] if how == "board" else None
+            want_board = ctx.boards["delivery"]["id"]
             if item.get("board_id") != want_board:
                 bad.append("OWNER    %s names the board %r" % (new, item.get("board_id")))
             if doc["level"] == "vision":

@@ -146,9 +146,8 @@ pub struct Task {
 
 /// A supporting document, as returned by `/api/documents`. Documents do not
 /// live on boards: a document is never a card, and it has no column. A
-/// document has an owner (COLLIERY-T-0269). The owner is the board that the
-/// document names (`board_id`). When it names none, the owner is the board
-/// of the item that it supports (KAIROS-A-0006). The `lifecycle` is an
+/// document has an owner (COLLIERY-T-0269): the board that the document
+/// names (`board_id`). Each document has one (COLLIERY-T-3109). The `lifecycle` is an
 /// editorial label (KAIROS-T-0078), and never a board position.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct Document {
@@ -160,11 +159,9 @@ pub struct Document {
     /// Markdown content.
     pub content: String,
     /// The owner board (UUID): the board that the document names
-    /// (COLLIERY-T-0269). It gives the right to edit the document. Null
-    /// when the document names no board: its owner is then the board of
-    /// the earliest item that it supports.
-    #[serde(default)]
-    pub board_id: Option<String>,
+    /// (COLLIERY-T-0269). It gives the right to edit the document, and the
+    /// prefix of its code. Each document has one (COLLIERY-T-3109).
+    pub board_id: String,
     /// The repositories that the document impacts (COLLIERY-T-0269), by
     /// slug. An `impacts` link says what the document is about. It gives
     /// no right.
@@ -340,30 +337,29 @@ pub struct SetWorkClassRequest {
     pub work_class: String,
 }
 
-/// Body of `POST /api/documents`. A document has an owner from its create
-/// (COLLIERY-T-0269). Send `board`, or `parent_short_code`, or the two.
+/// Body of `POST /api/documents`. A document has an owner board from its
+/// create (COLLIERY-T-0269), and `board` is required (COLLIERY-T-3109).
+/// The document names that board as its owner, and its code gets the
+/// prefix of that board. The caller needs `manage_documents` on that
+/// board.
 ///
-/// With `board`, the document names that board as its owner. The caller
-/// needs `manage_documents` on that board.
+/// With `parent_short_code`, the document also supports that item: a
+/// strategy, an initiative, or a task. The server creates the `supports`
+/// edge. The parent gives no authority over the document.
 ///
-/// With `parent_short_code` and no `board`, the owner is the board of the
-/// parent (KAIROS-T-0018 contract). The parent must be a strategy, an
-/// initiative, or a task. The server creates the `supports` edge. The
-/// caller needs `manage_documents` on the board of the parent.
-///
-/// With the two, the document supports the item and names the board. The
-/// board that it names is its owner.
-///
-/// With none of the two, the server refuses the request: 422
-/// `VALIDATION`.
+/// The server refuses a body with no `board`, or with a null or empty
+/// `board`: 422 `VALIDATION`, and `details.field` is `board`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CreateDocumentRequest {
     pub title: String,
-    /// The owner board (slug or UUID): a live board of each level. The
-    /// document is not a card of the board.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board: Option<String>,
+    /// The owner board (slug or UUID), required: a live board of each
+    /// level. The document is not a card of the board. An absent or null
+    /// value reads as empty, so that the server gives the refusal that
+    /// names `board`.
+    #[serde(default, deserialize_with = "null_as_empty")]
+    #[schema(required = true)]
+    pub board: String,
     /// Markdown content. Omitted + `template_id` set = the template's
     /// content is stamped in.
     #[serde(default)]
@@ -371,34 +367,29 @@ pub struct CreateDocumentRequest {
     /// Template to stamp content + metadata defaults from (UUID).
     #[serde(default)]
     pub template_id: Option<String>,
-    /// Short code of the workflow item this document supports. Required
-    /// when the request has no `board` (422 `VALIDATION` when the two are
-    /// missing).
+    /// Short code of the workflow item this document supports (optional).
     #[serde(default)]
     pub parent_short_code: Option<String>,
 }
 
 /// Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269):
-/// set, change or remove the owner board of a document.
+/// change the owner board of a document.
 ///
-/// `board` must be in the body. Its value is the slug or the id of a live
-/// board. A null or an empty string removes the board. After that, the
-/// owner is the board of the earliest item that the document supports.
-/// When the document supports no item, the server refuses that request
-/// with 422 `LAST_OWNER`.
+/// `board` is required. Its value is the slug or the id of a live board.
+/// Each document has an owner board (COLLIERY-T-3109), and you cannot
+/// remove it. The server refuses an absent, null or empty `board`: 422
+/// `VALIDATION`, and `details.field` is `board`.
 ///
 /// The board that the document has changes nothing: the response is 200,
 /// and the server writes nothing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SetDocumentBoardRequest {
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "present"
-    )]
-    #[schema(value_type = Option<String>)]
-    pub board: Option<Option<String>>,
+    /// The new owner board (slug or UUID). An absent or null value reads
+    /// as empty, so that the server gives the refusal that names `board`.
+    #[serde(default, deserialize_with = "null_as_empty")]
+    #[schema(required = true)]
+    pub board: String,
     /// COLLIERY-T-3101 (default `false`): the document also gets the next
     /// code of its new owner board. Kairos retires the old code and changes
     /// the references to it one time. A rename needs a new board.
@@ -406,15 +397,15 @@ pub struct SetDocumentBoardRequest {
     pub rename: bool,
 }
 
-/// A field that is present, with its value or its null. With
-/// `#[serde(default)]`, a field that is absent is `None` and a null is
-/// `Some(None)`.
-fn present<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+/// A string field that reads a null as an empty string. With
+/// `#[serde(default)]` an absent field is empty too. The server then
+/// refuses the empty value with a message that names the field
+/// (COLLIERY-T-3109).
+fn null_as_empty<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::Deserializer<'de>,
-    T: Deserialize<'de>,
 {
-    Option::<T>::deserialize(deserializer).map(Some)
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Body of `POST /api/adrs`. `board_id`/`column_id` follow the DDL rule:

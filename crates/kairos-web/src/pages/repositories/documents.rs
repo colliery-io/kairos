@@ -236,7 +236,7 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
             let body = item_api::CreateDocumentBody {
                 title: document_title,
                 template_id: template.get_untracked(),
-                board: Some(owner),
+                board: owner,
                 parent_short_code: None,
             };
             let created = match item_api::create_document(auth, &body).await {

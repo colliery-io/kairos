@@ -1060,32 +1060,35 @@ async fn entity_endpoints_against_live_stack() {
     // Documents: required parent contract, template stamping, inherited
     // authorization, 409, delete
     // =======================================================================
-    // Missing parent → 422 VALIDATION (the T-0018 contract).
-    let err = rejection(
-        alice
-            .create_document(&CreateDocumentRequest {
-                board: None,
-                title: "Orphan".into(),
-                content: None,
-                template_id: None,
-                parent_short_code: None,
-            })
-            .await,
-    );
-    match &err {
-        Error::Validation {
-            status: 422,
-            message,
-            ..
-        } => assert!(message.contains("parent_short_code"), "{message}"),
-        other => panic!("expected 422 Validation, got {other}"),
+    // Missing board → 422 VALIDATION that names `board` (COLLIERY-T-3109).
+    // A parent does not give the document an owner board.
+    for parent in [None, Some(initiative_code.clone())] {
+        let err = rejection(
+            alice
+                .create_document(&CreateDocumentRequest {
+                    board: String::new(),
+                    title: "Orphan".into(),
+                    content: None,
+                    template_id: None,
+                    parent_short_code: parent,
+                })
+                .await,
+        );
+        match &err {
+            Error::Validation {
+                status: 422,
+                message,
+                ..
+            } => assert!(message.contains("has no board"), "{message}"),
+            other => panic!("expected 422 Validation, got {other}"),
+        }
     }
 
     // Unknown parent → 422; non-workflow parent (an ADR) → 422.
     let err = rejection(
         alice
             .create_document(&CreateDocumentRequest {
-                board: None,
+                board: initiative_board.to_string(),
                 title: "x".into(),
                 content: None,
                 template_id: None,
@@ -1100,7 +1103,7 @@ async fn entity_endpoints_against_live_stack() {
     let err = rejection(
         alice
             .create_document(&CreateDocumentRequest {
-                board: None,
+                board: initiative_board.to_string(),
                 title: "x".into(),
                 content: None,
                 template_id: None,
@@ -1117,7 +1120,7 @@ async fn entity_endpoints_against_live_stack() {
     // capability named.
     let err = rejection(
         bob.create_document(&CreateDocumentRequest {
-            board: None,
+            board: initiative_board.to_string(),
             title: "Spec".into(),
             content: None,
             template_id: None,
@@ -1136,7 +1139,7 @@ async fn entity_endpoints_against_live_stack() {
     // initiative's board.
     let document = alice
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: initiative_board.to_string(),
             title: "API Spec".into(),
             content: Some("endpoint table".into()),
             template_id: None,
@@ -1156,7 +1159,7 @@ async fn entity_endpoints_against_live_stack() {
         .expect("tenant prd template");
     let stamped = alice
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: initiative_board.to_string(),
             title: "PRD for the API".into(),
             content: None,
             template_id: Some(template_id.to_string()),

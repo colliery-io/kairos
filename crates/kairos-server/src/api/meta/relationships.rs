@@ -3,9 +3,9 @@
 //!
 //! Reads are open tenant-wide; POST/DELETE take the link rule
 //! (COLLIERY-T-0228): the caller may edit the item at either end, for each
-//! relationship type. COLLIERY-T-0235 narrows it for the `supports` edge
-//! of a document, and refuses the remove of the last one (422
-//! `LAST_PARENT`): see [`crate::api::require_edge_remove`]. The T-0013 typed link
+//! relationship type. COLLIERY-T-0235 narrows it for the remove of the
+//! `supports` edge of a document: see [`crate::api::require_edge_remove`].
+//! The T-0013 typed link
 //! errors map to 422 with a machine-readable reason:
 //! `RELATIONSHIP_RULE` (type-rule matrix violation), `CYCLE_DETECTED`
 //! (acyclic relationship would close a cycle), `ALREADY_LINKED`
@@ -471,11 +471,10 @@ pub(crate) async fn create_relationship(
 ///
 /// The link rule applies (COLLIERY-T-0228), as for the create.
 ///
-/// The `supports` edge of a document has two rules of its own
-/// (COLLIERY-T-0235). The caller must be able to edit the document. The
-/// server refuses to remove the last `supports` edge of a document: 422
-/// `LAST_PARENT`. Link the document to a different item first, or archive
-/// the document.
+/// The `supports` edge of a document has a rule of its own
+/// (COLLIERY-T-0235). The caller must be able to edit the document. Each
+/// document has an owner board (COLLIERY-T-3109). So the last `supports`
+/// edge of a document can go.
 ///
 /// Goes
 /// through the T-0013 unlink service so the `relationship_remove`
@@ -489,7 +488,6 @@ pub(crate) async fn create_relationship(
         (status = 200, description = "Edge removed", body = dto::DeletedResponse),
         (status = 403, description = "The caller may edit neither the source nor the target. For the supports edge of a document: the caller may not edit the document", body = kairos_client::types::ErrorEnvelope),
         (status = 404, description = "No such edge", body = kairos_client::types::ErrorEnvelope),
-        (status = 422, description = "LAST_PARENT: the edge is the last supports edge of a document", body = kairos_client::types::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn delete_relationship(

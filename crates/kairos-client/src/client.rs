@@ -1127,16 +1127,15 @@ impl KairosClient {
         .await
     }
 
-    /// `PATCH /api/documents/{short_code}/board` — set, change or remove
-    /// the owner board of a document (COLLIERY-T-0269). `board` is a slug
-    /// or a UUID, and `None` removes the board. The caller needs
-    /// `manage_documents` on the board that owns the document now and on
-    /// the new board. A document that supports no item keeps its board:
-    /// 422 `LAST_OWNER`, which arrives as [`Error::Other`].
+    /// `PATCH /api/documents/{short_code}/board` — change the owner board
+    /// of a document (COLLIERY-T-0269). `board` is a slug or a UUID. The
+    /// board cannot be removed (COLLIERY-T-3109): an empty `board` is
+    /// refused with 422 `VALIDATION`. The caller needs `manage_documents`
+    /// on the board that owns the document now and on the new board.
     pub async fn set_document_board(
         &self,
         short_code: &str,
-        board: Option<&str>,
+        board: &str,
     ) -> Result<Document, Error> {
         self.set_document_board_with(short_code, board, false).await
     }
@@ -1147,13 +1146,13 @@ impl KairosClient {
     pub async fn set_document_board_with(
         &self,
         short_code: &str,
-        board: Option<&str>,
+        board: &str,
         rename: bool,
     ) -> Result<Document, Error> {
         self.patch(
             &format!("/api/documents/{short_code}/board"),
             &SetDocumentBoardRequest {
-                board: Some(board.map(str::to_string)),
+                board: board.to_string(),
                 rename,
             },
         )
@@ -1497,8 +1496,7 @@ impl KairosClient {
 
     /// `DELETE /api/relationships/{id}`. The link rule applies, as for
     /// the create. For the `supports` edge of a document the caller must
-    /// be able to edit the document, and the last one stays: 422
-    /// `LAST_PARENT`, which arrives as [`Error::Other`] (COLLIERY-T-0235).
+    /// be able to edit the document (COLLIERY-T-0235).
     pub async fn delete_relationship(
         &self,
         relationship_id: &str,

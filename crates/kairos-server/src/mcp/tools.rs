@@ -68,8 +68,8 @@ use kairos_db::{GraphError, abac, boards, graph, items, repositories, search};
 
 use crate::api::meta::{manage_capability, validated_metadata_ops};
 use crate::api::{
-    Liveness, atomically, map_abac_error, map_board_error, map_graph_error, map_item_error,
-    parse_enum, require_capability, require_edge_write, require_item_edit, resolve_short_code,
+    Liveness, atomically, map_board_error, map_graph_error, map_item_error, parse_enum,
+    require_capability, require_edge_write, require_item_edit, resolve_short_code,
 };
 use crate::error::ApiError;
 use crate::middleware::tenant::TenantContext;
@@ -284,12 +284,13 @@ pub struct CreateItemParams {
     /// Target board, by slug or UUID. Optional when the tenant has exactly
     /// one board of the matching level (strategy/initiative/adr boards,
     /// or the single delivery board for tasks). For a document it is the
-    /// OWNER board: a live board of each level, with no default. The
-    /// document is not a card of the board.
+    /// OWNER board, and it is required: a live board of each level, with
+    /// no default. The code of the document gets the prefix of that board.
+    /// The document is not a card of the board.
     pub board: Option<String>,
     /// Parent item's short code: creates the `parent` edge. For a document
     /// or an ADR, creates the `supports` edge. A document must have
-    /// `board`, or `parent`, or the two.
+    /// `board` also: the parent gives it no owner.
     pub parent: Option<String>,
     /// Template (id or name) — documents only (KAIROS-A-0003).
     pub template: Option<String>,
@@ -381,8 +382,8 @@ pub struct MoveItemParams {
     /// The board to move it to, by slug (e.g. "web-delivery") or UUID. A
     /// task must have it: a delivery board, and the task lands in the
     /// entry column of that board. For a document it is the new owner
-    /// board, of each level. To remove the owner board of a document,
-    /// omit this argument, or send null or an empty string.
+    /// board, of each level. A document must have it too: the owner board
+    /// of a document cannot be removed.
     pub to_board: Option<String>,
     /// Give the item the next code of the target board (default false).
     /// The old code is retired: a read with it finds the item. Each
@@ -1426,7 +1427,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Documents: a document must have an owner, so send `board`, or `parent`, or the two. `board` is the owner board: you need `manage_documents` on it, and it gives the right to edit the document. The document is not a card of the board. With `parent` and no `board`, the owner is the board of the parent. A document that is about a repository as a whole (its vision, its architecture) names the board of the team and impacts the repository: create it with `board`, then call `link_items` with the relationship `impacts`. ADRs: `board` is the ADR board. A team can have an ADR board for its delivery ADRs, with the prefix of the team: `my_boards` names the team of each ADR board. Returns the new short code."
+        description = "Create a work item: strategy | initiative | task | document | adr. Boards resolve by slug/UUID (defaulted when unambiguous); `parent` (short code) creates the parent edge; for a document or an ADR it creates the supports edge, from a strategy, initiative or task. A refused create writes nothing. You create the item, so you can link it to the parent. Tasks: `board` chooses the board, and the task gets the team of that board. `repository` (slug/UUID) is an optional link to any live repository; it does not choose the board. Any member can send a request to any team: name the delivery board of that team in `board`. The request goes to the entry column, in the support lane. On a board that you do not manage, `work_class: planned` is refused. Initiatives: `bucket_type` makes it a bucket rather than a dated initiative. There is deliberately no `column` argument — every item is created in its board's entry column, and `transition_item` is the only way work moves, so placing an item directly would bypass the board's transition graph. Documents: `board` is required. It is the owner board of the document: you need `manage_documents` on it, it gives the right to edit the document, and the code of the document gets the prefix of that board. A call with no `board` is refused, and the refusal names `board`; there is no default board, and `parent` does not give one. The document is not a card of the board. A document that is about a repository as a whole (its vision, its architecture) names the board of the team and impacts the repository: create it with `board`, then call `link_items` with the relationship `impacts`. ADRs: `board` is the ADR board. A team can have an ADR board for its delivery ADRs, with the prefix of the team: `my_boards` names the team of each ADR board. Returns the new short code."
     )]
     pub async fn create_item(
         &self,
@@ -1548,7 +1549,7 @@ impl KairosMcp {
     // of a move: the capability on the board that the item leaves and on
     // the board that it goes to, and nothing for the creator.
     #[tool(
-        description = "Move a TASK to another delivery board, or a DOCUMENT to another owner board. `to_board` is a board slug or UUID. A task: what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. A document: `to_board` is the new owner board, of each level. The owner board gives the right to edit the document. The document is not a card, and it gets no column. Needs `manage_documents` on both the board that owns the document now and the target. The creator of the document gets no right to move it. To remove the owner board of a document, omit `to_board`: the owner is then the board of the item that the document supports. A document that supports no item keeps its board (LAST_OWNER). The links of the document do not change. Rename: with `rename: true` the item also gets the next code of the target board (for example COLLIERY-T-0100 becomes SKADI-T-0001). The old code is retired and is never issued again, and get_item with it finds the item. Each reference to the old code in the text of the items changes to the new code, one time; a code in a URL or a path does not change. Without `rename`, the item keeps its code. To move an item between COLUMNS of its own board, use `transition_item`."
+        description = "Move a TASK to another delivery board, or a DOCUMENT to another owner board. `to_board` is a board slug or UUID. A task: what you do when work belongs to a different team, instead of recreating it there. It lands in that board's entry column and follows its team. Needs `manage_tasks` on both the task's current board and the target. The creator of the task gets no right to move it. The task keeps its repository; the move does not look at it. A document: `to_board` is the new owner board, of each level. The owner board gives the right to edit the document. The document is not a card, and it gets no column. Needs `manage_documents` on both the board that owns the document now and the target. The creator of the document gets no right to move it. Each document has an owner board, so a document needs `to_board`: the owner board cannot be removed. The links of the document do not change. Rename: with `rename: true` the item also gets the next code of the target board (for example COLLIERY-T-0100 becomes SKADI-T-0001). The old code is retired and is never issued again, and get_item with it finds the item. Each reference to the old code in the text of the items changes to the new code, one time; a code in a URL or a path does not change. Without `rename`, the item keeps its code. To move an item between COLUMNS of its own board, use `transition_item`."
     )]
     pub async fn move_item(
         &self,
@@ -1562,6 +1563,9 @@ impl KairosMcp {
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
             let to_board = crate::api::documents::board_to_set(params.to_board.as_deref());
             if item.item_type == ItemType::Document {
+                let to_board = to_board.ok_or_else(|| {
+                    crate::api::documents::board_is_required("argument", "to_board")
+                })?;
                 return move_document(conn, &slug, user, &item, to_board, params.rename);
             }
             if item.item_type != ItemType::Task {
@@ -1876,7 +1880,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type. One exception: to write `supports` to a document that has no parent and names no board, you must be able to edit the document. The relationship `impacts` goes from a document or an ADR to a REPOSITORY: `source` is the short code, and `target` is the slug or the UUID of a live repository, of each team. It says what the item is about. It gives no right on the item and no right on the repository. You must be able to edit the document or the ADR, and you need no right on the repository. A task does not impact a repository: `set_repository` links a task."
+        description = "Create a relationship edge between two items (by short code): parent | supports | informs | supersedes | blocks. Type rules and cycle prevention are enforced. You can link two items when you can edit one of them. You can edit an item that you created, or with `manage_<type>` on its board. The rule is the same for each relationship type. The relationship `impacts` goes from a document or an ADR to a REPOSITORY: `source` is the short code, and `target` is the slug or the UUID of a live repository, of each team. It says what the item is about. It gives no right on the item and no right on the repository. You must be able to edit the document or the ADR, and you need no right on the repository. A task does not impact a repository: `set_repository` links a task."
     )]
     pub async fn link_items(
         &self,
@@ -1925,7 +1929,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items. To remove a `supports` edge of a document, you must be able to edit the document. A document always has an owner. For a document that names no board, the remove of its last `supports` edge is refused (LAST_PARENT): link the document to a different item first, or name a board for the document with `move_item`, or archive the document. A document that names a board can lose its last `supports` edge. For the relationship `impacts`, `target` is the slug or the UUID of the repository, and you must be able to edit the document or the ADR."
+        description = "Remove a relationship edge between two items (by short code and relationship type). The rule of link_items applies: you can edit one of the two items. To remove a `supports` edge of a document, you must be able to edit the document. The owner board of the document does not change, so a document can lose its last `supports` edge. For the relationship `impacts`, `target` is the slug or the UUID of the repository, and you must be able to edit the document or the ADR."
     )]
     pub async fn unlink_items(
         &self,
@@ -2338,7 +2342,7 @@ fn load_item(
                 version: row.version,
                 // The OWNER board (COLLIERY-T-0269). A document has no
                 // column, so no reader takes it for a card.
-                board_id: row.board_id,
+                board_id: Some(row.board_id),
                 column_id: None,
                 task_type: None,
                 work_class: None,
@@ -2903,29 +2907,11 @@ fn parse_relationship(value: &str) -> Result<RelationshipType, ApiError> {
 }
 
 /// The line `- owner board: ...` of a document for `get_item`
-/// (COLLIERY-T-0269). The owner is the board that the document names, or
-/// the board of the earliest item that it supports. The line says which
-/// of the two, because the remove of a `supports` edge changes the second
-/// and not the first.
+/// (COLLIERY-T-0269). Each document has an owner board (COLLIERY-T-3109).
 fn owner_board_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiError> {
-    if let Some(board_id) = item.board_id {
-        let board = board_by_id(conn, board_id)?;
-        return Ok(format!("- owner board: {}\n", board.slug));
-    }
-    let parent = abac::document_parents(conn, item.id)
-        .map_err(map_abac_error)?
-        .into_iter()
-        .next();
-    Ok(match parent {
-        Some(parent) => {
-            let board = board_by_id(conn, parent.board_id)?;
-            let code = crate::api::short_code_of(conn, parent.parent_id)?;
-            format!(
-                "- owner board: {} (the board of {code}, which the document supports)\n",
-                board.slug
-            )
-        }
-        None => "- owner board: (none)\n".to_string(),
+    Ok(match item.board_id {
+        Some(board_id) => format!("- owner board: {}\n", board_by_id(conn, board_id)?.slug),
+        None => String::new(),
     })
 }
 
@@ -2957,38 +2943,28 @@ fn impacts_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiE
     Ok(format!("- impacts: {}\n", entries.join("; ")))
 }
 
-/// The move of a DOCUMENT to a different owner board, or the remove of
-/// its owner board (COLLIERY-T-0269): `move_item` for a document. The rule
-/// and the write are those of `PATCH /api/documents/{short_code}/board`
+/// The move of a DOCUMENT to a different owner board (COLLIERY-T-0269):
+/// `move_item` for a document. The rule and the write are those of
+/// `PATCH /api/documents/{short_code}/board`
 /// ([`crate::api::documents::change_board`]).
 fn move_document(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     item: &ItemView,
-    to_board: Option<&str>,
+    to_board: &str,
     rename: bool,
 ) -> Result<String, ApiError> {
     let change = crate::api::documents::change_board(conn, slug, user, item.id, to_board, rename)?;
-    let name = |board: &Option<Board>| {
-        board
-            .as_ref()
-            .map_or_else(|| "(none)".to_string(), |board| board.slug.clone())
-    };
     if !change.changed {
-        return Ok(match &change.to {
-            Some(board) => format!(
-                "No change to {}: its owner board is {} already.",
-                item.short_code, board.slug
-            ),
-            None => format!("No change to {}: it names no owner board.", item.short_code),
-        });
+        return Ok(format!(
+            "No change to {}: its owner board is {} already.",
+            item.short_code, change.to.slug
+        ));
     }
     let mut out = format!(
         "Moved {}: owner board {} -> {}.",
-        item.short_code,
-        name(&change.from),
-        name(&change.to)
+        item.short_code, change.from.slug, change.to.slug
     );
     if let Some(rename) = &change.rename {
         out.push_str(&rename_lines(rename));
@@ -3515,6 +3491,7 @@ fn create_item_impl(
             },
             crate::api::documents::CreateWording {
                 request: "call",
+                details_key: "argument",
                 board: "`board`",
                 parent: "`parent`",
             },
@@ -3523,9 +3500,7 @@ fn create_item_impl(
             "Created document {}: {} (version 1)",
             created.document.short_code, created.document.title
         );
-        if let Some(board) = &created.board {
-            out.push_str(&format!(", owner board {}", board.slug));
-        }
+        out.push_str(&format!(", owner board {}", created.board.slug));
         if let Some(parent_code) = &created.parent {
             out.push_str(&format!(", supports {parent_code}"));
         }

@@ -1,27 +1,26 @@
 //! `/api/documents` (KAIROS-S-0005) — see [`super`] for the shared T-0018
 //! handler pattern. Documents do not live on boards and have no transition
-//! route. A document has an OWNER, which is a board (COLLIERY-T-0269): the
-//! board that the document names, or the board of the workflow item that it
-//! supports (KAIROS-A-0006).
+//! route. A document has an OWNER, which is a board (COLLIERY-T-0269). Each
+//! document has one (COLLIERY-T-3109), and its code has the prefix of that
+//! board (COLLIERY-T-3099).
 //!
-//! # The owner contract (COLLIERY-T-0269)
+//! # The owner contract (COLLIERY-T-0269, COLLIERY-T-3109)
 //!
-//! `POST /api/documents` needs `board`, or `parent_short_code`, or the two.
-//! With none of the two the request is refused: 422 `VALIDATION`.
+//! `POST /api/documents` needs `board`. With no board the request is
+//! refused: 422 `VALIDATION`, and `details.field` is `board`. There is no
+//! default board: Dylan decided on 2026-10-03 that the caller names it.
+//! Until COLLIERY-T-3109 a `parent_short_code` alone was sufficient, and the
+//! document then took the board of the parent as its owner and the prefix
+//! of the tenant for its code.
 //!
 //! - `board` names a live board of each level. The document names that
 //!   board as its owner, and `manage_documents` is checked against it. The
 //!   document is not a card of the board: it has no column.
-//! - `parent_short_code` names a live strategy, initiative, or task: the
-//!   document is created and the `supports` edge (parent = source,
-//!   document = target, S-0004 orientation) is written by the T-0013 graph
-//!   service. With no `board`, `manage_documents` is checked against the
-//!   parent's board (the KAIROS-T-0018 contract). An unknown parent, or a
-//!   non-workflow parent, is 422 `VALIDATION`. When the parent resolves to
-//!   no board (off-board ADR ancestry cannot happen for workflow parents,
-//!   but defense-in-depth), the org-admin-only fallback applies.
-//! - With the two, the document supports the item and names the board. The
-//!   board that it names is its owner.
+//! - `parent_short_code` (optional) names a live strategy, initiative, or
+//!   task: the `supports` edge (parent = source, document = target, S-0004
+//!   orientation) is written by the T-0013 graph service, with the link
+//!   rule (COLLIERY-T-0228). An unknown parent, or a non-workflow parent,
+//!   is 422 `VALIDATION`. The parent gives no authority over the document.
 //!
 //! That is the CREATE gate, and COLLIERY-T-0228 did not change it. Each
 //! later write to the document (content, lifecycle, archive, an `impacts`
@@ -50,15 +49,14 @@ use kairos_core::short_code::ItemType;
 use kairos_db::models::boards::Board;
 use kairos_db::models::enums::RelationshipType;
 use kairos_db::models::items::Document;
-use kairos_db::{abac, graph, items, repositories};
+use kairos_db::{graph, items, repositories};
 use serde_json::json;
 use uuid::Uuid;
 
 use super::convert::{IntoDto, attach_impact, attach_impacts};
 use super::{
-    Liveness, atomically, clamp_pagination, map_abac_error, map_graph_error, map_item_error,
-    parse_enum, parse_opt_uuid, require_capability, require_edge_write, require_item_edit,
-    resolve_short_code,
+    Liveness, atomically, clamp_pagination, map_graph_error, map_item_error, parse_enum,
+    parse_opt_uuid, require_capability, require_edge_write, require_item_edit, resolve_short_code,
 };
 use crate::app::AppState;
 use crate::body::ApiJson;
@@ -304,6 +302,9 @@ pub(crate) async fn get_document(
 pub(crate) struct CreateWording {
     /// `request` or `call`.
     pub request: &'static str,
+    /// The key of `details` that names an input in a refusal: `field` for
+    /// a body, `argument` for a tool.
+    pub details_key: &'static str,
     /// The name of the board input.
     pub board: &'static str,
     /// The name of the parent input.
@@ -313,6 +314,7 @@ pub(crate) struct CreateWording {
 /// The wording of `POST /api/documents`.
 pub(crate) const REST_WORDING: CreateWording = CreateWording {
     request: "request",
+    details_key: "field",
     board: "board",
     parent: "parent_short_code",
 };
@@ -323,7 +325,9 @@ pub(crate) struct NewDocument<'a> {
     pub title: &'a str,
     pub content: Option<&'a str>,
     pub template_id: Option<Uuid>,
-    /// The owner board, by slug or UUID.
+    /// The owner board, by slug or UUID. Required (COLLIERY-T-3109): the
+    /// type is an `Option` so that [`create`] gives the refusal of each
+    /// surface.
     pub board: Option<&'a str>,
     /// The short code of the item that the document supports.
     pub parent: Option<&'a str>,
@@ -332,8 +336,8 @@ pub(crate) struct NewDocument<'a> {
 /// What [`create`] made.
 pub(crate) struct CreatedDocument {
     pub document: Document,
-    /// The board that the document names, if it names one.
-    pub board: Option<Board>,
+    /// The owner board of the document.
+    pub board: Board,
     /// The short code of the item that the document supports, if one.
     pub parent: Option<String>,
 }
@@ -398,21 +402,23 @@ pub(crate) fn create(
 ) -> Result<CreatedDocument, ApiError> {
     let CreateWording {
         request,
+        details_key,
         board: board_field,
         parent: parent_field,
     } = wording;
-    if input.board.is_none() && input.parent.is_none() {
+    let Some(board) = input.board.map(str::trim).filter(|board| !board.is_empty()) else {
         return Err(ApiError::validation(format!(
-            "The {request} has no {board_field} and no {parent_field}. A document must \
-             have an owner. Send {board_field}: the slug or the id of the board that owns \
-             the document. Or send {parent_field}: the short code of a strategy, an \
-             initiative, or a task that the document supports. You can send the two."
+            "The {request} has no {board_field}. Each document must have an owner board. \
+             Send {board_field}: the slug or the id of the board that owns the document. \
+             The code of the document gets the prefix of that board."
+        ))
+        .with_details(serde_json::Value::Object(
+            [(details_key.to_string(), json!("board"))]
+                .into_iter()
+                .collect(),
         )));
-    }
-    let board = input
-        .board
-        .map(|reference| board_by_ref(conn, reference))
-        .transpose()?;
+    };
+    let board = board_by_ref(conn, board)?;
     let parent = input
         .parent
         .map(|parent_code| {
@@ -436,51 +442,39 @@ pub(crate) fn create(
         })
         .transpose()?;
 
-    // THE CREATE GATE. The board that the document names is its owner, so
-    // it is the gate. With no board, the gate is the board of the parent,
-    // as before COLLIERY-T-0269.
-    match (&board, &parent) {
-        (Some(board), _) => require_manage_on_owner(
-            conn,
-            slug,
-            user,
-            board,
-            "which the document names as its owner",
-        )?,
-        (None, Some((_, parent_id, _))) => {
-            let parent_board =
-                abac::resolve_authorization_board(conn, *parent_id).map_err(map_abac_error)?;
-            require_capability(conn, slug, parent_board, user, MANAGE)?;
-        }
-        (None, None) => unreachable!("refused above"),
-    }
+    // THE CREATE GATE. The owner board of the document is the gate.
+    require_manage_on_owner(
+        conn,
+        slug,
+        user,
+        &board,
+        "which the document names as its owner",
+    )?;
 
-    let created = items::create_document_on_board(
+    let created = items::create_document(
         conn,
         items::CreateDocument {
+            board_id: board.id,
             title: input.title,
             content: input.content,
             template_id: input.template_id,
         },
-        board.as_ref().map(|board| board.id),
         user,
     )
     .map_err(map_item_error)?;
     if let Some((_, parent_id, parent_type)) = parent {
-        if board.is_some() {
-            // The gate above was about the board and not about the
-            // parent. WHO may write the edge is the link rule
-            // (COLLIERY-T-0228), as for an ADR with a parent: the caller
-            // created the document, so the caller can link it.
-            require_edge_write(
-                conn,
-                slug,
-                user,
-                RelationshipType::Supports.as_str(),
-                (parent_id, parent_type),
-                (created.id, ItemType::Document),
-            )?;
-        }
+        // The gate above was about the board and not about the parent. WHO
+        // may write the edge is the link rule (COLLIERY-T-0228), as for an
+        // ADR with a parent: the caller created the document, so the caller
+        // can link it.
+        require_edge_write(
+            conn,
+            slug,
+            user,
+            RelationshipType::Supports.as_str(),
+            (parent_id, parent_type),
+            (created.id, ItemType::Document),
+        )?;
         graph::link_items(
             conn,
             parent_id,
@@ -497,14 +491,14 @@ pub(crate) fn create(
     })
 }
 
-/// Create a document. It needs an owner: `board`, or `parent_short_code`,
-/// or the two (COLLIERY-T-0269, see the module docs).
+/// Create a document. It needs `board`: the board that owns the document
+/// (COLLIERY-T-3109, see the module docs). The code of the document gets
+/// the prefix of that board.
 ///
-/// With `board`, the caller needs `manage_documents` on that board. With
-/// `parent_short_code` and no `board`, the caller needs `manage_documents`
-/// on the board of the parent. COLLIERY-T-0228 did not change this gate.
-/// With `template_id`, the template's content and metadata
-/// defaults are stamped (KAIROS-A-0003).
+/// The caller needs `manage_documents` on that board. With
+/// `parent_short_code`, the document also supports that item. With
+/// `template_id`, the template's content and metadata defaults are stamped
+/// (KAIROS-A-0003).
 #[utoipa::path(
     post,
     path = "/api/documents",
@@ -512,9 +506,9 @@ pub(crate) fn create(
     request_body = dto::CreateDocumentRequest,
     responses(
         (status = 201, description = "Created. With parent_short_code, the supports edge is written", body = dto::Document),
-        (status = 403, description = "Missing capability on the board that the document names, or on the board of the parent", body = dto::ErrorEnvelope),
+        (status = 403, description = "Missing manage_documents on the board that the document names", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown board", body = dto::ErrorEnvelope),
-        (status = 422, description = "No board and no parent, unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
+        (status = 422, description = "No board (details.field is board), unknown parent, non-workflow parent, or unknown template", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn create_document(
@@ -539,7 +533,7 @@ pub(crate) async fn create_document(
                         title: &body.title,
                         content: body.content.as_deref(),
                         template_id,
-                        board: body.board.as_deref(),
+                        board: Some(body.board.as_str()),
                         parent: body.parent_short_code.as_deref(),
                     },
                     REST_WORDING,
@@ -556,9 +550,9 @@ pub(crate) struct BoardChange {
     /// The document after the call.
     pub document: Document,
     /// The board that the document named before the call.
-    pub from: Option<Board>,
+    pub from: Board,
     /// The board that the document names after the call.
-    pub to: Option<Board>,
+    pub to: Board,
     /// The call changed the document. `false` = the document named that
     /// board already, and the call wrote nothing.
     pub changed: bool,
@@ -566,131 +560,75 @@ pub(crate) struct BoardChange {
     pub rename: Option<kairos_db::code_rename::CodeRename>,
 }
 
-/// THE CHANGE OF THE OWNER of a document (COLLIERY-T-0269): set, change or
-/// remove the board that the document names. The ONE implementation of
+/// The refusal of a change of the owner board with no board
+/// (COLLIERY-T-3109): each document has an owner board, so the board
+/// cannot be removed. `details_key` is `field` for a body and `argument`
+/// for a tool, and `name` is the name of the input on that surface
+/// (`board`, or `to_board` for `move_item`).
+pub(crate) fn board_is_required(details_key: &str, name: &str) -> ApiError {
+    ApiError::validation(format!(
+        "Each document has an owner board, and you cannot remove it. Send {name}: the \
+         slug or the id of the new owner board."
+    ))
+    .with_details(serde_json::Value::Object(
+        [(details_key.to_string(), json!(name))]
+            .into_iter()
+            .collect(),
+    ))
+}
+
+/// THE CHANGE OF THE OWNER of a document (COLLIERY-T-0269): change the
+/// board that the document names. The ONE implementation of
 /// `PATCH /api/documents/{short_code}/board` and of the MCP tool
-/// `move_item` for a document.
+/// `move_item` for a document. The board cannot be removed
+/// (COLLIERY-T-3109): the caller refuses a request with no board
+/// ([`board_is_required`]) before it calls this function.
 ///
-/// `board: None` removes the board. The owner of the document is then the
-/// board of the earliest item that it supports.
+/// WHO. The change is a MOVE and not an edit, and the rule is that of the
+/// move of a task: the principal needs `manage_documents` on the board that
+/// owns the document NOW and on the NEW board. An organization admin
+/// passes. The creator of the document gets no right here: creation does
+/// not grant movement ([`super::require_item_edit`]). The refusal is 403
+/// `FORBIDDEN`.
 ///
-/// The function asks two rules, in this order.
-///
-/// 1. WHO. The change is a MOVE and not an edit, and the rule is that of
-///    the move of a task: the principal needs `manage_documents` on the
-///    board that answers for the document NOW and on the board that will
-///    answer for it AFTER the change. An organization admin passes. The
-///    creator of the document gets no right here: creation does not grant
-///    movement ([`super::require_item_edit`]). The refusal is 403
-///    `FORBIDDEN`.
-///
-///    The board NOW is the authorization board
-///    ([`abac::resolve_authorization_board`]): the board that the document
-///    names, or the board of its earliest parent. A document with no
-///    board and no parent is old data, and only an organization admin can
-///    give it an owner. The board AFTER is the new board, or for a remove
-///    the board of the earliest parent.
-///
-///    WHY the two. With only the board NOW, a manager of one board could
-///    give a document to a board whose team did not ask for it. With only
-///    the board AFTER, a manager of one board could take each document of
-///    the tenant.
-///
-/// 2. WHICH. A document always has an owner. The remove of the board of a
-///    document that supports no item is refused, for each principal, an
-///    organization admin too: 422 `LAST_OWNER`. It is a rule of the data
-///    and not a permission, as `LAST_PARENT` is.
-///
-/// WHO comes first, so a principal who may not change the owner learns
-/// nothing about what the document supports.
+/// WHY the two. With only the board NOW, a manager of one board could give
+/// a document to a board whose team did not ask for it. With only the
+/// board AFTER, a manager of one board could take each document of the
+/// tenant.
 ///
 /// The board that the document names already is a success that writes
 /// nothing. The rule WHO is asked first for that call too.
 ///
-/// The function takes the lock of the document
-/// ([`abac::lock_document`]), which the remove of a `supports` edge takes
-/// too, and it runs in ONE transaction. So the remove of the last parent
-/// and the remove of the board cannot each see the owner that the other
-/// removes.
-///
 /// With `rename` (COLLIERY-T-3101), the document also gets the next code of
 /// its new board, in the same transaction
 /// ([`kairos_db::code_rename::rename_item`]). A rename needs a new board:
-/// a call with no board, or with the board that the document names
-/// already, is refused before anything changes.
+/// a call with the board that the document names already is refused
+/// before anything changes.
 pub(crate) fn change_board(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     document_id: Uuid,
-    board: Option<&str>,
+    board: &str,
     rename: bool,
 ) -> Result<BoardChange, ApiError> {
-    if rename && board.is_none() {
-        return Err(ApiError::validation(
-            "A rename gives the document the next code of its new owner board. Name the \
-             new board, or do the change with no rename.",
-        )
-        .with_details(json!({ "argument": "rename" })));
-    }
     atomically(conn, |conn| {
-        abac::lock_document(conn, document_id).map_err(map_abac_error)?;
         let document = load_by_id(conn, document_id)?;
-        let from = document
-            .board_id
-            .map(|id| board_by_id(conn, id))
-            .transpose()?;
-        let to = board
-            .map(|reference| board_by_ref(conn, reference))
-            .transpose()?;
-        let parents = abac::document_parents(conn, document_id).map_err(map_abac_error)?;
+        let from = board_by_id(conn, document.board_id)?;
+        let to = board_by_ref(conn, board)?;
 
-        // 1. WHO.
-        let now = from
-            .as_ref()
-            .map(|board| board.id)
-            .or_else(|| parents.first().map(|parent| parent.board_id));
-        let after = to
-            .as_ref()
-            .map(|board| board.id)
-            .or_else(|| parents.first().map(|parent| parent.board_id));
-        for (board_id, side) in [(now, "now"), (after, "after")] {
-            if side == "after" && (board_id == now || board_id.is_none()) {
-                // The same board was asked, or the remove leaves no board:
-                // rule 2 refuses that remove.
-                continue;
-            }
-            require_owner_change(conn, slug, user, &document, board_id, side)?;
-        }
-
-        // 2. WHICH.
-        if to.is_none()
-            && from.is_some()
-            && !kairos_core::abac::document_board_can_go(parents.len())
-        {
-            let board = from.as_ref().map(|board| board.slug.clone());
-            return Err(ApiError::unprocessable(
-                "LAST_OWNER",
-                format!(
-                    "{} supports no item. A document always has an owner. Link the \
-                     document to a work item first, or name a different board.",
-                    document.short_code
-                ),
-            )
-            .with_details(json!({
-                "document": document.short_code,
-                "board": board,
-            })));
+        // WHO: the board now, and the new board when it is a different one.
+        require_owner_change(conn, slug, user, &document, &from, "now")?;
+        if to.id != from.id {
+            require_owner_change(conn, slug, user, &document, &to, "after")?;
         }
 
         let change =
-            items::set_document_board(conn, document_id, to.as_ref().map(|board| board.id), user)
-                .map_err(map_item_error)?;
+            items::set_document_board(conn, document_id, to.id, user).map_err(map_item_error)?;
         let mut document = change.document;
         let mut renamed = None;
         if rename {
-            let target = to.as_ref().map(|board| (board.id, board.slug.clone()));
-            let Some((target_id, target_slug)) = target.filter(|_| change.changed) else {
+            if !change.changed {
                 return Err(ApiError::unprocessable(
                     "RENAME_NOT_NEEDED",
                     format!(
@@ -700,15 +638,15 @@ pub(crate) fn change_board(
                     ),
                 )
                 .with_details(json!({ "argument": "rename" })));
-            };
+            }
             renamed = Some(
                 kairos_db::code_rename::rename_item(
                     conn,
                     kairos_core::short_code::ItemType::Document,
                     document_id,
-                    Some(target_id),
+                    Some(to.id),
                     user,
-                    &format!("The document moved to the owner board {target_slug}."),
+                    &format!("The document moved to the owner board {}.", to.slug),
                 )
                 .map_err(crate::api::map_rename_error)?,
             );
@@ -724,18 +662,18 @@ pub(crate) fn change_board(
     })
 }
 
-/// Rule 1 of [`change_board`] for one board: `manage_documents` on it.
-/// `board_id: None` = the document has no board and no parent, and the
-/// organization admin role is what the principal needs.
+/// The rule WHO of [`change_board`] for one board: `manage_documents` on
+/// it. `side` is `now` (the board that owns the document now) or `after`
+/// (the new board).
 fn require_owner_change(
     conn: &mut PgConnection,
     slug: &str,
     user: Uuid,
     document: &Document,
-    board_id: Option<Uuid>,
+    board: &Board,
     side: &str,
 ) -> Result<(), ApiError> {
-    let refusal = match require_capability(conn, slug, board_id, user, MANAGE) {
+    let refusal = match require_capability(conn, slug, Some(board.id), user, MANAGE) {
         Ok(()) => return Ok(()),
         Err(refusal) => refusal,
     };
@@ -743,27 +681,19 @@ fn require_owner_change(
         return Err(refusal);
     }
     let code = &document.short_code;
-    let message = match board_id {
-        Some(board_id) => {
-            let board = board_by_id(conn, board_id)?.slug;
-            let which = if side == "now" {
-                "the board that owns the document now"
-            } else {
-                "the new board"
-            };
-            format!(
-                "To change the owner board of {code}, you need {MANAGE:?} on the board \
-                 that owns it now and on the new board. You do not have it on the board \
-                 {board:?}, {which}. The creator of a document gets no right to change \
-                 its owner. An organization admin can change it."
-            )
-        }
-        None => format!(
-            "{code} has no owner board and supports no item. Only an organization admin \
-             can give it an owner."
-        ),
+    let which = if side == "now" {
+        "the board that owns the document now"
+    } else {
+        "the new board"
     };
-    Err(ApiError::forbidden(message).with_details(refusal.details))
+    Err(ApiError::forbidden(format!(
+        "To change the owner board of {code}, you need {MANAGE:?} on the board that owns \
+         it now and on the new board. You do not have it on the board {:?}, {which}. The \
+         creator of a document gets no right to change its owner. An organization admin \
+         can change it.",
+        board.slug
+    ))
+    .with_details(refusal.details))
 }
 
 /// The live document with this id.
@@ -780,23 +710,22 @@ fn load_by_id(conn: &mut PgConnection, id: Uuid) -> Result<Document, ApiError> {
 }
 
 /// The board of a [`dto::SetDocumentBoardRequest`], or of the argument of
-/// a tool: a null and an empty string remove the board.
+/// a tool. A null and an empty string name no board: the caller refuses
+/// them ([`board_is_required`], COLLIERY-T-3109).
 pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
     board.map(str::trim).filter(|board| !board.is_empty())
 }
 
-/// Set, change or remove the owner board of a document (COLLIERY-T-0269).
+/// Change the owner board of a document (COLLIERY-T-0269).
 ///
 /// This is a move and not an edit. The caller needs `manage_documents` on
 /// two boards: the board that owns the document now, and the new board.
 /// An organization admin needs no capability. The creator of the document
 /// gets no right to change its owner.
 ///
-/// A null or an empty `board` removes the board. After that, the owner is
-/// the board of the earliest item that the document supports. The server
-/// refuses that request for a document that supports no item: 422
-/// `LAST_OWNER`. Link the document to a work item first, or name a
-/// different board.
+/// Each document has an owner board (COLLIERY-T-3109), and you cannot
+/// remove it. The server refuses a null or an empty `board`: 422
+/// `VALIDATION`, and `details.field` is `board`.
 ///
 /// The board that the document has changes nothing: the response is 200,
 /// and the server writes nothing. Not a content edit: no version bump and
@@ -818,7 +747,7 @@ pub(crate) fn board_to_set(board: Option<&str>) -> Option<&str> {
         (status = 200, description = "The document, with its owner board", body = dto::Document),
         (status = 403, description = "Missing manage_documents on the board that owns the document now, or on the new board", body = dto::ErrorEnvelope),
         (status = 404, description = "Unknown short code, or unknown board", body = dto::ErrorEnvelope),
-        (status = 422, description = "LAST_OWNER: the document supports no item. VALIDATION: the body has no board, or a rename has no board. RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code", body = dto::ErrorEnvelope),
+        (status = 422, description = "VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code", body = dto::ErrorEnvelope),
     ),
 )]
 pub(crate) async fn set_board(
@@ -830,26 +759,16 @@ pub(crate) async fn set_board(
 ) -> Result<Json<dto::Document>, ApiError> {
     // A body with no field is an input that does nothing (the rule of the
     // update of a repository, COLLIERY-T-0267).
-    let board = body.board.ok_or_else(|| {
-        ApiError::validation(
-            "The request has no field to change. Send board: the slug or the id of a \
-             board, or null to remove the board.",
-        )
-    })?;
+    let board = board_to_set(Some(body.board.as_str()))
+        .map(str::to_string)
+        .ok_or_else(|| board_is_required("field", "board"))?;
     let user = auth.user_id;
     let slug = tenant.slug.clone();
     let updated = state
         .blocking
         .run(&tenant.slug, move |conn| {
             let document = load(conn, &short_code, Liveness::LiveOnly)?;
-            let change = change_board(
-                conn,
-                &slug,
-                user,
-                document.id,
-                board_to_set(board.as_deref()),
-                body.rename,
-            )?;
+            let change = change_board(conn, &slug, user, document.id, &board, body.rename)?;
             render(conn, change.document)
         })
         .await?;
@@ -860,9 +779,7 @@ pub(crate) async fn set_board(
 ///
 /// The edit rule applies (COLLIERY-T-0228). The caller created the
 /// document, holds `manage_documents` on the board of the document, or is an organization admin.
-/// The board of the document is the board that it names. When it names
-/// none, it is the board of the earliest item that it supports
-/// (COLLIERY-T-0269).
+/// The board of the document is its owner board (COLLIERY-T-0269).
 #[utoipa::path(
     patch,
     path = "/api/documents/{short_code}",

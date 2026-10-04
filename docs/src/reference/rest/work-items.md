@@ -439,23 +439,23 @@ repository. An unknown repository is a 422 `VALIDATION`.
 
 ### `POST /api/documents`
 
-Create a document. It needs an owner: `board`, or `parent_short_code`,
-or the two (COLLIERY-T-0269, see the module docs).
+Create a document. It needs `board`: the board that owns the document
+(COLLIERY-T-3109, see the module docs). The code of the document gets
+the prefix of that board.
 
-With `board`, the caller needs `manage_documents` on that board. With
-`parent_short_code` and no `board`, the caller needs `manage_documents`
-on the board of the parent. COLLIERY-T-0228 did not change this gate.
-With `template_id`, the template's content and metadata
-defaults are stamped (KAIROS-A-0003).
+The caller needs `manage_documents` on that board. With
+`parent_short_code`, the document also supports that item. With
+`template_id`, the template's content and metadata defaults are stamped
+(KAIROS-A-0003).
 
 Request body (required): `application/json`, [`CreateDocumentRequest`](schemas.md#createdocumentrequest)
 
 | Response | Body | Meaning |
 |---|---|---|
 | `201` | [`Document`](schemas.md#document) | Created. With parent_short_code, the supports edge is written |
-| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability on the board that the document names, or on the board of the parent |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_documents on the board that the document names |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No board and no parent, unknown parent, non-workflow parent, or unknown template |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No board (details.field is board), unknown parent, non-workflow parent, or unknown template |
 
 ### `GET /api/documents/{short_code}`
 
@@ -495,9 +495,7 @@ Update document content (KAIROS-A-0004 optimistic concurrency).
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
 document, holds `manage_documents` on the board of the document, or is an organization admin.
-The board of the document is the board that it names. When it names
-none, it is the board of the earliest item that it supports
-(COLLIERY-T-0269).
+The board of the document is its owner board (COLLIERY-T-0269).
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
@@ -514,18 +512,16 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 
 ### `PATCH /api/documents/{short_code}/board`
 
-Set, change or remove the owner board of a document (COLLIERY-T-0269).
+Change the owner board of a document (COLLIERY-T-0269).
 
 This is a move and not an edit. The caller needs `manage_documents` on
 two boards: the board that owns the document now, and the new board.
 An organization admin needs no capability. The creator of the document
 gets no right to change its owner.
 
-A null or an empty `board` removes the board. After that, the owner is
-the board of the earliest item that the document supports. The server
-refuses that request for a document that supports no item: 422
-`LAST_OWNER`. Link the document to a work item first, or name a
-different board.
+Each document has an owner board (COLLIERY-T-3109), and you cannot
+remove it. The server refuses a null or an empty `board`: 422
+`VALIDATION`, and `details.field` is `board`.
 
 The board that the document has changes nothing: the response is 200,
 and the server writes nothing. Not a content edit: no version bump and
@@ -549,7 +545,7 @@ Request body (required): `application/json`, [`SetDocumentBoardRequest`](schemas
 | `200` | [`Document`](schemas.md#document) | The document, with its owner board |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_documents on the board that owns the document now, or on the new board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code, or unknown board |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_OWNER: the document supports no item. VALIDATION: the body has no board, or a rename has no board. RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | VALIDATION: the body has no board, or a null or empty board (details.field is board). RENAME_NOT_NEEDED: a rename with no change of board, or to the prefix of the code |
 
 ### `PATCH /api/documents/{short_code}/lifecycle`
 

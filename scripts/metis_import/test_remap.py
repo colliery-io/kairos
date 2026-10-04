@@ -14,7 +14,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from metis_import import remap  # noqa: E402
 from metis_import.api import Api, Stop, is_local  # noqa: E402
 from metis_import.metis import inventory, parse  # noqa: E402
-from metis_import.run_remap import load_also_map, mapping_signature, staged_texts  # noqa: E402
+from metis_import.run_remap import (  # noqa: E402
+    create_body, load_also_map, mapping_signature, staged_texts,
+)
 
 MAP = {
     "FIDIUS-T-0042": "COLLIERY-T-0301",
@@ -338,6 +340,7 @@ class KeepCodes(unittest.TestCase):
             "SKADI-A-0001": "SKADI-A-0001",
             "SKADI-V-0001": "SKADI-D-0001",
             "SKADI-S-0003": "SKADI-D-0003",
+            "SKADI-S-0004": "SKADI-D-0004",
             "SKADI-T-0005": "SKADI-T-0005",
             "SKADI-T-0009": "SKADI-T-0009",
         })
@@ -347,14 +350,14 @@ class KeepCodes(unittest.TestCase):
             "SKADI-S-0001": ("SKADI-D-0001", "SKADI-V-0001"),
             "SKADI-T-0005~2": ("SKADI-T-0005", "SKADI-T-0005"),
         })
-        # The initiative (board prefix COLLIERY) and the document that
-        # supports it (no board) get a new code.
+        # The initiative (board prefix COLLIERY) gets a new code. The
+        # document that supports it has the delivery board as its owner
+        # (COLLIERY-T-3109), so it keeps its number.
         self.assertNotIn("SKADI-I-0002", wanted)
-        self.assertNotIn("SKADI-S-0004", wanted)
         codes = [d["short_code"] for d in order]
         self.assertEqual(codes, [
             "SKADI-I-0002", "SKADI-A-0001",
-            "SKADI-V-0001", "SKADI-S-0003", "SKADI-S-0001", "SKADI-S-0004",
+            "SKADI-V-0001", "SKADI-S-0003", "SKADI-S-0004", "SKADI-S-0001",
             "SKADI-T-0005", "SKADI-T-0009", "SKADI-T-0005~2",
         ])
 
@@ -381,10 +384,40 @@ class KeepCodes(unittest.TestCase):
         docs = self.record()
         self.assertEqual(remap.role_of(docs["SKADI-T-0009"], docs), "delivery")
         self.assertEqual(remap.role_of(docs["SKADI-S-0003"], docs), "delivery")
-        self.assertIsNone(remap.role_of(docs["SKADI-S-0004"], docs))
+        # COLLIERY-T-3109: a document that supports a parent has the
+        # delivery board as its owner too.
+        self.assertEqual(remap.role_of(docs["SKADI-S-0004"], docs), "delivery")
         self.assertEqual(remap.role_of(docs["SKADI-A-0001"], docs), "adr")
         self.assertTrue(remap.new_code_ok("ACME-D-0004", None, "document"))
         self.assertFalse(remap.new_code_ok("ACME-T-0004", None, "document"))
+
+    def test_a_specification_that_supports_an_initiative_gets_the_delivery_board(self):
+        """COLLIERY-T-3109 AC2: the importer gives each document an owner
+        board. A specification that supports an initiative names the
+        delivery board, and its code gets the prefix of that board."""
+
+        class Ctx:
+            boards = {"delivery": {"id": "delivery-id"}, "initiative": {"id": "initiative-id"},
+                      "adr": {"id": "adr-id"}}
+            prefixes = {"delivery": "SKADI", "initiative": "COLLIERY", "adr": "SKADI"}
+
+        class Args:
+            repository = "skadi"
+
+        docs = self.record()
+        state = {"codes": {"SKADI-I-0002": "COLLIERY-I-0040"}}
+        body = create_body(docs["SKADI-S-0004"], docs, Ctx(), Args(), state, {})
+        self.assertEqual(body["board"], "delivery-id")
+        self.assertEqual(body["parent_short_code"], "COLLIERY-I-0040")
+        # A document with no parent names the delivery board too.
+        body = create_body(docs["SKADI-S-0003"], docs, Ctx(), Args(), state, {})
+        self.assertEqual(body["board"], "delivery-id")
+        self.assertNotIn("parent_short_code", body)
+        # The code that the server gives has the prefix of the delivery board.
+        prefix = Ctx.prefixes[remap.role_of(docs["SKADI-S-0004"], docs)]
+        self.assertEqual(prefix, "SKADI")
+        self.assertTrue(remap.new_code_ok("SKADI-D-0040", prefix, "document"))
+        self.assertFalse(remap.new_code_ok("COLLIERY-D-0040", prefix, "document"))
 
 
 class Client(unittest.TestCase):

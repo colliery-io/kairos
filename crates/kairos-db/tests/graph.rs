@@ -295,6 +295,7 @@ fn relationship_graph_service() {
     let d1 = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Document One",
             content: Some(""),
             template_id: None,
@@ -895,6 +896,7 @@ fn children_progress_rollups() {
     let d1 = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Design notes",
             content: Some(""),
             template_id: None,
@@ -1071,6 +1073,7 @@ fn focal_subgraph_contract() {
     let d = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Supporting doc",
             content: Some(""),
             template_id: None,

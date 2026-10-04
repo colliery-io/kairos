@@ -18,7 +18,7 @@ Everything this skill needs is already in the conversation — stress-testing a 
 
    - Find the coordination board with `my_boards`. If more than one could hold this work — or none exists — ask the user.
    - `create_item(item_type: initiative, board: <coordination board>, title: ...)` — a title in the domain glossary's words, content stating the problem and intended outcome in a few sentences.
-   - `create_item(item_type: document, template: prd, parent: <initiative short code>, title: ..., content: <the PRD>)` using the template below. The `parent` edge attaches the PRD to the initiative — no other wiring needed. The PRD is done when every decision made in the conversation lands in a template section — implementation, testing, or Out of Scope; nothing decided in-chat is left implicit.
+   - `create_item(item_type: document, template: prd, board: <team board>, parent: <initiative short code>, title: ..., content: <the PRD>)` using the template below. `board` is the owner board of the PRD (required); the `parent` edge attaches the PRD to the initiative — no other wiring needed. The PRD is done when every decision made in the conversation lands in a template section — implementation, testing, or Out of Scope; nothing decided in-chat is left implicit.
 
    Name the initiative and the PRD only by the short codes in the results of `create_item`. Work for later is a quoted title, not "phase 2" (the `kairos-vocabulary` skill).
 

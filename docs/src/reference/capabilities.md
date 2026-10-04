@@ -137,16 +137,15 @@ Authorisation needs a board, and not every item carries one directly.
 | Strategy, initiative, task | Its own `board_id` |
 | ADR on a board | Its own `board_id` |
 | ADR not on a board | None |
-| Document that names a board | The board that it names: its owner board |
-| Document that names no board | Its parent's board, via the `supports` edge where the document is the target. Where several parents exist, the earliest-created edge that resolves to a board wins. |
+| Document | Its owner board. Each document has an owner board. |
 
 **When no board resolves, the org-admin-only policy applies.** That is the
-fallback for an off-board ADR, a document with no board and no resolvable
-parent, and tenant-wide configuration. For an edit, the creator of the item also passes:
-see [The edit rule](#the-edit-rule).
+fallback for an off-board ADR and for tenant-wide configuration. For an edit,
+the creator of the item also passes: see [The edit rule](#the-edit-rule).
 
-An archived parent is a parent. It gives the document the board that it gave
-while it was live.
+A `supports` edge gives a document no board. Up to and including 0.4.0, a
+document could have no owner board. Then it took the board of its earliest
+`supports` parent.
 
 An `impacts` link is not part of this table. It gives no board and no right.
 See [Who can write an `impacts` link](#who-can-write-an-impacts-link).
@@ -172,20 +171,6 @@ The rule applies to each item type: strategy, initiative, task, document, ADR.
 Creation is the primary mechanism of ownership. The server reads who created
 the item, and does not read where the item is. If a team moves the item to a
 different board, its creator can continue to edit it.
-
-### A document with no parent
-
-A document is on no board. Its authorization board is the board that it
-names. When it names no board, it is the board of its earliest `supports`
-parent. See [the board of each item](#how-a-board-is-resolved).
-
-A document with no board and no parent has no authorization board. Condition
-2 cannot be true for it. Only its creator and an organization admin can edit
-it.
-
-The server does not make such a document: see
-[A document always has an owner](#a-document-always-has-an-owner). A tenant
-can have one from a release up to and including 0.4.0.
 
 ### What an edit is
 
@@ -229,8 +214,7 @@ descendant. A restore changes the named item only, so it applies the rule to
 the named item only.
 
 An archive takes no document. The cascade follows `parent` edges, and a
-document has none. A document that supports an archived item stays live. This
-is the same for a document that names a board and for one that names none.
+document has none. A document that supports an archived item stays live.
 
 ### What creation does not grant
 
@@ -282,47 +266,23 @@ them.
 
 ### The `supports` edge of a document
 
-The first `supports` edge of a document decides which board answers for the
-document. So the link rule is narrower for this edge. It is not narrower for a
-`supports` edge to an ADR, or for a different relationship type.
+A `supports` edge does not change which board answers for a document: the
+owner board answers for it. The link rule applies to the create of a
+`supports` edge to a document. The remove of a `supports` edge of a document
+has a narrower rule:
 
 | Write | Who can do it |
 |---|---|
-| Create `supports` to a document that has a parent, or names a board | The link rule: a principal who can edit the source **or** the document |
-| Create `supports` to a document with no parent and no board | A principal who can edit the document: its creator, **or** an organization admin |
-| Remove a `supports` edge of a document | A principal who can edit the document: its creator, **or** a holder of `manage_documents` on its authorization board, **or** an organization admin |
+| Create `supports` to a document | The link rule: a principal who can edit the source **or** the document |
+| Remove a `supports` edge of a document | A principal who can edit the document: its creator, **or** a holder of `manage_documents` on its owner board, **or** an organization admin |
 
-A principal who can edit only the source gets `FORBIDDEN` for the second and
-the third write. The refusal names `manage_documents`.
+A principal who can edit only the source gets `FORBIDDEN` for the remove. The
+refusal names `manage_documents`. So a principal who cannot edit the document
+can add a parent to it, and cannot remove that parent.
 
-A new parent does not change the authorization board of a document that has a
-parent. The earliest edge continues to give the board. A document that names
-a board keeps that board as its owner, with each parent and with none.
-
-A principal who cannot edit the document can add a parent to it, and cannot
-remove that parent.
-
-### A document always has a parent
-
-This rule is for a document that names no board. The board of its parent is
-its owner.
-
-The server refuses to remove the last `supports` edge of such a document. The
-refusal is `LAST_PARENT`, with status 422. The rule applies to each principal,
-and an organization admin is not an exception.
-
-To move a document to a different item, do these steps:
-
-1. Link the document to the new item.
-2. Remove the old edge.
-
-If the document has no more use, archive it.
-
-An edge to an archived parent counts as a parent. The archive of the only
-parent of a document does not change who can edit the document.
-
-A document that names a board can lose its last `supports` edge. See
-[A document always has an owner](#a-document-always-has-an-owner).
+Each `supports` edge of a document can go, the last one too. The document
+keeps its owner board. In 0.4.0 and before, a document could have no owner
+board. Then the server kept its last `supports` edge.
 
 ### The confirm of an edge proposal
 
@@ -342,13 +302,10 @@ two different links:
 | Document to board | The owner. The board gives the right to edit the document. |
 | Document to repository, with the relationship `impacts` | What the document is about. The link gives no right. |
 
-The owner of a document is one of these:
+Each document has an owner board. The code of the document has the prefix of
+that board: see [Short codes](short-codes.md).
 
-- the board that the document names, which is its owner board
-- the board of the earliest item that the document supports, when the
-  document names no board
-
-A document that names a board is not a card of that board. It has no column
+A document is not a card of its owner board. It has no column
 and no transition. The board view and `board_items` do not show it.
 
 ### Which boards can own a document
@@ -367,19 +324,22 @@ delivery board of the team.
 
 ### The create of a document
 
-The create of a document needs `board`, or a parent, or the two.
+The create of a document needs `board`. There is no default board, and a
+parent does not give one.
 
 | The create has | The owner | The caller needs |
 |---|---|---|
 | `board` | The board that the create names | `manage_documents` on that board |
-| A parent | The board of the parent | `manage_documents` on the board of the parent |
 | `board` and a parent | The board that the create names | `manage_documents` on that board |
+| No `board` | — | The server refuses the create |
 
 An organization admin passes each check. With `board` and a parent, the
 caller creates the document. So the link rule lets the caller link it to the
 parent. The caller needs no capability on the board of the parent.
 
-A create with no `board` and no parent gets `VALIDATION`, with status 422.
+A create with no `board`, or with a null or empty `board`, gets `VALIDATION`,
+with status 422. The refusal names `board`: `details.field` on REST,
+`details.argument` on MCP.
 
 ### Who can change the owner
 
@@ -388,28 +348,25 @@ the move of a task.
 
 | Write | Who can do it |
 |---|---|
-| Set or change the owner board | A holder of `manage_documents` on the board that owns the document now **and** on the new board, **or** an organization admin |
-| Remove the owner board | A holder of `manage_documents` on the owner board **and** on the board of the earliest parent, **or** an organization admin |
+| Change the owner board | A holder of `manage_documents` on the board that owns the document now **and** on the new board, **or** an organization admin |
 
-The creator of the document gets no right to change its owner. For a document
-that names no board, the board of its earliest parent owns it now. A document
-with no board and no parent gets an owner only from an organization admin.
+The creator of the document gets no right to change its owner.
 
 A call that names the board that the document has is a success. The server
 writes nothing.
 
 ### A document always has an owner
 
-The server refuses each write that leaves a document with no owner. The rule
-applies to each principal, and an organization admin is not an exception.
+Each document has an owner board, and nobody can remove it. The rule applies
+to each principal, and an organization admin is not an exception.
 
-| Write | The document names a board | The document names no board |
-|---|---|---|
-| Remove the last `supports` edge | The server removes the edge. | The refusal is `LAST_PARENT`. |
-| Remove the owner board | The refusal is `LAST_OWNER`, when the document supports no item. | The write changes nothing. |
+| Write | What the server does |
+|---|---|
+| Create a document with no `board` | The refusal is `VALIDATION`, with status 422. The refusal names `board`. |
+| Change the owner board with no board, or with a null or empty board | The refusal is `VALIDATION`, with status 422. The refusal names `board` (`to_board` for the MCP tool `move_item`). |
+| Remove the last `supports` edge | The server removes the edge. The owner board does not change. |
 
-The two refusals have the status 422. To remove the owner board of a document
-that supports no item, link the document to a work item first.
+To give a document to a different team, change its owner board.
 
 ### Who can write an `impacts` link
 

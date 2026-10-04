@@ -58,8 +58,8 @@ journey(
 
     await step(bob, 'makes the vision with no work item above it, and his team board is its owner', async () => {
       const cli = await bob.cli();
-      // A document must have an owner: the CLI does not send a create
-      // with no board and no parent.
+      // A document must have an owner board: the CLI does not send a
+      // create with no board (COLLIERY-T-3109).
       const refused = await cli.run(['documents', 'create', '--title', title]);
       expect(refused.code).not.toBe(0);
       expect(refused.stderr).toContain('--board');
@@ -187,9 +187,11 @@ journey(
       const refused = await mcp.refused('move_item', { short_code: vision, to_board: OTHER_BOARD });
       expect(refused).toContain('FORBIDDEN');
       expect(refused).toContain(`You do not have it on the board "${OTHER_BOARD}", the new board.`);
-      // And the vision supports nothing, so its board cannot go.
+      // And the owner board of the vision cannot go.
       const last = await mcp.refused('move_item', { short_code: vision });
-      expect(last).toContain('LAST_OWNER');
+      // COLLIERY-T-3109: the owner board of a document cannot be removed.
+      expect(last).toContain('to_board');
+      expect(last).toContain('you cannot remove it');
       return { refused_move_to: OTHER_BOARD, needs: 'manage_documents on the two boards' };
     });
 

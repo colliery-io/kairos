@@ -739,16 +739,15 @@ pub async fn update_metadata(
 pub struct CreateDocumentBody {
     pub title: String,
     pub template_id: String,
-    /// The owner board, by slug.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub board: Option<String>,
+    /// The owner board, by slug. Required (COLLIERY-T-3109).
+    pub board: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_short_code: Option<String>,
 }
 
-/// `POST /api/documents` — create-from-template. The document supports a
-/// workflow parent (the T-0018 contract), or names an owner board
-/// (COLLIERY-T-0269).
+/// `POST /api/documents` — create-from-template. The document names its
+/// owner board (COLLIERY-T-0269, required since COLLIERY-T-3109), and can
+/// support a workflow parent.
 pub async fn create_document(
     auth: Auth,
     body: &CreateDocumentBody,
@@ -757,28 +756,27 @@ pub async fn create_document(
 }
 
 /// Body of `PATCH /api/documents/{short_code}/board` (mirror of:
-/// `kairos_client::types::SetDocumentBoardRequest`). `board` is always in
-/// the body: a null removes the owner board.
+/// `kairos_client::types::SetDocumentBoardRequest`). `board` is required:
+/// the owner board cannot be removed (COLLIERY-T-3109).
 #[derive(Debug, Serialize)]
 struct SetDocumentBoardBody<'a> {
-    board: Option<&'a str>,
+    board: &'a str,
     /// COLLIERY-T-3101: the document also gets the next code of the new
     /// board. On the wire only when it is set (COLLIERY-T-3104).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     rename: bool,
 }
 
-/// `PATCH /api/documents/{short_code}/board` — set, change or remove the
-/// owner board of a document (COLLIERY-T-0269). With `rename`, the
-/// document gets the next code of the new board, and the old code is
-/// retired (COLLIERY-T-3101). Refusals the panel shows inline: 403 without
-/// `manage_documents` on the two boards, 422 `LAST_OWNER` for a document
-/// that supports no item, 422 `RENAME_NOT_NEEDED` for a new board with the
-/// same prefix, 404 for an unknown board.
+/// `PATCH /api/documents/{short_code}/board` — change the owner board of a
+/// document (COLLIERY-T-0269). With `rename`, the document gets the next
+/// code of the new board, and the old code is retired (COLLIERY-T-3101).
+/// Refusals the panel shows inline: 403 without `manage_documents` on the
+/// two boards, 422 `RENAME_NOT_NEEDED` for a new board with the same
+/// prefix, 404 for an unknown board.
 pub async fn set_document_board(
     auth: Auth,
     code: &str,
-    board: Option<&str>,
+    board: &str,
     rename: bool,
 ) -> Result<ItemDetail, ApiError> {
     send_json(
@@ -1240,17 +1238,17 @@ mod tests {
     }
 
     /// COLLIERY-T-3104: the owner-board body has `rename` only when it is
-    /// set, and `board` always (a null removes the owner board).
+    /// set, and `board` always (COLLIERY-T-3109: it cannot be removed).
     #[test]
     fn the_owner_board_body_has_rename_only_when_it_is_set() {
         let body = serde_json::to_value(SetDocumentBoardBody {
-            board: Some("web-delivery"),
+            board: "web-delivery",
             rename: false,
         })
         .expect("serializes");
         assert_eq!(body, serde_json::json!({"board": "web-delivery"}));
         let body = serde_json::to_value(SetDocumentBoardBody {
-            board: Some("web-delivery"),
+            board: "web-delivery",
             rename: true,
         })
         .expect("serializes");
@@ -1258,12 +1256,6 @@ mod tests {
             body,
             serde_json::json!({"board": "web-delivery", "rename": true})
         );
-        let body = serde_json::to_value(SetDocumentBoardBody {
-            board: None,
-            rename: false,
-        })
-        .expect("serializes");
-        assert_eq!(body, serde_json::json!({"board": null}));
     }
 
     /// The move body carries the target board under the exact wire name

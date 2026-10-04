@@ -14,8 +14,9 @@
 //!
 //! A code is `{PREFIX}-{TYPE_LETTER}-{NNNN}` (COLLIERY-T-3099). The PREFIX
 //! is the `code_prefix` of the board of the item: the board of a strategy,
-//! an initiative, a task or an ADR, and the owner board of a document. An
-//! item with no board takes the prefix of the tenant
+//! an initiative, a task or an ADR, and the owner board of a document. Each
+//! document has an owner board (COLLIERY-T-3109). An ADR with no board
+//! takes the prefix of the tenant
 //! ([`kairos_core::short_code::tenant_prefix`] of the slug in
 //! `current_schema()`, which is `org_{slug}` on each tenant connection).
 //!
@@ -1148,29 +1149,29 @@ pub struct DocumentBoardChange {
     /// The document after the call.
     pub document: Document,
     /// The board that the document named before the call.
-    pub from: Option<Uuid>,
+    pub from: Uuid,
     /// The call changed the row. `false` = the document named that board
     /// already, and the call wrote nothing.
     pub changed: bool,
 }
 
-/// Set, change or remove the OWNER board of a document (COLLIERY-T-0269).
+/// Set or change the OWNER board of a document (COLLIERY-T-0269). The
+/// board cannot be removed: each document has one (COLLIERY-T-3109).
 /// As the lifecycle, this is not a content edit: no version bump and no
 /// `item_history` row. It writes one `activity_log` row with the action
-/// `update` (`owner_board:{from}->{to}`, each end the slug of a board or
-/// `none`) and the `relationship_changed` event, which makes an open page
+/// `update` (`owner_board:{from}->{to}`, each end the slug of a board) and
+/// the `relationship_changed` event, which makes an open page
 /// of the document read it again. Setting the board that the document has
 /// is a no-op: it writes nothing.
 ///
 /// A new board must be live ([`ItemError::BoardNotFound`]).
 ///
-/// NO RULE is applied here. Who may change the owner, and the rule that a
-/// document keeps an owner, are the caller's: the server asks them in the
-/// transaction of this call.
+/// NO RULE is applied here. Who may change the owner is the caller's: the
+/// server asks it in the transaction of this call.
 pub fn set_document_board(
     conn: &mut PgConnection,
     document_id: Uuid,
-    board_id: Option<Uuid>,
+    board_id: Uuid,
     actor: Uuid,
 ) -> Result<DocumentBoardChange, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
@@ -1193,9 +1194,7 @@ pub fn set_document_board(
                 changed: false,
             });
         }
-        if let Some(board_id) = board_id {
-            require_live_board(conn, board_id)?;
-        }
+        require_live_board(conn, board_id)?;
         let updated: Document = diesel::update(dsl::documents.filter(dsl::id.eq(document_id)))
             .set((
                 dsl::board_id.eq(board_id),
@@ -1204,14 +1203,10 @@ pub fn set_document_board(
             ))
             .returning(Document::as_returning())
             .get_result(conn)?;
-        let label = |conn: &mut PgConnection, board: Option<Uuid>| match board {
-            Some(id) => board_slug(conn, id),
-            None => Ok("none".to_string()),
-        };
         let details = format!(
             "owner_board:{}->{}",
-            label(conn, from)?,
-            label(conn, board_id)?
+            board_slug(conn, from)?,
+            board_slug(conn, board_id)?
         );
         log_activity(
             conn,
@@ -1269,6 +1264,11 @@ fn board_slug(conn: &mut PgConnection, board_id: Uuid) -> Result<String, DieselE
 /// Input for [`create_document`].
 #[derive(Debug, Clone)]
 pub struct CreateDocument<'a> {
+    /// The OWNER board (COLLIERY-T-0269), required (COLLIERY-T-3109). It
+    /// must be live ([`ItemError::BoardNotFound`]). It can have each level:
+    /// the owner of a document is a board, and not a column of it. The
+    /// code of the document gets the prefix of this board.
+    pub board_id: Uuid,
     pub title: &'a str,
     /// Explicit content wins; `None` copies the template's content when
     /// `template_id` is given, else empty.
@@ -1279,41 +1279,24 @@ pub struct CreateDocument<'a> {
     pub template_id: Option<Uuid>,
 }
 
-/// Create a document (documents do not live on boards). With a
-/// `template_id`, the template's content is copied (unless `content`
-/// overrides it) and every `template_metadata` row carrying a
-/// `default_value` is stamped as an `item_metadata` row (KAIROS-A-0003).
+/// Create a document on its owner board (`input.board_id`,
+/// COLLIERY-T-3109). With a `template_id`, the template's content is
+/// copied (unless `content` overrides it) and every `template_metadata`
+/// row carrying a `default_value` is stamped as an `item_metadata` row
+/// (KAIROS-A-0003).
 ///
-/// The document names no board. [`create_document_on_board`] makes a
-/// document that names one.
+/// The document is not a card of the board. It has no column, and the
+/// event of the create has no board.
 pub fn create_document(
     conn: &mut PgConnection,
     input: CreateDocument<'_>,
     actor: Uuid,
 ) -> Result<Document, ItemError> {
-    create_document_on_board(conn, input, None, actor)
-}
-
-/// [`create_document`], for a document that NAMES a board as its owner
-/// (COLLIERY-T-0269). The board must be live
-/// ([`ItemError::BoardNotFound`]). It can have each level: the owner of a
-/// document is a board, and not a column of it. `board_id: None` = the
-/// document names no board.
-///
-/// The document is not a card of the board. It has no column, and the
-/// event of the create has no board.
-pub fn create_document_on_board(
-    conn: &mut PgConnection,
-    input: CreateDocument<'_>,
-    board_id: Option<Uuid>,
-    actor: Uuid,
-) -> Result<Document, ItemError> {
     conn.transaction::<_, ItemError, _>(|conn| {
         use crate::schema::{item_metadata, template_metadata, templates};
 
-        if let Some(board_id) = board_id {
-            require_live_board(conn, board_id)?;
-        }
+        let board_id = input.board_id;
+        require_live_board(conn, board_id)?;
 
         let template: Option<Template> = match input.template_id {
             Some(template_id) => Some(
@@ -1329,19 +1312,17 @@ pub fn create_document_on_board(
             .content
             .unwrap_or_else(|| template.as_ref().map_or("", |t| t.content.as_str()));
 
-        let code = next_short_code(conn, ItemType::Document, board_id)?;
+        let code = next_short_code(conn, ItemType::Document, Some(board_id))?;
         let created: Document = diesel::insert_into(crate::schema::documents::table)
-            .values((
-                NewDocument {
-                    short_code: code,
-                    title: input.title.to_string(),
-                    content: content.to_string(),
-                    template_id: input.template_id,
-                    created_by: actor,
-                    updated_by: actor,
-                },
-                crate::schema::documents::board_id.eq(board_id),
-            ))
+            .values(NewDocument {
+                short_code: code,
+                title: input.title.to_string(),
+                content: content.to_string(),
+                template_id: input.template_id,
+                board_id,
+                created_by: actor,
+                updated_by: actor,
+            })
             .returning(Document::as_returning())
             .get_result(conn)?;
 
@@ -2072,13 +2053,13 @@ fn restore_blockers(
             .first::<(Option<Uuid>, Option<Uuid>)>(conn)
             .optional()?,
         // A document is never on a board, and has no column. The board
-        // is its owner, if it names one (COLLIERY-T-0269).
+        // is its owner (COLLIERY-T-0269, required since COLLIERY-T-3109).
         ItemType::Document => documents::table
             .filter(documents::id.eq(item_id))
             .select(documents::board_id)
-            .first::<Option<Uuid>>(conn)
+            .first::<Uuid>(conn)
             .optional()?
-            .map(|board_id| (board_id, None)),
+            .map(|board_id| (Some(board_id), None)),
     };
 
     if let Some((board_id, column_id)) = placement {

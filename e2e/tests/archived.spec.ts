@@ -218,6 +218,8 @@ test('every family renders archived, and the two "archived"s read apart', async 
   const doc = await api(token, 'POST', '/api/documents', {
     title: 'E2E: archived document',
     template_id: templates[0].id,
+    // COLLIERY-T-3109: each document names its owner board.
+    board: deliveryAt.boardId,
     parent_short_code: task.short_code,
   });
   // The collision, deliberately set up: this document is EDITORIALLY

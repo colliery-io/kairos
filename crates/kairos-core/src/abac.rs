@@ -237,97 +237,19 @@ pub fn may_write_edge(may_edit_source: bool, may_edit_target: bool) -> bool {
     may_edit_source || may_edit_target
 }
 
-/// THE LINK RULE FOR THE PARENT OF A DOCUMENT (COLLIERY-T-0235): may this
-/// principal CREATE a `supports` edge that points at a document?
-///
-/// A document has no board. It takes its authority from the board of its
-/// EARLIEST `supports` parent. So the first `supports` edge of a document
-/// decides who can edit the document, and the link rule
-/// ([`may_write_edge`]) is too wide for that one edge.
-///
-/// THE ATTACK. A document has no parent. A principal who can edit some
-/// task writes `supports` from the task to the document, which the link
-/// rule permits for the source. The document now takes its authority from
-/// the board of the task, and the principal can edit and archive a
-/// document that it had no right to edit.
-///
-/// THE RULE. For a document with NO parent, the principal must be able to
-/// edit the DOCUMENT: with no board, that is its creator or an admin of
-/// the organization. For a document that HAS a parent, a new edge does not
-/// change the authority (the earliest edge still gives it), and the link
-/// rule applies as it is.
-///
-/// COLLIERY-T-0269: a document that NAMES a board has an owner, and a
-/// `supports` edge does not change its authority. The caller sends `true`
-/// for it, as for a document that has a parent
-/// ([`document_has_an_owner`]).
-pub fn may_link_document_parent(
-    document_has_parent: bool,
-    may_edit_source: bool,
-    may_edit_document: bool,
-) -> bool {
-    if document_has_parent {
-        may_write_edge(may_edit_source, may_edit_document)
-    } else {
-        may_edit_document
-    }
-}
-
 /// May this principal REMOVE a `supports` edge that points at a document
 /// (COLLIERY-T-0235)? Only a principal that may edit the DOCUMENT. The
 /// right to edit the parent is not sufficient.
 ///
-/// THE ATTACK. A document has the parents A, the earliest, and B. A
-/// principal can edit A and B, and cannot edit the document. The link rule
-/// lets the principal remove the edge from A, because it can edit the
-/// source. B is now the earliest parent, and the document takes its
-/// authority from the board of B.
-///
-/// A principal that may edit the document can move it between parents. It
-/// gives the authority away, which is the right of an editor.
+/// What a document supports is a statement of its owners: a principal
+/// that can edit the parent and not the document cannot take that
+/// statement away. Until COLLIERY-T-3109 a document could have no board,
+/// and its earliest parent gave it its authority, so the remove of a
+/// parent could also move the authority. Each document has an owner board
+/// now, and a `supports` edge gives no authority, but the rule of WHO
+/// stays.
 pub fn may_unlink_document_parent(may_edit_document: bool) -> bool {
     may_edit_document
-}
-
-/// A DOCUMENT ALWAYS HAS A PARENT (COLLIERY-T-0235): can one of `parents`
-/// edges be removed? Only when one parent or more stays. The rule is a
-/// rule of the data and not a permission: it applies to each principal,
-/// an admin of the organization too.
-///
-/// WHY. A document that supports nothing has no board, so no team answers
-/// for it. The owner decided that the server does not make that state.
-pub fn document_keeps_a_parent(parents: usize) -> bool {
-    parents > 1
-}
-
-/// A DOCUMENT ALWAYS HAS AN OWNER (COLLIERY-T-0269): does it have one
-/// now? The owner is the board that the document names, or the board of
-/// an item that the document supports.
-///
-/// The owner decided the model on 2026-09-29. A board owns a document. A
-/// repository does not: an `impacts` link says what the document is
-/// about, and it is not an owner.
-pub fn document_has_an_owner(names_board: bool, parents: usize) -> bool {
-    names_board || parents > 0
-}
-
-/// Can one `supports` edge of a document be removed (COLLIERY-T-0269)?
-/// The rule of COLLIERY-T-0235 ([`document_keeps_a_parent`]) is for a
-/// document that names no board. A document that names a board keeps its
-/// owner when its last parent goes, so each of its parents can go.
-///
-/// As [`document_keeps_a_parent`], this is a rule of the data and not a
-/// permission: it applies to each principal, an admin of the organization
-/// too.
-pub fn document_parent_can_go(names_board: bool, parents: usize) -> bool {
-    names_board || document_keeps_a_parent(parents)
-}
-
-/// Can the board of a document be removed (COLLIERY-T-0269)? Only when
-/// the document supports one item or more: the board of that item is then
-/// its owner. A rule of the data, as [`document_parent_can_go`].
-pub fn document_board_can_go(parents: usize) -> bool {
-    parents > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -421,89 +343,9 @@ mod tests {
     // -- the parent of a document (COLLIERY-T-0235) ----------------------------
 
     #[test]
-    fn a_document_with_no_parent_needs_the_right_to_edit_the_document() {
-        // The attack: the principal can edit the source only.
-        assert!(!may_link_document_parent(false, true, false));
-        assert!(!may_link_document_parent(false, false, false));
-        assert!(may_link_document_parent(false, false, true));
-        assert!(may_link_document_parent(false, true, true));
-    }
-
-    #[test]
-    fn a_document_with_a_parent_takes_the_link_rule() {
-        for source in [false, true] {
-            for document in [false, true] {
-                assert_eq!(
-                    may_link_document_parent(true, source, document),
-                    may_write_edge(source, document)
-                );
-            }
-        }
-    }
-
-    #[test]
     fn the_remove_of_a_parent_needs_the_right_to_edit_the_document() {
         assert!(may_unlink_document_parent(true));
         assert!(!may_unlink_document_parent(false));
-    }
-
-    #[test]
-    fn the_last_parent_stays() {
-        assert!(!document_keeps_a_parent(0));
-        assert!(!document_keeps_a_parent(1));
-        assert!(document_keeps_a_parent(2));
-        assert!(document_keeps_a_parent(3));
-    }
-
-    // -- the owner of a document (COLLIERY-T-0269) -----------------------------
-
-    #[test]
-    fn a_board_or_a_parent_is_an_owner() {
-        assert!(!document_has_an_owner(false, 0));
-        assert!(document_has_an_owner(true, 0));
-        assert!(document_has_an_owner(false, 1));
-        assert!(document_has_an_owner(true, 2));
-    }
-
-    /// With no board the rule is that of COLLIERY-T-0235, for each count.
-    #[test]
-    fn the_last_parent_can_go_only_from_a_document_that_names_a_board() {
-        for parents in 0..4 {
-            assert_eq!(
-                document_parent_can_go(false, parents),
-                document_keeps_a_parent(parents),
-                "{parents} parents, no board"
-            );
-            assert!(
-                document_parent_can_go(true, parents),
-                "{parents} parents, a board"
-            );
-        }
-    }
-
-    #[test]
-    fn the_board_can_go_only_from_a_document_that_supports_an_item() {
-        assert!(!document_board_can_go(0));
-        assert!(document_board_can_go(1));
-        assert!(document_board_can_go(2));
-    }
-
-    /// No remove leaves a document with no owner: after each permitted
-    /// remove, the document has a board or a parent.
-    #[test]
-    fn no_permitted_remove_makes_an_orphan() {
-        for names_board in [false, true] {
-            for parents in 1..4 {
-                if document_parent_can_go(names_board, parents) {
-                    assert!(document_has_an_owner(names_board, parents - 1));
-                }
-            }
-        }
-        for parents in 0..4 {
-            if document_board_can_go(parents) {
-                assert!(document_has_an_owner(false, parents));
-            }
-        }
     }
 
     // -- exact matches ---------------------------------------------------------

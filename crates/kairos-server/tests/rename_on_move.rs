@@ -452,14 +452,14 @@ async fn a_move_can_rename_the_item_and_the_links_change_one_time() {
     // =======================================================================
     let (initiative_board, _) = board_of_level(&mut conn, "initiative");
     let (_, strategy_slug) = board_of_level(&mut conn, "strategy");
-    let document = items::create_document_on_board(
+    let document = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "The design",
             content: Some("A note."),
             template_id: None,
         },
-        Some(initiative_board),
         svc_id,
     )
     .expect("creating a document");
@@ -484,7 +484,7 @@ async fn a_move_can_rename_the_item_and_the_links_change_one_time() {
         )
         .await;
     assert!(is_error, "{text}");
-    assert!(text.contains("Name the new board"), "{text}");
+    assert!(text.contains("to_board"), "{text}");
 
     // A board with the prefix that the code has: RENAME_NOT_NEEDED, and the
     // owner board does not change either.

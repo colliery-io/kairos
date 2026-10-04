@@ -35,10 +35,10 @@ Your queue is the board of your team, filtered by the repository of the checkout
 
 ## Documents: the board is the owner, the repository is what the document is about
 
-A document has an owner, and the owner is a board. The owner board gives the right to edit the document: `manage_documents` on that board, which each member of the team of a delivery board has. A document has one of two owners:
+Each document has an owner board, and `create_item` for a document needs `board`: a call with no `board` is refused, and `parent` does not give one. The owner board gives the right to edit the document (`manage_documents` on that board, which each member of the team of a delivery board has), and the code of the document gets the prefix of that board. The document is not a card of the board.
 
-- **The board that the document names.** Use this for a document that belongs to a repository or a product as a whole, and to no work item: its vision, its architecture overview. `create_item {item_type: document, board: <team_board>, template: "Product Vision", title: ...}`. The document is not a card of the board.
-- **The board of the item that the document supports.** Use this for a document that belongs to one work item: a PRD of an initiative, the findings of a research task. `create_item {item_type: document, parent: <short code>, ...}`.
+- **A document of a repository or a product as a whole** (its vision, its architecture overview): `create_item {item_type: document, board: <team_board>, template: "Product Vision", title: ...}`.
+- **A document of one work item** (a PRD of an initiative, the findings of a research task): `create_item {item_type: document, board: <team_board>, parent: <short code>, ...}`. `parent` writes the `supports` edge. Use the board of your team, or the board of the item.
 
 Then say what the document is about: `link_items {source: <document>, target: <repository slug>, relationship: impacts}`. The link goes from a document or an ADR to a repository. It gives no right, and you need no right on the repository. A task does not impact a repository: `set_repository` links a task.
 

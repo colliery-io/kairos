@@ -5,8 +5,7 @@
 //! what it does to data:
 //!
 //! - no row of a table that the tenant has is changed or deleted,
-//! - each document names no board after the migration, so its owner and
-//!   its editors are those of before,
+//! - each document names no board after the migration,
 //! - the tenant gets the template "Product Vision" one time, with the
 //!   metadata default `document_type = vision`,
 //! - a tenant that has a template with that name, or with that slug, keeps
@@ -16,6 +15,13 @@
 //! The state of a tenant before the migration is made with the down
 //! migration: no column `documents.board_id`, no table `item_impacts`. The
 //! template is removed by SQL, because the down migration keeps it.
+//!
+//! COLLIERY-T-3109 made the owner board of a document required, and the
+//! code of today reads each document with a board. So the test no longer
+//! asks the code for the owner and the editors of a document in the state
+//! between the two migrations: the code cannot read that state. The SQL of
+//! the migration is checked as before. The data of the test gets a board
+//! when it is made, and the down migration removes the column.
 //!
 //! Against real Postgres from the compose stack (A-0012 tier 2). Each test
 //! owns a scratch database.
@@ -27,11 +33,10 @@ use diesel::sql_query;
 use diesel::sql_types::{BigInt, Nullable, Text};
 use uuid::Uuid;
 
-use kairos_core::abac::{EditFacts, MANAGE_DOCUMENTS};
 use kairos_db::models::enums::{BoardLevel, RelationshipType};
 use kairos_db::{
-    CreateDocument, CreateInitiative, abac, create_document, create_initiative, impacts, items,
-    link_items, migrate_all_tenants, provision_tenant, run_public_migrations, soft_delete_item,
+    CreateDocument, CreateInitiative, create_document, create_initiative, link_items,
+    migrate_all_tenants, provision_tenant, run_public_migrations, soft_delete_item,
 };
 
 const DEFAULT_DATABASE_URL: &str = "postgres://kairos:kairos@localhost:41432/kairos";
@@ -246,30 +251,14 @@ fn board_of_level(conn: &mut PgConnection, level: BoardLevel) -> Uuid {
         .expect("the board of the level")
 }
 
-/// The documents of the old data, and who can edit them.
+/// The documents of the old data.
 struct OldData {
-    /// The person who made each item.
-    author: Uuid,
-    /// A person with `manage_documents` on the initiative board.
-    manager: Uuid,
-    /// A person with no grant.
-    stranger: Uuid,
     initiative_board: Uuid,
-    /// Supports one initiative.
-    with_parent: Uuid,
-    /// Supports one initiative, and is archived.
-    archived: Uuid,
-    /// Supports nothing (data of before COLLIERY-T-0235).
-    orphan: Uuid,
 }
 
 fn old_data(conn: &mut PgConnection) -> OldData {
     let author = Uuid::new_v4();
-    let manager = Uuid::new_v4();
-    let stranger = Uuid::new_v4();
     let initiative_board = board_of_level(conn, BoardLevel::Initiative);
-    abac::grant_capability(conn, initiative_board, manager, MANAGE_DOCUMENTS, author)
-        .expect("the grant of the manager");
     let initiative = create_initiative(
         conn,
         CreateInitiative {
@@ -287,6 +276,7 @@ fn old_data(conn: &mut PgConnection) -> OldData {
         let created = create_document(
             conn,
             CreateDocument {
+                board_id: initiative_board,
                 title,
                 content: Some("the text of the document"),
                 template_id: None,
@@ -306,9 +296,9 @@ fn old_data(conn: &mut PgConnection) -> OldData {
         }
         created.id
     };
-    let with_parent = document("A document with a parent", true);
+    document("A document with a parent", true);
     let archived = document("An archived document", true);
-    let orphan = document("A document with no parent", false);
+    document("A document with no parent", false);
     soft_delete_item(
         conn,
         kairos_core::short_code::ItemType::Document,
@@ -316,74 +306,15 @@ fn old_data(conn: &mut PgConnection) -> OldData {
         author,
     )
     .expect("the archive");
-    OldData {
-        author,
-        manager,
-        stranger,
-        initiative_board,
-        with_parent,
-        archived,
-        orphan,
-    }
-}
-
-/// The owner and the editors of each document of [`OldData`]: the
-/// authorization board, and the facts of the edit rule for the three
-/// persons.
-fn owners_and_editors(
-    conn: &mut PgConnection,
-    data: &OldData,
-) -> Vec<(Option<Uuid>, Vec<EditFacts>)> {
-    [data.with_parent, data.archived, data.orphan]
-        .into_iter()
-        .map(|document| {
-            let board = abac::resolve_authorization_board(conn, document).expect("the owner board");
-            let facts = [data.author, data.manager, data.stranger]
-                .into_iter()
-                .map(|person| {
-                    abac::edit_facts(conn, "acme", person, document, MANAGE_DOCUMENTS)
-                        .expect("the facts")
-                        .0
-                })
-                .collect();
-            (board, facts)
-        })
-        .collect()
+    OldData { initiative_board }
 }
 
 #[test]
-fn the_migration_changes_no_row_and_no_owner() {
+fn the_migration_changes_no_row() {
     const SCRATCH_DB: &str = "kairos_document_board_t0269_data_test";
     let (admin_conn, mut conn) = tenant(SCRATCH_DB);
 
     let data = old_data(&mut conn);
-    let owners_before = owners_and_editors(&mut conn, &data);
-    // The fixture is what the test says it is.
-    assert_eq!(
-        owners_before
-            .iter()
-            .map(|(board, _)| *board)
-            .collect::<Vec<_>>(),
-        [
-            Some(data.initiative_board),
-            Some(data.initiative_board),
-            None
-        ],
-        "two documents have the board of their parent, and the orphan has none"
-    );
-    let can_edit = |facts: &[EditFacts]| -> Vec<bool> {
-        facts
-            .iter()
-            .map(|facts| kairos_core::abac::may_edit_item(*facts))
-            .collect()
-    };
-    assert_eq!(can_edit(&owners_before[0].1), [true, true, false]);
-    assert_eq!(
-        can_edit(&owners_before[2].1),
-        [true, false, false],
-        "only the author can edit the orphan"
-    );
-
     make_the_old_state(&mut conn);
     let before = snapshots(&mut conn);
     let templates_before = count(&mut conn, "SELECT count(*) AS count FROM templates");
@@ -419,17 +350,15 @@ fn the_migration_changes_no_row_and_no_owner() {
         count(&mut conn, "SELECT count(*) AS count FROM item_impacts"),
         0
     );
-    // So the owner and the editors of each document are those of before.
-    assert_eq!(owners_and_editors(&mut conn, &data), owners_before);
-    assert!(
-        impacts::repositories_of(&mut conn, data.with_parent)
-            .expect("the impacts")
-            .is_empty()
-    );
-    assert!(
-        items::live_documents_of_board(&mut conn, data.initiative_board)
-            .expect("the documents of the board")
-            .is_empty(),
+    assert_eq!(
+        count(
+            &mut conn,
+            &format!(
+                "SELECT count(*) AS count FROM documents WHERE board_id = '{}'",
+                data.initiative_board
+            )
+        ),
+        0,
         "no document names a board"
     );
 
@@ -462,37 +391,6 @@ fn the_migration_changes_no_row_and_no_owner() {
     let outcomes = migrate_all_tenants(&mut conn).expect("no migration is pending");
     assert!(outcomes[0].applied.is_empty(), "{:?}", outcomes[0]);
     pin(&mut conn);
-
-    // ------------------------------------------------------------------
-    // The rule after the migration
-    // ------------------------------------------------------------------
-    // A document that names a board takes its authority from that board.
-    let adr_board = board_of_level(&mut conn, BoardLevel::Adr);
-    let change =
-        items::set_document_board(&mut conn, data.with_parent, Some(adr_board), data.author)
-            .expect("the document names a board");
-    assert!(change.changed);
-    assert_eq!(change.from, None);
-    assert_eq!(
-        abac::resolve_authorization_board(&mut conn, data.with_parent).expect("the owner"),
-        Some(adr_board)
-    );
-    // The manager of the board of the parent is not an editor now.
-    let (facts, _) = abac::edit_facts(
-        &mut conn,
-        "acme",
-        data.manager,
-        data.with_parent,
-        MANAGE_DOCUMENTS,
-    )
-    .expect("the facts");
-    assert!(!kairos_core::abac::may_edit_item(facts), "{facts:?}");
-    // The same board again writes nothing.
-    let again =
-        items::set_document_board(&mut conn, data.with_parent, Some(adr_board), data.author)
-            .expect("the same board");
-    assert!(!again.changed);
-    assert_eq!(again.document, change.document);
 
     drop_database(admin_conn, conn, SCRATCH_DB);
 }

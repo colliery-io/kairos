@@ -422,7 +422,7 @@ fn abac_capability_lifecycle() {
         "an unknown org slug grants nothing"
     );
 
-    // ---- document inherits the parent's board via the supports edge -----------
+    // ---- a document authorizes against its owner board (COLLIERY-T-3109) -------
     let discovery = first_column(&mut conn, initiative_board);
     let initiative_id: Uuid = diesel::insert_into(schema::initiatives::table)
         .values(NewInitiative {
@@ -447,6 +447,7 @@ fn abac_capability_lifecycle() {
             title: "PRD".into(),
             content: "".into(),
             template_id: None,
+            board_id: initiative_board,
             created_by: org_admin,
             updated_by: org_admin,
         })
@@ -454,11 +455,11 @@ fn abac_capability_lifecycle() {
         .get_result(&mut conn)
         .expect("inserting document");
 
-    // Before the edge exists the document has no board context.
+    // With no edge, the document resolves to its owner board.
     assert_eq!(
         abac::resolve_authorization_board(&mut conn, document_id).expect("resolve"),
-        None,
-        "a document with no supports edge resolves to no board"
+        Some(initiative_board),
+        "a document with no supports edge resolves to its owner board"
     );
 
     // S-0004 edge semantics: target supports source (document supports
@@ -474,10 +475,10 @@ fn abac_capability_lifecycle() {
     assert_eq!(
         abac::resolve_authorization_board(&mut conn, document_id).expect("resolve"),
         Some(initiative_board),
-        "document authorization resolves through supports to the parent initiative's board"
+        "a supports edge does not change the owner board of a document"
     );
     // End-to-end per A-0006: editing the document requires manage_documents
-    // on the PARENT's board — helper's manage_* covers it, manager's
+    // on its owner board — helper's manage_* covers it, manager's
     // manage_tasks does not.
     let doc_board = abac::resolve_authorization_board(&mut conn, document_id)
         .expect("resolve")

@@ -290,7 +290,7 @@ async fn archived_work_is_absent_from_every_default_listing() {
         // pair's — otherwise archiving `doomed` would cascade into `keep`.
         let document = svc
             .create_document(&CreateDocumentRequest {
-                board: None,
+                board: initiative_board.to_string(),
                 title: format!("{MARKER} document {label}"),
                 content: Some(format!("# {MARKER}")),
                 template_id: None,

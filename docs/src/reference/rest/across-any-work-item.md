@@ -38,11 +38,10 @@ Remove a relationship edge by id.
 
 The link rule applies (COLLIERY-T-0228), as for the create.
 
-The `supports` edge of a document has two rules of its own
-(COLLIERY-T-0235). The caller must be able to edit the document. The
-server refuses to remove the last `supports` edge of a document: 422
-`LAST_PARENT`. Link the document to a different item first, or archive
-the document.
+The `supports` edge of a document has a rule of its own
+(COLLIERY-T-0235). The caller must be able to edit the document. Each
+document has an owner board (COLLIERY-T-3109). So the last `supports`
+edge of a document can go.
 
 Goes
 through the T-0013 unlink service so the `relationship_remove`
@@ -57,7 +56,6 @@ activity row is written.
 | `200` | [`DeletedResponse`](schemas.md#deletedresponse) | Edge removed |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller may edit neither the source nor the target. For the supports edge of a document: the caller may not edit the document |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No such edge |
-| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | LAST_PARENT: the edge is the last supports edge of a document |
 
 ### `GET /api/{entity_type}/{short_code}/children-progress`
 

@@ -382,6 +382,7 @@ async fn models_round_trip() {
             title: "Roundtrip PRD".into(),
             content: "prd content".into(),
             template_id: Some(prd.id),
+            board_id: initiative_board.id,
             created_by: user.id,
             updated_by: user.id,
         })

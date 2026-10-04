@@ -18,10 +18,11 @@
 //      the repository;
 //   2. the impacts links on the page of the document: add a link to a
 //      second repository, and remove it;
-//   3. the last `supports` edge: a document that names NO board keeps it
-//      (the refusal LAST_PARENT, with its text), and a document that names
-//      a board can lose it. Then the owner board of that document stays
-//      (the refusal LAST_OWNER), because the document supports nothing.
+//   3. each document has an owner board (COLLIERY-T-3109): a create with
+//      no board is refused and the refusal names `board`; the "New
+//      document" dialog of an item page has an owner board picker; the
+//      last `supports` edge can go and the owner board stays; the owner
+//      panel changes the board and has no control that removes it.
 //
 // **Fixture discipline.** The suite is serial over ONE seeded stack, and
 // other specs count boards and cards. This spec makes no board and no
@@ -250,33 +251,57 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
   expect(detail.impacted_by.map((item: any) => item.short_code)).not.toContain(code);
 });
 
-test('the last supports edge: it stays with no board, and it can go with a board', async ({
+test('each document has an owner board, and the last supports edge can go', async ({
   page,
 }) => {
   const token = await mintToken();
   const board = await api(token, 'GET', `/api/boards/${OWNER_BOARD}`);
+  const web = await api(token, 'GET', '/api/boards/web-delivery');
   const task = await api(token, 'POST', '/api/tasks', {
     board_id: board.id,
-    title: `E2E: the item that two documents support ${RUN}`,
+    title: `E2E: the item that documents support ${RUN}`,
     content: '',
   });
-  // A document of before COLLIERY-T-0269: it names no board.
-  const inherits = await api(token, 'POST', '/api/documents', {
-    title: `E2E: a document that names no board ${RUN}`,
-    content: 'The board of its parent is its owner.',
-    parent_short_code: task.short_code,
+  const made: string[] = [];
+
+  await test.step('a create with no board is refused, and the refusal names board', async () => {
+    const refused = await call(token, 'POST', '/api/documents', {
+      title: `E2E: a document with no board ${RUN}`,
+      parent_short_code: task.short_code,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.code).toBe('VALIDATION');
+    expect(refused.body.error.details.field).toBe('board');
   });
-  // A document that names a board, and supports the same item.
+
   const owned = await api(token, 'POST', '/api/documents', {
     title: `E2E: a document that names a board ${RUN}`,
     content: 'The board that it names is its owner.',
     board: OWNER_BOARD,
     parent_short_code: task.short_code,
   });
-  expect(inherits.board_id).toBeNull();
+  made.push(owned.short_code);
   expect(owned.board_id).toBe(board.id);
 
   await test.step('login via Dex as alice', () => login(page));
+
+  await test.step('the New document dialog of an item names the owner board', async () => {
+    await page.goto(`/items/${task.short_code}`);
+    await page.getByRole('button', { name: 'New document', exact: true }).click();
+    const owner = page.locator('[data-testid="create-document-board"] select');
+    // The first value is the board of the item.
+    await expect(owner).toHaveValue(OWNER_BOARD);
+    await page
+      .locator('.cl-field', { hasText: 'Document title' })
+      .locator('input')
+      .fill(`E2E: a document from the dialog ${RUN}`);
+    await page.getByRole('button', { name: 'Create document' }).click();
+    await page.waitForURL(/\/items\/PLATFORM-D-\d+$/, { timeout: 30_000 });
+    const code = codeOf(page);
+    made.push(code);
+    const document = await api(token, 'GET', `/api/documents/${code}`);
+    expect(document.board_id).toBe(board.id);
+  });
 
   const manage = () => panel(page, 'Manage links');
   const edge = (code: string) =>
@@ -289,33 +314,12 @@ test('the last supports edge: it stays with no board, and it can go with a board
       .filter({ has: page.getByRole('button', { name: 'Unlink' }) })
       .last();
 
-  await test.step('with no board, the last supports edge stays', async () => {
-    await page.goto(`/items/${inherits.short_code}`);
-    await expect(page.locator('[data-testid="owner-board"]')).toContainText(
-      'This document names no board. Its owner is the board of the item that it supports.',
-    );
-    await page.goto(`/items/${inherits.short_code}?view=graph`);
-    await expect(manage()).toContainText(`supports ← ${task.short_code}`);
-    await edge(task.short_code).getByRole('button', { name: 'Unlink' }).click();
-    await expect(manage()).toContainText(
-      `${inherits.short_code} supports only ${task.short_code}. A document always has a parent. ` +
-        'Link the document to a different item first, or archive the document.',
-    );
-    const relationships = await api(
-      token,
-      'GET',
-      `/api/documents/${inherits.short_code}/relationships`,
-    );
-    expect(relationships.incoming[0].items.map((item: any) => item.short_code)).toEqual([
-      task.short_code,
-    ]);
-  });
-
-  await test.step('with a board, the last supports edge can go', async () => {
+  await test.step('the last supports edge can go, and the owner board stays', async () => {
     await page.goto(`/items/${owned.short_code}?view=graph`);
     await expect(manage()).toContainText(`supports ← ${task.short_code}`);
     await edge(task.short_code).getByRole('button', { name: 'Unlink' }).click();
-    await expect(manage()).toContainText(`Unlinked supports ← ${task.short_code}.`);
+    // The text "Unlinked ..." goes when the list reads the edges again
+    // (COLLIERY-T-3106), so the check is on the list and the server.
     await expect(manage()).toContainText('No edges on this item yet.');
     const relationships = await api(
       token,
@@ -327,38 +331,27 @@ test('the last supports edge: it stays with no board, and it can go with a board
     expect(document.board_id).toBe(board.id);
   });
 
-  await test.step('the owner board of a document that supports nothing stays', async () => {
+  await test.step('the owner panel changes the board, and cannot remove it', async () => {
     await page.goto(`/items/${owned.short_code}`);
     const owner = page.locator('[data-testid="owner-board"]');
     await expect(owner).toContainText(board.name);
-    await owner.getByRole('button', { name: 'Remove owner board' }).click();
-    await expect(owner).toContainText(
-      `${owned.short_code} supports no item. A document always has an owner. ` +
-        'Link the document to a work item first, or name a different board.',
-    );
-    const document = await api(token, 'GET', `/api/documents/${owned.short_code}`);
-    expect(document.board_id).toBe(board.id);
-  });
-
-  await test.step('the owner board changes, and it can go when the document supports an item', async () => {
-    await page.goto(`/items/${inherits.short_code}`);
-    const owner = page.locator('[data-testid="owner-board"]');
+    await expect(owner.getByRole('button', { name: 'Remove owner board' })).toHaveCount(0);
     const control = owner.locator('[data-testid="owner-board-control"]');
     await control.locator('select').selectOption('web-delivery');
     await control.getByRole('button', { name: 'Set owner board' }).click();
     await expect(owner.locator('a[href="/boards/web-delivery"]')).toBeVisible();
-    let document = await api(token, 'GET', `/api/documents/${inherits.short_code}`);
-    const web = await api(token, 'GET', '/api/boards/web-delivery');
+    const document = await api(token, 'GET', `/api/documents/${owned.short_code}`);
     expect(document.board_id).toBe(web.id);
-
-    await owner.getByRole('button', { name: 'Remove owner board' }).click();
-    await expect(owner).toContainText('This document names no board.');
-    document = await api(token, 'GET', `/api/documents/${inherits.short_code}`);
-    expect(document.board_id).toBeNull();
+    const refused = await call(token, 'PATCH', `/api/documents/${owned.short_code}/board`, {
+      board: null,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error.details.field).toBe('board');
   });
 
   // Nothing visible stays behind.
-  await api(token, 'DELETE', `/api/documents/${inherits.short_code}`);
-  await api(token, 'DELETE', `/api/documents/${owned.short_code}`);
+  for (const code of made) {
+    await api(token, 'DELETE', `/api/documents/${code}`);
+  }
   await api(token, 'DELETE', `/api/tasks/${task.short_code}`);
 });

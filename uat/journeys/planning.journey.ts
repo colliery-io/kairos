@@ -172,7 +172,7 @@ journey(
     await step(alice, 'attaches a design note to the initiative from the CLI', async () => {
       const cli = await alice.cli();
       const api = await alice.api();
-      const doc = await cli.json(['documents', 'create', '--title', named('design note: export format'), '--parent', initiative, '--content', '# Export format\n\nCSV first, JSON later.']);
+      const doc = await cli.json(['documents', 'create', '--title', named('design note: export format'), '--board', 'initiatives', '--parent', initiative, '--content', '# Export format\n\nCSV first, JSON later.']);
       note = doc.short_code;
       ledger.add({ kind: 'document', label: note, delete: async () => { await api.delete(`/api/documents/${note}`); } });
       return { document: note, supports: initiative };

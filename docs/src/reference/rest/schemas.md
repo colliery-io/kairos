@@ -329,13 +329,13 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 
 ## CreateDocumentRequest
 
-Body of `POST /api/documents`. A document has an owner from its create (COLLIERY-T-0269). Send `board`, or `parent_short_code`, or the two. With `board`, the document names that board as its owner. The caller needs `manage_documents` on that board. With `parent_short_code` and no `board`, the owner is the board of the parent (KAIROS-T-0018 contract). The parent must be a strategy, an initiative, or a task. The server creates the `supports` edge. The caller needs `manage_documents` on the board of the parent. With the two, the document supports the item and names the board. The board that it names is its owner. With none of the two, the server refuses the request: 422 `VALIDATION`.
+Body of `POST /api/documents`. A document has an owner board from its create (COLLIERY-T-0269), and `board` is required (COLLIERY-T-3109). The document names that board as its owner, and its code gets the prefix of that board. The caller needs `manage_documents` on that board. With `parent_short_code`, the document also supports that item: a strategy, an initiative, or a task. The server creates the `supports` edge. The parent gives no authority over the document. The server refuses a body with no `board`, or with a null or empty `board`: 422 `VALIDATION`, and `details.field` is `board`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board` | `string`, nullable | no | The owner board (slug or UUID): a live board of each level. The document is not a card of the board. |
+| `board` | `string` | yes | The owner board (slug or UUID), required: a live board of each level. The document is not a card of the board. An absent or null value reads as empty, so that the server gives the refusal that names `board`. |
 | `content` | `string`, nullable | no | Markdown content. Omitted + `template_id` set = the template's content is stamped in. |
-| `parent_short_code` | `string`, nullable | no | Short code of the workflow item this document supports. Required when the request has no `board` (422 `VALIDATION` when the two are missing). |
+| `parent_short_code` | `string`, nullable | no | Short code of the workflow item this document supports (optional). |
 | `template_id` | `string`, nullable | no | Template to stamp content + metadata defaults from (UUID). |
 | `title` | `string` | yes |  |
 
@@ -617,12 +617,12 @@ A delivery stream (`/api/delivery-streams`).
 
 ## Document
 
-A supporting document, as returned by `/api/documents`. Documents do not live on boards: a document is never a card, and it has no column. A document has an owner (COLLIERY-T-0269). The owner is the board that the document names (`board_id`). When it names none, the owner is the board of the item that it supports (KAIROS-A-0006). The `lifecycle` is an editorial label (KAIROS-T-0078), and never a board position.
+A supporting document, as returned by `/api/documents`. Documents do not live on boards: a document is never a card, and it has no column. A document has an owner (COLLIERY-T-0269): the board that the document names (`board_id`). Each document has one (COLLIERY-T-3109). The `lifecycle` is an editorial label (KAIROS-T-0078), and never a board position.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
-| `board_id` | `string`, nullable | no | The owner board (UUID): the board that the document names (COLLIERY-T-0269). It gives the right to edit the document. Null when the document names no board: its owner is then the board of the earliest item that it supports. |
+| `board_id` | `string` | yes | The owner board (UUID): the board that the document names (COLLIERY-T-0269). It gives the right to edit the document, and the prefix of its code. Each document has one (COLLIERY-T-3109). |
 | `content` | `string` | yes | Markdown content. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `created_by` | `string` | yes | Creator user id (UUID). |
@@ -1473,11 +1473,11 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 
 ## SetDocumentBoardRequest
 
-Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): set, change or remove the owner board of a document. `board` must be in the body. Its value is the slug or the id of a live board. A null or an empty string removes the board. After that, the owner is the board of the earliest item that the document supports. When the document supports no item, the server refuses that request with 422 `LAST_OWNER`. The board that the document has changes nothing: the response is 200, and the server writes nothing.
+Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): change the owner board of a document. `board` is required. Its value is the slug or the id of a live board. Each document has an owner board (COLLIERY-T-3109), and you cannot remove it. The server refuses an absent, null or empty `board`: 422 `VALIDATION`, and `details.field` is `board`. The board that the document has changes nothing: the response is 200, and the server writes nothing.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `board` | `string`, nullable | no |  |
+| `board` | `string` | yes | The new owner board (slug or UUID). An absent or null value reads as empty, so that the server gives the refusal that names `board`. |
 | `rename` | `boolean` | no | COLLIERY-T-3101 (default `false`): the document also gets the next code of its new owner board. Kairos retires the old code and changes the references to it one time. A rename needs a new board. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).

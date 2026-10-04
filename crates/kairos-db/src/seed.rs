@@ -534,6 +534,9 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         let prd = create_document(
             conn,
             CreateDocument {
+                // COLLIERY-T-3109: the owner board is required. The board
+                // of the initiative that the PRD supports.
+                board_id: initiative_board,
                 title: "PRD: Portal sign-up flow",
                 content: None, // copy the template skeleton
                 template_id: Some(prd_template),
@@ -949,6 +952,8 @@ pub fn seed_demo(conn: &mut PgConnection, force: bool) -> Result<SeedDemoReport,
         let runbook = create_document(
             conn,
             CreateDocument {
+                // The board of the task that the runbook supports.
+                board_id: plan[1].board,
                 title: "Runbook: password-less auth rollout",
                 content: Some(
                     "## Purpose\n\nOperating notes for the password-less email auth \

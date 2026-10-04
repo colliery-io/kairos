@@ -1,38 +1,33 @@
-//! Integration test for COLLIERY-T-0235: a link to a document with no
-//! parent does not give the authority on the document, and a document
-//! always has a parent.
+//! Integration test for COLLIERY-T-0235, as COLLIERY-T-3109 changed it: a
+//! link to a document gives no authority over the document.
 //!
-//! THE FACTS. A document has no board. Its authorization board is the
-//! board of its EARLIEST `supports` parent. The link rule
-//! (COLLIERY-T-0228) lets a principal write an edge when it may edit the
-//! item at EITHER end.
+//! THE FACTS. Until COLLIERY-T-3109 a document could have no board, and its
+//! authorization board was then the board of its EARLIEST `supports`
+//! parent. So a `supports` edge could give the authority over a document:
+//! a person who could edit some task linked it to a document with no
+//! parent, and could then edit and archive the document (defect 1), or
+//! removed the earliest of two parents (defect 2). COLLIERY-T-0235 closed
+//! the two with three rules: no person removes the last `supports` edge of
+//! a document (422 `LAST_PARENT`), a link to a document with no parent
+//! needs the right to edit the document, and the remove of a `supports`
+//! edge needs the right to edit the document.
 //!
-//! THE ATTACK (defect 1). A document has no `supports` edge. A person who
-//! can edit some task writes `supports` from that task to the document.
-//! That edge is the first one, so the document takes its authority from
-//! the board of the task, and the person can edit and archive a document
-//! that was not theirs.
+//! Each document has an owner board now (COLLIERY-T-3109), and its
+//! authorization board is that board. No edge changes it. So the first two
+//! rules are gone, and the attacks of before must still fail:
 //!
-//! THE SECOND ROUTE (defect 2). A document has the parents A (the
-//! earliest) and B. A person can edit A and B, and cannot edit the
-//! document. The person removes A -> document. B is now the earliest, and
-//! the document takes its authority from the board of B.
-//!
-//! THE RULES.
-//! 1. No person can remove the last `supports` edge of a document: 422
-//!    `LAST_PARENT`.
-//! 2. To write `supports` to a document that has no parent, the principal
-//!    must be able to edit the DOCUMENT: its creator, or an organization
-//!    admin.
+//! 1. A link to a document gives no right to edit it or to archive it.
+//! 2. The remove of a parent does not move the authority.
 //! 3. To remove a `supports` edge of a document, the principal must be
-//!    able to edit the DOCUMENT.
+//!    able to edit the DOCUMENT (the third rule stays).
+//! 4. The last `supports` edge of a document can go, and the document
+//!    keeps its owner board.
 //!
 //! This is a security boundary, so the negative cases are the contract.
 //! Each refusal is checked where the data is stored.
 //!
-//! The cases are numbered as in the work item. Every check is recorded and
-//! the test fails at the end with the full list, so one run shows each
-//! broken case and not only the first.
+//! Every check is recorded and the test fails at the end with the full
+//! list, so one run shows each broken case and not only the first.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_document_orphan_t0235_test`.
@@ -59,8 +54,7 @@ use common::{
     with_database,
 };
 use kairos_client::types::{
-    CreateAdrRequest, CreateDocumentRequest, CreateInitiativeRequest, CreateTaskRequest, Document,
-    Task, UpdateContentRequest,
+    CreateDocumentRequest, CreateTaskRequest, Document, Task, UpdateContentRequest,
 };
 use kairos_client::types_meta::{CreateRelationshipRequest, Relationship};
 use kairos_client::types_org::{AddBoardMemberRequest, AddTeamMemberRequest, CreateTeamRequest};
@@ -73,7 +67,7 @@ use kairos_server::middleware::auth::Authenticator;
 
 const SCRATCH_DB: &str = "kairos_document_orphan_t0235_test";
 
-/// The code of the refusal of rule 1.
+/// The code of the refusal that COLLIERY-T-3109 removed.
 const LAST_PARENT: &str = "LAST_PARENT";
 
 fn user_id(conn: &mut PgConnection, email: &str) -> Uuid {
@@ -175,27 +169,6 @@ fn is_archived(conn: &mut PgConnection, short_code: &str) -> bool {
         == 1
 }
 
-/// OLD DATA. Make a document an orphan: delete each `supports` edge that
-/// points at it, by SQL.
-///
-/// The server does not permit this state from COLLIERY-T-0235 on. Until
-/// then a person could remove the only `supports` edge of a document, and
-/// the owner decided not to migrate the data. So a database can hold a
-/// document with no parent, and the test writes that state where the
-/// server stores it.
-fn make_orphan(conn: &mut PgConnection, document: &str) {
-    let removed = diesel::sql_query(
-        "DELETE FROM item_relationships r USING entity_directory t \
-          WHERE t.id = r.target_id AND t.short_code = $1 \
-            AND r.relationship::text = 'supports'",
-    )
-    .bind::<Text, _>(document)
-    .execute(conn)
-    .expect("deleting the supports edges");
-    assert!(removed >= 1, "{document} had no supports edge to delete");
-    assert_eq!(parents_of(conn, document), 0, "{document} is an orphan");
-}
-
 /// Every check of the run. A failed check is recorded, and the test goes
 /// on, so that one run reports each broken case.
 #[derive(Default)]
@@ -253,37 +226,6 @@ impl Checks {
             Ok(value) => {
                 self.failures.push(format!(
                     "{case}: expected 403 FORBIDDEN, but the call SUCCEEDED: {value:?}"
-                ));
-                None
-            }
-        }
-    }
-
-    /// The call must be refused with 422 `LAST_PARENT`. Returns the
-    /// message and the details of the refusal.
-    fn last_parent<T: std::fmt::Debug>(
-        &mut self,
-        case: &str,
-        result: Result<T, Error>,
-    ) -> Option<(String, Value)> {
-        match result {
-            Err(Error::Other {
-                status: 422,
-                code,
-                message,
-                details,
-            }) if code == LAST_PARENT => {
-                self.passed += 1;
-                Some((message, details))
-            }
-            Err(err) => {
-                self.failures
-                    .push(format!("{case}: expected 422 {LAST_PARENT}, got {err}"));
-                None
-            }
-            Ok(value) => {
-                self.failures.push(format!(
-                    "{case}: expected 422 {LAST_PARENT}, but the call SUCCEEDED: {value:?}"
                 ));
                 None
             }
@@ -446,21 +388,36 @@ async fn task_by(client: &KairosClient, board: &str, title: &str) -> Task {
         .unwrap_or_else(|e| panic!("creating task {title:?}: {e}"))
 }
 
-fn document_on(parent: Option<&str>, title: &str) -> CreateDocumentRequest {
-    CreateDocumentRequest {
-        board: None,
-        title: title.into(),
-        content: Some("original content".into()),
-        template_id: None,
-        parent_short_code: parent.map(str::to_string),
-    }
-}
-
-async fn document_by(client: &KairosClient, parent: &str, title: &str) -> Document {
+/// A document on the owner board `board`, which supports `parent` when
+/// there is one.
+async fn document_by(
+    client: &KairosClient,
+    board: &str,
+    parent: Option<&str>,
+    title: &str,
+) -> Document {
     client
-        .create_document(&document_on(Some(parent), title))
+        .create_document(&CreateDocumentRequest {
+            board: board.into(),
+            title: title.into(),
+            content: Some("original content".into()),
+            template_id: None,
+            parent_short_code: parent.map(str::to_string),
+        })
         .await
         .unwrap_or_else(|e| panic!("creating document {title:?}: {e}"))
+}
+
+async fn grant(svc: &KairosClient, board: &str, user: Uuid, capability: &str) {
+    svc.add_board_member(
+        board,
+        &AddBoardMemberRequest {
+            user_id: user.to_string(),
+            capabilities: vec![capability.into()],
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("granting {capability} on {board}: {e}"));
 }
 
 /// A precondition of the fixture: write an edge as `client`. The test
@@ -519,7 +476,7 @@ fn short_sentences(message: &str) -> bool {
 }
 
 #[tokio::test]
-async fn a_document_keeps_a_parent_and_a_link_gives_no_authority_against_live_stack() {
+async fn a_link_gives_no_authority_over_a_document_against_live_stack() {
     let mut admin_conn = recreate_scratch_db(SCRATCH_DB);
     let scratch_url = with_database(&common::admin_database_url(), SCRATCH_DB);
     let mut conn = PgConnection::establish(&scratch_url).expect("connecting to scratch database");
@@ -596,13 +553,12 @@ async fn a_document_keeps_a_parent_and_a_link_gives_no_authority_against_live_st
         .execute(&mut conn)
         .expect("pinning search_path");
     let initiative_board = board_of_level(&mut conn, BoardLevel::Initiative);
-    let adr_board = board_of_level(&mut conn, BoardLevel::Adr);
 
     let mut checks = Checks::default();
     let mut alice_mcp = McpSession::open(&base, &alice_token, "acme").await;
     let mut bob_mcp = McpSession::open(&base, &bob_token, "acme").await;
     let mut carol_mcp = McpSession::open(&base, &carol_token, "acme").await;
-    let mut svc_mcp = McpSession::open(&base, &svc_token, "acme").await;
+    let svc_mcp = McpSession::open(&base, &svc_token, "acme").await;
 
     // The items that the cases share. `of_alice` is on the board of web:
     // alice edits it as a member of the team. `of_bob` is on the board of
@@ -613,1043 +569,296 @@ async fn a_document_keeps_a_parent_and_a_link_gives_no_authority_against_live_st
     let of_platform = task_by(&svc, &platform_board, "a task of platform").await;
 
     // =======================================================================
-    // Case 8. Document create does not change
+    // Case 1. A link gives no right to edit or to archive (defect 1)
     // =======================================================================
-    let created = checks.allowed(
-        "8 REST: a document with a parent is created",
-        bob.create_document(&document_on(Some(&of_bob.short_code), "8: with a parent"))
-            .await,
-    );
-    if let Some(created) = &created {
-        checks.check(
-            "8 REST: the new document has one supports parent",
-            parents_of(&mut conn, &created.short_code) == 1
-                && edges_between(
-                    &mut conn,
-                    &of_bob.short_code,
-                    &created.short_code,
-                    "supports",
-                ) == 1,
-            "the supports edge of the create is not there",
-        );
-    }
-    let result = bob
-        .create_document(&document_on(None, "8: with no parent"))
-        .await;
+    // `owned` is owned by the board of platform and supports nothing. The
+    // admin created it, so alice can NOT edit it.
+    let owned = document_by(&svc, &platform_board, None, "1: owned by platform").await;
     checks.check(
-        "8 REST: a document with no parent is refused, 422 VALIDATION",
-        matches!(result, Err(Error::Validation { status: 422, .. })),
-        format!("{result:?}"),
+        "1: the fixture: the document supports nothing",
+        parents_of(&mut conn, &owned.short_code) == 0,
+        "the document has a parent",
     );
-    let reply = bob_mcp
-        .call(
-            "create_item",
-            json!({"item_type": "document", "title": "8: MCP, with a parent",
-                   "parent": of_bob.short_code}),
-        )
-        .await;
-    checks.mcp_allowed("8 MCP: a document with a parent is created", &reply);
-    let reply = bob_mcp
-        .call(
-            "create_item",
-            json!({"item_type": "document", "title": "8: MCP, with no parent"}),
-        )
-        .await;
-    checks.mcp_refused(
-        "8 MCP: a document with no parent is refused",
-        "VALIDATION",
-        &reply,
-    );
-    // The create gate: alice holds nothing on the board of the parent.
     checks.refused(
-        "8 REST: alice creates no document on a task of platform",
+        "1: before the link, alice cannot edit",
+        edit(&alice, &owned.short_code, "taken by alice").await,
+    );
+    // alice can edit the source, so the link rule lets her write the edge.
+    checks.allowed(
+        "1 REST: alice links her task to the document",
         alice
-            .create_document(&document_on(Some(&of_bob.short_code), "8: by alice"))
+            .create_relationship(&edge(&of_alice.short_code, &owned.short_code, "supports"))
             .await,
-    );
-
-    // =======================================================================
-    // Case 1. The takeover, end to end
-    // (criteria d, e)
-    // =======================================================================
-    let orphan = document_by(&bob, &of_bob.short_code, "1: the document of bob").await;
-    // OLD DATA: see `make_orphan`.
-    make_orphan(&mut conn, &orphan.short_code);
-    let before = svc.get_document(&orphan.short_code).await.expect("read");
-    let edges_before = edge_count(&mut conn);
-
-    checks.refused(
-        "1 (e): BEFORE the link, alice cannot edit the orphan",
-        edit(&alice, &orphan.short_code, "taken by alice").await,
     );
     let refusal = checks.refused(
-        "1 REST (d, e): alice links her task to the orphan of bob",
-        alice
-            .create_relationship(&edge(&of_alice.short_code, &orphan.short_code, "supports"))
-            .await,
+        "1 REST: the link gives alice no right to edit",
+        edit(&alice, &owned.short_code, "taken by alice").await,
     );
-    let reply = alice_mcp
-        .link(
-            "link_items",
-            &of_alice.short_code,
-            &orphan.short_code,
-            "supports",
-        )
-        .await;
-    checks.mcp_refused(
-        "1 MCP (d, e): alice links her task to the orphan of bob",
-        "FORBIDDEN",
-        &reply,
-    );
-    checks.check(
-        "1 (d): no edge was written, and the orphan has no parent",
-        edge_count(&mut conn) == edges_before && parents_of(&mut conn, &orphan.short_code) == 0,
-        format!(
-            "{edges_before} edges before, {} now; {} parents",
-            edge_count(&mut conn),
-            parents_of(&mut conn, &orphan.short_code)
-        ),
-    );
-    // What the edge gave, until COLLIERY-T-0235: the right to edit and to
-    // archive.
+    if let Some((_, details)) = refusal {
+        checks.check(
+            "1: the refusal names the owner board, and not the board of the parent",
+            details["board_id"].as_str() == Some(platform_board.as_str()),
+            details,
+        );
+    }
     checks.refused(
-        "1 (e): AFTER the link, alice cannot edit the orphan",
-        edit(&alice, &orphan.short_code, "taken by alice").await,
-    );
-    checks.refused(
-        "1 (e): AFTER the link, alice cannot archive the orphan",
-        alice.delete_document(&orphan.short_code).await,
+        "1 REST: the link gives alice no right to archive",
+        alice.delete_document(&owned.short_code).await,
     );
     let reply = alice_mcp
         .call(
             "update_item",
-            json!({"short_code": orphan.short_code, "content": "taken by alice",
-                   "version": before.version}),
+            json!({"short_code": owned.short_code, "content": "taken by alice", "version": 1}),
         )
         .await;
-    checks.mcp_refused(
-        "1 MCP (e): AFTER the link, alice cannot edit the orphan",
-        "FORBIDDEN",
-        &reply,
-    );
-    let after = svc.get_document(&orphan.short_code).await.expect("read");
-    checks.check(
-        "1 (d): the orphan is LIVE and unchanged",
-        after == before && !is_archived(&mut conn, &orphan.short_code),
-        format!("before {before:?}\n      after  {after:?}"),
-    );
-    // carol edits neither end. The refusal is the same code.
-    checks.refused(
-        "1 REST: carol links the task of alice to the orphan",
-        carol
-            .create_relationship(&edge(&of_alice.short_code, &orphan.short_code, "supports"))
-            .await,
-    );
-    // A member of platform held `manage_documents` on the board that the
-    // orphan took its authority from. With no parent, no board answers
-    // for the document: a member who did not create it cannot link it.
-    let orphan_of_admin = document_by(
-        &svc,
-        &of_platform.short_code,
-        "1: the document of the admin",
-    )
-    .await;
-    make_orphan(&mut conn, &orphan_of_admin.short_code);
-    checks.refused(
-        "1 REST (e): bob did not create this orphan, and cannot link it to his task",
-        bob.create_relationship(&edge(
-            &of_bob.short_code,
-            &orphan_of_admin.short_code,
-            "supports",
-        ))
-        .await,
-    );
-    checks.check(
-        "1 (e): that orphan has no parent",
-        parents_of(&mut conn, &orphan_of_admin.short_code) == 0,
-        "an edge was written",
-    );
-
-    // =======================================================================
-    // Case 9 (part). The message of the refusal of a link to an orphan
-    // =======================================================================
-    if let Some((message, details)) = &refusal {
-        checks.check(
-            "9: the refusal of the link says who can link the document",
-            message.contains("no parent")
-                && message.contains("creator")
-                && message.contains("organization admin"),
-            message,
-        );
-        checks.check(
-            "9: each sentence of that refusal has 20 words or fewer",
-            short_sentences(message),
-            message,
-        );
-        checks.check(
-            "9: the details name manage_documents, no board, and the target only",
-            details["required_capability"] == json!("manage_documents")
-                && details["board_id"].is_null()
-                && details["relationship"] == json!("supports")
-                && details["any_of"]
-                    .as_array()
-                    .is_some_and(|ends| ends.len() == 1 && ends[0]["end"] == json!("target")),
-            details,
-        );
-    }
-    checks.check(
-        "9 MCP: the refusal of the link says who can link the document",
-        reply_names(&alice_mcp_refusal(&mut alice_mcp, &of_alice, &orphan).await),
-        "the MCP refusal does not name the creator and the organization admin",
-    );
-
-    // =======================================================================
-    // Case 2. The creator and an organization admin link an orphan
-    // (criterion f)
-    // =======================================================================
-    checks.allowed(
-        "2 REST (f): bob, the creator, links the orphan to a task he can edit",
-        bob.create_relationship(&edge(&of_bob.short_code, &orphan.short_code, "supports"))
-            .await,
-    );
-    checks.check(
-        "2 (f): the orphan has one parent now",
-        parents_of(&mut conn, &orphan.short_code) == 1,
-        format!("{} parents", parents_of(&mut conn, &orphan.short_code)),
-    );
-    // Criterion g: the document has a parent, so the rule is the old one.
-    // alice is not on the board of the parent.
-    checks.refused(
-        "2 (g): the document has a parent on the board of platform: alice cannot edit it",
-        edit(&alice, &orphan.short_code, "taken by alice").await,
-    );
-
-    let second = document_by(&bob, &of_bob.short_code, "2: a second orphan of bob").await;
-    make_orphan(&mut conn, &second.short_code);
-    let reply = bob_mcp
-        .link(
-            "link_items",
-            &of_bob.short_code,
-            &second.short_code,
-            "supports",
-        )
-        .await;
-    checks.mcp_allowed("2 MCP (f): bob, the creator, links his orphan", &reply);
-
-    // The creator can edit the document, so the source can be any item:
-    // bob can NOT edit the task of alice.
-    let third = document_by(&bob, &of_bob.short_code, "2: a third orphan of bob").await;
-    make_orphan(&mut conn, &third.short_code);
-    checks.allowed(
-        "2 REST (f): the creator links his orphan to a task that he cannot edit",
-        bob.create_relationship(&edge(&of_alice.short_code, &third.short_code, "supports"))
-            .await,
-    );
-    // Criterion g: the document has a parent on the board of web, and
-    // alice holds `manage_documents` there. That is the rule for a
-    // document that has a parent, and the creator chose the parent.
-    checks.allowed(
-        "2 (g): a member of the board of the parent can edit the document",
-        edit(
-            &alice,
-            &third.short_code,
-            "edited by alice, a member of web",
-        )
-        .await,
-    );
-    // Rule 7: the creator keeps the edit rule wherever the document is.
-    checks.allowed(
-        "2: the creator can edit his document on the board of a different team",
-        edit(&bob, &third.short_code, "edited by bob, the creator").await,
-    );
-
-    let fourth = document_by(&bob, &of_bob.short_code, "2: a fourth orphan of bob").await;
-    make_orphan(&mut conn, &fourth.short_code);
-    checks.allowed(
-        "2 REST (f): an organization admin links an orphan",
-        svc.create_relationship(&edge(
-            &of_platform.short_code,
-            &fourth.short_code,
-            "supports",
-        ))
-        .await,
-    );
-    let fifth = document_by(&bob, &of_bob.short_code, "2: a fifth orphan of bob").await;
-    make_orphan(&mut conn, &fifth.short_code);
-    let reply = svc_mcp
-        .link(
-            "link_items",
-            &of_platform.short_code,
-            &fifth.short_code,
-            "supports",
-        )
-        .await;
-    checks.mcp_allowed("2 MCP (f): an organization admin links an orphan", &reply);
-    checks.check(
-        "2 (f): each of those orphans has one parent",
-        [&second, &third, &fourth, &fifth]
-            .iter()
-            .all(|document| parents_of(&mut conn, &document.short_code) == 1),
-        "an orphan has no parent, or more than one",
-    );
-
-    // =======================================================================
-    // Case 3. No person removes the last supports edge of a document
-    // (criteria a, b)
-    // =======================================================================
-    // carol creates a document with a grant, and the admin takes the grant
-    // away. What is left is creation alone.
-    svc.add_board_member(
-        &platform_board,
-        &AddBoardMemberRequest {
-            user_id: carol_id.to_string(),
-            capabilities: vec!["manage_documents".into()],
-        },
-    )
-    .await
-    .expect("grant");
-    let of_carol = document_by(&carol, &of_platform.short_code, "3: the document of carol").await;
-    svc.remove_board_member(&platform_board, &carol_id.to_string())
-        .await
-        .expect("the grant is taken away");
-    // Rule 7: the creator keeps the edit rule.
-    checks.allowed(
-        "3: carol, the creator, can edit her document with no grant",
-        edit(&carol, &of_carol.short_code, "edited by carol").await,
-    );
-    // The admin created this one: bob edits it as a member of the board of
-    // its parent.
-    let of_admin = document_by(
-        &svc,
-        &of_platform.short_code,
-        "3: the document of the admin",
-    )
-    .await;
-
-    let edges_before = edge_count(&mut conn);
-    let mut messages = Vec::new();
-    let last_of_carol = edge_id(
-        &mut conn,
-        &of_platform.short_code,
-        &of_carol.short_code,
-        "supports",
-    );
-    let last_of_admin = edge_id(
-        &mut conn,
-        &of_platform.short_code,
-        &of_admin.short_code,
-        "supports",
-    );
-    for (who, client, edge) in [
-        ("the creator of the document", &carol, &last_of_carol),
-        ("a manager of the board of the parent", &bob, &last_of_admin),
-        ("an organization admin", &svc, &last_of_admin),
-        (
-            "an organization admin, on the document of carol",
-            &svc,
-            &last_of_carol,
-        ),
-    ] {
-        if let Some(refusal) = checks.last_parent(
-            &format!("3 REST (a): {who} removes the last supports edge"),
-            client.delete_relationship(edge).await,
-        ) {
-            messages.push(refusal);
-        }
-    }
-    for (who, session, document) in [
-        ("the creator of the document", &mut carol_mcp, &of_carol),
-        (
-            "a manager of the board of the parent",
-            &mut bob_mcp,
-            &of_admin,
-        ),
-        ("an organization admin", &mut svc_mcp, &of_admin),
-    ] {
-        let reply = session
-            .link(
-                "unlink_items",
-                &of_platform.short_code,
-                &document.short_code,
-                "supports",
-            )
-            .await;
-        checks.mcp_refused(
-            &format!("3 MCP (a): {who} removes the last supports edge"),
-            LAST_PARENT,
-            &reply,
-        );
-        checks.check(
-            &format!("9 MCP (b): the refusal to {who} says what to do"),
-            reply
-                .1
-                .contains("Link the document to a different item first")
-                && reply.1.contains("archive the document"),
-            &reply.1,
-        );
-    }
-    checks.check(
-        "3 (a): each edge is still there",
-        edge_count(&mut conn) == edges_before
-            && parents_of(&mut conn, &of_carol.short_code) == 1
-            && parents_of(&mut conn, &of_admin.short_code) == 1,
-        format!("{edges_before} edges before, {} now", edge_count(&mut conn)),
-    );
-    // A person who can edit NOTHING gets the refusal of the permission,
-    // and learns nothing about the parents of the document.
-    checks.refused(
-        "3 REST: alice edits neither end, and gets 403 and not 422",
-        alice.delete_relationship(&last_of_admin).await,
-    );
-
-    // =======================================================================
-    // Case 9. The message of the refusal of the remove
-    // (criterion b)
-    // =======================================================================
-    checks.check(
-        "9: the four REST refusals of case 3 gave a message",
-        messages.len() == 4,
-        format!("{} messages", messages.len()),
-    );
-    for (message, details) in &messages {
-        checks.check(
-            "9 (b): the refusal says to link the document to a different item first",
-            message.contains("Link the document to a different item first"),
-            message,
-        );
-        checks.check(
-            "9: the refusal says that the caller can archive the document",
-            message.contains("archive the document"),
-            message,
-        );
-        checks.check(
-            "9: each sentence of the refusal has 20 words or fewer",
-            short_sentences(message),
-            message,
-        );
-        checks.check(
-            "9: the details name the document and its parent",
-            details["relationship"] == json!("supports")
-                && details["parent"] == json!(of_platform.short_code)
-                && (details["document"] == json!(of_carol.short_code)
-                    || details["document"] == json!(of_admin.short_code)),
-            details,
-        );
-    }
-
-    // =======================================================================
-    // Case 4. A document with two parents
-    // (criterion c)
-    // =======================================================================
-    let first_parent = task_by(&svc, &platform_board, "4: the first parent").await;
-    let second_parent = task_by(&svc, &platform_board, "4: the second parent").await;
-    for (label, mcp) in [("REST", false), ("MCP", true)] {
-        let document = document_by(
-            &bob,
-            &first_parent.short_code,
-            &format!("4 {label}: two parents"),
-        )
-        .await;
-        let first = edge_id(
-            &mut conn,
-            &first_parent.short_code,
-            &document.short_code,
-            "supports",
-        );
-        // Adding a parent to a document that has one: the link rule as it
-        // was. bob can edit the two ends.
-        let second = checks.allowed(
-            &format!("4 {label} (g): bob gives his document a second parent"),
-            bob.create_relationship(&edge(
-                &second_parent.short_code,
-                &document.short_code,
-                "supports",
-            ))
-            .await,
-        );
-        if mcp {
-            let reply = bob_mcp
-                .link(
-                    "unlink_items",
-                    &first_parent.short_code,
-                    &document.short_code,
-                    "supports",
-                )
-                .await;
-            checks.mcp_allowed("4 MCP (c): bob removes one of two supports edges", &reply);
-        } else {
-            checks.allowed(
-                "4 REST (c): bob removes one of two supports edges",
-                bob.delete_relationship(&first).await,
-            );
-        }
-        checks.check(
-            &format!("4 {label} (c): the document has one parent, the second"),
-            parents_of(&mut conn, &document.short_code) == 1
-                && edges_between(
-                    &mut conn,
-                    &second_parent.short_code,
-                    &document.short_code,
-                    "supports",
-                ) == 1,
-            format!("{} parents", parents_of(&mut conn, &document.short_code)),
-        );
-        if mcp {
-            let reply = bob_mcp
-                .link(
-                    "unlink_items",
-                    &second_parent.short_code,
-                    &document.short_code,
-                    "supports",
-                )
-                .await;
-            checks.mcp_refused(
-                "4 MCP (a): bob removes the edge that is now the last",
-                LAST_PARENT,
-                &reply,
-            );
-        } else if let Some(second) = &second {
-            checks.last_parent(
-                "4 REST (a): bob removes the edge that is now the last",
-                bob.delete_relationship(&second.id).await,
-            );
-        }
-        checks.check(
-            &format!("4 {label} (a): the document has its one parent"),
-            parents_of(&mut conn, &document.short_code) == 1,
-            format!("{} parents", parents_of(&mut conn, &document.short_code)),
-        );
-        // "Link the document to a different item first": the advice of the
-        // refusal works. The document moves from the second parent to the
-        // first.
-        checks.allowed(
-            &format!("4 {label} (b): bob links the document to a different item first"),
-            bob.create_relationship(&edge(
-                &first_parent.short_code,
-                &document.short_code,
-                "supports",
-            ))
-            .await,
-        );
-        if let Some(second) = &second {
-            checks.allowed(
-                &format!("4 {label} (b): and then removes the old edge"),
-                bob.delete_relationship(&second.id).await,
-            );
-        }
-        checks.check(
-            &format!("4 {label} (b): the document has one parent, the first"),
-            parents_of(&mut conn, &document.short_code) == 1
-                && edges_between(
-                    &mut conn,
-                    &first_parent.short_code,
-                    &document.short_code,
-                    "supports",
-                ) == 1,
-            format!("{} parents", parents_of(&mut conn, &document.short_code)),
-        );
-    }
-
-    // An ARCHIVED parent is a parent: it gives the document its board as
-    // it did while live. So the edge to it counts, and the remove of the
-    // other edge is not the remove of the last.
-    let put_away = task_by(&svc, &platform_board, "4: a parent that is archived").await;
-    let stays = task_by(&svc, &platform_board, "4: a parent that stays").await;
-    let document = document_by(&bob, &put_away.short_code, "4: one parent is archived").await;
-    let live_edge = linked(&bob, &stays.short_code, &document.short_code, "supports").await;
-    let archived_edge = edge_id(
-        &mut conn,
-        &put_away.short_code,
-        &document.short_code,
-        "supports",
-    );
-    svc.delete_task(&put_away.short_code)
-        .await
-        .expect("the admin archives the first parent");
-    checks.allowed(
-        "4: the edge to an archived parent counts, so bob removes the other edge",
-        bob.delete_relationship(&live_edge.id).await,
-    );
-    checks.allowed(
-        "4: the document takes its authority from the archived parent: bob edits it",
-        edit(&bob, &document.short_code, "edited by bob").await,
-    );
-    // As before COLLIERY-T-0235: a write resolves live items only, so an
-    // edge with an archived end is not there to remove.
-    let result = svc.delete_relationship(&archived_edge).await;
-    checks.check(
-        "4: the edge to the archived parent is 404 to a remove, as before",
-        matches!(result, Err(Error::NotFound { .. })),
-        format!("{result:?}"),
-    );
-    checks.check(
-        "4: the document has its archived parent",
-        parents_of(&mut conn, &document.short_code) == 1,
-        format!("{} parents", parents_of(&mut conn, &document.short_code)),
-    );
-
-    // =======================================================================
-    // Case 5. The earliest edge
-    // (criteria d, e)
-    // =======================================================================
-    // THE REACHABLE ATTACK, with one person and no grant. alice sends a
-    // request to platform: she created the task, so she can edit it. bob,
-    // a member of platform, writes a document on that task. alice cannot
-    // edit the document. She links a task of her own board to the
-    // document (the link rule: she can edit the source), and removes the
-    // edge from the request (the link rule: she can edit the source). The
-    // edge from her board is now the earliest.
-    let request = task_by(&alice, &platform_board, "5: the request of alice").await;
-    let target = document_by(&bob, &request.short_code, "5: the document of bob").await;
-    let earliest = edge_id(
-        &mut conn,
-        &request.short_code,
-        &target.short_code,
-        "supports",
-    );
-    let before = svc.get_document(&target.short_code).await.expect("read");
-    checks.refused(
-        "5 (e): BEFORE, alice cannot edit the document of bob",
-        edit(&alice, &target.short_code, "taken by alice").await,
-    );
-    // Adding a parent to a document that has one does not change its
-    // authority, so it stays on the link rule as it was.
-    let later = checks.allowed(
-        "5 (g): alice links her task to a document that has a parent",
-        alice
-            .create_relationship(&edge(&of_alice.short_code, &target.short_code, "supports"))
-            .await,
-    );
-    checks.refused(
-        "5 (e, g): the second edge gave alice nothing: she cannot edit the document",
-        edit(&alice, &target.short_code, "taken by alice").await,
-    );
-    checks.refused(
-        "5 REST (d, e): alice removes the EARLIEST edge, from the request that she created",
-        alice.delete_relationship(&earliest).await,
-    );
+    checks.mcp_refused("1 MCP: update_item stays refused", "FORBIDDEN", &reply);
     let reply = alice_mcp
-        .link(
-            "unlink_items",
-            &request.short_code,
-            &target.short_code,
-            "supports",
+        .call(
+            "delete_item",
+            json!({"short_code": owned.short_code, "confirm": true}),
         )
         .await;
-    checks.mcp_refused(
-        "5 MCP (d, e): alice removes the EARLIEST edge",
-        "FORBIDDEN",
-        &reply,
-    );
+    checks.mcp_refused("1 MCP: delete_item stays refused", "FORBIDDEN", &reply);
+    let after = svc.get_document(&owned.short_code).await.expect("read");
     checks.check(
-        "5 (d): the two edges are there",
-        parents_of(&mut conn, &target.short_code) == 2
-            && edges_between(
-                &mut conn,
-                &request.short_code,
-                &target.short_code,
-                "supports",
-            ) == 1,
-        format!("{} parents", parents_of(&mut conn, &target.short_code)),
+        "1: the document is as it was",
+        after.content == "original content"
+            && after.board_id == platform_board
+            && !is_archived(&mut conn, &owned.short_code),
+        format!("{after:?}"),
     );
+    // carol edits neither end: the link rule refuses her.
     checks.refused(
-        "5 (e): AFTER, alice cannot edit the document of bob",
-        edit(&alice, &target.short_code, "taken by alice").await,
-    );
-    checks.refused(
-        "5 (e): AFTER, alice cannot archive the document of bob",
-        alice.delete_document(&target.short_code).await,
-    );
-    let after = svc.get_document(&target.short_code).await.expect("read");
-    checks.check(
-        "5 (d): the document of bob is LIVE and unchanged",
-        after == before && !is_archived(&mut conn, &target.short_code),
-        format!("before {before:?}\n      after  {after:?}"),
-    );
-    // The consequence of rule 3, pinned: alice wrote the later edge, and
-    // she cannot remove it, because she cannot edit the document.
-    if let Some(later) = &later {
-        let refusal = checks.refused(
-            "5: alice cannot remove the edge that she wrote: she cannot edit the document",
-            alice.delete_relationship(&later.id).await,
-        );
-        if let Some((message, details)) = refusal {
-            checks.check(
-                "9: the refusal of the remove names the document and manage_documents",
-                message.contains("edit the document")
-                    && message.contains("manage_documents")
-                    && short_sentences(&message),
-                &message,
-            );
-            checks.check(
-                "9: the details name manage_documents on the board of the document",
-                details["required_capability"] == json!("manage_documents")
-                    && details["board_id"] == json!(platform_board)
-                    && details["relationship"] == json!("supports"),
-                details,
-            );
-        }
-        // The people who can edit the document can remove it.
-        checks.allowed(
-            "5 (c): bob, who can edit the document, removes the later edge",
-            bob.delete_relationship(&later.id).await,
-        );
-    }
-
-    // The same, with two people. `foreign` is a task of platform: alice
-    // cannot edit it. The admin adds the task of alice as a second parent.
-    let shared = document_by(&bob, &of_bob.short_code, "5: two teams").await;
-    let earliest = edge_id(
-        &mut conn,
-        &of_bob.short_code,
-        &shared.short_code,
-        "supports",
-    );
-    linked(&svc, &of_alice.short_code, &shared.short_code, "supports").await;
-    checks.refused(
-        "5 REST: alice edits neither the earliest parent nor the document",
-        alice.delete_relationship(&earliest).await,
-    );
-    // carol can edit the earliest parent (she created it, as a request),
-    // and not the document.
-    let of_carol_task = task_by(&carol, &platform_board, "5: the request of carol").await;
-    let guarded = document_by(
-        &bob,
-        &of_carol_task.short_code,
-        "5: on the request of carol",
-    )
-    .await;
-    let earliest = edge_id(
-        &mut conn,
-        &of_carol_task.short_code,
-        &guarded.short_code,
-        "supports",
-    );
-    linked(&svc, &of_alice.short_code, &guarded.short_code, "supports").await;
-    checks.refused(
-        "5 REST (d): carol can edit the earliest parent, and not the document",
-        carol.delete_relationship(&earliest).await,
+        "1: carol edits neither end, and writes no edge",
+        carol
+            .create_relationship(&edge(&of_platform.short_code, &owned.short_code, "informs"))
+            .await,
     );
     let reply = carol_mcp
         .link(
-            "unlink_items",
-            &of_carol_task.short_code,
-            &guarded.short_code,
+            "link_items",
+            &of_alice.short_code,
+            &owned.short_code,
             "supports",
         )
         .await;
-    checks.mcp_refused(
-        "5 MCP (d): carol can edit the earliest parent, and not the document",
-        "FORBIDDEN",
-        &reply,
-    );
-    checks.check(
-        "5 (d): the earliest edges are there",
-        parents_of(&mut conn, &shared.short_code) == 2
-            && parents_of(&mut conn, &guarded.short_code) == 2,
-        "an earliest edge is gone",
-    );
-    checks.refused(
-        "5 (e): alice cannot edit the document that her task supports second",
-        edit(&alice, &guarded.short_code, "taken by alice").await,
-    );
-    // A person who can edit the document gives the authority away, which
-    // the rule permits: bob removes the earliest edge, and the board of
-    // web answers for the document.
-    checks.allowed(
-        "5 (c): bob, who can edit the document, removes the earliest edge",
-        bob.delete_relationship(&earliest).await,
-    );
-    checks.allowed(
-        "5 (g): the board of web answers for the document now: alice edits it",
-        edit(&alice, &guarded.short_code, "edited by alice").await,
-    );
+    checks.mcp_refused("1 MCP: carol writes no edge", "FORBIDDEN", &reply);
 
     // =======================================================================
-    // Case 6. The archive of the only parent
+    // Case 2. The remove of a parent does not move the authority (defect 2)
     // =======================================================================
-    let only_parent = task_by(&svc, &platform_board, "6: the only parent").await;
-    let kept = document_by(&svc, &only_parent.short_code, "6: the document").await;
-    checks.allowed(
-        "6: BEFORE the archive, bob can edit the document",
-        edit(&bob, &kept.short_code, "edited by bob, before").await,
-    );
-    checks.refused(
-        "6: BEFORE the archive, alice cannot",
-        edit(&alice, &kept.short_code, "taken by alice").await,
-    );
-    checks.allowed(
-        "6: the admin archives the only parent",
-        svc.delete_task(&only_parent.short_code).await,
-    );
-    checks.check(
-        "6: the archive does not follow supports: the document is live, with its edge",
-        !is_archived(&mut conn, &kept.short_code)
-            && is_archived(&mut conn, &only_parent.short_code)
-            && parents_of(&mut conn, &kept.short_code) == 1,
-        format!("{} parents", parents_of(&mut conn, &kept.short_code)),
-    );
-    checks.allowed(
-        "6: AFTER the archive, bob can edit the document",
-        edit(&bob, &kept.short_code, "edited by bob, after").await,
-    );
-    checks.refused(
-        "6: AFTER the archive, alice cannot",
-        edit(&alice, &kept.short_code, "taken by alice").await,
-    );
-    // The document is not an orphan, so the link rule is the one for a
-    // document that has a parent.
-    checks.allowed(
-        "6 (g): a document with an archived parent is not an orphan to a link",
-        alice
-            .create_relationship(&edge(&of_alice.short_code, &kept.short_code, "supports"))
-            .await,
-    );
-    checks.refused(
-        "6 (e): and that link gave alice nothing",
-        edit(&alice, &kept.short_code, "taken by alice").await,
-    );
-
-    // =======================================================================
-    // Case 7. Each other edge is as it was
-    // (criterion g)
-    // =======================================================================
-    let initiative = svc
-        .create_initiative(&CreateInitiativeRequest {
-            board_id: initiative_board.clone(),
-            column_id: None,
-            title: "7: an initiative".into(),
-            content: String::new(),
-            complexity: None,
-            bucket_type: None,
-        })
-        .await
-        .expect("initiative");
-    let adr = |board: Option<&str>, title: &str| CreateAdrRequest {
-        board_id: board.map(str::to_string),
-        column_id: None,
-        title: title.into(),
-        content: "original content".into(),
-        decision_maker: None,
-        decision_date: None,
-    };
-    let adr_one = svc
-        .create_adr(&adr(Some(&adr_board), "7: an ADR"))
-        .await
-        .expect("ADR");
-    let adr_two = svc
-        .create_adr(&adr(Some(&adr_board), "7: a second ADR"))
-        .await
-        .expect("ADR");
-    let off_board = svc
-        .create_adr(&adr(None, "7: an ADR on no board"))
-        .await
-        .expect("off-board ADR");
-    svc.add_board_member(
-        &adr_board,
-        &AddBoardMemberRequest {
-            user_id: bob_id.to_string(),
-            capabilities: vec!["manage_adrs".into()],
-        },
-    )
-    .await
-    .expect("grant manage_adrs to bob");
-    let note = document_by(&alice, &of_alice.short_code, "7: the note of alice").await;
-
-    // (relationship, source, target, who can edit one end, which end)
-    let spot = [
-        (
-            "parent",
-            &initiative.short_code,
-            &of_alice.short_code,
-            &alice,
-            "the target",
-        ),
-        (
-            "blocks",
-            &of_alice.short_code,
-            &of_bob.short_code,
-            &alice,
-            "the source",
-        ),
-        (
-            "informs",
-            &note.short_code,
-            &of_bob.short_code,
-            &alice,
-            "the source",
-        ),
-        (
-            "informs",
-            &adr_one.short_code,
-            &of_alice.short_code,
-            &alice,
-            "the target",
-        ),
-        (
-            "supersedes",
-            &adr_two.short_code,
-            &adr_one.short_code,
-            &bob,
-            "the two ends",
-        ),
-        (
-            "supports",
-            &of_alice.short_code,
-            &adr_one.short_code,
-            &alice,
-            "the source",
-        ),
-        (
-            "supports",
-            &of_alice.short_code,
-            &off_board.short_code,
-            &alice,
-            "the source",
-        ),
-    ];
-    for (relationship, source, target, client, end) in spot {
-        let case = format!("7 (g) {relationship} {source} -> {target}");
-        let edges_before = edge_count(&mut conn);
-        checks.refused(
-            &format!("{case}: carol edits neither end"),
-            carol
-                .create_relationship(&edge(source, target, relationship))
-                .await,
-        );
-        let written = checks.allowed(
-            &format!("{case}: the link, by a person who can edit {end}"),
-            client
-                .create_relationship(&edge(source, target, relationship))
-                .await,
-        );
-        if let Some(written) = written {
-            checks.refused(
-                &format!("{case}: carol cannot remove it"),
-                carol.delete_relationship(&written.id).await,
-            );
-            // For `supports` to an ADR this is the remove of the LAST
-            // supports edge, by a person who can edit the source only. An
-            // ADR does not take its authority from the edge, so the link
-            // rule is as it was.
-            checks.allowed(
-                &format!("{case}: the remove, by the same person"),
-                client.delete_relationship(&written.id).await,
-            );
-        }
-        checks.check(
-            &format!("{case}: no edge is left"),
-            edge_count(&mut conn) == edges_before,
-            format!("{edges_before} before, {} now", edge_count(&mut conn)),
-        );
-    }
-    // The same over MCP, for supports to an ADR and for blocks.
-    for (relationship, source, target) in [
-        ("supports", &of_alice.short_code, &adr_two.short_code),
-        ("blocks", &of_alice.short_code, &of_bob.short_code),
-    ] {
-        for tool in ["link_items", "unlink_items"] {
-            let reply = alice_mcp.link(tool, source, target, relationship).await;
-            checks.mcp_allowed(&format!("7 MCP (g) {tool} {relationship}"), &reply);
-        }
-    }
-    // AN ADR ON NO BOARD takes no authority from a supports edge. The edge
-    // that alice wrote and removed gave her nothing, and one that stays
-    // gives her nothing.
-    linked(
-        &alice,
-        &of_alice.short_code,
-        &off_board.short_code,
-        "supports",
+    // `two` supports the task of alice (the earliest parent) and the task of
+    // bob. Its owner board is the board of platform.
+    let two = document_by(
+        &svc,
+        &platform_board,
+        Some(&of_alice.short_code),
+        "2: two parents",
     )
     .await;
-    let current = svc.get_adr(&off_board.short_code).await.expect("read");
+    linked(&svc, &of_bob.short_code, &two.short_code, "supports").await;
     checks.refused(
-        "7: a supports edge to an ADR on no board gives no right to edit the ADR",
-        alice
-            .update_adr(
-                &off_board.short_code,
-                &UpdateContentRequest {
-                    title: None,
-                    content: "taken by alice".into(),
-                    version: current.version,
-                },
-            )
-            .await,
+        "2: with two parents, alice cannot edit",
+        edit(&alice, &two.short_code, "taken by alice").await,
+    );
+    // bob manages the owner board: he removes the earliest parent.
+    let earliest = edge_id(&mut conn, &of_alice.short_code, &two.short_code, "supports");
+    checks.allowed(
+        "2: bob removes the earliest parent",
+        bob.delete_relationship(&earliest).await,
+    );
+    checks.refused(
+        "2: alice still cannot edit",
+        edit(&alice, &two.short_code, "taken by alice").await,
+    );
+    checks.allowed(
+        "2: bob edits as a manager of the owner board",
+        edit(&bob, &two.short_code, "edited by bob").await,
     );
 
     // =======================================================================
-    // Case 10. Another tenant
+    // Case 3. The remove of a supports edge needs the right to edit the
+    // document
     // =======================================================================
-    // alice is a member of globex too. The edges and the short codes of
-    // acme name nothing there, so she gets the 404 and the VALIDATION of
-    // before, and none of the new refusals.
+    let edge_of_alice = edge_id(
+        &mut conn,
+        &of_alice.short_code,
+        &owned.short_code,
+        "supports",
+    );
     let edges_before = edge_count(&mut conn);
-    let result = globex_alice.delete_relationship(&last_of_admin).await;
+    let refusal = checks.refused(
+        "3 REST: alice wrote the edge, and cannot remove it",
+        alice.delete_relationship(&edge_of_alice).await,
+    );
+    if let Some((message, details)) = refusal {
+        checks.check(
+            "3: the refusal says what is missing",
+            message
+                == "To remove a supports edge of a document, you must be able to edit the \
+                    document. You need \"manage_documents\" on the owner board of the \
+                    document. The creator of the document and an organization admin can also \
+                    remove it."
+                && short_sentences(&message),
+            &message,
+        );
+        checks.check(
+            "3: the details name the owner board",
+            details["board_id"].as_str() == Some(platform_board.as_str())
+                && details["required_capability"] == "manage_documents",
+            details,
+        );
+    }
+    let reply = alice_mcp
+        .link(
+            "unlink_items",
+            &of_alice.short_code,
+            &owned.short_code,
+            "supports",
+        )
+        .await;
+    checks.mcp_refused("3 MCP: unlink_items stays refused", "FORBIDDEN", &reply);
     checks.check(
-        "10 REST: the remove of a last supports edge from another tenant is 404",
+        "3: no edge was removed",
+        edge_count(&mut conn) == edges_before
+            && edges_between(
+                &mut conn,
+                &of_alice.short_code,
+                &owned.short_code,
+                "supports",
+            ) == 1,
+        format!("{edges_before} before, {} now", edge_count(&mut conn)),
+    );
+
+    // =======================================================================
+    // Case 4. The last supports edge can go, and the owner board stays
+    // =======================================================================
+    let reply = bob_mcp
+        .link(
+            "unlink_items",
+            &of_alice.short_code,
+            &owned.short_code,
+            "supports",
+        )
+        .await;
+    checks.mcp_allowed("4 MCP: bob removes the last supports edge", &reply);
+    checks.check(
+        "4 MCP: the reply does not name LAST_PARENT",
+        !reply.1.contains(LAST_PARENT),
+        &reply.1,
+    );
+    let last = edge_id(&mut conn, &of_bob.short_code, &two.short_code, "supports");
+    checks.allowed(
+        "4 REST: the admin removes the last supports edge",
+        svc.delete_relationship(&last).await,
+    );
+    for document in [&owned, &two] {
+        let read = svc.get_document(&document.short_code).await.expect("read");
+        checks.check(
+            "4: the document supports nothing, and it keeps its owner board",
+            parents_of(&mut conn, &document.short_code) == 0
+                && read.board_id == platform_board
+                && read.archived_at.is_none(),
+            format!("{read:?}"),
+        );
+    }
+    // The creator of a document can remove its last edge with no grant.
+    grant(&svc, &initiative_board, carol_id, "manage_documents").await;
+    let of_carol = document_by(
+        &carol,
+        &initiative_board,
+        Some(&of_platform.short_code),
+        "4: by carol",
+    )
+    .await;
+    svc.remove_board_member(&initiative_board, &carol_id.to_string())
+        .await
+        .expect("removing the grant of carol");
+    let reply = carol_mcp
+        .link(
+            "unlink_items",
+            &of_platform.short_code,
+            &of_carol.short_code,
+            "supports",
+        )
+        .await;
+    checks.mcp_allowed("4 MCP: the creator removes the last supports edge", &reply);
+
+    // =======================================================================
+    // Case 5. Another tenant
+    // =======================================================================
+    let target = document_by(
+        &svc,
+        &platform_board,
+        Some(&of_platform.short_code),
+        "5: one parent",
+    )
+    .await;
+    let edges_before = edge_count(&mut conn);
+    let id = edge_id(
+        &mut conn,
+        &of_platform.short_code,
+        &target.short_code,
+        "supports",
+    );
+    let result = globex_alice.delete_relationship(&id).await;
+    checks.check(
+        "5 REST: the remove of an edge from another tenant is 404",
         matches!(result, Err(Error::NotFound { .. })),
         format!("{result:?}"),
     );
     let result = globex_alice
-        .create_relationship(&edge(
-            &of_alice.short_code,
-            &orphan_of_admin.short_code,
-            "supports",
-        ))
+        .create_relationship(&edge(&of_alice.short_code, &target.short_code, "supports"))
         .await;
     checks.check(
-        "10 REST: a link to an orphan from another tenant names no live item",
+        "5 REST: a link from another tenant names no live item",
         matches!(result, Err(Error::Validation { .. })),
         format!("{result:?}"),
     );
     let mut globex_mcp = McpSession::open(&base, &alice_token, "globex").await;
-    for (tool, target) in [
-        ("unlink_items", &of_admin.short_code),
-        ("link_items", &orphan_of_admin.short_code),
-    ] {
+    for tool in ["unlink_items", "link_items"] {
         let reply = globex_mcp
-            .link(tool, &of_platform.short_code, target, "supports")
+            .link(
+                tool,
+                &of_platform.short_code,
+                &target.short_code,
+                "supports",
+            )
             .await;
         checks.check(
-            &format!("10 MCP {tool} from another tenant"),
-            reply.0
-                && !reply.1.contains(LAST_PARENT)
-                && !reply.1.contains("FORBIDDEN")
-                && !reply.1.contains("no parent"),
+            &format!("5 MCP {tool} from another tenant"),
+            reply.0 && !reply.1.contains("FORBIDDEN"),
             &reply.1,
         );
     }
     checks.check(
-        "10: no edge was written or removed",
+        "5: no edge was written or removed",
         edge_count(&mut conn) == edges_before,
         format!("{edges_before} before, {} now", edge_count(&mut conn)),
     );
 
     // =======================================================================
-    // Criterion h. The reference page gives the rule
+    // The reference pages give the rule of today
     // =======================================================================
     let docs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/src");
     let page = |name: &str| {
         std::fs::read_to_string(docs.join(name)).unwrap_or_else(|e| panic!("reading {name}: {e}"))
     };
-    let capabilities = page("reference/capabilities.md");
+    for name in [
+        "reference/capabilities.md",
+        "reference/errors.md",
+        "reference/mcp-tools.md",
+    ] {
+        checks.check(
+            &format!("docs: {name} does not give LAST_PARENT"),
+            !page(name).contains(LAST_PARENT),
+            format!("{name} has LAST_PARENT"),
+        );
+    }
     checks.check(
-        "h: the page Capabilities gives the rule for a document with no parent",
-        capabilities.contains("A document with no parent")
-            && capabilities.contains("A document always has a parent")
-            && capabilities.contains(LAST_PARENT),
+        "docs: the page Capabilities says that a document has an owner board",
+        page("reference/capabilities.md").contains("Each document has an owner board"),
         "reference/capabilities.md does not give the rule",
-    );
-    checks.check(
-        "h: the page Errors has the code",
-        page("reference/errors.md").contains(&format!("`{LAST_PARENT}`")),
-        "reference/errors.md does not have LAST_PARENT",
-    );
-    checks.check(
-        "h: the page MCP tools gives the rule on unlink_items",
-        page("reference/mcp-tools.md").contains(LAST_PARENT),
-        "reference/mcp-tools.md does not have LAST_PARENT",
     );
 
     drop((alice_mcp, bob_mcp, carol_mcp, svc_mcp, globex_mcp));
@@ -1658,23 +867,4 @@ async fn a_document_keeps_a_parent_and_a_link_gives_no_authority_against_live_st
     drop(conn);
     drop_scratch_db(&mut admin_conn, SCRATCH_DB);
     checks.finish();
-}
-
-/// The text of the MCP refusal of a link from the task of alice to the
-/// orphan.
-async fn alice_mcp_refusal(session: &mut McpSession, source: &Task, orphan: &Document) -> String {
-    session
-        .link(
-            "link_items",
-            &source.short_code,
-            &orphan.short_code,
-            "supports",
-        )
-        .await
-        .1
-}
-
-/// Does the refusal say who can link a document with no parent?
-fn reply_names(text: &str) -> bool {
-    text.contains("no parent") && text.contains("creator") && text.contains("organization admin")
 }

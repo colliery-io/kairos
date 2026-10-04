@@ -255,7 +255,12 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
 | `RENAME_NOT_NEEDED` | 422 | A move with a rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. Nothing changes. Do the move with no rename | `argument`: `rename`. For a prefix, also `short_code` and `code_prefix` |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
-| `LAST_OWNER` | 422 | The request removes the owner board of a document that supports no item. [A document always has an owner](capabilities.md#a-document-always-has-an-owner). Link the document to a work item first, or name a different board | `document` (the short code) and `board` (the slug of the owner board) |
+
+Each document has an owner board. The server refuses a document create with
+no board. It also refuses a change of the owner board with no board. The
+refusal is `VALIDATION` with `details.field` = `board` (MCP:
+`details.argument` = `board`, or `to_board` for `move_item`). See
+[A document always has an owner](capabilities.md#a-document-always-has-an-owner).
 
 ### Relationships
 
@@ -264,7 +269,6 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `CYCLE_DETECTED` | 422 | The edge would create a cycle | — |
 | `RELATIONSHIP_RULE` | 422 | The edge is not legal between those two entity types. For an `impacts` link: the subject is not a document and not an ADR | `relationship`. For an `impacts` link, also `source_type` and `allowed_source_types` |
 | `ALREADY_LINKED` | 422 | That edge already exists. For an `impacts` link: the item impacts that repository already | — |
-| `LAST_PARENT` | 422 | The edge is the last `supports` edge of a document that names no board. [A document always has a parent](capabilities.md#a-document-always-has-a-parent). Link the document to a different item first, or name an owner board for the document, or archive the document | `relationship`, `document` and `parent` (the two short codes) |
 
 ### Tenant configuration
 
@@ -317,9 +321,9 @@ The refusals a reader most often arrives here from:
   [Move work between boards](../how-to/move-work-between-boards.md)
 - `FORBIDDEN` or `VALIDATION` on a task that you create for a different team →
   [Send a request to a different team](../how-to/move-work-between-boards.md#when-a-request-is-refused)
-- `LAST_PARENT` →
-  [A document always has a parent](capabilities.md#a-document-always-has-a-parent)
-- `LAST_OWNER`, `BOARD_OWNS_DOCUMENTS` →
+- `VALIDATION` with `details.field` = `board` on a document →
+  [A document always has an owner](capabilities.md#a-document-always-has-an-owner)
+- `BOARD_OWNS_DOCUMENTS` →
   [The owner of a document](capabilities.md#the-owner-of-a-document)
 - `FORGE_NOT_CONFIGURED`, `WEBHOOK_REJECTED` →
   [Connect a git forge](../how-to/connect-a-git-forge.md)

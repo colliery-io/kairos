@@ -1,7 +1,8 @@
 //! ABAC orchestration (KAIROS-T-0011, contract per KAIROS-A-0006, layering
 //! per KAIROS-A-0009): the single-query capability check, org-admin bypass,
 //! grant/revoke with `activity_log` rows, and the resolution of the board
-//! of a document (the board that it names, or the board of its parent). The pure matching semantics live in [`kairos_core::abac`];
+//! of a document (its owner board). The pure matching semantics live in
+//! [`kairos_core::abac`];
 //! this module is the SQL side of the same contract.
 //!
 //! Board-scoped functions operate in the CURRENT `search_path` tenant schema
@@ -39,7 +40,7 @@ use kairos_core::short_code::ItemType;
 use uuid::Uuid;
 
 use crate::models::boards::NewBoardMemberCapability;
-use crate::models::enums::{ActivityAction, OrgRole, RelationshipType};
+use crate::models::enums::{ActivityAction, OrgRole};
 use crate::models::graph::NewActivityLogEntry;
 
 /// Errors from capability checks, grants, revocations, or resolution.
@@ -385,18 +386,13 @@ fn board_of_workflow_item(
 ///
 /// - board items (strategies/initiatives/tasks/ADRs-on-a-board) authorize
 ///   against their OWN `board_id`;
-/// - a document that NAMES a board authorizes against that board
-///   (`documents.board_id`, COLLIERY-T-0269): the board is the owner of the
-///   document. What the document supports does not change that;
-/// - a document that names no board inherits from its parent entity: the
-///   `supports` edge where the document is the TARGET and the parent is
-///   the SOURCE (S-0004 edge semantics: "target supports source — document
-///   supports initiative"), resolved to the parent's board. Should a
-///   document support several items, the earliest-created edge whose
-///   parent resolves to a board wins (deterministic; A-0006 assumes one
-///   parent);
-/// - `None` = no board context exists (unknown id, an ADR not placed on a
-///   board, or a document with no board and no resolvable parent). Callers
+/// - a document authorizes against its OWNER board (`documents.board_id`,
+///   COLLIERY-T-0269). Each document has one (COLLIERY-T-3109). What the
+///   document supports does not change that. Until COLLIERY-T-3109 a
+///   document could name no board, and then took the board of its earliest
+///   `supports` parent;
+/// - `None` = no board context exists (unknown id, or an ADR not placed on
+///   a board). Callers
 ///   fall back to the org-admin-only policy for tenant-wide resources
 ///   ([`kairos_core::abac::TenantConfigResource`]).
 ///
@@ -417,120 +413,11 @@ pub fn resolve_authorization_board(
 
     // Not a board item — a document? (An off-board ADR also lands here and
     // correctly resolves to None: it is not in `documents`.)
-    let owner: Option<Option<Uuid>> = documents::table
+    Ok(documents::table
         .filter(documents::id.eq(item_id))
         .select(documents::board_id)
-        .first(conn)
-        .optional()?;
-    let Some(owner) = owner else {
-        return Ok(None);
-    };
-    // COLLIERY-T-0269: the board that the document names is its owner.
-    if let Some(board_id) = owner {
-        return Ok(Some(board_id));
-    }
-
-    // COLLIERY-T-0235: the parents come from the ONE function that the
-    // "last parent" rule counts with, so the two cannot disagree on which
-    // edge is a parent.
-    Ok(document_parents(conn, item_id)?
-        .first()
-        .map(|parent| parent.board_id))
-}
-
-/// The board that a document NAMES as its owner (COLLIERY-T-0269), read
-/// from the row. `None` = no such document, or the document names no
-/// board. An archived document answers as it did while live.
-///
-/// It is not [`resolve_authorization_board`]: that function gives the
-/// board of a parent when the document names none. The rules "the last
-/// parent" and "the last owner" need to know which of the two the
-/// document has.
-pub fn document_owner_board(
-    conn: &mut PgConnection,
-    document_id: Uuid,
-) -> Result<Option<Uuid>, AbacError> {
-    use crate::schema::documents;
-
-    Ok(documents::table
-        .filter(documents::id.eq(document_id))
-        .select(documents::board_id)
-        .first::<Option<Uuid>>(conn)
-        .optional()?
-        .flatten())
-}
-
-/// One parent of a document (COLLIERY-T-0235): the source of a `supports`
-/// edge that points at the document, and the board that the parent gives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DocumentParent {
-    /// The workflow item that the document supports.
-    pub parent_id: Uuid,
-    /// The board of that item.
-    pub board_id: Uuid,
-}
-
-/// The parents of a document, the EARLIEST first (COLLIERY-T-0235). The
-/// first one gives the document its authorization board
-/// ([`resolve_authorization_board`]), when the document names no board
-/// of its own (COLLIERY-T-0269).
-///
-/// A parent is the source of a `supports` edge that points at the
-/// document, when that source has a board. An ARCHIVED parent is a parent:
-/// it gives its board as it did while live ([`board_of_workflow_item`]).
-/// So the rule "a document always has a parent" counts an edge to an
-/// archived item, and the archive of the only parent of a document does
-/// not make the document an orphan.
-///
-/// A document with no parent and no board has no authorization board:
-/// only its creator and an organization admin can edit it.
-pub fn document_parents(
-    conn: &mut PgConnection,
-    document_id: Uuid,
-) -> Result<Vec<DocumentParent>, AbacError> {
-    use crate::schema::item_relationships;
-
-    let sources: Vec<Uuid> = item_relationships::table
-        .filter(item_relationships::target_id.eq(document_id))
-        .filter(item_relationships::relationship.eq(RelationshipType::Supports))
-        .order(item_relationships::created_at.asc())
-        .select(item_relationships::source_id)
-        .load(conn)?;
-    let mut parents = Vec::with_capacity(sources.len());
-    for parent_id in sources {
-        if let Some(board_id) = board_of_workflow_item(conn, parent_id)? {
-            parents.push(DocumentParent {
-                parent_id,
-                board_id,
-            });
-        }
-    }
-    Ok(parents)
-}
-
-/// Lock the row of a document until the transaction ends
-/// (COLLIERY-T-0235). `false` = no such document.
-///
-/// WHY. The remove of a `supports` edge counts the parents of the document
-/// and then deletes one edge. Two removes at the same time, of the two
-/// edges of one document, would each count two parents, and the two
-/// deletes would leave a document with no parent. With the lock the second
-/// remove waits for the first, and counts one.
-///
-/// COLLIERY-T-0269: the change of the owner board takes the same lock. The
-/// remove of the last parent reads the board of the document, and the
-/// remove of the board counts the parents. Without the lock the two could
-/// each see the owner that the other removes.
-pub fn lock_document(conn: &mut PgConnection, document_id: Uuid) -> Result<bool, AbacError> {
-    use crate::schema::documents;
-
-    let locked: Option<Uuid> = documents::table
-        .filter(documents::id.eq(document_id))
-        .select(documents::id)
-        .for_update()
-        .first(conn)
-        .optional()?;
-    Ok(locked.is_some())
+        .first::<Uuid>(conn)
+        .optional()?)
 }
 
 /// Who created a workflow item or document, if it exists (KAIROS-T-0111).
@@ -655,11 +542,8 @@ struct ItemFactRow {
 ///   capability. It is the function that [`edit_facts`] calls, so the two
 ///   cannot give different answers on a grant, a glob or a team.
 ///
-/// A document that names no board is the exception. Its authorization
-/// board is the board of its `supports` parent
-/// ([`resolve_authorization_board`]), which is a read for each such
-/// document. A document that names a board has the board in its row
-/// (COLLIERY-T-0269). No `parent` edge has a document at an end
+/// A document has its owner board in its row (COLLIERY-T-0269, required
+/// since COLLIERY-T-3109). No `parent` edge has a document at an end
 /// (`kairos_core::graph::check_link`), so the cascade sends none.
 ///
 /// As [`edit_facts`] does, this function loads each fact with no early
@@ -715,11 +599,7 @@ pub fn edit_facts_of_items(
             continue;
         };
         let manage_capability = kairos_core::abac::manage_capability(item_type);
-        let board_id = match (item_type, row.board_id) {
-            // COLLIERY-T-0269: only a document that names no board.
-            (ItemType::Document, None) => resolve_authorization_board(conn, row.id)?,
-            (_, board_id) => board_id,
-        };
+        let board_id = row.board_id;
         let holds_manage = match board_id {
             Some(board_id) => match held.get(&(board_id, manage_capability)) {
                 Some(answer) => *answer,

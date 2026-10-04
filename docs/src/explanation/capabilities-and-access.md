@@ -238,9 +238,13 @@ Since COLLIERY-T-0269 a document can name a board as its owner, and for such a
 document the edge carries no authority at all. The board that the document
 names answers for it, whatever it supports. So the narrow rules above apply
 only to a document that names no board. A document that names a board can gain
-its first parent under the plain link rule, and can lose its last one. What it
-cannot lose is its board while it supports nothing, for the same reason: the
-server does not create a document with no owner.
+its first parent under the plain link rule, and can lose its last one.
+
+Since COLLIERY-T-3109 each document names a board. The create of a document
+needs one, there is no default, and nobody can remove it later. So no edge
+carries authority over a document, and the interim rules for a document with
+no board are gone. One rule stays: to remove a `supports` edge of a document,
+you must be able to edit the document.
 
 ## Things that have no board of their own
 
@@ -248,17 +252,13 @@ Not everything sits on a board, and each case is resolved by asking what board
 it *belongs* to rather than by inventing a new access surface.
 
 **A document has an owner, and the owner is a board.** A document is never a
-card, but it is not a free-floating artifact either. It has one of two owners.
-A document that names a board is owned by that board. A document that names
-none inherits the board of the item it supports, and that relationship is how
-it is anchored: editing a document that supports an initiative requires write
-access on that initiative's board, or having written the document. In both
-cases the answer is a board that already exists, with grants that already
-exist, so there is no second place to grant access and no second place to get
-it wrong. The consequence worth knowing is that the access of a document that
-names no board changes if its parent moves, which is correct and occasionally
-surprising — for everyone but its author, whose right to edit it does not
-depend on where the parent is.
+card, but it is not a free-floating artifact either. Each document names its
+owner board, and that board answers for it: editing the document requires
+write access on that board, or having written the document. The answer is a
+board that already exists, with grants that already exist, so there is no
+second place to grant access and no second place to get it wrong. What the
+document supports does not change its owner: when a parent moves, the access
+of the document stays the same.
 
 What a document is *about* is a separate link. A document or an ADR can
 impact a repository, and that link gives no right to anyone. [Repositories as
@@ -286,17 +286,15 @@ flowchart TD
     Q2 -->|"on a board"| Own
     Q2 -->|"off board"| None["No board"]
     Q2 -->|no| Q3{"A document?"}
-    Q3 -->|"names a board"| Own
-    Q3 -->|"names no board"| Sup["Follow the supports edge<br/>to its parent, then that<br/>parent's board"]
+    Q3 -->|"yes: its owner board"| Own
     Q3 -->|no| None
-    Sup -->|"no parent resolves"| None
 
     Own --> Check["Check the caller's grants<br/>on that board"]
     None --> Admin["Org admin only"]
 
     classDef ok fill:#2b4a3a,stroke:#7ac28e,color:#e6e6e6
     classDef fallback fill:#4a3a2b,stroke:#c2a87a,color:#e6e6e6
-    class Own,Check,Sup ok
+    class Own,Check ok
     class None,Admin fallback
 ```
 
@@ -348,6 +346,8 @@ mean.
   may edit the document (COLLIERY-T-0235).
 - A document names its board, and impacts a repository (COLLIERY-T-0269): the
   owner rule replaces the parent rule for a document that names a board.
+- Each document has an owner board, and its code has the prefix of that board
+  (COLLIERY-T-3109).
 
 <!-- KAIROS-I-0016 / KAIROS-T-0171 (E6): the capability vocabulary and the
      computed grant sets are cited to KAIROS-A-0006 rather than restated here,

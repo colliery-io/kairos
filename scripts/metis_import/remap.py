@@ -201,22 +201,20 @@ def parse_staged(text):
 
 def new_code_ok(new_code, prefix, kind):
     """The code that the server gave has the prefix of the board that gives
-    it and the letter of the type. prefix None: any prefix (a document that
-    supports a parent names no board, so the tenant prefix gives its code)."""
+    it and the letter of the type. prefix None: any prefix."""
     lead = re.escape(prefix) if prefix else r"[A-Z][A-Z0-9]*"
     return bool(re.fullmatch(lead + r"-" + LETTER[kind] + r"-\d{4,}", new_code or ""))
 
 
 def role_of(doc, docs):
     """The board that gives the code of doc: "delivery", "initiative" or
-    "adr". None for a document that supports a parent: it names no board."""
+    "adr". Each document has the delivery board as its owner board
+    (COLLIERY-T-3109), also a document that supports a parent, so the
+    delivery board gives its code."""
     kind = kind_of(doc)
-    if kind == "task":
-        return "delivery"
     if kind in ("initiative", "adr"):
         return kind
-    how, _ = owner(doc, docs)
-    return "delivery" if how == "board" else None
+    return "delivery"
 
 
 def keep_codes(docs, order, prefix, prefixes):
@@ -268,8 +266,10 @@ def keep_note(wanted_code, holder, docs):
 
 
 def owner(doc, docs):
-    """The owner of a document: ("parent", old parent code) when its Metis
-    parent is an initiative or a task, else ("board", reason-or-None)."""
+    """What a document supports: ("parent", old parent code) when its Metis
+    parent is an initiative or a task, else ("board", reason-or-None). The
+    owner board is the delivery board in the two cases (COLLIERY-T-3109);
+    "parent" adds the supports edge."""
     parent = doc.get("parent")
     if parent and parent in docs:
         level = docs[parent]["level"]

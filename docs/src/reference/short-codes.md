@@ -36,8 +36,8 @@ The board of an item gives its prefix:
 | Initiative | Its initiative board. |
 | ADR | Its ADR board. |
 | Strategy | Its strategy board. |
-| Document | Its owner board. A document with no owner board takes the prefix of the organization. |
-| An item with no board | The prefix of the organization: the organization slug in capitals, with letters and digits only. |
+| Document | Its owner board. Each document has an owner board, so a document always gets the prefix of a board. |
+| An ADR with no board | The prefix of the organization: the organization slug in capitals, with letters and digits only. |
 
 ### Two boards with one prefix
 
@@ -135,8 +135,9 @@ code and the reason.
 - An item keeps its Metis number when the board that gives its code has the
   prefix `--prefix`. `--prefix` must be the prefix of the delivery board.
 - An initiative on the shared board `initiatives` gets the next code of that
-  board. A document that supports a parent gets the next code of the
-  organization prefix.
+  board.
+- Each document gets the delivery board as its owner board, also a document
+  that supports a parent. So a document keeps its Metis number too.
 - Two Metis documents can want one code. Examples: a Metis code that 2 files
   have, or the vision `X-V-0001` and the specification `X-S-0001`. The first
   document keeps the code. The other document gets the next free number. Its

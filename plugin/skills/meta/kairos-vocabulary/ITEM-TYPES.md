@@ -13,8 +13,8 @@ Kairos has five item types: `strategy`, `initiative`, `task`, `document` and `ad
 | support request, ops work, "can you help with" | task of type support, in the support lane | `task_type: support` (the lane is `support` by default) |
 | a request to a different team | a task on the delivery board of that team, in the support lane | see `workflow/implement/CROSS-TEAM-FILING.md` |
 | spike, investigation | task | title it "Spike: ..." |
-| research, findings | document that supports the task | `item_type: document, parent: <task>`; see `engineering/research` |
-| spec, design doc, PRD, RFC | document that supports an item, from a template | `item_type: document, parent: <initiative>, template: <name>` |
+| research, findings | document that supports the task | `item_type: document, board: <team board>, parent: <task>`; see `engineering/research` |
+| spec, design doc, PRD, RFC | document that supports an item, from a template | `item_type: document, board: <team board>, parent: <initiative>, template: <name>` |
 | vision, architecture overview of a repository | document that a board owns, and that impacts the repository | `item_type: document, board: <team board>, template: <name>`, then `link_items impacts` |
 | decision record, "why we did it" | ADR | `item_type: adr`; see `engineering/domain-modeling/ADR-FORMAT.md` |
 | roadmap, OKR, north star, theme | strategy | `item_type: strategy`, with a `hypothesis` |

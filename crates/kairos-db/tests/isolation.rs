@@ -321,6 +321,7 @@ fn seed(conn: &mut PgConnection, slug: &str, user: Uuid) -> Seed {
     let document = items::create_document(
         conn,
         CreateDocument {
+            board_id: initiative_board,
             title: &format!("{marker} document"),
             content: Some(&format!("{marker} document body")),
             template_id: None,

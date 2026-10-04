@@ -605,16 +605,19 @@ struct CreateDocumentRequest<'a> {
     title: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     template_id: Option<&'a str>,
-    /// Required by the server: documents attach to a workflow item via a
-    /// `supports` edge (KAIROS-A-0006).
+    /// The owner board (slug), required by the server (COLLIERY-T-3109).
+    board: &'a str,
+    /// The board item that the document supports.
     parent_short_code: &'a str,
 }
 
-/// `POST /api/documents` — create a document attached to a board item.
+/// `POST /api/documents` — create a document on its owner board `board`,
+/// attached to a board item.
 pub async fn create_document(
     auth: Auth,
     title: &str,
     template_id: Option<&str>,
+    board: &str,
     parent_short_code: &str,
 ) -> Result<(), ApiError> {
     let _: serde_json::Value = post_json(
@@ -623,6 +626,7 @@ pub async fn create_document(
         &CreateDocumentRequest {
             title,
             template_id,
+            board,
             parent_short_code,
         },
     )
@@ -999,12 +1003,15 @@ mod tests {
         let doc = serde_json::to_value(CreateDocumentRequest {
             title: "PRD: x",
             template_id: Some("t-1"),
+            board: "web-delivery",
             parent_short_code: "DEMO-I-0002",
         })
         .expect("serializes");
+        // COLLIERY-T-3109: the owner board is always in the body.
         assert_eq!(
             doc,
             serde_json::json!({"title": "PRD: x", "template_id": "t-1",
+                               "board": "web-delivery",
                                "parent_short_code": "DEMO-I-0002"})
         );
     }

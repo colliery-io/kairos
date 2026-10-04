@@ -1621,7 +1621,8 @@ fn BoardBody(
             />
         })}
         {move || documents_offered.get().then(|| view! {
-            <CreateDocumentModal open=doc_open parents=doc_parents on_changed/>
+            <CreateDocumentModal open=doc_open parents=doc_parents
+                board_slug=board.slug.clone() board_name=board.name.clone() on_changed/>
         })}
     }
 }
@@ -2330,9 +2331,17 @@ fn CreateItemModal(
 /// "New document" (board header): template picker + parent picker.
 /// Documents are off-board, so this is the one create flow that is not
 /// column-anchored; the server writes the `supports` edge to the parent.
+/// The owner board of the document is this board (COLLIERY-T-3109: each
+/// document names its owner board, and the code gets its prefix).
 #[component]
 fn CreateDocumentModal(
     open: RwSignal<bool>,
+    /// The slug of this board: the owner board of the new document.
+    #[prop(into)]
+    board_slug: String,
+    /// The name of this board, for the text of the dialog.
+    #[prop(into)]
+    board_name: String,
     /// `(short_code, title)` of this board's eligible parents — LIVE
     /// (KAIROS-T-0074): the modal instance persists across refetches, so
     /// the option list must follow the board's current items.
@@ -2340,6 +2349,8 @@ fn CreateDocumentModal(
     on_changed: Callback<()>,
 ) -> impl IntoView {
     let auth = use_auth();
+    let board_slug = StoredValue::new(board_slug);
+    let board_name = StoredValue::new(board_name);
     let title = RwSignal::new(String::new());
     let template = RwSignal::new("(blank)".to_string());
     let parent = RwSignal::new(String::new());
@@ -2396,8 +2407,15 @@ fn CreateDocumentModal(
         busy.set(true);
         error.set(None);
         leptos::task::spawn_local(async move {
-            match data::create_document(auth, &doc_title, template_id.as_deref(), &parent_code)
-                .await
+            let owner = board_slug.get_value();
+            match data::create_document(
+                auth,
+                &doc_title,
+                template_id.as_deref(),
+                &owner,
+                &parent_code,
+            )
+            .await
             {
                 Ok(()) => {
                     open.set(false);
@@ -2434,6 +2452,13 @@ fn CreateDocumentModal(
                         .collect();
                     view! { <Select label="Attach to (supports)" value=parent options/> }
                 }}
+                <Text size="xs" dimmed=true attr:data-testid="create-document-owner">
+                    {format!(
+                        "The owner board is {}. It gives the right to edit the document, and \
+                         the code of the document gets the prefix of this board.",
+                        board_name.get_value()
+                    )}
+                </Text>
                 {move || error.get().map(|e| view! {
                     <Alert title="Could not create" color=token::BAD>
                         <Text size="sm">{describe(&e)}</Text>

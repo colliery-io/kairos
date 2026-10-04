@@ -103,7 +103,7 @@ impl IntoDto<dto::Document> for Document {
             short_code: self.short_code,
             title: self.title,
             content: self.content,
-            board_id: self.board_id.map(|id| id.to_string()),
+            board_id: self.board_id.to_string(),
             // Pure conversion has no link; [`attach_impacts`] reads the
             // links of a batch in one query.
             impacts: Vec::new(),

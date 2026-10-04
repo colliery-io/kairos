@@ -6,12 +6,13 @@ default, so a run always names its mode.
 
 - `--codes keep` (COLLIERY-T-3104) keeps the Metis numbers on the boards of
   the team. An item keeps its number when the board that gives its code has
-  the prefix `--prefix`: the tasks, the documents that the delivery board
-  owns, and the ADRs on a team ADR board with that prefix. `SKADI-T-0577`
-  stays `SKADI-T-0577`; a specification `SKADI-S-0003` becomes the document
-  `SKADI-D-0003`. Each other item (an initiative on the shared board
-  `initiatives`, a document that supports a parent) gets the next code of
-  its board. When 2 documents want one code, the first keeps it and the
+  the prefix `--prefix`: the tasks, the documents (each document has the
+  delivery board as its owner board, also a document that supports a
+  parent, COLLIERY-T-3109), and the ADRs on a team ADR board with that
+  prefix. `SKADI-T-0577` stays `SKADI-T-0577`; a specification
+  `SKADI-S-0003` becomes the document `SKADI-D-0003`. Each other item (an
+  initiative on the shared board `initiatives`) gets the next code of its
+  board. When 2 documents want one code, the first keeps it and the
   other gets the next free number; its footer says why. Keep mode needs an
   organization admin (KAIROS_KEY or KAIROS_ADMIN_TOKEN), because it sets the
   code sequence of the board before each create.

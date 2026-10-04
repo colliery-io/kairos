@@ -160,7 +160,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         lifecycle -> Text,
-        board_id -> Nullable<Uuid>,
+        board_id -> Uuid,
     }
 }
 

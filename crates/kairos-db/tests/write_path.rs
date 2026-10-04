@@ -611,6 +611,7 @@ fn write_path_lifecycle() {
     let doc = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "SSO PRD",
             content: None,
             template_id: Some(prd_template),
@@ -711,6 +712,7 @@ fn write_path_lifecycle() {
     let filtered_doc = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Scope-filtered PRD",
             content: None,
             template_id: Some(prd_template),
@@ -735,6 +737,7 @@ fn write_path_lifecycle() {
     let child_doc = items::create_document(
         &mut conn,
         CreateDocument {
+            board_id: initiative_board,
             title: "Initiative notes",
             content: Some("notes"),
             template_id: None,

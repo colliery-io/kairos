@@ -1,5 +1,5 @@
 //! Integration test for COLLIERY-T-0269: a document names its board, and
-//! impacts a repository.
+//! impacts a repository. COLLIERY-T-3109: each document has an owner board.
 //!
 //! THE MODEL (the owner decided it on 2026-09-29).
 //!
@@ -9,17 +9,14 @@
 //! | document -> repository, `impacts` | What the document is ABOUT. It gives NO right. |
 //!
 //! THE RULES.
-//! 1. A document has an owner at its create: `board`, or a parent, or the
-//!    two. With none of the two the create is refused.
-//! 2. The authorization board of a document is the board that it names.
-//!    When it names none, it is the board of its earliest `supports`
-//!    parent, as before.
+//! 1. A document has an owner board at its create: `board` is required
+//!    (COLLIERY-T-3109). A create with no board is refused, and the refusal
+//!    names `board`. A parent does not give an owner board.
+//! 2. The authorization board of a document is its owner board.
 //! 3. The edit rule does not change: the creator, `manage_documents` on
 //!    the authorization board, an organization admin.
-//! 4. The last `supports` edge of a document can go when the document
-//!    names a board, and cannot when it names none (422 `LAST_PARENT`).
-//!    The board of a document that supports nothing cannot go (422
-//!    `LAST_OWNER`).
+//! 4. The last `supports` edge of a document can go. The owner board of a
+//!    document cannot be removed (422 `VALIDATION` that names `board`).
 //! 5. The change of the owner is a move: `manage_documents` on the board
 //!    that owns the document now AND on the new board.
 //! 6. An `impacts` link needs the right to edit the document or the ADR,
@@ -73,20 +70,22 @@ use kairos_server::middleware::auth::Authenticator;
 
 const SCRATCH_DB: &str = "kairos_document_owner_t0269_test";
 
-/// The text of `LAST_PARENT`, for the document `{0}` and the parent `{1}`.
-/// COLLIERY-T-0269 did not change it.
-fn last_parent_text(document: &str, parent: &str) -> String {
+/// The text of the refusal of a document create with no board
+/// (COLLIERY-T-3109). `request` is `request` (REST) or `call` (MCP), and
+/// `board` is the name of the input.
+fn no_board_text(request: &str, board: &str) -> String {
     format!(
-        "{document} supports only {parent}. A document always has a parent. Link the document \
-         to a different item first, or archive the document."
+        "The {request} has no {board}. Each document must have an owner board. Send {board}: \
+         the slug or the id of the board that owns the document. The code of the document \
+         gets the prefix of that board."
     )
 }
 
-/// The text of `LAST_OWNER`.
-fn last_owner_text(document: &str) -> String {
+/// The text of the refusal of a change of the owner board with no board.
+fn board_stays_text(name: &str) -> String {
     format!(
-        "{document} supports no item. A document always has an owner. Link the document to a \
-         work item first, or name a different board."
+        "Each document has an owner board, and you cannot remove it. Send {name}: the \
+         slug or the id of the new owner board."
     )
 }
 
@@ -524,10 +523,12 @@ async fn task_by(client: &KairosClient, board: &str, title: &str, repo: Option<&
         .unwrap_or_else(|e| panic!("creating task {title:?}: {e}"))
 }
 
+/// The body of a document create. `board: None` sends an empty board, which
+/// the server refuses (COLLIERY-T-3109).
 fn document(board: Option<&str>, parent: Option<&str>, title: &str) -> CreateDocumentRequest {
     CreateDocumentRequest {
         title: title.into(),
-        board: board.map(str::to_string),
+        board: board.unwrap_or_default().to_string(),
         content: Some("original content".into()),
         template_id: None,
         parent_short_code: parent.map(str::to_string),
@@ -763,7 +764,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     checks.same(
         "A1: the response has the owner board",
         a1.board_id.clone(),
-        Some(platform_board.clone()),
+        platform_board.clone(),
     );
     checks.same(
         "A1: the row has the owner board",
@@ -781,22 +782,57 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         format!("{:?}", a1.impacts),
     );
 
-    let a2 = checks
-        .allowed(
-            "A2 REST: a document with a parent and no board, as before",
-            bob.create_document(&document(None, Some(&of_bob.short_code), "A2: parent only"))
-                .await,
+    // A parent does not give a document an owner board (COLLIERY-T-3109).
+    let before = document_count(&mut conn);
+    let refusal = checks.refused_with(
+        "A2 REST: a document with a parent and no board is refused",
+        422,
+        "VALIDATION",
+        bob.create_document(&document(None, Some(&of_bob.short_code), "A2: parent only"))
+            .await,
+    );
+    if let Some((message, details)) = refusal {
+        checks.same(
+            "A2: the refusal names board",
+            (message, details["field"].as_str().map(str::to_string)),
+            (no_board_text("request", "board"), Some("board".to_string())),
+        );
+    }
+    let (status, body) = bob
+        .raw_request(
+            Method::POST,
+            "/api/documents",
+            Some(&json!({"title": "A2: null board", "board": null,
+                         "parent_short_code": of_bob.short_code})),
         )
-        .expect("A2 is the base of later cases");
-    checks.same(
-        "A2: the document names no board",
-        (a2.board_id.clone(), stored_board(&mut conn, &a2.short_code)),
-        (None, None),
+        .await
+        .expect("POST with a null board");
+    checks.check(
+        "A2 REST: a null board is refused, and named",
+        status == 422
+            && body["error"]["code"] == "VALIDATION"
+            && body["error"]["details"]["field"] == "board",
+        format!("{status} {body}"),
+    );
+    let (status, body) = bob
+        .raw_request(
+            Method::POST,
+            "/api/documents",
+            Some(&json!({"title": "A2: absent board", "parent_short_code": of_bob.short_code})),
+        )
+        .await
+        .expect("POST with no board");
+    checks.check(
+        "A2 REST: an absent board is refused, and named",
+        status == 422
+            && body["error"]["code"] == "VALIDATION"
+            && body["error"]["details"]["field"] == "board",
+        format!("{status} {body}"),
     );
     checks.same(
-        "A2: the document has one parent",
-        parents_of(&mut conn, &a2.short_code),
-        1,
+        "A2: a refused create writes nothing",
+        document_count(&mut conn),
+        before,
     );
 
     // The board of bob, and a parent that bob cannot edit: the creator of
@@ -815,7 +851,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     checks.same(
         "A3: the board is accepted by its slug, and it is the owner",
         a3.board_id.clone(),
-        Some(platform_board.clone()),
+        platform_board.clone(),
     );
     checks.same(
         "A3: the document has one parent",
@@ -833,12 +869,9 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
     if let Some((message, _)) = refusal {
         checks.same(
-            "A4: the refusal says to send one of the two",
-            message.as_str(),
-            "The request has no board and no parent_short_code. A document must have an \
-             owner. Send board: the slug or the id of the board that owns the document. Or \
-             send parent_short_code: the short code of a strategy, an initiative, or a task \
-             that the document supports. You can send the two.",
+            "A4: the refusal says to send board",
+            message.clone(),
+            no_board_text("request", "board"),
         );
         checks.check(
             "A4: the sentences are short",
@@ -935,6 +968,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             )),
         &reply.1,
     );
+    let before = document_count(&mut conn);
     let reply = bob_mcp
         .call(
             "create_item",
@@ -942,33 +976,30 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
                    "parent": of_bob.short_code}),
         )
         .await;
-    checks.check(
-        "A7 MCP: a document with a parent has the text of before",
-        !reply.0
-            && reply
-                .1
-                .ends_with(&format!("(version 1), supports {}.", of_bob.short_code))
-            && !reply.1.contains("owner board"),
-        &reply.1,
+    checks.same(
+        "A7 MCP: a document with a parent and no board is refused, and the refusal names board",
+        reply.clone(),
+        (
+            true,
+            format!(
+                "VALIDATION: {}\ndetails: {{\"argument\":\"board\"}}",
+                no_board_text("call", "`board`")
+            ),
+        ),
     );
-    let before = document_count(&mut conn);
     let reply = bob_mcp
         .call(
             "create_item",
             json!({"item_type": "document", "title": "A7: MCP, no owner"}),
         )
         .await;
-    checks.same(
+    checks.check(
         "A7 MCP: a document with no board and no parent",
-        reply.clone(),
-        (
-            true,
-            "VALIDATION: The call has no `board` and no `parent`. A document must have an \
-             owner. Send `board`: the slug or the id of the board that owns the document. Or \
-             send `parent`: the short code of a strategy, an initiative, or a task that the \
-             document supports. You can send the two."
-                .to_string(),
-        ),
+        reply.0
+            && reply
+                .1
+                .starts_with(&format!("VALIDATION: {}", no_board_text("call", "`board`"))),
+        &reply.1,
     );
     let reply = bob_mcp
         .call(
@@ -1022,7 +1053,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             checks.same(
                 &format!("A8: the owner is the {level} board"),
                 created.board_id,
-                Some(board.to_string()),
+                board.to_string(),
             );
         }
     }
@@ -1162,62 +1193,11 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             .content,
         "edited by bob".to_string(),
     );
-    // A document that names NO board has the owner of before: the board
-    // of its parent.
-    let inherits = document_by(&svc, None, Some(&of_alice.short_code), "B: supports web").await;
-    checks.allowed(
-        "B6: with no board, a manager of the board of the parent can edit",
-        edit(&alice, &inherits.short_code, "edited by alice").await,
-    );
-    checks.refused(
-        "B6: with no board, a manager of a different board cannot edit",
-        edit(&bob, &inherits.short_code, "taken by bob").await,
-    );
-
     // =======================================================================
-    // C. The last parent, and the last owner
+    // C. The last parent, and the owner board that stays
     // =======================================================================
-    let last_edge = edge_id(
-        &mut conn,
-        &of_alice.short_code,
-        &inherits.short_code,
-        "supports",
-    );
-    let refusal = checks.refused_with(
-        "C1 REST: with no board, the last supports edge stays",
-        422,
-        "LAST_PARENT",
-        svc.delete_relationship(&last_edge).await,
-    );
-    if let Some((message, _)) = refusal {
-        checks.same(
-            "C1: the text of LAST_PARENT is the text of before",
-            message,
-            last_parent_text(&inherits.short_code, &of_alice.short_code),
-        );
-    }
-    let reply = svc_mcp
-        .link(
-            "unlink_items",
-            &of_alice.short_code,
-            &inherits.short_code,
-            "supports",
-        )
-        .await;
-    checks.mcp_refused(
-        "C1 MCP: with no board, the last edge stays",
-        "LAST_PARENT",
-        &reply,
-    );
-    checks.same(
-        "C1: the edge is there",
-        parents_of(&mut conn, &inherits.short_code),
-        1,
-    );
-
-    // With a board, the last supports edge can go. alice can edit the
-    // parent and not the document: the remove is for an editor of the
-    // document.
+    // The last supports edge can go. alice can edit the parent and not the
+    // document: the remove is for an editor of the document.
     let two_edge = edge_id(&mut conn, &of_alice.short_code, &two.short_code, "supports");
     let refusal = checks.refused(
         "C2 REST: an editor of the parent only cannot remove the edge",
@@ -1225,13 +1205,13 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
     if let Some((message, _)) = refusal {
         checks.check(
-            "C2: the refusal names the board of the document",
-            message.contains("You need \"manage_documents\" on the board of the document."),
+            "C2: the refusal names the owner board of the document",
+            message.contains("You need \"manage_documents\" on the owner board of the document."),
             &message,
         );
     }
     checks.allowed(
-        "C2 REST: with a board, the last supports edge can go",
+        "C2 REST: the last supports edge can go",
         bob.delete_relationship(&two_edge).await,
     );
     checks.same(
@@ -1267,7 +1247,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         )
         .await;
     checks.mcp_text(
-        "C2 MCP: with a board, the last supports edge can go",
+        "C2 MCP: the last supports edge can go",
         &reply,
         &format!(
             "Unlinked {} -[supports]-> {}.",
@@ -1275,42 +1255,59 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         ),
     );
 
-    // The board of a document that supports nothing stays. The rule is
-    // for each principal, the admin too.
+    // The owner board of a document stays (COLLIERY-T-3109). The rule is
+    // for each principal, the admin too, with a parent or with none.
+    let with_parent = document_by(
+        &svc,
+        Some(&platform_board),
+        Some(&of_alice.short_code),
+        "C3: board and parent",
+    )
+    .await;
     let before = activity_count(&mut conn);
-    let refusal = checks.refused_with(
-        "C3 REST: the board of a document that supports nothing stays",
-        422,
-        "LAST_OWNER",
-        svc.set_document_board(&two.short_code, None).await,
-    );
-    if let Some((message, details)) = refusal {
-        checks.same(
-            "C3: the text of LAST_OWNER",
-            message.clone(),
-            last_owner_text(&two.short_code),
+    for document in [&two, &with_parent] {
+        let refusal = checks.refused_with(
+            "C3 REST: the owner board of a document stays",
+            422,
+            "VALIDATION",
+            svc.set_document_board(&document.short_code, "").await,
         );
-        checks.check(
-            "C3: the sentences are short",
-            short_sentences(&message),
-            &message,
-        );
-        checks.same(
-            "C3: the details name the document and the board",
-            (details["document"].as_str(), details["board"].as_str()),
-            (Some(two.short_code.as_str()), Some(PLATFORM)),
-        );
+        if let Some((message, details)) = refusal {
+            checks.same(
+                "C3: the refusal names board",
+                (message, details["field"].as_str().map(str::to_string)),
+                (board_stays_text("board"), Some("board".to_string())),
+            );
+        }
     }
+    let (status, body) = svc
+        .raw_request(
+            Method::PATCH,
+            &format!("/api/documents/{}/board", two.short_code),
+            Some(&json!({"board": null})),
+        )
+        .await
+        .expect("PATCH with a null board");
+    checks.check(
+        "C3 REST: a null board is refused, and named",
+        status == 422
+            && body["error"]["code"] == "VALIDATION"
+            && body["error"]["details"]["field"] == "board",
+        format!("{status} {body}"),
+    );
     let reply = svc_mcp
         .call("move_item", json!({"short_code": two.short_code}))
         .await;
-    checks.check(
-        "C3 MCP: move_item with no to_board is refused with LAST_OWNER",
-        reply.0
-            && reply
-                .1
-                .starts_with(&format!("LAST_OWNER: {}", last_owner_text(&two.short_code))),
-        &reply.1,
+    checks.same(
+        "C3 MCP: move_item with no to_board is refused, and the refusal names to_board",
+        reply,
+        (
+            true,
+            format!(
+                "VALIDATION: {}\ndetails: {{\"argument\":\"to_board\"}}",
+                board_stays_text("to_board")
+            ),
+        ),
     );
     let reply = svc_mcp
         .call(
@@ -1319,63 +1316,22 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         )
         .await;
     checks.mcp_refused(
-        "C3 MCP: an empty to_board removes the board too",
-        "LAST_OWNER",
+        "C3 MCP: an empty to_board is refused too",
+        "VALIDATION",
         &reply,
     );
     checks.same(
         "C3: the refusals wrote nothing",
         (
             stored_board(&mut conn, &two.short_code),
+            stored_board(&mut conn, &with_parent.short_code),
             activity_count(&mut conn),
         ),
-        (Some(platform_board.clone()), before),
-    );
-
-    // With a parent, the board can go. The owner is then the board of the
-    // parent, and the rule of the last parent applies again.
-    let falls_back = document_by(
-        &svc,
-        Some(&platform_board),
-        Some(&of_alice.short_code),
-        "C4: the board goes",
-    )
-    .await;
-    checks.refused(
-        "C4: before, alice cannot edit",
-        edit(&alice, &falls_back.short_code, "taken by alice").await,
-    );
-    let removed = checks.allowed(
-        "C4 REST: the board of a document that supports an item can go",
-        svc.set_document_board(&falls_back.short_code, None).await,
-    );
-    if let Some(removed) = removed {
-        checks.same("C4: the response has no board", removed.board_id, None);
-    }
-    checks.same(
-        "C4: the row has no board",
-        stored_board(&mut conn, &falls_back.short_code),
-        None,
-    );
-    checks.allowed(
-        "C4: after, the manager of the board of the parent can edit",
-        edit(&alice, &falls_back.short_code, "edited by alice").await,
-    );
-    checks.refused(
-        "C4: after, the manager of the old owner board cannot edit",
-        edit(&bob, &falls_back.short_code, "taken by bob").await,
-    );
-    let edge = edge_id(
-        &mut conn,
-        &of_alice.short_code,
-        &falls_back.short_code,
-        "supports",
-    );
-    checks.refused_with(
-        "C4: after, the last supports edge stays",
-        422,
-        "LAST_PARENT",
-        svc.delete_relationship(&edge).await,
+        (
+            Some(platform_board.clone()),
+            Some(platform_board.clone()),
+            before,
+        ),
     );
 
     // =======================================================================
@@ -1388,7 +1344,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
     let refusal = checks.refused(
         "D1 REST: bob has the board of now, and not the new board",
-        bob.set_document_board(&moves.short_code, Some(WEB)).await,
+        bob.set_document_board(&moves.short_code, WEB).await,
     );
     if let Some((message, details)) = refusal {
         checks.same(
@@ -1410,7 +1366,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     }
     let refusal = checks.refused(
         "D2 REST: alice has the new board, and not the board of now",
-        alice.set_document_board(&moves.short_code, Some(WEB)).await,
+        alice.set_document_board(&moves.short_code, WEB).await,
     );
     if let Some((message, details)) = refusal {
         checks.check(
@@ -1439,18 +1395,20 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     checks.refused(
         "D3: the creator of a document cannot change its owner",
         carol
-            .set_document_board(&of_carol.short_code, Some(&adr_board))
+            .set_document_board(&of_carol.short_code, &adr_board)
             .await,
     );
-    checks.refused(
+    checks.refused_with(
         "D3: the creator of a document cannot remove its board",
-        carol.set_document_board(&of_carol.short_code, None).await,
+        422,
+        "VALIDATION",
+        carol.set_document_board(&of_carol.short_code, "").await,
     );
     checks.refused_with(
         "D4: a board that does not exist",
         404,
         "NOT_FOUND",
-        svc.set_document_board(&moves.short_code, Some("no-such-board"))
+        svc.set_document_board(&moves.short_code, "no-such-board")
             .await,
     );
     let (status, body) = svc
@@ -1471,10 +1429,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         (
             422,
             Some("VALIDATION"),
-            Some(
-                "The request has no field to change. Send board: the slug or the id of a \
-                 board, or null to remove the board.",
-            ),
+            Some(board_stays_text("board").as_str()),
         ),
     );
     let (status, body) = svc
@@ -1510,13 +1465,13 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
     let moved = checks.allowed(
         "D5 REST: bob has manage_documents on the two boards",
-        bob.set_document_board(&moves.short_code, Some(WEB)).await,
+        bob.set_document_board(&moves.short_code, WEB).await,
     );
     if let Some(moved) = moved {
         checks.same(
             "D5: the response has the new board",
             moved.board_id,
-            Some(web_board.clone()),
+            web_board.clone(),
         );
         checks.same(
             "D5: the change of the owner is no new version",
@@ -1549,7 +1504,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     );
     checks.allowed(
         "D6 REST: the board that the document has is a success",
-        bob.set_document_board(&moves.short_code, Some(WEB)).await,
+        bob.set_document_board(&moves.short_code, WEB).await,
     );
     let reply = bob_mcp
         .call(
@@ -1585,42 +1540,6 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         &format!(
             "Moved {}: owner board web-delivery -> platform-delivery.",
             moves.short_code
-        ),
-    );
-    // A document of before the change, with no board: the board of now is
-    // the board of its parent. `a2` supports the task of bob.
-    checks.refused(
-        "D8: alice has the new board, and not the board of the parent",
-        alice.set_document_board(&a2.short_code, Some(WEB)).await,
-    );
-    let reply = bob_mcp
-        .call(
-            "move_item",
-            json!({"short_code": a2.short_code, "to_board": WEB}),
-        )
-        .await;
-    checks.mcp_text(
-        "D8 MCP: a document with no board gets a board",
-        &reply,
-        &format!(
-            "Moved {}: owner board (none) -> web-delivery.",
-            a2.short_code
-        ),
-    );
-    checks.same(
-        "D8: the document keeps its parent",
-        parents_of(&mut conn, &a2.short_code),
-        1,
-    );
-    let reply = bob_mcp
-        .call("move_item", json!({"short_code": a2.short_code}))
-        .await;
-    checks.mcp_text(
-        "D8 MCP: the board goes, and the parent is the owner again",
-        &reply,
-        &format!(
-            "Moved {}: owner board web-delivery -> (none).",
-            a2.short_code
         ),
     );
     // A task needs `to_board`, and an initiative does not move.
@@ -2075,7 +1994,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     let from_template = svc
         .create_document(&CreateDocumentRequest {
             title: "F: the vision of hlin".into(),
-            board: Some(WEB.into()),
+            board: WEB.into(),
             content: None,
             template_id: template,
             parent_short_code: None,
@@ -2220,18 +2139,6 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             && !reply.1.contains("column:"),
         &reply.1,
     );
-    let reply = alice_mcp
-        .call("get_item", json!({"short_code": inherits.short_code}))
-        .await;
-    checks.check(
-        "F4 MCP: get_item of a document with no board shows the board of its parent",
-        !reply.0
-            && reply.1.contains(&format!(
-                "\n- owner board: web-delivery (the board of {}, which the document supports)\n",
-                of_alice.short_code
-            )),
-        &reply.1,
-    );
     let impacts = alice
         .item_impacts(EntityKind::Document, &put_away.short_code)
         .await;
@@ -2274,7 +2181,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             .items
             .first()
             .map(|document| (document.board_id.clone(), document.impacts.len())),
-        Some((Some(web_board.clone()), 1)),
+        Some((web_board.clone(), 1)),
     );
     let listed = alice
         .list_documents(ImpactListQuery {
@@ -2450,15 +2357,14 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
                 .map(|impact| impact.repository.slug.clone())
                 .collect::<Vec<_>>(),
         ),
-        (None, Some(web_board.clone()), vec!["hlin".to_string()]),
+        (None, web_board.clone(), vec!["hlin".to_string()]),
     );
 
     // =======================================================================
     // G. The archive of a work item, and the delete of a board
     // =======================================================================
     // The cascade of an archive follows `parent` edges, and a document
-    // has none. So the archive of an item takes no document: the one that
-    // names a board, and the one that does not.
+    // has none. So the archive of an item takes no document.
     let doomed = task_by(&bob, &platform_board, "G: it goes to the archive", None).await;
     let with_board = document_by(
         &bob,
@@ -2467,7 +2373,13 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         "G: names a board",
     )
     .await;
-    let with_parent = document_by(&bob, None, Some(&doomed.short_code), "G: names none").await;
+    let on_web = document_by(
+        &svc,
+        Some(&web_board),
+        Some(&doomed.short_code),
+        "G: names the board of web",
+    )
+    .await;
     let preview = bob
         .cascade_preview(EntityKind::Task, &doomed.short_code)
         .await
@@ -2483,7 +2395,10 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
         outcome.cascade_count,
         0,
     );
-    for (document, what) in [(&with_board, "names a board"), (&with_parent, "names none")] {
+    for (document, what, editor) in [
+        (&with_board, "names the board of the item", &bob),
+        (&on_web, "names a different board", &alice),
+    ] {
         let read = svc.get_document(&document.short_code).await.expect("read");
         checks.same(
             &format!("G1: the document that {what} is live, with its edge"),
@@ -2494,8 +2409,8 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
             (None, 1),
         );
         checks.allowed(
-            &format!("G1: bob can edit the document that {what}"),
-            edit(&bob, &document.short_code, "edited after the archive").await,
+            &format!("G1: a manager of its owner board can edit the document that {what}"),
+            edit(editor, &document.short_code, "edited after the archive").await,
         );
     }
 

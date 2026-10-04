@@ -574,10 +574,15 @@ async fn team_pages_endpoints_against_live_stack() {
         )
         .expect("fixture task")
     };
+    // COLLIERY-T-3109: a document has an owner board. This test is about
+    // what the document supports, so each one has the board of the
+    // organization.
     let mk_doc = |conn: &mut PgConnection, title: &str, parent: Uuid| {
+        let board = initiative_board(conn);
         let doc = items::create_document(
             conn,
             items::CreateDocument {
+                board_id: board,
                 title,
                 content: Some(""),
                 template_id: None,

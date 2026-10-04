@@ -177,12 +177,11 @@ codebase, and none of that should change who answers for the text.
 no transition, and the board view does not show it. The board is its owner,
 not its position. A document keeps its editorial lifecycle, as before.
 
-A document still may support a work item, and a document that names no board
-still takes the board of the item it supports. The two owners exist side by
-side: a PRD belongs to its initiative, and a vision belongs to a team. What
-cannot exist is a document with no owner. The last `supports` edge of a
-document that names no board stays, and the board of a document that supports
-nothing stays.
+A document still may support a work item: a PRD supports its initiative. But
+the item gives no owner. Since COLLIERY-T-3109 each document names its owner
+board, and the create of a document needs it. What cannot exist is a document
+with no owner board, so the owner board of a document cannot be removed, and
+each `supports` edge of a document can go.
 
 ADRs impact repositories too. An ADR already has a board of its own, so only
 the second link is new for it.
@@ -206,8 +205,7 @@ The links are built so that putting something away never leaves a document
 without an owner, and never quietly loses a statement.
 
 - The archive of a work item takes no document. The cascade follows `parent`
-  edges only, and a document has none. This is the same for a document that
-  names a board and for one that names none.
+  edges only, and a document has none.
 - The archive of a document removes no link. The repository stops listing the
   document, unless the reader asks for archived items, and a restore brings it
   back with its links.

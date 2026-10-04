@@ -571,7 +571,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         .expect("bob creates on his board");
     let document = svc
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: platform_board.clone(),
             title: "The document of the organization".into(),
             content: Some("original content".into()),
             template_id: None,
@@ -1026,15 +1026,16 @@ async fn edit_rule_and_link_rule_against_live_stack() {
             .update_task(&travels.short_code, &content(None, "carol", 2))
             .await,
     );
-    // A document follows the board of its parent. Its creator keeps the
-    // right when the parent goes to a board where she holds nothing.
+    // A document moves to a different owner board. Its creator keeps the
+    // right when the document goes to a board where she holds nothing
+    // (COLLIERY-T-3109: the owner board is the one board of a document).
     let alice_parent = alice
         .create_task(&task_on(&web_board, "The parent of a document"))
         .await
         .expect("task");
     let alice_document = alice
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: web_board.clone(),
             title: "The document of alice".into(),
             content: Some("original content".into()),
             template_id: None,
@@ -1042,11 +1043,11 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         })
         .await
         .expect("alice creates a document on her board");
-    svc.move_task(&alice_parent.short_code, &ops_board)
+    svc.set_document_board(&alice_document.short_code, &ops_board)
         .await
-        .expect("the parent moves to the board of ops");
+        .expect("the document moves to the board of ops");
     checks.allowed(
-        "5 REST: the creator edits her document after its parent moved",
+        "5 REST: the creator edits her document after it moved",
         alice
             .update_document(
                 &alice_document.short_code,
@@ -1586,7 +1587,7 @@ async fn edit_rule_and_link_rule_against_live_stack() {
         "12 REST: the create gate of a document does not change",
         alice
             .create_document(&CreateDocumentRequest {
-                board: None,
+                board: platform_board.clone(),
                 title: "A document under her request".into(),
                 content: None,
                 template_id: None,

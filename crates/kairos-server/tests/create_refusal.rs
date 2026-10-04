@@ -202,6 +202,16 @@ struct CountRow {
     n: i64,
 }
 
+/// The arguments of `create_item`, with the owner board for a document: a
+/// document must have `board` (COLLIERY-T-3109), and this test is about
+/// the parent.
+fn with_board(item_type: &str, mut arguments: Value) -> Value {
+    if item_type == "document" {
+        arguments["board"] = json!("initiatives");
+    }
+    arguments
+}
+
 fn count(conn: &mut PgConnection, sql: &str) -> i64 {
     sql_query(sql)
         .get_result::<CountRow>(conn)
@@ -429,7 +439,8 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         .await;
     let document = mcp
         .create(
-            json!({"item_type": "document", "title": "Seed document", "parent": initiative}),
+            json!({"item_type": "document", "title": "Seed document", "parent": initiative,
+                   "board": "initiatives"}),
             "ACME-D-",
         )
         .await;
@@ -478,12 +489,15 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         let (is_error, text) = mcp
             .call(
                 "create_item",
-                json!({
-                    "item_type": item_type,
-                    "title": title,
-                    "content": "This content must not be stored.",
-                    "parent": parent,
-                }),
+                with_board(
+                    item_type,
+                    json!({
+                        "item_type": item_type,
+                        "title": title,
+                        "content": "This content must not be stored.",
+                        "parent": parent,
+                    }),
+                ),
             )
             .await;
         assert!(is_error, "{what}: the create is refused: {text}");
@@ -511,7 +525,10 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
             let (is_error, text) = mcp
                 .call(
                     "create_item",
-                    json!({"item_type": item_type, "title": title, "parent": parent}),
+                    with_board(
+                        item_type,
+                        json!({"item_type": item_type, "title": title, "parent": parent}),
+                    ),
                 )
                 .await;
             assert!(is_error, "{what}: the create is refused: {text}");
@@ -531,7 +548,7 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     let before = footprint(&mut conn);
     let err = match svc
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: initiative_board.to_string(),
             title: "Quixlo document over REST".into(),
             content: Some("This content must not be stored.".into()),
             template_id: None,
@@ -581,12 +598,15 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
         let (is_error, text) = mcp
             .call(
                 "create_item",
-                json!({
-                    "item_type": item_type,
-                    "title": title,
-                    "content": "This content must not be stored.",
-                    "parent": parent,
-                }),
+                with_board(
+                    item_type,
+                    json!({
+                        "item_type": item_type,
+                        "title": title,
+                        "content": "This content must not be stored.",
+                        "parent": parent,
+                    }),
+                ),
             )
             .await;
         assert!(is_error, "{what}: the create fails: {text}");
@@ -604,7 +624,7 @@ async fn a_refused_create_leaves_nothing_in_the_tenant() {
     let before = footprint(&mut conn);
     let result = svc
         .create_document(&CreateDocumentRequest {
-            board: None,
+            board: initiative_board.to_string(),
             title: "Vextrum document over REST".into(),
             content: Some("This content must not be stored.".into()),
             template_id: None,

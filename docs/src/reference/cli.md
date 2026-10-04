@@ -231,9 +231,8 @@ stderr. The notice names the current code, for example `The code
 COLLIERY-T-0100 is retired. The current code of this item is SKADI-T-0001.`
 The output on stdout is the item, and `--json` stays clean.
 
-`documents get` prints the line `owner board`. It has the id of the board that
-the document names. It has `-` for a document that names no board. The board
-of the item that the document supports owns that document.
+`documents get` prints the line `owner board`. It has the id of the owner
+board of the document.
 
 `documents get` and `adrs get` print the line `impacts`. It has the slugs of
 the repositories that the item impacts, or `-`. The mark `[archived]` shows a
@@ -262,8 +261,8 @@ Board placement per noun:
 | `initiatives` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 | `tasks` | `--board <BOARD>` | slug or UUID | required unless `--team` is given | Delivery board to create the task on. The board decides the team of the task. With `--team` and no `--board`, the task goes to the delivery board of that team. |
 | `tasks` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
-| `documents` | `--board <BOARD>` | slug or UUID | required unless `--parent` is given | The owner board of the document. It gives the right to edit the document. The document is not a card of the board. |
-| `documents` | `--parent <SHORT_CODE>` | string | required unless `--board` is given | The workflow item the document supports. With no `--board`, the board of that item owns the document. |
+| `documents` | `--board <BOARD>` | slug or UUID | required | The owner board of the document. It gives the right to edit the document, and the code of the document gets the prefix of this board. The document is not a card of the board. |
+| `documents` | `--parent <SHORT_CODE>` | string | none | The workflow item the document supports. It does not give the document an owner board. |
 | `adrs` | `--board <BOARD_ID>` | UUID | none | ADR board. Omitting it creates an off-board ADR, which is an org-admin operation. |
 | `adrs` | `--column <COLUMN_ID>` | UUID | the board's first column | Column to place it in. |
 
@@ -281,9 +280,9 @@ Options specific to one noun:
 
 `tasks create` needs `--board` or `--team`. `--repo` does not replace them.
 
-`documents create` needs `--board`, or `--parent`, or the two. With the two,
-the board that `--board` names owns the document. The command needs
-`manage_documents` on the owner. To say that the document impacts a
+`documents create` needs `--board`: each document has an owner board. With
+`--parent` too, the document also supports that item. The command needs
+`manage_documents` on the owner board. To say that the document impacts a
 repository, use [`kairos repos link`](#kairos-repos-link).
 
 A caller without `manage_tasks` on the board creates a request. The request
@@ -348,32 +347,27 @@ See [Move work between boards](../how-to/move-work-between-boards.md).
 
 ```
 kairos documents move <SHORT_CODE> --to-board <BOARD> [OPTIONS]
-kairos documents move <SHORT_CODE> --no-board [OPTIONS]
 ```
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The short code of the document. |
-| `--to-board <BOARD>` | slug or UUID | required unless `--no-board` is given | The new owner board. It can be a board of each level. |
-| `--no-board` | flag | off | Remove the owner board. Conflicts with `--to-board`. |
-| `--rename` | flag | off | Give the document the next code of the new owner board. It needs `--to-board`. |
+| `--to-board <BOARD>` | slug or UUID | required | The new owner board. It can be a board of each level. |
+| `--rename` | flag | off | Give the document the next code of the new owner board. |
 
 The command changes the owner board of the document. The document gets no
 column. The command needs `manage_documents` on the board that owns the
 document now and on the new board. The creator of the document gets no right
 to move it.
 
-With `--no-board`, the board of the item that the document supports becomes
-the owner. The server refuses `--no-board` for a document that supports no
-item, with 422 `LAST_OWNER`.
+Each document has an owner board, so the command cannot remove it. The
+command refuses `--no-board` as an unknown argument.
 
 The command prints one of these lines:
 
 ```text
 Kairos moved the document ACME-D-0004 to the owner board <board-id>.
-Kairos removed the owner board of the document ACME-D-0004. Its owner is the board of the item that it supports.
 Kairos did not change the document ACME-D-0004. Its owner board is <board-id> already.
-Kairos did not change the document ACME-D-0004. It names no owner board.
 ```
 
 ### `<noun> delete`

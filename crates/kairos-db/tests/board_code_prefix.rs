@@ -145,15 +145,15 @@ fn task(conn: &mut PgConnection, board: Uuid, actor: Uuid) -> String {
     .short_code
 }
 
-fn document(conn: &mut PgConnection, board: Option<Uuid>, actor: Uuid) -> String {
-    items::create_document_on_board(
+fn document(conn: &mut PgConnection, board: Uuid, actor: Uuid) -> String {
+    items::create_document(
         conn,
         CreateDocument {
+            board_id: board,
             title: "A document",
             content: Some(""),
             template_id: None,
         },
-        board,
         actor,
     )
     .expect("creating a document")
@@ -290,15 +290,13 @@ fn a_new_task_on_a_board_gets_the_prefix_of_the_board() {
         670
     );
 
-    // The other types: a document takes the prefix of its owner board, and
-    // an item with no board takes the prefix of the tenant.
-    assert_eq!(document(&mut conn, Some(skadi.id), user), "SKADI-D-0001");
-    assert_eq!(document(&mut conn, None, user), "COLLIERY-D-0001");
-    assert_eq!(
-        document(&mut conn, Some(colliery.id), user),
-        "COLLIERY-D-0002"
-    );
+    // The other types: a document takes the prefix of its owner board
+    // (each document has one, COLLIERY-T-3109). Boards that share a prefix
+    // share the sequence of a type.
     let initiatives = board_id(&mut conn, "initiatives");
+    assert_eq!(document(&mut conn, skadi.id, user), "SKADI-D-0001");
+    assert_eq!(document(&mut conn, initiatives, user), "COLLIERY-D-0001");
+    assert_eq!(document(&mut conn, colliery.id, user), "COLLIERY-D-0002");
     assert_eq!(initiative(&mut conn, initiatives, user), "COLLIERY-I-0001");
 
     drop_database(admin, conn, DB);
@@ -556,7 +554,8 @@ fn the_migration_keeps_each_code_and_can_run_2_times() {
     sql_query("SELECT nextval('seq_task_code'), nextval('seq_task_code')")
         .execute(&mut conn)
         .expect("advancing the old sequence");
-    // An initiative and a document with no board, from the old sequences.
+    // An initiative and a document from the old sequences. The document is
+    // on the board initiatives (COLLIERY-T-3109: a document has a board).
     let initiatives = board_id(&mut conn, "initiatives");
     let column: Uuid = {
         use kairos_db::schema::board_columns::dsl;
@@ -577,11 +576,12 @@ fn the_migration_keeps_each_code_and_can_run_2_times() {
     .execute(&mut conn)
     .expect("writing an old initiative");
     sql_query(
-        "INSERT INTO documents (short_code, title, created_by, updated_by) \
+        "INSERT INTO documents (short_code, title, board_id, created_by, updated_by) \
          VALUES ('COLLIERY-D-' || lpad(nextval('seq_document_code')::text, 4, '0'), 'Old', \
-                 $1, $1)",
+                 $2, $1, $1)",
     )
     .bind::<SqlUuid, _>(user)
+    .bind::<SqlUuid, _>(initiatives)
     .execute(&mut conn)
     .expect("writing an old document");
     let before = codes(&mut conn);
@@ -641,7 +641,7 @@ fn the_migration_keeps_each_code_and_can_run_2_times() {
     assert_eq!(task(&mut conn, skadi.0, user), "SKADI-T-0001");
     assert_eq!(task(&mut conn, graphqlite.0, user), "GQLITE-T-0001");
     assert_eq!(initiative(&mut conn, initiatives, user), "COLLIERY-I-0002");
-    assert_eq!(document(&mut conn, None, user), "COLLIERY-D-0002");
+    assert_eq!(document(&mut conn, initiatives, user), "COLLIERY-D-0002");
 
     // A third run after the creates changes nothing either.
     let seqs = sequences(&mut conn);

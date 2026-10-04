@@ -224,10 +224,8 @@ document gets no right to change its owner.
 The document gets no column, and no board view shows it. Its `supports` edges
 and its `impacts` links do not change.
 
-To remove the owner board, use `--no-board`. The board of the item that the
-document supports becomes the owner. The server refuses this for a document
-that supports no item, with 422 `LAST_OWNER`. Link the document to a work
-item first.
+Each document has an owner board, so you cannot remove it. You can only
+change it to a different board.
 
 ## What to do instead
 

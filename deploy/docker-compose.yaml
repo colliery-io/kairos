@@ -314,6 +314,9 @@ services:
 
 volumes:
   postgres_data:
+    # COLLIERY-I-0550: the database since 2026-10-04. The volume before it,
+    # kairos_postgres_data, is kept as the archive of the old database.
+    name: kairos_postgres_data_v2
   caddy_data:
   caddy_config:
   # The tailnet node's identity. Losing it means re-authenticating and a new

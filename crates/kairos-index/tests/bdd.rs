@@ -1139,6 +1139,14 @@ fn three_test_crates_share_a_module(world: &mut IndexWorld) {
     );
 }
 
+/// The version of a `rust-analyzer --version` line, with no build part. The
+/// same pinned binary prints `rust-analyzer 0.3.3065-standalone (03fcb77246
+/// 2026-09-27)` on macOS and `rust-analyzer 0.3.3065-standalone` on the Linux
+/// CI runner; the sha256 pin, not this text, says which binary ran.
+fn version_number(line: &str) -> &str {
+    line.split(" (").next().unwrap_or(line).trim()
+}
+
 #[when("I build the index with the pinned rust-analyzer")]
 fn build_with_the_pin(world: &mut IndexWorld) {
     world.build();
@@ -1147,7 +1155,10 @@ fn build_with_the_pin(world: &mut IndexWorld) {
         .as_ref()
         .and_then(|r| r.scip.as_ref())
         .expect("the build did not run SCIP");
-    assert_eq!(scip.rust_analyzer, rust_analyzer::VERSION);
+    assert_eq!(
+        version_number(&scip.rust_analyzer),
+        version_number(rust_analyzer::VERSION)
+    );
 }
 
 #[then("no target is left out")]
@@ -1274,7 +1285,10 @@ fn build_with_the_pins(world: &mut IndexWorld) {
         .as_ref()
         .and_then(|r| r.scip.as_ref())
         .expect("the build did not run SCIP");
-    assert_eq!(scip.rust_analyzer, rust_analyzer::VERSION);
+    assert_eq!(
+        version_number(&scip.rust_analyzer),
+        version_number(rust_analyzer::VERSION)
+    );
     assert_eq!(logged_std_source(world), pinned_std_source());
 }
 

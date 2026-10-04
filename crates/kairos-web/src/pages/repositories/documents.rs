@@ -47,26 +47,6 @@ pub(crate) fn state_label(item: &ImpactingItem) -> Option<String> {
     item.lifecycle.clone().or_else(|| item.column.clone())
 }
 
-/// The board that the dialog selects first: the board of the owner team
-/// of the repository, when the user can give a document to it. Else the
-/// first board of the list. `None` = the user can give a document to no
-/// board. Pure, host-tested.
-pub(crate) fn first_owner_board(
-    targets: &[(String, String)],
-    boards: &[boards::data::Board],
-    owner_team: &str,
-) -> Option<String> {
-    boards
-        .iter()
-        // COLLIERY-T-3102: the delivery board of the team, not its ADR board.
-        .filter(|board| board.board_level == "delivery")
-        .filter(|board| board.team_id.as_deref() == Some(owner_team))
-        .map(|board| &board.slug)
-        .find(|slug| targets.iter().any(|(target, _)| target == *slug))
-        .or_else(|| targets.first().map(|(slug, _)| slug))
-        .cloned()
-}
-
 /// The documents and the ADRs that impact one repository. The list is
 /// read when the user opens it.
 #[component]
@@ -74,13 +54,9 @@ pub fn RepositoryDocuments(
     /// The slug of the repository.
     #[prop(into)]
     slug: String,
-    /// The id of the owner team of the repository.
-    #[prop(into)]
-    owner_team: String,
 ) -> impl IntoView {
     let auth = use_auth();
     let slug = StoredValue::new(slug);
-    let owner_team = StoredValue::new(owner_team);
     let open = RwSignal::new(false);
     let create_open = RwSignal::new(false);
     let reload = RwSignal::new(0u32);
@@ -149,7 +125,7 @@ pub fn RepositoryDocuments(
                 title=format!("New document for the repository {}", slug.get_value())
                 size="lg"
             >
-                <NewDocumentForm slug=slug.get_value() owner_team=owner_team.get_value()/>
+                <NewDocumentForm slug=slug.get_value()/>
             </Modal>
         </Stack>
     }
@@ -158,10 +134,9 @@ pub fn RepositoryDocuments(
 /// The form of the dialog. It is a component of its own, so its reads
 /// exist only while the dialog is open.
 #[component]
-fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String) -> impl IntoView {
+fn NewDocumentForm(#[prop(into)] slug: String) -> impl IntoView {
     let auth = use_auth();
     let slug = StoredValue::new(slug);
-    let owner_team = StoredValue::new(owner_team);
     let title = RwSignal::new(String::new());
     let template = RwSignal::new(String::new());
     let board = RwSignal::new(String::new());
@@ -185,8 +160,10 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
         };
         owner_board_targets(&me, &list, None)
     });
-    // The first values of the two pickers, set from an Effect: never a
-    // signal write in a tracked render (KAIROS-T-0114).
+    // The first value of the template picker, set from an Effect: never a
+    // signal write in a tracked render (KAIROS-T-0114). The owner board
+    // picker starts with no board: the user must select it (COLLIERY-T-3109,
+    // the owner decided it on 2026-10-04).
     Effect::new(move |_| {
         if let Some(Ok(list)) = templates.get()
             && template.get_untracked().is_empty()
@@ -201,17 +178,6 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
             }
         }
     });
-    Effect::new(move |_| {
-        let targets = targets.get();
-        if let Some(Ok(list)) = all_boards.get()
-            && board.get_untracked().is_empty()
-            && let Some(first) =
-                owner_team.with_value(|team| first_owner_board(&targets, &list, team))
-        {
-            board.set(first);
-        }
-    });
-
     let navigate = use_navigate();
     let create = move |_: ()| {
         if busy.get_untracked() {
@@ -317,6 +283,7 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
                             label="Owner board"
                             option_pairs=targets
                             value=board
+                            placeholder="Select the owner board"
                             attr:data-testid="repository-document-board"
                         />
                     }.into_any()
@@ -328,7 +295,12 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
                  the document is about, and it gives no right."
             </Text>
             <Group>
-                <Button loading=busy loading_label="Creating…" on_click=Callback::new(create)>
+                <Button
+                    loading=busy
+                    loading_label="Creating…"
+                    disabled=Signal::derive(move || board.get().is_empty())
+                    on_click=Callback::new(create)
+                >
                     "Create document"
                 </Button>
             </Group>
@@ -339,7 +311,6 @@ fn NewDocumentForm(#[prop(into)] slug: String, #[prop(into)] owner_team: String)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pages::boards::data::Board;
 
     fn item(
         entity_type: &str,
@@ -369,60 +340,5 @@ mod tests {
         assert_eq!(state_label(&adr).as_deref(), Some("Decided"));
         // An ADR that is not on a board has no state.
         assert_eq!(state_label(&item("adr", None, None, None)), None);
-    }
-
-    fn board(slug: &str, team: Option<&str>) -> Board {
-        Board {
-            id: format!("b-{slug}"),
-            name: slug.to_uppercase(),
-            slug: slug.into(),
-            board_level: "delivery".into(),
-            team_id: team.map(str::to_string),
-        }
-    }
-
-    fn target(slug: &str) -> (String, String) {
-        (slug.to_string(), slug.to_uppercase())
-    }
-
-    /// The board of the owner team of the repository is first, when the
-    /// user can give a document to it.
-    #[test]
-    fn the_first_board_is_the_board_of_the_owner_team() {
-        let boards = vec![
-            board("initiatives", None),
-            board("web-delivery", Some("t-web")),
-            board("platform-delivery", Some("t-platform")),
-        ];
-        let each = vec![
-            target("initiatives"),
-            target("web-delivery"),
-            target("platform-delivery"),
-        ];
-        assert_eq!(
-            first_owner_board(&each, &boards, "t-platform").as_deref(),
-            Some("platform-delivery")
-        );
-        // The user cannot give a document to the board of the owner team.
-        let some = vec![target("initiatives"), target("web-delivery")];
-        assert_eq!(
-            first_owner_board(&some, &boards, "t-platform").as_deref(),
-            Some("initiatives")
-        );
-        assert_eq!(first_owner_board(&[], &boards, "t-platform"), None);
-    }
-
-    /// COLLIERY-T-3102: the ADR board of the owner team is not its
-    /// delivery board, also when it comes first in the list.
-    #[test]
-    fn the_adr_board_of_the_owner_team_is_not_first() {
-        let mut adrs = board("platform-adrs", Some("t-platform"));
-        adrs.board_level = "adr".into();
-        let boards = vec![adrs, board("platform-delivery", Some("t-platform"))];
-        let each = vec![target("platform-adrs"), target("platform-delivery")];
-        assert_eq!(
-            first_owner_board(&each, &boards, "t-platform").as_deref(),
-            Some("platform-delivery")
-        );
     }
 }

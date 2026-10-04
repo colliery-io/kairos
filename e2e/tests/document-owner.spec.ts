@@ -11,18 +11,20 @@
 //
 //   1. the vision of a repository, from the GUI: on the page of the team
 //      that owns `payments-api`, "New document" makes a document from the
-//      template "Product Vision", with the delivery board of the team as
-//      its owner and an impacts link to the repository. The page of the
-//      document shows the owner board and the link, and no column. The
-//      team page and the page Admin, Repositories show the document for
-//      the repository;
+//      template "Product Vision". The owner board picker starts with no
+//      board; the user selects the delivery board of the team as its
+//      owner. The document has an impacts link to the repository. The
+//      page of the document shows the owner board and the link, and no
+//      column. The team page and the page Admin, Repositories show the
+//      document for the repository;
 //   2. the impacts links on the page of the document: add a link to a
 //      second repository, and remove it;
 //   3. each document has an owner board (COLLIERY-T-3109): a create with
 //      no board is refused and the refusal names `board`; the "New
-//      document" dialog of an item page has an owner board picker; the
-//      last `supports` edge can go and the owner board stays; the owner
-//      panel changes the board and has no control that removes it.
+//      document" dialog of an item page has an owner board picker that
+//      starts with no board; the last `supports` edge can go and the
+//      owner board stays; the owner panel changes the board and has no
+//      control that removes it.
 //
 // **Fixture discipline.** The suite is serial over ONE seeded stack, and
 // other specs count boards and cards. This spec makes no board and no
@@ -116,17 +118,23 @@ test('the vision of a repository: owner board, impacts link, repository pages', 
 
     const form = page.locator('[data-testid="repository-document-form"]');
     await expect(form).toBeVisible();
-    // The first values: the template of a product vision, and the
-    // delivery board of the team that owns the repository.
+    // The first value of the template: the template of a product vision.
     const template = form.locator('[data-testid="repository-document-template"]');
     await expect(template.locator('option:checked')).toHaveText('Product Vision');
     // COLLIERY-T-1836: the test id is on the Aurora field; the control is
-    // the select in it.
+    // the select in it. COLLIERY-T-3109 (2026-10-04): the owner board
+    // picker starts with no board, and the create button is disabled
+    // until the user selects a board.
     const owner = form.locator('[data-testid="repository-document-board"] select');
-    await expect(owner).toHaveValue(OWNER_BOARD);
+    await expect(owner).toHaveValue('');
+    await expect(owner.locator('option:checked')).toHaveText('Select the owner board');
+    const create = form.getByRole('button', { name: 'Create document' });
+    await expect(create).toBeDisabled();
+    await owner.selectOption(OWNER_BOARD);
+    await expect(create).toBeEnabled();
 
     // A title is necessary.
-    await form.getByRole('button', { name: 'Create document' }).click();
+    await create.click();
     await expect(form).toContainText('The title is empty. Write a title.');
 
     await form
@@ -289,13 +297,18 @@ test('each document has an owner board, and the last supports edge can go', asyn
     await page.goto(`/items/${task.short_code}`);
     await page.getByRole('button', { name: 'New document', exact: true }).click();
     const owner = page.locator('[data-testid="create-document-board"] select');
-    // The first value is the board of the item.
-    await expect(owner).toHaveValue(OWNER_BOARD);
+    // The picker starts with no board (COLLIERY-T-3109, 2026-10-04), and
+    // the create button is disabled until the user selects a board.
+    await expect(owner).toHaveValue('');
+    await expect(owner.locator('option:checked')).toHaveText('Select the owner board');
+    const create = page.getByRole('button', { name: 'Create document' });
     await page
       .locator('.cl-field', { hasText: 'Document title' })
       .locator('input')
       .fill(`E2E: a document from the dialog ${RUN}`);
-    await page.getByRole('button', { name: 'Create document' }).click();
+    await expect(create).toBeDisabled();
+    await owner.selectOption(OWNER_BOARD);
+    await create.click();
     await page.waitForURL(/\/items\/PLATFORM-D-\d+$/, { timeout: 30_000 });
     const code = codeOf(page);
     made.push(code);

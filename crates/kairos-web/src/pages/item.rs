@@ -376,7 +376,7 @@ fn ItemLoaded(
                 <RelationshipsPanel family code=short_code/>
             </Stack>
         </div>
-        <CreateDocumentDialog parent_code=code.clone() board open=create_open/>
+        <CreateDocumentDialog parent_code=code.clone() open=create_open/>
         <DeleteDialog family code title=delete_title open=delete_open/>
     }
 }

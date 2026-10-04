@@ -7,10 +7,10 @@
 //! parent contract) and the page navigates to its detail route.
 //!
 //! COLLIERY-T-3109: each document names its OWNER board, and its code gets
-//! the prefix of that board. The form has an owner board picker. Its first
-//! value is the board of the item when the user can own a document there
-//! ([`first_owner_choice`]); the user can select a different board. The
-//! request always names the board: the server has no default.
+//! the prefix of that board. The form has an owner board picker. The picker
+//! starts with no board: the user must select the owner board (the owner
+//! decided it on 2026-10-04). Until then, the create button is disabled.
+//! The request always names the board: the server has no default.
 
 use aurora_dark::components::{
     Alert, Button, Empty, ErrorState, Group, Loading, Panel, Pill, Select, Text, TextInput,
@@ -20,29 +20,11 @@ use aurora_dark::tokens::{ApiError, token};
 use leptos::prelude::*;
 use leptos_router::hooks::use_navigate;
 
-use super::api::{self, BoardInfo, CreateDocumentBody, TemplateSummary};
+use super::api::{self, CreateDocumentBody, TemplateSummary};
 use super::markdown;
 use super::owner::owner_board_targets;
 use crate::auth::use_auth;
 use crate::pages::boards;
-
-/// The page's board read: the board of the item, `Ok(None)` for an item on
-/// no board.
-type ItemBoard = LocalResource<Result<Option<BoardInfo>, ApiError>>;
-
-/// The first value of the owner board picker: the board of the item when
-/// it is one of `targets` (the boards where the user can own a document),
-/// else the first target. `None` = the user can own a document on no
-/// board. Pure, host-tested.
-pub(crate) fn first_owner_choice(
-    targets: &[(String, String)],
-    item_board: Option<&str>,
-) -> Option<String> {
-    item_board
-        .filter(|slug| targets.iter().any(|(target, _)| target == slug))
-        .map(str::to_string)
-        .or_else(|| targets.first().map(|(slug, _)| slug.clone()))
-}
 
 /// The "New document" dialog. `open` is owned by the page header button.
 /// COLLIERY-T-1836: an Aurora `Modal` (xl: the picker and the preview side
@@ -52,8 +34,6 @@ pub fn CreateDocumentDialog(
     /// Short code of the workflow item that will parent the document.
     #[prop(into)]
     parent_code: String,
-    /// The board of the item: the first choice of owner board.
-    board: ItemBoard,
     open: RwSignal<bool>,
 ) -> impl IntoView {
     let parent_code = StoredValue::new(parent_code);
@@ -64,7 +44,7 @@ pub fn CreateDocumentDialog(
             title=format!("New document supporting {}", parent_code.get_value())
             size="xl"
         >
-            <TemplatePicker parent_code=parent_code.get_value() board/>
+            <TemplatePicker parent_code=parent_code.get_value()/>
         </Modal>
     }
 }
@@ -72,7 +52,7 @@ pub fn CreateDocumentDialog(
 /// Template list + preview + create form (own component so its resources
 /// only exist while the dialog is open).
 #[component]
-fn TemplatePicker(#[prop(into)] parent_code: String, board: ItemBoard) -> impl IntoView {
+fn TemplatePicker(#[prop(into)] parent_code: String) -> impl IntoView {
     let auth = use_auth();
     let reload = RwSignal::new(0u32);
     let templates = LocalResource::new(move || {
@@ -91,7 +71,7 @@ fn TemplatePicker(#[prop(into)] parent_code: String, board: ItemBoard) -> impl I
                 <Empty message="No templates yet — create them from Admin."/>
             }.into_any(),
             Some(Ok(templates)) => view! {
-                <TemplateForm templates parent_code=parent_code.get_value() board/>
+                <TemplateForm templates parent_code=parent_code.get_value()/>
             }.into_any(),
         }}
     }
@@ -103,7 +83,6 @@ fn TemplatePicker(#[prop(into)] parent_code: String, board: ItemBoard) -> impl I
 fn TemplateForm(
     templates: Vec<TemplateSummary>,
     #[prop(into)] parent_code: String,
-    board: ItemBoard,
 ) -> impl IntoView {
     let auth = use_auth();
     let parent_code = StoredValue::new(parent_code);
@@ -121,17 +100,6 @@ fn TemplateForm(
             return Vec::new();
         };
         owner_board_targets(&me, &list, None)
-    });
-    // The first value of the picker, set from an Effect: never a signal
-    // write in a tracked render (KAIROS-T-0114).
-    Effect::new(move |_| {
-        let targets = targets.get();
-        let item_board = board.get().and_then(Result::ok).flatten().map(|b| b.slug);
-        if owner.get_untracked().is_empty()
-            && let Some(first) = first_owner_choice(&targets, item_board.as_deref())
-        {
-            owner.set(first);
-        }
     });
     let title = RwSignal::new(String::new());
     let selected_id = RwSignal::new(templates[0].id.clone());
@@ -215,6 +183,7 @@ fn TemplateForm(
                                     label="Owner board"
                                     option_pairs=targets
                                     value=owner
+                                    placeholder="Select the owner board"
                                     attr:data-testid="create-document-board"
                                 />
                             }.into_any()
@@ -224,7 +193,12 @@ fn TemplateForm(
                         "The owner board gives the right to edit the document. The code of the \
                          document gets the prefix of that board."
                     </Text>
-                    <Button loading=creating loading_label="Creating…" on_click=Callback::new(create)>
+                    <Button
+                        loading=creating
+                        loading_label="Creating…"
+                        disabled=Signal::derive(move || owner.get().is_empty())
+                        on_click=Callback::new(create)
+                    >
                         "Create document"
                     </Button>
                     <Text size="xs" dimmed=true>
@@ -271,42 +245,5 @@ fn TemplateForm(
                 </div>
             </Group>
         </div>
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn targets() -> Vec<(String, String)> {
-        vec![
-            ("web-delivery".to_string(), "Web".to_string()),
-            ("platform-delivery".to_string(), "Platform".to_string()),
-        ]
-    }
-
-    #[test]
-    fn the_board_of_the_item_is_the_first_choice_when_the_user_can_own_there() {
-        assert_eq!(
-            first_owner_choice(&targets(), Some("platform-delivery")).as_deref(),
-            Some("platform-delivery")
-        );
-    }
-
-    #[test]
-    fn a_board_where_the_user_cannot_own_a_document_is_not_the_first_choice() {
-        assert_eq!(
-            first_owner_choice(&targets(), Some("strategy")).as_deref(),
-            Some("web-delivery")
-        );
-        assert_eq!(
-            first_owner_choice(&targets(), None).as_deref(),
-            Some("web-delivery")
-        );
-    }
-
-    #[test]
-    fn no_target_gives_no_choice() {
-        assert_eq!(first_owner_choice(&[], Some("web-delivery")), None);
     }
 }

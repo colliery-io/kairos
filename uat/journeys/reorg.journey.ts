@@ -57,6 +57,8 @@ journey(
       oldTeamSlug = named('srch');
       const old = await cli.json([
         'teams', 'create', '--name', `UAT search (${oldTeamSlug})`, '--slug', oldTeamSlug, '--type', 'stream_aligned',
+        // COLLIERY-T-3099: the short-code prefix of the delivery board, as in fixtures/team.ts.
+        '--code-prefix', `U${oldTeamSlug.replace(/[^a-z0-9]/gi, '').slice(-9)}`.toUpperCase(),
       ]);
       oldTeamId = old.id;
       ledger.add({

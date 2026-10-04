@@ -107,7 +107,8 @@ pub const GLOBS: &[&str] = &[GLOB_ALL, GLOB_MANAGE, GLOB_CONFIGURE, GLOB_TRANSIT
 /// (KAIROS-T-0072 amendment to A-0006): day-to-day delivery work only.
 /// Deliberately narrow — no `configure_*`, no `administer_members`, and none of
 /// the strategy/initiative/ADR `manage_*` families: those remain explicit
-/// grants (or org-admin).
+/// grants (or org-admin). The one widening is `manage_adrs` on the ADR board
+/// of the team ([`TEAM_ADR_BOARD_IMPLIED_CAPABILITIES`], COLLIERY-T-3108).
 pub const TEAM_IMPLIED_CAPABILITIES: &[&str] = &[MANAGE_TASKS, MANAGE_DOCUMENTS, TRANSITION_ITEMS];
 
 /// Does membership of the board's owning team satisfy `required` on its
@@ -116,6 +117,25 @@ pub const TEAM_IMPLIED_CAPABILITIES: &[&str] = &[MANAGE_TASKS, MANAGE_DOCUMENTS,
 /// applies here.
 pub fn team_implies(required: &str) -> bool {
     TEAM_IMPLIED_CAPABILITIES.contains(&required)
+}
+
+/// The capabilities implied by membership of the team that owns an ADR
+/// board (COLLIERY-T-3108): the delivery set plus `manage_adrs`. A team
+/// writes its own delivery ADRs with no grant. The organization ADR board
+/// has no team, so this never applies there: `manage_adrs` on it stays an
+/// explicit grant.
+pub const TEAM_ADR_BOARD_IMPLIED_CAPABILITIES: &[&str] = &[
+    MANAGE_TASKS,
+    MANAGE_DOCUMENTS,
+    TRANSITION_ITEMS,
+    MANAGE_ADRS,
+];
+
+/// Does membership of the team that owns an ADR board satisfy `required`
+/// on that board (COLLIERY-T-3108)? Exact vocabulary membership, as for
+/// [`team_implies`].
+pub fn team_implies_on_adr_board(required: &str) -> bool {
+    TEAM_ADR_BOARD_IMPLIED_CAPABILITIES.contains(&required)
 }
 
 /// A request to any team (KAIROS-T-0105, amended by COLLIERY-T-0218 for
@@ -698,6 +718,24 @@ mod tests {
         // Globs are grant-side forms, never implied requirements.
         assert!(!team_implies(GLOB_ALL));
         assert!(!team_implies(GLOB_MANAGE));
+    }
+
+    /// COLLIERY-T-3108: on the ADR board of the team, membership also
+    /// implies `manage_adrs` — and still nothing configuration- or
+    /// membership-shaped.
+    #[test]
+    fn team_implies_on_adr_board_adds_manage_adrs_only() {
+        for implied in TEAM_IMPLIED_CAPABILITIES {
+            assert!(team_implies_on_adr_board(implied), "{implied:?}");
+        }
+        assert!(team_implies_on_adr_board(MANAGE_ADRS));
+
+        assert!(!team_implies_on_adr_board(MANAGE_STRATEGIES));
+        assert!(!team_implies_on_adr_board(MANAGE_INITIATIVES));
+        assert!(!team_implies_on_adr_board(CONFIGURE_BOARDS));
+        assert!(!team_implies_on_adr_board(ADMINISTER_MEMBERS));
+        assert!(!team_implies_on_adr_board(GLOB_ALL));
+        assert!(!team_implies_on_adr_board(GLOB_MANAGE));
     }
 
     /// COLLIERY-T-0228: each of the three facts is sufficient, and with

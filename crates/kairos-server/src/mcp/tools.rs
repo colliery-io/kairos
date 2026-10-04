@@ -605,11 +605,28 @@ impl KairosMcp {
             for (slug, name, capability) in grants {
                 by_board.entry((slug, name)).or_default().push(capability);
             }
-            if by_board.is_empty() && !is_admin {
+            // COLLIERY-T-3108: the capabilities the team rule gives on each
+            // board of my teams, with no grant (KAIROS-T-0072). The ADR
+            // board of a team adds `manage_adrs`.
+            let team_boards: Vec<(String, String, BoardLevel, String)> = boards::table
+                .inner_join(teams::table)
+                .filter(boards::team_id.eq_any(&my_team_ids))
+                .filter(boards::deleted_at.is_null())
+                .order(boards::slug.asc())
+                .select((boards::slug, boards::name, boards::board_level, teams::slug))
+                .load(conn)
+                .map_err(ApiError::internal)?;
+            if by_board.is_empty() && team_boards.is_empty() && !is_admin {
                 out.push_str("(none. Each member can read. A write needs a capability.)\n");
             }
             for ((slug, name), capabilities) in by_board {
                 out.push_str(&format!("- {slug} ({name}): {}\n", capabilities.join(", ")));
+            }
+            for (slug, name, level, team) in team_boards {
+                out.push_str(&format!(
+                    "- {slug} ({name}): {} (team {team}, no grant)\n",
+                    team_capabilities(level).join(", ")
+                ));
             }
             // KAIROS-T-0105: computed capabilities every member holds.
             out.push_str(&format!(
@@ -782,7 +799,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List boards in this organization grouped by level (strategy/initiative/delivery/adr), with column names and per-column item counts for my delivery boards. Each ADR board names its team, or the organization. Optional `level` filter."
+        description = "List boards in this organization grouped by level (strategy/initiative/delivery/adr), with column names and per-column item counts for my delivery boards. Each ADR board names its team, or the organization. Each board of a team of mine shows the capabilities that the team gives me with no grant: on the ADR board of the team, this includes manage_adrs. Optional `level` filter."
     )]
     pub async fn my_boards(
         &self,
@@ -889,6 +906,14 @@ impl KairosMcp {
                     out.push_str(&format!("  columns: {}\n", rendered.join(" | ")));
                 } else {
                     out.push('\n');
+                }
+                // COLLIERY-T-3108: what the team rule gives me on a board of
+                // my team, with no grant.
+                if board.team_id.is_some_and(|t| my_teams.contains(&t)) {
+                    out.push_str(&format!(
+                        "  team capabilities: {}\n",
+                        team_capabilities(board.board_level).join(", ")
+                    ));
                 }
             }
             Ok(out)
@@ -3280,6 +3305,17 @@ fn map_link_error(e: GraphError) -> ApiError {
 // ---------------------------------------------------------------------------
 // create_item (S-0006 write-tool semantics over the T-0012 services)
 // ---------------------------------------------------------------------------
+
+/// The capabilities that membership of the owning team implies on a board
+/// of `level` (KAIROS-T-0072; the ADR board of a team adds `manage_adrs`,
+/// COLLIERY-T-3108). The vocabulary is `kairos_core::abac`.
+fn team_capabilities(level: BoardLevel) -> &'static [&'static str] {
+    if level == BoardLevel::Adr {
+        kairos_core::abac::TEAM_ADR_BOARD_IMPLIED_CAPABILITIES
+    } else {
+        kairos_core::abac::TEAM_IMPLIED_CAPABILITIES
+    }
+}
 
 /// The board level whose boards host this item type.
 fn level_of(item_type: ItemType) -> BoardLevel {

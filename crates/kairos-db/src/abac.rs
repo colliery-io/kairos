@@ -96,6 +96,11 @@ struct BoolRow {
 /// the vocabulary stays in one place; the membership test joins
 /// `boards.team_id` → `team_members` in the same query. Nothing is stored:
 /// leaving the team is the revocation.
+///
+/// On an ADR board that a team owns, the implied set is wider
+/// ([`kairos_core::abac::team_implies_on_adr_board`], bound as `$5`, tested
+/// against `boards.board_level`): it adds `manage_adrs` (COLLIERY-T-3108).
+/// The organization ADR board has no team, so the arm never matches there.
 pub fn check_capability(
     conn: &mut PgConnection,
     board_id: Uuid,
@@ -112,14 +117,13 @@ pub fn check_capability(
                            capability, '\', '\\'), '%', '\%'), '_', '\_'), '*', '%')
                        OR capability = '*')
             )
-            OR (
-                $4 AND EXISTS (
-                    SELECT 1
-                    FROM boards b
-                    JOIN team_members tm ON tm.team_id = b.team_id
-                    WHERE b.id = $1
-                      AND tm.user_id = $2
-                )
+            OR EXISTS (
+                SELECT 1
+                FROM boards b
+                JOIN team_members tm ON tm.team_id = b.team_id
+                WHERE b.id = $1
+                  AND tm.user_id = $2
+                  AND ($4 OR ($5 AND b.board_level = 'adr'))
             )
           ) AS authorized",
     )
@@ -127,6 +131,7 @@ pub fn check_capability(
     .bind::<SqlUuid, _>(user_id)
     .bind::<Text, _>(required)
     .bind::<Bool, _>(kairos_core::abac::team_implies(required))
+    .bind::<Bool, _>(kairos_core::abac::team_implies_on_adr_board(required))
     .get_result(conn)?;
     Ok(row.authorized)
 }

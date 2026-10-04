@@ -56,6 +56,12 @@ decisions of Skadi read `SKADI-A-0001` next to its tasks. A team has at most
 one. An ADR board with no team stays a board of the organisation, for the
 decisions that cross teams.
 
+A member of the team writes ADRs on the ADR board of the team with no grant.
+The team owns these decisions, so the team rule gives `manage_adrs` on that
+board, in addition to the delivery set. It does not give `manage_adrs` on the
+ADR board of the organisation: a decision that crosses teams still needs a
+grant.
+
 ## Every board has a team
 
 A board cannot have no team. The rule has two forms, one for each kind of

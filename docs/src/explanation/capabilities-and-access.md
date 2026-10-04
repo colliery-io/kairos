@@ -99,6 +99,11 @@ team member could not work their own team's delivery board until an admin
 hand-granted capabilities per member per board. "Join the team, work the team's
 board" is what everyone expects, and the expectation was right.
 
+The ADR board of a team adds one capability to the set: `manage_adrs`. The
+delivery ADRs of a team are the work of that team, so a member writes them with
+no grant. The ADR board of the organisation has no team, so the rule does not
+apply there, and its decisions stay an explicit grant.
+
 Two other ways to deliver it were rejected. Auto-granting real rows when
 someone joins a team is the obvious implementation and creates a revocation
 problem: once an admin has customised the grants, nobody can tell which rows

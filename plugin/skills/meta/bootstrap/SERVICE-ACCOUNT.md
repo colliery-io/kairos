@@ -40,7 +40,7 @@ On a re-run, do only the steps that are not complete. `kairos service-accounts l
 
    This team decides the team board in step 3 of [SKILL.md](SKILL.md). Membership of the team also lets the service account add a repository of that team to the directory (`add_repository`), if the directory does not have the repository of this checkout.
 
-4. **Grant the capabilities.** An agent that implements tasks needs `manage_tasks`, `transition_items` and `manage_documents` on the team board. Membership of the team gives these three on the delivery board of that team, so that board needs no grant.
+4. **Grant the capabilities.** An agent that implements tasks needs `manage_tasks`, `transition_items` and `manage_documents` on the team board. Membership of the team gives these three on the delivery board of that team, so that board needs no grant. On the ADR board of the team, membership also gives `manage_adrs`, so an agent in the team writes delivery ADRs with no grant.
 
    A different board needs a grant. The CLI does not grant capabilities. An organization admin makes the grant in the board members panel of the GUI, or with `POST /api/boards/{id}/members`.
 

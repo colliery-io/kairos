@@ -193,6 +193,20 @@ fn team_implies(required: &str) -> bool {
     )
 }
 
+/// What membership of the team gives on a KNOWN board of that team: the
+/// delivery set, plus `manage_adrs` (COLLIERY-T-3108, mirror of
+/// `kairos_core::abac::TEAM_ADR_BOARD_IMPLIED_CAPABILITIES`).
+///
+/// The server gives `manage_adrs` from the team rule only on the ADR board
+/// of the team. The mirror does not know the level of the board, and it
+/// does not need to: only an ADR asks for `manage_adrs`, and an ADR on a
+/// board of a team is on the ADR board of that team. With no known board
+/// (an off-board item), the mirror uses [`team_implies`] only. The server
+/// stays the authority.
+fn team_implies_on_team_board(required: &str) -> bool {
+    team_implies(required) || required == "manage_adrs"
+}
+
 /// Compute [`BoardPowers`] from the whoami identity. Pure, host-tested.
 /// Also used by the item detail page's move control (KAIROS-T-0075) —
 /// the same `transition_items` gate as the board's drag affordance.
@@ -211,7 +225,7 @@ pub(crate) fn board_powers(
     }
     let team_member = board_team_id.is_some_and(|team| me.teams.iter().any(|mine| mine.id == team));
     let has = |required: &str| {
-        (team_member && team_implies(required))
+        (team_member && team_implies_on_team_board(required))
             || me
                 .capabilities
                 .iter()
@@ -274,14 +288,18 @@ pub(crate) fn holds_capability(
     if me.organization.role == "admin" {
         return true;
     }
-    let team_member = match (board_slug, board_team_id) {
-        (_, Some(team)) => me.teams.iter().any(|mine| mine.id == team),
+    let team_implied = match (board_slug, board_team_id) {
+        (_, Some(team)) => {
+            me.teams.iter().any(|mine| mine.id == team) && team_implies_on_team_board(required)
+        }
         // A board we know, that no team owns: no team implication.
         (Some(_), None) => false,
-        // No board to check against — see the widening above.
-        (None, None) => !me.teams.is_empty(),
+        // No board to check against — see the widening above. An off-board
+        // ADR is not on the ADR board of a team, so `manage_adrs` is not in
+        // this set.
+        (None, None) => !me.teams.is_empty() && team_implies(required),
     };
-    if team_member && team_implies(required) {
+    if team_implied {
         return true;
     }
     me.capabilities
@@ -2626,6 +2644,44 @@ mod tests {
         // Org-wide (teamless) board: nothing.
         let orgwide = board_powers(&bob, "strategy", None, Some(EntityKind::Strategy));
         assert_eq!(orgwide, BoardPowers::default());
+    }
+
+    /// COLLIERY-T-3108 client mirror: on the ADR board of the team, a member
+    /// may create ADRs with no grant. A member of a different team may not,
+    /// and the ADR board of the organization (no team) still needs a grant.
+    #[test]
+    fn board_powers_mirror_team_adr_board() {
+        let alice = me("member", &["skadi"], &[]);
+        let own = board_powers(&alice, "skadi-adrs", Some("skadi"), Some(EntityKind::Adr));
+        assert!(own.create && own.transition && own.documents);
+        assert!(holds_capability(
+            &alice,
+            Some("skadi-adrs"),
+            Some("skadi"),
+            "manage_adrs"
+        ));
+        assert!(may_edit_item(
+            &alice,
+            "someone-else",
+            Some("skadi-adrs"),
+            Some("skadi"),
+            "manage_adrs"
+        ));
+
+        let bob = me("member", &["crt"], &[]);
+        let other = board_powers(&bob, "skadi-adrs", Some("skadi"), Some(EntityKind::Adr));
+        assert_eq!(other, BoardPowers::default());
+        assert!(!holds_capability(
+            &bob,
+            Some("skadi-adrs"),
+            Some("skadi"),
+            "manage_adrs"
+        ));
+
+        let orgwide = board_powers(&alice, "adrs", None, Some(EntityKind::Adr));
+        assert!(!orgwide.create);
+        // An off-board ADR: a team gives no `manage_adrs` there.
+        assert!(!holds_capability(&alice, None, None, "manage_adrs"));
     }
 
     /// Explicit grants (incl. globs) and the admin bypass keep working.

@@ -122,6 +122,11 @@ check rather than by a stored row:
   board without anyone granting it, and cannot configure that board or touch
   another team's. Configuration (`configure_*`) and membership
   (`administer_members`) are deliberately excluded.
+- **On the ADR board of a team, the set also has `manage_adrs`.** A member of
+  the team can create, edit and delete ADRs on that board with no grant. A
+  member of a different team cannot. The ADR board of the organization has no
+  team, so `manage_adrs` on it needs a grant. The MCP tools `whoami` and
+  `my_boards` show the capabilities that each team board gives.
 
 ## How a board is resolved
 

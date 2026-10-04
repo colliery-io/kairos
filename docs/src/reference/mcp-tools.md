@@ -83,7 +83,9 @@ No MCP tool deletes a definition, so no MCP tool returns it. See
 
 Identity, organization role, teams, those teams' repositories, the boards where
 the caller holds write capabilities, and the capabilities every member holds
-implicitly.
+implicitly. Each board of a team of the caller shows the capabilities that the
+team gives with no grant (`(team <slug>, no grant)`). On the ADR board of the
+team, these include `manage_adrs`.
 
 No arguments.
 
@@ -94,7 +96,10 @@ Refuses: nothing beyond transport-level authentication.
 Boards in the organization, grouped by level, with column names and per-column
 item counts for the caller's delivery boards. Each ADR board names its team
 (`ADR board of the team <slug>`), or the organization. A team ADR board holds
-the delivery ADRs of the team, with the prefix of the team.
+the delivery ADRs of the team, with the prefix of the team. Each board of a team
+of the caller has a `team capabilities:` line. This line shows the
+capabilities that the team gives with no grant. On the ADR board of the team,
+these include `manage_adrs`.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -495,7 +500,8 @@ ADR, send the ADR board of your team.
 An ADR can have a `parent`. The `parent` names a strategy, an initiative or a
 task. The tool creates the `supports` edge from that item to the ADR. The
 caller needs `manage_adrs` on the ADR board, and no capability on the board of
-the parent. The caller creates the ADR, so the link rule lets the caller link
+the parent. A member of the team has `manage_adrs` on the ADR board of the team
+with no grant. The caller creates the ADR, so the link rule lets the caller link
 it.
 
 The same applies to each `parent`: the caller who creates an item can link it

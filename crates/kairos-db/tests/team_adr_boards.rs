@@ -11,8 +11,11 @@
 //!   has its prefix. No code changes, and it can run 2 times.
 //! - The delete of a team removes its ADR board too
 //!   (`boards_for_team_delete`).
+//! - COLLIERY-T-3108: the team rule gives a member `manage_adrs` on the ADR
+//!   board of the team, and not on the ADR board of the organization.
 //!
-//! The REST half is in `kairos-server/tests/board_team_rules.rs`.
+//! The REST half is in `kairos-server/tests/board_team_rules.rs` and
+//! `kairos-server/tests/team_adr_writes.rs`.
 //!
 //! Against real Postgres from the compose stack (A-0012 tier 2). Each test
 //! owns a scratch database.
@@ -28,7 +31,7 @@ use uuid::Uuid;
 use kairos_db::items::{self, CreateAdr};
 use kairos_db::models::boards::Board;
 use kairos_db::models::enums::BoardLevel;
-use kairos_db::models::teams::NewTeam;
+use kairos_db::models::teams::{NewTeam, NewTeamMember};
 use kairos_db::models::{NewUser, TeamType, User};
 use kairos_db::{
     BoardError, CodePrefix, boards_for_team_delete, create_board, provision_tenant,
@@ -453,6 +456,104 @@ fn the_migration_gives_adrs_to_colliery_io_and_keeps_each_code() {
         .expect("the third run of the up migration");
     assert_eq!(board(conn, "skadi-shared-adrs").team_id, None);
     assert_eq!(live_adr_boards(conn, skadi), 1);
+
+    scratch.drop_database();
+}
+
+/// A second user with no grant.
+fn user(conn: &mut PgConnection, name: &str) -> Uuid {
+    use kairos_db::schema::users;
+    diesel::insert_into(users::table)
+        .values(NewUser {
+            external_id: format!("dex|{name}"),
+            user_name: format!("dex|{name}"),
+            email: format!("{name}@colliery.test"),
+            display_name: name.to_string(),
+        })
+        .returning(User::as_returning())
+        .get_result(conn)
+        .expect("inserting user")
+        .id
+}
+
+fn join(conn: &mut PgConnection, team: Uuid, user: Uuid) {
+    use kairos_db::schema::team_members;
+    diesel::insert_into(team_members::table)
+        .values(NewTeamMember {
+            team_id: team,
+            user_id: user,
+        })
+        .execute(conn)
+        .expect("joining the team");
+}
+
+// COLLIERY-T-3108: a member of a team writes ADRs on the ADR board of the
+// team with no grant. The team rule is computed when it is read
+// (`check_capability`); nothing is stored.
+#[test]
+fn the_team_rule_gives_manage_adrs_on_the_adr_board_of_the_team() {
+    use kairos_core::abac::{
+        CONFIGURE_BOARDS, MANAGE_ADRS, TEAM_ADR_BOARD_IMPLIED_CAPABILITIES,
+        TEAM_IMPLIED_CAPABILITIES,
+    };
+    use kairos_db::abac::check_capability;
+
+    let mut scratch = Scratch::new("kairos_team_adr_writes_t3108_db_test");
+    let admin = scratch.user;
+    let conn = &mut scratch.conn;
+    let skadi = team_with_board(conn, "skadi", "SKADI", admin);
+    let crt = team_with_board(conn, "crt", "CRT", admin);
+    let skadi_adrs = create_board(
+        conn,
+        BoardLevel::Adr,
+        "Skadi ADRs",
+        "skadi-adrs",
+        CodePrefix::Given("SKADI"),
+        Some(skadi),
+        Some(admin),
+    )
+    .expect("the ADR board of skadi")
+    .id;
+    let skadi_delivery = board(conn, "skadi").id;
+    let org_adrs = board(conn, "adrs");
+    assert_eq!(org_adrs.team_id, None, "the ADR board of the organization");
+
+    let alice = user(conn, "alice");
+    let bob = user(conn, "bob");
+    join(conn, skadi, alice);
+    join(conn, crt, bob);
+    let mut can = |board, user, cap: &str| check_capability(conn, board, user, cap).expect("check");
+
+    // AC1: the ADR board of the team gives the member manage_adrs, and the
+    // delivery set, with no grant.
+    for cap in TEAM_ADR_BOARD_IMPLIED_CAPABILITIES {
+        assert!(can(skadi_adrs, alice, cap), "{cap:?} on skadi-adrs");
+    }
+    assert!(!can(skadi_adrs, alice, CONFIGURE_BOARDS));
+    // The delivery board of the team does not give manage_adrs.
+    for cap in TEAM_IMPLIED_CAPABILITIES {
+        assert!(can(skadi_delivery, alice, cap), "{cap:?} on skadi");
+    }
+    assert!(!can(skadi_delivery, alice, MANAGE_ADRS));
+
+    // AC2: a member of a different team gets nothing on it.
+    for cap in TEAM_ADR_BOARD_IMPLIED_CAPABILITIES {
+        assert!(!can(skadi_adrs, bob, cap), "bob, {cap:?} on skadi-adrs");
+    }
+
+    // AC3: the ADR board of the organization has no team. manage_adrs there
+    // needs a grant.
+    assert!(!can(org_adrs.id, alice, MANAGE_ADRS));
+    assert!(!can(org_adrs.id, bob, MANAGE_ADRS));
+
+    // Leave the team: the capability goes with it. Nothing was stored.
+    {
+        use kairos_db::schema::team_members::dsl;
+        diesel::delete(dsl::team_members.filter(dsl::user_id.eq(alice)))
+            .execute(conn)
+            .expect("leaving the team");
+    }
+    assert!(!check_capability(conn, skadi_adrs, alice, MANAGE_ADRS).expect("check"));
 
     scratch.drop_database();
 }

@@ -276,3 +276,19 @@ pub fn indexed_repositories(conn: &mut PgConnection) -> QueryResult<Vec<Uuid>> {
         .select(repositories::id)
         .load(conn)
 }
+
+/// The ids of the live repositories that have no index: the repositories
+/// whose first index the builder makes (KAIROS-T-0318). By slug. A
+/// repository with `code_index_build = 'off'` is in the list too, so that
+/// the builder can log why it does not build it.
+pub fn unindexed_repositories(conn: &mut PgConnection) -> QueryResult<Vec<Uuid>> {
+    use crate::schema::repositories;
+    repositories::table
+        .filter(repositories::deleted_at.is_null())
+        .filter(diesel::dsl::not(repositories::id.eq_any(
+            code_indexes::table.select(code_indexes::repository_id),
+        )))
+        .order(repositories::slug)
+        .select(repositories::id)
+        .load(conn)
+}

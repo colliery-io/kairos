@@ -71,6 +71,11 @@ fn full_name_hint(forge: &str) -> &'static str {
 const URL_HINT: &str = "URL: an absolute http or https URL, with no space. Do not put a user \
                         name or a password in it, because each member can read it.";
 
+/// The setting `code_index_build` (KAIROS-T-0318).
+const CODE_INDEX_BUILD_HINT: &str = "Code index builder: on or off. With off, Kairos makes no \
+                                     index of the repository. Use off for a template or a \
+                                     static site.";
+
 /// The rule of the default branch.
 const BRANCH_HINT: &str = "Default branch: a branch name that git accepts, with no space.";
 
@@ -301,6 +306,8 @@ fn RepositoryRow(
     let edit_branch = RwSignal::new(repo.default_branch.clone());
     let edit_team = RwSignal::new(repo.team.slug.clone());
     let edit_description = RwSignal::new(repo.description.clone());
+    let edit_code_index_build = RwSignal::new(repo.code_index_build.clone());
+    let code_index_build_summary = repo.code_index_build_summary();
     let team_slugs = StoredValue::new(
         team_options
             .into_iter()
@@ -327,12 +334,13 @@ fn RepositoryRow(
 
     let on_save = move |_| {
         let reference = slug.get_value();
-        let (s, u, b, t, d) = (
+        let (s, u, b, t, d, c) = (
             edit_slug.get_untracked(),
             edit_url.get_untracked(),
             edit_branch.get_untracked(),
             edit_team.get_untracked(),
             edit_description.get_untracked(),
+            edit_code_index_build.get_untracked(),
         );
         // The editor stays open: a refusal shows next to its field
         // (COLLIERY-T-0267). A success reads the list again, and the new
@@ -348,11 +356,14 @@ fn RepositoryRow(
                 api::update_repository(
                     auth,
                     &reference,
-                    Some(&s),
-                    Some(&u),
-                    Some(&b),
-                    Some(&t),
-                    Some(&d),
+                    api::RepositoryEdit {
+                        slug: Some(&s),
+                        repo_url: Some(&u),
+                        default_branch: Some(&b),
+                        team: Some(&t),
+                        description: Some(&d),
+                        code_index_build: Some(&c),
+                    },
                 )
                 .await
                 .map(|_| ())
@@ -502,6 +513,9 @@ fn RepositoryRow(
             <Text dimmed=true size="xs" attr:data-testid="credential-status">
                 {credential_summary}
             </Text>
+            <Text dimmed=true size="xs" attr:data-testid="code-index-build-status">
+                {code_index_build_summary}
+            </Text>
             <crate::pages::repositories::documents::RepositoryDocuments
                 slug=documents_slug/>
             <Show when=move || editing.get()>
@@ -523,11 +537,14 @@ fn RepositoryRow(
                     </Group>
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="How to work here" value=edit_description/>
+                        <Select label="Code index builder" value=edit_code_index_build
+                            options=vec!["on".to_string(), "off".to_string()]/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
                     <Text dimmed=true size="xs">{URL_HINT}</Text>
                     <Text dimmed=true size="xs">{BRANCH_HINT}</Text>
                     <Text dimmed=true size="xs">{REPOSITORY_SLUG_HINT}</Text>
+                    <Text dimmed=true size="xs">{CODE_INDEX_BUILD_HINT}</Text>
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>

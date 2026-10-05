@@ -276,11 +276,12 @@ Helm value or `.env.example` entry; both are set through the chart's
 Kairos keeps the code index of each indexed commit of a repository
 (`/api/repositories/{slug}/code-indexes`). The indexes are in Postgres. These
 variables control the clones of the repositories and the builder. The builder
-updates the index after each push to the default branch.
+makes the first index of each repository that has no index. Then it updates
+the index after each push to the default branch.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each indexed repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. |
+| `KAIROS_CODE_INDEX_DIR` | directory path | unset | The folder for a bare clone of each repository, the tools of the builder and the work folders of the builder. Put it on a volume. When it is not set, the server cannot find the nearest indexed commit, does not build and downloads nothing. Uploads and downloads of indexes still work. |
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
 | `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
 
@@ -288,8 +289,67 @@ The clone fetches from the `repo_url` of the repository. For a private
 repository, set a read token on the repository (see
 [Read a private repository](../how-to/read-a-private-repository.md)). With no
 token, the clone has no credential, and a fetch that needs one fails at once.
-The first index of a repository comes from an upload (`kairos index build`,
-then the upload).
+
+#### The work of the builder
+
+The builder has 2 lanes:
+
+- **The update lane.** At each interval of `KAIROS_CODE_INDEX_POLL_SECS`, it
+  fetches each repository that has an index. If the head of the default
+  branch has no index, the lane updates the nearest index to that head. Then
+  it starts the first-build lane.
+- **The first-build lane.** It finds each repository that has no index. For
+  each one, it makes a full index of the head of the default branch. The
+  index has the structure, the SCIP edges and the summaries. The lane builds
+  one repository at a time. A first build of a large repository can take some hours on a CPU.
+
+The update lane does not wait for the first-build lane. Thus, during a long
+first build, the updates of the other repositories continue at each
+interval.
+
+The 2 lanes do not run the summary model at the same time. An update goes
+first: a first build stops between 2 summaries while an update runs. Thus
+the builder uses the `KAIROS_CODE_INDEX_THREADS` threads one time, not 2
+times. When the 2 lanes need the model at the same time, they use one copy
+of it in memory.
+
+A first build keeps its work in `KAIROS_CODE_INDEX_DIR/first-builds/`. Each
+summary goes into that file when the model writes it. If the server stops
+during a first build, the next first build of the repository uses those
+summaries again. After the builder stores the index, it removes the file.
+
+If a first build of a commit fails, the builder does not try that commit
+again. It tries again when the head moves or when the server starts again.
+
+The log has these lines for each first build:
+
+- `code index first build started`, with the repository and the commit.
+- `code index first build ended`, with the time in seconds and the number
+  of summaries.
+- `code index first build failed`, with the error.
+- `code index first build not started`, with the reason. For example, the
+  repository has no default branch, the fetch failed, or the repository
+  has `code_index_build` off. The builder logs a reason one time, and again
+  only when the reason changes.
+
+You can also make the first index on a computer and upload it
+(`kairos index build`, then the upload). Then the builder does not make a
+first build of the repository.
+
+#### Stop the builder for one repository
+
+Each repository has the setting `code_index_build`:
+
+- `on` (the default): the builder makes the first index and the updates.
+- `off`: the builder does nothing for the repository. Use it for a template
+  or a static site. An upload of an index still works.
+
+Kairos refuses a value that is not `on` or `off`, and the error names the
+value. To change the setting, use one of these:
+
+- `kairos repos update <slug> --code-index-build off`
+- `PATCH /api/repositories/{slug}` with `{"code_index_build": "off"}`
+- the **Edit** form of the repository on the admin **Repositories** page
 
 | Variable | Type | Default | Description |
 |---|---|---|---|

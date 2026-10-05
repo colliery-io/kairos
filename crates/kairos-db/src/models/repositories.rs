@@ -40,6 +40,21 @@ pub struct Repository {
     pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// `on` or `off` (KAIROS-T-0318). With `off`, the code index builder
+    /// does nothing for the repository. See [`CODE_INDEX_BUILD_VALUES`].
+    pub code_index_build: String,
+}
+
+/// The values of [`Repository::code_index_build`]. The column has a CHECK
+/// with the same values.
+pub const CODE_INDEX_BUILD_VALUES: [&str; 2] = ["on", "off"];
+
+impl Repository {
+    /// Whether the code index builder works on this repository
+    /// (KAIROS-T-0318).
+    pub fn code_index_build_on(&self) -> bool {
+        self.code_index_build != "off"
+    }
 }
 
 /// Insert for [`Repository`].
@@ -68,6 +83,8 @@ pub struct RepositoryChangeset {
     pub default_branch: Option<String>,
     pub team_id: Option<Uuid>,
     pub description: Option<String>,
+    /// `on` or `off` (KAIROS-T-0318).
+    pub code_index_build: Option<String>,
     pub updated_by: Option<Uuid>,
     pub updated_at: Option<DateTime<Utc>>,
 }

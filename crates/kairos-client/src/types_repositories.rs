@@ -163,6 +163,10 @@ pub struct Repository {
     /// It never has the token.
     #[serde(default)]
     pub credential: RepositoryCredential,
+    /// Whether the code index builder works on the repository
+    /// (KAIROS-T-0318): `on` (the default) or `off`.
+    #[serde(default)]
+    pub code_index_build: CodeIndexBuild,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -254,6 +258,48 @@ pub struct UpdateRepositoryRequest {
     pub team: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// `on` or `off` (KAIROS-T-0318). Another value is refused, and the
+    /// error names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_index_build: Option<CodeIndexBuild>,
+}
+
+/// Whether the code index builder works on a repository (KAIROS-T-0318).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeIndexBuild {
+    /// The builder makes the first index of the repository when it has
+    /// none, and updates the index after each push to the default branch.
+    #[default]
+    On,
+    /// The builder does nothing for the repository. An upload of an index
+    /// still works.
+    Off,
+}
+
+impl CodeIndexBuild {
+    /// The value on the wire: `on` or `off`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodeIndexBuild::On => "on",
+            CodeIndexBuild::Off => "off",
+        }
+    }
+
+    /// The value of `text`: `on` or `off`. `None` for another text.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "on" => Some(CodeIndexBuild::On),
+            "off" => Some(CodeIndexBuild::Off),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for CodeIndexBuild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// The status of the read token of a repository (COLLIERY-T-3105): what

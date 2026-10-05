@@ -9,6 +9,10 @@
 //! 4. The pool is shared.
 //! 5. A user with no right cannot upload.
 //!
+//! The first build (KAIROS-T-0318): a repository with no index gets a first
+//! build; a repository with `code_index_build = off` gets none; the setting
+//! refuses an unknown value; a first build does not stop the updates.
+//!
 //! Each index is a real `kairos-index` file of a small Python repository
 //! made by the test, built with the fake summarizer and the deterministic
 //! vectors (no model). The repository has no Rust, so no SCIP run.
@@ -35,14 +39,19 @@ use common::{
 };
 use kairos_client::Error;
 use kairos_client::types_org::{AddTeamMemberRequest, CreateTeamRequest};
-use kairos_client::types_repositories::CreateRepositoryRequest;
+use kairos_client::types_repositories::{
+    CodeIndexBuild, CreateRepositoryRequest, UpdateRepositoryRequest,
+};
 use kairos_db::models::{NewOrganizationMember, OrgRole};
 use kairos_db::schema::{organization_members, organizations, users};
 use kairos_db::{TenantPool, provision_tenant, run_public_migrations};
 use kairos_embed::{DeterministicProvider, EmbeddingProvider};
 use kairos_index::{FakeSummarizer, Index, Level, UpdateOptions};
 use kairos_server::app;
-use kairos_server::code_index::{CodeIndexService, FakeSummarizers, sweep};
+use kairos_server::code_index::{
+    CodeIndexService, FakeSummarizers, OPTED_OUT, SummarizerSource, first_builds, run_builder,
+    sweep,
+};
 use kairos_server::middleware::auth::Authenticator;
 
 fn user_id(conn: &mut PgConnection, email: &str) -> Uuid {
@@ -331,14 +340,19 @@ impl World {
         } else {
             None
         };
-        let remote = match &git_http {
-            Some(server) => format!("{}/payments-api/.git", server.base_url),
-            None => git.display().to_string(),
-        };
+        // Each repository is fetched from the folder of its slug in `work`
+        // (KAIROS-T-0318 has 2 repositories).
+        let http_base = git_http.as_ref().map(|server| server.base_url.clone());
+        let root = work.path().to_path_buf();
         let service = Arc::new(
             CodeIndexService::new(
                 work.path().join("clones"),
-                Arc::new(move |_: &kairos_db::models::repositories::Repository| remote.clone()),
+                Arc::new(
+                    move |repo: &kairos_db::models::repositories::Repository| match &http_base {
+                        Some(base) => format!("{base}/{}/.git", repo.slug),
+                        None => root.join(&repo.slug).display().to_string(),
+                    },
+                ),
             )
             .with_secrets_key(private.then(|| key.clone())),
         );
@@ -450,6 +464,23 @@ impl World {
             embedder,
         )
         .await
+    }
+
+    /// One pass of the first-build lane (KAIROS-T-0318).
+    async fn first_builds(&self) -> Vec<kairos_server::code_index::BuildOutcome> {
+        let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+        first_builds(
+            &self.state.blocking,
+            &self.service,
+            Arc::new(FakeSummarizers),
+            embedder,
+        )
+        .await
+    }
+
+    /// The folder of the git repositories of the world.
+    fn work(&self) -> &Path {
+        self._work.path()
     }
 }
 
@@ -825,4 +856,339 @@ async fn a_private_repository_is_fetched_with_the_stored_read_token() {
     assert!(note.starts_with("failed: git fetch failed"), "{note}");
     assert!(server.seen()[before..].iter().all(|s| s.user.is_none()));
     assert!(!note.contains(TOKEN));
+}
+
+// ===========================================================================
+// KAIROS-T-0318: the first index of a repository that has no index
+// ===========================================================================
+
+/// The `.db` files below `dir`.
+fn databases_below(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .flat_map(|entry| {
+            let path = entry.path();
+            if path.is_dir() {
+                databases_below(&path)
+            } else if path.extension().is_some_and(|e| e == "db") {
+                vec![path]
+            } else {
+                Vec::new()
+            }
+        })
+        .collect()
+}
+
+// Scenario: A repository with no index gets a first build (criteria 1, 4)
+#[tokio::test]
+async fn a_repository_with_no_index_gets_a_first_build() {
+    // Given a registered repository with commit A on main, and no index
+    let w = World::new("kairos_code_index_t0318_first").await;
+    let a = w.a.clone();
+    assert!(
+        w.alice
+            .list_code_indexes("payments-api")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // The update lane does not read it: it has no index.
+    assert!(w.sweep().await.is_empty());
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+
+    // Then Kairos has an index of the head of main, with no upload
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let outcome = &outcomes[0];
+    assert_eq!(outcome.repository, "payments-api");
+    assert_eq!(outcome.commit, a);
+    assert_eq!(outcome.base, None, "a first build has no base");
+    let report = outcome.report.as_ref().expect("a first build");
+    assert!(report.summary.symbols.summarized > 0, "{report:?}");
+    println!(
+        "first build of {}: {} files, {} symbols, {} symbol summaries in {:?}",
+        outcome.commit,
+        report.build.files,
+        report.build.symbols,
+        report.summary.symbols.summarized,
+        outcome.elapsed
+    );
+    let listed = w.alice.list_code_indexes("payments-api").await.unwrap();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0].commit, a);
+    assert_eq!(listed[0].source, "build");
+    assert_eq!(listed[0].r#ref.as_deref(), Some("main"));
+
+    // And the index is the index that a checkout of A builds
+    let built = w
+        .alice
+        .download_code_index("payments-api", &a)
+        .await
+        .expect("the index of A downloads");
+    assert_eq!(content_of(&built), content_of(&w.index(&a)));
+
+    // And the work database is removed after the store
+    let left = databases_below(&w.work().join("clones").join("first-builds"));
+    assert!(left.is_empty(), "{left:?}");
+
+    // And the next pass has nothing to do; the update lane follows the
+    // repository now
+    assert!(w.first_builds().await.is_empty());
+    let outcomes = w.sweep().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    assert_eq!(outcomes[0].note.as_deref(), Some("the head has an index"));
+}
+
+// Scenario: A repository that opted out gets no first build (criteria 3, 4)
+#[tokio::test]
+async fn a_repository_that_opted_out_gets_no_first_build() {
+    // Given a registered repository with no index
+    let w = World::new("kairos_code_index_t0318_opt_out").await;
+    let before = w.bob.get_repository("payments-api").await.unwrap();
+    assert_eq!(before.repository.code_index_build, CodeIndexBuild::On);
+
+    // When a member of the owner team sets code_index_build to off
+    let repo = w
+        .bob
+        .update_repository(
+            "payments-api",
+            &UpdateRepositoryRequest {
+                code_index_build: Some(CodeIndexBuild::Off),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("bob opts the repository out");
+    assert_eq!(repo.code_index_build, CodeIndexBuild::Off);
+    let read = w.alice.get_repository("payments-api").await.unwrap();
+    assert_eq!(read.repository.code_index_build, CodeIndexBuild::Off);
+
+    // Then the first-build lane does not build it, and says why
+    let outcomes = w.first_builds().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    assert!(outcomes[0].report.is_none());
+    assert_eq!(outcomes[0].note.as_deref(), Some(OPTED_OUT));
+    assert!(
+        w.alice
+            .list_code_indexes("payments-api")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // And no clone is made
+    assert!(!w.work().join("clones").join("clones").exists());
+
+    // And with an uploaded index, the update lane does not update it
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("an upload still works");
+    commit_b(&w.git);
+    let outcomes = w.sweep().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    assert_eq!(outcomes[0].note.as_deref(), Some(OPTED_OUT));
+
+    // When the setting is on again, the update lane updates the index
+    w.bob
+        .update_repository(
+            "payments-api",
+            &UpdateRepositoryRequest {
+                code_index_build: Some(CodeIndexBuild::On),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let outcomes = w.sweep().await;
+    assert!(outcomes[0].report.is_some(), "{outcomes:?}");
+}
+
+// Scenario: The setting refuses an unknown value and names it
+#[tokio::test]
+async fn the_opt_out_setting_refuses_an_unknown_value() {
+    let w = World::new("kairos_code_index_t0318_value").await;
+    // A text that is not on or off: 422, with the field and the value.
+    for value in ["maybe", "OFF", ""] {
+        let (status, body) = w
+            .bob
+            .raw_request(
+                reqwest::Method::PATCH,
+                "/api/repositories/payments-api",
+                Some(&serde_json::json!({ "code_index_build": value })),
+            )
+            .await
+            .unwrap();
+        let text = body.to_string();
+        println!("code_index_build = {value:?}: {status} {text}");
+        assert_eq!(status, 422, "{text}");
+        assert!(text.contains("code_index_build"), "{text}");
+        assert!(text.contains(&format!("`{value}`")), "{text}");
+    }
+    // A value that is not a text: refused, with the field. (serde_json
+    // classes this error as a syntax error, so the status is 400.)
+    let (status, body) = w
+        .bob
+        .raw_request(
+            reqwest::Method::PATCH,
+            "/api/repositories/payments-api",
+            Some(&serde_json::json!({ "code_index_build": true })),
+        )
+        .await
+        .unwrap();
+    println!("code_index_build = true: {status} {body}");
+    assert_eq!(status, 400, "{body}");
+    assert!(body.to_string().contains("code_index_build"), "{body}");
+    let repo = w.bob.get_repository("payments-api").await.unwrap();
+    assert_eq!(repo.repository.code_index_build, CodeIndexBuild::On);
+}
+
+/// The fake summarizer, with a delay for each request of a path that
+/// starts with `slow`, and a count of those requests. It makes a first
+/// build that takes some seconds.
+#[derive(Clone)]
+struct SlowSummarizers {
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    delay: std::time::Duration,
+}
+
+struct SlowSummarizer {
+    inner: FakeSummarizer,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    delay: std::time::Duration,
+}
+
+impl kairos_index::Summarizer for SlowSummarizer {
+    fn summarize(&mut self, request: &kairos_index::SummaryRequest) -> Result<String, String> {
+        if request.path.starts_with("slow") {
+            std::thread::sleep(self.delay);
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.inner.summarize(request)
+    }
+}
+
+impl SummarizerSource for SlowSummarizers {
+    fn run(
+        &self,
+        job: &mut dyn FnMut(
+            &mut dyn kairos_index::Summarizer,
+        )
+            -> Result<kairos_index::UpdateReport, kairos_index::IndexError>,
+    ) -> Result<kairos_index::UpdateReport, kairos_index::IndexError> {
+        job(&mut SlowSummarizer {
+            inner: FakeSummarizer::default(),
+            calls: Arc::clone(&self.calls),
+            delay: self.delay,
+        })
+    }
+}
+
+/// Wait for `check`, for `limit` at most.
+async fn wait_for<F, Fut>(limit: std::time::Duration, what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let started = std::time::Instant::now();
+    while !check().await {
+        assert!(started.elapsed() < limit, "no {what} after {limit:?}");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+// Scenario: A first build does not stop the updates (criterion 2)
+#[tokio::test]
+async fn a_first_build_does_not_stop_the_updates() {
+    // Given payments-api with an index of A, and big-lib with no index,
+    // whose first build takes some seconds
+    let w = World::new("kairos_code_index_t0318_lanes").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the index of A");
+    let big = w.work().join("big-lib");
+    std::fs::create_dir_all(&big).unwrap();
+    git(&big, &["init", "-q", "-b", "main"]);
+    const FUNCTIONS: usize = 60;
+    let code: String = (0..FUNCTIONS)
+        .map(|i| format!("def f{i}(x):\n    return x + {i}\n\n\n"))
+        .collect();
+    write(&big, "slow/__init__.py", "");
+    write(&big, "slow/lib.py", &code);
+    git(&big, &["add", "-A"]);
+    git(&big, &["commit", "-q", "-m", "big"]);
+    w.bob
+        .create_repository(&repository("big-lib"))
+        .await
+        .expect("big-lib");
+
+    // When the builder runs, with an interval of half a second
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let summarizers = SlowSummarizers {
+        calls: Arc::clone(&calls),
+        delay: std::time::Duration::from_millis(100),
+    };
+    let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+    let builder = tokio::spawn(run_builder(
+        w.state.blocking.clone(),
+        Arc::clone(&w.service),
+        Arc::new(summarizers),
+        embedder,
+        std::time::Duration::from_millis(500),
+    ));
+    let count = || calls.load(std::sync::atomic::Ordering::SeqCst);
+    wait_for(
+        std::time::Duration::from_secs(60),
+        "start of the first build of big-lib",
+        || async { count() > 0 },
+    )
+    .await;
+
+    // And commit B is pushed to payments-api while the first build runs
+    let b = commit_b(&w.git);
+    let pushed = std::time::Instant::now();
+
+    // Then the update lane indexes B before the first build ends
+    wait_for(std::time::Duration::from_secs(60), "index of B", || async {
+        w.alice
+            .list_code_indexes("payments-api")
+            .await
+            .unwrap()
+            .iter()
+            .any(|i| i.commit == b)
+    })
+    .await;
+    let done_at_b = count();
+    let big_at_b = w.alice.list_code_indexes("big-lib").await.unwrap();
+    println!(
+        "B indexed {:?} after the push; the first build of big-lib had {done_at_b} of about {} summaries",
+        pushed.elapsed(),
+        FUNCTIONS + 2
+    );
+    assert!(big_at_b.is_empty(), "the first build ended first");
+    assert!(done_at_b < FUNCTIONS, "{done_at_b}");
+
+    // And the first build of big-lib ends, with an index of its head
+    wait_for(
+        std::time::Duration::from_secs(120),
+        "index of big-lib",
+        || async {
+            !w.alice
+                .list_code_indexes("big-lib")
+                .await
+                .unwrap()
+                .is_empty()
+        },
+    )
+    .await;
+    let big_index = w.alice.list_code_indexes("big-lib").await.unwrap();
+    assert_eq!(big_index[0].source, "build");
+    assert!(count() >= FUNCTIONS);
+    builder.abort();
 }

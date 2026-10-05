@@ -732,25 +732,34 @@ pub async fn create_repository(
     .await
 }
 
+/// The fields of a `PATCH /api/repositories/{slug}`. `None` sends no field.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RepositoryEdit<'a> {
+    pub slug: Option<&'a str>,
+    pub repo_url: Option<&'a str>,
+    pub default_branch: Option<&'a str>,
+    pub team: Option<&'a str>,
+    pub description: Option<&'a str>,
+    /// `on` or `off` (KAIROS-T-0318).
+    pub code_index_build: Option<&'a str>,
+}
+
 /// `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes.
 /// A refusal keeps the field that the server names, for the form
 /// (COLLIERY-T-0267).
 pub async fn update_repository(
     auth: Auth,
     reference: &str,
-    slug: Option<&str>,
-    repo_url: Option<&str>,
-    default_branch: Option<&str>,
-    team: Option<&str>,
-    description: Option<&str>,
+    edit: RepositoryEdit<'_>,
 ) -> Result<Repository, Refusal> {
     let mut body = serde_json::Map::new();
     for (key, value) in [
-        ("slug", slug),
-        ("repo_url", repo_url),
-        ("default_branch", default_branch),
-        ("team", team),
-        ("description", description),
+        ("slug", edit.slug),
+        ("repo_url", edit.repo_url),
+        ("default_branch", edit.default_branch),
+        ("team", edit.team),
+        ("description", edit.description),
+        ("code_index_build", edit.code_index_build),
     ] {
         if let Some(value) = value {
             body.insert(key.to_string(), Value::String(value.to_string()));

@@ -732,7 +732,8 @@ After the row, the command prints the URL, the default branch and the webhook
 connection. It also prints the status of the read token (`read token:`). The
 status is
 `not set`, or who set the token, when, and the result of the last check. The
-command never prints the token. Then it prints three sections:
+command never prints the token. The line `index builder:` gives the setting
+`code_index_build` (`on` or `off`). Then it prints three sections:
 
 - the how-to-work-here description
 - the documents and the ADRs that impact the repository
@@ -785,6 +786,7 @@ kairos repos update <REPOSITORY> [OPTIONS]
 | `--default-branch <BRANCH>` | string | unchanged | New default branch. |
 | `--team <TEAM>` | slug or UUID | unchanged | New owning team. Re-homes the repository. |
 | `--description <DESCRIPTION>` | string | unchanged | New description. |
+| `--code-index-build <ON\|OFF>` | `on` or `off` | unchanged | With `off`, the code index builder makes no index of the repository. Another value is refused. See [The base code index](configuration.md#stop-the-builder-for-one-repository). |
 
 Same permission gate as `create`. The rules of `--repo-url` and
 `--default-branch` are those of `create`. They apply to a value that is

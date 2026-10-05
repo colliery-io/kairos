@@ -368,6 +368,7 @@ diesel::table! {
         deleted_at -> Nullable<Timestamptz>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        code_index_build -> Text,
     }
 }
 

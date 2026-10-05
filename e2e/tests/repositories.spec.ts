@@ -33,6 +33,8 @@
 //      webhook, showing the secret once
 //   7. the admin Repositories page sets the read token of a repository in a
 //      password field, shows who set it, and removes it (COLLIERY-T-3105)
+//   8. the admin Repositories page sets the code index builder of a
+//      repository off, and on again (KAIROS-T-0318)
 //
 // Conventions match the other specs: visible-text/role selectors plus the
 // stable `.kairos-*`/`.cl-*` classes and data-testid hooks, in-app
@@ -546,5 +548,27 @@ test('repositories: team panel → board lens → cross-team filing → any repo
       'Read token: not set.',
       { timeout: 10_000 },
     );
+  });
+
+  // 8. Admin page: the code index builder of a repository (KAIROS-T-0318) -----
+  await test.step('admin sets the code index builder of a repository off and on', async () => {
+    const notifier = `notifier-${RUN}`;
+    const row = () => page.locator(`[data-repo="${notifier}"]`).first();
+    const status = () => row().locator('[data-testid="code-index-build-status"]');
+    const builder = () =>
+      row().locator('.cl-field', { hasText: 'Code index builder' }).locator('select');
+    await expect(status()).toHaveText('Code index builder: on.');
+    for (const [value, text] of [
+      ['off', 'Code index builder: off. Kairos makes no index of this repository.'],
+      ['on', 'Code index builder: on.'],
+    ]) {
+      await row().getByRole('button', { name: 'Edit' }).click();
+      await builder().selectOption(value);
+      await row().getByRole('button', { name: 'Save' }).click();
+      await expect(page.getByText(`Kairos changed the repository "${notifier}".`)).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(status()).toHaveText(text, { timeout: 10_000 });
+    }
   });
 });

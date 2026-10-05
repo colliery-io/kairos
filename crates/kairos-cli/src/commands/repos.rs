@@ -106,6 +106,10 @@ pub enum ReposCommand {
         team: Option<String>,
         #[arg(long)]
         description: Option<String>,
+        /// Whether the code index builder works on the repository: on or
+        /// off. With off, the builder makes no index of it
+        #[arg(long = "code-index-build", value_name = "ON|OFF", value_parser = ["on", "off"])]
+        code_index_build: Option<String>,
         #[command(flatten)]
         common: Common,
     },
@@ -366,6 +370,7 @@ impl ReposCommand {
                     detail.connection_id.as_deref().unwrap_or("not connected")
                 );
                 println!("read token:     {}", detail.repository.credential.summary());
+                println!("index builder:  {}", detail.repository.code_index_build);
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");
@@ -438,6 +443,7 @@ impl ReposCommand {
                 default_branch,
                 team,
                 description,
+                code_index_build,
                 common,
             } => {
                 if slug.is_none()
@@ -445,13 +451,18 @@ impl ReposCommand {
                     && default_branch.is_none()
                     && team.is_none()
                     && description.is_none()
+                    && code_index_build.is_none()
                 {
                     return Err(CliError::Failure(
                         "The command has no change. Use --slug, --repo-url, --default-branch, \
-                         --team or --description."
+                         --team, --description or --code-index-build."
                             .to_string(),
                     ));
                 }
+                // clap accepts only on and off.
+                let code_index_build = code_index_build
+                    .as_deref()
+                    .and_then(kairos_client::types_repositories::CodeIndexBuild::parse);
                 let client = client(&common)?;
                 // COLLIERY-T-0267: a PATCH with the values of the
                 // repository changes nothing, and the response is a normal
@@ -466,6 +477,7 @@ impl ReposCommand {
                             default_branch,
                             team,
                             description,
+                            code_index_build,
                         },
                     )
                     .await?;

@@ -265,6 +265,12 @@ One indexed commit of a repository.
 | `updated_at` | `string` | yes | When the index was last written, RFC 3339. |
 | `vector_model` | `string`, nullable | no | The model of the vectors, as `provider/model/dimension`. |
 
+## CodeIndexBuild
+
+Whether the code index builder works on a repository (KAIROS-T-0318).
+
+One of: `on`, `off`
+
 ## CodeSequence
 
 The sequence of a prefix and a type (COLLIERY-T-3104).
@@ -1220,6 +1226,7 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild) | no | Whether the code index builder works on the repository (KAIROS-T-0318): `on` (the default) or `off`. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `credential` | [`RepositoryCredential`](schemas.md#repositorycredential) | no | The status of the read token of the repository (COLLIERY-T-3105). It never has the token. |
 | `default_branch` | `string` | yes |  |
@@ -1848,6 +1855,7 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild), nullable | no |  |
 | `default_branch` | `string`, nullable | no | The form is that of `default_branch` in `CreateRepositoryRequest`. |
 | `description` | `string`, nullable | no |  |
 | `repo_url` | `string`, nullable | no | The form is that of `repo_url` in `CreateRepositoryRequest`. |

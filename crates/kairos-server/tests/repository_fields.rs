@@ -437,7 +437,14 @@ async fn repository_fields_against_live_stack() {
     assert_eq!(status, 422, "{response}");
     assert_eq!(
         response["error"]["details"]["allowed"],
-        json!(["slug", "repo_url", "default_branch", "team", "description"]),
+        json!([
+            "slug",
+            "repo_url",
+            "default_branch",
+            "team",
+            "description",
+            "code_index_build"
+        ]),
         "{response}"
     );
 

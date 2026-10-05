@@ -518,6 +518,7 @@ mod tests {
             open_tasks: 0,
             has_webhook: false,
             credential: Default::default(),
+            code_index_build: "on".to_string(),
         }
     }
 

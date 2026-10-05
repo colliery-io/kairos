@@ -53,6 +53,27 @@ pub struct Repository {
     /// The status of the read token (COLLIERY-T-3105). Never the token.
     #[serde(default)]
     pub credential: RepositoryCredential,
+    /// `on` or `off` (KAIROS-T-0318): whether the code index builder
+    /// works on the repository.
+    #[serde(default = "code_index_build_on")]
+    pub code_index_build: String,
+}
+
+/// The default of [`Repository::code_index_build`]: an older server does not
+/// send it, and the builder works on each repository.
+fn code_index_build_on() -> String {
+    "on".to_string()
+}
+
+impl Repository {
+    /// The text of the setting `code_index_build` (KAIROS-T-0318).
+    pub fn code_index_build_summary(&self) -> &'static str {
+        if self.code_index_build == "off" {
+            "Code index builder: off. Kairos makes no index of this repository."
+        } else {
+            "Code index builder: on."
+        }
+    }
 }
 
 /// mirror of: `kairos_client::types_repositories::RepositoryCredential`:

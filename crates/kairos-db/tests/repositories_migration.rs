@@ -37,6 +37,11 @@ const REPOSITORIES_VERSION: &str = "20260922000000";
 const CREDENTIALS_DOWN_SQL: &str =
     include_str!("../migrations/tenant/2026-10-03-000001_repository_credentials/down.sql");
 const CREDENTIALS_VERSION: &str = "20261003000001";
+/// A later migration that adds a column to `repositories` (KAIROS-T-0318).
+/// The down.sql of `repositories` drops the table with the column, so this
+/// test forgets the migration too, and `migrate_all_tenants` applies it
+/// again.
+const CODE_INDEX_BUILD_VERSION: &str = "20261005000000";
 
 fn admin_database_url() -> String {
     std::env::var("DATABASE_URL").unwrap_or_else(|_| DEFAULT_DATABASE_URL.to_string())
@@ -88,6 +93,10 @@ fn revert_repositories_migration(conn: &mut PgConnection) {
         .bind::<Text, _>(CREDENTIALS_VERSION)
         .execute(conn)
         .expect("forgetting the repository_credentials migration");
+    sql_query("DELETE FROM org_acme.__diesel_schema_migrations WHERE version = $1")
+        .bind::<Text, _>(CODE_INDEX_BUILD_VERSION)
+        .execute(conn)
+        .expect("forgetting the repository_code_index_build migration");
     conn.batch_execute(DOWN_SQL).expect("running down.sql");
     let forgotten = sql_query("DELETE FROM org_acme.__diesel_schema_migrations WHERE version = $1")
         .bind::<Text, _>(REPOSITORIES_VERSION)
@@ -233,8 +242,8 @@ fn repositories_migration_on_populated_tables() {
     assert_eq!(outcomes.len(), 1);
     assert_eq!(
         outcomes[0].applied.len(),
-        2,
-        "exactly the repositories migration, and repository_credentials after it"
+        3,
+        "exactly the repositories migration, and the 2 migrations after it that use it"
     );
 
     let mut slugs = texts(
@@ -331,7 +340,7 @@ fn repositories_migration_on_populated_tables() {
     // ---- 4. up re-applies cleanly (re-runnability) -------------------------
     let outcomes = migrate_all_tenants(&mut conn).expect("re-applying up after down");
     // The repositories migration, and repository_credentials after it.
-    assert_eq!(outcomes[0].applied.len(), 2);
+    assert_eq!(outcomes[0].applied.len(), 3);
     assert_eq!(
         count(
             &mut conn,

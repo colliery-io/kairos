@@ -3,7 +3,7 @@
 Give the builder of the code index a read token, so that it can fetch a
 private repository.
 
-The builder fetches each indexed repository from its `repo_url`. A public
+The builder fetches each repository from its `repo_url`. A public
 repository needs no credential. A private repository needs a read token.
 Kairos keeps the token encrypted, and no command, page or tool shows it again.
 

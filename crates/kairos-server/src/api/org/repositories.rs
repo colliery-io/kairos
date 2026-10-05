@@ -286,10 +286,11 @@ pub(crate) fn change(
         && body.default_branch.is_none()
         && body.team.is_none()
         && body.description.is_none()
+        && body.code_index_build.is_none()
     {
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of slug, repo_url, \
-             default_branch, team and description.",
+             default_branch, team, description and code_index_build.",
         ));
     }
     let team_id = body
@@ -310,6 +311,10 @@ pub(crate) fn change(
         default_branch: different(body.default_branch, &current.default_branch),
         team_id,
         description: different(body.description, &current.description),
+        code_index_build: different(
+            body.code_index_build.map(|v| v.as_str().to_string()),
+            &current.code_index_build,
+        ),
         ..Default::default()
     };
     let changed: Vec<&'static str> = [
@@ -318,6 +323,7 @@ pub(crate) fn change(
         ("default_branch", changes.default_branch.is_some()),
         ("team", changes.team_id.is_some()),
         ("description", changes.description.is_some()),
+        ("code_index_build", changes.code_index_build.is_some()),
     ]
     .into_iter()
     .filter_map(|(name, changed)| changed.then_some(name))
@@ -406,6 +412,8 @@ pub(crate) fn render(
                 open_tasks,
                 has_webhook,
                 credential: crate::credentials::status_dto(credentials.get(&repo.id)),
+                code_index_build: dto::CodeIndexBuild::parse(&repo.code_index_build)
+                    .unwrap_or_default(),
                 created_at: repo.created_at.to_rfc3339(),
                 updated_at: repo.updated_at.to_rfc3339(),
             })

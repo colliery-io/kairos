@@ -608,6 +608,37 @@ mod tests {
         assert_eq!(env!("CARGO_PKG_NAME"), "kairos-cli");
     }
 
+    /// KAIROS-T-0318: `repos update --code-index-build` takes on and off
+    /// only, and the error names the refused value.
+    #[test]
+    fn repos_update_takes_on_or_off_for_the_code_index_builder() {
+        for value in ["on", "off"] {
+            let cli = Cli::try_parse_from([
+                "kairos",
+                "repos",
+                "update",
+                "site",
+                "--code-index-build",
+                value,
+            ])
+            .expect("on and off parse");
+            assert!(matches!(cli.command, Command::Repos(_)));
+        }
+        let err = Cli::try_parse_from([
+            "kairos",
+            "repos",
+            "update",
+            "site",
+            "--code-index-build",
+            "maybe",
+        ])
+        .err()
+        .expect("maybe is refused");
+        let text = err.to_string();
+        assert!(text.contains("maybe"), "{text}");
+        assert!(text.contains("--code-index-build"), "{text}");
+    }
+
     /// The clap surface parses per KAIROS-A-0015: login/logout/whoami with
     /// their documented flags.
     #[test]

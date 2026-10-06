@@ -126,6 +126,20 @@ pub struct BoardItemsResponse {
     /// no badge. The card renders what it is given.
     #[serde(default)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
+    /// The teams of each strategy and initiative, keyed by short code
+    /// (KAIROS-T-0321); absent for an item with no team.
+    #[serde(default)]
+    pub item_teams: std::collections::BTreeMap<String, Vec<ItemTeam>>,
+}
+
+/// mirror of: `kairos_client::types_org::ItemTeam` (KAIROS-T-0321): one
+/// team of an initiative or a strategy, from its tasks or set by hand.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct ItemTeam {
+    pub slug: String,
+    pub name: String,
+    pub from_tasks: bool,
+    pub set_by_hand: bool,
 }
 
 /// mirror of: `kairos_client::types_org::BlocksCounts` (KAIROS-T-0091).
@@ -213,6 +227,7 @@ impl BoardItemsResponse {
         }
         self.children_progress.extend(page.children_progress);
         self.blocks_summary.extend(page.blocks_summary);
+        self.item_teams.extend(page.item_teams);
         self.total = page.total;
     }
 }

@@ -25,6 +25,7 @@ mod editor;
 pub(crate) mod markdown;
 mod metadata;
 mod owner;
+mod teams;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
@@ -47,6 +48,7 @@ use delete::DeleteDialog;
 use editor::ContentEditor;
 use metadata::MetadataPanel;
 use owner::{ImpactsPanel, OwnerBoardPanel};
+use teams::TeamsPanel;
 // The dialog of a repository gives a document to a board with the rule of
 // the owner panel (COLLIERY-T-0269).
 pub(crate) use owner::owner_board_targets;
@@ -248,6 +250,7 @@ fn ItemLoaded(
     let created_by = item.created_by.clone();
     let editorial_archived = item.lifecycle.as_deref() == Some("archived");
     let impacts_creator = item.created_by.clone();
+    let teams_creator = item.created_by.clone();
     let ItemDetail {
         short_code,
         title,
@@ -362,6 +365,11 @@ fn ItemLoaded(
                 {matches!(family, Family::Document | Family::Adr).then(|| view! {
                     <ImpactsPanel family code=short_code.clone() impacts board
                         created_by=impacts_creator archived on_moved/>
+                })}
+                // KAIROS-T-0322: the teams of an initiative or a strategy.
+                {matches!(family, Family::Strategy | Family::Initiative).then(|| view! {
+                    <TeamsPanel family code=short_code.clone() board
+                        created_by=teams_creator archived/>
                 })}
                 {lifecycle.map(|current| view! {
                     <LifecyclePanel code=short_code.clone() current archived on_moved/>

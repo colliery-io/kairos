@@ -828,6 +828,64 @@ pub async fn remove_impact(
     Ok(())
 }
 
+/// mirror of: `kairos_client::types_org::ItemTeamsResponse`
+/// (KAIROS-T-0321).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct ItemTeams {
+    pub short_code: String,
+    pub teams: Vec<crate::pages::boards::data::ItemTeam>,
+}
+
+/// `GET /api/{family}/{short_code}/teams` — the teams of an initiative or
+/// a strategy: from its tasks and set by hand (KAIROS-T-0321).
+pub async fn fetch_item_teams(
+    auth: Auth,
+    family: Family,
+    code: &str,
+) -> Result<ItemTeams, ApiError> {
+    crate::api::get_json(auth, &format!("/api/{}/{code}/teams", family.api_family())).await
+}
+
+/// Body of `POST /api/{family}/{short_code}/teams` (mirror of:
+/// `kairos_client::types_org::SetItemTeamRequest`).
+#[derive(Debug, Serialize)]
+struct SetItemTeamBody<'a> {
+    team: &'a str,
+}
+
+/// `POST /api/{family}/{short_code}/teams` — set a team on an initiative
+/// or a strategy by hand (KAIROS-T-0321).
+pub async fn set_item_team(
+    auth: Auth,
+    family: Family,
+    code: &str,
+    team: &str,
+) -> Result<crate::pages::boards::data::ItemTeam, ApiError> {
+    crate::api::post_json(
+        auth,
+        &format!("/api/{}/{code}/teams", family.api_family()),
+        &SetItemTeamBody { team },
+    )
+    .await
+}
+
+/// `DELETE /api/{family}/{short_code}/teams/{team}` — clear a team that
+/// is set by hand (KAIROS-T-0321).
+pub async fn clear_item_team(
+    auth: Auth,
+    family: Family,
+    code: &str,
+    team: &str,
+) -> Result<(), ApiError> {
+    let path = format!(
+        "/api/{}/{code}/teams/{}",
+        family.api_family(),
+        crate::api::encode_component(team)
+    );
+    let _: serde_json::Value = send_json(auth, Verb::Delete, &path, None::<&()>).await?;
+    Ok(())
+}
+
 /// Body of `POST /api/tasks/{short_code}/move` (mirror of:
 /// `kairos_client::types::MoveTaskRequest`) — the target board by slug or
 /// UUID.

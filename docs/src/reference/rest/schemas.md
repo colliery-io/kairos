@@ -189,6 +189,7 @@ Response of `GET /api/boards/{id}/items`: one page of the items on the board, gr
 | `board` | [`Board`](schemas.md#board) | yes |  |
 | `children_progress` | `object` | yes | `(done, total)` direct-children counts keyed by the PARENT item's short code, for every item on this board that has children (KAIROS-T-0080) — computed in one grouped query, never per item. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). It is an empty map when no item has children. The default is for the client only. |
 | `columns` | array of [`BoardColumnItems`](schemas.md#boardcolumnitems) | yes |  |
+| `item_teams` | `object` | yes | The teams of each strategy and initiative of the page, keyed by short code (KAIROS-T-0321), by slug — one query for the board. An item with no team has no entry. The server sends it in each response, so the schema shows it as required. It is an empty map when no item has a team. The default is for the client only. |
 | `limit` | `integer` | yes | The `limit` that the server applied. |
 | `offset` | `integer` | yes | The `offset` that the server applied. |
 | `total` | `integer` | yes | The number of items on the board after the filters, on all pages (COLLIERY-T-0261). The default is for the client only: a response of an older server has no `total`, and it has each item. |
@@ -249,6 +250,15 @@ Response of `GET /api/{entity_type}/{short_code}/children-progress` (KAIROS-T-00
 | `has_done_columns` | `boolean` | yes | False when no board hosting the children has a done-flagged column — show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done_columns`, and it reads as `false`. |
 | `short_code` | `string` | yes | The parent item's short code. |
 | `total` | `integer` | yes | Direct live children (soft-deleted excluded; supports/informs material never counts). |
+
+## ClearedItemTeamResponse
+
+Response of `DELETE /api/{entity_type}/{short_code}/teams/{team}` (KAIROS-T-0321).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The short code of the item. |
+| `team` | `string` | yes | The slug of the team that is not set on the item by hand now. |
 
 ## CodeIndex
 
@@ -842,6 +852,26 @@ Response of `GET /api/{entity_type}/{short_code}/relationships`: both directions
 | `incoming` | array of [`RelationshipGroup`](schemas.md#relationshipgroup) | yes | Edges where the item is the TARGET (the neighbor is the source, e.g. its parent via `parent`, items blocking it via `blocks`). |
 | `outgoing` | array of [`RelationshipGroup`](schemas.md#relationshipgroup) | yes | Edges where the item is the SOURCE (the neighbor is the target, e.g. children via `parent`, items it blocks via `blocks`). |
 | `short_code` | `string` | yes | The item the relationships belong to. |
+
+## ItemTeam
+
+One team of an initiative or a strategy (KAIROS-T-0321). The item gets the team from its tasks, or a person sets it by hand, or both. A task gives the team of its board. A strategy reads two levels down. A team gives no right on the item.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `from_tasks` | `boolean` | yes | The item gets the team from its tasks. |
+| `name` | `string` | yes | The name of the team. |
+| `set_by_hand` | `boolean` | yes | The team is set on the item by hand. |
+| `slug` | `string` | yes | The slug of the team. |
+
+## ItemTeamsResponse
+
+Response of `GET /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The short code of the item. |
+| `teams` | array of [`ItemTeam`](schemas.md#itemteam) | yes | The teams of the item, by slug. Empty when the item has no team. |
 
 ## ListEnvelope_ActivityEntry
 
@@ -1486,6 +1516,16 @@ Body of `PATCH /api/documents/{short_code}/board` (COLLIERY-T-0269): change the 
 |---|---|---|---|
 | `board` | `string` | yes | The new owner board (slug or UUID). An absent or null value reads as empty, so that the server gives the refusal that names `board`. |
 | `rename` | `boolean` | no | COLLIERY-T-3101 (default `false`): the document also gets the next code of its new owner board. Kairos retires the old code and changes the references to it one time. A rename needs a new board. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## SetItemTeamRequest
+
+Body of `POST /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321): the team to set on the item by hand.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `team` | `string` | yes | A live team of the organization, by slug or UUID. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 

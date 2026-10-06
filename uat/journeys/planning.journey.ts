@@ -73,6 +73,18 @@ journey(
       return { short_code: initiative, parent: strategy, linked_via: 'Manage links panel' };
     });
 
+    // KAIROS-T-0321: the team is known before the work is divided.
+    await step(alice, 'names the platform team on the initiative over MCP before it has tasks', async () => {
+      const mcp = await alice.mcp();
+      const before = await mcp.call('get_item', { short_code: initiative });
+      expect(before).toContain('- teams: none');
+      const set = await mcp.call('set_team', { short_code: initiative, team: 'platform' });
+      expect(set).toBe(`Set the team platform on ${initiative} by hand.`);
+      const after = await mcp.call('get_item', { short_code: initiative });
+      expect(after).toContain('- teams: platform (set by hand)');
+      return { short_code: initiative, teams: 'platform (set by hand)' };
+    });
+
     await step(alice, 'decomposes it from the CLI into two platform tasks, one bound to payments-api, the other blocking it', async () => {
       const cli = await alice.cli();
       const api = await alice.api();
@@ -89,6 +101,20 @@ journey(
       expect(t1.board_id).toBe(platform.id);
       expect(t1.repository?.slug).toBe('payments-api');
       return { bound_task: bound, blocker_task: blocker, board: 'platform-delivery', edges: 'parent ×2 (API), blocks (API)' };
+    });
+
+    await step(alice, 'sees the platform team come from the tasks too, then clears the hand-set one over MCP', async () => {
+      const mcp = await alice.mcp();
+      const both = await mcp.call('get_item', { short_code: initiative });
+      expect(both).toContain('- teams: platform (from tasks, set by hand)');
+      const listed = await mcp.call('board_items', { board: 'initiatives', team: 'platform' });
+      expect(listed).toContain(`- ${initiative} [initiative]`);
+      expect(listed).toContain('[teams: platform]');
+      const cleared = await mcp.call('clear_team', { short_code: initiative, team: 'platform' });
+      expect(cleared).toBe(`Cleared the team platform set by hand on ${initiative}.`);
+      const after = await mcp.call('get_item', { short_code: initiative });
+      expect(after).toContain('- teams: platform (from tasks)');
+      return { short_code: initiative, teams: 'platform (from tasks)' };
     });
 
     await step(alice, 'opens the initiative and reads the 0-of-2 progress bar', async () => {

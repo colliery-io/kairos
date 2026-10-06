@@ -222,6 +222,64 @@ list keeps the edge: only the counts on the board change.
 | `200` | [`ItemRelationshipsResponse`](schemas.md#itemrelationshipsresponse) | Both directions, grouped by relationship type |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
 
+### `GET /api/{entity_type}/{short_code}/teams`
+
+The teams of an initiative or a strategy, by slug. Each person in the
+tenant can read them. They come from its tasks, and by hand.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (initiatives|strategies) |
+| `short_code` | path | yes | `string` | Item short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ItemTeamsResponse`](schemas.md#itemteamsresponse) | The teams of the item, by slug |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not an initiative and not a strategy |
+
+### `POST /api/{entity_type}/{short_code}/teams`
+
+Set a team on an initiative or a strategy by hand, for example before
+it has tasks. The team stays when tasks come.
+
+The edit rule of the item applies. The caller needs no right on the
+team. The team gives no right on the item.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (initiatives|strategies) |
+| `short_code` | path | yes | `string` | Item short code |
+
+Request body (required): `application/json`, [`SetItemTeamRequest`](schemas.md#setitemteamrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `201` | [`ItemTeam`](schemas.md#itemteam) | Team set (relationship_add activity row written) |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller cannot edit the item |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not an initiative and not a strategy. ALREADY_LINKED: the team is set already. VALIDATION: no live team has that slug or id |
+
+### `DELETE /api/{entity_type}/{short_code}/teams/{team}`
+
+Clear a team that is set on an initiative or a strategy by hand. A team
+that the item gets from its tasks stays.
+
+The edit rule of the item applies. The team can be archived.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `entity_type` | path | yes | `string` | Plural family name (initiatives|strategies) |
+| `short_code` | path | yes | `string` | Item short code |
+| `team` | path | yes | `string` | Team slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ClearedItemTeamResponse`](schemas.md#cleareditemteamresponse) | Team cleared (relationship_remove activity row written) |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller cannot edit the item |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown family or short code, or the team is not set on the item by hand |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | RELATIONSHIP_RULE: the item is not an initiative and not a strategy |
+
 ## metadata
 
 ### `GET /api/{entity_type}/{short_code}/metadata`

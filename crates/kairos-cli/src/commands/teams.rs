@@ -2,10 +2,11 @@
 //! creating a team also creates its delivery board, KAIROS-A-0002).
 
 use kairos_client::types_org::{
-    AddTeamMemberRequest, CreateTeamRequest, Team, TeamMember, UpdateTeamRequest,
+    AddTeamMemberRequest, CreateTeamRequest, ItemTeam, Team, TeamMember, UpdateTeamRequest,
 };
 
 use crate::commands::entities::{ListArgs, require_confirm};
+use crate::commands::repos::family_of;
 use crate::context::{Common, client, print_json};
 use crate::error::CliError;
 use crate::table::Table;
@@ -71,6 +72,45 @@ pub enum TeamsCommand {
     /// Team membership
     #[command(subcommand)]
     Members(TeamMembersCommand),
+    /// Show the teams of an initiative or a strategy: the teams of the
+    /// boards of its tasks (two levels down for a strategy), and the teams
+    /// set on it by hand
+    Of {
+        /// Short code of the initiative or of the strategy
+        short_code: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Set a team on an initiative or a strategy by hand, for example
+    /// before it has tasks. The team stays when tasks come. You must be
+    /// able to edit the item
+    Set {
+        /// Short code of the initiative or of the strategy
+        short_code: String,
+        /// Team slug (or UUID)
+        team: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Clear a team that is set on an initiative or a strategy by hand. A
+    /// team from its tasks stays
+    Clear {
+        /// Short code of the initiative or of the strategy
+        short_code: String,
+        /// Team slug (or UUID)
+        team: String,
+        #[command(flatten)]
+        common: Common,
+    },
+}
+
+/// How an item has a team (KAIROS-T-0321).
+fn team_source(team: &ItemTeam) -> &'static str {
+    match (team.from_tasks, team.set_by_hand) {
+        (true, true) => "from tasks, set by hand",
+        (true, false) => "from tasks",
+        _ => "set by hand",
+    }
 }
 
 /// Membership of one team.
@@ -239,6 +279,62 @@ impl TeamsCommand {
                 Ok(())
             }
             Self::Members(command) => command.run().await,
+            Self::Of { short_code, common } => {
+                let kind = family_of(&short_code)?;
+                let client = client(&common)?;
+                let response = client.item_teams(kind, &short_code).await?;
+                if common.json {
+                    return print_json(&response);
+                }
+                if response.teams.is_empty() {
+                    println!(
+                        "{short_code} has no team: no task on a team board, and no team set \
+                         by hand."
+                    );
+                    return Ok(());
+                }
+                let mut table = Table::new(&["SLUG", "NAME", "SOURCE"]);
+                for team in &response.teams {
+                    table.row(vec![
+                        team.slug.clone(),
+                        team.name.clone(),
+                        team_source(team).to_string(),
+                    ]);
+                }
+                print!("{}", table.render());
+                Ok(())
+            }
+            Self::Set {
+                short_code,
+                team,
+                common,
+            } => {
+                let kind = family_of(&short_code)?;
+                let client = client(&common)?;
+                let set = client.set_item_team(kind, &short_code, &team).await?;
+                if common.json {
+                    return print_json(&set);
+                }
+                println!("Kairos set the team {} on {short_code} by hand.", set.slug);
+                Ok(())
+            }
+            Self::Clear {
+                short_code,
+                team,
+                common,
+            } => {
+                let kind = family_of(&short_code)?;
+                let client = client(&common)?;
+                let cleared = client.clear_item_team(kind, &short_code, &team).await?;
+                if common.json {
+                    return print_json(&cleared);
+                }
+                println!(
+                    "Kairos cleared the team {} that was set on {short_code} by hand.",
+                    cleared.team
+                );
+                Ok(())
+            }
         }
     }
 }

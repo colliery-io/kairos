@@ -479,8 +479,12 @@ kairos boards show <BOARD> [OPTIONS]
 | `<BOARD>` | slug or UUID | required | Board to show. |
 | `--limit <LIMIT>` | integer | server default 200, maximum 1000 | Page size. |
 | `--offset <OFFSET>` | integer | 0 | Items to skip. |
+| `--team <TEAM>` | slug or UUID | all | Show only the strategies and the initiatives of this team, from tasks or set by hand. Tasks and ADRs do not change. Do not use with `--no-team`. |
+| `--no-team` | flag | off | Show only the strategies and the initiatives that have no team. |
 
-Shows one page of the board's live items grouped by column. Archived items are
+Shows one page of the board's live items grouped by column. A strategy or an
+initiative that has teams shows them after its title, for example
+`[teams: skadi, weir]`. Archived items are
 not shown and there is no flag to include them. The last lines give the total,
 and they tell you when the page is a part of the board:
 
@@ -627,6 +631,60 @@ kairos teams members remove <TEAM_ID> --user <USER_ID> [OPTIONS]
 |---|---|---|---|
 | `<TEAM_ID>` | UUID | required | The team. |
 | `--user <USER_ID>` | UUID | required on `add` and `remove` | User id, from `kairos members list`. |
+
+### `kairos teams of`
+
+```
+kairos teams of <SHORT_CODE> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The initiative or the strategy. |
+
+Shows the teams of an initiative or a strategy, with the source of each team:
+`from tasks`, `set by hand`, or both. An initiative gets the team of the board
+of each live task below it. A strategy gets the teams of its initiatives, two
+levels down. An item with no team prints one line that says so. See
+[the teams of an initiative or a strategy](../explanation/teams-and-boards.md#the-teams-of-an-initiative-or-a-strategy).
+
+### `kairos teams set`
+
+```
+kairos teams set <SHORT_CODE> <TEAM> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The initiative or the strategy. |
+| `<TEAM>` | slug or UUID | required | A live team. |
+
+Sets a team on an initiative or a strategy by hand, for example before it has
+tasks. The team stays when tasks come. The caller must be able to edit the
+item. The command prints this line:
+
+```text
+Kairos set the team weir on ACME-I-0003 by hand.
+```
+
+The server refuses a task, a document and an ADR with 422
+`RELATIONSHIP_RULE`. It refuses a team that is set already with 422
+`ALREADY_LINKED`.
+
+### `kairos teams clear`
+
+```
+kairos teams clear <SHORT_CODE> <TEAM> [OPTIONS]
+```
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The initiative or the strategy. |
+| `<TEAM>` | slug or UUID | required | A team that is set on the item by hand. It can be archived. |
+
+Clears a team that is set on the item by hand. A team that the item gets from
+its tasks stays. The server refuses a team that is not set by hand with 404.
+When the item gets that team from its tasks, the message says so.
 
 ### `kairos streams list`
 

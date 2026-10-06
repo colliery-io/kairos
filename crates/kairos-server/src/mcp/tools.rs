@@ -144,6 +144,12 @@ pub struct BoardItemsParams {
     /// The number of items to skip (default 0). The result says which
     /// offset gives the next part of the board.
     pub offset: Option<i64>,
+    /// Restrict the STRATEGIES and the INITIATIVES to those of this team
+    /// (slug or UUID), from tasks or set by hand. Not with `no_team`.
+    pub team: Option<String>,
+    /// Restrict the STRATEGIES and the INITIATIVES to those with no team.
+    /// Not with `team`.
+    pub no_team: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -405,6 +411,18 @@ pub struct SetRepositoryParams {
     /// UUID. It can be any live repository, of any team. To clear the link,
     /// omit this argument, or send null or an empty string.
     pub repository: Option<String>,
+}
+
+/// Parameters for `set_team` and `clear_team` (KAIROS-T-0321).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ItemTeamParams {
+    /// The short code of the initiative or the strategy (e.g.
+    /// "ACME-I-0012").
+    pub short_code: String,
+    /// The team, by slug (e.g. "payments") or UUID.
+    pub team: String,
 }
 
 /// Parameters for `add_repository` (COLLIERY-T-0266). The names are those
@@ -923,7 +941,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. A strategy or an initiative with teams is tagged [teams: a, b]: the teams of the boards of its tasks (two levels down for a strategy), plus the teams set on it by hand (`set_team`). Optional `team` (slug or UUID) restricts the strategies and the initiatives to those of one team, and `no_team: true` to those with no team. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
     )]
     pub async fn board_items(
         &self,
@@ -955,6 +973,12 @@ impl KairosMcp {
                         .map_err(crate::api::tasks::map_repository_error)
                 })
                 .transpose()?;
+            // KAIROS-T-0321: the team filter, the rule of the REST route.
+            let team_filter = crate::api::meta::item_teams::team_filter(
+                conn,
+                params.team.as_deref(),
+                params.no_team.unwrap_or(false),
+            )?;
             // COLLIERY-T-0261: one page of the board. The filters apply
             // before the page, and the order is that of the REST route.
             let limit = params
@@ -970,6 +994,7 @@ impl KairosMcp {
                     column_ids: &column_ids,
                     include_archived: liveness == Liveness::IncludeArchived,
                     repository_id: repository,
+                    team: team_filter,
                 },
                 limit,
                 offset,
@@ -985,6 +1010,7 @@ impl KairosMcp {
             items.sort_by_key(|item| place.get(&item.id).copied().unwrap_or(usize::MAX));
             let filtered = params.column.is_some()
                 || params.repository.is_some()
+                || team_filter.is_some()
                 || liveness == Liveness::IncludeArchived;
             let subject = if filtered {
                 format!(
@@ -1013,6 +1039,10 @@ impl KairosMcp {
             // work does not block and is not blocked.
             let item_ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
             let blocks = graph::blocks_summary(conn, &item_ids).map_err(ApiError::internal)?;
+            // KAIROS-T-0321: the teams of the strategies and the
+            // initiatives, one query for the board.
+            let teams =
+                kairos_db::item_teams::board_teams(conn, board.id).map_err(ApiError::internal)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -1041,13 +1071,24 @@ impl KairosMcp {
                     // tell put-away work from live work will pick one up
                     // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}{}{}\n",
+                        "- {} [{}] {}{}{}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
                         item.repository_id
                             .and_then(|id| repo_slugs.get(&id))
                             .map(|slug| format!(" [repo:{slug}]"))
+                            .unwrap_or_default(),
+                        teams
+                            .get(&item.id)
+                            .map(|teams| format!(
+                                " [teams: {}]",
+                                teams
+                                    .iter()
+                                    .map(|t| t.slug.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ))
                             .unwrap_or_default(),
                         blocks
                             .get(&item.id)
@@ -1063,7 +1104,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code."
     )]
     pub async fn get_item(
         &self,
@@ -1178,8 +1219,11 @@ impl KairosMcp {
             // COLLIERY-T-0269: the repositories that the item impacts are
             // in the same section as its edges.
             let impacts = impacts_line(conn, &item)?;
-            if !relationships.is_empty() || !impacts.is_empty() {
+            // KAIROS-T-0321: the teams of an initiative or a strategy.
+            let teams = teams_line(conn, &item)?;
+            if !relationships.is_empty() || !impacts.is_empty() || !teams.is_empty() {
                 out.push_str("\n## Relationships\n");
+                out.push_str(&teams);
                 out.push_str(&relationships);
                 out.push_str(&impacts);
             }
@@ -1690,6 +1734,67 @@ impl KairosMcp {
                     updated.short_code
                 ),
             })
+        })
+        .await
+    }
+
+    // KAIROS-T-0321: set and clear a team of an initiative or a strategy by
+    // hand. Tools of their own, as `set_repository`: a link is not content,
+    // and it must not fail on a stale version. The rules are those of
+    // `POST` and `DELETE /api/{entity_type}/{short_code}/teams`: the two
+    // call one function (`crate::api::meta::item_teams`).
+    #[tool(
+        description = "Set a team on an INITIATIVE or a STRATEGY by hand, for example before it is divided into tasks. An item gets its teams from its tasks (the team of the board of each task, two levels down for a strategy); a team set by hand is added to those, and it stays when tasks come. `team` is a slug or UUID of a live team. `get_item` shows the teams. A team gives no right on the item. You can set it on an item that you created, or with `manage_<type>` on its board. The tool refuses a task, a document and an ADR."
+    )]
+    pub async fn set_team(
+        &self,
+        Parameters(params): Parameters<ItemTeamParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            let team = crate::api::meta::item_teams::add(
+                conn,
+                &slug,
+                user,
+                (item.id, item.item_type),
+                &params.team,
+            )?;
+            Ok(format!(
+                "Set the team {} on {} by hand.",
+                team.slug, item.short_code
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Clear a team that is set on an INITIATIVE or a STRATEGY by hand (`set_team`). A team that the item gets from its tasks stays: to remove it, move or archive those tasks. `team` is a slug or UUID; the team can be archived. You can clear it on an item that you created, or with `manage_<type>` on its board."
+    )]
+    pub async fn clear_team(
+        &self,
+        Parameters(params): Parameters<ItemTeamParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            let team = crate::api::meta::item_teams::remove(
+                conn,
+                &slug,
+                user,
+                (item.id, item.item_type),
+                &params.team,
+            )?;
+            Ok(format!(
+                "Cleared the team {team} set by hand on {}.",
+                item.short_code
+            ))
         })
         .await
     }
@@ -2918,6 +3023,30 @@ fn owner_board_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, 
 /// The line `- impacts: ...` of a document or of an ADR for `get_item`
 /// (COLLIERY-T-0269), or an empty string. A link to an archived
 /// repository is in the line, marked.
+/// The teams of an initiative or a strategy (KAIROS-T-0321): one line,
+/// also when the item has no team, so that an agent does not guess.
+fn teams_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiError> {
+    if !kairos_db::item_teams::is_subject(item.item_type) {
+        return Ok(String::new());
+    }
+    let teams = kairos_db::item_teams::teams_of(conn, item.id).map_err(ApiError::internal)?;
+    if teams.is_empty() {
+        return Ok("- teams: none (no task on a team board, and no team set by hand)\n".into());
+    }
+    let entries: Vec<String> = teams
+        .into_iter()
+        .map(|team| {
+            let how = match (team.from_tasks, team.set_by_hand) {
+                (true, true) => "from tasks, set by hand",
+                (true, false) => "from tasks",
+                _ => "set by hand",
+            };
+            format!("{} ({how})", team.slug)
+        })
+        .collect();
+    Ok(format!("- teams: {}\n", entries.join("; ")))
+}
+
 fn impacts_line(conn: &mut PgConnection, item: &ItemView) -> Result<String, ApiError> {
     if !kairos_db::impacts::is_subject(item.item_type) {
         return Ok(String::new());

@@ -59,6 +59,19 @@ pub struct BoardItemFilter<'a> {
     /// Narrow the TASKS to those of this repository (KAIROS-T-0104). The
     /// other types are unaffected.
     pub repository_id: Option<Uuid>,
+    /// Narrow the STRATEGIES and the INITIATIVES by their teams
+    /// (KAIROS-T-0321, [`crate::item_teams`]). The tasks and the ADRs are
+    /// unaffected.
+    pub team: Option<TeamFilter>,
+}
+
+/// The team filter of a board (KAIROS-T-0321).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TeamFilter {
+    /// The items that have this team, from tasks or set by hand.
+    Team(Uuid),
+    /// The items that have no team.
+    NoTeam,
 }
 
 /// One page of the cards of a board.
@@ -86,15 +99,20 @@ struct CountRow {
 
 /// The cards of the four tables that pass the filters. `$1` is the board,
 /// `$2` is "include the archived cards", `$3` is the repository of the
-/// tasks (or NULL), and `$4` is the list of the columns.
+/// tasks (or NULL), and `$4` is the list of the columns. `$5` is a list of
+/// strategies and initiatives (or NULL for no team filter), and `$6` says
+/// if the filter keeps the items of the list (`true`) or the other items
+/// (`false`).
 const CARDS_SQL: &str = "\
     SELECT card.kind, card.id, card.short_code, c.position, c.id AS column_id \
     FROM ( \
         SELECT 0::smallint AS kind, id, short_code, column_id FROM strategies \
          WHERE board_id = $1 AND ($2 OR deleted_at IS NULL) \
+           AND ($5::uuid[] IS NULL OR (id = ANY($5)) = $6) \
         UNION ALL \
         SELECT 1::smallint, id, short_code, column_id FROM initiatives \
          WHERE board_id = $1 AND ($2 OR deleted_at IS NULL) \
+           AND ($5::uuid[] IS NULL OR (id = ANY($5)) = $6) \
         UNION ALL \
         SELECT 2::smallint, id, short_code, column_id FROM tasks \
          WHERE board_id = $1 AND ($2 OR deleted_at IS NULL) \
@@ -107,29 +125,52 @@ const CARDS_SQL: &str = "\
     WHERE card.column_id = ANY($4)";
 
 /// One page of the cards of a board: 2 queries (the count and the ids of
-/// the page), for a board of each size.
+/// the page), for a board of each size, and 1 more with a team filter.
 pub fn board_item_page(
     conn: &mut PgConnection,
     filter: &BoardItemFilter<'_>,
     limit: i64,
     offset: i64,
 ) -> Result<BoardItemPage, DieselError> {
+    // The team filter: the items of the board that have the team (or any
+    // team), then keep them or the others. One query for the board.
+    let (team_items, keep): (Option<Vec<Uuid>>, bool) = match filter.team {
+        None => (None, true),
+        Some(team) => {
+            let teams = crate::item_teams::board_teams(conn, filter.board_id)?;
+            let with = |wanted: &dyn Fn(&crate::item_teams::ItemTeam) -> bool| -> Vec<Uuid> {
+                teams
+                    .iter()
+                    .filter(|(_, item_teams)| item_teams.iter().any(wanted))
+                    .map(|(id, _)| *id)
+                    .collect()
+            };
+            match team {
+                TeamFilter::Team(team_id) => (Some(with(&|t| t.team_id == team_id)), true),
+                TeamFilter::NoTeam => (Some(with(&|_| true)), false),
+            }
+        }
+    };
     let total = sql_query(format!("SELECT COUNT(*) AS count FROM ({CARDS_SQL}) cards"))
         .bind::<SqlUuid, _>(filter.board_id)
         .bind::<Bool, _>(filter.include_archived)
         .bind::<Nullable<SqlUuid>, _>(filter.repository_id)
         .bind::<Array<SqlUuid>, _>(filter.column_ids)
+        .bind::<Nullable<Array<SqlUuid>>, _>(team_items.as_deref())
+        .bind::<Bool, _>(keep)
         .get_result::<CountRow>(conn)?
         .count;
     let rows: Vec<CardRow> = sql_query(format!(
         "SELECT kind, id FROM ({CARDS_SQL}) cards \
          ORDER BY position, column_id, kind, short_code, id \
-         LIMIT $5 OFFSET $6"
+         LIMIT $7 OFFSET $8"
     ))
     .bind::<SqlUuid, _>(filter.board_id)
     .bind::<Bool, _>(filter.include_archived)
     .bind::<Nullable<SqlUuid>, _>(filter.repository_id)
     .bind::<Array<SqlUuid>, _>(filter.column_ids)
+    .bind::<Nullable<Array<SqlUuid>>, _>(team_items.as_deref())
+    .bind::<Bool, _>(keep)
     .bind::<BigInt, _>(limit)
     .bind::<BigInt, _>(offset)
     .load(conn)?;

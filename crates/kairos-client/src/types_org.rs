@@ -238,6 +238,59 @@ pub struct BoardItemsQuery {
     /// The number of items to skip (default 0).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
+    /// Narrow the STRATEGIES and the INITIATIVES to those of this team
+    /// (slug or UUID), from tasks or set by hand (KAIROS-T-0321). Tasks
+    /// and ADRs are unaffected. Unknown team → 422. Not with `no_team`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// Narrow the STRATEGIES and the INITIATIVES to those with no team
+    /// (KAIROS-T-0321). Tasks and ADRs are unaffected. Not with `team`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_team: bool,
+}
+
+/// One team of an initiative or a strategy (KAIROS-T-0321). The item gets
+/// the team from its tasks, or a person sets it by hand, or both. A task
+/// gives the team of its board. A strategy reads two levels down. A team
+/// gives no right on the item.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ItemTeam {
+    /// The slug of the team.
+    pub slug: String,
+    /// The name of the team.
+    pub name: String,
+    /// The item gets the team from its tasks.
+    pub from_tasks: bool,
+    /// The team is set on the item by hand.
+    pub set_by_hand: bool,
+}
+
+/// Response of `GET /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ItemTeamsResponse {
+    /// The short code of the item.
+    pub short_code: String,
+    /// The teams of the item, by slug. Empty when the item has no team.
+    pub teams: Vec<ItemTeam>,
+}
+
+/// Body of `POST /api/{entity_type}/{short_code}/teams` (KAIROS-T-0321):
+/// the team to set on the item by hand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetItemTeamRequest {
+    /// A live team of the organization, by slug or UUID.
+    pub team: String,
+}
+
+/// Response of `DELETE /api/{entity_type}/{short_code}/teams/{team}`
+/// (KAIROS-T-0321).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ClearedItemTeamResponse {
+    /// The short code of the item.
+    pub short_code: String,
+    /// The slug of the team that is not set on the item by hand now.
+    pub team: String,
 }
 
 /// Response of `GET /api/boards/{id}/items`: one page of the items on the
@@ -288,6 +341,16 @@ pub struct BoardItemsResponse {
     #[serde(default)]
     #[schema(required = true)]
     pub blocks_summary: std::collections::BTreeMap<String, BlocksCounts>,
+    /// The teams of each strategy and initiative of the page, keyed by
+    /// short code (KAIROS-T-0321), by slug — one query for the board. An
+    /// item with no team has no entry.
+    ///
+    /// The server sends it in each response, so the schema shows it as
+    /// required. It is an empty map when no item has a team. The default
+    /// is for the client only.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub item_teams: std::collections::BTreeMap<String, Vec<ItemTeam>>,
 }
 
 impl BoardItemsResponse {
@@ -321,6 +384,7 @@ impl BoardItemsResponse {
         }
         self.children_progress.extend(page.children_progress);
         self.blocks_summary.extend(page.blocks_summary);
+        self.item_teams.extend(page.item_teams);
         self.total = page.total;
     }
 

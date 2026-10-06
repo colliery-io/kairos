@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-three tools. A drift gate in the test suite
-asserts that `tools/list` returns these twenty-three and no others. The same
+twenty-five tools. A drift gate in the test suite
+asserts that `tools/list` returns these twenty-five and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -281,9 +281,12 @@ The items on a board, grouped by column: short code, type and title.
 | `include_deleted` | boolean | no | `false` | Add archived cards back, each marked `[archived]`, in the column they were put away in. Columns that have since been removed appear only when this is true, and only carrying archived cards. |
 | `limit` | integer | no | `200` | The number of items in the result. The maximum is 1000. Kairos changes a larger value to 1000. |
 | `offset` | integer | no | `0` | The number of items to skip. |
+| `team` | string | no | all | Narrow the strategies and the initiatives to those of this team, from tasks or set by hand. Slug or UUID. Tasks and ADRs do not change. Do not send with `no_team`. |
+| `no_team` | boolean | no | `false` | Narrow the strategies and the initiatives to those with no team. Do not send with `team`. |
 
 The result has 200 items at most by default. The filters (`column`,
-`repository`, `include_deleted`) apply before `limit` and `offset`. The order of
+`repository`, `team`, `no_team`, `include_deleted`) apply before `limit` and
+`offset`. The order of
 the items is: the position of the column, then the type, then the short code.
 The order of the types is: strategy, initiative, task, ADR.
 
@@ -299,6 +302,9 @@ result, the number after the name of a column is the count for that result.
 A removed column can be named as `column` only while `include_deleted` is
 true; otherwise it is not among the board's columns and is refused as unknown.
 
+A strategy or an initiative that has teams carries `[teams: a, b]`, with the
+slugs of the teams. See [the teams of an item](#the-teams-of-an-initiative-or-a-strategy).
+
 A card with dependencies that count carries `[blocked by N]`, `[blocks N]`, or
 both. A `blocks` edge does not count when the item at either end is in a done
 column. It does not count when the item at the other end has the `[archived]`
@@ -306,7 +312,8 @@ mark. A card in a done column carries neither tag.
 
 Refuses: `NOT_FOUND` for an unknown or archived board; `VALIDATION` for a
 `column` that is not on that board, and the refusal lists the board's columns,
-and for an unknown `repository`.
+for an unknown `repository`, for an unknown `team`, and for `team` with
+`no_team`.
 
 ### `get_item`
 
@@ -328,6 +335,15 @@ not live.
 
 ```text
 - impacts: repository fidius (github colliery-io/fidius); repository old-lib (github acme/old-lib) [archived]
+```
+
+An initiative or a strategy has the line `teams` in the section of the
+relationships. Each team shows where it comes from. An item with no team has
+the line too:
+
+```text
+- teams: skadi (from tasks); weir (set by hand); kairos (from tasks, set by hand)
+- teams: none (no task on a team board, and no team set by hand)
 ```
 
 Archived items are returned, marked with the instant they were put away. The
@@ -646,6 +662,62 @@ that sets the repository that the task already has is a success.
 Refuses: `NOT_FOUND` for an unknown short code or an archived task.
 `VALIDATION` when the item is not a task, and for an unknown `repository`.
 `FORBIDDEN` when the edit rule refuses the caller.
+
+### The teams of an initiative or a strategy
+
+An initiative or a strategy has two sources of teams. These are its tasks,
+and the teams that are set on it by hand:
+
+- An initiative gets the team of the board of each live task below it.
+- A strategy gets the teams of the live initiatives below it. It reaches the
+  tasks two levels down.
+- A team set by hand stays when tasks come.
+- An archived task, initiative, board or team gives no team.
+
+A team gives no right on the item. Use `set_team` before the item has tasks.
+
+### `set_team`
+
+Sets a team on an initiative or a strategy by hand.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The short code of the initiative or the strategy. |
+| `team` | string | yes | — | Slug or UUID of a live team. |
+
+The edit rule applies. The caller created the item, or holds
+`manage_initiatives` or `manage_strategies` on its board, or is an
+organization admin. The caller needs no right on the team.
+
+The result is one line:
+
+```text
+Set the team weir on ACME-I-0003 by hand.
+```
+
+Refuses: `NOT_FOUND` for an unknown short code or an archived item.
+`RELATIONSHIP_RULE` when the item is not an initiative and not a strategy.
+`VALIDATION` for an unknown team. `ALREADY_LINKED` when the team is set
+already. `FORBIDDEN` when the edit rule refuses the caller.
+
+### `clear_team`
+
+Clears a team that is set on an initiative or a strategy by hand. A team that
+the item gets from its tasks stays. To remove that team, move or archive the
+tasks.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The short code of the initiative or the strategy. |
+| `team` | string | yes | — | Slug or UUID. The team can be archived. |
+
+The edit rule applies, as for `set_team`.
+
+Refuses: `NOT_FOUND` for an unknown short code or an archived item.
+`NOT_FOUND` for a team that is not set on the item by hand. When the item gets the team from its
+tasks, the refusal says so. `RELATIONSHIP_RULE` when the item is not an
+initiative and not a strategy. `FORBIDDEN` when the edit rule refuses the
+caller.
 
 ## Moving work
 

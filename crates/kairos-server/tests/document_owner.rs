@@ -2448,7 +2448,7 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     // =======================================================================
     let listed = svc_mcp.rpc("tools/list", json!({})).await;
     let tools = listed["tools"].as_array().cloned().unwrap_or_default();
-    checks.same("H1: the number of tools", tools.len(), 23);
+    checks.same("H1: the number of tools", tools.len(), 25);
     let schema_of = |name: &str| -> Value {
         tools
             .iter()

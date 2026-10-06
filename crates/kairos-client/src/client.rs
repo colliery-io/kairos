@@ -1159,6 +1159,46 @@ impl KairosClient {
         .await
     }
 
+    /// `GET /api/{family}/{short_code}/teams` — the teams of an initiative
+    /// or a strategy: from its tasks and set by hand (KAIROS-T-0321).
+    pub async fn item_teams(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+    ) -> Result<crate::types_org::ItemTeamsResponse, Error> {
+        self.get(&format!("/api/{kind}/{short_code}/teams")).await
+    }
+
+    /// `POST /api/{family}/{short_code}/teams` — set a team (slug or UUID)
+    /// on an initiative or a strategy by hand (KAIROS-T-0321). The edit
+    /// rule of the item applies.
+    pub async fn set_item_team(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+        team: &str,
+    ) -> Result<crate::types_org::ItemTeam, Error> {
+        self.post_created(
+            &format!("/api/{kind}/{short_code}/teams"),
+            &crate::types_org::SetItemTeamRequest {
+                team: team.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// `DELETE /api/{family}/{short_code}/teams/{team}` — clear a team that
+    /// is set on an initiative or a strategy by hand (KAIROS-T-0321).
+    pub async fn clear_item_team(
+        &self,
+        kind: EntityKind,
+        short_code: &str,
+        team: &str,
+    ) -> Result<crate::types_org::ClearedItemTeamResponse, Error> {
+        self.delete(&format!("/api/{kind}/{short_code}/teams/{team}"))
+            .await
+    }
+
     /// `GET /api/{family}/{short_code}/impacts` — the repositories that a
     /// document or an ADR impacts (COLLIERY-T-0269).
     pub async fn item_impacts(

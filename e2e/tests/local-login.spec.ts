@@ -93,20 +93,60 @@ test('local login: the form signs in with a password and reaches a board', async
   await expect(page.getByLabel('Email')).toBeVisible();
 });
 
-test('local login: a session does not survive a reload', async ({ page }) => {
-  // Deliberate, and worth a test so nobody "fixes" it by writing the bearer into
-  // storage. Per KAIROS-A-0015 the SPA holds its token in memory, and a session bearer
-  // IS the credential — unlike the refresh token KAIROS-T-0071 stashes, which can only
-  // be redeemed at the issuer. The cost is this reload; the alternative is a working
-  // API credential sitting in browser storage.
+test('local login: the session survives a reload and a new tab, and logout ends it', async ({
+  page,
+  context,
+}) => {
+  // KAIROS-T-0327 (the 2026-10-06 amendment of KAIROS-A-0015). A password session
+  // is also an HttpOnly cookie, so a reload or a new tab keeps it. No script of the
+  // page can read the cookie, and no token is written into browser storage.
   await page.goto('/login');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByLabel('Password').press('Enter');
   await expect(page.getByRole('link', { name: 'Boards', exact: true })).toBeVisible();
 
+  // --- the cookie: HttpOnly, Strict, and invisible to the page -------------
+  const cookie = (await context.cookies()).find((c) => c.name === 'kairos_session');
+  expect(cookie, 'the login sets the session cookie').toBeTruthy();
+  expect(cookie!.httpOnly).toBe(true);
+  expect(cookie!.secure).toBe(true);
+  expect(cookie!.sameSite).toBe('Strict');
+  expect(cookie!.path).toBe('/');
+  expect(await page.evaluate(() => document.cookie)).not.toContain('kairos_session');
+  const stored = await page.evaluate(() =>
+    JSON.stringify({ ...window.localStorage, ...window.sessionStorage }),
+  );
+  expect(stored, 'no session token in browser storage').not.toContain('kairos_ss_');
+
+  // --- a reload of a board keeps the session -------------------------------
+  await page.getByRole('link', { name: 'Boards', exact: true }).click();
+  await page.getByRole('link', { name: /Platform Delivery/ }).first().click();
+  await expect(page.locator('section.kairos-board__column').first()).toBeVisible();
   await page.reload();
-  // Back to a sign-in prompt rather than into the app. On this deployment the guard
-  // redirects to the issuer, because it HAS one — either way the session is gone.
+  await expect(page.locator('section.kairos-board__column').first()).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page).toHaveURL(/\/boards\/platform-delivery/);
+  await expect(page.locator('.cl-appshell__header').getByText('alice')).toBeVisible();
+
+  // --- a new tab is signed in too ------------------------------------------
+  const tab = await context.newPage();
+  await tab.goto('/boards');
+  await expect(tab.getByRole('link', { name: 'Boards', exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(tab.locator('.kairos-board-grid').first()).toBeVisible();
+  await tab.close();
+
+  // --- logout ends the session on the server and clears the cookie ---------
+  const loggedOut = page.waitForResponse(
+    (r) => r.url().endsWith('/api/logout') && r.request().method() === 'POST',
+  );
+  await page.locator('.cl-appshell__header').getByRole('button', { name: 'Log out' }).click();
+  expect((await loggedOut).status()).toBe(204);
+  await expect(page).toHaveURL(/\/login$/);
+  expect((await context.cookies()).find((c) => c.name === 'kairos_session')).toBeUndefined();
+  await page.reload();
   await expect(page.getByRole('link', { name: 'Boards', exact: true })).toBeHidden();
 });

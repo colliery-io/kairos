@@ -564,7 +564,36 @@ pub async fn require_auth(
     mut req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let token = bearer_token(&req)?.to_string();
+    let token = match bearer_token(&req) {
+        Ok(token) => token.to_string(),
+        Err(missing) => {
+            // KAIROS-T-0327: no `Authorization` header — the GUI after a
+            // reload sends the HttpOnly session cookie of a password login.
+            // A bearer always wins, so this branch never meets the CLI, an
+            // agent or an API key.
+            let Some(cookie) = crate::session_cookie::token(req.headers())
+                .filter(|t| crate::local_auth::is_session_token(t))
+            else {
+                return Err(missing.into());
+            };
+            if crate::session_cookie::needs_origin_check(req.method(), req.headers())
+                && !crate::session_cookie::from_kairos_origin(
+                    req.headers(),
+                    state.config.public_url.as_deref(),
+                    state.config.trusted_proxy,
+                )
+            {
+                return Err(ApiError::forbidden(
+                    "The request has the session cookie, but it does not come from the \
+                     Kairos page. Send the request from Kairos, or send the session as a \
+                     bearer.",
+                ));
+            }
+            let auth = crate::login::authenticate_session(&state, &cookie).await?;
+            req.extensions_mut().insert(auth);
+            return Ok(next.run(req).await);
+        }
+    };
 
     // Service-account API key (KAIROS-T-0058): resolves to a user principal +
     // its tenant, with the same AuthContext shape as the OIDC path.

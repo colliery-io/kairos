@@ -51,6 +51,8 @@ pub const CONFIG_PATH: &str = "/api/config";
 /// The local password-login endpoint (KAIROS-T-0203). Present only on deployments
 /// with `KAIROS_LOCAL_AUTH` on, which `AuthConfig::local_auth` reports.
 pub const LOGIN_PATH: &str = "/api/login";
+/// The logout endpoint of a password session (KAIROS-T-0327).
+const LOGOUT_PATH: &str = "/api/logout";
 
 /// Scopes requested at login. `offline_access` asks the issuer for a
 /// refresh token (silent refresh); the rest feed JIT provisioning (A-0010).
@@ -187,21 +189,17 @@ pub struct Auth {
 /// KAIROS-T-0071), a silent restore starts immediately; the guard waits on
 /// [`Auth::restoring`] before deciding anyone is unauthenticated.
 pub fn provide_auth() -> Auth {
-    let has_stored_refresh = session_storage()
-        .ok()
-        .and_then(|s| s.get_item(KEY_REFRESH).ok().flatten())
-        .is_some();
+    // KAIROS-T-0327: each start restores — the stored refresh token of an
+    // SSO session, or else the HttpOnly cookie of a password session.
     let auth = Auth {
         session: RwSignal::new(None),
         config: RwSignal::new(None),
         signed_out: RwSignal::new(false),
-        restoring: RwSignal::new(has_stored_refresh),
+        restoring: RwSignal::new(true),
         generation: StoredValue::new(0),
     };
     provide_context(auth);
-    if has_stored_refresh {
-        leptos::task::spawn_local(async move { restore_session(auth).await });
-    }
+    leptos::task::spawn_local(async move { restore_session(auth).await });
     auth
 }
 
@@ -217,7 +215,31 @@ async fn restore_session(auth: Auth) {
     if let Some(refresh_token) = stored {
         auth.refresh_with(&refresh_token).await;
     }
+    if !auth.session.with_untracked(Option::is_some) && cookie_session_is_live().await {
+        auth.install_cookie_session();
+    }
     auth.restoring.set(false);
+}
+
+/// KAIROS-T-0327 (the 2026-10-06 amendment of KAIROS-A-0015): does the
+/// browser hold the HttpOnly session cookie of a password login? Ask
+/// `whoami` with NO `Authorization` header; the browser sends the cookie
+/// (same origin). The page never reads the cookie — it cannot.
+async fn cookie_session_is_live() -> bool {
+    gloo_net::http::Request::get("/api/whoami")
+        .send()
+        .await
+        .is_ok_and(|response| response.ok())
+}
+
+/// `POST /api/logout`: end the password session on the server and clear
+/// its cookie (KAIROS-T-0327). Best-effort: the page logs out either way.
+async fn end_server_session(token: Option<String>) {
+    let mut request = gloo_net::http::Request::post(LOGOUT_PATH);
+    if let Some(token) = token.filter(|t| !t.is_empty()) {
+        request = request.header("authorization", &format!("Bearer {token}"));
+    }
+    let _ = request.send().await;
 }
 
 /// The app-root [`Auth`] (panics outside the app tree — a bug by
@@ -256,10 +278,35 @@ impl Auth {
     /// shell reacts by redirecting to `/login` (see [`Self::signed_out`]);
     /// scheduled refreshes for the old session become no-ops.
     pub fn logout(&self) {
+        // KAIROS-T-0327: a password session also ends on the server, and
+        // its cookie goes; else a reload would sign straight back in.
+        // A password session: the cookie (no token in memory) or a
+        // `kairos_ss_` bearer. An SSO session has neither.
+        let token = self
+            .session
+            .with_untracked(|s| s.as_ref().map(|s| s.access_token.clone()));
+        if token
+            .as_deref()
+            .is_some_and(|t| t.is_empty() || t.starts_with("kairos_ss_"))
+        {
+            leptos::task::spawn_local(end_server_session(token));
+        }
         self.generation.update_value(|g| *g += 1);
         clear_stored_refresh();
         self.signed_out.set(true);
         self.session.set(None);
+    }
+
+    /// A session whose credential is the HttpOnly cookie (KAIROS-T-0327):
+    /// no token in memory, so each request goes without `Authorization` and
+    /// the browser sends the cookie. Nothing to refresh.
+    fn install_cookie_session(&self) {
+        self.generation.update_value(|g| *g += 1);
+        self.signed_out.set(false);
+        self.session.set(Some(Session {
+            access_token: String::new(),
+            refresh_token: None,
+        }));
     }
 
     /// Drop the session WITHOUT marking an explicit sign-out (refresh

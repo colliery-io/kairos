@@ -94,9 +94,14 @@ Kairos stores your users' passwords. Everything below follows from that sentence
 - **No reset email.** There is no mail subsystem, deliberately. A forgotten password
   is recovered by an org admin, or by an operator with database access. That is
   workable for ten people and unworkable for two hundred.
-- **Sessions that do not survive a reload.** The browser holds the bearer in memory
-  only, so reloading the page means logging in again. That is the cost of not
-  writing a working API credential into browser storage.
+- **A session cookie.** A password session lives for its lifetime
+  (`KAIROS_SESSION_TTL_SECS`, a fortnight by default) in an `HttpOnly`, `Secure`,
+  `SameSite=Strict` cookie, so a reload or a new tab keeps it. No script of the page
+  can read the cookie, so an injected script cannot take the credential away. A
+  request that changes something with the cookie must come from the Kairos page
+  itself, and logout ends the session on the server. The cookie needs HTTPS: on
+  plain HTTP to a host that is not `localhost`, the browser does not keep it, and a
+  reload logs you out again.
 
 ### The line
 

@@ -30,6 +30,7 @@ pub mod metrics;
 pub mod middleware;
 pub mod rate_limit;
 pub mod secrets;
+pub mod session_cookie;
 pub mod ws;
 
 pub mod mcp;

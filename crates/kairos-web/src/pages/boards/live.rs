@@ -140,12 +140,18 @@ fn subscribe(
 /// The `ws(s)://…/ws/events?access_token=…` URL for the current origin.
 /// Browser WS clients cannot set the Authorization header — the query
 /// parameter is the documented fallback (docs/src/reference/events.md).
+/// A cookie session (KAIROS-T-0327) has no token in memory: the handshake
+/// then carries the HttpOnly session cookie, and the URL has no parameter.
 fn events_url(token: &str) -> Option<String> {
     let location = web_sys::window()?.location();
     let protocol = location.protocol().ok()?;
     let host = location.host().ok()?;
     let scheme = if protocol == "https:" { "wss" } else { "ws" };
-    Some(format!("{scheme}://{host}/ws/events?access_token={token}"))
+    Some(if token.is_empty() {
+        format!("{scheme}://{host}/ws/events")
+    } else {
+        format!("{scheme}://{host}/ws/events?access_token={token}")
+    })
 }
 
 /// Open one connection attempt and register its handlers.

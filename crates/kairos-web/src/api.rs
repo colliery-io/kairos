@@ -40,7 +40,9 @@ use crate::auth::Auth;
 pub async fn get_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::get(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request.send().await.map_err(|_| ApiError::Network)?;
@@ -166,7 +168,9 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
 ) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::post(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request
@@ -189,7 +193,9 @@ pub async fn post_json<B: Serialize, T: DeserializeOwned>(
 pub async fn post_empty<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::post(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request.send().await.map_err(|_| ApiError::Network)?;
@@ -205,7 +211,9 @@ pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
 ) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::patch(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request
@@ -229,7 +237,9 @@ pub async fn put_json<B: Serialize, T: DeserializeOwned>(
 ) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::put(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request
@@ -249,7 +259,9 @@ pub async fn put_json<B: Serialize, T: DeserializeOwned>(
 pub async fn delete_json<T: DeserializeOwned>(auth: Auth, path: &str) -> Result<T, ApiError> {
     let token = auth.token();
     let mut request = gloo_net::http::Request::delete(path);
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request.send().await.map_err(|_| ApiError::Network)?;
@@ -352,7 +364,9 @@ async fn write_json_refusal<B: Serialize, T: DeserializeOwned>(
     body: &B,
 ) -> Result<T, Refusal> {
     let token = auth.token();
-    if let Some(token) = &token {
+    // KAIROS-T-0327: a cookie session has no token in memory; the browser
+    // sends the HttpOnly cookie.
+    if let Some(token) = token.as_deref().filter(|t| !t.is_empty()) {
         request = request.header("authorization", &format!("Bearer {token}"));
     }
     let response = request

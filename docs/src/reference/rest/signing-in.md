@@ -17,6 +17,11 @@ Present the returned token as `Authorization: Bearer <token>`. It is returned
 exactly once; only its hash is stored. Failed attempts are throttled per account
 and per source address.
 
+The response also sets the session as the cookie `kairos_session`: `HttpOnly`,
+`Secure`, `SameSite=Strict`, `Path=/`, for the lifetime of the session. The GUI
+uses the cookie, so a reload keeps the session. A request with the cookie and no
+bearer that changes something must come from the Kairos page (its `Origin`).
+
 Request body (required): `application/json`, [`LoginRequest`](schemas.md#loginrequest)
 
 | Response | Body | Meaning |
@@ -27,7 +32,10 @@ Request body (required): `application/json`, [`LoginRequest`](schemas.md#loginre
 
 ### `POST /api/logout`
 
-`POST /api/logout` — revoke the presented session.
+`POST /api/logout` — revoke the presented session, and clear the session cookie.
+
+The session is the bearer, or else the cookie `kairos_session`. A logout with the
+cookie must come from the Kairos page (its `Origin`).
 
 Outside the auth stack, and 204 whatever happens: a caller logging out with a
 token that has already expired has got what they wanted, and telling them the

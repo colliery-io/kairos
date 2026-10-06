@@ -113,6 +113,11 @@ fn bad_session() -> ApiError {
 /// Present the returned token as `Authorization: Bearer <token>`. It is returned
 /// exactly once; only its hash is stored. Failed attempts are throttled per account
 /// and per source address.
+///
+/// The response also sets the session as the cookie `kairos_session`: `HttpOnly`,
+/// `Secure`, `SameSite=Strict`, `Path=/`, for the lifetime of the session. The GUI
+/// uses the cookie, so a reload keeps the session. A request with the cookie and no
+/// bearer that changes something must come from the Kairos page (its `Origin`).
 //
 // NOTE, and it is not a doc comment on purpose: the rustdoc above is PUBLISHED. It
 // becomes `docs/src/reference/rest/signing-in.md` through the OpenAPI spec, so
@@ -206,7 +211,15 @@ pub async fn login(State(state): State<AppState>, req: Request) -> Result<Respon
     match outcome {
         Ok(response) => {
             attempt.succeeded();
-            Ok((StatusCode::OK, Json(response)).into_response())
+            // KAIROS-T-0327: the session is also an HttpOnly cookie, so that
+            // a reload of the GUI keeps it (crate::session_cookie).
+            let cookie = crate::session_cookie::set(&response.token, state.config.session_ttl_secs);
+            Ok((
+                StatusCode::OK,
+                [(axum::http::header::SET_COOKIE, cookie)],
+                Json(response),
+            )
+                .into_response())
         }
         Err(e) => {
             // Only a rejected credential counts against the throttle. A 500 from a
@@ -220,7 +233,10 @@ pub async fn login(State(state): State<AppState>, req: Request) -> Result<Respon
     }
 }
 
-/// `POST /api/logout` — revoke the presented session.
+/// `POST /api/logout` — revoke the presented session, and clear the session cookie.
+///
+/// The session is the bearer, or else the cookie `kairos_session`. A logout with the
+/// cookie must come from the Kairos page (its `Origin`).
 ///
 /// Outside the auth stack, and 204 whatever happens: a caller logging out with a
 /// token that has already expired has got what they wanted, and telling them the
@@ -231,14 +247,35 @@ pub async fn login(State(state): State<AppState>, req: Request) -> Result<Respon
     tag = "auth",
     responses((status = 204, description = "The session is revoked, or was not one")),
 )]
-pub async fn logout(State(state): State<AppState>, req: Request) -> Result<StatusCode, ApiError> {
-    let token = req
+pub async fn logout(State(state): State<AppState>, req: Request) -> Result<Response, ApiError> {
+    let bearer = req
         .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or_default()
-        .to_string();
+        .map(str::to_string);
+    // KAIROS-T-0327: the GUI logs out with the session cookie. A logout
+    // with the cookie must come from the Kairos page, as each change does
+    // (crate::session_cookie).
+    let token = match bearer {
+        Some(token) => token,
+        None => {
+            let cookie = crate::session_cookie::token(req.headers()).unwrap_or_default();
+            if !cookie.is_empty()
+                && !crate::session_cookie::from_kairos_origin(
+                    req.headers(),
+                    state.config.public_url.as_deref(),
+                    state.config.trusted_proxy,
+                )
+            {
+                return Err(ApiError::forbidden(
+                    "The request has the session cookie, but it does not come from the \
+                     Kairos page.",
+                ));
+            }
+            cookie
+        }
+    };
 
     if parse_session_token(&token).is_some() {
         let hash = hash_session_token(&token);
@@ -250,7 +287,15 @@ pub async fn logout(State(state): State<AppState>, req: Request) -> Result<Statu
             })
             .await?;
     }
-    Ok(StatusCode::NO_CONTENT)
+    // Clear the cookie in each case: a logout leaves no session behind.
+    Ok((
+        StatusCode::NO_CONTENT,
+        [(
+            axum::http::header::SET_COOKIE,
+            crate::session_cookie::clear(),
+        )],
+    )
+        .into_response())
 }
 
 /// Authenticate a session bearer, for `require_auth`'s third branch.

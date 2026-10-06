@@ -237,6 +237,8 @@ test('requests: a member who does not manage a delivery board sends a request to
       .click();
     await carol.waitForURL(new RegExp(`/items/${plain}`));
     const editor = carol.locator('.kairos-editor');
+    // KAIROS-T-0323: the page opens in Preview; Edit gives the form.
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(editor.locator('textarea.kairos-editor__textarea')).toBeVisible();
     await field(editor, 'Title').locator('input').fill(editedTitle);
     await editor.getByRole('button', { name: 'Save' }).click();

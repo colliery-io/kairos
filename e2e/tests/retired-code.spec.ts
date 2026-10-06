@@ -105,7 +105,8 @@ test('a move with rename retires the old code, and its item page goes to the cur
     await expect(notice).toContainText(
       `The code ${oldCode} is retired. The current code of this item is ${newCode}.`,
     );
-    await expect(page.getByRole('textbox', { name: 'Content' })).toHaveValue(
+    // KAIROS-T-0323: the page opens in Preview: the content is rendered.
+    await expect(page.locator('.kairos-editor .kairos-markdown')).toContainText(
       'The old code still finds me.',
     );
     await expect(page.getByText(newCode, { exact: true }).first()).toBeVisible();
@@ -113,7 +114,8 @@ test('a move with rename retires the old code, and its item page goes to the cur
 
   await test.step('the page of the current code shows no notice', async () => {
     await page.goto(`/items/${newCode}`);
-    await expect(page.getByRole('textbox', { name: 'Content' })).toHaveValue(
+    // KAIROS-T-0323: the page opens in Preview: the content is rendered.
+    await expect(page.locator('.kairos-editor .kairos-markdown')).toContainText(
       'The old code still finds me.',
     );
     await expect(page.locator('[data-testid="retired-code-notice"]')).toHaveCount(0);

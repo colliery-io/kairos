@@ -51,6 +51,11 @@ const TOOLBAR: &[(&str, &str, &str, &str, &str)] = &[
 /// The editable content panel. Recreated (with fresh server state) when
 /// the page refetches after a successful save — the parent owns that
 /// refetch via `on_saved`.
+/// The first mode of the editor (KAIROS-T-0323).
+fn initial_mode(start_in_preview: bool) -> &'static str {
+    if start_in_preview { "Preview" } else { "Edit" }
+}
+
 #[component]
 pub fn MarkdownEditor(
     #[prop(into)] initial_title: String,
@@ -71,6 +76,10 @@ pub fn MarkdownEditor(
     on_saved: Callback<i32>,
     /// The domain's versioned save call.
     saver: Saver,
+    /// Open in Preview instead of Edit (KAIROS-T-0323): a page that people
+    /// read more than they change, such as the page of an item.
+    #[prop(optional)]
+    start_in_preview: bool,
 ) -> impl IntoView {
     // Draft + baseline (baseline moves on take-theirs so the dirty check
     // stays honest).
@@ -82,7 +91,7 @@ pub fn MarkdownEditor(
     // every save; rebased by the merge dialog's outcomes).
     let base_version = RwSignal::new(initial_version);
 
-    let mode = RwSignal::new("Edit".to_string());
+    let mode = RwSignal::new(initial_mode(start_in_preview).to_string());
     let saving = RwSignal::new(false);
     let error = RwSignal::new(None::<String>);
     // Some = the merge dialog is open on this server-current snapshot.
@@ -349,5 +358,18 @@ pub fn MarkdownEditor(
                 </SimpleGrid>
             })}
         </Modal>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// KAIROS-T-0323: the page of an item opens in Preview; the other
+    /// editors open in Edit, as before.
+    #[test]
+    fn the_editor_opens_in_preview_only_when_asked() {
+        assert_eq!(initial_mode(true), "Preview");
+        assert_eq!(initial_mode(false), "Edit");
     }
 }

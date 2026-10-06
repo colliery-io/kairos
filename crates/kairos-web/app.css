@@ -356,6 +356,71 @@ html {
   padding: 0;
 }
 
+/* KAIROS-T-0324: gherkin fences (highlighted in Rust, markdown.rs). */
+.kairos-gherkin {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.kairos-gherkin__keyword {
+  color: var(--violet);
+  font-weight: 600;
+}
+
+.kairos-gherkin__title {
+  color: var(--fg-bright);
+}
+
+.kairos-gherkin__step {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.kairos-gherkin__tag {
+  color: var(--gold);
+}
+
+.kairos-gherkin__comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.kairos-gherkin__string,
+.kairos-gherkin__docstring {
+  color: var(--ok);
+}
+
+.kairos-gherkin__placeholder {
+  color: var(--ice);
+}
+
+.kairos-gherkin__pipe {
+  color: var(--muted);
+}
+
+/* KAIROS-T-0324: mermaid fences. The source shows until index.html draws
+   it; a diagram that does not parse keeps its source under the error. */
+.kairos-mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  margin: var(--space-sm) 0;
+}
+
+.kairos-mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.kairos-mermaid--error {
+  border-color: var(--bad);
+}
+
+.kairos-mermaid__error {
+  color: var(--bad);
+  font-size: var(--fs-xs);
+}
+
 .kairos-markdown blockquote {
   border-left: 3px solid var(--border-control);
   margin: 6px 0;

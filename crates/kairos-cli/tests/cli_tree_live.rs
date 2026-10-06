@@ -825,6 +825,89 @@ async fn cli_command_tree_golden_path_live() {
         "{stdout}"
     );
 
+    // --- KAIROS-T-0321: the teams of an initiative --------------------------------
+    let (code, stdout, stderr) =
+        run_cli(config_dir.path(), &["teams", "of", &initiative_code]).await;
+    assert_eq!(code, 0, "teams of failed: {stderr}");
+    assert!(stdout.contains("has no team"), "{stdout}");
+
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["teams", "set", &initiative_code, "platform"],
+    )
+    .await;
+    assert_eq!(code, 0, "teams set failed: {stderr}");
+    assert_eq!(
+        stdout.trim(),
+        format!("Kairos set the team platform on {initiative_code} by hand.")
+    );
+    let (code, stdout, stderr) =
+        run_cli(config_dir.path(), &["teams", "of", &initiative_code]).await;
+    assert_eq!(code, 0, "teams of failed: {stderr}");
+    assert!(stdout.contains("platform"), "{stdout}");
+    assert!(stdout.contains("set by hand"), "{stdout}");
+
+    // The board filter and the marker.
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["boards", "show", "initiatives", "--team", "platform"],
+    )
+    .await;
+    assert_eq!(code, 0, "boards show --team failed: {stderr}");
+    assert!(
+        stdout.contains(&format!(
+            "{initiative_code}  [initiative] CLI golden path initiative  [teams: platform]"
+        )),
+        "{stdout}"
+    );
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["boards", "show", "initiatives", "--no-team"],
+    )
+    .await;
+    assert_eq!(code, 0, "boards show --no-team failed: {stderr}");
+    assert!(!stdout.contains(&initiative_code), "{stdout}");
+    let (code, _, stderr) = run_cli(
+        config_dir.path(),
+        &[
+            "boards",
+            "show",
+            "initiatives",
+            "--team",
+            "platform",
+            "--no-team",
+        ],
+    )
+    .await;
+    assert_ne!(code, 0, "--team with --no-team must be refused");
+    assert!(stderr.contains("cannot be used with"), "{stderr}");
+
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["teams", "clear", &initiative_code, "platform"],
+    )
+    .await;
+    assert_eq!(code, 0, "teams clear failed: {stderr}");
+    assert!(
+        stdout.contains("Kairos cleared the team platform"),
+        "{stdout}"
+    );
+    let (code, _, stderr) = run_cli(
+        config_dir.path(),
+        &["teams", "clear", &initiative_code, "platform"],
+    )
+    .await;
+    assert_ne!(code, 0, "a second clear must fail");
+    assert!(stderr.contains("is not set on"), "{stderr}");
+    // A task has no team of its own to set.
+    let (code, _, stderr) =
+        run_cli(config_dir.path(), &["teams", "set", &bind_code, "platform"]).await;
+    assert_ne!(code, 0, "teams set on a task must fail");
+    assert!(
+        stderr.contains("Only an initiative or a strategy"),
+        "{stderr}"
+    );
+
     // --- teardown ----------------------------------------------------------------
     drop(conn);
     sql_query(format!("DROP DATABASE IF EXISTS {SCRATCH_DB} WITH (FORCE)"))

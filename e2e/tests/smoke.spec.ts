@@ -175,6 +175,11 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     await page.waitForURL(/\/items\/PLATFORM-T-0001/);
     const editor = page.locator('.kairos-editor');
     const contentArea = editor.locator('textarea.kairos-editor__textarea');
+    // KAIROS-T-0323: the page opens in Preview — the content is rendered,
+    // and there is no textarea until Edit is selected.
+    await expect(editor.locator('.kairos-markdown')).toBeVisible();
+    await expect(contentArea).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
     await expect(contentArea).toBeVisible();
 
     // KAIROS-T-0065/T-0078: the metadata catalog is entity-scoped at the
@@ -210,6 +215,9 @@ test('GUI smoke: login → boards → create → move → live WS → edit/409 �
     const token = await mintToken({ server: GUI });
     const saved = await getTask(GUI, token, 'PLATFORM-T-0001');
     await expect(editor.getByText(`editing v${saved.version}`)).toBeVisible();
+    // After the save the content shows in Preview again.
+    await expect(contentArea).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Edit', exact: true }).click();
 
     // --- force a 409 via API mid-edit ---
     await contentArea.fill(`My conflicting edit ${Date.now()}`);

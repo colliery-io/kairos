@@ -25,6 +25,14 @@ pub enum BoardsCommand {
         /// Items to skip
         #[arg(long)]
         offset: Option<i64>,
+        /// Show only the strategies and the initiatives of this team (slug
+        /// or UUID), from tasks or set by hand. Tasks and ADRs are not
+        /// changed
+        #[arg(long, conflicts_with = "no_team")]
+        team: Option<String>,
+        /// Show only the strategies and the initiatives that have no team
+        #[arg(long)]
+        no_team: bool,
         #[command(flatten)]
         common: Common,
     },
@@ -64,6 +72,8 @@ impl BoardsCommand {
                 board_id,
                 limit,
                 offset,
+                team,
+                no_team,
                 common,
             } => {
                 let client = client(&common)?;
@@ -71,6 +81,8 @@ impl BoardsCommand {
                 let query = BoardItemsQuery {
                     limit,
                     offset,
+                    team,
+                    no_team,
                     ..BoardItemsQuery::default()
                 };
                 let items = client.board_items(&board_id, &query).await?;
@@ -116,10 +128,20 @@ fn print_board_items(items: &BoardItemsResponse) {
             continue;
         }
         for item in &column.strategies {
-            println!("   {}  [strategy] {}", item.short_code(), item.title());
+            println!(
+                "   {}  [strategy] {}{}",
+                item.short_code(),
+                item.title(),
+                teams_suffix(items, item.short_code())
+            );
         }
         for item in &column.initiatives {
-            println!("   {}  [initiative] {}", item.short_code(), item.title());
+            println!(
+                "   {}  [initiative] {}{}",
+                item.short_code(),
+                item.title(),
+                teams_suffix(items, item.short_code())
+            );
         }
         for item in &column.tasks {
             // KAIROS-T-0077: the Support lane rides on the type tag;
@@ -139,5 +161,21 @@ fn print_board_items(items: &BoardItemsResponse) {
         for item in &column.adrs {
             println!("   {}  [adr] {}", item.short_code(), item.title());
         }
+    }
+}
+
+/// The teams of a strategy or an initiative, after its title
+/// (KAIROS-T-0321): `  [teams: a, b]`, or nothing when it has no team.
+fn teams_suffix(items: &BoardItemsResponse, short_code: &str) -> String {
+    match items.item_teams.get(short_code) {
+        Some(teams) if !teams.is_empty() => format!(
+            "  [teams: {}]",
+            teams
+                .iter()
+                .map(|team| team.slug.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => String::new(),
     }
 }

@@ -11,19 +11,6 @@
  * the markdown editor and preview, and the badges of Kairos states.
  */
 
-/* The Aurora AppShell header is sticky (52px). A scroll to an element
-   (a link to an anchor, scrollIntoView) stops below it, and not under it. */
-html {
-  scroll-padding-top: 64px;
-}
-
-/* A row of fields and a button (an Aurora Group) lines up at the bottom,
-   so the button is beside the input and not beside the label. Aurora 0.4
-   Group has no bottom alignment; this is the one rule on a .cl-* class. */
-.cl-group:has(> .cl-field):has(> .cl-btn) {
-  align-items: flex-end;
-}
-
 /* One flight-level band on /boards (KAIROS-T-0069/T-0063): the level
    pill heads the band; groups inside stack with their team headings. */
 .kairos-board-band {
@@ -354,6 +341,71 @@ html {
 .kairos-markdown pre code {
   background: none;
   padding: 0;
+}
+
+/* KAIROS-T-0324: gherkin fences (highlighted in Rust, markdown.rs). */
+.kairos-gherkin {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.kairos-gherkin__keyword {
+  color: var(--violet);
+  font-weight: 600;
+}
+
+.kairos-gherkin__title {
+  color: var(--fg-bright);
+}
+
+.kairos-gherkin__step {
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.kairos-gherkin__tag {
+  color: var(--gold);
+}
+
+.kairos-gherkin__comment {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.kairos-gherkin__string,
+.kairos-gherkin__docstring {
+  color: var(--ok);
+}
+
+.kairos-gherkin__placeholder {
+  color: var(--ice);
+}
+
+.kairos-gherkin__pipe {
+  color: var(--muted);
+}
+
+/* KAIROS-T-0324: mermaid fences. The source shows until index.html draws
+   it; a diagram that does not parse keeps its source under the error. */
+.kairos-mermaid-diagram {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  margin: var(--space-sm) 0;
+}
+
+.kairos-mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.kairos-mermaid--error {
+  border-color: var(--bad);
+}
+
+.kairos-mermaid__error {
+  color: var(--bad);
+  font-size: var(--fs-xs);
 }
 
 .kairos-markdown blockquote {

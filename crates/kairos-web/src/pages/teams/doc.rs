@@ -392,7 +392,7 @@ pub(crate) fn CreateForm(
                         <Text size="sm" dimmed=true>{message}</Text>
                     </Alert>
                 })}
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select
                         label="Kind"
                         options=vec!["page".to_string(), "folder".to_string()]
@@ -551,11 +551,11 @@ fn StructurePanel(
                         <Text size="sm" dimmed=true>{message}</Text>
                     </Alert>
                 })}
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <TextInput label="Slug" value=new_slug/>
                     <Button variant="default" on_click=Callback::new(rename)>"Rename"</Button>
                 </Group>
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select
                         label="Move to"
                         placeholder="(root)"

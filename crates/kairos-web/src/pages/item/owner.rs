@@ -207,7 +207,7 @@ pub fn OwnerBoardPanel(
                 }}
                 {move || (!archived && can_move.get()).then(|| {
                     view! {
-                        <Group gap="sm" attr:data-testid="owner-board-control">
+                        <Group align="end" gap="sm" attr:data-testid="owner-board-control">
                             // A closure: the list of boards can come after
                             // the check of the right, and the selector must
                             // then show.
@@ -371,7 +371,7 @@ pub fn ImpactsPanel(
                     }
                 }).collect_view()}
                 {move || (!archived && can_edit.get() && !options.with(Vec::is_empty)).then(|| view! {
-                    <Group gap="sm" attr:data-testid="impacts-add">
+                    <Group align="end" gap="sm" attr:data-testid="impacts-add">
                         <Select
                             label="Repository"
                             option_pairs=std::iter::once((

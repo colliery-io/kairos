@@ -888,6 +888,13 @@ pub(crate) async fn board_items(
                         .map_err(crate::api::tasks::map_repository_error)
                 })
                 .transpose()?;
+            // KAIROS-T-0321: the team filter of the strategies and the
+            // initiatives.
+            let team_filter = crate::api::meta::item_teams::team_filter(
+                conn,
+                query.team.as_deref(),
+                query.no_team,
+            )?;
 
             // COLLIERY-T-0261: the ids of the page, in the order of the
             // page, and the count after the filters. 2 queries.
@@ -899,6 +906,7 @@ pub(crate) async fn board_items(
                     column_ids: &column_ids,
                     include_archived: query.include_deleted,
                     repository_id: repository_filter,
+                    team: team_filter,
                 },
                 limit,
                 offset,
@@ -1040,6 +1048,10 @@ pub(crate) async fn board_items(
                     })
                 })
                 .collect();
+            // KAIROS-T-0321: the teams of each strategy and initiative of
+            // the page, one query for the board.
+            let item_teams =
+                crate::api::meta::item_teams::board_item_teams(conn, board_id, &item_codes)?;
             let children_progress: std::collections::BTreeMap<String, dto::ProgressCounts> =
                 item_codes
                     .into_iter()
@@ -1065,6 +1077,7 @@ pub(crate) async fn board_items(
                 offset,
                 children_progress,
                 blocks_summary,
+                item_teams,
             })
         })
         .await?;

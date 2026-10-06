@@ -504,7 +504,14 @@ async fn a_known_input_passes_and_a_refusal_writes_nothing_against_live_stack() 
         .await;
     assert_eq!(
         allowed,
-        ["repository", "include_deleted", "limit", "offset"]
+        [
+            "repository",
+            "include_deleted",
+            "limit",
+            "offset",
+            "team",
+            "no_team"
+        ]
     );
     stack
         .ok(

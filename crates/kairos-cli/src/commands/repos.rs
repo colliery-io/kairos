@@ -256,7 +256,7 @@ impl CredentialCommand {
 /// The entity family of a short code, from its type letter
 /// (`ACME-D-0001` is a document). The server has the rule on which family
 /// can impact a repository, and it refuses the others with the reason.
-fn family_of(short_code: &str) -> Result<EntityKind, CliError> {
+pub(crate) fn family_of(short_code: &str) -> Result<EntityKind, CliError> {
     let mut parts = short_code.rsplit('-');
     let (_number, letter) = (parts.next(), parts.next());
     match letter {

@@ -50,7 +50,7 @@ fn EnumOptionsEditor(options: RwSignal<Vec<String>>) -> impl IntoView {
                     }
                 }).collect_view()}
             </Group>
-            <Group gap="sm">
+            <Group align="end" gap="sm">
                 <TextInput value=draft placeholder="New option"/>
                 <Button variant="default" size="xs" on_click=Callback::new(on_add)>
                     "Add option"
@@ -105,8 +105,7 @@ pub fn AdminMetadataPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Metadata definitions" sub="The typed fields that an item can \
-                                                      have (A-0003)."/>
+        <PageHeader title="Metadata definitions" sub="The typed fields that an item can have."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Definitions">

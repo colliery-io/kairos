@@ -51,6 +51,8 @@ pub fn ContentEditor(
                               said when it was archived."
             on_saved
             saver
+            // KAIROS-T-0323: a ticket is read more than it is changed.
+            start_in_preview=true
         />
     }
 }

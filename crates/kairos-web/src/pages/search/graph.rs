@@ -466,6 +466,12 @@ pub fn GraphView(#[prop(into)] short_code: String) -> impl IntoView {
                                     node_w=NODE_W
                                     node_h=NODE_H
                                     label="Flight-level graph"
+                                    // KAIROS-T-0326 (Aurora 0.4.1): a stable id, so the
+                                    // marker of a style is `kairos-graph-arrow-<style>`;
+                                    // and a select refocuses the graph, so a click waits
+                                    // for a possible second click that opens the item.
+                                    id="kairos-graph"
+                                    defer_select=true
                                     selected=selected
                                     on_select=Callback::new(move |target: String| {
                                         if target != focus_for_select {
@@ -597,7 +603,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
     view! {
         <Panel
             title="Manage links"
-            caption="org admin — the server enforces the A-0001 rule matrix and cycle checks"
+            caption="org admin — the server checks the relationship rules and refuses a cycle"
         >
             <Stack gap="sm">
                 {move || feedback.get().map(|outcome| match outcome {
@@ -670,7 +676,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
                     }
                     _ => view! { <Loading label="Loading edges…"/> }.into_any(),
                 }}
-                <Group gap="sm" wrap=true top=true>
+                <Group align="end" gap="sm" wrap=true>
                     <Stack gap="xs">
                         <Text dimmed=true size="xs">
                             {format!("Role of {} in the new edge", code.get_value())}

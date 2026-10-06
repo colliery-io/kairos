@@ -44,6 +44,10 @@ Then say what the document is about: `link_items {source: <document>, target: <r
 
 In a checkout, read the documents that impact the repository before you plan work. `get_repository <slug>` lists them, and `get_item` gives each one. `search` with `filter.repository` finds them with the tasks of the repository.
 
+## Initiatives and strategies: their teams
+
+An initiative gets its teams from its tasks: the team of the board of each task below it. A strategy gets the teams of its initiatives. `get_item` shows them (`- teams:`), and `board_items` tags each card (`[teams: a, b]`) and filters with `team` or `no_team: true`. When you plan an initiative before it has tasks, and you know the team, call `set_team {short_code, team}`. `clear_team` removes a team set by hand; a team from tasks stays. A team gives no right on the item.
+
 `move_item` gives a document to a different owner board. You need `manage_documents` on the board that owns the document now and on the new board.
 
 **A request to a different team** — the recipe lives with the `implement` skill (model-invoked, so agents can reach it without this router): [workflow/implement/CROSS-TEAM-FILING.md](../../workflow/implement/CROSS-TEAM-FILING.md). In one line: `create_item {board: the delivery board of that team, parent: your initiative}` → `link_items blocks` back to your item → report the short code. The request goes to the entry column of that board, in the support lane.

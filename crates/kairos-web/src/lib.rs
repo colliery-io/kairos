@@ -18,5 +18,8 @@ pub mod api;
 pub mod app;
 pub mod auth;
 pub mod pages;
+// KAIROS-T-0325: a test that the GUI text cites no ADR and no ticket.
+#[cfg(test)]
+mod ui_text_guard;
 
 pub use app::App;

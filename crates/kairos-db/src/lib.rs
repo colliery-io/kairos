@@ -17,6 +17,7 @@ pub mod events;
 pub mod forge;
 pub mod graph;
 pub mod impacts;
+pub mod item_teams;
 pub mod items;
 pub mod local_auth;
 pub mod migrations;

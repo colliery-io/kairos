@@ -138,15 +138,11 @@ pub fn AdminTeamsPage() -> impl IntoView {
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Payments"/>
-                        {move || view! {
-                            <TextInput label="Slug" value=slug placeholder="e.g. payments"
+                        <TextInput label="Slug" value=slug placeholder="e.g. payments"
                                 error=refusal_for(refused, "slug")/>
-                        }}
                         // COLLIERY-T-3099: the prefix of the delivery board.
-                        {move || view! {
-                            <TextInput label="Prefix" value=code_prefix placeholder="e.g. PAY"
+                        <TextInput label="Prefix" value=code_prefix placeholder="e.g. PAY"
                                 error=refusal_for(refused, "code_prefix")/>
-                        }}
                         <Select label="Type"
                             options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
                             value=team_type/>
@@ -251,12 +247,10 @@ fn TeamRow(
             </Group>
             <Show when=move || editing.get()>
                 <Stack gap="xs">
-                    <Group gap="sm" wrap=true top=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <TextInput label="Name" value=edit_name/>
-                        {move || view! {
-                            <TextInput label="Slug" value=edit_slug
+                        <TextInput label="Slug" value=edit_slug
                                 error=refusal_for(refused, "slug")/>
-                        }}
                         <Select label="Type"
                             options=TEAM_TYPES.iter().map(|t| t.to_string()).collect()
                             value=edit_type/>
@@ -378,7 +372,7 @@ fn TeamMembersPanel(
                     .unwrap_or_default();
                 options.insert(0, String::new());
                 view! {
-                    <Group gap="sm" top=true>
+                    <Group align="end" gap="sm">
                         <Select label="Add member" options value=add_email/>
                         <Button size="xs" on_click=Callback::new(on_add)>"Add"</Button>
                     </Group>

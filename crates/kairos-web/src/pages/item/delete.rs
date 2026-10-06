@@ -169,12 +169,16 @@ fn DeleteFlow(
             busy=deleting
             size="md"
             on_confirm=confirm
+            // KAIROS-T-0326 (Aurora 0.4.1): the warning goes before the
+            // list of descendants, in the `notice` slot.
+            notice=std::sync::Arc::new(|| view! {
+                <Alert title="This cascades" color=token::GOLD>
+                    <Text size="sm" dimmed=true>
+                        "Soft-deletes this item and every live descendant under it (by parent edges, computed on the server). The full set is shown here and confirmed after deletion."
+                    </Text>
+                </Alert>
+            }.into_any())
         >
-            <Alert title="This cascades" color=token::GOLD>
-                <Text size="sm" dimmed=true>
-                    "Soft-deletes this item and every live descendant under it (parent edges, computed server-side — KAIROS-A-0001). The full set is shown here and confirmed after deletion."
-                </Text>
-            </Alert>
             {move || match preview.get() {
                 None => view! { <Loading label="Computing the cascade…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
@@ -216,7 +220,7 @@ fn DeleteFlow(
                         "No descendants were affected.".to_string()
                     } else {
                         format!(
-                            "The delete cascaded to {} live descendant(s) (KAIROS-A-0001):",
+                            "The delete cascaded to {} live descendant(s):",
                             report.cascade_count,
                         )
                     }}

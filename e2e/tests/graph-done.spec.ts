@@ -169,8 +169,10 @@ test('graph-done: a completed blocker on a different board changes the card and 
       expect(await page.evaluate(() => (window as any).__t0233)).toBe('same page');
     });
 
-    const resolved = page.locator('svg.cl-dag path.cl-dag__edge.cl-dag__edge--dashed');
-    const open = page.locator('svg.cl-dag path.cl-dag__edge:not(.cl-dag__edge--dashed)');
+    // Aurora 0.4.1: each edge names its style, and each style has a
+    // marker with a stable id (`{dag id}-arrow-{style}`).
+    const resolved = page.locator('svg.cl-dag path.cl-dag__edge[data-style="resolved"]');
+    const open = page.locator('svg.cl-dag path.cl-dag__edge[data-style="open"]');
 
     await test.step('c. the graph draws the completed blocker as history', async () => {
       await card.locator('.kairos-card__blocks').first().click();
@@ -205,15 +207,13 @@ test('graph-done: a completed blocker on a different board changes the card and 
       expect(resolvedStyle.stroke).not.toBe(openStyle.stroke);
       // Each style has its own arrowhead (a marker does not take the
       // stroke of its path), in the hue of the style.
-      const resolvedMarker = await resolved.getAttribute('marker-end');
-      const openMarker = await open.getAttribute('marker-end');
-      expect(resolvedMarker).not.toBe(openMarker);
-      const markerId = (ref: string | null) => (ref ?? '').replace(/^url\(#(.*)\)$/, '$1');
+      await expect(resolved).toHaveAttribute('marker-end', 'url(#kairos-graph-arrow-resolved)');
+      await expect(open).toHaveAttribute('marker-end', 'url(#kairos-graph-arrow-open)');
       await expect(
-        page.locator(`marker[id="${markerId(resolvedMarker)}"] path.cl-dag__arrowhead`),
+        page.locator('marker#kairos-graph-arrow-resolved path.cl-dag__arrowhead'),
       ).toHaveClass(/cl-dag__hue--muted/);
       await expect(
-        page.locator(`marker[id="${markerId(openMarker)}"] path.cl-dag__arrowhead`),
+        page.locator('marker#kairos-graph-arrow-open path.cl-dag__arrowhead'),
       ).toHaveClass(/cl-dag__hue--gold/);
     });
 

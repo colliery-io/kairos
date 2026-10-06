@@ -119,6 +119,10 @@ use crate::app::AppState;
         crate::api::meta::impacts::get_impacts,
         crate::api::meta::impacts::create_impact,
         crate::api::meta::impacts::delete_impact,
+        // The teams of an initiative or a strategy (KAIROS-T-0321).
+        crate::api::meta::item_teams::get_teams,
+        crate::api::meta::item_teams::set_team,
+        crate::api::meta::item_teams::clear_team,
         crate::api::meta::metadata::get_metadata,
         crate::api::meta::metadata::update_metadata,
         crate::api::meta::definitions::list_definitions,

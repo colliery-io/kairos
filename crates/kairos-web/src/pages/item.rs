@@ -25,6 +25,7 @@ mod editor;
 pub(crate) mod markdown;
 mod metadata;
 mod owner;
+mod teams;
 
 use aurora_dark::components::{
     Alert, Anchor, Button, Empty, ErrorState, Group, Loading, PageHeader, Panel, Pill, Select,
@@ -47,6 +48,7 @@ use delete::DeleteDialog;
 use editor::ContentEditor;
 use metadata::MetadataPanel;
 use owner::{ImpactsPanel, OwnerBoardPanel};
+use teams::TeamsPanel;
 // The dialog of a repository gives a document to a board with the rule of
 // the owner panel (COLLIERY-T-0269).
 pub(crate) use owner::owner_board_targets;
@@ -248,6 +250,7 @@ fn ItemLoaded(
     let created_by = item.created_by.clone();
     let editorial_archived = item.lifecycle.as_deref() == Some("archived");
     let impacts_creator = item.created_by.clone();
+    let teams_creator = item.created_by.clone();
     let ItemDetail {
         short_code,
         title,
@@ -362,6 +365,11 @@ fn ItemLoaded(
                 {matches!(family, Family::Document | Family::Adr).then(|| view! {
                     <ImpactsPanel family code=short_code.clone() impacts board
                         created_by=impacts_creator archived on_moved/>
+                })}
+                // KAIROS-T-0322: the teams of an initiative or a strategy.
+                {matches!(family, Family::Strategy | Family::Initiative).then(|| view! {
+                    <TeamsPanel family code=short_code.clone() board
+                        created_by=teams_creator archived/>
                 })}
                 {lifecycle.map(|current| view! {
                     <LifecyclePanel code=short_code.clone() current archived on_moved/>
@@ -509,9 +517,9 @@ fn ArchivedBanner(
                     {editorial_archived.then(|| view! {
                         <Text size="xs" dimmed=true>
                             "Two different things are called \"archived\" on this page: this \
-                             banner (the document is put away — KAIROS-A-0020), and the \
-                             \"lifecycle: archived\" badge below (its editorial state — \
-                             KAIROS-T-0078). A live document can carry that badge; this \
+                             banner (the document is put away), and the \
+                             \"lifecycle: archived\" badge below (its editorial state). \
+                             A live document can carry that badge; this \
                              banner is about visibility, not editorial status."
                         </Text>
                     })}
@@ -671,7 +679,7 @@ fn LifecyclePanel(
     view! {
         <Panel title="Lifecycle" caption="editorial state — not board status">
             <Stack gap="sm">
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select label="State" value=value
                         options=vec!["draft".to_string(), "review".to_string(),
                                      "published".to_string(), "archived".to_string()]/>
@@ -1061,7 +1069,7 @@ fn RepositoryControl(
                         .unwrap_or_else(|| NO_REPOSITORY.to_string());
                     view! {
                         <Stack gap="xs">
-                            <Group gap="sm">
+                            <Group align="end" gap="sm">
                                 <Select label="Repository" option_pairs=options value=value/>
                                 <Button
                                     size="xs"
@@ -1194,7 +1202,7 @@ fn MoveBoardControl(
     view! {
         {move || (can_move.get() && !targets.with(Vec::is_empty)).then(|| view! {
             <div class="kairos-item__move-board" data-testid="move-board">
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select
                         label="Board"
                         option_pairs=std::iter::once((THIS_BOARD.to_string(), THIS_BOARD.to_string()))
@@ -1340,7 +1348,7 @@ fn MoveControl(
         {move || can_move.get().then(|| view! {
             <div class="kairos-item__move">
                 {has_targets.then(|| view! {
-                    <Group gap="sm">
+                    <Group align="end" gap="sm">
                         <Select label="Move to" value=target
                             options=option_names.get_value()/>
                         {move || {
@@ -1354,7 +1362,7 @@ fn MoveControl(
                     </Group>
                 })}
                 {has_lane.then(|| view! {
-                    <Group gap="sm">
+                    <Group align="end" gap="sm">
                         <Select label="Lane" value=lane_value
                             options=vec!["planned".to_string(), "support".to_string()]/>
                         {move || {
@@ -1642,7 +1650,7 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
                 Some(Ok(relationships))
                     if relationships.outgoing.is_empty() && relationships.incoming.is_empty() =>
                 {
-                    view! { <Empty message="No relationships yet — link items from the graph explorer (KAIROS-T-0042)."/> }
+                    view! { <Empty message="No relationships yet — link items from the graph explorer."/> }
                         .into_any()
                 }
                 Some(Ok(relationships)) => {

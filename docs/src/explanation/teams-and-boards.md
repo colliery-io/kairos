@@ -62,6 +62,28 @@ board, in addition to the delivery set. It does not give `manage_adrs` on the
 ADR board of the organisation: a decision that crosses teams still needs a
 grant.
 
+## The teams of an initiative or a strategy
+
+An initiative or a strategy is on a board of the organisation, so it has no
+owner team. It still has teams: the teams that do its work. Kairos reads them
+from the work, and a person can add a team before the work exists.
+
+An initiative gets the team of the board of each live task below it. A
+strategy gets the teams of the live initiatives below it, so it reaches the
+tasks two levels down. When a task moves to the board of a different team, the
+teams of its initiative change with it. Archived work, archived boards and
+archived teams give no team.
+
+Before an initiative is divided into tasks, it has no task to read. A person
+can set a team on it by hand, with the `impacts` link from the item to the
+team. The team set by hand stays when tasks come; the two sources are shown
+apart, so a reader can tell a plan from a fact. Clearing a team set by hand
+does not remove a team that the item gets from its tasks.
+
+A team of an item gives no right on the item. The cards of the boards of
+initiatives and of strategies show the teams as pills, and the boards filter by
+team, with a filter for the items that have no team.
+
 ## Every board has a team
 
 A board cannot have no team. The rule has two forms, one for each kind of

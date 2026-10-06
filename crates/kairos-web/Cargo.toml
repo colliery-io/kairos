@@ -17,7 +17,7 @@ leptos_router = { workspace = true }
 # Aurora design system (A-0015; 0.4: light and dark theme, COLLIERY-T-1836):
 # tokens + components only — see docs/gui-conventions.md for the "tokens
 # only, no hardcoded colors" rule.
-aurora-dark = { workspace = true }
+aurora-dark = { workspace = true, features = ["components"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # wasm-side HTTP. kairos-client does not compile to wasm32 (native tokio /

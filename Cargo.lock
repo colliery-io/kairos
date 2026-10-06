@@ -664,9 +664,9 @@ checksum = "2550f75b8cfac212855f6b1885455df8eaee8fe8e246b647d69146142e016084"
 
 [[package]]
 name = "colliery-io-aurora"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68c673fa39748195187453f5dfe1435601f7240fec28cbdc9f46a076d510a416"
+checksum = "61a1101be229bf118de217e42e836fd51b11584fbd47c83452902b6e7b42aea2"
 dependencies = [
  "js-sys",
  "leptos",
@@ -2507,7 +2507,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-cli"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "axum",
  "chrono",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-client"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "futures-util",
  "reqwest 0.12.28",
@@ -2547,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2560,7 +2560,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-db"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "bb8",
  "chrono",
@@ -2578,7 +2578,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-embed"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fastembed",
  "reqwest 0.12.28",
@@ -2591,7 +2591,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-index"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cucumber",
  "flate2",
@@ -2632,7 +2632,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "argon2",
  "axum",
@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-soak"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -2709,6 +2709,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "kairos-web-css"
+version = "0.6.0"
+dependencies = [
+ "colliery-io-aurora",
 ]
 
 [[package]]

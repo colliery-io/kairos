@@ -83,8 +83,8 @@ const TENANT: &str = "acme";
 
 /// How many tools `tools/list` returns, and the word the reference pages
 /// use for that number (COLLIERY-T-0220, COLLIERY-T-0266).
-const TOOL_COUNT: usize = 23;
-const TOOL_COUNT_WORD: &str = "twenty-three";
+const TOOL_COUNT: usize = 25;
+const TOOL_COUNT_WORD: &str = "twenty-five";
 
 /// Every request carries a real `Host` header and the tenant resolves from
 /// its subdomain against the configured base domain — the S-0006 REQ-1.2
@@ -595,6 +595,10 @@ async fn mcp_endpoint_against_live_stack() {
         // deletes a repository, and no tool changes its owner or its slug.
         "add_repository",
         "update_repository",
+        // KAIROS-T-0321: set and clear a team of an initiative or a strategy
+        // by hand. Tools of their own, as set_repository.
+        "set_team",
+        "clear_team",
     ];
     expected.sort_unstable();
     assert_eq!(names, expected, "tools/list is exactly the S-0006 surface");
@@ -627,7 +631,13 @@ async fn mcp_endpoint_against_live_stack() {
                 && reference.contains(&format!("returns these {TOOL_COUNT_WORD} and no others")),
             "reference/mcp-tools.md gives the count {TOOL_COUNT_WORD}"
         );
-        for stale in ["eighteen", "nineteen", "twenty tools", "twenty-one"] {
+        for stale in [
+            "eighteen",
+            "nineteen",
+            "twenty tools",
+            "twenty-one",
+            "twenty-three",
+        ] {
             assert!(
                 !reference.contains(stale),
                 "reference/mcp-tools.md: {stale:?}"
@@ -1709,9 +1719,9 @@ async fn mcp_endpoint_against_live_stack() {
         text,
         "VALIDATION: The call has the argument \"no_such_argument\". This tool does not \
          accept that argument. The arguments of this tool are: board, column, repository, \
-         include_deleted, limit, offset.\n\
+         include_deleted, limit, offset, team, no_team.\n\
          details: {\"allowed\":[\"board\",\"column\",\"repository\",\"include_deleted\",\
-         \"limit\",\"offset\"],\"argument\":\"no_such_argument\"}"
+         \"limit\",\"offset\",\"team\",\"no_team\"],\"argument\":\"no_such_argument\"}"
     );
     let full = session
         .call_ok(

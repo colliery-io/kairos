@@ -897,6 +897,10 @@ struct CardModel {
     work_class: Option<String>,
     /// The bound repository's slug — tasks only (KAIROS-T-0109, A-0019).
     repository: Option<String>,
+    /// The slugs of the teams of a strategy or an initiative, by slug
+    /// (KAIROS-T-0322): from its tasks and set by hand. Empty for the
+    /// other kinds and for an item with no team.
+    teams: Vec<String>,
     /// Children rollup — `Some` for parents only (KAIROS-T-0080).
     progress: Option<data::ProgressCounts>,
     /// Blocked-by/blocks counts — `Some` only with live blocks edges
@@ -930,6 +934,13 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
     };
     let progress_of = |short_code: &str| view.items.children_progress.get(short_code).copied();
     let blocks_of = |short_code: &str| view.items.blocks_summary.get(short_code).copied();
+    let teams_of = |short_code: &str| -> Vec<String> {
+        view.items
+            .item_teams
+            .get(short_code)
+            .map(|teams| teams.iter().map(|team| team.slug.clone()).collect())
+            .unwrap_or_default()
+    };
     let card = |kind: EntityKind,
                 short_code: &str,
                 title: &str,
@@ -938,15 +949,17 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 repository: Option<String>| {
         let progress = progress_of(short_code);
         let blocks = blocks_of(short_code);
+        let teams = teams_of(short_code);
         CardModel {
             kind,
             short_code: short_code.to_string(),
             title: title.to_string(),
             key: format!(
-                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{progress:?}|{blocks:?}"
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{teams:?}|{progress:?}|{blocks:?}"
             ),
             work_class,
             repository,
+            teams,
             progress,
             blocks,
             meta,
@@ -1389,13 +1402,65 @@ fn BoardBody(
         set_repo_query.set(None);
         set_by_repo_query.set(None);
     };
+    // KAIROS-T-0322: the team filter of the boards of strategies and of
+    // initiatives. `?team=<slug>` or `?no_team=1` in the URL, the names of
+    // the REST filter, so the selection survives refetches and reloads.
+    // It narrows the strategies and the initiatives only.
+    let team_filter_offered = !is_delivery && !is_adr;
+    let (team_query, set_team_query) = query_signal_with_options::<String>("team", lens_nav());
+    let (no_team_query, set_no_team_query) =
+        query_signal_with_options::<String>("no_team", lens_nav());
+    let board_teams = Memo::new(move |_| {
+        model.with(|m| {
+            let mut slugs: Vec<String> = m
+                .as_ref()
+                .map(|view| {
+                    view.items
+                        .item_teams
+                        .values()
+                        .flat_map(|teams| teams.iter().map(|team| team.slug.clone()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            slugs.sort_unstable();
+            slugs.dedup();
+            slugs
+        })
+    });
+    let team_selection = Memo::new(move |_| {
+        team_selection_of(team_query.get().as_deref(), no_team_query.get().as_deref())
+    });
+    let select_team = move |choice: TeamSelection| {
+        let next = if team_selection.get_untracked() == choice {
+            TeamSelection::All
+        } else {
+            choice
+        };
+        match next {
+            TeamSelection::All => {
+                set_team_query.set(None);
+                set_no_team_query.set(None);
+            }
+            TeamSelection::NoTeam => {
+                set_team_query.set(None);
+                set_no_team_query.set(Some("1".to_string()));
+            }
+            TeamSelection::Team(slug) => {
+                set_no_team_query.set(None);
+                set_team_query.set(Some(slug));
+            }
+        }
+    };
     let columns = Memo::new(move |_| {
         let selected = selected_repos.get();
+        let team = team_selection.get();
         model.with(|m| {
             let mut columns = m.as_ref().map(column_models).unwrap_or_default();
-            if !selected.is_empty() {
+            if !selected.is_empty() || team != TeamSelection::All {
                 for column in columns.iter_mut() {
-                    column.cards.retain(|card| lens_admits(card, &selected));
+                    column
+                        .cards
+                        .retain(|card| lens_admits(card, &selected) && team_admits(card, &team));
                 }
             }
             columns
@@ -1533,8 +1598,6 @@ fn BoardBody(
                                     label
                                     active=is_on
                                     on_click=Callback::new(move |_| toggle_repo(on_slug.clone()))
-                                    attr:r#type="button"
-                                    attr:aria-pressed=move || is_on.get().to_string()
                                     attr:data-repo=attr
                                 />
                             }
@@ -1547,8 +1610,6 @@ fn BoardBody(
                             on_click=Callback::new(move |_| {
                                 set_by_repo_query.set((!group_by_repo.get_untracked()).then(|| "1".to_string()))
                             })
-                            attr:r#type="button"
-                            attr:aria-pressed=move || group_by_repo.get().to_string()
                             attr:data-testid="group-by-repo"
                         />
                     })}
@@ -1558,6 +1619,55 @@ fn BoardBody(
                             size="xs"
                             on_click=Callback::new(move |_| clear_lens())
                             attr:data-testid="clear-repo-lens"
+                        >
+                            "Clear"
+                        </Button>
+                    })}
+                </Group>
+            </div>
+        })}
+        {move || (team_filter_offered && (!board_teams.with(Vec::is_empty)
+            || team_selection.get() != TeamSelection::All)).then(|| view! {
+            <div class="kairos-board__lens" data-testid="team-filter">
+                <Group gap="xs" wrap=true>
+                    <Text dimmed=true size="xs">"Team"</Text>
+                    <For
+                        each=move || board_teams.get()
+                        key=|slug| slug.clone()
+                        children=move |slug: String| {
+                            let choice = slug.clone();
+                            let is_on = Memo::new(move |_| {
+                                team_selection.with(|t| *t == TeamSelection::Team(slug.clone()))
+                            });
+                            let label = choice.clone();
+                            let attr = choice.clone();
+                            view! {
+                                <Chip
+                                    label
+                                    active=is_on
+                                    on_click=Callback::new(move |_| select_team(TeamSelection::Team(choice.clone())))
+                                    attr:data-team=attr
+                                />
+                            }
+                        }
+                    />
+                    {
+                        let is_on = Memo::new(move |_| team_selection.get() == TeamSelection::NoTeam);
+                        view! {
+                            <Chip
+                                label="No team"
+                                active=is_on
+                                on_click=Callback::new(move |_| select_team(TeamSelection::NoTeam))
+                                attr:data-testid="no-team"
+                            />
+                        }
+                    }
+                    {move || (team_selection.get() != TeamSelection::All).then(|| view! {
+                        <Button
+                            variant="subtle"
+                            size="xs"
+                            on_click=Callback::new(move |_| select_team(TeamSelection::All))
+                            attr:data-testid="clear-team-filter"
                         >
                             "Clear"
                         </Button>
@@ -1726,6 +1836,38 @@ fn prune_repos(requested: &[String], known: &[String]) -> Vec<String> {
         .filter(|slug| known.contains(slug))
         .cloned()
         .collect()
+}
+
+/// The team filter of a board of strategies or of initiatives
+/// (KAIROS-T-0322).
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TeamSelection {
+    All,
+    Team(String),
+    NoTeam,
+}
+
+/// The selection from the two query values. `no_team=1` wins over a team:
+/// the server refuses the two together, and the GUI never writes both.
+fn team_selection_of(team: Option<&str>, no_team: Option<&str>) -> TeamSelection {
+    match (team, no_team) {
+        (_, Some("1")) => TeamSelection::NoTeam,
+        (Some(slug), _) if !slug.is_empty() => TeamSelection::Team(slug.to_string()),
+        _ => TeamSelection::All,
+    }
+}
+
+/// Does the team filter admit this card? It narrows the STRATEGIES and
+/// the INITIATIVES only — tasks and ADRs always stay.
+fn team_admits(card: &CardModel, selection: &TeamSelection) -> bool {
+    if !matches!(card.kind, EntityKind::Strategy | EntityKind::Initiative) {
+        return true;
+    }
+    match selection {
+        TeamSelection::All => true,
+        TeamSelection::NoTeam => card.teams.is_empty(),
+        TeamSelection::Team(slug) => card.teams.contains(slug),
+    }
 }
 
 /// Does the lens admit this card? The filter narrows TASKS only — other
@@ -1903,12 +2045,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            repository, progress, blocks, key: _,
+                                            repository, teams, progress, blocks, key: _,
                                         } = card;
                                         view! {
                                             <ItemCard
                                                 kind short_code title meta work_class repository
-                                                progress blocks
+                                                teams progress blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
                                                 drag powers
@@ -1946,6 +2088,9 @@ fn ItemCard(
     work_class: Option<String>,
     /// The bound repository's slug (KAIROS-T-0109) — a chip on the card.
     repository: Option<String>,
+    /// The teams of a strategy or an initiative (KAIROS-T-0322) — one pill
+    /// each; none for an item with no team.
+    teams: Vec<String>,
     /// Children rollup badge (KAIROS-T-0080) — renders only when `Some`.
     progress: Option<data::ProgressCounts>,
     /// Blocked-by/blocks badges (KAIROS-T-0091) — render only when
@@ -2023,6 +2168,14 @@ fn ItemCard(
                             </span>
                         }
                     })}
+                    {teams.into_iter().map(|slug| {
+                        let attr = slug.clone();
+                        view! {
+                            <span class="kairos-card__team" data-team=attr>
+                                <Pill color=token::TEAL>{slug}</Pill>
+                            </span>
+                        }
+                    }).collect_view()}
                     <Pill color=kind_color(kind)>{kind.label()}</Pill>
                 </Group>
             </Group>
@@ -3310,10 +3463,68 @@ mod tests {
             meta: Vec::new(),
             work_class: None,
             repository: repository.map(str::to_string),
+            teams: Vec::new(),
             progress: None,
             blocks: None,
             key: String::new(),
         }
+    }
+
+    fn with_teams(kind: EntityKind, teams: &[&str]) -> CardModel {
+        CardModel {
+            teams: teams.iter().map(|t| t.to_string()).collect(),
+            ..card(kind, None)
+        }
+    }
+
+    /// KAIROS-T-0322: the team filter narrows the strategies and the
+    /// initiatives only; "No team" keeps the items with no team.
+    #[test]
+    fn the_team_filter_narrows_strategies_and_initiatives_only() {
+        let skadi = TeamSelection::Team("skadi".into());
+        assert!(team_admits(
+            &with_teams(EntityKind::Initiative, &["skadi", "weir"]),
+            &skadi
+        ));
+        assert!(!team_admits(
+            &with_teams(EntityKind::Initiative, &["weir"]),
+            &skadi
+        ));
+        assert!(!team_admits(&with_teams(EntityKind::Strategy, &[]), &skadi));
+        assert!(team_admits(
+            &with_teams(EntityKind::Strategy, &[]),
+            &TeamSelection::NoTeam
+        ));
+        assert!(!team_admits(
+            &with_teams(EntityKind::Initiative, &["weir"]),
+            &TeamSelection::NoTeam
+        ));
+        // Tasks and ADRs always stay.
+        assert!(team_admits(&card(EntityKind::Task, None), &skadi));
+        assert!(team_admits(
+            &card(EntityKind::Adr, None),
+            &TeamSelection::NoTeam
+        ));
+        assert!(team_admits(
+            &with_teams(EntityKind::Initiative, &[]),
+            &TeamSelection::All
+        ));
+    }
+
+    #[test]
+    fn the_team_selection_comes_from_the_query() {
+        assert_eq!(team_selection_of(None, None), TeamSelection::All);
+        assert_eq!(team_selection_of(Some(""), None), TeamSelection::All);
+        assert_eq!(
+            team_selection_of(Some("skadi"), None),
+            TeamSelection::Team("skadi".into())
+        );
+        assert_eq!(team_selection_of(None, Some("1")), TeamSelection::NoTeam);
+        assert_eq!(
+            team_selection_of(Some("skadi"), Some("1")),
+            TeamSelection::NoTeam
+        );
+        assert_eq!(team_selection_of(None, Some("0")), TeamSelection::All);
     }
 
     fn slugs(list: &[&str]) -> Vec<String> {

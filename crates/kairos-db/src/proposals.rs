@@ -72,7 +72,7 @@ pub enum ProposalError {
     /// A service account tried to rule on a proposal.
     #[error(
         "A service account can propose an edge. Only a person can confirm or reject a \
-         proposal (KAIROS-A-0021 rule 6)."
+         proposal."
     )]
     NotHuman,
     /// Only `parent` and `blocks` may be proposed.

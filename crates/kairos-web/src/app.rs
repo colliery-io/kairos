@@ -30,7 +30,6 @@
 //! *redirects to the issuer* (A-0015 "unauthenticated hits show the login
 //! redirect"), remembering the requested path for after the callback.
 
-use aurora_dark::AuroraStyles;
 use aurora_dark::components::{Button, Group, Loading, Pill, Stack, Text};
 use aurora_dark::frame::{
     AppShell, CenterScreen, SideNav, SideNavGroup, SideNavLink, ToastStack, provide_toaster,
@@ -46,8 +45,9 @@ use crate::api;
 use crate::auth::{self, use_auth};
 use crate::pages;
 
-/// The application root: provides auth, the theme and the toasts, injects
-/// the Aurora stylesheet, declares the route tree.
+/// The application root: provides auth, the theme and the toasts, and
+/// declares the route tree. The Aurora stylesheet is a linked file
+/// (`index.html`, KAIROS-T-0326).
 ///
 /// COLLIERY-T-1836: the page follows the theme of the operating system;
 /// the `ThemeToggle` in the top bar changes it, and `index.html` sets the
@@ -59,7 +59,6 @@ pub fn App() -> impl IntoView {
     provide_theme();
     provide_toaster();
     view! {
-        <AuroraStyles/>
         <Router>
             <Routes fallback=pages::NotFoundPage>
                 <Route path=path!("/login") view=pages::LoginPage/>

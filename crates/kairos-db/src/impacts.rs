@@ -33,7 +33,11 @@
 //!
 //! The TARGET is a repository. `target_kind` is in each row, so a later
 //! target kind (a team, the organization) is a new value and no change of
-//! the rows that a tenant has.
+//! the rows that a tenant has. KAIROS-T-0320 added the kind `team`: an
+//! initiative or a strategy that impacts a team is a team SET BY HAND
+//! ([`crate::item_teams`]). The CHECK `item_impacts_kind_pair_check` keeps
+//! the two pairs apart, and each read of this module filters
+//! `target_kind = 'repository'`.
 //!
 //! # Liveness
 //!

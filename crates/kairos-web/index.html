@@ -14,11 +14,89 @@
     -->
     <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"){var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t;}}catch(e){}})();</script>
     <!--
-      The Aurora stylesheet is injected at runtime by <AuroraStyles/>
-      (see src/app.rs). app.css carries the Kairos-only rules (tokens only).
+      KAIROS-T-0326: the Aurora stylesheet is a linked file, written by the
+      pre_build hook of Trunk.toml (crates/kairos-web-css), so the page has
+      it at the first paint. app.css carries the Kairos-only rules (tokens
+      only) and comes after it.
     -->
+    <link data-trunk rel="css" href="style/aurora.css" />
     <link data-trunk rel="css" href="app.css" />
     <link data-trunk rel="rust" data-wasm-opt="z" />
+    <!--
+      KAIROS-T-0324: mermaid fences. The markdown renderer writes each
+      fence as <pre class="kairos-mermaid"> with the escaped source. This
+      script watches the page, loads the vendored Mermaid only when such a
+      block appears (vendor/mermaid/README.md has its version and
+      checksum), and draws each block with securityLevel "strict", in the
+      light or dark theme. A block that does not parse keeps its source and
+      shows the error.
+    -->
+    <link data-trunk rel="copy-file" href="vendor/mermaid/mermaid-12.1.0.min.js" />
+    <script>
+      (function () {
+        var SRC = "/mermaid-12.1.0.min.js";
+        var loading = null;
+        var count = 0;
+        var queued = false;
+        function load() {
+          if (!loading) {
+            loading = new Promise(function (resolve, reject) {
+              var s = document.createElement("script");
+              s.src = SRC;
+              s.onload = function () { resolve(window.mermaid); };
+              s.onerror = function () { loading = null; reject(new Error("Kairos could not load " + SRC + ".")); };
+              document.head.appendChild(s);
+            });
+          }
+          return loading;
+        }
+        function dark() {
+          var t = document.documentElement.getAttribute("data-theme");
+          if (t === "dark" || t === "light") return t === "dark";
+          return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        }
+        function fail(el, error) {
+          el.classList.add("kairos-mermaid--error");
+          var note = document.createElement("div");
+          note.className = "kairos-mermaid__error";
+          note.textContent = "The diagram has an error: " + ((error && error.message) || String(error));
+          el.parentNode && el.parentNode.insertBefore(note, el);
+        }
+        function draw() {
+          queued = false;
+          var nodes = Array.prototype.slice.call(
+            document.querySelectorAll("pre.kairos-mermaid:not([data-kairos-drawn])"));
+          if (!nodes.length) return;
+          nodes.forEach(function (el) { el.setAttribute("data-kairos-drawn", "1"); });
+          load().then(function (mermaid) {
+            mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark() ? "dark" : "default" });
+            nodes.forEach(function (el) {
+              var id = "kairos-mermaid-" + (++count);
+              mermaid.render(id, el.textContent).then(function (result) {
+                if (!el.isConnected) return;
+                var div = document.createElement("div");
+                div.className = "kairos-mermaid-diagram";
+                div.innerHTML = result.svg;
+                el.replaceWith(div);
+              }, function (error) {
+                var stray = document.getElementById("d" + id);
+                if (stray) stray.remove();
+                if (el.isConnected) fail(el, error);
+              });
+            });
+          }, function (error) {
+            nodes.forEach(function (el) { fail(el, error); });
+          });
+        }
+        function schedule() {
+          if (queued) return;
+          queued = true;
+          window.requestAnimationFrame(draw);
+        }
+        new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
+        document.addEventListener("DOMContentLoaded", schedule);
+      })();
+    </script>
   </head>
   <body></body>
 </html>

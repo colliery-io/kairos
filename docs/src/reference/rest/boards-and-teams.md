@@ -329,6 +329,8 @@ unknown slug and an unknown id are a 404.
 | `include_deleted` | query | no | `boolean` | Include archived (put-away) cards, each marked with `archived_at` (KAIROS-A-0020 rule 2). Default false — a board is a live board unless the reader says otherwise (rule 3). |
 | `limit` | query | no | `integer` | The number of items on a page (default 200, maximum 1000). The server changes a larger value to 1000. |
 | `offset` | query | no | `integer` | The number of items to skip (default 0). |
+| `team` | query | no | `string` | Narrow the STRATEGIES and the INITIATIVES to those of this team (slug or UUID), from tasks or set by hand (KAIROS-T-0321). Tasks and ADRs are unaffected. Unknown team → 422. Not with `no_team`. |
+| `no_team` | query | no | `boolean` | Narrow the STRATEGIES and the INITIATIVES to those with no team (KAIROS-T-0321). Tasks and ADRs are unaffected. Not with `team`. |
 
 | Response | Body | Meaning |
 |---|---|---|

@@ -51,3 +51,4 @@ docs/book/
 # Database dumps written by the compose deployment's postgres-backup service
 # (COLLIERY-T-0229). They hold every tenant's data.
 /deploy/backups/
+crates/kairos-web/style/

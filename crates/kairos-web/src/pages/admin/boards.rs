@@ -75,7 +75,7 @@ fn members_panel_words(level: &str) -> (&'static str, &'static str) {
     if level == DELIVERY {
         (
             "Members and capabilities",
-            "A person can write only with a capability grant (A-0006). Each member can read.",
+            "A person can write only with a capability grant. Each member can read.",
         )
     } else {
         (
@@ -300,16 +300,12 @@ pub fn AdminBoardsPage() -> impl IntoView {
                     <Stack gap="sm">
                         <Group gap="sm" wrap=true top=true>
                             <TextInput label="Name" value=name placeholder="e.g. Platform Initiatives"/>
-                            {move || view! {
-                                <TextInput label="Slug" value=slug
+                            <TextInput label="Slug" value=slug
                                     placeholder="e.g. platform-initiatives"
                                     error=refusal_for(refused, "slug")/>
-                            }}
-                            {move || view! {
-                                <TextInput label="Prefix" value=code_prefix
+                            <TextInput label="Prefix" value=code_prefix
                                     placeholder="e.g. PLAT"
                                     error=refusal_for(refused, "code_prefix")/>
-                            }}
                             <Select label="Level" options=LEVELS.iter().map(|l| l.to_string()).collect() value=level/>
                         </Group>
                         <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
@@ -518,7 +514,7 @@ fn ColumnsPanel(
             };
             view! {
                 <Group justify="between" wrap=true>
-                    <Group gap="sm">
+                    <Group align="end" gap="sm">
                         <Pill color=token::ICE>{position}</Pill>
                         <TextInput value=rename/>
                         <Button variant="default" size="xs"
@@ -559,7 +555,7 @@ fn ColumnsPanel(
             <Stack gap="sm">
                 {rows}
                 <Divider/>
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <TextInput value=new_name placeholder="New column name"/>
                     <Button on_click=Callback::new(on_add)>"Add column"</Button>
                 </Group>
@@ -691,7 +687,7 @@ fn TransitionsPanel(
             <Stack gap="sm">
                 {rows}
                 <Divider/>
-                <Group gap="sm" wrap=true>
+                <Group align="end" gap="sm" wrap=true>
                     <Select label="From" options=names.clone() value=from_name/>
                     <Select label="To" options=names.clone() value=to_name/>
                     <Button on_click=Callback::new(on_add)>"Add transition"</Button>
@@ -756,7 +752,7 @@ fn MembersPanel(
         if capabilities.is_empty() {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
                 "Select one capability or more. A person can write only with a capability \
-                 grant (A-0006)."
+                 grant."
                     .to_string(),
             ))));
             return;

@@ -679,7 +679,7 @@ fn LifecyclePanel(
     view! {
         <Panel title="Lifecycle" caption="editorial state — not board status">
             <Stack gap="sm">
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select label="State" value=value
                         options=vec!["draft".to_string(), "review".to_string(),
                                      "published".to_string(), "archived".to_string()]/>
@@ -1069,7 +1069,7 @@ fn RepositoryControl(
                         .unwrap_or_else(|| NO_REPOSITORY.to_string());
                     view! {
                         <Stack gap="xs">
-                            <Group gap="sm">
+                            <Group align="end" gap="sm">
                                 <Select label="Repository" option_pairs=options value=value/>
                                 <Button
                                     size="xs"
@@ -1202,7 +1202,7 @@ fn MoveBoardControl(
     view! {
         {move || (can_move.get() && !targets.with(Vec::is_empty)).then(|| view! {
             <div class="kairos-item__move-board" data-testid="move-board">
-                <Group gap="sm">
+                <Group align="end" gap="sm">
                     <Select
                         label="Board"
                         option_pairs=std::iter::once((THIS_BOARD.to_string(), THIS_BOARD.to_string()))
@@ -1348,7 +1348,7 @@ fn MoveControl(
         {move || can_move.get().then(|| view! {
             <div class="kairos-item__move">
                 {has_targets.then(|| view! {
-                    <Group gap="sm">
+                    <Group align="end" gap="sm">
                         <Select label="Move to" value=target
                             options=option_names.get_value()/>
                         {move || {
@@ -1362,7 +1362,7 @@ fn MoveControl(
                     </Group>
                 })}
                 {has_lane.then(|| view! {
-                    <Group gap="sm">
+                    <Group align="end" gap="sm">
                         <Select label="Lane" value=lane_value
                             options=vec!["planned".to_string(), "support".to_string()]/>
                         {move || {

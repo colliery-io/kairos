@@ -1598,8 +1598,6 @@ fn BoardBody(
                                     label
                                     active=is_on
                                     on_click=Callback::new(move |_| toggle_repo(on_slug.clone()))
-                                    attr:r#type="button"
-                                    attr:aria-pressed=move || is_on.get().to_string()
                                     attr:data-repo=attr
                                 />
                             }
@@ -1612,8 +1610,6 @@ fn BoardBody(
                             on_click=Callback::new(move |_| {
                                 set_by_repo_query.set((!group_by_repo.get_untracked()).then(|| "1".to_string()))
                             })
-                            attr:r#type="button"
-                            attr:aria-pressed=move || group_by_repo.get().to_string()
                             attr:data-testid="group-by-repo"
                         />
                     })}
@@ -1650,8 +1646,6 @@ fn BoardBody(
                                     label
                                     active=is_on
                                     on_click=Callback::new(move |_| select_team(TeamSelection::Team(choice.clone())))
-                                    attr:r#type="button"
-                                    attr:aria-pressed=move || is_on.get().to_string()
                                     attr:data-team=attr
                                 />
                             }
@@ -1664,8 +1658,6 @@ fn BoardBody(
                                 label="No team"
                                 active=is_on
                                 on_click=Callback::new(move |_| select_team(TeamSelection::NoTeam))
-                                attr:r#type="button"
-                                attr:aria-pressed=move || is_on.get().to_string()
                                 attr:data-testid="no-team"
                             />
                         }

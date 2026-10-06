@@ -8,6 +8,8 @@ members = [
     "crates/kairos-client",
     "crates/kairos-cli",
     "crates/kairos-web",
+    # KAIROS-T-0326: writes the Aurora stylesheet for the trunk build.
+    "crates/kairos-web-css",
     "crates/kairos-soak",
     # The code index (COLLIERY-I-0264) and the narsil code it vendors.
     "crates/kairos-index",
@@ -110,7 +112,10 @@ clap = { version = "4.6.1", features = ["derive"] }
 # `colliery-io-aurora` (repo: github.com/colliery-io/aurora-dark). The key
 # stays `aurora-dark`, so the code imports `aurora_dark::…`.
 leptos = "0.8.20"
-aurora-dark = { package = "colliery-io-aurora", version = "0.4.0" }
+# KAIROS-T-0326: no default features here, so kairos-web-css (the trunk
+# hook that writes the stylesheet) does not build Leptos for the host;
+# kairos-web asks for `components`.
+aurora-dark = { package = "colliery-io-aurora", version = "0.4.1", default-features = false }
 
 # API docs / MCP
 utoipa = "5.5.0"

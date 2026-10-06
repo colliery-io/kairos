@@ -15,6 +15,15 @@ dist = "dist"
 # Served from the root of the kairos-server binary (A-0015).
 public_url = "/"
 
+# KAIROS-T-0326: Aurora 0.4.1, "Linked stylesheet, no flash". Trunk checks
+# the assets of index.html before it builds, so the stylesheet is written
+# in a pre_build hook, by a small crate of this workspace that calls
+# `aurora_dark::write_css` (it shares the Cargo.lock; nothing to install).
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "--quiet", "--locked", "-p", "kairos-web-css", "--", "style"]
+
 [serve]
 # `trunk serve` is NOT the dev flow (the SPA needs the same-origin /api);
 # run the server with KAIROS_WEB_DIST instead. Kept only so an accidental

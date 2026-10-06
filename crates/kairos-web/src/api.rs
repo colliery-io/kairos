@@ -109,6 +109,18 @@ pub fn incomplete_list_note(shown: usize, total: i64) -> Option<String> {
 /// of the page, and `shown` is the number of rows on it. A page that does
 /// not have the full list thus says so, and the pager gives the next
 /// page. Pure, host-tested.
+/// The range text of an Aurora `Pagination` (KAIROS-T-0326): the sentence
+/// of [`page_range_note`], made from the range that the pager has.
+pub fn page_range_text(range: &aurora_dark::data::PageRange) -> String {
+    let shown = range.last.saturating_sub(range.first.saturating_sub(1));
+    let shown = if range.first == 0 { 0 } else { shown };
+    page_range_note(
+        i64::try_from(range.offset).unwrap_or(i64::MAX),
+        shown,
+        i64::try_from(range.total).unwrap_or(i64::MAX),
+    )
+}
+
 pub fn page_range_note(offset: i64, shown: usize, total: i64) -> String {
     let shown = i64::try_from(shown).unwrap_or(i64::MAX);
     if shown == 0 {
@@ -633,6 +645,24 @@ mod tests {
         );
         // A page after the end of the list.
         assert_eq!(page_range_note(50, 0, 40), "The list shows 0 of 40 items.");
+    }
+
+    /// KAIROS-T-0326: the pager says the same sentence as the note.
+    #[test]
+    fn the_pager_range_is_the_sentence_of_the_note() {
+        use aurora_dark::data::page_range;
+        assert_eq!(
+            page_range_text(&page_range(0, 25, 2340)),
+            "The list shows items 1 to 25 of 2340."
+        );
+        assert_eq!(
+            page_range_text(&page_range(2325, 25, 2340)),
+            "The list shows items 2326 to 2340 of 2340."
+        );
+        assert_eq!(
+            page_range_text(&page_range(0, 25, 0)),
+            "The list shows 0 of 0 items."
+        );
     }
 
     /// The mirror of a page reads `items` and `total`.

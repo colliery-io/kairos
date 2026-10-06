@@ -184,7 +184,7 @@ pub fn TeamsPanel(
                     }).collect_view().into_any(),
                 }}
                 {move || (!archived && can_edit.get() && !options.with(Vec::is_empty)).then(|| view! {
-                    <Group gap="sm" attr:data-testid="item-teams-add">
+                    <Group align="end" gap="sm" attr:data-testid="item-teams-add">
                         <Select
                             label="Team"
                             option_pairs=std::iter::once((

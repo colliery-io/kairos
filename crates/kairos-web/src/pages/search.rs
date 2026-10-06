@@ -261,7 +261,7 @@ pub fn SearchPage() -> impl IntoView {
         <Stack gap="md">
             <Panel title="Query" caption="capabilities AND together">
                 <Stack gap="sm">
-                    <Group gap="sm" wrap=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <TextInput
                             label="Text query"
                             placeholder="e.g. sign-up, \"magic link\", auth OR billing"
@@ -439,9 +439,6 @@ pub fn SearchPage() -> impl IntoView {
                         (response.total, response.limit.max(1), response.offset);
                     // COLLIERY-T-0258: the results have no bound, so the
                     // page shows a part of them and says which part.
-                    let end = (offset + limit).min(total);
-                    let shown = usize::try_from((end - offset).max(0)).unwrap_or(0);
-                    let range = crate::api::page_range_note(offset, shown, total);
                     let groups = response.results;
                     // COLLIERY-T-1836: the Aurora `Pagination`. A change of
                     // page runs the same search with the new offset.
@@ -458,13 +455,17 @@ pub fn SearchPage() -> impl IntoView {
                     view! {
                         <Stack gap="xs">
                             <Text dimmed=true size="sm">
-                                {format!("{range} The groups are the types of the items.")}
+                                "The groups are the types of the items."
                             </Text>
+                            // KAIROS-T-0326: the pager says the range.
                             <Pagination
                                 offset=page_offset
                                 limit=page_limit
                                 total=page_total
                                 on_change=go
+                                range_label=Callback::new(|range| {
+                                    crate::api::page_range_text(&range)
+                                })
                             />
                         </Stack>
                         <ResultGroup entity="strategy" title="Strategies" hits=groups.strategies/>

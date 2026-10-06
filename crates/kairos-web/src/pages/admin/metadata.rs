@@ -50,7 +50,7 @@ fn EnumOptionsEditor(options: RwSignal<Vec<String>>) -> impl IntoView {
                     }
                 }).collect_view()}
             </Group>
-            <Group gap="sm">
+            <Group align="end" gap="sm">
                 <TextInput value=draft placeholder="New option"/>
                 <Button variant="default" size="xs" on_click=Callback::new(on_add)>
                     "Add option"

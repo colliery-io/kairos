@@ -58,7 +58,7 @@ fn AssociationsEditor(
                 let mut options = slugs.get_value();
                 options.insert(0, String::new());
                 view! {
-                    <Group gap="sm" wrap=true top=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <Select label="Definition" options value=row.slug/>
                         <TextInput label="Default (optional)" value=row.default_value/>
                         <Switch checked=row.required label="required"/>

@@ -11,19 +11,6 @@
  * the markdown editor and preview, and the badges of Kairos states.
  */
 
-/* The Aurora AppShell header is sticky (52px). A scroll to an element
-   (a link to an anchor, scrollIntoView) stops below it, and not under it. */
-html {
-  scroll-padding-top: 64px;
-}
-
-/* A row of fields and a button (an Aurora Group) lines up at the bottom,
-   so the button is beside the input and not beside the label. Aurora 0.4
-   Group has no bottom alignment; this is the one rule on a .cl-* class. */
-.cl-group:has(> .cl-field):has(> .cl-btn) {
-  align-items: flex-end;
-}
-
 /* One flight-level band on /boards (KAIROS-T-0069/T-0063): the level
    pill heads the band; groups inside stack with their team headings. */
 .kairos-board-band {

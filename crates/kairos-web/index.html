@@ -14,9 +14,12 @@
     -->
     <script>(function(){try{var t=localStorage.getItem("aurora-theme");if(t==="light"||t==="dark"){var d=document.documentElement;d.setAttribute("data-theme",t);d.style.colorScheme=t;}}catch(e){}})();</script>
     <!--
-      The Aurora stylesheet is injected at runtime by <AuroraStyles/>
-      (see src/app.rs). app.css carries the Kairos-only rules (tokens only).
+      KAIROS-T-0326: the Aurora stylesheet is a linked file, written by the
+      pre_build hook of Trunk.toml (crates/kairos-web-css), so the page has
+      it at the first paint. app.css carries the Kairos-only rules (tokens
+      only) and comes after it.
     -->
+    <link data-trunk rel="css" href="style/aurora.css" />
     <link data-trunk rel="css" href="app.css" />
     <link data-trunk rel="rust" data-wasm-opt="z" />
     <!--

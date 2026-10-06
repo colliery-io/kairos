@@ -85,10 +85,8 @@ pub fn AdminStreamsPage() -> impl IntoView {
                 <Stack gap="sm">
                     <Group gap="sm" wrap=true top=true>
                         <TextInput label="Name" value=name placeholder="e.g. Checkout"/>
-                        {move || view! {
-                            <TextInput label="Slug" value=slug placeholder="e.g. checkout"
+                        <TextInput label="Slug" value=slug placeholder="e.g. checkout"
                                 error=refusal_for(refused, "slug")/>
-                        }}
                         <TextInput label="Description (optional)" value=description/>
                     </Group>
                     <Text dimmed=true size="xs" attr:data-testid="slug-rule">{SLUG_HINT}</Text>
@@ -192,12 +190,10 @@ fn StreamRow(
             </Group>
             <Show when=move || editing.get()>
                 <Stack gap="xs">
-                    <Group gap="sm" wrap=true top=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <TextInput label="Name" value=edit_name/>
-                        {move || view! {
-                            <TextInput label="Slug" value=edit_slug
+                        <TextInput label="Slug" value=edit_slug
                                 error=refusal_for(refused, "slug")/>
-                        }}
                         <TextInput label="Description" value=edit_description/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
@@ -319,7 +315,7 @@ fn StreamTeamsPanel(
                     .unwrap_or_default();
                 options.insert(0, String::new());
                 view! {
-                    <Group gap="sm" top=true>
+                    <Group align="end" gap="sm">
                         <Select label="Add team" options value=add_slug/>
                         <Button size="xs" on_click=Callback::new(on_add)>"Add"</Button>
                     </Group>

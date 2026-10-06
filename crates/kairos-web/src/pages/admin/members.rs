@@ -122,7 +122,7 @@ pub fn AdminMembersPage() -> impl IntoView {
             <Panel title="Add member by email"
                 caption="Kairos makes a user at the first login. You cannot add an email \
                          before its first login.">
-                <Group gap="sm" wrap=true top=true>
+                <Group align="end" gap="sm" wrap=true>
                     <TextInput label="Email" value=add_email placeholder="someone@example.com"/>
                     <Select label="Role"
                         options=vec!["member".to_string(), "admin".to_string()]

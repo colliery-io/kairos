@@ -367,10 +367,17 @@ pub(crate) fn run_form_mutation<F>(
 }
 
 /// The message of the refusal in `refused` for `field`, or an empty text.
-pub(crate) fn refusal_for(refused: RwSignal<Option<api::Refusal>>, field: &str) -> String {
-    refused
-        .with(|refusal| refusal.as_ref().and_then(|r| r.message_for(field)))
-        .unwrap_or_default()
+pub(crate) fn refusal_for(
+    refused: RwSignal<Option<api::Refusal>>,
+    field: &'static str,
+) -> Signal<String> {
+    // KAIROS-T-0326: Aurora 0.4.1 takes `error` as a signal, so a field
+    // shows a new refusal with no re-render of its own.
+    Signal::derive(move || {
+        refused
+            .with(|refusal| refusal.as_ref().and_then(|r| r.message_for(field)))
+            .unwrap_or_default()
+    })
 }
 
 /// Run one admin mutation: guard against double-submit with `busy`, record

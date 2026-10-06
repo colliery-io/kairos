@@ -240,31 +240,23 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                     <Group gap="sm" wrap=true top=true>
                         <Select label="Forge" value=forge
                             options=vec!["github".to_string(), "gitlab".to_string(), "other".to_string()]/>
-                        {move || view! {
-                            <TextInput label="Full name" value=name
+                        <TextInput label="Full name" value=name
                                 placeholder="e.g. acme/payments-api"
                                 error=refusal_for(refused, "repo_full_name")/>
-                        }}
-                        {move || view! {
-                            <TextInput label="URL" value=url
+                        <TextInput label="URL" value=url
                                 placeholder="https://github.com/acme/payments-api"
                                 error=refusal_for(refused, "repo_url")/>
-                        }}
                         {move || view! {
                             <Select label="Owner team" value=team options=team_slugs.get()/>
                         }}
                     </Group>
                     <Group gap="sm" wrap=true top=true>
-                        {move || view! {
-                            <TextInput label="Slug (optional)" value=slug
+                        <TextInput label="Slug (optional)" value=slug
                                 placeholder="Kairos makes it from the full name"
                                 error=refusal_for(refused, "slug")/>
-                        }}
-                        {move || view! {
-                            <TextInput label="Default branch (optional)" value=branch
+                        <TextInput label="Default branch (optional)" value=branch
                                 placeholder="main"
                                 error=refusal_for(refused, "default_branch")/>
-                        }}
                         <TextInput label="How to work here (optional)" value=description
                             placeholder="What an agent must know before it works in this \
                                          repository"/>
@@ -521,21 +513,15 @@ fn RepositoryRow(
             <Show when=move || editing.get()>
                 <Stack gap="xs">
                     <Group gap="sm" wrap=true top=true>
-                        {move || view! {
-                            <TextInput label="Slug" value=edit_slug
+                        <TextInput label="Slug" value=edit_slug
                                 error=refusal_for(refused, "slug")/>
-                        }}
-                        {move || view! {
-                            <TextInput label="URL" value=edit_url
+                        <TextInput label="URL" value=edit_url
                                 error=refusal_for(refused, "repo_url")/>
-                        }}
-                        {move || view! {
-                            <TextInput label="Default branch" value=edit_branch
+                        <TextInput label="Default branch" value=edit_branch
                                 error=refusal_for(refused, "default_branch")/>
-                        }}
                         <Select label="Owner team" value=edit_team options=team_slugs.get_value()/>
                     </Group>
-                    <Group gap="sm" wrap=true top=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <TextInput label="How to work here" value=edit_description/>
                         <Select label="Code index builder" value=edit_code_index_build
                             options=vec!["on".to_string(), "off".to_string()]/>
@@ -548,9 +534,8 @@ fn RepositoryRow(
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>
-                    <Group gap="sm" wrap=true top=true attr:data-testid="credential-form">
-                        {move || view! {
-                            <TextInput
+                    <Group align="end" gap="sm" wrap=true attr:data-testid="credential-form">
+                        <TextInput
                                 label=if has_token { "Replace the read token" } else { "Read token" }
                                 value=token_input
                                 input_type="password"
@@ -558,7 +543,6 @@ fn RepositoryRow(
                                 spellcheck=false
                                 name="read-token"
                                 error=refusal_for(token_refused, "token")/>
-                        }}
                         <Button size="xs" on_click=Callback::new(on_set_token)>
                             {if has_token { "Replace token" } else { "Set token" }}
                         </Button>

@@ -558,7 +558,7 @@ pub fn ActivityPage() -> impl IntoView {
         <Stack gap="md">
             <Panel title="Filters" caption="You can use 2 or more filters at the same time.">
                 <Stack gap="xs">
-                    <Group gap="sm" top=true wrap=true>
+                    <Group align="end" gap="sm" wrap=true>
                         <TextInput
                             label="Entity short code"
                             placeholder="e.g. PLATFORM-T-0001"
@@ -702,7 +702,6 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
 fn FeedPager(page: ListEnvelope<ActivityEntry>, applied: RwSignal<FeedFilters>) -> impl IntoView {
     // COLLIERY-T-0258: the feed has no bound, so the page shows a part of
     // it and says which part.
-    let range = api::page_range_note(page.offset, page.items.len(), page.total);
     let offset = RwSignal::new(usize::try_from(page.offset).unwrap_or(0));
     let limit = RwSignal::new(usize::try_from(PAGE_SIZE).unwrap_or(25));
     let total = usize::try_from(page.total).unwrap_or(0);
@@ -710,10 +709,10 @@ fn FeedPager(page: ListEnvelope<ActivityEntry>, applied: RwSignal<FeedFilters>) 
         applied.update(|filters| filters.offset = i64::try_from(to).unwrap_or(0));
     });
     view! {
-        <Stack gap="xs">
-            <Text dimmed=true size="xs">{range}</Text>
-            <Pagination offset limit total=total on_change=go/>
-        </Stack>
+        // KAIROS-T-0326: Aurora 0.4.1 takes the range text, so the pager
+        // says the sentence of COLLIERY-T-0258 in place of "1–25 of 212".
+        <Pagination offset limit total=total on_change=go
+            range_label=Callback::new(|range| api::page_range_text(&range))/>
     }
 }
 

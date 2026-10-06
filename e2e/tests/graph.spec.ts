@@ -104,7 +104,10 @@ test('graph: badges → canvas → deterministic reload → expand → refocus/b
   // 4. +N expands in place ---------------------------------------------------
   await test.step('+N expands the neighborhood without navigating', async () => {
     const before = await canvas(page).count();
-    const more = page.locator('.cl-dag__more').first();
+    // Aurora 0.4.1: the "+N" badge is in the item of its node.
+    const item = page.locator('g.cl-dag__item[data-node]', { has: page.locator('.cl-dag__more') }).first();
+    const node = await item.getAttribute('data-node');
+    const more = page.locator(`[data-node="${node}"] .cl-dag__more`);
     await expect(more).toBeVisible();
     await more.click();
     await expect

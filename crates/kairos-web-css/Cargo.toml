@@ -1,0 +1,12 @@
+[package]
+name = "kairos-web-css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Writes the Aurora stylesheet for the trunk build of kairos-web (a pre_build hook)."
+
+[dependencies]
+# Leptos-free: only `write_css` and the CSS, so the hook does not compile
+# Leptos for the host.
+aurora-dark = { workspace = true }

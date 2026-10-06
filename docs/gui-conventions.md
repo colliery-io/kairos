@@ -94,8 +94,11 @@ Two dev-stack facts worth knowing (both are deployment config, not code):
 
 Aurora (it was "Aurora Dark"; crates.io: `colliery-io-aurora` 0.4, the
 workspace key is still `aurora-dark`, so the code imports `aurora_dark`)
-is the design system. The stylesheet is injected at runtime by
-`<AuroraStyles/>` once, at the app root.
+is the design system. The stylesheet is a linked file: the trunk
+`pre_build` hook (`Trunk.toml`) runs `crates/kairos-web-css`, which calls
+`aurora_dark::write_css` to write `crates/kairos-web/style/aurora.css`
+(git ignores it), and `index.html` links it before `app.css`. The page so
+has the styles at its first paint (KAIROS-T-0326, Aurora 0.4.1).
 
 **Light and dark (COLLIERY-T-1836).** Aurora has a light and a dark
 theme. With no choice, the page follows the operating system

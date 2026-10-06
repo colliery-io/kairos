@@ -597,7 +597,7 @@ fn ManagePanel(#[prop(into)] short_code: String, on_changed: Callback<()>) -> im
     view! {
         <Panel
             title="Manage links"
-            caption="org admin — the server enforces the A-0001 rule matrix and cycle checks"
+            caption="org admin — the server checks the relationship rules and refuses a cycle"
         >
             <Stack gap="sm">
                 {move || feedback.get().map(|outcome| match outcome {

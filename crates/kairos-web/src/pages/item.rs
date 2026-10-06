@@ -517,9 +517,9 @@ fn ArchivedBanner(
                     {editorial_archived.then(|| view! {
                         <Text size="xs" dimmed=true>
                             "Two different things are called \"archived\" on this page: this \
-                             banner (the document is put away — KAIROS-A-0020), and the \
-                             \"lifecycle: archived\" badge below (its editorial state — \
-                             KAIROS-T-0078). A live document can carry that badge; this \
+                             banner (the document is put away), and the \
+                             \"lifecycle: archived\" badge below (its editorial state). \
+                             A live document can carry that badge; this \
                              banner is about visibility, not editorial status."
                         </Text>
                     })}
@@ -1650,7 +1650,7 @@ fn RelationshipsPanel(family: Family, #[prop(into)] code: String) -> impl IntoVi
                 Some(Ok(relationships))
                     if relationships.outgoing.is_empty() && relationships.incoming.is_empty() =>
                 {
-                    view! { <Empty message="No relationships yet — link items from the graph explorer (KAIROS-T-0042)."/> }
+                    view! { <Empty message="No relationships yet — link items from the graph explorer."/> }
                         .into_any()
                 }
                 Some(Ok(relationships)) => {

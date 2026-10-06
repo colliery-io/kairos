@@ -257,7 +257,7 @@ pub fn SearchPage() -> impl IntoView {
     let rel_chips = move || chip_row(&RELATIONSHIPS, &t_rel_flags);
 
     view! {
-        <PageHeader title="Search" sub="text, filters, and graph traversal — composed (A-0007)"/>
+        <PageHeader title="Search" sub="text, filters, and graph traversal — composed"/>
         <Stack gap="md">
             <Panel title="Query" caption="capabilities AND together">
                 <Stack gap="sm">

@@ -75,7 +75,7 @@ fn members_panel_words(level: &str) -> (&'static str, &'static str) {
     if level == DELIVERY {
         (
             "Members and capabilities",
-            "A person can write only with a capability grant (A-0006). Each member can read.",
+            "A person can write only with a capability grant. Each member can read.",
         )
     } else {
         (
@@ -756,7 +756,7 @@ fn MembersPanel(
         if capabilities.is_empty() {
             outcome.set(Some(Err(aurora_dark::tokens::ApiError::Unknown(
                 "Select one capability or more. A person can write only with a capability \
-                 grant (A-0006)."
+                 grant."
                     .to_string(),
             ))));
             return;

@@ -202,7 +202,7 @@ fn TemplateForm(
                         "Create document"
                     </Button>
                     <Text size="xs" dimmed=true>
-                        "Starter content is copied in; declared fields are stamped as metadata (defaults applied) — A-0003."
+                        "Starter content is copied in; declared fields are stamped as metadata (defaults applied)."
                     </Text>
                 </div>
                 <div class="kairos-template-form__preview">

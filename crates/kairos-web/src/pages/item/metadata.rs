@@ -60,7 +60,7 @@ pub fn MetadataPanel(
     let retry = Callback::new(move |_| reload.update(|n| *n += 1));
 
     view! {
-        <Panel title="Metadata" caption="typed fields (A-0003)">
+        <Panel title="Metadata" caption="typed fields">
             {move || match data.get() {
                 None => view! { <Loading label="Loading metadata…"/> }.into_any(),
                 Some(Err(error)) => view! { <ErrorState error on_retry=retry/> }.into_any(),
@@ -249,7 +249,7 @@ fn MetadataForm(
                         "Read-only: this item is put away (archived). Restore it to change \
                          its fields."
                     } else {
-                        "Blank clears a field. Last write wins (not versioned, A-0004)."
+                        "Blank clears a field. Last write wins (not versioned)."
                     }}
                 </Text>
                 <Button

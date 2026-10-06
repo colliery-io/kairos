@@ -322,7 +322,7 @@ pub fn MarkdownEditor(
             {move || conflict.get().map(|server| view! {
                 <Group justify="between">
                     <Text size="sm" dimmed=true>
-                        "Someone saved this content while you were editing (KAIROS-A-0004). Nothing was overwritten — pick how to resolve; every path retries against the server's current version."
+                        "Someone saved this content while you were editing. Nothing was overwritten — pick how to resolve; every path retries against the server's current version."
                     </Text>
                     <Pill color=token::BAD>
                         {format!(

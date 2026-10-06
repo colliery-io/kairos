@@ -105,8 +105,7 @@ pub fn AdminMetadataPage() -> impl IntoView {
     };
 
     view! {
-        <PageHeader title="Metadata definitions" sub="The typed fields that an item can \
-                                                      have (A-0003)."/>
+        <PageHeader title="Metadata definitions" sub="The typed fields that an item can have."/>
         <Stack gap="md">
             <MutationNotice outcome/>
             <Panel title="Definitions">

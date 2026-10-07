@@ -285,7 +285,14 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
                         <Text dimmed=true size="xs">{REPOSITORY_SLUG_HINT}</Text>
                     </Stack>
                     <Group>
-                        <Button on_click=Callback::new(on_create)>"Register repository"</Button>
+                        // KAIROS-T-0329: no team to send until the list of
+                        // teams has loaded, so the button waits for it.
+                        <Button
+                            disabled=move || form_team(&team.get(), &team_slugs.get()).is_empty()
+                            on_click=Callback::new(on_create)
+                        >
+                            "Register repository"
+                        </Button>
                     </Group>
                 </Stack>
             </Panel>

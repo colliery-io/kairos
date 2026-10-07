@@ -1,6 +1,6 @@
 # `GET /ws/events` — the WebSocket event channel
 
-This page describes Kairos 0.6.1.
+This page describes Kairos 0.6.2.
 
 This is the deployment's only push channel. OpenAPI
 (`GET /api/openapi.json`) specifies the rest of the HTTP surface. OpenAPI does

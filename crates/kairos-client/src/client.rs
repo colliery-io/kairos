@@ -1439,6 +1439,18 @@ impl KairosClient {
         .await
     }
 
+    /// `POST /api/repositories/{slug}/code-indexes/rebuild` — ask the
+    /// builder of the server for a full build of the code index
+    /// (KAIROS-T-0332). The answer is 202 with the `running` run.
+    pub async fn rebuild_code_index(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_code_index::CodeIndexBuild, Error> {
+        let path = format!("/api/repositories/{reference}/code-indexes/rebuild");
+        self.execute(format!("POST {path}"), 202, self.http.post(self.url(&path)))
+            .await
+    }
+
     /// `PUT /api/repositories/{slug}/code-indexes/{commit}` — send the
     /// index file of a commit (the bytes of a `kairos-index` SQLite file).
     /// The answer is 201 for a new commit and 200 for a commit that had an

@@ -150,6 +150,24 @@ commit.
 | `501` | [`ErrorEnvelope`](schemas.md#errorenvelope) | This deployment keeps no clones (KAIROS_CODE_INDEX_DIR) |
 | `502` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The fetch from the repository failed |
 
+### `POST /api/repositories/{slug}/code-indexes/rebuild`
+
+Ask the builder for a full build of the code index of a repository
+(KAIROS-T-0332). The body is empty. The answer is 202 with the run.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `202` | [`CodeIndexBuild`](schemas.md#codeindexbuild) | The run, as `running` |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No right to change the repository |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A run of the repository is active (CODE_INDEX_BUILD_RUNNING) |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The repository has the builder off (CODE_INDEX_BUILD_OFF), or the request has a body |
+| `503` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The deployment has no builder (CODE_INDEX_BUILDER_OFF) |
+
 ### `GET /api/repositories/{slug}/code-indexes/{commit}`
 
 The index file of a commit, with the summaries that its structure uses.

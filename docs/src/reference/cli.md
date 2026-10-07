@@ -943,6 +943,43 @@ Kairos removed the link: ACME-D-0004 does not impact the repository fidius.
 
 The server gives 404 `NOT_FOUND` for a link that is not there.
 
+### `kairos repos reindex`
+
+```text
+kairos repos reindex <REPOSITORY> [OPTIONS]
+```
+
+Ask Kairos to build the code index of a repository again. The builder of
+the server makes a full index of the head of the default branch. The new
+index replaces the index of that commit. The command shows the run. An
+organization admin or a member of the owner team uses it.
+
+Kairos refuses the command in these cases:
+
+- `CODE_INDEX_BUILD_RUNNING`: a run of the repository is active.
+- `CODE_INDEX_BUILD_OFF`: the repository has the builder off.
+- `CODE_INDEX_BUILDER_OFF`: the deployment has no builder.
+
+### `kairos repos builds`
+
+```text
+kairos repos builds <REPOSITORY> [--limit <N>] [OPTIONS]
+```
+
+Show the runs of the code index builder for a repository, newest first. A
+run is a build after a push, a first build, a build on request, or an
+upload. Each run shows its result. `--limit` gives the most runs to show:
+20 when not given, 100 at most. Each member can read the runs.
+
+| Column | Meaning |
+|---|---|
+| `STARTED` | When the run started. |
+| `TRIGGER` | `push`, `first`, `request` or `upload`. |
+| `OUTCOME` | `running`, `ok` or `failed`. |
+| `COMMIT` | The first 12 characters of the commit, when the run has one. |
+| `SYMBOLS` | The symbols of the index that the run wrote. |
+| `DETAIL` | The text of a failure, or when the run ended. |
+
 ### `kairos repos credential set`
 
 ```

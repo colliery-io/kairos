@@ -174,6 +174,7 @@ use crate::app::AppState;
         crate::api::org::code_indexes::download_code_index,
         crate::api::org::code_indexes::nearest_code_index,
         crate::api::org::code_indexes::list_code_index_builds,
+        crate::api::org::code_indexes::rebuild_code_index,
         // The read token of a repository (COLLIERY-T-3105).
         crate::api::org::repository_credentials::get_credential,
         crate::api::org::repository_credentials::set_credential,

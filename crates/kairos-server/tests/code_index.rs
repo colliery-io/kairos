@@ -49,8 +49,8 @@ use kairos_embed::{DeterministicProvider, EmbeddingProvider};
 use kairos_index::{FakeSummarizer, Index, Level, UpdateOptions};
 use kairos_server::app;
 use kairos_server::code_index::{
-    CodeIndexService, FakeSummarizers, OPTED_OUT, SummarizerSource, first_builds, run_builder,
-    sweep,
+    CodeIndexService, FakeSummarizers, OPTED_OUT, SummarizerSource, first_builds, requested_builds,
+    run_builder, sweep,
 };
 use kairos_server::middleware::auth::Authenticator;
 
@@ -470,6 +470,18 @@ impl World {
     async fn first_builds(&self) -> Vec<kairos_server::code_index::BuildOutcome> {
         let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
         first_builds(
+            &self.state.blocking,
+            &self.service,
+            Arc::new(FakeSummarizers),
+            embedder,
+        )
+        .await
+    }
+
+    /// The builds that a person asked for (KAIROS-T-0332), one pass.
+    async fn requested_builds(&self) -> Vec<kairos_server::code_index::BuildOutcome> {
+        let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+        requested_builds(
             &self.state.blocking,
             &self.service,
             Arc::new(FakeSummarizers),
@@ -1362,4 +1374,146 @@ async fn the_runs_list_clamps_its_limit() {
         .await
         .expect_err("refused");
     assert!(matches!(err, Error::NotFound { .. }), "{err}");
+}
+
+// ===========================================================================
+// KAIROS-T-0332: a person asks for a rebuild
+// ===========================================================================
+
+#[tokio::test]
+async fn a_member_of_the_owner_team_asks_for_a_rebuild() {
+    // Given an index of commit A, sent by bob
+    let w = World::new("kairos_code_index_t0332_rebuild").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+
+    // A member with no right on the repository is refused
+    let err = w
+        .alice
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("alice has no right");
+    assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    assert_eq!(runs_of(&w).await.len(), 1, "a refusal writes no run");
+
+    // When bob asks
+    let run = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("202 with the run");
+    assert_eq!(run.trigger, "request");
+    assert_eq!(run.outcome, "running");
+    assert!(run.requested_by.is_some());
+    assert_eq!(run.finished_at, None);
+
+    // A second request while the first runs is refused and names the run
+    let err = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("one run at a time");
+    match &err {
+        Error::Conflict { code, details, .. } => {
+            assert_eq!(code, "CODE_INDEX_BUILD_RUNNING");
+            assert_eq!(details["run"], run.id);
+        }
+        other => panic!("{other}"),
+    }
+
+    // Then the builder makes the index on its next pass
+    let outcomes = w.requested_builds().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let outcome = &outcomes[0];
+    assert_eq!(outcome.commit, a);
+    let report = outcome.report.as_ref().expect("a full build");
+    assert!(report.build.symbols > 0);
+
+    // And the run is ok, with the counts, and the index of A is there
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert_eq!(runs[0].id, run.id);
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].trigger, "request");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
+    assert!(runs[0].symbols.is_some_and(|n| n > 0));
+    let built = w
+        .alice
+        .download_code_index("payments-api", &a)
+        .await
+        .expect("the index of A downloads");
+    assert_eq!(content_of(&built), content_of(&w.index(&a)));
+    let listed = w.alice.list_code_indexes("payments-api").await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].source, "build", "the rebuild replaced the upload");
+
+    // And a new request is possible again
+    w.bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("the run ended, so a new request goes");
+    assert!(w.service.pending_rebuilds().len() == 1);
+}
+
+#[tokio::test]
+async fn a_repository_with_the_builder_off_is_not_rebuilt_on_request() {
+    let w = World::new("kairos_code_index_t0332_off").await;
+    w.bob
+        .update_repository(
+            "payments-api",
+            &UpdateRepositoryRequest {
+                code_index_build: Some(CodeIndexBuild::Off),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("off");
+    let err = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("the builder is off");
+    match &err {
+        Error::Other {
+            status,
+            code,
+            message,
+            ..
+        } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "CODE_INDEX_BUILD_OFF");
+            assert!(message.contains("--code-index-build on"), "{message}");
+        }
+        other => panic!("{other}"),
+    }
+    assert!(runs_of(&w).await.is_empty(), "a refusal writes no run");
+}
+
+#[tokio::test]
+async fn a_requested_build_that_fails_ends_its_run_as_failed() {
+    let w = World::new("kairos_code_index_t0332_failed").await;
+    std::fs::remove_dir_all(&w.git).expect("remove the git repository");
+    let run = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("202 with the run");
+    let outcomes = w.requested_builds().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let note = outcomes[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "{note}");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].id, run.id);
+    assert_eq!(runs[0].outcome, "failed");
+    assert_eq!(runs[0].error.as_deref(), Some(note.as_str()));
+    // The person can ask again: a requested build has no memory of a
+    // failed commit.
+    w.bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("a new request after a failure");
 }

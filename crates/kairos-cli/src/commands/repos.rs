@@ -169,6 +169,27 @@ pub enum ReposCommand {
         #[command(subcommand)]
         command: CredentialCommand,
     },
+    /// Ask Kairos to build the code index of a repository again. The builder
+    /// of the server makes a full index of the head of the default branch.
+    /// The command shows the run; `kairos repos builds` follows it
+    Reindex {
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Show the runs of the code index builder for a repository, newest
+    /// first: a build after a push, a first build, a build on request, or
+    /// an upload, with its result
+    Builds {
+        /// Repository slug (or UUID)
+        repository: String,
+        /// The most runs to show: 20 when not given, 100 at most
+        #[arg(long)]
+        limit: Option<i64>,
+        #[command(flatten)]
+        common: Common,
+    },
 }
 
 /// The read token of a repository (COLLIERY-T-3105). An organization admin
@@ -575,6 +596,61 @@ impl ReposCommand {
                 Ok(())
             }
             Self::Credential { command } => command.run().await,
+            Self::Reindex { repository, common } => {
+                let client = client(&common)?;
+                let run = client.rebuild_code_index(&repository).await?;
+                if common.json {
+                    return print_json(&run);
+                }
+                println!(
+                    "Kairos builds the code index of the repository {repository} again (run {}, \
+                     started {}). To follow it, run: kairos repos builds {repository}",
+                    run.id, run.started_at
+                );
+                Ok(())
+            }
+            Self::Builds {
+                repository,
+                limit,
+                common,
+            } => {
+                let client = client(&common)?;
+                let list = client.list_code_index_builds(&repository, limit).await?;
+                if common.json {
+                    return print_json(&list);
+                }
+                if list.items.is_empty() {
+                    println!("The repository {repository} has no run of the code index builder.");
+                    return Ok(());
+                }
+                println!(
+                    "{:<25} {:<8} {:<8} {:<12} {:<9} DETAIL",
+                    "STARTED", "TRIGGER", "OUTCOME", "COMMIT", "SYMBOLS"
+                );
+                for run in &list.items {
+                    let commit = run.commit.as_deref().map_or("-", |c| &c[..c.len().min(12)]);
+                    let symbols = run
+                        .symbols
+                        .map_or_else(|| "-".to_string(), |n| n.to_string());
+                    let detail = match (&run.error, &run.finished_at) {
+                        (Some(error), _) => error.clone(),
+                        (None, Some(finished)) => format!("ended {finished}"),
+                        (None, None) => "running".to_string(),
+                    };
+                    println!(
+                        "{:<25} {:<8} {:<8} {:<12} {:<9} {}",
+                        run.started_at, run.trigger, run.outcome, commit, symbols, detail
+                    );
+                }
+                if list.total > list.items.len() as i64 {
+                    println!(
+                        "{} of {} runs. Use --limit for more (100 at most).",
+                        list.items.len(),
+                        list.total
+                    );
+                }
+                Ok(())
+            }
         }
     }
 }

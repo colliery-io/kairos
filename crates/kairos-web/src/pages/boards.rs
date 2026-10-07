@@ -1687,7 +1687,13 @@ fn BoardBody(
             // Lanes are a keyed <For> (key = slug) so a WS refetch that
             // changes the slug set diffs lanes instead of rebuilding them
             // all (KAIROS-T-0074 rule, KAIROS-T-0114).
-            if is_delivery {
+            // KAIROS-T-0328: one container scrolls each lane of the board
+            // sideways together, so the columns of the lanes stay in line.
+            // It knows the number of columns, so a lane is as wide as its
+            // columns at their readable floor (app.css).
+            let lanes_style =
+                move || format!("--kairos-columns: {}", columns.with(Vec::len).max(1));
+            let lanes_view = if is_delivery {
                 view! {
                     {move || if group_by_repo.get() {
                         view! {
@@ -1715,6 +1721,9 @@ fn BoardBody(
             } else {
                 view! { <LaneColumns lane=None repo=RepoLane::Any columns drag powers on_changed on_error/> }
                     .into_any()
+            };
+            view! {
+                <div class="kairos-board__lanes" style=lanes_style>{lanes_view}</div>
             }
         }
         {move || create_kind.zip(entry_column.get()).zip(mode.get()).map(|((kind, entry), mode)| view! {
@@ -2035,6 +2044,9 @@ fn LaneColumns(
                                     <Text dimmed=true size="xs">{move || cards.with(Vec::len).to_string()}</Text>
                                 </Group>
                             </header>
+                            // KAIROS-T-0328: the cards of a column scroll on
+                            // their own; the column head stays in view.
+                            <div class="kairos-board__cards">
                             <Stack gap="xs">
                                 {move || ((lane != Some(LANE_SUPPORT)) && cards.with(Vec::is_empty)).then(|| view! {
                                     <Text dimmed=true size="xs">"No items in this column."</Text>
@@ -2059,6 +2071,7 @@ fn LaneColumns(
                                     }
                                 />
                             </Stack>
+                            </div>
                         </section>
                     }
                 }

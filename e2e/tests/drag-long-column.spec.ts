@@ -1,12 +1,11 @@
-// COLLIERY-T-0239, COLLIERY-T-0253 — a drag from the bottom of a long column.
+// COLLIERY-T-0239, COLLIERY-T-0253, KAIROS-T-0328 — a long column.
 //
-// The page scrolls, and a column of 30 cards or more is some screens tall.
-// Each column is as tall as the tallest column of its lane
-// (COLLIERY-T-0253), so a person drops the card at the bottom of the long
-// column on the adjacent column with no scroll. A column of a different
-// lane is not in the viewport of that card. The drag helper must move the
-// card in that case also (COLLIERY-T-0239): it turns the wheel during the
-// drag.
+// A column has a floor of 280px. The board scrolls sideways as one, so the
+// columns of the two lanes stay in line, and the page never scrolls
+// sideways. Up and down, each column scrolls on its own: a column of 30
+// cards or more is no taller than the window, and its cards scroll inside
+// it. Each column of a lane is as tall as the others (COLLIERY-T-0253), so
+// a card drops at its own height in each column.
 //
 // Runs against the web-delivery board, as drag.spec.ts does, so that it
 // does not change the platform-delivery fixture of smoke.spec.ts.
@@ -14,13 +13,14 @@
 //   1. alice creates 32 tasks on web-delivery through the API; they start
 //      in Backlog, in the planned lane
 //   2. REAL PKCE login (alice), open Web Delivery
-//   3. each column of the planned lane is as tall as Backlog, and the
-//      lanes do not overlap
-//   4. drag the card at the bottom of Backlog to Todo at the height of the
-//      card, with no scroll → the card lands in Todo of the planned lane
-//   5. the column Backlog of the support lane is not in the viewport of
-//      the card that is now at the bottom; drag that card to it → the
-//      card lands in the support lane
+//   3. the columns are at least 280px wide and a card fills its column;
+//      the columns of the two lanes are in line; the page does not scroll
+//      sideways; Backlog scrolls inside itself, and its scroll moves
+//      neither Todo nor the page; the columns of a lane are equally tall
+//   4. drag the card at the bottom of Backlog to Todo → it lands in Todo of
+//      the planned lane
+//   5. drag the next bottom card to Backlog of the support lane → it lands
+//      in the support lane
 //   6. archive the 32 tasks (also when a step before this one fails), so
 //      that the specs that run after this one find the board as it was
 
@@ -89,39 +89,67 @@ test('drag and drop: a card at the bottom of a long column moves with no scroll,
       ).toHaveCount(CARDS);
     });
 
-    await test.step('each column of the planned lane is as tall as Backlog; the lanes do not overlap', async () => {
-      const long = await column(page, 'Backlog').boundingBox();
-      if (!long) throw new Error('Backlog has no bounding box');
-      const viewport = page.viewportSize();
-      if (!viewport) throw new Error('the page has no viewport size');
-      // The column is some screens tall: the spec is about that board.
-      expect(long.height).toBeGreaterThan(viewport.height * 2);
+    await test.step('the columns are wide, the board scrolls sideways as one, each column scrolls on its own', async () => {
+      // KAIROS-T-0328: a column has a floor of 280px, and a card is as wide
+      // as its column.
       for (const name of columns) {
         const box = await column(page, name).boundingBox();
         if (!box) throw new Error(`${name} has no bounding box`);
-        expect(Math.abs(box.y - long.y), `top of ${name}`).toBeLessThan(1);
-        expect(Math.abs(box.height - long.height), `height of ${name}`).toBeLessThan(1);
+        expect(box.width, `width of ${name}`).toBeGreaterThanOrEqual(279);
       }
-      const support = await laneOf(page, 'support').boundingBox();
-      const planned = await laneOf(page, 'planned').boundingBox();
-      if (!support || !planned) throw new Error('a lane has no bounding box');
-      expect(support.y + support.height).toBeLessThanOrEqual(planned.y);
+      const backlog = column(page, 'Backlog');
+      const backlogBox = await backlog.boundingBox();
+      const cardBox = await backlog.locator('article.kairos-card').first().boundingBox();
+      if (!backlogBox || !cardBox) throw new Error('no bounding box');
+      expect(cardBox.width).toBeGreaterThan(backlogBox.width - 40);
+
+      // The columns of the two lanes stay in line: the board scrolls
+      // sideways as one container, and the page does not.
       for (const name of columns) {
-        const box = await column(page, name, 'support').boundingBox();
-        if (!box) throw new Error(`support ${name} has no bounding box`);
-        expect(box.y + box.height, `support ${name}`).toBeLessThanOrEqual(planned.y);
+        const planned = await column(page, name).boundingBox();
+        const support = await column(page, name, 'support').boundingBox();
+        if (!planned || !support) throw new Error(`${name} has no bounding box`);
+        expect(Math.abs(planned.x - support.x), `x of ${name}`).toBeLessThan(1);
+      }
+      const lanes = page.locator('.kairos-board__lanes');
+      await expect(lanes).toHaveCSS('overflow-x', 'auto');
+      const pageScrolls = await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      );
+      expect(pageScrolls, 'the page does not scroll sideways').toBe(false);
+
+      // Up and down, each column scrolls on its own: the long Backlog is
+      // no taller than the window, its cards scroll inside it, and a
+      // scroll of Backlog moves neither Todo nor the page.
+      const viewport = page.viewportSize();
+      if (!viewport) throw new Error('the page has no viewport size');
+      expect(backlogBox.height).toBeLessThan(viewport.height);
+      const cards = backlog.locator('.kairos-board__cards');
+      const overflows = await cards.evaluate((el) => el.scrollHeight > el.clientHeight);
+      expect(overflows, 'the cards of Backlog scroll inside the column').toBe(true);
+      const todoCards = column(page, 'Todo').locator('.kairos-board__cards');
+      const pageY = await page.evaluate(() => window.scrollY);
+      await cards.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+      expect(await cards.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+      expect(await todoCards.evaluate((el) => el.scrollTop)).toBe(0);
+      expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
+      // Each column of a lane is as tall as the others (COLLIERY-T-0253):
+      // a card drops at its own height in each column.
+      for (const name of columns) {
+        const box = await column(page, name).boundingBox();
+        if (!box) throw new Error(`${name} has no bounding box`);
+        expect(Math.abs(box.y - backlogBox.y), `top of ${name}`).toBeLessThan(1);
+        expect(Math.abs(box.height - backlogBox.height), `height of ${name}`).toBeLessThan(1);
       }
     });
 
-    await test.step('drag to Todo at the height of the card, with no scroll — the card lands', async () => {
+    await test.step('drag the card at the bottom of Backlog to Todo — the card lands', async () => {
       const code = await bottomOfBacklog(page);
       expect(created).toContain(code);
       const card = (name: string, lane: Lane = 'planned'): Locator =>
         column(page, name, lane).locator('article.kairos-card', { hasText: code });
       await card('Backlog').scrollIntoViewIfNeeded();
       await expect(card('Backlog')).toBeInViewport();
-      // The head of Todo is some screens above. The column is here.
-      await expect(column(page, 'Todo').locator('.kairos-board__column-head')).not.toBeInViewport();
       await expect(card('Backlog')).toHaveAttribute('draggable', 'true');
       await dragAcross(page, card('Backlog'), column(page, 'Todo'));
       await expect(card('Todo')).toBeVisible({ timeout: 15_000 });
@@ -133,14 +161,13 @@ test('drag and drop: a card at the bottom of a long column moves with no scroll,
       expect(task.work_class).toBe('planned');
     });
 
-    await test.step('drag to Backlog of the support lane, which is not in the viewport — the card lands', async () => {
+    await test.step('drag a card to Backlog of the support lane — the card lands', async () => {
       const code = await bottomOfBacklog(page);
       expect(created).toContain(code);
       const card = (lane: Lane): Locator =>
         column(page, 'Backlog', lane).locator('article.kairos-card', { hasText: code });
       await card('planned').scrollIntoViewIfNeeded();
       await expect(card('planned')).toBeInViewport();
-      await expect(column(page, 'Backlog', 'support')).not.toBeInViewport();
       await dragTo(page, card('planned'), column(page, 'Backlog', 'support'));
       await expect(card('support')).toBeVisible({ timeout: 15_000 });
       await expect(card('planned')).toHaveCount(0);

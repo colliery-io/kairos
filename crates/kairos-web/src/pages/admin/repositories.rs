@@ -71,6 +71,13 @@ fn full_name_hint(forge: &str) -> &'static str {
 const URL_HINT: &str = "URL: an absolute http or https URL, with no space. Do not put a user \
                         name or a password in it, because each member can read it.";
 
+/// The setting `code_index_summaries` (KAIROS-T-0340).
+const CODE_INDEX_SUMMARIES_HINT: &str = "Code index summaries: embedded or hosted. With hosted, \
+                                         the summaries come from the provider that the \
+                                         organization set on the page Code index, and the code of \
+                                         each changed symbol leaves the host. Kairos refuses hosted \
+                                         when the organization has no hosted provider.";
+
 /// The setting `code_index_build` (KAIROS-T-0318).
 const CODE_INDEX_BUILD_HINT: &str = "Code index builder: on or off. With off, Kairos makes no \
                                      index of the repository. Use off for a template or a \
@@ -322,6 +329,8 @@ fn RepositoryRow(
     let edit_description = RwSignal::new(repo.description.clone());
     let edit_code_index_build = RwSignal::new(repo.code_index_build.clone());
     let code_index_build_summary = repo.code_index_build_summary();
+    let edit_code_index_summaries = RwSignal::new(repo.code_index_summaries.clone());
+    let code_index_summaries_summary = repo.code_index_summaries_summary();
     let team_slugs = StoredValue::new(
         team_options
             .into_iter()
@@ -350,13 +359,14 @@ fn RepositoryRow(
 
     let on_save = move |_| {
         let reference = slug.get_value();
-        let (s, u, b, t, d, c) = (
+        let (s, u, b, t, d, c, cs) = (
             edit_slug.get_untracked(),
             edit_url.get_untracked(),
             edit_branch.get_untracked(),
             edit_team.get_untracked(),
             edit_description.get_untracked(),
             edit_code_index_build.get_untracked(),
+            edit_code_index_summaries.get_untracked(),
         );
         // The editor stays open: a refusal shows next to its field
         // (COLLIERY-T-0267). A success reads the list again, and the new
@@ -379,6 +389,7 @@ fn RepositoryRow(
                         team: Some(&t),
                         description: Some(&d),
                         code_index_build: Some(&c),
+                        code_index_summaries: Some(&cs),
                     },
                 )
                 .await
@@ -532,6 +543,9 @@ fn RepositoryRow(
             <Text dimmed=true size="xs" attr:data-testid="code-index-build-status">
                 {code_index_build_summary}
             </Text>
+            <Text dimmed=true size="xs" attr:data-testid="code-index-summaries-status">
+                {code_index_summaries_summary}
+            </Text>
             <crate::pages::repositories::documents::RepositoryDocuments
                 slug=documents_slug/>
             <crate::pages::repositories::code_index::CodeIndexPanel
@@ -551,12 +565,15 @@ fn RepositoryRow(
                         <TextInput label="How to work here" value=edit_description/>
                         <Select label="Code index builder" value=edit_code_index_build
                             options=vec!["on".to_string(), "off".to_string()]/>
+                        <Select label="Code index summaries" value=edit_code_index_summaries
+                            options=vec!["embedded".to_string(), "hosted".to_string()]/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
                     <Text dimmed=true size="xs">{URL_HINT}</Text>
                     <Text dimmed=true size="xs">{BRANCH_HINT}</Text>
                     <Text dimmed=true size="xs">{REPOSITORY_SLUG_HINT}</Text>
                     <Text dimmed=true size="xs">{CODE_INDEX_BUILD_HINT}</Text>
+                    <Text dimmed=true size="xs">{CODE_INDEX_SUMMARIES_HINT}</Text>
                     <Text dimmed=true size="xs" attr:style="color: var(--gold)">
                         "A new owning team does not change the tasks. Each task stays on its board and keeps its link."
                     </Text>

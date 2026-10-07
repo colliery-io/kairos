@@ -167,6 +167,10 @@ pub struct Repository {
     /// (KAIROS-T-0318): `on` (the default) or `off`.
     #[serde(default)]
     pub code_index_build: CodeIndexBuild,
+    /// Where the summaries of the code index of the repository are made
+    /// (KAIROS-T-0340): `embedded` (the default) or `hosted`.
+    #[serde(default)]
+    pub code_index_summaries: CodeIndexSummaries,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -262,6 +266,48 @@ pub struct UpdateRepositoryRequest {
     /// error names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_index_build: Option<CodeIndexBuild>,
+    /// `embedded` or `hosted` (KAIROS-T-0340). `hosted` is refused when the
+    /// tenant has no hosted provider (`CODE_INDEX_NO_HOSTED_PROVIDER`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_index_summaries: Option<CodeIndexSummaries>,
+}
+
+/// Where the summaries of the code index of a repository are made
+/// (KAIROS-T-0340).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeIndexSummaries {
+    /// The model in the server. The code stays on the host.
+    #[default]
+    Embedded,
+    /// The hosted provider of the tenant (`PUT /api/org/code-index-settings`).
+    /// The code of each changed symbol goes to that provider.
+    Hosted,
+}
+
+impl CodeIndexSummaries {
+    /// The value on the wire: `embedded` or `hosted`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CodeIndexSummaries::Embedded => "embedded",
+            CodeIndexSummaries::Hosted => "hosted",
+        }
+    }
+
+    /// The value of `text`. `None` for another text.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "embedded" => Some(CodeIndexSummaries::Embedded),
+            "hosted" => Some(CodeIndexSummaries::Hosted),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for CodeIndexSummaries {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// Whether the code index builder works on a repository (KAIROS-T-0318).

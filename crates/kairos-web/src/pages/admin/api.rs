@@ -742,6 +742,8 @@ pub struct RepositoryEdit<'a> {
     pub description: Option<&'a str>,
     /// `on` or `off` (KAIROS-T-0318).
     pub code_index_build: Option<&'a str>,
+    /// `embedded` or `hosted` (KAIROS-T-0340).
+    pub code_index_summaries: Option<&'a str>,
 }
 
 /// `PATCH /api/repositories/{slug}` — every field optional; `team` re-homes.
@@ -760,6 +762,7 @@ pub async fn update_repository(
         ("team", edit.team),
         ("description", edit.description),
         ("code_index_build", edit.code_index_build),
+        ("code_index_summaries", edit.code_index_summaries),
     ] {
         if let Some(value) = value {
             body.insert(key.to_string(), Value::String(value.to_string()));

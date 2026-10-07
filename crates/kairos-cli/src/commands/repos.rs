@@ -110,6 +110,11 @@ pub enum ReposCommand {
         /// off. With off, the builder makes no index of it
         #[arg(long = "code-index-build", value_name = "ON|OFF", value_parser = ["on", "off"])]
         code_index_build: Option<String>,
+        /// Where the summaries of the code index are made: embedded (the
+        /// model in the server) or hosted (the provider of the organization;
+        /// the code of each changed symbol leaves the host)
+        #[arg(long = "code-index-summaries", value_name = "EMBEDDED|HOSTED", value_parser = ["embedded", "hosted"])]
+        code_index_summaries: Option<String>,
         #[command(flatten)]
         common: Common,
     },
@@ -392,6 +397,7 @@ impl ReposCommand {
                 );
                 println!("read token:     {}", detail.repository.credential.summary());
                 println!("index builder:  {}", detail.repository.code_index_build);
+                println!("summaries:      {}", detail.repository.code_index_summaries);
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");
@@ -465,6 +471,7 @@ impl ReposCommand {
                 team,
                 description,
                 code_index_build,
+                code_index_summaries,
                 common,
             } => {
                 if slug.is_none()
@@ -473,10 +480,11 @@ impl ReposCommand {
                     && team.is_none()
                     && description.is_none()
                     && code_index_build.is_none()
+                    && code_index_summaries.is_none()
                 {
                     return Err(CliError::Failure(
                         "The command has no change. Use --slug, --repo-url, --default-branch, \
-                         --team, --description or --code-index-build."
+                         --team, --description, --code-index-build or --code-index-summaries."
                             .to_string(),
                     ));
                 }
@@ -484,6 +492,9 @@ impl ReposCommand {
                 let code_index_build = code_index_build
                     .as_deref()
                     .and_then(kairos_client::types_repositories::CodeIndexBuild::parse);
+                let code_index_summaries = code_index_summaries
+                    .as_deref()
+                    .and_then(kairos_client::types_repositories::CodeIndexSummaries::parse);
                 let client = client(&common)?;
                 // COLLIERY-T-0267: a PATCH with the values of the
                 // repository changes nothing, and the response is a normal
@@ -499,6 +510,7 @@ impl ReposCommand {
                             team,
                             description,
                             code_index_build,
+                            code_index_summaries,
                         },
                     )
                     .await?;

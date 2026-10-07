@@ -313,9 +313,14 @@ keeps the stored secret. An empty secret removes it. A hosted provider
 needs its secret, its URL or region, and its model. Kairos refuses a write
 with one of them missing, and the refusal names the field.
 
-A repository uses the hosted provider only after a person opts it in
-(`code_index_summaries` of the repository). Until then its summaries come
-from the embedded model.
+A repository uses the hosted provider only after a person opts it in. The
+setting is `code_index_summaries` of the repository: `embedded` (the
+default) or `hosted`. A person sets it on the page Admin, Repositories. The
+command is `kairos repos update <slug> --code-index-summaries hosted`.
+Kairos refuses `hosted` when the organization has no hosted provider.
+
+Until the opt-in, the embedded model writes the summaries of the
+repository. Its code stays on the host.
 
 The clone fetches from the `repo_url` of the repository. For a private
 repository, set a read token on the repository (see

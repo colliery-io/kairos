@@ -317,6 +317,12 @@ The answer to `GET /api/org/code-index-settings`.
 | `updated_by` | `string`, nullable | no | None when the tenant has no settings row (the defaults). |
 | `vectors` | [`VectorProviderSettings`](schemas.md#vectorprovidersettings) | yes |  |
 
+## CodeIndexSummaries
+
+Where the summaries of the code index of a repository are made (KAIROS-T-0340).
+
+One of: `embedded`, `hosted`
+
 ## CodeSequence
 
 The sequence of a prefix and a type (COLLIERY-T-3104).
@@ -1332,6 +1338,7 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild) | no | Whether the code index builder works on the repository (KAIROS-T-0318): `on` (the default) or `off`. |
+| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries of the code index of the repository are made (KAIROS-T-0340): `embedded` (the default) or `hosted`. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `credential` | [`RepositoryCredential`](schemas.md#repositorycredential) | no | The status of the read token of the repository (COLLIERY-T-3105). It never has the token. |
 | `default_branch` | `string` | yes |  |
@@ -1993,6 +2000,7 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild), nullable | no |  |
+| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries), nullable | no |  |
 | `default_branch` | `string`, nullable | no | The form is that of `default_branch` in `CreateRepositoryRequest`. |
 | `description` | `string`, nullable | no |  |
 | `repo_url` | `string`, nullable | no | The form is that of `repo_url` in `CreateRepositoryRequest`. |

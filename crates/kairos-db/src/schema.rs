@@ -403,6 +403,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         code_index_build -> Text,
+        code_index_summaries -> Text,
     }
 }
 

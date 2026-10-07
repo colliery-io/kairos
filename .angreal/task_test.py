@@ -473,6 +473,11 @@ def _gui_server_env(env, extra=None):
         # mechanism the product does not have. The journey waits, as a real
         # caller would.
         "KAIROS_EMBED_REFRESH_SECS": "2",
+        # KAIROS-T-0333: the code index panel asks for a build. The server
+        # takes the request when it has the folder of the clones. The test
+        # server has no summarizer, so the builder does not run: the run
+        # stays `running`, which is what the spec watches arrive live.
+        "KAIROS_CODE_INDEX_DIR": str(PROJECT_ROOT / "target" / "e2e-code-index"),
     })
     if extra:
         gui_env.update(extra)

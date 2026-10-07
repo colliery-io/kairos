@@ -19,7 +19,10 @@ The command shows the runs, newest first. Each run has its trigger,
 outcome, commit, count of symbols, and the text of a failure. Use
 `--limit <N>` for more runs (100 at most).
 
-The same records are on the page of the repository in the GUI, and at
+The same records are in the GUI. Find the repository on the team page, or
+on the page Admin, Repositories, and open "Show code index". The panel
+shows the newest index, the last runs and the indexed commits. It updates
+when a run starts or ends. The REST route is
 `GET /api/repositories/{slug}/code-indexes/builds`.
 
 A run can have the text "The server stopped during the run." That run was
@@ -39,7 +42,9 @@ The builder makes a full index of the head of the default branch. The new
 index replaces the index of that commit. The command shows the run. Follow
 it with `kairos repos builds <slug>`.
 
-An agent asks with the MCP tool `rebuild_code_index`. The REST route is
+In the GUI, the button "Build again" of the panel asks for the build. The
+button is shown to a person with the right. An agent asks with the MCP
+tool `rebuild_code_index`. The REST route is
 `POST /api/repositories/{slug}/code-indexes/rebuild`, with no body.
 
 ## When the request is refused

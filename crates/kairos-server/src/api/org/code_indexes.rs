@@ -231,14 +231,18 @@ pub(crate) fn request_rebuild(
         )
         .with_details(json!({ "run": active.id })));
     }
-    let run = code_index_builds::start(
-        conn,
-        repo.id,
-        "request",
-        Some(&repo.default_branch),
-        Some(user),
-    )
-    .map_err(ApiError::internal)?;
+    let run = super::run_in_transaction(conn, |conn| {
+        let run = code_index_builds::start(
+            conn,
+            repo.id,
+            "request",
+            Some(&repo.default_branch),
+            Some(user),
+        )
+        .map_err(ApiError::internal)?;
+        crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
+        Ok(run)
+    })?;
     Ok((repo, run))
 }
 
@@ -424,7 +428,8 @@ pub(crate) async fn upload_code_index(
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
-            // The upload is a run of the index (KAIROS-T-0331).
+            // The upload is a run of the index (KAIROS-T-0331), and the
+            // readers of the repository hear of it (KAIROS-T-0333).
             code_index_builds::record_finished(
                 conn,
                 repo.id,
@@ -435,6 +440,7 @@ pub(crate) async fn upload_code_index(
                 None,
             )
             .map_err(ApiError::internal)?;
+            crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
             let pool_size = code_indexes::pool_size(conn, repo.id).map_err(ApiError::internal)?;
             Ok((
                 outcome.created,

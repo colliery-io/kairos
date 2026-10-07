@@ -889,6 +889,35 @@ fn counts_of(report: &UpdateReport) -> runs::Counts {
     }
 }
 
+/// Tell the readers of a repository that a run started or ended
+/// (KAIROS-T-0333): the event `code_index_build_changed`, with the slug of
+/// the repository as its short code. Inside the transaction of the write.
+pub(crate) fn notify_run(
+    conn: &mut diesel::pg::PgConnection,
+    slug: &str,
+    actor: Option<uuid::Uuid>,
+) -> Result<(), ApiError> {
+    kairos_db::events::emit_event(
+        conn,
+        &kairos_db::events::ThinEvent {
+            event: kairos_db::events::EventKind::CodeIndexBuildChanged,
+            entity_type: "repository".to_string(),
+            short_code: slug.to_string(),
+            board_id: None,
+            column_id: None,
+            actor: actor.unwrap_or_else(uuid::Uuid::nil),
+        },
+    )
+    .map_err(ApiError::internal)
+}
+
+/// The slug of the repository of a run, for its event.
+fn slug_of_run(conn: &mut diesel::pg::PgConnection, run: &runs::Build) -> Option<String> {
+    kairos_db::repositories::load(conn, run.repository_id)
+        .ok()
+        .map(|repo| repo.slug)
+}
+
 /// Start the record of a run (KAIROS-T-0331): a `running` row, after the
 /// stale rows of the repository are ended. None when the write fails: the
 /// failure is logged, and the build goes on with no record.
@@ -900,10 +929,16 @@ async fn record_start(
 ) -> Option<uuid::Uuid> {
     let repo_id = repo.id;
     let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
     let written = blocking
         .run(tenant, move |conn| {
-            runs::end_stale(conn, repo_id).map_err(ApiError::internal)?;
-            runs::start(conn, repo_id, trigger, Some(&branch), None).map_err(ApiError::internal)
+            crate::api::org::run_in_transaction(conn, |conn| {
+                runs::end_stale(conn, repo_id).map_err(ApiError::internal)?;
+                let run = runs::start(conn, repo_id, trigger, Some(&branch), None)
+                    .map_err(ApiError::internal)?;
+                notify_run(conn, &slug, None)?;
+                Ok(run)
+            })
         })
         .await;
     match written {
@@ -946,11 +981,17 @@ async fn record_end(
     let result = result.map_err(str::to_owned);
     if let Err(e) = blocking
         .run(tenant, move |conn| {
-            match &result {
-                Ok(counts) => runs::end_ok(conn, id, Some(*counts)),
-                Err(error) => runs::end_failed(conn, id, error),
-            }
-            .map_err(ApiError::internal)
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let run = match &result {
+                    Ok(counts) => runs::end_ok(conn, id, Some(*counts)),
+                    Err(error) => runs::end_failed(conn, id, error),
+                }
+                .map_err(ApiError::internal)?;
+                if let Some(slug) = slug_of_run(conn, &run) {
+                    notify_run(conn, &slug, run.requested_by)?;
+                }
+                Ok(())
+            })
         })
         .await
     {
@@ -971,19 +1012,26 @@ async fn record_failure_once(
 ) {
     let repo_id = repo.id;
     let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
     let commit = commit.map(str::to_owned);
     let error = error.to_string();
     if let Err(e) = blocking
         .run(tenant, move |conn| {
-            runs::record_failure_once(
-                conn,
-                repo_id,
-                trigger,
-                commit.as_deref(),
-                Some(&branch),
-                &error,
-            )
-            .map_err(ApiError::internal)
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let written = runs::record_failure_once(
+                    conn,
+                    repo_id,
+                    trigger,
+                    commit.as_deref(),
+                    Some(&branch),
+                    &error,
+                )
+                .map_err(ApiError::internal)?;
+                if written.is_some() {
+                    notify_run(conn, &slug, None)?;
+                }
+                Ok(())
+            })
         })
         .await
     {

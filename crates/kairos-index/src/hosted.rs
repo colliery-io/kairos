@@ -181,22 +181,32 @@ impl Summarizer for HostedChat {
     /// in the order of the requests.
     fn summarize_many(&mut self, requests: &[SummaryRequest]) -> Vec<Result<String, String>> {
         let prompts: Vec<String> = requests.iter().map(|r| r.prompt()).collect();
-        let this = &*self;
-        std::thread::scope(|scope| {
-            let handles: Vec<_> = prompts
-                .iter()
-                .map(|prompt| scope.spawn(move || this.request(prompt)))
-                .collect();
-            handles
-                .into_iter()
-                .map(|handle| {
-                    handle
-                        .join()
-                        .unwrap_or_else(|_| Err("the request thread stopped".to_string()))
-                })
-                .collect()
-        })
+        in_parallel(&prompts, |prompt| self.request(prompt))
     }
+}
+
+/// Run `request` for each prompt on its own thread, and give the results
+/// in the order of the prompts. The caller gives one batch at a time, of
+/// the size of its concurrency, so the thread count is bounded.
+pub(crate) fn in_parallel<F>(prompts: &[String], request: F) -> Vec<Result<String, String>>
+where
+    F: Fn(&str) -> Result<String, String> + Sync,
+{
+    let request = &request;
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = prompts
+            .iter()
+            .map(|prompt| scope.spawn(move || request(prompt)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("the request thread stopped".to_string()))
+            })
+            .collect()
+    })
 }
 
 #[cfg(test)]

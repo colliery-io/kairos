@@ -1720,3 +1720,101 @@ async fn an_embedded_repository_on_a_server_with_no_model_gets_a_failed_run() {
         "{run:?}"
     );
 }
+
+// ===========================================================================
+// KAIROS-T-0342: the Bedrock summarizer
+// ===========================================================================
+
+/// The settings of the tenant: Bedrock at the fake endpoint (the region is
+/// the endpoint override of the tests).
+fn bedrock_settings(base_url: &str, credentials: &str) -> PutCodeIndexSettings {
+    PutCodeIndexSettings {
+        summary: PutSummaryProvider {
+            provider: "bedrock".into(),
+            base_url: None,
+            model: Some("anthropic.claude-3-5-haiku-20241022-v1:0".into()),
+            region: Some(base_url.into()),
+            secret: Some(Secret::new(credentials)),
+        },
+        vectors: PutVectorProvider {
+            provider: "embedded".into(),
+            ..Default::default()
+        },
+        concurrency: Some(3),
+    }
+}
+
+#[tokio::test]
+async fn a_bedrock_repository_is_summarized_through_the_converse_api() {
+    // Given a tenant on Bedrock (the fake endpoint, a throttle on the first
+    // request) and an opted-in repository
+    let w = World::new("kairos_code_index_t0342_bedrock").await;
+    let bedrock = common::bedrock_http::serve("AKIAT0342EXAMPLE", 1).await;
+    w.svc
+        .put_code_index_settings(&bedrock_settings(
+            &bedrock.base_url,
+            "AKIAT0342EXAMPLE:secretkey0342:sessiontoken0342",
+        ))
+        .await
+        .expect("the provider");
+    opt_in(&w, "payments-api").await;
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+    let hosted = outcomes
+        .iter()
+        .find(|o| o.repository == "payments-api")
+        .expect("payments-api");
+
+    // Then the summaries come from Bedrock, signed, with the model id
+    // encoded in the path, and the throttle was tried again
+    let report = hosted
+        .report
+        .as_ref()
+        .unwrap_or_else(|| panic!("{hosted:?}"));
+    assert!(report.summary.symbols.summarized > 0, "{report:?}");
+    assert!(
+        report
+            .summary
+            .calls
+            .iter()
+            .all(|c| c.summary.starts_with("A Bedrock summary of")),
+        "{:?}",
+        report.summary.calls
+    );
+    let authorizations = bedrock.authorizations();
+    assert_eq!(authorizations.len(), report.summary.calls.len() + 1);
+    assert!(
+        authorizations
+            .iter()
+            .all(|a| a.contains("/bedrock/aws4_request,")
+                && a.contains("SignedHeaders=content-type;host;x-amz-date;x-amz-security-token,")),
+        "{authorizations:?}"
+    );
+    assert!(
+        bedrock
+            .model_ids()
+            .iter()
+            .all(|id| id == "anthropic.claude-3-5-haiku-20241022-v1:0"),
+        "{:?}",
+        bedrock.model_ids()
+    );
+    assert_eq!(
+        newest_run(&w, "payments-api").await.model.as_deref(),
+        Some("bedrock/anthropic.claude-3-5-haiku-20241022-v1:0")
+    );
+}
+
+#[tokio::test]
+async fn bedrock_credentials_of_one_part_are_refused_before_a_build() {
+    let w = World::new("kairos_code_index_t0342_credentials").await;
+    let err = w
+        .svc
+        .put_code_index_settings(&bedrock_settings("https://127.0.0.1:1", "AKIA-only"))
+        .await
+        .expect_err("the credentials have 2 or 3 parts");
+    match &err {
+        Error::Validation { field, .. } => assert_eq!(field.as_deref(), Some("summary.secret")),
+        other => panic!("{other}"),
+    }
+}

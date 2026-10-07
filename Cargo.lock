@@ -2593,9 +2593,11 @@ dependencies = [
 name = "kairos-index"
 version = "0.6.2"
 dependencies = [
+ "chrono",
  "cucumber",
  "flate2",
  "globset",
+ "hmac 0.12.1",
  "ignore",
  "kairos-embed",
  "kairos-narsil",

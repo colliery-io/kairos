@@ -335,6 +335,27 @@ impl SummarizerSource for HostedSummarizers {
     }
 }
 
+/// The Bedrock summarizer source (KAIROS-T-0342), from the settings of a
+/// tenant. A new client for each build.
+pub struct BedrockSummarizers {
+    pub config: kairos_index::bedrock::BedrockConfig,
+}
+
+impl SummarizerSource for BedrockSummarizers {
+    fn run(
+        &self,
+        job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
+    ) -> Result<UpdateReport, IndexError> {
+        let mut summarizer =
+            kairos_index::bedrock::Bedrock::new(self.config.clone()).map_err(IndexError::Model)?;
+        job(&mut summarizer)
+    }
+
+    fn model_name(&self) -> String {
+        format!("bedrock/{}", self.config.model_id)
+    }
+}
+
 /// The fake summarizer of `kairos-index`: a fixed text for each input, with
 /// no model. For tests.
 #[derive(Debug, Clone, Copy, Default)]
@@ -676,6 +697,48 @@ async fn models_for(
                 );
                 config.api_key = secret;
                 Arc::new(HostedSummarizers { config })
+            }
+            "bedrock" => {
+                let (Some(region), Some(model_id)) = (
+                    settings.summary_region.clone(),
+                    settings.summary_model.clone(),
+                ) else {
+                    return Err(
+                        "failed: the provider bedrock of the organization has no region \
+                                or no model id"
+                            .to_string(),
+                    );
+                };
+                let secret = secret.ok_or_else(|| {
+                    "failed: the provider bedrock of the organization has no credentials"
+                        .to_string()
+                })?;
+                let mut parts = secret.splitn(3, ':');
+                let (Some(access_key_id), Some(secret_access_key)) = (parts.next(), parts.next())
+                else {
+                    return Err("failed: the credentials of bedrock are not <access key \
+                                id>:<secret access key>"
+                        .to_string());
+                };
+                let session_token = parts.next().filter(|t| !t.is_empty()).map(str::to_string);
+                // A region that is a URL is an endpoint override, for a test
+                // server; the signature then names us-east-1.
+                let (region, endpoint) =
+                    if region.starts_with("http://") || region.starts_with("https://") {
+                        ("us-east-1".to_string(), Some(region))
+                    } else {
+                        (region, None)
+                    };
+                let mut config = kairos_index::bedrock::BedrockConfig::new(
+                    &region,
+                    &model_id,
+                    access_key_id,
+                    secret_access_key,
+                    settings.concurrency.max(1) as usize,
+                );
+                config.session_token = session_token;
+                config.endpoint = endpoint;
+                Arc::new(BedrockSummarizers { config })
             }
             other => {
                 return Err(format!(

@@ -22,6 +22,7 @@
 //! function whose code did not change keeps its SCIP edges. [`merge`] is an update of the
 //! merged tree with the pools of 2 indexes (COLLIERY-T-1851).
 
+pub mod bedrock;
 mod calls;
 mod duplicates;
 mod edges;

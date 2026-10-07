@@ -41,7 +41,7 @@ const SCRATCH_DB: &str = "kairos_tenant_provisioning_test";
 /// The tenant tables (sorted): the 21 from the KAIROS-S-0004 DDL plus
 /// `scim_tokens` (KAIROS-T-0025 / A-0016) and `api_keys` (KAIROS-T-0057 /
 /// A-0017 service-account API keys).
-const EXPECTED_TABLES: [&str; 40] = [
+const EXPECTED_TABLES: [&str; 41] = [
     "activity_log",
     "adrs",
     "api_keys",
@@ -51,6 +51,8 @@ const EXPECTED_TABLES: [&str; 40] = [
     "boards",
     // KAIROS-T-0331: the runs of the code index builder.
     "code_index_builds",
+    // KAIROS-T-0339: the providers of the code index summaries and vectors.
+    "code_index_settings",
     // COLLIERY-T-1853: the base code index (the summary pool, the structure
     // of each commit).
     "code_index_summaries",

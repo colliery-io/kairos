@@ -124,10 +124,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Download all build artifacts
+      # The tarballs only. The image jobs leave their own artifacts (the
+      # digests, and the build records of docker/build-push-action), and a
+      # record that GitHub stored badly failed the download of everything
+      # at 0.7.0.
+      - name: Download the CLI tarballs
         uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: kairos-*
           merge-multiple: true
 
       - name: Create GitHub release and attach tarballs
@@ -220,6 +225,10 @@ jobs:
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
+        env:
+          # No build record artifact: nothing reads it, and a bad one
+          # failed the release of 0.7.0.
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: ./Dockerfile

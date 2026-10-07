@@ -803,6 +803,18 @@ struct Base {
     pool: Vec<kairos_db::code_indexes::PoolRow>,
 }
 
+/// Where an update of a repository starts (KAIROS-T-0347).
+enum Start {
+    /// The head has an index: nothing to do.
+    HeadIndexed,
+    /// The nearest indexed commit below the head.
+    Base(Base),
+    /// The nearest index (the head's or another) is of another schema
+    /// version: an update cannot read it, so the repository gets a full
+    /// build.
+    OldSchema { commit: String, found: i64 },
+}
+
 /// Which repositories a pass of the builder reads.
 #[derive(Debug, Clone, Copy)]
 enum Pass {
@@ -1397,9 +1409,12 @@ async fn build_repository(
         return done(outcome, "an earlier build of this commit failed".into());
     }
 
-    // The nearest indexed commit, and its structure and the pool.
+    // The nearest indexed commit, and its structure and the pool. An
+    // index of another schema version (a server upgrade bumped it) cannot
+    // start an update: the repository gets a full build, in place of a
+    // failed update on each tick (KAIROS-T-0347).
     let repo_id = repo.id;
-    let base = blocking
+    let start = blocking
         .run(tenant, move |conn| {
             let indexed: HashSet<String> = kairos_db::code_indexes::list(conn, repo_id)
                 .map_err(ApiError::internal)?
@@ -1409,24 +1424,61 @@ async fn build_repository(
             let Some(nearest) = ancestors.iter().find(|c| indexed.contains(*c)) else {
                 return Ok(None);
             };
+            let prefix = kairos_db::code_indexes::structure_prefix(
+                conn,
+                repo_id,
+                nearest,
+                kairos_index::store::VERSION_PREFIX_BYTES as i32,
+            )
+            .map_err(ApiError::internal)?
+            .unwrap_or_default();
+            if let Some(found) = kairos_index::store::structure_version(&prefix)
+                .filter(|found| *found != kairos_index::SCHEMA_VERSION)
+            {
+                return Ok(Some(Start::OldSchema {
+                    commit: nearest.clone(),
+                    found,
+                }));
+            }
             if *nearest == ancestors[0] {
-                return Ok(Some(None));
+                return Ok(Some(Start::HeadIndexed));
             }
             let structure = kairos_db::code_indexes::structure(conn, repo_id, nearest)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the index went away"))?;
             let pool =
                 kairos_db::code_indexes::whole_pool(conn, repo_id).map_err(ApiError::internal)?;
-            Ok(Some(Some(Base {
+            Ok(Some(Start::Base(Base {
                 commit: nearest.clone(),
                 structure,
                 pool,
             })))
         })
         .await;
-    let base = match base {
-        Ok(Some(Some(base))) => base,
-        Ok(Some(None)) => return done(outcome, "the head has an index".into()),
+    let base = match start {
+        Ok(Some(Start::Base(base))) => base,
+        Ok(Some(Start::HeadIndexed)) => return done(outcome, "the head has an index".into()),
+        Ok(Some(Start::OldSchema { commit, found })) => {
+            tracing::warn!(
+                tenant = %tenant,
+                repository = %repo.slug,
+                commit = %commit,
+                found,
+                reads = kairos_index::SCHEMA_VERSION,
+                "code index of another schema version: a full build"
+            );
+            return full_build_repository(
+                blocking,
+                service,
+                tenant,
+                repo,
+                summarizers,
+                embedder,
+                "push",
+                None,
+            )
+            .await;
+        }
         Ok(None) => {
             let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
             record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;

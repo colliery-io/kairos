@@ -130,6 +130,9 @@
    tasks.work_class; Support renders on top with an expedite accent. */
 .kairos-board__lane {
   border: 1px solid var(--border);
+  /* KAIROS-T-0328: each lane has the 3px left edge of the accented lanes,
+     so the columns of the lanes are in line. */
+  border-left-width: 3px;
   border-radius: var(--radius-md);
   padding: var(--space-sm);
 }
@@ -167,18 +170,40 @@
    COLLIERY-T-0253: each column is as tall as the tallest column of its
    lane. The column is the drop target, so a person can drop a card at
    the height of the card, in each column of the lane. */
+/* KAIROS-T-0328: the columns have a readable floor of 280px. The board
+   scrolls sideways as one: each lane (and its column row) is at least as
+   wide as its columns at the floor, and one container scrolls all lanes
+   together, so the columns of the Support and the Planned lane stay in
+   line. The page itself does not scroll sideways. Up and down, each
+   column scrolls on its own (.kairos-board__cards). */
+.kairos-board__lanes {
+  --kairos-column-min: 280px;
+  --kairos-row-min: calc(
+    var(--kairos-columns, 1) * var(--kairos-column-min) +
+      (var(--kairos-columns, 1) - 1) * var(--space-sm)
+  );
+  overflow-x: auto;
+  padding-bottom: var(--space-sm);
+}
+
+.kairos-board__lanes .kairos-board__lane {
+  min-width: var(--kairos-row-min);
+}
+
 .kairos-board {
   display: flex;
   align-items: stretch;
   gap: var(--space-sm);
-  overflow-x: auto;
+  min-width: var(--kairos-row-min, 0);
   padding-bottom: var(--space-sm);
 }
 
 .kairos-board__column {
   flex: 1 1 0;
   box-sizing: border-box;
-  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  min-width: var(--kairos-column-min, 280px);
   background: var(--inset);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-panel);
@@ -187,6 +212,15 @@
 
 .kairos-board__column-head {
   margin-bottom: var(--space-sm);
+}
+
+/* KAIROS-T-0328: the cards of a column scroll on their own, under a head
+   that stays in view. A short column stays short; a long one stops near
+   the height of the window. */
+.kairos-board__cards {
+  max-height: max(16rem, calc(100vh - 18rem));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Drag-and-drop (KAIROS-T-0064): while a card is dragged, only the
@@ -210,7 +244,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  /* Fluid columns (KAIROS-T-0126): the card never widens its column. */
+  /* The card is as wide as its column, and never widens it
+     (KAIROS-T-0126, KAIROS-T-0328). */
   min-width: 0;
   background: var(--panel);
   border: 1px solid var(--border);

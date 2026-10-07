@@ -90,11 +90,18 @@ WORKDIR /build
 # (COLLIERY-T-2526): at run time ggml loads the best one for the host (on
 # arm64, dotprod and fp16 when the CPU has them). So the image runs on any
 # host of its architecture and still uses its vector instructions.
-RUN cargo build --release -p kairos-server --features embed-web,llama \
+#
+# KAIROS_SERVER_FEATURES (KAIROS-T-0344): `embed-web,llama` is the full image.
+# `embed-web` alone is the `-hosted` image: no llama.cpp, no summary model
+# download at first start, for a deployment where every organization makes
+# its summaries on a hosted provider. The copies of the llama.cpp libraries
+# then find nothing, and the folders stay empty.
+ARG KAIROS_SERVER_FEATURES=embed-web,llama
+RUN cargo build --release -p kairos-server --features "${KAIROS_SERVER_FEATURES}" \
     && strip target/release/kairos-server \
     && mkdir -p /build/llama/lib /build/llama/backends \
-    && cp -P target/release/build/llama-cpp-sys-2-*/out/lib/lib*.so* /build/llama/lib/ \
-    && cp target/release/build/llama-cpp-sys-2-*/out/backends/libggml-cpu-*.so /build/llama/backends/
+    && (cp -P target/release/build/llama-cpp-sys-2-*/out/lib/lib*.so* /build/llama/lib/ 2>/dev/null || true) \
+    && (cp target/release/build/llama-cpp-sys-2-*/out/backends/libggml-cpu-*.so /build/llama/backends/ 2>/dev/null || true)
 
 # 3) Bake the local embedding model into the image (KAIROS-T-0189, A-0021 rule
 #    1). fastembed resolves models from a cache directory and downloads on a

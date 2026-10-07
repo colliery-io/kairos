@@ -33,6 +33,9 @@ pub struct PoolRow {
     pub level: String,
     pub summary: String,
     pub vector: Option<Vec<u8>>,
+    /// The model that wrote the summary, as `provider/model`
+    /// (KAIROS-T-0338).
+    pub model: String,
 }
 
 #[derive(Insertable)]
@@ -43,6 +46,7 @@ struct NewPoolRow<'a> {
     level: &'a str,
     summary: &'a str,
     vector: Option<&'a [u8]>,
+    model: &'a str,
 }
 
 /// The structure of one commit, to write.
@@ -117,6 +121,7 @@ pub fn put(
                     level: &r.level,
                     summary: &r.summary,
                     vector: r.vector.as_deref(),
+                    model: &r.model,
                 })
                 .collect();
             new_summaries += diesel::insert_into(code_index_summaries::table)

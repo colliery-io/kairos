@@ -751,7 +751,7 @@ impl KairosMcp {
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
                     .map_err(ApiError::internal)?;
             let mut out = format!(
-                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n- read token: {}\n",
+                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n- read token: {}\n- code index summaries: {}\n",
                 rendered.slug,
                 rendered.forge,
                 rendered.repo_full_name,
@@ -765,6 +765,9 @@ impl KairosMcp {
                 // COLLIERY-T-3105: the status only. No tool sets or gives
                 // the token.
                 rendered.credential.summary(),
+                // KAIROS-T-0340: where the summaries of the checkout come
+                // from. On `hosted`, the CLI makes none (KAIROS-T-0343).
+                rendered.code_index_summaries,
             );
             // No line about "stale" tasks (COLLIERY-T-0219). It counted the
             // linked tasks on a board of a team that does not own the

@@ -2,6 +2,10 @@
 //! `/api/admin/tenants`; the caller's OIDC `sub` must be listed in the
 //! server's `KAIROS_DEPLOYMENT_ADMINS`, otherwise 403 with that guidance).
 
+use kairos_client::types_auth::Secret;
+use kairos_client::types_code_index::{
+    CodeIndexSettings, PutCodeIndexSettings, PutSummaryProvider, PutVectorProvider,
+};
 use kairos_client::types_org::CreateTenantRequest;
 
 use crate::commands::entities::{ListArgs, require_confirm};
@@ -15,6 +19,209 @@ pub enum AdminCommand {
     /// Tenant provisioning (deployment-admin only, cross-tenant)
     #[command(subcommand)]
     Tenants(TenantsCommand),
+    /// The providers of the code index summaries and vectors of this
+    /// organization (an organization admin sets them)
+    #[command(subcommand, name = "code-index-settings")]
+    CodeIndexSettings(CodeIndexSettingsCommand),
+}
+
+/// Show or set where the code index summaries and vectors of the
+/// organization are made.
+#[derive(clap::Subcommand, Debug)]
+pub enum CodeIndexSettingsCommand {
+    /// Show the providers and whether each secret is set
+    Show {
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Set the providers. A flag that is not given keeps its value. A
+    /// secret comes from standard input (--summary-secret-stdin,
+    /// --vector-secret-stdin), never from an argument
+    Set {
+        /// embedded, ollama-cloud or bedrock
+        #[arg(long)]
+        summary_provider: Option<String>,
+        /// The base URL of the OpenAI-compatible endpoint (ollama-cloud)
+        #[arg(long)]
+        summary_url: Option<String>,
+        /// The model name (ollama-cloud) or the model id (bedrock)
+        #[arg(long)]
+        summary_model: Option<String>,
+        /// The AWS region (bedrock)
+        #[arg(long)]
+        summary_region: Option<String>,
+        /// Read the API key (ollama-cloud), or the AWS credentials as
+        /// <access key id>:<secret access key>[:<session token>] (bedrock),
+        /// from standard input
+        #[arg(long)]
+        summary_secret_stdin: bool,
+        /// Remove the stored secret of the summaries
+        #[arg(long, conflicts_with = "summary_secret_stdin")]
+        clear_summary_secret: bool,
+        /// embedded or remote
+        #[arg(long)]
+        vector_provider: Option<String>,
+        /// The base URL of the OpenAI-compatible embeddings endpoint (remote)
+        #[arg(long)]
+        vector_url: Option<String>,
+        /// The model name of the embeddings (remote)
+        #[arg(long)]
+        vector_model: Option<String>,
+        /// Read the API key of the embeddings endpoint from standard input
+        #[arg(long)]
+        vector_secret_stdin: bool,
+        /// Remove the stored secret of the vectors
+        #[arg(long, conflicts_with = "vector_secret_stdin")]
+        clear_vector_secret: bool,
+        /// The requests that a hosted summarizer sends at a time, 1 to 32
+        #[arg(long)]
+        concurrency: Option<i32>,
+        #[command(flatten)]
+        common: Common,
+    },
+}
+
+/// The body of a `set`: the current settings with the flags over them.
+/// Pure, host-tested.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn settings_body(
+    current: &CodeIndexSettings,
+    summary_provider: Option<String>,
+    summary_url: Option<String>,
+    summary_model: Option<String>,
+    summary_region: Option<String>,
+    summary_secret: Option<Secret>,
+    vector_provider: Option<String>,
+    vector_url: Option<String>,
+    vector_model: Option<String>,
+    vector_secret: Option<Secret>,
+    concurrency: Option<i32>,
+) -> PutCodeIndexSettings {
+    PutCodeIndexSettings {
+        summary: PutSummaryProvider {
+            provider: summary_provider.unwrap_or_else(|| current.summary.provider.clone()),
+            base_url: summary_url.or_else(|| current.summary.base_url.clone()),
+            model: summary_model.or_else(|| current.summary.model.clone()),
+            region: summary_region.or_else(|| current.summary.region.clone()),
+            secret: summary_secret,
+        },
+        vectors: PutVectorProvider {
+            provider: vector_provider.unwrap_or_else(|| current.vectors.provider.clone()),
+            base_url: vector_url.or_else(|| current.vectors.base_url.clone()),
+            model: vector_model.or_else(|| current.vectors.model.clone()),
+            secret: vector_secret,
+        },
+        concurrency: Some(concurrency.unwrap_or(current.concurrency)),
+    }
+}
+
+fn print_settings(settings: &CodeIndexSettings) {
+    let secret = |status: &kairos_client::types_code_index::SecretStatus| match (
+        &status.set_by,
+        &status.set_at,
+    ) {
+        (Some(by), Some(at)) => format!("set by {by} at {at}"),
+        _ if status.set => "set".to_string(),
+        _ => "none".to_string(),
+    };
+    println!("Summaries: {}", settings.summary.provider);
+    if let Some(url) = &settings.summary.base_url {
+        println!("  base URL: {url}");
+    }
+    if let Some(model) = &settings.summary.model {
+        println!("  model: {model}");
+    }
+    if let Some(region) = &settings.summary.region {
+        println!("  region: {region}");
+    }
+    println!("  secret: {}", secret(&settings.summary.secret));
+    println!("Vectors: {}", settings.vectors.provider);
+    if let Some(url) = &settings.vectors.base_url {
+        println!("  base URL: {url}");
+    }
+    if let Some(model) = &settings.vectors.model {
+        println!("  model: {model}");
+    }
+    println!("  secret: {}", secret(&settings.vectors.secret));
+    println!("Concurrency: {}", settings.concurrency);
+    match (&settings.updated_by, &settings.updated_at) {
+        (Some(by), Some(at)) => println!("Set by {by} at {at}."),
+        _ => println!("Not set: the organization uses the embedded model."),
+    }
+}
+
+impl CodeIndexSettingsCommand {
+    pub async fn run(self) -> Result<(), CliError> {
+        match self {
+            Self::Show { common } => {
+                let client = client(&common)?;
+                let settings = client.code_index_settings().await?;
+                if common.json {
+                    return print_json(&settings);
+                }
+                print_settings(&settings);
+                Ok(())
+            }
+            Self::Set {
+                summary_provider,
+                summary_url,
+                summary_model,
+                summary_region,
+                summary_secret_stdin,
+                clear_summary_secret,
+                vector_provider,
+                vector_url,
+                vector_model,
+                vector_secret_stdin,
+                clear_vector_secret,
+                concurrency,
+                common,
+            } => {
+                let summary_secret = if clear_summary_secret {
+                    Some(Secret::new(""))
+                } else if summary_secret_stdin {
+                    Some(crate::password::read_secret(
+                        "Secret of the summaries provider: ",
+                        "secret",
+                    )?)
+                } else {
+                    None
+                };
+                let vector_secret = if clear_vector_secret {
+                    Some(Secret::new(""))
+                } else if vector_secret_stdin {
+                    Some(crate::password::read_secret(
+                        "Secret of the vectors provider: ",
+                        "secret",
+                    )?)
+                } else {
+                    None
+                };
+                let client = client(&common)?;
+                let current = client.code_index_settings().await?;
+                let body = settings_body(
+                    &current,
+                    summary_provider,
+                    summary_url,
+                    summary_model,
+                    summary_region,
+                    summary_secret,
+                    vector_provider,
+                    vector_url,
+                    vector_model,
+                    vector_secret,
+                    concurrency,
+                );
+                let settings = client.put_code_index_settings(&body).await?;
+                if common.json {
+                    return print_json(&settings);
+                }
+                println!("Kairos set the providers of the code index.");
+                print_settings(&settings);
+                Ok(())
+            }
+        }
+    }
 }
 
 /// Provision, list, and drop tenants.
@@ -53,6 +260,7 @@ impl AdminCommand {
     pub async fn run(self) -> Result<(), CliError> {
         match self {
             Self::Tenants(command) => command.run().await,
+            Self::CodeIndexSettings(command) => command.run().await,
         }
     }
 }
@@ -136,5 +344,83 @@ impl TenantsCommand {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod code_index_settings_tests {
+    use super::*;
+    use kairos_client::types_code_index::{
+        SecretStatus, SummaryProviderSettings, VectorProviderSettings,
+    };
+
+    fn current() -> CodeIndexSettings {
+        CodeIndexSettings {
+            summary: SummaryProviderSettings {
+                provider: "ollama-cloud".into(),
+                base_url: Some("https://ollama.com/v1".into()),
+                model: Some("gemma4:31b".into()),
+                region: None,
+                secret: SecretStatus::default(),
+            },
+            vectors: VectorProviderSettings {
+                provider: "embedded".into(),
+                base_url: None,
+                model: None,
+                secret: SecretStatus::default(),
+            },
+            concurrency: 8,
+            updated_by: None,
+            updated_at: None,
+        }
+    }
+
+    /// KAIROS-T-0339: a `set` keeps each value that no flag names, and a
+    /// secret goes only when a flag gives it.
+    #[test]
+    fn a_set_puts_the_flags_over_the_current_settings() {
+        let body = settings_body(
+            &current(),
+            None,
+            None,
+            Some("kimi-k2.7-code".into()),
+            None,
+            None,
+            Some("remote".into()),
+            Some("http://ollama:11434/v1".into()),
+            Some("nomic-embed-text".into()),
+            None,
+            None,
+        );
+        assert_eq!(body.summary.provider, "ollama-cloud");
+        assert_eq!(
+            body.summary.base_url.as_deref(),
+            Some("https://ollama.com/v1")
+        );
+        assert_eq!(body.summary.model.as_deref(), Some("kimi-k2.7-code"));
+        assert_eq!(body.summary.secret, None, "no flag, no secret in the body");
+        assert_eq!(body.vectors.provider, "remote");
+        assert_eq!(body.vectors.model.as_deref(), Some("nomic-embed-text"));
+        assert_eq!(body.concurrency, Some(8));
+    }
+
+    #[test]
+    fn a_cleared_secret_is_an_empty_secret() {
+        let body = settings_body(
+            &current(),
+            Some("embedded".into()),
+            None,
+            None,
+            None,
+            Some(Secret::new("")),
+            None,
+            None,
+            None,
+            None,
+            Some(2),
+        );
+        assert_eq!(body.summary.provider, "embedded");
+        assert!(body.summary.secret.as_ref().is_some_and(|s| s.is_empty()));
+        assert_eq!(body.concurrency, Some(2));
     }
 }

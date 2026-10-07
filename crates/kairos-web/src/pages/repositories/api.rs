@@ -57,6 +57,16 @@ pub struct Repository {
     /// works on the repository.
     #[serde(default = "code_index_build_on")]
     pub code_index_build: String,
+    /// `embedded` or `hosted` (KAIROS-T-0340): where the summaries of the
+    /// code index of the repository are made.
+    #[serde(default = "code_index_summaries_embedded")]
+    pub code_index_summaries: String,
+}
+
+/// The default of [`Repository::code_index_summaries`]: an older server
+/// does not send it, and the embedded model writes the summaries.
+fn code_index_summaries_embedded() -> String {
+    "embedded".to_string()
 }
 
 /// The default of [`Repository::code_index_build`]: an older server does not
@@ -66,6 +76,16 @@ fn code_index_build_on() -> String {
 }
 
 impl Repository {
+    /// The text of the setting `code_index_summaries` (KAIROS-T-0340).
+    pub fn code_index_summaries_summary(&self) -> &'static str {
+        if self.code_index_summaries == "hosted" {
+            "Summaries: the hosted provider of the organization. The code of each changed \
+             symbol leaves the host."
+        } else {
+            "Summaries: the embedded model."
+        }
+    }
+
     /// The text of the setting `code_index_build` (KAIROS-T-0318).
     pub fn code_index_build_summary(&self) -> &'static str {
         if self.code_index_build == "off" {

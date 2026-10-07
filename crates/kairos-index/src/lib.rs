@@ -22,10 +22,12 @@
 //! function whose code did not change keeps its SCIP edges. [`merge`] is an update of the
 //! merged tree with the pools of 2 indexes (COLLIERY-T-1851).
 
+pub mod bedrock;
 mod calls;
 mod duplicates;
 mod edges;
 mod extract;
+pub mod hosted;
 #[cfg(feature = "llama")]
 mod llama;
 mod query;
@@ -1050,7 +1052,7 @@ mod tests {
         build_structure(&repo, &db).unwrap();
         let conn = Connection::open(&db).unwrap();
         conn.execute(
-            "INSERT INTO summaries (key, level, summary) VALUES ('k', 'symbol', 'Does f.')",
+            "INSERT INTO summaries (key, level, summary, model) VALUES ('k', 'symbol', 'Does f.', 'fake/fixed')",
             [],
         )
         .unwrap();

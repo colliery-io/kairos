@@ -84,6 +84,7 @@ mod tests {
             has_webhook: false,
             credential: Default::default(),
             code_index_build: "on".to_string(),
+            code_index_summaries: "embedded".to_string(),
         }
     }
 

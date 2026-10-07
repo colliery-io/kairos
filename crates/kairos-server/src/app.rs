@@ -136,11 +136,17 @@ fn start_code_index_builder(state: &AppState) {
         tracing::warn!("the code index builder did not start: embeddings are off");
         return;
     };
+    // KAIROS-T-0341: a server with no embedded model still runs the
+    // builder, for the repositories on a hosted provider. A repository on
+    // the embedded model then gets a failed run that says so.
     if let Err(reason) = crate::code_index::has_summarizer() {
-        tracing::warn!(%reason, "the code index builder did not start");
-        return;
+        tracing::warn!(%reason, "the code index builder runs with no embedded model");
     }
     let set = match kairos_index::tools::ToolSet::pinned() {
+        // A server with no embedded model downloads no summary model
+        // (KAIROS-T-0344): rust-analyzer, the std source and the toolchain
+        // are enough for the structure of the indexes.
+        Ok(set) if crate::code_index::has_summarizer().is_err() => set.without_model(),
         Ok(set) => set,
         Err(e) => {
             tracing::warn!(reason = %e, "the code index builder did not start");
@@ -158,15 +164,24 @@ fn start_code_index_builder(state: &AppState) {
             tokio::task::spawn_blocking(move || crate::code_index::prepare_tools(Some(&dir), &set))
                 .await
                 .unwrap_or_else(|e| Err(e.to_string()));
-        let summarizers = match prepared.and_then(|tools| {
-            let tools = tools.ok_or("no KAIROS_CODE_INDEX_DIR")?;
-            service.use_tools(&tools);
-            crate::code_index::summarizers(&tools, threads)
-        }) {
-            Ok(summarizers) => summarizers,
+        let tools = match prepared
+            .and_then(|tools| tools.ok_or_else(|| "no KAIROS_CODE_INDEX_DIR".to_string()))
+        {
+            Ok(tools) => tools,
             Err(reason) => {
                 tracing::warn!(%reason, "the code index builder did not start");
                 return;
+            }
+        };
+        service.use_tools(&tools);
+        let summarizers = match crate::code_index::summarizers(&tools, threads) {
+            Ok(summarizers) => Some(summarizers),
+            Err(reason) => {
+                tracing::warn!(
+                    %reason,
+                    "the code index builder has no embedded model: only the repositories on a hosted provider build"
+                );
+                None
             }
         };
         crate::code_index::run_builder(

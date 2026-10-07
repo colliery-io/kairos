@@ -287,6 +287,7 @@ One run of the code index builder (KAIROS-T-0331). The trigger says what started
 | `files` | `integer`, nullable | no | The counts of the index that an `ok` run wrote. |
 | `finished_at` | `string`, nullable | no | When the run ended, RFC 3339. None while it runs. |
 | `id` | `string` | yes |  |
+| `model` | `string`, nullable | no | The model that wrote the summaries, as `provider/model` (KAIROS-T-0341). None for a run that made none. |
 | `outcome` | `string` | yes | `running`, `ok` or `failed`. |
 | `ref` | `string`, nullable | no | The branch that the run indexed, if known. |
 | `requested_by` | `string`, nullable | no | The user who asked for the run or sent the upload. None for the builder. |
@@ -304,6 +305,24 @@ The answer to `GET /api/repositories/{slug}/code-indexes/builds`.
 | `items` | array of [`CodeIndexBuild`](schemas.md#codeindexbuild) | yes | The runs, newest first. |
 | `limit` | `integer` | yes | The limit that the answer used. |
 | `total` | `integer` | yes | The runs of the repository, with those not in `items`. |
+
+## CodeIndexSettings
+
+The answer to `GET /api/org/code-index-settings`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `concurrency` | `integer` | yes | The requests that a hosted summarizer sends at a time, 1 to 32. |
+| `summary` | [`SummaryProviderSettings`](schemas.md#summaryprovidersettings) | yes |  |
+| `updated_at` | `string`, nullable | no |  |
+| `updated_by` | `string`, nullable | no | None when the tenant has no settings row (the defaults). |
+| `vectors` | [`VectorProviderSettings`](schemas.md#vectorprovidersettings) | yes |  |
+
+## CodeIndexSummaries
+
+Where the summaries of the code index of a repository are made (KAIROS-T-0340).
+
+One of: `embedded`, `hosted`
 
 ## CodeSequence
 
@@ -1186,6 +1205,45 @@ A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the children si
 | `has_done` | `boolean` | yes | False when no board hosting the children has a done-flagged column — clients show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done`, and it reads as `false`. |
 | `total` | `integer` | yes |  |
 
+## PutCodeIndexSettings
+
+Body of `PUT /api/org/code-index-settings` (an organization admin).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `concurrency` | `integer`, nullable | no | 1 to 32; 4 when not given. |
+| `summary` | [`PutSummaryProvider`](schemas.md#putsummaryprovider) | yes |  |
+| `vectors` | [`PutVectorProvider`](schemas.md#putvectorprovider) | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## PutSummaryProvider
+
+The summaries part of `PUT /api/org/code-index-settings`. `secret` absent keeps the stored secret; an empty secret removes it; a value replaces it. For `bedrock` the secret is `<access key id>:<secret access key>` or `<access key id>:<secret access key>:<session token>`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `base_url` | `string`, nullable | no |  |
+| `model` | `string`, nullable | no |  |
+| `provider` | `string` | yes |  |
+| `region` | `string`, nullable | no |  |
+| `secret` | `string` | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## PutVectorProvider
+
+The vectors part of `PUT /api/org/code-index-settings`. The secret has the rules of [`PutSummaryProvider::secret`].
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `base_url` | `string`, nullable | no |  |
+| `model` | `string`, nullable | no |  |
+| `provider` | `string` | yes |  |
+| `secret` | `string` | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## RelatedItem
 
 One hydrated neighbor of an item in the relationship graph.
@@ -1281,6 +1339,7 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild) | no | Whether the code index builder works on the repository (KAIROS-T-0318): `on` (the default) or `off`. |
+| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries of the code index of the repository are made (KAIROS-T-0340): `embedded` (the default) or `hosted`. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `credential` | [`RepositoryCredential`](schemas.md#repositorycredential) | no | The status of the read token of the repository (COLLIERY-T-3105). It never has the token. |
 | `default_branch` | `string` | yes |  |
@@ -1481,6 +1540,16 @@ The server refuses a body with a field that is not in this table ([Errors](../er
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
+## SecretStatus
+
+Whether a secret is set, and by whom. The secret itself never leaves the server.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `set` | `boolean` | yes |  |
+| `set_at` | `string`, nullable | no | RFC 3339. |
+| `set_by` | `string`, nullable | no |  |
+
 ## ServiceAccountListResponse
 
 `GET /api/service-accounts` envelope.
@@ -1622,6 +1691,18 @@ A strategy (Flight Level 3), as returned by `/api/strategies`.
 | `updated_at` | `string` | yes | RFC 3339. |
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004); submit it back on PATCH. |
+
+## SummaryProviderSettings
+
+Where the summaries of the code index are made.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `base_url` | `string`, nullable | no | The base URL of an OpenAI-compatible endpoint, for `ollama-cloud`. |
+| `model` | `string`, nullable | no | The model to ask for: a model name for `ollama-cloud`, a model id for `bedrock`. |
+| `provider` | `string` | yes | `embedded` (the model in the server), `ollama-cloud` (an OpenAI-compatible chat endpoint) or `bedrock` (AWS Bedrock). |
+| `region` | `string`, nullable | no | The AWS region, for `bedrock`. |
+| `secret` | [`SecretStatus`](schemas.md#secretstatus) | yes | The API key (`ollama-cloud`) or the AWS credentials (`bedrock`). |
 
 ## Task
 
@@ -1920,6 +2001,7 @@ Body of `PATCH /api/repositories/{slug}` — every field optional; `team` re-hom
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild), nullable | no |  |
+| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries), nullable | no |  |
 | `default_branch` | `string`, nullable | no | The form is that of `default_branch` in `CreateRepositoryRequest`. |
 | `description` | `string`, nullable | no |  |
 | `repo_url` | `string`, nullable | no | The form is that of `repo_url` in `CreateRepositoryRequest`. |
@@ -1990,4 +2072,15 @@ The answer to `PUT /api/repositories/{slug}/code-indexes/{commit}`.
 | `index` | [`CodeIndex`](schemas.md#codeindex) | yes | The index as Kairos keeps it now. |
 | `new_summaries` | `integer` | yes | The summaries of the upload that the pool of the repository did not have. |
 | `pool_size` | `integer` | yes | The summaries in the pool of the repository after the upload. |
+
+## VectorProviderSettings
+
+Where the vectors of the code index summaries are made.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `base_url` | `string`, nullable | no |  |
+| `model` | `string`, nullable | no |  |
+| `provider` | `string` | yes | `embedded` (the model in the server) or `remote` (an OpenAI-compatible embeddings endpoint). |
+| `secret` | [`SecretStatus`](schemas.md#secretstatus) | yes | The API key of the endpoint. A local Ollama needs none. |
 

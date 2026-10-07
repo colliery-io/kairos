@@ -123,6 +123,33 @@ diesel::table! {
         requested_by -> Nullable<Uuid>,
         started_at -> Timestamptz,
         finished_at -> Nullable<Timestamptz>,
+        model -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    code_index_settings (id) {
+        id -> Int4,
+        summary_provider -> Text,
+        summary_base_url -> Nullable<Text>,
+        summary_model -> Nullable<Text>,
+        summary_region -> Nullable<Text>,
+        summary_ciphertext -> Nullable<Bytea>,
+        summary_nonce -> Nullable<Bytea>,
+        summary_key_id -> Nullable<Text>,
+        summary_secret_set_by -> Nullable<Uuid>,
+        summary_secret_set_at -> Nullable<Timestamptz>,
+        vector_provider -> Text,
+        vector_base_url -> Nullable<Text>,
+        vector_model -> Nullable<Text>,
+        vector_ciphertext -> Nullable<Bytea>,
+        vector_nonce -> Nullable<Bytea>,
+        vector_key_id -> Nullable<Text>,
+        vector_secret_set_by -> Nullable<Uuid>,
+        vector_secret_set_at -> Nullable<Timestamptz>,
+        concurrency -> Int4,
+        updated_by -> Uuid,
+        updated_at -> Timestamptz,
     }
 }
 
@@ -134,6 +161,7 @@ diesel::table! {
         summary -> Text,
         vector -> Nullable<Bytea>,
         created_at -> Timestamptz,
+        model -> Text,
     }
 }
 
@@ -376,6 +404,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         code_index_build -> Text,
+        code_index_summaries -> Text,
     }
 }
 
@@ -593,6 +622,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     board_transitions,
     boards,
     code_index_builds,
+    code_index_settings,
     code_index_summaries,
     code_indexes,
     delivery_streams,

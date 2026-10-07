@@ -148,6 +148,7 @@ pub(crate) fn build_dto_of(run: Build) -> dto::CodeIndexBuild {
         requested_by: run.requested_by.map(|u| u.to_string()),
         started_at: run.started_at.to_rfc3339(),
         finished_at: run.finished_at.map(|t| t.to_rfc3339()),
+        model: run.model,
     }
 }
 

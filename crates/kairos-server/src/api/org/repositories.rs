@@ -287,11 +287,26 @@ pub(crate) fn change(
         && body.team.is_none()
         && body.description.is_none()
         && body.code_index_build.is_none()
+        && body.code_index_summaries.is_none()
     {
         return Err(ApiError::validation(
             "The request has no field to change. Send one or more of slug, repo_url, \
-             default_branch, team, description and code_index_build.",
+             default_branch, team, description, code_index_build and code_index_summaries.",
         ));
+    }
+    // KAIROS-T-0340: `hosted` needs a hosted provider on the tenant.
+    if body.code_index_summaries == Some(dto::CodeIndexSummaries::Hosted) {
+        let settings =
+            kairos_db::code_index_settings::load_or_default(conn).map_err(ApiError::internal)?;
+        if settings.summary_provider == "embedded" {
+            return Err(ApiError::unprocessable(
+                "CODE_INDEX_NO_HOSTED_PROVIDER",
+                "The organization has no hosted provider of the summaries, so a repository cannot \
+                 opt in. An organization admin sets one first: `kairos admin code-index-settings \
+                 set --summary-provider ollama-cloud ...`, or the page Admin, Code index.",
+            )
+            .with_details(json!({ "field": "code_index_summaries" })));
+        }
     }
     let team_id = body
         .team
@@ -315,6 +330,10 @@ pub(crate) fn change(
             body.code_index_build.map(|v| v.as_str().to_string()),
             &current.code_index_build,
         ),
+        code_index_summaries: different(
+            body.code_index_summaries.map(|v| v.as_str().to_string()),
+            &current.code_index_summaries,
+        ),
         ..Default::default()
     };
     let changed: Vec<&'static str> = [
@@ -324,6 +343,10 @@ pub(crate) fn change(
         ("team", changes.team_id.is_some()),
         ("description", changes.description.is_some()),
         ("code_index_build", changes.code_index_build.is_some()),
+        (
+            "code_index_summaries",
+            changes.code_index_summaries.is_some(),
+        ),
     ]
     .into_iter()
     .filter_map(|(name, changed)| changed.then_some(name))
@@ -413,6 +436,8 @@ pub(crate) fn render(
                 has_webhook,
                 credential: crate::credentials::status_dto(credentials.get(&repo.id)),
                 code_index_build: dto::CodeIndexBuild::parse(&repo.code_index_build)
+                    .unwrap_or_default(),
+                code_index_summaries: dto::CodeIndexSummaries::parse(&repo.code_index_summaries)
                     .unwrap_or_default(),
                 created_at: repo.created_at.to_rfc3339(),
                 updated_at: repo.updated_at.to_rfc3339(),

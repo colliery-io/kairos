@@ -142,6 +142,7 @@ did the wildcard routing; on Kubernetes the Ingress replaces Caddy.
 |-----|---------|---------|
 | `image.repository` | `ghcr.io/colliery-io/kairos` | Release image (KAIROS-T-0047). |
 | `image.tag` | `""` → chart `appVersion` | Never `latest` (KAIROS-A-0013). |
+| `image.variant` | `""` | `"hosted"` runs the image with no embedded summary model (`<version>-hosted`), for a deployment whose organizations use a hosted provider (KAIROS-T-0344). |
 | `image.pullPolicy` | `IfNotPresent` | |
 | `imagePullSecrets` | `[]` | Private-registry pull secrets. |
 | `replicaCount` | `2` | Stateless server; ignored when autoscaling on. |

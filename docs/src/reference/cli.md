@@ -845,6 +845,7 @@ kairos repos update <REPOSITORY> [OPTIONS]
 | `--team <TEAM>` | slug or UUID | unchanged | New owning team. Re-homes the repository. |
 | `--description <DESCRIPTION>` | string | unchanged | New description. |
 | `--code-index-build <ON\|OFF>` | `on` or `off` | unchanged | With `off`, the code index builder makes no index of the repository. Another value is refused. See [The base code index](configuration.md#stop-the-builder-for-one-repository). |
+| `--code-index-summaries <EMBEDDED\|HOSTED>` | `embedded` or `hosted` | unchanged | With `hosted`, the summaries of the repository come from the provider of the organization, and the code of each changed symbol leaves the host. Kairos refuses `hosted` when the organization has no hosted provider (`CODE_INDEX_NO_HOSTED_PROVIDER`). See [the providers](configuration.md#the-providers-of-the-summaries-and-the-vectors). |
 
 Same permission gate as `create`. The rules of `--repo-url` and
 `--default-branch` are those of `create`. They apply to a value that is

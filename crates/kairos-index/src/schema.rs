@@ -21,6 +21,11 @@
 //! definition: `edges.target_file_id`, `edges.target_line` and
 //! `edges.target_macro`.
 //!
+//! Version 6 (KAIROS-T-0338): `summaries.model`, the model that wrote each
+//! summary (`provider/model`), and `pool_meta.summary_model`, the model of
+//! the last summary run. The model is part of each summary key, so a pool
+//! holds the summaries of 2 models as 2 sets of rows.
+//!
 //! An index of an earlier version is refused.
 //!
 //! `PRAGMA user_version` holds the schema version.
@@ -30,7 +35,7 @@ use rusqlite::Connection;
 use crate::IndexError;
 
 /// The schema version that this code writes and reads.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = r#"
 -- One row for each file of the tree, with the decision of the file rules.
@@ -124,11 +129,14 @@ CREATE TABLE summaries (
     key     TEXT PRIMARY KEY,
     level   TEXT NOT NULL CHECK (level IN ('symbol', 'file', 'module')),
     summary TEXT NOT NULL,
-    vector  BLOB                            -- little-endian f32, NULL until embedded
+    vector  BLOB,                           -- little-endian f32, NULL until embedded
+    model   TEXT NOT NULL                   -- the model that wrote it, provider/model
 ) STRICT;
 
 -- Facts about the pool. 'vector_model': the model of the vectors, as
 -- provider/model/dimension. One pool holds the vectors of one model only.
+-- 'summary_model': the model of the last summary run, as provider/model;
+-- a link run computes its keys with it (KAIROS-T-0338).
 CREATE TABLE pool_meta (
     name  TEXT PRIMARY KEY,
     value TEXT NOT NULL

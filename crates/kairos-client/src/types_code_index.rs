@@ -112,6 +112,10 @@ pub struct CodeIndexBuild {
     /// When the run ended, RFC 3339. None while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,
+    /// The model that wrote the summaries, as `provider/model`
+    /// (KAIROS-T-0341). None for a run that made none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Query of `GET /api/repositories/{slug}/code-indexes/builds`.
@@ -133,4 +137,111 @@ pub struct CodeIndexBuildList {
     pub total: i64,
     /// The limit that the answer used.
     pub limit: i64,
+}
+
+// ---- the provider settings of a tenant (KAIROS-T-0339) ---------------------
+
+/// Whether a secret is set, and by whom. The secret itself never leaves the
+/// server.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SecretStatus {
+    pub set: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_by: Option<String>,
+    /// RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_at: Option<String>,
+}
+
+/// Where the summaries of the code index are made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SummaryProviderSettings {
+    /// `embedded` (the model in the server), `ollama-cloud` (an
+    /// OpenAI-compatible chat endpoint) or `bedrock` (AWS Bedrock).
+    pub provider: String,
+    /// The base URL of an OpenAI-compatible endpoint, for `ollama-cloud`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The model to ask for: a model name for `ollama-cloud`, a model id for
+    /// `bedrock`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The AWS region, for `bedrock`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    /// The API key (`ollama-cloud`) or the AWS credentials (`bedrock`).
+    pub secret: SecretStatus,
+}
+
+/// Where the vectors of the code index summaries are made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct VectorProviderSettings {
+    /// `embedded` (the model in the server) or `remote` (an OpenAI-compatible
+    /// embeddings endpoint).
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The API key of the endpoint. A local Ollama needs none.
+    pub secret: SecretStatus,
+}
+
+/// The answer to `GET /api/org/code-index-settings`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CodeIndexSettings {
+    pub summary: SummaryProviderSettings,
+    pub vectors: VectorProviderSettings,
+    /// The requests that a hosted summarizer sends at a time, 1 to 32.
+    pub concurrency: i32,
+    /// None when the tenant has no settings row (the defaults).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+}
+
+/// The summaries part of `PUT /api/org/code-index-settings`. `secret`
+/// absent keeps the stored secret; an empty secret removes it; a value
+/// replaces it. For `bedrock` the secret is `<access key id>:<secret access
+/// key>` or `<access key id>:<secret access key>:<session token>`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PutSummaryProvider {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String, format = Password)]
+    pub secret: Option<crate::types_auth::Secret>,
+}
+
+/// The vectors part of `PUT /api/org/code-index-settings`. The secret has
+/// the rules of [`PutSummaryProvider::secret`].
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PutVectorProvider {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = String, format = Password)]
+    pub secret: Option<crate::types_auth::Secret>,
+}
+
+/// Body of `PUT /api/org/code-index-settings` (an organization admin).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PutCodeIndexSettings {
+    pub summary: PutSummaryProvider,
+    pub vectors: PutVectorProvider,
+    /// 1 to 32; 4 when not given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub concurrency: Option<i32>,
 }

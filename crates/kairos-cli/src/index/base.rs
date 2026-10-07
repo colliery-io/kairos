@@ -62,6 +62,9 @@ pub struct Base {
     pub changed: usize,
     /// The summaries that the index uses: a full build makes about as many.
     pub summaries: usize,
+    /// The repository makes its summaries on Kairos, with a hosted
+    /// provider (KAIROS-T-0343): the CLI links the pool and makes none.
+    pub hosted: bool,
 }
 
 impl Base {
@@ -178,6 +181,8 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
         commit: nearest.index.commit,
         changed,
         summaries: usize::try_from(nearest.index.summary_keys).unwrap_or(0),
+        hosted: repository.code_index_summaries
+            == kairos_client::types_repositories::CodeIndexSummaries::Hosted,
     })
 }
 

@@ -1439,6 +1439,23 @@ impl KairosClient {
         .await
     }
 
+    /// `GET /api/org/code-index-settings` — the provider settings of the
+    /// code index of the tenant (KAIROS-T-0339); the secrets as a status.
+    pub async fn code_index_settings(
+        &self,
+    ) -> Result<crate::types_code_index::CodeIndexSettings, Error> {
+        self.get("/api/org/code-index-settings").await
+    }
+
+    /// `PUT /api/org/code-index-settings` — set the provider settings of
+    /// the code index (an organization admin, KAIROS-T-0339).
+    pub async fn put_code_index_settings(
+        &self,
+        body: &crate::types_code_index::PutCodeIndexSettings,
+    ) -> Result<crate::types_code_index::CodeIndexSettings, Error> {
+        self.put_ok("/api/org/code-index-settings", body).await
+    }
+
     /// `POST /api/repositories/{slug}/code-indexes/rebuild` — ask the
     /// builder of the server for a full build of the code index
     /// (KAIROS-T-0332). The answer is 202 with the `running` run.

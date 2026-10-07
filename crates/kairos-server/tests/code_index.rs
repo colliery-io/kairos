@@ -1818,3 +1818,63 @@ async fn bedrock_credentials_of_one_part_are_refused_before_a_build() {
         other => panic!("{other}"),
     }
 }
+
+// ===========================================================================
+// Scenario: An index of another schema version gets a full build
+// (KAIROS-T-0347)
+// ===========================================================================
+#[tokio::test]
+async fn an_index_of_another_schema_version_gets_a_full_build() {
+    // Given Kairos holds an index of commit A, the head, with schema
+    // version 5, as a server upgrade leaves behind. It goes into the store
+    // directly: an upload refuses such a file.
+    let mut w = World::new("kairos_code_index_t0347_schema").await;
+    let a = w.a.clone();
+    let mut old = w.index(&a);
+    old[60..64].copy_from_slice(&5u32.to_be_bytes());
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, &old).unwrap();
+    let structure = encoder.finish().unwrap();
+    kairos_db::code_indexes::put(
+        &mut w.conn,
+        &kairos_db::code_indexes::NewCodeIndex {
+            repository_id: w.repo_id,
+            commit_sha: a.clone(),
+            ref_name: Some("main".into()),
+            source: "upload",
+            structure,
+            structure_bytes: old.len() as i64,
+            summary_keys: 0,
+            vector_model: None,
+            created_by: None,
+        },
+        &[],
+    )
+    .expect("the old index is stored");
+
+    // When the builder runs
+    let outcomes = w.sweep().await;
+
+    // Then the head gets a full build, in place of a failed update
+    let built: Vec<_> = outcomes.iter().filter(|o| o.report.is_some()).collect();
+    assert_eq!(built.len(), 1, "{outcomes:?}");
+    assert_eq!(built[0].commit, a);
+    assert_eq!(built[0].base, None, "a full build has no base");
+    let index_a = w
+        .alice
+        .download_code_index("payments-api", &a)
+        .await
+        .expect("the index of A downloads");
+    assert_eq!(content_of(&index_a), content_of(&w.index(&a)));
+
+    // And the run row is an ok push run of commit A
+    let runs = runs_of(&w).await;
+    assert_eq!(runs[0].trigger, "push", "{runs:?}");
+    assert_eq!(runs[0].outcome, "ok", "{runs:?}");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
+    assert!(runs[0].files.is_some_and(|n| n > 0), "{runs:?}");
+
+    // And the next pass has nothing to do
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().all(|o| o.report.is_none()), "{outcomes:?}");
+}

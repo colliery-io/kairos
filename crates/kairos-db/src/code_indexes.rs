@@ -199,6 +199,33 @@ pub fn structure(
         .optional()
 }
 
+/// The first `bytes` bytes of the structure of one commit: enough for the
+/// schema version check of the builder, without the whole blob
+/// (KAIROS-T-0347).
+pub fn structure_prefix(
+    conn: &mut PgConnection,
+    repository_id: Uuid,
+    commit_sha: &str,
+    bytes: i32,
+) -> QueryResult<Option<Vec<u8>>> {
+    #[derive(QueryableByName)]
+    struct Prefix {
+        #[diesel(sql_type = diesel::sql_types::Bytea)]
+        prefix: Vec<u8>,
+    }
+    diesel::sql_query(
+        "SELECT substring(structure from 1 for $1) AS prefix
+         FROM code_indexes
+         WHERE repository_id = $2 AND commit_sha = $3",
+    )
+    .bind::<diesel::sql_types::Integer, _>(bytes)
+    .bind::<diesel::sql_types::Uuid, _>(repository_id)
+    .bind::<diesel::sql_types::Text, _>(commit_sha)
+    .get_result::<Prefix>(conn)
+    .optional()
+    .map(|row| row.map(|row| row.prefix))
+}
+
 /// The rows of the pool of a repository with these keys.
 pub fn pool_rows(
     conn: &mut PgConnection,

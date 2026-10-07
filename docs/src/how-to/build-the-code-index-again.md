@@ -29,6 +29,11 @@ A run can have the text "The server stopped during the run." That run was
 active when the server stopped. The next run of the repository replaces
 it.
 
+A new version of Kairos can change the format of the index. Then the
+builder makes a full index of each repository on its own, at its next
+pass. The run shows as a build after a push. You do not need to ask for
+it.
+
 ## Ask for a new index
 
 You need the right to change the repository: you are an organization admin,

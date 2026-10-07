@@ -127,6 +127,30 @@ pub fn assemble(
     Ok(())
 }
 
+/// The bytes of a structure that [`structure_version`] reads: the gzip
+/// of the header of the SQLite file is well inside them.
+pub const VERSION_PREFIX_BYTES: usize = 4096;
+
+/// The schema version of a structure, from the first bytes of its gzip
+/// (`prefix`, [`VERSION_PREFIX_BYTES`] are enough). The version is at
+/// byte 60 of the header of the SQLite file. `None` when the prefix does
+/// not decode to such a header (KAIROS-T-0347).
+pub fn structure_version(prefix: &[u8]) -> Option<i64> {
+    let mut header = [0u8; 100];
+    let mut decoder = GzDecoder::new(prefix);
+    let mut read = 0;
+    while read < header.len() {
+        match decoder.read(&mut header[read..]) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => read += n,
+        }
+    }
+    if read < 64 || &header[..16] != b"SQLite format 3\0" {
+        return None;
+    }
+    Some(u32::from_be_bytes([header[60], header[61], header[62], header[63]]) as i64)
+}
+
 /// Copy the summary pool of the index file `from` into the index file `to`
 /// (COLLIERY-T-1854): a checkout that downloads a base index keeps the
 /// summaries of its old local index. A key that `to` has keeps its summary.
@@ -198,6 +222,40 @@ fn vector_model(conn: &Connection) -> Result<Option<String>, IndexError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_version_of_a_structure_comes_from_its_first_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("index.db");
+        index_with_pool(&db);
+        let split = split(&db).unwrap();
+        let prefix = &split.structure_gz[..split.structure_gz.len().min(VERSION_PREFIX_BYTES)];
+        assert_eq!(structure_version(prefix), Some(SCHEMA_VERSION));
+        // A prefix that cuts the gzip short, as the server reads it from a
+        // structure of many megabytes.
+        assert_eq!(
+            structure_version(&split.structure_gz[..200]),
+            Some(SCHEMA_VERSION)
+        );
+
+        // An index of another version, as a server upgrade leaves behind.
+        let mut bytes = Vec::new();
+        GzDecoder::new(&split.structure_gz[..])
+            .read_to_end(&mut bytes)
+            .unwrap();
+        bytes[60..64].copy_from_slice(&5u32.to_be_bytes());
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&bytes).unwrap();
+        let old = encoder.finish().unwrap();
+        assert_eq!(
+            structure_version(&old[..old.len().min(VERSION_PREFIX_BYTES)]),
+            Some(5)
+        );
+
+        // Not a structure at all.
+        assert_eq!(structure_version(b"not gzip"), None);
+        assert_eq!(structure_version(&[]), None);
+    }
 
     fn index_with_pool(path: &Path) {
         let conn = Connection::open(path).unwrap();

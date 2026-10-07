@@ -178,6 +178,10 @@ pub async fn require_tenant(
     .instrument(tenant_span)
     .await?;
 
+    // KAIROS-T-0330: a tenant whose schema did not migrate at startup is
+    // refused (503 TENANT_NOT_READY), and checked again from time to time.
+    state.tenant_readiness.require_ready(&state, &slug).await?;
+
     let context = TenantContext {
         org_id: org.id,
         slug: slug.clone(),

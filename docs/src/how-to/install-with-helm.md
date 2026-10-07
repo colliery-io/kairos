@@ -1,6 +1,6 @@
 # Install Kairos on Kubernetes with Helm
 
-Get a Kairos 0.6.1 deployment serving on a cluster you already run.
+Get a Kairos 0.6.2 deployment serving on a cluster you already run.
 
 **Before you start**, have all four:
 
@@ -116,7 +116,7 @@ mounts the Swagger UI at `/api/docs`.
 
 ```sh
 helm install kairos oci://ghcr.io/colliery-io/charts/kairos \
-  --version 0.6.1 -f my-values.yaml
+  --version 0.6.2 -f my-values.yaml
 ```
 
 `--version` is not optional in practice: the chart publishes no floating tag.
@@ -161,15 +161,14 @@ helm rollback kairos
 forward-only. Take a dump before every upgrade, and roll the database back with
 it — see [Back up and restore](back-up-and-restore.md).
 
-**After any upgrade, run the tenant migrations yourself:**
-
-```sh
-kubectl exec deploy/kairos -- kairos-server migrate-tenants
-```
-
-Boot migrates the public schema only, and `/readyz` checks only the public
-schema, so a release that adds a tenant migration comes up reporting ready with
-the per-tenant schemas still behind. Nothing tells you; run it every time.
+Before it serves, the server applies the new public migrations and the new
+tenant migrations of each organization. An upgrade thus needs no migration
+step. The replicas take turns: a database lock lets one migrate at a
+time. A failed migration of one organization does not stop
+the server. That organization answers 503 `TENANT_NOT_READY`, and the server
+log has the error. Repair the
+schema and run `kubectl exec deploy/kairos -- kairos-server migrate-tenants`;
+the organization serves again within 30 seconds.
 
 ## Trying it out without a database
 

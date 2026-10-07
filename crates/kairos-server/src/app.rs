@@ -55,6 +55,9 @@ pub struct AppState {
     /// `KAIROS_CODE_INDEX_DIR` is set. `None`: no nearest-commit answer and no
     /// builder; the upload and the download of an index still work.
     pub code_index: Option<Arc<crate::code_index::CodeIndexService>>,
+    /// The tenants whose schema did not migrate at startup (KAIROS-T-0330):
+    /// their requests are refused until the schema is current.
+    pub tenant_readiness: Arc<crate::tenant_readiness::TenantReadiness>,
 }
 
 /// Why [`build_state`] failed (startup-time, fail-fast).
@@ -103,6 +106,7 @@ pub async fn build_state(config: AppConfig) -> Result<AppState, BuildError> {
         metrics: Arc::new(crate::metrics::Metrics::new()),
         throttle,
         code_index,
+        tenant_readiness: Arc::new(crate::tenant_readiness::TenantReadiness::default()),
     })
 }
 
@@ -232,6 +236,7 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
         metrics: Arc::new(crate::metrics::Metrics::new()),
         throttle,
         code_index: None,
+        tenant_readiness: Arc::new(crate::tenant_readiness::TenantReadiness::default()),
     }
 }
 
@@ -607,10 +612,15 @@ async fn whoami(
 /// Run the server: build state, bind `KAIROS_BIND_ADDR`, serve with
 /// graceful shutdown on ctrl-c. Public migrations already ran (main.rs
 /// applies them before any subcommand, KAIROS-T-0007).
-pub async fn serve(config: AppConfig) -> Result<(), String> {
+pub async fn serve(
+    config: AppConfig,
+    readiness: crate::tenant_readiness::TenantReadiness,
+) -> Result<(), String> {
     let bind_addr = config.bind_addr;
     let refresh_secs = config.embed_refresh_secs;
-    let state = build_state(config).await.map_err(|e| e.to_string())?;
+    let mut state = build_state(config).await.map_err(|e| e.to_string())?;
+    // KAIROS-T-0330: the tenants that did not migrate at startup.
+    state.tenant_readiness = Arc::new(readiness);
 
     // KAIROS-T-0204: the first-boot admin, before the listener binds. A fresh
     // local-auth deployment has nobody who can log in, and no way to make anybody.

@@ -113,20 +113,24 @@ restore leaves you somewhere to go back to.
 ### Point Kairos at it and bring it up
 
 Update `DATABASE_URL` (the Secret, then `helm upgrade`), then scale back up.
-On boot the server applies any pending **public** migrations before it binds —
-that is how a dump from an older release comes forward, and it is why there is
-no migration Job to run.
+On boot, before it binds, the server applies the new **public** migrations.
+Then it applies the new **tenant** migrations of each organization. That is how a dump
+from an older release comes forward, and it is why there is no migration Job to
+run. Replicas that start together take turns: a database lock lets one migrate
+at a time.
 
-### Run the tenant migrations
+### Check the organizations
+
+The server log has one line for each organization. A failed migration of one
+organization does not stop the server. The server starts, and that organization
+answers each request with 503 `TENANT_NOT_READY`. The log line has
+the error. Repair the schema, then run:
 
 ```sh
 kubectl exec deploy/kairos -- kairos-server migrate-tenants
 ```
 
-Boot migrates the public schema only, and `/readyz` checks only the public
-schema. A restored database whose `org_*` schemas are behind the binary will
-report **ready** and then fail on tenant queries. Run this every time, not only
-when you think it is needed.
+The organization serves again within 30 seconds, with no restart.
 
 ### Verify
 
@@ -145,7 +149,7 @@ upgrade.
 
 ## Size for unbounded growth
 
-**Nothing prunes anything in 0.6.1.** The five retention variables are inert —
+**Nothing prunes anything in 0.6.2.** The five retention variables are inert —
 setting `KAIROS_RETENTION_MODE`, `KAIROS_ARCHIVE_TARGET` or any of the windows
 has no effect, and configuring an archive target will not reclaim a byte
 ([Configuration → Retention: recognised but

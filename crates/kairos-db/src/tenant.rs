@@ -527,6 +527,116 @@ pub fn migrate_all_tenants(
     Ok(outcomes)
 }
 
+/// The key of the Postgres advisory lock that serializes migrations
+/// (KAIROS-T-0330): "kairos" in ASCII. Replicas that start together, and a
+/// `migrate-tenants` run, take it in turn.
+pub const MIGRATION_LOCK_KEY: i64 = 0x6b61_6972_6f73;
+
+/// Run `f` while this connection holds the migration lock (a session-level
+/// advisory lock, [`MIGRATION_LOCK_KEY`]). The call waits for a holder on a
+/// different connection to finish. The lock is released after `f`, also
+/// when `f` fails.
+pub fn with_migration_lock<T, E>(
+    conn: &mut PgConnection,
+    f: impl FnOnce(&mut PgConnection) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<DieselError>,
+{
+    sql_query("SELECT pg_advisory_lock($1)")
+        .bind::<diesel::sql_types::BigInt, _>(MIGRATION_LOCK_KEY)
+        .execute(conn)?;
+    let result = f(conn);
+    let unlocked = sql_query("SELECT pg_advisory_unlock($1)")
+        .bind::<diesel::sql_types::BigInt, _>(MIGRATION_LOCK_KEY)
+        .execute(conn);
+    let value = result?;
+    unlocked?;
+    Ok(value)
+}
+
+/// The migration of one tenant at startup (KAIROS-T-0330).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TenantMigrationReport {
+    /// The organization slug.
+    pub slug: String,
+    /// The schema the migrations ran in.
+    pub schema: String,
+    /// The versions applied (empty = up to date), or why the tenant could
+    /// not migrate.
+    pub result: Result<Vec<String>, String>,
+}
+
+/// Run the pending tenant migrations in EACH tenant schema, and go on after
+/// a tenant that fails (KAIROS-T-0330): the server starts with the tenants
+/// that migrated, and refuses the requests of a tenant that did not. Diesel
+/// runs each migration in its own transaction, so a failed migration leaves
+/// the schema at the last migration that worked.
+///
+/// The error is only for a failure to list the tenants.
+pub fn migrate_each_tenant(
+    conn: &mut PgConnection,
+) -> Result<Vec<TenantMigrationReport>, TenantError> {
+    let tenants = list_tenants(conn)?;
+    let mut reports = Vec::with_capacity(tenants.len());
+    for tenant in tenants {
+        let schema = tenant_schema_name(&tenant.slug);
+        let result = if tenant.schema_exists {
+            migrate_schema(conn, &schema)
+        } else {
+            Err(format!(
+                "schema \"{schema}\" does not exist (organization row present without schema)"
+            ))
+        };
+        reports.push(TenantMigrationReport {
+            slug: tenant.slug,
+            schema,
+            result,
+        });
+    }
+    Ok(reports)
+}
+
+/// The pending tenant migrations of one schema, with the default
+/// `search_path` restored afterwards.
+fn migrate_schema(conn: &mut PgConnection, schema: &str) -> Result<Vec<String>, String> {
+    sql_query(format!("SET search_path TO \"{schema}\""))
+        .execute(conn)
+        .map_err(|e| e.to_string())?;
+    let applied = conn
+        .run_pending_migrations(TENANT_MIGRATIONS)
+        .map(|versions| versions.iter().map(|v| v.to_string()).collect())
+        .map_err(|e| e.to_string());
+    let reset = sql_query("SET search_path TO DEFAULT")
+        .execute(conn)
+        .map_err(|e| e.to_string());
+    let applied = applied?;
+    reset?;
+    Ok(applied)
+}
+
+/// Is the schema of tenant `slug` at the newest tenant migration
+/// (KAIROS-T-0330)? `false` for a missing schema. The default `search_path`
+/// is restored afterwards.
+pub fn tenant_schema_is_current(conn: &mut PgConnection, slug: &str) -> Result<bool, TenantError> {
+    let schema = tenant_schema_name(slug);
+    let exists = list_tenants(conn)?
+        .into_iter()
+        .any(|t| t.slug == slug && t.schema_exists);
+    if !exists {
+        return Ok(false);
+    }
+    sql_query(format!("SET search_path TO \"{schema}\"")).execute(conn)?;
+    let pending =
+        conn.has_pending_migration(TENANT_MIGRATIONS)
+            .map_err(|e| TenantError::Migration {
+                slug: slug.to_string(),
+                message: e.to_string(),
+            });
+    sql_query("SET search_path TO DEFAULT").execute(conn)?;
+    Ok(!pending?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -92,6 +92,12 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "TENANT_NOT_FOUND", message)
     }
 
+    /// 503 `TENANT_NOT_READY` — the schema of the organization did not
+    /// migrate at startup (KAIROS-T-0330); the other organizations serve.
+    pub fn tenant_not_ready(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, "TENANT_NOT_READY", message)
+    }
+
     /// 404 `NOT_FOUND` — generic missing resource.
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, "NOT_FOUND", message)

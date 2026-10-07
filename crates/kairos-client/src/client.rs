@@ -1421,6 +1421,53 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/repositories/{slug}/code-indexes/builds` — the runs of
+    /// the code index builder for a repository, newest first
+    /// (KAIROS-T-0331). `limit`: 20 when None, 100 at most.
+    pub async fn list_code_index_builds(
+        &self,
+        reference: &str,
+        limit: Option<i64>,
+    ) -> Result<crate::types_code_index::CodeIndexBuildList, Error> {
+        let query = match limit {
+            Some(limit) => format!("?limit={limit}"),
+            None => String::new(),
+        };
+        self.get(&format!(
+            "/api/repositories/{reference}/code-indexes/builds{query}"
+        ))
+        .await
+    }
+
+    /// `GET /api/org/code-index-settings` — the provider settings of the
+    /// code index of the tenant (KAIROS-T-0339); the secrets as a status.
+    pub async fn code_index_settings(
+        &self,
+    ) -> Result<crate::types_code_index::CodeIndexSettings, Error> {
+        self.get("/api/org/code-index-settings").await
+    }
+
+    /// `PUT /api/org/code-index-settings` — set the provider settings of
+    /// the code index (an organization admin, KAIROS-T-0339).
+    pub async fn put_code_index_settings(
+        &self,
+        body: &crate::types_code_index::PutCodeIndexSettings,
+    ) -> Result<crate::types_code_index::CodeIndexSettings, Error> {
+        self.put_ok("/api/org/code-index-settings", body).await
+    }
+
+    /// `POST /api/repositories/{slug}/code-indexes/rebuild` — ask the
+    /// builder of the server for a full build of the code index
+    /// (KAIROS-T-0332). The answer is 202 with the `running` run.
+    pub async fn rebuild_code_index(
+        &self,
+        reference: &str,
+    ) -> Result<crate::types_code_index::CodeIndexBuild, Error> {
+        let path = format!("/api/repositories/{reference}/code-indexes/rebuild");
+        self.execute(format!("POST {path}"), 202, self.http.post(self.url(&path)))
+            .await
+    }
+
     /// `PUT /api/repositories/{slug}/code-indexes/{commit}` — send the
     /// index file of a commit (the bytes of a `kairos-index` SQLite file).
     /// The answer is 201 for a new commit and 200 for a commit that had an

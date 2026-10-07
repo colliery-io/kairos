@@ -165,3 +165,28 @@ Request body (required): `application/json`, [`UpdateTemplateRequest`](schemas.m
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown id |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown definition slug, invalid default, or duplicate slug |
 
+## organization
+
+### `GET /api/org/code-index-settings`
+
+The provider settings of the code index of the tenant. The secrets are
+a status, never the value.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`CodeIndexSettings`](schemas.md#codeindexsettings) | The settings |
+
+### `PUT /api/org/code-index-settings`
+
+Set the provider settings of the code index of the tenant (an
+organization admin). The answer has each secret as a status.
+
+Request body (required): `application/json`, [`PutCodeIndexSettings`](schemas.md#putcodeindexsettings)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`CodeIndexSettings`](schemas.md#codeindexsettings) | The settings as Kairos keeps them now |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Not an organization admin |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | An unknown provider or field, a value that a provider needs and the body does not give, or a value that is not correct |
+| `501` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A secret was sent, and this deployment has no KAIROS_SECRETS_KEY |
+

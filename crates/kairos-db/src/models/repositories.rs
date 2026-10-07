@@ -43,17 +43,31 @@ pub struct Repository {
     /// `on` or `off` (KAIROS-T-0318). With `off`, the code index builder
     /// does nothing for the repository. See [`CODE_INDEX_BUILD_VALUES`].
     pub code_index_build: String,
+    /// `embedded` or `hosted` (KAIROS-T-0340). With `hosted`, the summaries
+    /// of the repository come from the provider of the tenant, and its code
+    /// leaves the host. See [`CODE_INDEX_SUMMARIES_VALUES`].
+    pub code_index_summaries: String,
 }
 
 /// The values of [`Repository::code_index_build`]. The column has a CHECK
 /// with the same values.
 pub const CODE_INDEX_BUILD_VALUES: [&str; 2] = ["on", "off"];
 
+/// The values of [`Repository::code_index_summaries`]. The column has a
+/// CHECK with the same values.
+pub const CODE_INDEX_SUMMARIES_VALUES: [&str; 2] = ["embedded", "hosted"];
+
 impl Repository {
     /// Whether the code index builder works on this repository
     /// (KAIROS-T-0318).
     pub fn code_index_build_on(&self) -> bool {
         self.code_index_build != "off"
+    }
+
+    /// Whether the summaries of this repository come from the hosted
+    /// provider of the tenant (KAIROS-T-0340).
+    pub fn hosted_summaries(&self) -> bool {
+        self.code_index_summaries == "hosted"
     }
 }
 
@@ -85,6 +99,8 @@ pub struct RepositoryChangeset {
     pub description: Option<String>,
     /// `on` or `off` (KAIROS-T-0318).
     pub code_index_build: Option<String>,
+    /// `embedded` or `hosted` (KAIROS-T-0340).
+    pub code_index_summaries: Option<String>,
     pub updated_by: Option<Uuid>,
     pub updated_at: Option<DateTime<Utc>>,
 }

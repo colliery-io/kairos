@@ -476,6 +476,15 @@ pub struct UpdateRepositoryParams {
     pub repo_url: Option<String>,
 }
 
+/// Parameters for `rebuild_code_index` (KAIROS-T-0332).
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct RebuildCodeIndexParams {
+    /// The repository, by slug (e.g. "payments-api") or UUID.
+    pub repository: String,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
@@ -742,7 +751,7 @@ impl KairosMcp {
                 graph::repository_link_rollup(conn, repo_id, &["open", "draft"], 50)
                     .map_err(ApiError::internal)?;
             let mut out = format!(
-                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n- read token: {}\n",
+                "# Repository {} — {} {}\n- url: {}\n- default branch: {}\n- owner team: {} ({})\n- owner's delivery board: {}\n- open tasks (all boards): {}\n- webhooks: {}\n- read token: {}\n- code index summaries: {}\n",
                 rendered.slug,
                 rendered.forge,
                 rendered.repo_full_name,
@@ -756,6 +765,9 @@ impl KairosMcp {
                 // COLLIERY-T-3105: the status only. No tool sets or gives
                 // the token.
                 rendered.credential.summary(),
+                // KAIROS-T-0340: where the summaries of the checkout come
+                // from. On `hosted`, the CLI makes none (KAIROS-T-0343).
+                rendered.code_index_summaries,
             );
             // No line about "stale" tasks (COLLIERY-T-0219). It counted the
             // linked tasks on a board of a team that does not own the
@@ -1913,6 +1925,50 @@ impl KairosMcp {
             ))
         })
         .await
+    }
+
+    #[tool(
+        description = "Ask Kairos to build the code index of a repository again: a full index of the head of the default branch, made by the builder of the server, which replaces the index of that commit. Use it when the index of a repository is missing, old or wrong. `repository` is a slug or UUID. The answer names the run; the runs of a repository are on the GUI page of the repository, with the CLI (`kairos repos builds`) or with the REST API (GET /api/repositories/{slug}/code-indexes/builds). Refused while a run of the repository is active (CODE_INDEX_BUILD_RUNNING), when the repository has the builder off (CODE_INDEX_BUILD_OFF: set code_index_build to on first), and when the deployment has no builder (CODE_INDEX_BUILDER_OFF). You must be a member of the owner team, or an organization admin."
+    )]
+    pub async fn rebuild_code_index(
+        &self,
+        Parameters(params): Parameters<RebuildCodeIndexParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let Some(service) = self.state.code_index.clone() else {
+            return Ok(tool_error(crate::api::org::code_indexes::no_builder()));
+        };
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        let reference = params.repository;
+        let requested = self
+            .state
+            .blocking
+            .run(&tenant.slug, move |conn| {
+                crate::api::org::code_indexes::request_rebuild(conn, &slug, user, &reference)
+            })
+            .await;
+        match requested {
+            Ok((repo, run)) => {
+                service.request_rebuild(crate::code_index::RebuildRequest {
+                    tenant: tenant.slug.clone(),
+                    repository_id: repo.id,
+                    run: run.id,
+                });
+                Ok(tool_text(format!(
+                    "Kairos builds the code index of the repository {} again: run {}, started {}. \
+                     Read the runs with GET /api/repositories/{}/code-indexes/builds or \
+                     `kairos repos builds {}`.",
+                    repo.slug,
+                    run.id,
+                    run.started_at.to_rfc3339(),
+                    repo.slug,
+                    repo.slug
+                )))
+            }
+            Err(e) => Ok(tool_error(e)),
+        }
     }
 
     #[tool(

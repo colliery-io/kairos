@@ -19,6 +19,11 @@ image:
   # the chart never pins `latest`, per KAIROS-A-0013). Set explicitly to run a
   # specific published release, e.g. "0.6.2".
   tag: ""
+  # -- Image variant. Empty is the full image, with the embedded summary
+  # model of the code index. "hosted" is the image with no embedded model,
+  # for a deployment where every organization makes its summaries on a
+  # hosted provider (Ollama Cloud, Bedrock); it is the tag `<version>-hosted`.
+  variant: ""
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 

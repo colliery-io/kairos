@@ -12,6 +12,7 @@
 //! admin directory and the team page show it for each repository.
 
 pub(crate) mod api;
+pub(crate) mod code_index;
 pub(crate) mod documents;
 
 use api::Repository;
@@ -83,6 +84,7 @@ mod tests {
             has_webhook: false,
             credential: Default::default(),
             code_index_build: "on".to_string(),
+            code_index_summaries: "embedded".to_string(),
         }
     }
 

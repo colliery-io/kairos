@@ -90,6 +90,9 @@ fn has_cpu_backend_file(dir: &Path) -> bool {
 /// The model file, loaded. Make a [`LlamaSummarizer`] from it.
 pub struct LlamaModelFile {
     model: LlamaModel,
+    /// The file name of the model with no extension, for the model name of
+    /// the summaries (`embedded/<name>`, KAIROS-T-0338).
+    name: String,
 }
 
 impl LlamaModelFile {
@@ -111,7 +114,11 @@ impl LlamaModelFile {
         let model = LlamaModel::load_from_file(backend, path, &params).map_err(|e| {
             IndexError::Model(format!("Cannot load the model {}: {e}", path.display()))
         })?;
-        Ok(LlamaModelFile { model })
+        let name = path
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "model".to_string());
+        Ok(LlamaModelFile { model, name })
     }
 
     /// A summarizer with its own context of 8,192 tokens, on half the CPUs
@@ -133,6 +140,7 @@ impl LlamaModelFile {
             .new_context(backend()?, params)
             .map_err(|e| IndexError::Model(format!("Cannot make a model context: {e}")))?;
         Ok(LlamaSummarizer {
+            name: self.name.clone(),
             model: &self.model,
             ctx,
             batch: LlamaBatch::new(N_CTX as usize, 1),
@@ -153,6 +161,8 @@ fn context_params(threads: u32) -> LlamaContextParams {
 
 /// Writes summaries with the loaded model. One request at a time.
 pub struct LlamaSummarizer<'m> {
+    /// The name of the model file, for [`Summarizer::model`].
+    name: String,
     model: &'m LlamaModel,
     ctx: LlamaContext<'m>,
     batch: LlamaBatch<'static>,
@@ -209,6 +219,10 @@ impl LlamaSummarizer<'_> {
 }
 
 impl Summarizer for LlamaSummarizer<'_> {
+    fn model(&self) -> String {
+        format!("embedded/{}", self.name)
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
         let prompt = self.prompt_tokens(request);
         if prompt.len() + MAX_NEW_TOKENS + MARGIN > N_CTX as usize {

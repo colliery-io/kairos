@@ -12,6 +12,14 @@
 //! - `GET …/code-indexes/nearest?commit=`: the nearest indexed commit at or
 //!   below a commit. It reads the bare clone of the repository
 //!   ([`crate::code_index`]).
+//! - `GET …/code-indexes/builds`: the runs of the builder for the
+//!   repository, newest first (KAIROS-T-0331). An upload is a run too.
+//! - `POST …/code-indexes/rebuild`: ask the builder of the server for a
+//!   full build of the head of the default branch (KAIROS-T-0332). The
+//!   answer is 202 with the `running` run. Refused while a run is active
+//!   (`CODE_INDEX_BUILD_RUNNING`), when the repository has the builder off
+//!   (`CODE_INDEX_BUILD_OFF`), and when the deployment has no builder
+//!   (`CODE_INDEX_BUILDER_OFF`). The gate is the gate of an upload.
 //!
 //! Gating: reads are open tenant-wide, like the repository itself. An
 //! upload needs the right to change the repository (org admin, or
@@ -22,18 +30,20 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Extension, Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use diesel::pg::PgConnection;
 use kairos_client::types_code_index as dto;
+use kairos_db::code_index_builds::{self, Build};
 use kairos_db::code_indexes::{self, CodeIndexInfo, NewCodeIndex};
+use kairos_db::models::repositories::Repository;
 use kairos_db::repositories;
 use serde_json::json;
 use uuid::Uuid;
 
 use super::repositories::{changeable, map_error};
 use crate::app::AppState;
-use crate::code_index::{MAX_DISTANCE, used_rows};
+use crate::code_index::{MAX_DISTANCE, RebuildRequest, used_rows};
 use crate::error::ApiError;
 use crate::input::ApiQuery;
 use crate::middleware::auth::AuthContext;
@@ -58,6 +68,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/repositories/{slug}/code-indexes/nearest",
             get(nearest_code_index),
+        )
+        .route(
+            "/api/repositories/{slug}/code-indexes/builds",
+            get(list_code_index_builds),
+        )
+        .route(
+            "/api/repositories/{slug}/code-indexes/rebuild",
+            post(rebuild_code_index),
         )
         .route(
             "/api/repositories/{slug}/code-indexes/{commit}",
@@ -113,6 +131,175 @@ fn dto_of(info: CodeIndexInfo) -> dto::CodeIndex {
         created_at: info.created_at.to_rfc3339(),
         updated_at: info.updated_at.to_rfc3339(),
     }
+}
+
+pub(crate) fn build_dto_of(run: Build) -> dto::CodeIndexBuild {
+    dto::CodeIndexBuild {
+        id: run.id.to_string(),
+        commit: run.commit_sha,
+        r#ref: run.ref_name,
+        trigger: run.trigger,
+        outcome: run.outcome,
+        error: run.error,
+        files: run.files,
+        symbols: run.symbols,
+        edges: run.edges,
+        summaries_made: run.summaries_made,
+        requested_by: run.requested_by.map(|u| u.to_string()),
+        started_at: run.started_at.to_rfc3339(),
+        finished_at: run.finished_at.map(|t| t.to_rfc3339()),
+        model: run.model,
+    }
+}
+
+/// The runs of the code index builder for a repository, newest first
+/// (KAIROS-T-0331). The server keeps `limit` in the range 1 to 100, as it
+/// does for each list (COLLIERY-T-0264). With no `limit`, it gives 20.
+#[utoipa::path(
+    get,
+    path = "/api/repositories/{slug}/code-indexes/builds",
+    tag = "repositories",
+    params(
+        ("slug" = String, Path, description = "Repository slug (or UUID)"),
+        dto::CodeIndexBuildListQuery,
+    ),
+    responses(
+        (status = 200, description = "The runs, newest first", body = dto::CodeIndexBuildList),
+        (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn list_code_index_builds(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(slug): Path<String>,
+    ApiQuery(query): ApiQuery<dto::CodeIndexBuildListQuery>,
+) -> Result<Json<dto::CodeIndexBuildList>, ApiError> {
+    let limit = query
+        .limit
+        .unwrap_or(code_index_builds::DEFAULT_LIST)
+        .clamp(1, code_index_builds::MAX_LIST);
+    let (runs, total) = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let id = repository_id(conn, &slug)?;
+            let runs = code_index_builds::list(conn, id, limit).map_err(ApiError::internal)?;
+            let total = code_index_builds::count(conn, id).map_err(ApiError::internal)?;
+            Ok((runs, total))
+        })
+        .await?;
+    Ok(Json(dto::CodeIndexBuildList {
+        items: runs.into_iter().map(build_dto_of).collect(),
+        total,
+        limit,
+    }))
+}
+
+/// The ONE check and write of a rebuild request (KAIROS-T-0332), for REST
+/// and for the MCP tool `rebuild_code_index`: the gate of a change of the
+/// repository, the builder setting of the repository, no active run, then
+/// the `running` row with `trigger = request`. The caller queues the
+/// request with the service after the write.
+pub(crate) fn request_rebuild(
+    conn: &mut PgConnection,
+    tenant_slug: &str,
+    user: Uuid,
+    reference: &str,
+) -> Result<(Repository, Build), ApiError> {
+    let repo = changeable(conn, tenant_slug, user, reference)?;
+    if !repo.code_index_build_on() {
+        return Err(ApiError::unprocessable(
+            "CODE_INDEX_BUILD_OFF",
+            format!(
+                "The code index builder is off for the repository {:?}. Set code_index_build to \
+                 on (PATCH /api/repositories/{}, `kairos repos update {} --code-index-build on`, \
+                 or the page Admin, Repositories), then ask again.",
+                repo.slug, repo.slug, repo.slug
+            ),
+        ));
+    }
+    if let Some(active) = code_index_builds::running(conn, repo.id).map_err(ApiError::internal)? {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "CODE_INDEX_BUILD_RUNNING",
+            format!(
+                "A run of the code index of the repository {:?} is active since {} (trigger {}). \
+                 Wait for its end: GET /api/repositories/{}/code-indexes/builds.",
+                repo.slug,
+                active.started_at.to_rfc3339(),
+                active.trigger,
+                repo.slug
+            ),
+        )
+        .with_details(json!({ "run": active.id })));
+    }
+    let run = super::run_in_transaction(conn, |conn| {
+        let run = code_index_builds::start(
+            conn,
+            repo.id,
+            "request",
+            Some(&repo.default_branch),
+            Some(user),
+        )
+        .map_err(ApiError::internal)?;
+        crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
+        Ok(run)
+    })?;
+    Ok((repo, run))
+}
+
+/// The refusal when the deployment has no code index builder.
+pub(crate) fn no_builder() -> ApiError {
+    ApiError::new(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "CODE_INDEX_BUILDER_OFF",
+        "This deployment has no code index builder: KAIROS_CODE_INDEX_DIR is not set. An \
+         operator sets it, and Kairos then builds the indexes.",
+    )
+}
+
+/// Ask the builder for a full build of the code index of a repository
+/// (KAIROS-T-0332). The body is empty. The answer is 202 with the run.
+#[utoipa::path(
+    post,
+    path = "/api/repositories/{slug}/code-indexes/rebuild",
+    tag = "repositories",
+    params(("slug" = String, Path, description = "Repository slug (or UUID)")),
+    responses(
+        (status = 202, description = "The run, as `running`", body = dto::CodeIndexBuild),
+        (status = 403, description = "No right to change the repository", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
+        (status = 409, description = "A run of the repository is active (CODE_INDEX_BUILD_RUNNING)", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "The repository has the builder off (CODE_INDEX_BUILD_OFF), or the request has a body", body = kairos_client::types::ErrorEnvelope),
+        (status = 503, description = "The deployment has no builder (CODE_INDEX_BUILDER_OFF)", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn rebuild_code_index(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(slug): Path<String>,
+    body: Bytes,
+) -> Result<Response, ApiError> {
+    if !body.is_empty() {
+        return Err(ApiError::validation(
+            "This route takes no body. Send the POST with no content.",
+        ));
+    }
+    let service = state.code_index.clone().ok_or_else(no_builder)?;
+    let user = auth.user_id;
+    let tenant_slug = tenant.slug.clone();
+    let (repo, run) = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            request_rebuild(conn, &tenant_slug, user, &slug)
+        })
+        .await?;
+    service.request_rebuild(RebuildRequest {
+        tenant: tenant.slug.clone(),
+        repository_id: repo.id,
+        run: run.id,
+    });
+    Ok((StatusCode::ACCEPTED, Json(build_dto_of(run))).into_response())
 }
 
 fn repository_id(conn: &mut PgConnection, slug: &str) -> Result<Uuid, ApiError> {
@@ -242,6 +429,19 @@ pub(crate) async fn upload_code_index(
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
+            // The upload is a run of the index (KAIROS-T-0331), and the
+            // readers of the repository hear of it (KAIROS-T-0333).
+            code_index_builds::record_finished(
+                conn,
+                repo.id,
+                "upload",
+                &commit,
+                info.ref_name.as_deref(),
+                Some(user),
+                None,
+            )
+            .map_err(ApiError::internal)?;
+            crate::code_index::notify_run(conn, &repo.slug, Some(user))?;
             let pool_size = code_indexes::pool_size(conn, repo.id).map_err(ApiError::internal)?;
             Ok((
                 outcome.created,

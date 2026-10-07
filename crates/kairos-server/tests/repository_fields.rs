@@ -443,7 +443,8 @@ async fn repository_fields_against_live_stack() {
             "default_branch",
             "team",
             "description",
-            "code_index_build"
+            "code_index_build",
+            "code_index_summaries"
         ]),
         "{response}"
     );

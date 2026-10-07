@@ -70,7 +70,7 @@ structures that own boards.""",
 
     ("Tenant configuration", """Org-admin surfaces: the metadata and template
 definitions that shape what work items can carry.""",
-     ["metadata-definitions", "templates"]),
+     ["metadata-definitions", "templates", "organization"]),
 
     ("Machine access", """Service accounts, their API keys, and the SCIM
 tokens for directory sync.""",

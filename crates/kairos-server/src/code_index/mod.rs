@@ -66,6 +66,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use kairos_db::code_index_builds as runs;
 use kairos_db::models::repositories::Repository;
 use kairos_index::tools::{ToolSet, Tools};
 use kairos_index::{
@@ -107,6 +108,21 @@ pub struct CodeIndexService {
     /// The last reason why the first-build lane did not build each
     /// repository, so that the log gets a reason once, not at each pass.
     notes: Mutex<HashMap<uuid::Uuid, String>>,
+    /// The builds that a person asked for (KAIROS-T-0332), in the sequence
+    /// of the requests. The builder takes them when `wake` says so.
+    requests: Mutex<std::collections::VecDeque<RebuildRequest>>,
+    /// Woken for each request.
+    wake: tokio::sync::Notify,
+}
+
+/// A build that a person asked for (KAIROS-T-0332). Its run row exists
+/// already, as `running` with `trigger = request`.
+#[derive(Debug, Clone)]
+pub struct RebuildRequest {
+    pub tenant: String,
+    pub repository_id: uuid::Uuid,
+    /// The id of the run row.
+    pub run: uuid::Uuid,
 }
 
 impl std::fmt::Debug for CodeIndexService {
@@ -130,7 +146,32 @@ impl CodeIndexService {
             secrets: None,
             gate: WorkGate::default(),
             notes: Mutex::default(),
+            requests: Mutex::default(),
+            wake: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Queue a build that a person asked for, and wake the builder.
+    pub fn request_rebuild(&self, request: RebuildRequest) {
+        self.requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(request);
+        self.wake.notify_one();
+    }
+
+    /// Take each queued request, in the sequence of the requests.
+    pub fn pending_rebuilds(&self) -> Vec<RebuildRequest> {
+        self.requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
+    }
+
+    /// Woken by [`Self::request_rebuild`].
+    pub fn wake(&self) -> &tokio::sync::Notify {
+        &self.wake
     }
 
     /// The gate of the heavy steps of the builder (KAIROS-T-0318).
@@ -267,6 +308,52 @@ pub trait SummarizerSource: Send + Sync {
         &self,
         job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
     ) -> Result<UpdateReport, IndexError>;
+
+    /// The model of the summaries, as `provider/model` (KAIROS-T-0341),
+    /// for the record of a run.
+    fn model_name(&self) -> String;
+}
+
+/// A hosted summarizer source (KAIROS-T-0341): an OpenAI-compatible chat
+/// endpoint, from the settings of a tenant. A new client for each build.
+pub struct HostedSummarizers {
+    pub config: kairos_index::hosted::HostedConfig,
+}
+
+impl SummarizerSource for HostedSummarizers {
+    fn run(
+        &self,
+        job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
+    ) -> Result<UpdateReport, IndexError> {
+        let mut summarizer = kairos_index::hosted::HostedChat::new(self.config.clone())
+            .map_err(IndexError::Model)?;
+        job(&mut summarizer)
+    }
+
+    fn model_name(&self) -> String {
+        format!("{}/{}", self.config.provider, self.config.model)
+    }
+}
+
+/// The Bedrock summarizer source (KAIROS-T-0342), from the settings of a
+/// tenant. A new client for each build.
+pub struct BedrockSummarizers {
+    pub config: kairos_index::bedrock::BedrockConfig,
+}
+
+impl SummarizerSource for BedrockSummarizers {
+    fn run(
+        &self,
+        job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
+    ) -> Result<UpdateReport, IndexError> {
+        let mut summarizer =
+            kairos_index::bedrock::Bedrock::new(self.config.clone()).map_err(IndexError::Model)?;
+        job(&mut summarizer)
+    }
+
+    fn model_name(&self) -> String {
+        format!("bedrock/{}", self.config.model_id)
+    }
 }
 
 /// The fake summarizer of `kairos-index`: a fixed text for each input, with
@@ -280,6 +367,10 @@ impl SummarizerSource for FakeSummarizers {
         job: &mut dyn FnMut(&mut dyn Summarizer) -> Result<UpdateReport, IndexError>,
     ) -> Result<UpdateReport, IndexError> {
         job(&mut kairos_index::FakeSummarizer::default())
+    }
+
+    fn model_name(&self) -> String {
+        kairos_index::FakeSummarizer::default().model()
     }
 }
 
@@ -347,20 +438,35 @@ impl WorkGate {
 /// A summarizer that holds the gate for each call, for a first build.
 struct GatedSummarizer<'a> {
     inner: &'a mut dyn Summarizer,
-    gate: &'a WorkGate,
+    /// None for a hosted provider (KAIROS-T-0341): the calls pass through.
+    gate: Option<&'a WorkGate>,
 }
 
 impl Summarizer for GatedSummarizer<'_> {
+    fn model(&self) -> String {
+        self.inner.model()
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
-        let _held = self.gate.first_build();
+        let _held = self.gate.map(|gate| gate.first_build());
         self.inner.summarize(request)
+    }
+
+    fn concurrency(&self) -> usize {
+        self.inner.concurrency()
+    }
+
+    fn summarize_many(&mut self, requests: &[SummaryRequest]) -> Vec<Result<String, String>> {
+        let _held = self.gate.map(|gate| gate.first_build());
+        self.inner.summarize_many(requests)
     }
 }
 
 /// An embedder that holds the gate for each batch, for a first build.
 struct GatedEmbedder<'a> {
     inner: &'a dyn kairos_embed::EmbeddingProvider,
-    gate: &'a WorkGate,
+    /// None for a remote endpoint: the calls pass through.
+    gate: Option<&'a WorkGate>,
 }
 
 impl kairos_embed::EmbeddingProvider for GatedEmbedder<'_> {
@@ -372,7 +478,7 @@ impl kairos_embed::EmbeddingProvider for GatedEmbedder<'_> {
         &self,
         texts: &[String],
     ) -> Result<Vec<kairos_embed::Embedding>, kairos_embed::EmbedError> {
-        let _held = self.gate.first_build();
+        let _held = self.gate.map(|gate| gate.first_build());
         self.inner.embed(texts)
     }
 }
@@ -424,6 +530,16 @@ impl SummarizerSource for LlamaSummarizers {
         let mut summarizer = model.summarizer_with_threads(self.threads)?;
         job(&mut summarizer)
     }
+
+    fn model_name(&self) -> String {
+        format!(
+            "embedded/{}",
+            self.model
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "model".to_string())
+        )
+    }
 }
 
 /// Why a build of the server without the `llama` feature has no builder.
@@ -444,6 +560,9 @@ pub fn has_summarizer() -> Result<(), String> {
 pub fn summarizers(tools: &Tools, threads: u32) -> Result<Arc<dyn SummarizerSource>, String> {
     #[cfg(feature = "llama")]
     {
+        if tools.model.is_none() {
+            return Err(NO_SUMMARIZER.to_string());
+        }
         Ok(Arc::new(llama_summarizers(tools, threads)))
     }
     #[cfg(not(feature = "llama"))]
@@ -455,7 +574,13 @@ pub fn summarizers(tools: &Tools, threads: u32) -> Result<Arc<dyn SummarizerSour
 
 #[cfg(feature = "llama")]
 fn llama_summarizers(tools: &Tools, threads: u32) -> LlamaSummarizers {
-    LlamaSummarizers::new(tools.model.clone(), threads)
+    LlamaSummarizers::new(
+        tools
+            .model
+            .clone()
+            .expect("the caller checked that the set has the model"),
+        threads,
+    )
 }
 
 /// The folder of the tools in `KAIROS_CODE_INDEX_DIR`.
@@ -499,6 +624,177 @@ pub struct BuildOutcome {
 
 /// The note of a repository with `code_index_build = off`.
 pub const OPTED_OUT: &str = "the repository has code_index_build off";
+
+/// The note of an `embedded` repository on a server with no embedded model
+/// (KAIROS-T-0341, KAIROS-T-0344).
+pub const NO_EMBEDDED_MODEL: &str = "failed: This image has no embedded model. Set a hosted \
+                                      provider for the organization and opt the repository in, \
+                                      or run the image with the model.";
+
+/// What a build uses for its summaries and its vectors (KAIROS-T-0341),
+/// chosen from the settings of the tenant and the opt-in of the repository.
+pub(crate) struct Models {
+    pub summarizers: Arc<dyn SummarizerSource>,
+    pub embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+    /// The summaries come from a hosted provider: the summarizer does not
+    /// take the CPU gate of the builder.
+    pub hosted_summaries: bool,
+    /// The vectors come from a remote endpoint: the embedder does not take
+    /// the CPU gate.
+    pub hosted_vectors: bool,
+}
+
+/// Choose the models of a build (KAIROS-T-0341). `embedded` is the
+/// summarizer of the server, when the image has one. The error is the note
+/// of a failed run.
+async fn models_for(
+    blocking: &BlockingTenantPool,
+    service: &Arc<CodeIndexService>,
+    tenant: &str,
+    repo: &Repository,
+    embedded: &Option<Arc<dyn SummarizerSource>>,
+    embedder: &Arc<dyn kairos_embed::EmbeddingProvider>,
+) -> Result<Models, String> {
+    let settings = blocking
+        .run(tenant, |conn| {
+            kairos_db::code_index_settings::load_or_default(conn).map_err(ApiError::internal)
+        })
+        .await
+        .map_err(|e| format!("failed: the settings of the organization are not readable: {e:?}"))?;
+    let open = |field: &str,
+                sealed: Option<kairos_db::code_index_settings::SealedSecret>|
+     -> Result<Option<String>, String> {
+        let Some(sealed) = sealed else {
+            return Ok(None);
+        };
+        let key = service.secrets_key().ok_or_else(|| {
+            "failed: the organization has a hosted provider with a secret, and this deployment \
+             has no KAIROS_SECRETS_KEY to open it"
+                .to_string()
+        })?;
+        let aad = crate::api::org::code_index_settings::settings_aad(tenant, field);
+        let plain = key
+            .open(&aad, &sealed.key_id, &sealed.nonce, &sealed.ciphertext)
+            .map_err(|e| {
+                format!("failed: the secret {field} of the organization does not open: {e:?}")
+            })?;
+        String::from_utf8(plain)
+            .map(Some)
+            .map_err(|_| format!("failed: the secret {field} is not text"))
+    };
+
+    let hosted_summaries = repo.hosted_summaries() && settings.summary_provider != "embedded";
+    let summarizers: Arc<dyn SummarizerSource> = if hosted_summaries {
+        let secret = open("summary.secret", settings.summary_secret())?;
+        match settings.summary_provider.as_str() {
+            "ollama-cloud" => {
+                let (Some(base_url), Some(model)) = (
+                    settings.summary_base_url.clone(),
+                    settings.summary_model.clone(),
+                ) else {
+                    return Err(
+                        "failed: the provider ollama-cloud of the organization has no \
+                                base URL or no model"
+                            .to_string(),
+                    );
+                };
+                let mut config = kairos_index::hosted::HostedConfig::new(
+                    "ollama-cloud",
+                    &base_url,
+                    &model,
+                    settings.concurrency.max(1) as usize,
+                );
+                config.api_key = secret;
+                Arc::new(HostedSummarizers { config })
+            }
+            "bedrock" => {
+                let (Some(region), Some(model_id)) = (
+                    settings.summary_region.clone(),
+                    settings.summary_model.clone(),
+                ) else {
+                    return Err(
+                        "failed: the provider bedrock of the organization has no region \
+                                or no model id"
+                            .to_string(),
+                    );
+                };
+                let secret = secret.ok_or_else(|| {
+                    "failed: the provider bedrock of the organization has no credentials"
+                        .to_string()
+                })?;
+                let mut parts = secret.splitn(3, ':');
+                let (Some(access_key_id), Some(secret_access_key)) = (parts.next(), parts.next())
+                else {
+                    return Err("failed: the credentials of bedrock are not <access key \
+                                id>:<secret access key>"
+                        .to_string());
+                };
+                let session_token = parts.next().filter(|t| !t.is_empty()).map(str::to_string);
+                // A region that is a URL is an endpoint override, for a test
+                // server; the signature then names us-east-1.
+                let (region, endpoint) =
+                    if region.starts_with("http://") || region.starts_with("https://") {
+                        ("us-east-1".to_string(), Some(region))
+                    } else {
+                        (region, None)
+                    };
+                let mut config = kairos_index::bedrock::BedrockConfig::new(
+                    &region,
+                    &model_id,
+                    access_key_id,
+                    secret_access_key,
+                    settings.concurrency.max(1) as usize,
+                );
+                config.session_token = session_token;
+                config.endpoint = endpoint;
+                Arc::new(BedrockSummarizers { config })
+            }
+            other => {
+                return Err(format!(
+                    "failed: the provider {other:?} of the organization is not available in \
+                     this version of Kairos"
+                ));
+            }
+        }
+    } else {
+        embedded
+            .clone()
+            .ok_or_else(|| NO_EMBEDDED_MODEL.to_string())?
+    };
+
+    let hosted_vectors = settings.vector_provider == "remote";
+    let embedder: Arc<dyn kairos_embed::EmbeddingProvider> = if hosted_vectors {
+        let (Some(base_url), Some(model)) = (
+            settings.vector_base_url.clone(),
+            settings.vector_model.clone(),
+        ) else {
+            return Err(
+                "failed: the vector provider remote of the organization has no base URL \
+                        or no model"
+                    .to_string(),
+            );
+        };
+        let api_key = open("vectors.secret", settings.vector_secret())?;
+        let mut config = kairos_embed::remote::RemoteConfig::new(base_url, model);
+        config.api_key = api_key;
+        // The provider probes the endpoint when it is made: off the async
+        // threads.
+        let provider =
+            tokio::task::spawn_blocking(move || kairos_embed::remote::RemoteProvider::new(config))
+                .await
+                .map_err(|e| format!("failed: {e}"))?
+                .map_err(|e| format!("failed: the vector endpoint of the organization: {e}"))?;
+        Arc::new(provider)
+    } else {
+        Arc::clone(embedder)
+    };
+    Ok(Models {
+        summarizers,
+        embedder,
+        hosted_summaries,
+        hosted_vectors,
+    })
+}
 
 /// The input of a build: the base, read from the database.
 struct Base {
@@ -562,7 +858,7 @@ async fn repositories_of(
 pub async fn sweep(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
-    summarizers: Arc<dyn SummarizerSource>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
 ) -> Vec<BuildOutcome> {
     let mut outcomes = Vec::new();
@@ -573,7 +869,7 @@ pub async fn sweep(
                 service,
                 &tenant,
                 repo,
-                Arc::clone(&summarizers),
+                summarizers.clone(),
                 Arc::clone(&embedder),
             )
             .await;
@@ -615,20 +911,22 @@ pub async fn sweep(
 pub async fn first_builds(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
-    summarizers: Arc<dyn SummarizerSource>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
 ) -> Vec<BuildOutcome> {
     let mut outcomes = Vec::new();
     for (tenant, repos) in repositories_of(blocking, Pass::FirstBuilds).await {
         for repo in repos {
             let repo_id = repo.id;
-            let outcome = first_build_repository(
+            let outcome = full_build_repository(
                 blocking,
                 service,
                 &tenant,
                 repo,
-                Arc::clone(&summarizers),
+                summarizers.clone(),
                 Arc::clone(&embedder),
+                "first",
+                None,
             )
             .await;
             match (&outcome.report, &outcome.note) {
@@ -675,6 +973,68 @@ pub async fn first_builds(
             }
             outcomes.push(outcome);
         }
+    }
+    outcomes
+}
+
+/// Build the index of each repository that a person asked for
+/// (KAIROS-T-0332): a full build of the head of its default branch, as a
+/// first build, which replaces the index of that commit. One at a time, in
+/// the sequence of the requests. The run row of each request is ended with
+/// the result.
+pub async fn requested_builds(
+    blocking: &BlockingTenantPool,
+    service: &Arc<CodeIndexService>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
+    embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+) -> Vec<BuildOutcome> {
+    let mut outcomes = Vec::new();
+    for request in service.pending_rebuilds() {
+        let repo_id = request.repository_id;
+        let repo = blocking
+            .run(&request.tenant, move |conn| {
+                kairos_db::repositories::load(conn, repo_id).map_err(ApiError::internal)
+            })
+            .await;
+        let repo = match repo {
+            Ok(repo) => repo,
+            Err(e) => {
+                let note = format!("failed: the repository is not readable: {e:?}");
+                record_end(blocking, &request.tenant, Some(request.run), Err(&note)).await;
+                tracing::warn!(tenant = %request.tenant, repository = %repo_id, note = %note, "code index requested build failed");
+                continue;
+            }
+        };
+        let outcome = full_build_repository(
+            blocking,
+            service,
+            &request.tenant,
+            repo,
+            summarizers.clone(),
+            Arc::clone(&embedder),
+            "request",
+            Some(request.run),
+        )
+        .await;
+        match (&outcome.report, &outcome.note) {
+            (Some(report), _) => tracing::info!(
+                tenant = %outcome.tenant,
+                repository = %outcome.repository,
+                commit = %outcome.commit,
+                files = report.build.files,
+                symbols = report.build.symbols,
+                elapsed_secs = outcome.elapsed.as_secs_f64(),
+                "code index requested build ended"
+            ),
+            (None, Some(note)) => tracing::warn!(
+                tenant = %outcome.tenant,
+                repository = %outcome.repository,
+                note = %note,
+                "code index requested build failed"
+            ),
+            (None, None) => {}
+        }
+        outcomes.push(outcome);
     }
     outcomes
 }
@@ -769,6 +1129,202 @@ impl CodeIndexService {
 }
 
 /// Store the index of `head` of `repo`, built by the builder.
+/// The counts of a run, from its report (KAIROS-T-0331).
+fn counts_of(report: &UpdateReport) -> runs::Counts {
+    let clamp = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+    runs::Counts {
+        files: clamp(report.build.files),
+        symbols: clamp(report.build.symbols),
+        edges: clamp(report.build.edges.total()),
+        summaries_made: clamp(
+            report.summary.symbols.summarized
+                + report.summary.files.summarized
+                + report.summary.modules.summarized,
+        ),
+    }
+}
+
+/// Tell the readers of a repository that a run started or ended
+/// (KAIROS-T-0333): the event `code_index_build_changed`, with the slug of
+/// the repository as its short code. Inside the transaction of the write.
+pub(crate) fn notify_run(
+    conn: &mut diesel::pg::PgConnection,
+    slug: &str,
+    actor: Option<uuid::Uuid>,
+) -> Result<(), ApiError> {
+    kairos_db::events::emit_event(
+        conn,
+        &kairos_db::events::ThinEvent {
+            event: kairos_db::events::EventKind::CodeIndexBuildChanged,
+            entity_type: "repository".to_string(),
+            short_code: slug.to_string(),
+            board_id: None,
+            column_id: None,
+            actor: actor.unwrap_or_else(uuid::Uuid::nil),
+        },
+    )
+    .map_err(ApiError::internal)
+}
+
+/// The slug of the repository of a run, for its event.
+fn slug_of_run(conn: &mut diesel::pg::PgConnection, run: &runs::Build) -> Option<String> {
+    kairos_db::repositories::load(conn, run.repository_id)
+        .ok()
+        .map(|repo| repo.slug)
+}
+
+/// Start the record of a run (KAIROS-T-0331): a `running` row, after the
+/// stale rows of the repository are ended. None when the write fails: the
+/// failure is logged, and the build goes on with no record.
+async fn record_start(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+) -> Option<uuid::Uuid> {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
+    let written = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                runs::end_stale(conn, repo_id).map_err(ApiError::internal)?;
+                let run = runs::start(conn, repo_id, trigger, Some(&branch), None)
+                    .map_err(ApiError::internal)?;
+                notify_run(conn, &slug, None)?;
+                Ok(run)
+            })
+        })
+        .await;
+    match written {
+        Ok(run) => Some(run.id),
+        Err(e) => {
+            tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index run not recorded");
+            None
+        }
+    }
+}
+
+/// Give the record of a run its commit.
+async fn record_commit(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    commit: &str,
+) {
+    let Some(id) = run else { return };
+    let commit = commit.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            runs::set_commit(conn, id, &commit).map_err(ApiError::internal)
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run commit not recorded");
+    }
+}
+
+/// End the record of a run: `ok` with the counts, or `failed` with the
+/// text.
+async fn record_end(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    result: Result<(runs::Counts, String), &str>,
+) {
+    let Some(id) = run else { return };
+    let result = result.map_err(str::to_owned);
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let run = match &result {
+                    Ok((counts, model)) => runs::end_ok(conn, id, Some(*counts), Some(model)),
+                    Err(error) => runs::end_failed(conn, id, error),
+                }
+                .map_err(ApiError::internal)?;
+                if let Some(slug) = slug_of_run(conn, &run) {
+                    notify_run(conn, &slug, run.requested_by)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run end not recorded");
+    }
+}
+
+/// Record a failure that came before the run had a row: the fetch, or the
+/// choice of the base. A repeat of the newest failure adds no row
+/// ([`runs::record_failure_once`]).
+async fn record_failure_once(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+    commit: Option<&str>,
+    error: &str,
+) {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
+    let commit = commit.map(str::to_owned);
+    let error = error.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let written = runs::record_failure_once(
+                    conn,
+                    repo_id,
+                    trigger,
+                    commit.as_deref(),
+                    Some(&branch),
+                    &error,
+                )
+                .map_err(ApiError::internal)?;
+                if written.is_some() {
+                    notify_run(conn, &slug, None)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    {
+        tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index failure not recorded");
+    }
+}
+
+/// End the `running` rows of each tenant when the builder starts: the
+/// server stopped during those runs (KAIROS-T-0331).
+async fn end_stale_runs(blocking: &BlockingTenantPool) {
+    let tenants = match blocking
+        .run_public(|conn| kairos_db::list_tenants(conn).map_err(ApiError::internal))
+        .await
+    {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            tracing::warn!(error = ?e, "code index builder could not list tenants");
+            return;
+        }
+    };
+    for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
+        match blocking
+            .run(&tenant.slug, |conn| {
+                runs::end_all_stale(conn).map_err(ApiError::internal)
+            })
+            .await
+        {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!(tenant = %tenant.slug, runs = n, "code index runs ended: the server stopped during them")
+            }
+            Err(e) => {
+                tracing::warn!(tenant = %tenant.slug, error = ?e, "code index stale runs not ended")
+            }
+        }
+    }
+}
+
 async fn store_built(
     blocking: &BlockingTenantPool,
     tenant: &str,
@@ -802,7 +1358,7 @@ async fn build_repository(
     service: &Arc<CodeIndexService>,
     tenant: &str,
     repo: Repository,
-    summarizers: Arc<dyn SummarizerSource>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
 ) -> BuildOutcome {
     let started = Instant::now();
@@ -830,7 +1386,10 @@ async fn build_repository(
         ancestors,
     } = match fetch_head(blocking, service, tenant, &repo, true).await {
         Ok(fetched) => fetched,
-        Err(note) => return done(outcome, note),
+        Err(note) => {
+            record_failure_once(blocking, tenant, &repo, "push", None, &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
@@ -869,14 +1428,27 @@ async fn build_repository(
         Ok(Some(Some(base))) => base,
         Ok(Some(None)) => return done(outcome, "the head has an index".into()),
         Ok(None) => {
-            return done(
-                outcome,
-                format!("no indexed commit is within {MAX_DISTANCE} commits below the head"),
-            );
+            let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e:?}")),
+        Err(e) => {
+            let note = format!("failed: {e:?}");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.base = Some(base.commit.clone());
+    let run = record_start(blocking, tenant, &repo, "push").await;
+    record_commit(blocking, tenant, run, &head).await;
+    let models = match models_for(blocking, service, tenant, &repo, &summarizers, &embedder).await {
+        Ok(models) => models,
+        Err(note) => {
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
+    };
+    let model_name = models.summarizers.model_name();
 
     // The update, off the async threads: it runs rust-analyzer and the
     // model for minutes. It holds the gate for the whole build, so a first
@@ -885,7 +1457,10 @@ async fn build_repository(
         let head = head.clone();
         let service = Arc::clone(service);
         tokio::task::spawn_blocking(move || -> Result<_, String> {
-            let _held = service.gate().update();
+            // The gate: the whole build for the embedded model; the
+            // structure only for a hosted provider (KAIROS-T-0341), whose
+            // summaries take no CPU of the host.
+            let mut held = Some(service.gate().update());
             let work = tempfile::Builder::new()
                 .prefix("kairos-code-index-")
                 .tempdir()
@@ -907,11 +1482,32 @@ async fn build_repository(
                 build: service.build_options(),
                 ..Default::default()
             };
+            let build =
+                kairos_index::update_structure(&tree, &db, &options).map_err(|e| e.to_string())?;
+            if models.hosted_summaries && models.hosted_vectors {
+                held.take();
+            }
+            let Models {
+                summarizers,
+                embedder,
+                ..
+            } = models;
             let report = summarizers
                 .run(&mut |summarizer| {
-                    kairos_index::update(&tree, &db, summarizer, embedder.as_ref(), &options)
+                    let summary = kairos_index::summarize(
+                        &tree,
+                        &db,
+                        summarizer,
+                        embedder.as_ref(),
+                        &SummarizeOptions::default(),
+                    )?;
+                    Ok(UpdateReport {
+                        build: build.clone(),
+                        summary,
+                    })
                 })
                 .map_err(|e| e.to_string())?;
+            drop(held);
             let split = kairos_index::store::split(&db).map_err(|e| e.to_string())?;
             Ok((report, split))
         })
@@ -921,26 +1517,41 @@ async fn build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok((counts_of(&report), model_name))).await;
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
     outcome
 }
 
-/// The first build of one repository that has no index (KAIROS-T-0318).
-async fn first_build_repository(
+/// A full build of one repository: the first build of a repository that
+/// has no index (KAIROS-T-0318, `trigger = first`), or a build that a
+/// person asked for (KAIROS-T-0332, `trigger = request`, with the run row
+/// `run` that the request made). A requested build skips the memory of
+/// the commits that failed before: the person asks for one more try.
+#[allow(clippy::too_many_arguments)]
+async fn full_build_repository(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
     tenant: &str,
     repo: Repository,
-    summarizers: Arc<dyn SummarizerSource>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+    trigger: &'static str,
+    run: Option<uuid::Uuid>,
 ) -> BuildOutcome {
     let started = Instant::now();
     let mut outcome = BuildOutcome {
@@ -958,25 +1569,47 @@ async fn first_build_repository(
         outcome
     };
     if !repo.code_index_build_on() {
+        record_end(blocking, tenant, run, Err(OPTED_OUT)).await;
         return done(outcome, OPTED_OUT.into());
     }
 
-    let Fetched { clone, head, .. } =
-        match fetch_head(blocking, service, tenant, &repo, false).await {
-            Ok(fetched) => fetched,
-            Err(note) => return done(outcome, note),
-        };
+    let Fetched { clone, head, .. } = match fetch_head(blocking, service, tenant, &repo, false)
+        .await
+    {
+        Ok(fetched) => fetched,
+        Err(note) => {
+            match run {
+                Some(_) => record_end(blocking, tenant, run, Err(&note)).await,
+                None => record_failure_once(blocking, tenant, &repo, trigger, None, &note).await,
+            }
+            return done(outcome, note);
+        }
+    };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
-    if service.failed_before(&key) {
+    if run.is_none() && service.failed_before(&key) {
         return done(outcome, "an earlier build of this commit failed".into());
     }
     tracing::info!(
         tenant = %tenant,
         repository = %repo.slug,
         commit = %head,
-        "code index first build started"
+        trigger,
+        "code index full build started"
     );
+    let run = match run {
+        Some(id) => Some(id),
+        None => record_start(blocking, tenant, &repo, trigger).await,
+    };
+    record_commit(blocking, tenant, run, &head).await;
+    let models = match models_for(blocking, service, tenant, &repo, &summarizers, &embedder).await {
+        Ok(models) => models,
+        Err(note) => {
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
+    };
+    let model_name = models.summarizers.model_name();
 
     // The build, off the async threads: it runs for hours on a large
     // repository. It takes the gate for each step, so the updates of the
@@ -1018,15 +1651,23 @@ async fn first_build_repository(
                 }
             };
             let gate = service.gate();
+            let Models {
+                summarizers,
+                embedder,
+                hosted_summaries,
+                hosted_vectors,
+            } = models;
             let report = summarizers
                 .run(&mut |summarizer| {
+                    // The gate for each call of a model on the CPU; none for
+                    // a hosted provider (KAIROS-T-0341).
                     let mut gated = GatedSummarizer {
                         inner: summarizer,
-                        gate,
+                        gate: (!hosted_summaries).then_some(gate),
                     };
                     let embedder = GatedEmbedder {
                         inner: embedder.as_ref(),
-                        gate,
+                        gate: (!hosted_vectors).then_some(gate),
                     };
                     let summary = kairos_index::summarize(
                         &tree,
@@ -1050,13 +1691,21 @@ async fn first_build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok((counts_of(&report), model_name))).await;
     remove_database(&db);
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
@@ -1086,7 +1735,7 @@ fn remove_database(path: &Path) {
 pub async fn run_builder(
     blocking: BlockingTenantPool,
     service: Arc<CodeIndexService>,
-    summarizers: Arc<dyn SummarizerSource>,
+    summarizers: Option<Arc<dyn SummarizerSource>>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
     interval: Duration,
 ) {
@@ -1094,20 +1743,34 @@ pub async fn run_builder(
         interval_secs = interval.as_secs(),
         "code index builder started"
     );
+    end_stale_runs(&blocking).await;
     let wake = tokio::sync::Notify::new();
     let updates = async {
         let mut ticker = tokio::time::interval(interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            ticker.tick().await;
-            sweep(
-                &blocking,
-                &service,
-                Arc::clone(&summarizers),
-                Arc::clone(&embedder),
-            )
-            .await;
-            wake.notify_one();
+            // A request (KAIROS-T-0332) goes before the next sweep.
+            tokio::select! {
+                _ = ticker.tick() => {
+                    sweep(
+                        &blocking,
+                        &service,
+                        summarizers.clone(),
+                        Arc::clone(&embedder),
+                    )
+                    .await;
+                    wake.notify_one();
+                }
+                _ = service.wake().notified() => {
+                    requested_builds(
+                        &blocking,
+                        &service,
+                        summarizers.clone(),
+                        Arc::clone(&embedder),
+                    )
+                    .await;
+                }
+            }
         }
     };
     let firsts = async {
@@ -1116,7 +1779,7 @@ pub async fn run_builder(
             first_builds(
                 &blocking,
                 &service,
-                Arc::clone(&summarizers),
+                summarizers.clone(),
                 Arc::clone(&embedder),
             )
             .await;
@@ -1132,6 +1795,7 @@ pub(crate) fn pool_row_of(row: kairos_db::code_indexes::PoolRow) -> kairos_index
         level: row.level,
         summary: row.summary,
         vector: row.vector,
+        model: row.model,
     }
 }
 
@@ -1149,6 +1813,7 @@ pub(crate) fn used_rows(
             level: row.level,
             summary: row.summary,
             vector: row.vector,
+            model: row.model,
         })
         .collect()
 }
@@ -1160,7 +1825,7 @@ mod tests {
     #[test]
     fn the_builder_summarizes_on_the_threads_of_the_setting() {
         let tools = Tools {
-            model: PathBuf::from("/tools/model.gguf"),
+            model: Some(PathBuf::from("/tools/model.gguf")),
             rust_analyzer: PathBuf::from("/tools/rust-analyzer"),
             rust_src: PathBuf::from("/tools/rust-src.tar.gz"),
             sysroot: PathBuf::from("/tools/rust"),

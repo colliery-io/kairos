@@ -28,6 +28,8 @@ checklist.
 - [Provision a tenant](how-to/provision-a-tenant.md)
 - [Connect a git forge](how-to/connect-a-git-forge.md)
 - [Read a private repository](how-to/read-a-private-repository.md)
+- [Build the code index again](how-to/build-the-code-index-again.md)
+- [Use a hosted model for the code index summaries](how-to/use-a-hosted-model-for-the-code-index.md)
 - [Back up and restore](how-to/back-up-and-restore.md)
 - [Export traces to a collector](how-to/export-traces.md)
 - [Provision users with SCIM](how-to/provision-users-with-scim.md)

@@ -38,9 +38,13 @@ use common::{
     AUDIENCE, ISSUER, base_config, recreate_scratch_db, spawn_server, user_token, with_database,
 };
 use kairos_client::Error;
+use kairos_client::types_auth::Secret;
+use kairos_client::types_code_index::{
+    PutCodeIndexSettings, PutSummaryProvider, PutVectorProvider,
+};
 use kairos_client::types_org::{AddTeamMemberRequest, CreateTeamRequest};
 use kairos_client::types_repositories::{
-    CodeIndexBuild, CreateRepositoryRequest, UpdateRepositoryRequest,
+    CodeIndexBuild, CodeIndexSummaries, CreateRepositoryRequest, UpdateRepositoryRequest,
 };
 use kairos_db::models::{NewOrganizationMember, OrgRole};
 use kairos_db::schema::{organization_members, organizations, users};
@@ -49,8 +53,8 @@ use kairos_embed::{DeterministicProvider, EmbeddingProvider};
 use kairos_index::{FakeSummarizer, Index, Level, UpdateOptions};
 use kairos_server::app;
 use kairos_server::code_index::{
-    CodeIndexService, FakeSummarizers, OPTED_OUT, SummarizerSource, first_builds, run_builder,
-    sweep,
+    CodeIndexService, FakeSummarizers, OPTED_OUT, SummarizerSource, first_builds, requested_builds,
+    run_builder, sweep,
 };
 use kairos_server::middleware::auth::Authenticator;
 
@@ -282,6 +286,8 @@ struct World {
     conn: PgConnection,
     state: app::AppState,
     service: Arc<CodeIndexService>,
+    /// The organization admin.
+    svc: kairos_client::KairosClient,
     alice: kairos_client::KairosClient,
     bob: kairos_client::KairosClient,
     repo_id: Uuid,
@@ -354,7 +360,9 @@ impl World {
                     },
                 ),
             )
-            .with_secrets_key(private.then(|| key.clone())),
+            // The key of the deployment: the read token of a private
+            // repository, and the secret of a hosted provider (KAIROS-T-0341).
+            .with_secrets_key(Some(key.clone())),
         );
 
         let http = reqwest::Client::new();
@@ -368,7 +376,7 @@ impl World {
                 .expect("OIDC discovery against live Dex"),
         );
         let mut config = base_config(&scratch_url);
-        config.secrets_key = private.then(|| key.clone());
+        config.secrets_key = Some(key.clone());
         let mut state = app::state_with(config, pool, auth);
         state.code_index = Some(service.clone());
         let server = spawn_server(app::router(state.clone())).await;
@@ -435,6 +443,7 @@ impl World {
             conn,
             state,
             service,
+            svc,
             alice,
             bob,
             repo_id: repo.id.parse().unwrap(),
@@ -460,7 +469,7 @@ impl World {
         sweep(
             &self.state.blocking,
             &self.service,
-            Arc::new(FakeSummarizers),
+            Some(Arc::new(FakeSummarizers)),
             embedder,
         )
         .await
@@ -472,7 +481,19 @@ impl World {
         first_builds(
             &self.state.blocking,
             &self.service,
-            Arc::new(FakeSummarizers),
+            Some(Arc::new(FakeSummarizers)),
+            embedder,
+        )
+        .await
+    }
+
+    /// The builds that a person asked for (KAIROS-T-0332), one pass.
+    async fn requested_builds(&self) -> Vec<kairos_server::code_index::BuildOutcome> {
+        let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+        requested_builds(
+            &self.state.blocking,
+            &self.service,
+            Some(Arc::new(FakeSummarizers)),
             embedder,
         )
         .await
@@ -1063,6 +1084,10 @@ struct SlowSummarizer {
 }
 
 impl kairos_index::Summarizer for SlowSummarizer {
+    fn model(&self) -> String {
+        self.inner.model()
+    }
+
     fn summarize(&mut self, request: &kairos_index::SummaryRequest) -> Result<String, String> {
         if request.path.starts_with("slow") {
             std::thread::sleep(self.delay);
@@ -1085,6 +1110,10 @@ impl SummarizerSource for SlowSummarizers {
             calls: Arc::clone(&self.calls),
             delay: self.delay,
         })
+    }
+
+    fn model_name(&self) -> String {
+        FakeSummarizer::default().model
     }
 }
 
@@ -1138,7 +1167,7 @@ async fn a_first_build_does_not_stop_the_updates() {
     let builder = tokio::spawn(run_builder(
         w.state.blocking.clone(),
         Arc::clone(&w.service),
-        Arc::new(summarizers),
+        Some(Arc::new(summarizers)),
         embedder,
         std::time::Duration::from_millis(500),
     ));
@@ -1191,4 +1220,601 @@ async fn a_first_build_does_not_stop_the_updates() {
     assert_eq!(big_index[0].source, "build");
     assert!(count() >= FUNCTIONS);
     builder.abort();
+}
+
+// ===========================================================================
+// KAIROS-T-0331: each run of the builder leaves a record
+// ===========================================================================
+
+/// The runs of `payments-api`, newest first.
+async fn runs_of(w: &World) -> Vec<kairos_client::types_code_index::CodeIndexBuild> {
+    w.alice
+        .list_code_index_builds("payments-api", None)
+        .await
+        .expect("the runs list")
+        .items
+}
+
+#[tokio::test]
+async fn a_push_records_an_ok_run_and_an_upload_is_a_run() {
+    // Given an index of commit A, sent by bob
+    let w = World::new("kairos_code_index_t0331_push").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].trigger, "upload");
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
+    assert_eq!(runs[0].r#ref.as_deref(), Some("main"));
+    assert!(runs[0].requested_by.is_some(), "the uploader is recorded");
+    assert!(runs[0].finished_at.is_some());
+
+    // A pass with nothing to do leaves no row
+    w.sweep().await;
+    assert_eq!(runs_of(&w).await.len(), 1);
+
+    // When commit B is pushed and the builder runs
+    let b = commit_b(&w.git);
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().any(|o| o.report.is_some()), "{outcomes:?}");
+
+    // Then the newest run is an ok push run of commit B with the counts
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    let run = &runs[0];
+    assert_eq!(run.trigger, "push");
+    assert_eq!(run.outcome, "ok");
+    assert_eq!(run.commit.as_deref(), Some(b.as_str()));
+    assert_eq!(run.r#ref.as_deref(), Some("main"));
+    assert!(run.files.is_some_and(|n| n > 0), "{run:?}");
+    assert!(run.symbols.is_some_and(|n| n > 0), "{run:?}");
+    assert!(run.summaries_made.is_some_and(|n| n > 0), "{run:?}");
+    assert_eq!(run.error, None);
+    assert_eq!(run.requested_by, None, "the builder has no user");
+    assert!(run.finished_at.is_some());
+    assert_eq!(runs[1].trigger, "upload");
+}
+
+#[tokio::test]
+async fn a_first_build_records_a_run() {
+    let w = World::new("kairos_code_index_t0331_first").await;
+    let outcomes = w.first_builds().await;
+    assert!(outcomes[0].report.is_some(), "{outcomes:?}");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].trigger, "first");
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].commit.as_deref(), Some(w.a.as_str()));
+    assert!(runs[0].symbols.is_some_and(|n| n > 0));
+}
+
+#[tokio::test]
+async fn a_failed_fetch_records_one_failed_run() {
+    // Given an index of commit A, and a repository that the server cannot
+    // fetch any more
+    let w = World::new("kairos_code_index_t0331_failed").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    std::fs::remove_dir_all(&w.git).expect("remove the git repository");
+
+    // When the builder runs 2 times
+    let outcomes = w.sweep().await;
+    let note = outcomes[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "{note}");
+    w.sweep().await;
+
+    // Then one failed run has the text of the failure, and the server is
+    // still up
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "the upload and one failure: {runs:?}");
+    let run = &runs[0];
+    assert_eq!(run.trigger, "push");
+    assert_eq!(run.outcome, "failed");
+    assert_eq!(run.error.as_deref(), Some(note.as_str()));
+    assert_eq!(run.commit, None, "the fetch gave no commit");
+    assert!(run.finished_at.is_some());
+    assert!(w.alice.list_code_indexes("payments-api").await.is_ok());
+}
+
+#[tokio::test]
+async fn a_run_that_the_server_did_not_end_is_failed_at_the_next_run() {
+    // Given a run that is still `running` from a server that stopped
+    let mut w = World::new("kairos_code_index_t0331_stale").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let stale = kairos_db::code_index_builds::start(&mut w.conn, w.repo_id, "push", None, None)
+        .expect("a running row");
+
+    // When the next run of the repository starts
+    commit_b(&w.git);
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().any(|o| o.report.is_some()), "{outcomes:?}");
+
+    // Then the stale run is failed with the text, and the new run is ok
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    let old = runs
+        .iter()
+        .find(|r| r.id == stale.id.to_string())
+        .expect("the stale run is listed");
+    assert_eq!(old.outcome, "failed");
+    assert_eq!(
+        old.error.as_deref(),
+        Some(kairos_db::code_index_builds::SERVER_STOPPED)
+    );
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].trigger, "push");
+}
+
+#[tokio::test]
+async fn the_runs_list_clamps_its_limit() {
+    let w = World::new("kairos_code_index_t0331_limit").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", None)
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 20);
+    assert_eq!(list.total, 1);
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", Some(0))
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 1);
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", Some(500))
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 100);
+    assert_eq!(list.items.len(), 1);
+    // An unknown repository
+    let err = w
+        .alice
+        .list_code_index_builds("no-such-repo", None)
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+}
+
+// ===========================================================================
+// KAIROS-T-0332: a person asks for a rebuild
+// ===========================================================================
+
+#[tokio::test]
+async fn a_member_of_the_owner_team_asks_for_a_rebuild() {
+    // Given an index of commit A, sent by bob
+    let w = World::new("kairos_code_index_t0332_rebuild").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+
+    // A member with no right on the repository is refused
+    let err = w
+        .alice
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("alice has no right");
+    assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    assert_eq!(runs_of(&w).await.len(), 1, "a refusal writes no run");
+
+    // When bob asks
+    let run = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("202 with the run");
+    assert_eq!(run.trigger, "request");
+    assert_eq!(run.outcome, "running");
+    assert!(run.requested_by.is_some());
+    assert_eq!(run.finished_at, None);
+
+    // A second request while the first runs is refused and names the run
+    let err = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("one run at a time");
+    match &err {
+        Error::Conflict { code, details, .. } => {
+            assert_eq!(code, "CODE_INDEX_BUILD_RUNNING");
+            assert_eq!(details["run"], run.id);
+        }
+        other => panic!("{other}"),
+    }
+
+    // Then the builder makes the index on its next pass
+    let outcomes = w.requested_builds().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let outcome = &outcomes[0];
+    assert_eq!(outcome.commit, a);
+    let report = outcome.report.as_ref().expect("a full build");
+    assert!(report.build.symbols > 0);
+
+    // And the run is ok, with the counts, and the index of A is there
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    assert_eq!(runs[0].id, run.id);
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].trigger, "request");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
+    assert!(runs[0].symbols.is_some_and(|n| n > 0));
+    let built = w
+        .alice
+        .download_code_index("payments-api", &a)
+        .await
+        .expect("the index of A downloads");
+    assert_eq!(content_of(&built), content_of(&w.index(&a)));
+    let listed = w.alice.list_code_indexes("payments-api").await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].source, "build", "the rebuild replaced the upload");
+
+    // And a new request is possible again
+    w.bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("the run ended, so a new request goes");
+    assert!(w.service.pending_rebuilds().len() == 1);
+}
+
+#[tokio::test]
+async fn a_repository_with_the_builder_off_is_not_rebuilt_on_request() {
+    let w = World::new("kairos_code_index_t0332_off").await;
+    w.bob
+        .update_repository(
+            "payments-api",
+            &UpdateRepositoryRequest {
+                code_index_build: Some(CodeIndexBuild::Off),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("off");
+    let err = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect_err("the builder is off");
+    match &err {
+        Error::Other {
+            status,
+            code,
+            message,
+            ..
+        } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "CODE_INDEX_BUILD_OFF");
+            assert!(message.contains("--code-index-build on"), "{message}");
+        }
+        other => panic!("{other}"),
+    }
+    assert!(runs_of(&w).await.is_empty(), "a refusal writes no run");
+}
+
+#[tokio::test]
+async fn a_requested_build_that_fails_ends_its_run_as_failed() {
+    let w = World::new("kairos_code_index_t0332_failed").await;
+    std::fs::remove_dir_all(&w.git).expect("remove the git repository");
+    let run = w
+        .bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("202 with the run");
+    let outcomes = w.requested_builds().await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let note = outcomes[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "{note}");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].id, run.id);
+    assert_eq!(runs[0].outcome, "failed");
+    assert_eq!(runs[0].error.as_deref(), Some(note.as_str()));
+    // The person can ask again: a requested build has no memory of a
+    // failed commit.
+    w.bob
+        .rebuild_code_index("payments-api")
+        .await
+        .expect("a new request after a failure");
+}
+
+// ===========================================================================
+// KAIROS-T-0341: the builder chooses the summarizer of each build, and a
+// hosted summarizer sends N requests at a time with retries
+// ===========================================================================
+
+/// The settings of the tenant: Ollama Cloud at the fake endpoint.
+fn hosted_settings(base_url: &str, key: &str, concurrency: i32) -> PutCodeIndexSettings {
+    PutCodeIndexSettings {
+        summary: PutSummaryProvider {
+            provider: "ollama-cloud".into(),
+            base_url: Some(base_url.into()),
+            model: Some("fake-model".into()),
+            region: None,
+            secret: Some(Secret::new(key)),
+        },
+        vectors: PutVectorProvider {
+            provider: "embedded".into(),
+            ..Default::default()
+        },
+        concurrency: Some(concurrency),
+    }
+}
+
+async fn opt_in(w: &World, slug: &str) {
+    w.bob
+        .update_repository(
+            slug,
+            &UpdateRepositoryRequest {
+                code_index_summaries: Some(CodeIndexSummaries::Hosted),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("the opt-in");
+}
+
+/// The newest run of a repository.
+async fn newest_run(w: &World, slug: &str) -> kairos_client::types_code_index::CodeIndexBuild {
+    w.alice
+        .list_code_index_builds(slug, Some(1))
+        .await
+        .expect("the runs")
+        .items
+        .into_iter()
+        .next()
+        .expect("a run")
+}
+
+#[tokio::test]
+async fn a_hosted_repository_is_summarized_by_the_endpoint() {
+    // Given a tenant on Ollama Cloud (the fake endpoint, 4 at a time, a 429
+    // on the first request), one repository opted in and one not
+    let w = World::new("kairos_code_index_t0341_hosted").await;
+    let chat = common::chat_http::serve("ollama_t0341_key", 1).await;
+    w.svc
+        .put_code_index_settings(&hosted_settings(&chat.base_url, "ollama_t0341_key", 4))
+        .await
+        .expect("the provider");
+    let infra = w.work().join("platform-infra");
+    std::fs::create_dir_all(&infra).expect("the folder of platform-infra");
+    repository_at_a(&infra);
+    w.bob
+        .create_repository(&repository("platform-infra"))
+        .await
+        .expect("platform-infra");
+    opt_in(&w, "payments-api").await;
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+    assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+    let hosted = outcomes
+        .iter()
+        .find(|o| o.repository == "payments-api")
+        .expect("payments-api");
+    let embedded = outcomes
+        .iter()
+        .find(|o| o.repository == "platform-infra")
+        .expect("platform-infra");
+
+    // Then the opted-in repository is summarized through the endpoint, 4
+    // requests at a time, and the 429 was tried again
+    let report = hosted
+        .report
+        .as_ref()
+        .unwrap_or_else(|| panic!("{hosted:?}"));
+    assert!(report.summary.symbols.summarized > 0, "{report:?}");
+    assert!(
+        report
+            .summary
+            .calls
+            .iter()
+            .all(|c| c.summary.starts_with("A hosted summary of")),
+        "{:?}",
+        report.summary.calls
+    );
+    assert_eq!(
+        chat.requests(),
+        report.summary.calls.len() + 1,
+        "each summary is one request, and the 429 one more"
+    );
+    assert!(
+        chat.max_in_flight() >= 2,
+        "in flight: {}",
+        chat.max_in_flight()
+    );
+    assert_eq!(
+        newest_run(&w, "payments-api").await.model.as_deref(),
+        Some("ollama-cloud/fake-model")
+    );
+
+    // And the other repository used the embedded model
+    let report = embedded
+        .report
+        .as_ref()
+        .unwrap_or_else(|| panic!("{embedded:?}"));
+    assert!(
+        report
+            .summary
+            .calls
+            .iter()
+            .all(|c| !c.summary.starts_with("A hosted summary of")),
+        "{:?}",
+        report.summary.calls
+    );
+    assert_eq!(
+        newest_run(&w, "platform-infra").await.model.as_deref(),
+        Some("fake/fixed")
+    );
+}
+
+#[tokio::test]
+async fn a_hosted_endpoint_that_refuses_the_key_fails_the_run_and_the_next_repository_builds() {
+    let w = World::new("kairos_code_index_t0341_refused").await;
+    let chat = common::chat_http::serve("the-real-key", 0).await;
+    w.svc
+        .put_code_index_settings(&hosted_settings(&chat.base_url, "a-wrong-key", 2))
+        .await
+        .expect("the provider");
+    let infra = w.work().join("platform-infra");
+    std::fs::create_dir_all(&infra).expect("the folder of platform-infra");
+    repository_at_a(&infra);
+    w.bob
+        .create_repository(&repository("platform-infra"))
+        .await
+        .expect("platform-infra");
+    opt_in(&w, "payments-api").await;
+
+    let outcomes = w.first_builds().await;
+    let hosted = outcomes
+        .iter()
+        .find(|o| o.repository == "payments-api")
+        .expect("payments-api");
+    let note = hosted.note.clone().expect("a failed run");
+    assert!(note.contains("401"), "{note}");
+    let run = newest_run(&w, "payments-api").await;
+    assert_eq!(run.outcome, "failed");
+    assert!(
+        run.error.as_deref().is_some_and(|e| e.contains("401")),
+        "{run:?}"
+    );
+    // The embedded repository of the same pass built.
+    let embedded = outcomes
+        .iter()
+        .find(|o| o.repository == "platform-infra")
+        .expect("platform-infra");
+    assert!(embedded.report.is_some(), "{embedded:?}");
+}
+
+#[tokio::test]
+async fn an_embedded_repository_on_a_server_with_no_model_gets_a_failed_run() {
+    let w = World::new("kairos_code_index_t0341_nomodel").await;
+    let embedder: Arc<dyn EmbeddingProvider> = Arc::new(DeterministicProvider::default());
+    let outcomes = first_builds(&w.state.blocking, &w.service, None, embedder).await;
+    assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    let note = outcomes[0].note.clone().expect("a failed run");
+    assert!(note.contains("no embedded model"), "{note}");
+    let run = newest_run(&w, "payments-api").await;
+    assert_eq!(run.outcome, "failed");
+    assert!(
+        run.error
+            .as_deref()
+            .is_some_and(|e| e.contains("hosted provider")),
+        "{run:?}"
+    );
+}
+
+// ===========================================================================
+// KAIROS-T-0342: the Bedrock summarizer
+// ===========================================================================
+
+/// The settings of the tenant: Bedrock at the fake endpoint (the region is
+/// the endpoint override of the tests).
+fn bedrock_settings(base_url: &str, credentials: &str) -> PutCodeIndexSettings {
+    PutCodeIndexSettings {
+        summary: PutSummaryProvider {
+            provider: "bedrock".into(),
+            base_url: None,
+            model: Some("anthropic.claude-3-5-haiku-20241022-v1:0".into()),
+            region: Some(base_url.into()),
+            secret: Some(Secret::new(credentials)),
+        },
+        vectors: PutVectorProvider {
+            provider: "embedded".into(),
+            ..Default::default()
+        },
+        concurrency: Some(3),
+    }
+}
+
+#[tokio::test]
+async fn a_bedrock_repository_is_summarized_through_the_converse_api() {
+    // Given a tenant on Bedrock (the fake endpoint, a throttle on the first
+    // request) and an opted-in repository
+    let w = World::new("kairos_code_index_t0342_bedrock").await;
+    let bedrock = common::bedrock_http::serve("AKIAT0342EXAMPLE", 1).await;
+    w.svc
+        .put_code_index_settings(&bedrock_settings(
+            &bedrock.base_url,
+            "AKIAT0342EXAMPLE:secretkey0342:sessiontoken0342",
+        ))
+        .await
+        .expect("the provider");
+    opt_in(&w, "payments-api").await;
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+    let hosted = outcomes
+        .iter()
+        .find(|o| o.repository == "payments-api")
+        .expect("payments-api");
+
+    // Then the summaries come from Bedrock, signed, with the model id
+    // encoded in the path, and the throttle was tried again
+    let report = hosted
+        .report
+        .as_ref()
+        .unwrap_or_else(|| panic!("{hosted:?}"));
+    assert!(report.summary.symbols.summarized > 0, "{report:?}");
+    assert!(
+        report
+            .summary
+            .calls
+            .iter()
+            .all(|c| c.summary.starts_with("A Bedrock summary of")),
+        "{:?}",
+        report.summary.calls
+    );
+    let authorizations = bedrock.authorizations();
+    assert_eq!(authorizations.len(), report.summary.calls.len() + 1);
+    assert!(
+        authorizations
+            .iter()
+            .all(|a| a.contains("/bedrock/aws4_request,")
+                && a.contains("SignedHeaders=content-type;host;x-amz-date;x-amz-security-token,")),
+        "{authorizations:?}"
+    );
+    assert!(
+        bedrock
+            .model_ids()
+            .iter()
+            .all(|id| id == "anthropic.claude-3-5-haiku-20241022-v1:0"),
+        "{:?}",
+        bedrock.model_ids()
+    );
+    assert_eq!(
+        newest_run(&w, "payments-api").await.model.as_deref(),
+        Some("bedrock/anthropic.claude-3-5-haiku-20241022-v1:0")
+    );
+}
+
+#[tokio::test]
+async fn bedrock_credentials_of_one_part_are_refused_before_a_build() {
+    let w = World::new("kairos_code_index_t0342_credentials").await;
+    let err = w
+        .svc
+        .put_code_index_settings(&bedrock_settings("https://127.0.0.1:1", "AKIA-only"))
+        .await
+        .expect_err("the credentials have 2 or 3 parts");
+    match &err {
+        Error::Validation { field, .. } => assert_eq!(field.as_deref(), Some("summary.secret")),
+        other => panic!("{other}"),
+    }
 }

@@ -97,6 +97,11 @@ pub enum EventKind {
     /// The item's forge links (branches, pull/merge requests) changed
     /// (KAIROS-T-0099).
     ItemLinksChanged,
+    /// A run of the code index builder started or ended for a repository
+    /// (KAIROS-T-0333). `entity_type` is `repository`, `short_code` is the
+    /// slug of the repository, and there is no board. A reader of the
+    /// repository reads its runs again.
+    CodeIndexBuildChanged,
 }
 
 impl EventKind {
@@ -129,6 +134,7 @@ impl EventKind {
             EventKind::RelationshipChanged => "relationship_changed",
             EventKind::MetadataChanged => "metadata_changed",
             EventKind::ItemLinksChanged => "item_links_changed",
+            EventKind::CodeIndexBuildChanged => "code_index_build_changed",
         }
     }
 }

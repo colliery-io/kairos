@@ -10,6 +10,8 @@ pub mod abac;
 pub mod api_keys;
 pub mod board_items;
 pub mod boards;
+pub mod code_index_builds;
+pub mod code_index_settings;
 pub mod code_indexes;
 pub mod code_rename;
 pub mod embeddings;

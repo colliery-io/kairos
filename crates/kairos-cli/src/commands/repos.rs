@@ -110,6 +110,11 @@ pub enum ReposCommand {
         /// off. With off, the builder makes no index of it
         #[arg(long = "code-index-build", value_name = "ON|OFF", value_parser = ["on", "off"])]
         code_index_build: Option<String>,
+        /// Where the summaries of the code index are made: embedded (the
+        /// model in the server) or hosted (the provider of the organization;
+        /// the code of each changed symbol leaves the host)
+        #[arg(long = "code-index-summaries", value_name = "EMBEDDED|HOSTED", value_parser = ["embedded", "hosted"])]
+        code_index_summaries: Option<String>,
         #[command(flatten)]
         common: Common,
     },
@@ -168,6 +173,27 @@ pub enum ReposCommand {
     Credential {
         #[command(subcommand)]
         command: CredentialCommand,
+    },
+    /// Ask Kairos to build the code index of a repository again. The builder
+    /// of the server makes a full index of the head of the default branch.
+    /// The command shows the run; `kairos repos builds` follows it
+    Reindex {
+        /// Repository slug (or UUID)
+        repository: String,
+        #[command(flatten)]
+        common: Common,
+    },
+    /// Show the runs of the code index builder for a repository, newest
+    /// first: a build after a push, a first build, a build on request, or
+    /// an upload, with its result
+    Builds {
+        /// Repository slug (or UUID)
+        repository: String,
+        /// The most runs to show: 20 when not given, 100 at most
+        #[arg(long)]
+        limit: Option<i64>,
+        #[command(flatten)]
+        common: Common,
     },
 }
 
@@ -371,6 +397,7 @@ impl ReposCommand {
                 );
                 println!("read token:     {}", detail.repository.credential.summary());
                 println!("index builder:  {}", detail.repository.code_index_build);
+                println!("summaries:      {}", detail.repository.code_index_summaries);
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");
@@ -444,6 +471,7 @@ impl ReposCommand {
                 team,
                 description,
                 code_index_build,
+                code_index_summaries,
                 common,
             } => {
                 if slug.is_none()
@@ -452,10 +480,11 @@ impl ReposCommand {
                     && team.is_none()
                     && description.is_none()
                     && code_index_build.is_none()
+                    && code_index_summaries.is_none()
                 {
                     return Err(CliError::Failure(
                         "The command has no change. Use --slug, --repo-url, --default-branch, \
-                         --team, --description or --code-index-build."
+                         --team, --description, --code-index-build or --code-index-summaries."
                             .to_string(),
                     ));
                 }
@@ -463,6 +492,9 @@ impl ReposCommand {
                 let code_index_build = code_index_build
                     .as_deref()
                     .and_then(kairos_client::types_repositories::CodeIndexBuild::parse);
+                let code_index_summaries = code_index_summaries
+                    .as_deref()
+                    .and_then(kairos_client::types_repositories::CodeIndexSummaries::parse);
                 let client = client(&common)?;
                 // COLLIERY-T-0267: a PATCH with the values of the
                 // repository changes nothing, and the response is a normal
@@ -478,6 +510,7 @@ impl ReposCommand {
                             team,
                             description,
                             code_index_build,
+                            code_index_summaries,
                         },
                     )
                     .await?;
@@ -575,6 +608,64 @@ impl ReposCommand {
                 Ok(())
             }
             Self::Credential { command } => command.run().await,
+            Self::Reindex { repository, common } => {
+                let client = client(&common)?;
+                let run = client.rebuild_code_index(&repository).await?;
+                if common.json {
+                    return print_json(&run);
+                }
+                println!(
+                    "Kairos builds the code index of the repository {repository} again (run {}, \
+                     started {}). To follow it, run: kairos repos builds {repository}",
+                    run.id, run.started_at
+                );
+                Ok(())
+            }
+            Self::Builds {
+                repository,
+                limit,
+                common,
+            } => {
+                let client = client(&common)?;
+                let list = client.list_code_index_builds(&repository, limit).await?;
+                if common.json {
+                    return print_json(&list);
+                }
+                if list.items.is_empty() {
+                    println!("The repository {repository} has no run of the code index builder.");
+                    return Ok(());
+                }
+                println!(
+                    "{:<25} {:<8} {:<8} {:<12} {:<9} DETAIL",
+                    "STARTED", "TRIGGER", "OUTCOME", "COMMIT", "SYMBOLS"
+                );
+                for run in &list.items {
+                    let commit = run.commit.as_deref().map_or("-", |c| &c[..c.len().min(12)]);
+                    let symbols = run
+                        .symbols
+                        .map_or_else(|| "-".to_string(), |n| n.to_string());
+                    let mut detail = match (&run.error, &run.finished_at) {
+                        (Some(error), _) => error.clone(),
+                        (None, Some(finished)) => format!("ended {finished}"),
+                        (None, None) => "running".to_string(),
+                    };
+                    if let Some(model) = &run.model {
+                        detail.push_str(&format!(" · {model}"));
+                    }
+                    println!(
+                        "{:<25} {:<8} {:<8} {:<12} {:<9} {}",
+                        run.started_at, run.trigger, run.outcome, commit, symbols, detail
+                    );
+                }
+                if list.total > list.items.len() as i64 {
+                    println!(
+                        "{} of {} runs. Use --limit for more (100 at most).",
+                        list.items.len(),
+                        list.total
+                    );
+                }
+                Ok(())
+            }
         }
     }
 }

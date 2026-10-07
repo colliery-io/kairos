@@ -29,6 +29,9 @@ pub struct PoolRow {
     pub summary: String,
     /// Little-endian f32, as in the index. `None` until it is embedded.
     pub vector: Option<Vec<u8>>,
+    /// The model that wrote the summary, as `provider/model`
+    /// (KAIROS-T-0338).
+    pub model: String,
 }
 
 /// An index file in 2 parts.
@@ -107,11 +110,17 @@ pub fn assemble(
     let tx = conn.transaction()?;
     {
         let mut insert = tx.prepare(
-            "INSERT OR IGNORE INTO summaries (key, level, summary, vector)
-             VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR IGNORE INTO summaries (key, level, summary, vector, model)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
         for row in pool {
-            insert.execute(params![row.key, row.level, row.summary, row.vector])?;
+            insert.execute(params![
+                row.key,
+                row.level,
+                row.summary,
+                row.vector,
+                row.model
+            ])?;
         }
     }
     tx.commit()?;
@@ -147,13 +156,14 @@ fn check_version(conn: &Connection) -> Result<(), IndexError> {
 
 fn pool_rows(conn: &Connection) -> Result<Vec<PoolRow>, IndexError> {
     let mut stmt =
-        conn.prepare("SELECT key, level, summary, vector FROM summaries ORDER BY key")?;
+        conn.prepare("SELECT key, level, summary, vector, model FROM summaries ORDER BY key")?;
     let rows = stmt.query_map([], |r| {
         Ok(PoolRow {
             key: r.get(0)?,
             level: r.get(1)?,
             summary: r.get(2)?,
             vector: r.get(3)?,
+            model: r.get(4)?,
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -200,11 +210,11 @@ mod tests {
                                   start_byte, end_byte, tree_hash, is_test, summary_key)
              VALUES (1, 1, 'f', 'function', 'python', 1, 2, 0, 9, 't', 0, 'sym-key');
              INSERT INTO modules (path, summary_key) VALUES ('.', 'mod-key');
-             INSERT INTO summaries (key, level, summary, vector) VALUES
-               ('sym-key', 'symbol', 'S.', x'0000803f'),
-               ('file-key', 'file', 'F.', NULL),
-               ('mod-key', 'module', 'M.', NULL),
-               ('old-key', 'symbol', 'Old.', NULL);
+             INSERT INTO summaries (key, level, summary, vector, model) VALUES
+               ('sym-key', 'symbol', 'S.', x'0000803f', 'fake/fixed'),
+               ('file-key', 'file', 'F.', NULL, 'fake/fixed'),
+               ('mod-key', 'module', 'M.', NULL, 'fake/fixed'),
+               ('old-key', 'symbol', 'Old.', NULL, 'fake/fixed');
              INSERT INTO pool_meta (name, value) VALUES ('vector_model', 'det/m/1');",
         )
         .unwrap();

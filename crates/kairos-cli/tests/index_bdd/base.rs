@@ -372,7 +372,8 @@ fn config(scratch_url: &str) -> AppConfig {
         web_client_secret: None,
         public_url: None,
         webhook_signing_key: None,
-        secrets_key: None,
+        // KAIROS-T-0343: the hosted provider of a scenario has a secret.
+        secrets_key: Some(kairos_server::secrets::SecretsKey::from_bytes([3u8; 32])),
         otel_endpoint: None,
         otel_sample_ratio: 1.0,
         auth_max_failures: 5,
@@ -444,17 +445,25 @@ impl BaseWorld {
     /// `kairos index update` in the checkout, with the URL and the key of
     /// the scenario and no other Kairos setting of the machine.
     fn update(&mut self) {
+        self.update_with(&[]);
+    }
+
+    /// [`Self::update`] with these environment variables added.
+    fn update_with(&mut self, env: &[(&str, &str)]) {
         let root = self.root().to_path_buf();
         let config = TempDir::new().expect("a config folder");
-        let run = Command::new(KAIROS)
+        let mut command = Command::new(KAIROS);
+        command
             .args(["index", "update", "--repository", REPOSITORY, "--root"])
             .arg(&root)
             .env_remove("KAIROS_MCP_KEY")
             .env("KAIROS_CONFIG_DIR", config.path())
             .env("KAIROS_URL", &self.url)
-            .env("KAIROS_KEY", &self.key)
-            .output()
-            .expect("run kairos");
+            .env("KAIROS_KEY", &self.key);
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let run = command.output().expect("run kairos");
         self.run = Some(run);
     }
 
@@ -491,6 +500,43 @@ async fn kairos_has_a(world: &mut CliWorld) {
     let a = kairos.a.clone();
     w.index_a = kairos.upload(&a).await;
     w.kairos = Some(kairos);
+}
+
+/// KAIROS-T-0343: the organization has a hosted provider, and the
+/// repository is opted in. The endpoint is never called: the CLI makes no
+/// summary on such a repository.
+#[given("the repository is on the hosted provider of the organization")]
+async fn the_repository_is_hosted(world: &mut CliWorld) {
+    let client = base(world).kairos().client();
+    client
+        .put_code_index_settings(&kairos_client::types_code_index::PutCodeIndexSettings {
+            summary: kairos_client::types_code_index::PutSummaryProvider {
+                provider: "ollama-cloud".into(),
+                base_url: Some("https://ollama.invalid/v1".into()),
+                model: Some("gemma4:31b".into()),
+                region: None,
+                secret: Some(kairos_client::types_auth::Secret::new("a-key-t0343")),
+            },
+            vectors: kairos_client::types_code_index::PutVectorProvider {
+                provider: "embedded".into(),
+                ..Default::default()
+            },
+            concurrency: None,
+        })
+        .await
+        .expect("the hosted provider of the organization");
+    client
+        .update_repository(
+            REPOSITORY,
+            &kairos_client::types_repositories::UpdateRepositoryRequest {
+                code_index_summaries: Some(
+                    kairos_client::types_repositories::CodeIndexSummaries::Hosted,
+                ),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("the opt-in of the repository");
 }
 
 #[given(
@@ -568,6 +614,32 @@ fn a_local_index(world: &mut CliWorld) {
 fn run_update(world: &mut CliWorld, command: String) {
     assert_eq!(command, "kairos index update");
     base(world).update();
+}
+
+#[when(expr = "I run {string} with KAIROS_INDEX_SUMMARIZE=1")]
+fn run_update_with_summarize(world: &mut CliWorld, command: String) {
+    assert_eq!(command, "kairos index update");
+    base(world).update_with(&[("KAIROS_INDEX_SUMMARIZE", "1")]);
+}
+
+#[then("the CLI says that this repository makes its summaries on Kairos")]
+fn says_hosted(world: &mut CliWorld) {
+    let w = base(world);
+    let out = w.output();
+    assert!(
+        w.stdout()
+            .contains("This repository makes its summaries on Kairos"),
+        "{out}"
+    );
+    assert!(!w.stdout().contains("has no summarizer"), "{out}");
+}
+
+#[then("the symbols of A keep their summaries, and the changed symbols have none")]
+fn linked_not_made(world: &mut CliWorld) {
+    let w = base(world);
+    let (with, without) = w.summarized();
+    assert!(!with.is_empty(), "no symbol kept a summary: {without:?}");
+    assert!(!without.is_empty(), "each symbol has a summary: {with:?}");
 }
 
 #[when(expr = "I run {string} on a checkout of A")]

@@ -45,6 +45,7 @@ pub(crate) mod gating;
 mod api;
 mod boards;
 mod capabilities;
+mod code_index;
 mod members;
 mod metadata;
 mod repositories;
@@ -53,6 +54,7 @@ mod teams;
 mod templates;
 
 pub use boards::{AdminBoardPage, AdminBoardsPage};
+pub use code_index::AdminCodeIndexPage;
 pub use members::AdminMembersPage;
 pub use metadata::AdminMetadataPage;
 pub use repositories::AdminRepositoriesPage;
@@ -230,6 +232,9 @@ pub fn AdminHomePage() -> impl IntoView {
                     {card("/admin/repositories", "Repositories",
                         "The codebases that tasks link to — one owning team each — \
                          and their forge webhooks.")}
+                    {card("/admin/code-index", "Code index",
+                        "Where the summaries and the vectors of the code index are made: \
+                         the embedded model, Ollama Cloud or Bedrock.")}
                     {card("/admin/members", "Organization members",
                         "The members of this organization, and its admins.")}
                     {card("/admin/templates", "Templates",

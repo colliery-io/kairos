@@ -106,7 +106,7 @@ impl Fixture {
     fn set(&self, base: &str) -> ToolSet {
         let d = |name: &str| Download::new(format!("{base}/{name}"), sha256(&self.files[name]));
         ToolSet {
-            model: d("Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+            model: Some(d("Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf")),
             rust_analyzer: d(&format!("rust-analyzer-{TARGET}.gz")),
             rust_analyzer_binary_sha256: sha256(&self.rust_analyzer_binary),
             rust_src: d("rust-src-1.99.0.tar.gz"),
@@ -213,7 +213,7 @@ fn the_first_start_downloads_and_checks_the_tools() {
     }
     assert_eq!(
         tools.model,
-        dir.join("Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf")
+        Some(dir.join("Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf"))
     );
     assert_eq!(
         std::fs::read(&tools.rust_analyzer).unwrap(),
@@ -278,13 +278,16 @@ fn a_wrong_checksum_keeps_the_builder_off() {
     let set = fixture.set(&server.base);
     let dir = work.path().join(TOOLS_DIR);
     std::fs::create_dir_all(&dir).unwrap();
-    let model = dir.join(&set.model.file);
+    let model = dir.join(&set.model.as_ref().unwrap().file);
     std::fs::write(&model, b"GGUF another model").unwrap();
 
     let reason = prepare(Some(work.path()), &set).unwrap_err();
 
     assert!(reason.contains(&model.display().to_string()), "{reason}");
-    assert!(reason.contains(&set.model.sha256), "{reason}");
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().sha256),
+        "{reason}"
+    );
     assert_eq!(
         server.requests(),
         0,
@@ -329,8 +332,14 @@ fn a_failed_download_leaves_no_file() {
 
     let reason = prepare(Some(work.path()), &set).unwrap_err();
 
-    assert!(reason.contains(&set.model.url), "{reason}");
-    assert!(reason.contains(&set.model.sha256), "{reason}");
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().url),
+        "{reason}"
+    );
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().sha256),
+        "{reason}"
+    );
     let dir = work.path().join(TOOLS_DIR);
     let left: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().collect();
     assert!(left.is_empty(), "{left:?}");
@@ -393,7 +402,10 @@ fn a_changed_file_is_hashed_in_full_and_refused_when_wrong() {
     let work = tempfile::tempdir().unwrap();
     let set = fixture.set(&server.base);
     prepare(Some(work.path()), &set).unwrap().expect("tools");
-    let model = work.path().join(TOOLS_DIR).join(&set.model.file);
+    let model = work
+        .path()
+        .join(TOOLS_DIR)
+        .join(&set.model.as_ref().unwrap().file);
     let right = std::fs::read(&model).unwrap();
 
     // The same size, another content, another modified time.
@@ -403,16 +415,22 @@ fn a_changed_file_is_hashed_in_full_and_refused_when_wrong() {
     set_modified(&model, 1_000_000);
     let reason = prepare(Some(work.path()), &set).unwrap_err();
     assert!(reason.contains(&model.display().to_string()), "{reason}");
-    assert!(reason.contains(&set.model.sha256), "{reason}");
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().sha256),
+        "{reason}"
+    );
     // Refused again at the next start: the wrong file is not recorded.
     let reason = prepare(Some(work.path()), &set).unwrap_err();
-    assert!(reason.contains(&set.model.sha256), "{reason}");
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().sha256),
+        "{reason}"
+    );
 
     // The right content again: hashed in full, then accepted.
     std::fs::write(&model, &right).unwrap();
     set_modified(&model, 2_000_000);
     let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
-    assert_eq!(tools.hashed, vec![set.model.file.clone()]);
+    assert_eq!(tools.hashed, vec![set.model.as_ref().unwrap().file.clone()]);
     assert!(tools.downloaded.is_empty());
 }
 
@@ -423,11 +441,14 @@ fn only_a_new_modified_time_hashes_the_file_again() {
     let work = tempfile::tempdir().unwrap();
     let set = fixture.set(&server.base);
     prepare(Some(work.path()), &set).unwrap().expect("tools");
-    let model = work.path().join(TOOLS_DIR).join(&set.model.file);
+    let model = work
+        .path()
+        .join(TOOLS_DIR)
+        .join(&set.model.as_ref().unwrap().file);
 
     set_modified(&model, 3_000_000);
     let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
-    assert_eq!(tools.hashed, vec![set.model.file.clone()]);
+    assert_eq!(tools.hashed, vec![set.model.as_ref().unwrap().file.clone()]);
     let tools = prepare(Some(work.path()), &set).unwrap().expect("tools");
     assert!(tools.hashed.is_empty(), "{:?}", tools.hashed);
 }
@@ -441,7 +462,10 @@ fn a_new_pin_hashes_the_file_again() {
     prepare(Some(work.path()), &set).unwrap().expect("tools");
 
     // A release of Kairos with another pin for the same file name.
-    set.model.sha256 = "0".repeat(64);
+    set.model.as_mut().unwrap().sha256 = "0".repeat(64);
     let reason = prepare(Some(work.path()), &set).unwrap_err();
-    assert!(reason.contains(&set.model.sha256), "{reason}");
+    assert!(
+        reason.contains(&set.model.as_ref().unwrap().sha256),
+        "{reason}"
+    );
 }

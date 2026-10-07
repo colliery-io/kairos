@@ -33,3 +33,16 @@ Feature: Start from the base index
     When I change a file and run "kairos index update"
     Then the local index describes the changed file
     And the CLI says that it could not reach Kairos
+
+  # KAIROS-T-0343: on a repository that opted in to the hosted provider of
+  # its organization, the CLI makes no summary and never sees the key of the
+  # organization. It links the pool of the base index, and the structure of
+  # the checkout is still built for the changed files.
+  Scenario: A hosted repository makes no summaries in the checkout
+    Given Kairos has a summarized index of commit A of main
+    And the repository is on the hosted provider of the organization
+    And a checkout of a branch from A with 3 changed files and no local index
+    When I run "kairos index update" with KAIROS_INDEX_SUMMARIZE=1
+    Then the CLI downloads the index of A
+    And the CLI says that this repository makes its summaries on Kairos
+    And the symbols of A keep their summaries, and the changed symbols have none

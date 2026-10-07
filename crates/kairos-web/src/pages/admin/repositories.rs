@@ -93,6 +93,17 @@ const TOKEN_HINT: &str = "Read token: the builder of the code index gives it to 
                           never shows it again.";
 
 /// `/admin/repositories`.
+/// The owner team that the create form sends (KAIROS-T-0329): the value
+/// of the select, or, with no value, the first team, which is the one that
+/// the select shows.
+fn form_team(value: &str, slugs: &[String]) -> String {
+    if value.is_empty() {
+        slugs.first().cloned().unwrap_or_default()
+    } else {
+        value.to_string()
+    }
+}
+
 #[component]
 pub fn AdminRepositoriesPage() -> impl IntoView {
     let auth = use_auth();
@@ -149,6 +160,10 @@ pub fn AdminRepositoriesPage() -> impl IntoView {
             branch.get_untracked(),
             description.get_untracked(),
         );
+        // KAIROS-T-0329: the team that the select shows. Before the Effect
+        // above sets the default, the value is empty while Aurora's Select
+        // shows the first team; send that team, not "".
+        let t = form_team(&t, &team_slugs.get_untracked());
         let s = (!s.is_empty()).then_some(s);
         let b = (!b.is_empty()).then_some(b);
         let d = (!d.is_empty()).then_some(d);
@@ -561,5 +576,17 @@ fn RepositoryRow(
             </Show>
             <Divider/>
         </Stack>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// KAIROS-T-0329: the form sends the team that the select shows.
+    #[test]
+    fn the_form_sends_the_team_that_the_select_shows() {
+        let slugs = vec!["kairos".to_string(), "skadi".to_string()];
+        assert_eq!(super::form_team("", &slugs), "kairos");
+        assert_eq!(super::form_team("skadi", &slugs), "skadi");
+        assert_eq!(super::form_team("", &[]), "");
     }
 }

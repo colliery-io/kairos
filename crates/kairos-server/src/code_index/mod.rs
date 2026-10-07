@@ -560,6 +560,9 @@ pub fn has_summarizer() -> Result<(), String> {
 pub fn summarizers(tools: &Tools, threads: u32) -> Result<Arc<dyn SummarizerSource>, String> {
     #[cfg(feature = "llama")]
     {
+        if tools.model.is_none() {
+            return Err(NO_SUMMARIZER.to_string());
+        }
         Ok(Arc::new(llama_summarizers(tools, threads)))
     }
     #[cfg(not(feature = "llama"))]
@@ -571,7 +574,13 @@ pub fn summarizers(tools: &Tools, threads: u32) -> Result<Arc<dyn SummarizerSour
 
 #[cfg(feature = "llama")]
 fn llama_summarizers(tools: &Tools, threads: u32) -> LlamaSummarizers {
-    LlamaSummarizers::new(tools.model.clone(), threads)
+    LlamaSummarizers::new(
+        tools
+            .model
+            .clone()
+            .expect("the caller checked that the set has the model"),
+        threads,
+    )
 }
 
 /// The folder of the tools in `KAIROS_CODE_INDEX_DIR`.
@@ -1816,7 +1825,7 @@ mod tests {
     #[test]
     fn the_builder_summarizes_on_the_threads_of_the_setting() {
         let tools = Tools {
-            model: PathBuf::from("/tools/model.gguf"),
+            model: Some(PathBuf::from("/tools/model.gguf")),
             rust_analyzer: PathBuf::from("/tools/rust-analyzer"),
             rust_src: PathBuf::from("/tools/rust-src.tar.gz"),
             sysroot: PathBuf::from("/tools/rust"),

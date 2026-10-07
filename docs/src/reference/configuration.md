@@ -328,9 +328,11 @@ tries in all. A hosted build does not hold the CPU of the host for its
 summaries. So it does not wait for the builds of the embedded model.
 
 Each run records the model that wrote its summaries. See it with `kairos
-repos builds <slug>`, or in the panel of the repository. A server image
-with no embedded model builds only the repositories on a hosted provider.
-The other repositories get a failed run that says so.
+repos builds <slug>`, or in the panel of the repository. The image
+`ghcr.io/colliery-io/kairos:<version>-hosted` has no embedded model and
+downloads none. It builds only the repositories on a hosted provider. The
+other repositories get a failed run that says so. See [Use a hosted model
+for the code index summaries](../how-to/use-a-hosted-model-for-the-code-index.md).
 
 The clone fetches from the `repo_url` of the repository. For a private
 repository, set a read token on the repository (see

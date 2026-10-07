@@ -114,8 +114,9 @@ impl Download {
 /// The tools of the builder, with their pins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolSet {
-    /// The summary model (a GGUF file).
-    pub model: Download,
+    /// The summary model (a GGUF file). None for a server with no embedded
+    /// model (KAIROS-T-0344): it downloads none.
+    pub model: Option<Download>,
     /// The rust-analyzer release: one gzip file with the binary in it.
     pub rust_analyzer: Download,
     /// The sha256 of the binary in [`ToolSet::rust_analyzer`].
@@ -148,7 +149,7 @@ impl ToolSet {
             )
         };
         Ok(ToolSet {
-            model: Download::new(MODEL_URL, MODEL_SHA256),
+            model: Some(Download::new(MODEL_URL, MODEL_SHA256)),
             rust_analyzer: Download::new(
                 format!(
                     "https://github.com/rust-lang/rust-analyzer/releases/download/{}/rust-analyzer-{target}.gz",
@@ -167,10 +168,19 @@ impl ToolSet {
         })
     }
 
+    /// The same set with no summary model (KAIROS-T-0344): for a server
+    /// that has no `llama` feature, so that it does not download the 2.5 GB
+    /// file it cannot run.
+    pub fn without_model(mut self) -> Self {
+        self.model = None;
+        self
+    }
+
     /// Each file to download, in the order of [`prepare`].
     pub fn downloads(&self) -> impl Iterator<Item = &Download> {
-        [&self.model, &self.rust_analyzer, &self.rust_src]
-            .into_iter()
+        self.model
+            .iter()
+            .chain([&self.rust_analyzer, &self.rust_src])
             .chain(self.toolchain.iter())
     }
 }
@@ -178,8 +188,8 @@ impl ToolSet {
 /// The checked tools, ready for the builder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tools {
-    /// The summary model file.
-    pub model: PathBuf,
+    /// The summary model file. None when the set has none (KAIROS-T-0344).
+    pub model: Option<PathBuf>,
     /// The rust-analyzer binary.
     pub rust_analyzer: PathBuf,
     /// The `rust-src` archive. The SCIP run unpacks it next to itself.
@@ -383,7 +393,7 @@ fn prepare_checked(
         }
         Ok(path)
     };
-    let model = get(&set.model)?;
+    let model = set.model.as_ref().map(&mut get).transpose()?;
     let ra_archive = get(&set.rust_analyzer)?;
     let rust_src = get(&set.rust_src)?;
     let archives = set
@@ -587,9 +597,16 @@ mod tests {
     #[test]
     fn the_pinned_set_names_each_file_by_its_url() {
         let set = ToolSet::pinned().unwrap();
-        assert_eq!(set.model.file, crate::summary::MODEL_FILE_NAME);
+        assert_eq!(
+            set.model.as_ref().unwrap().file,
+            crate::summary::MODEL_FILE_NAME
+        );
         assert_eq!(set.rust_src.file, "rust-src-1.99.0.tar.gz");
         assert_eq!(set.downloads().count(), 6);
+        // KAIROS-T-0344: a server with no embedded model downloads 5 files.
+        let hosted = ToolSet::pinned().unwrap().without_model();
+        assert_eq!(hosted.model, None);
+        assert_eq!(hosted.downloads().count(), 5);
         for d in set.downloads() {
             assert!(d.url.ends_with(&d.file), "{d:?}");
             assert!(d.url.starts_with("https://"), "{d:?}");
@@ -600,8 +617,9 @@ mod tests {
     fn a_tool_with_a_wrong_checksum_is_refused_and_named() {
         let dir = tempfile::tempdir().unwrap();
         let mut set = ToolSet::pinned().unwrap();
-        set.model.url = "http://127.0.0.1:1/model.gguf".into();
-        let path = dir.path().join(&set.model.file);
+        let model = set.model.as_mut().unwrap();
+        model.url = "http://127.0.0.1:1/model.gguf".into();
+        let path = dir.path().join(&model.file);
         fs::write(&path, b"not the model").unwrap();
         let text = prepare(dir.path(), &set, &mut |_| panic!("no download"))
             .unwrap_err()

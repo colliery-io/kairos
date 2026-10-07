@@ -57,7 +57,11 @@ appVersion, so the chart never runs `latest` (KAIROS-A-0013).
 */}}
 {{- define "kairos.image" -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
+{{- if .Values.image.variant -}}
+{{- printf "%s:%s-%s" .Values.image.repository $tag .Values.image.variant -}}
+{{- else -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
+{{- end -}}
 {{- end }}
 
 {{/*

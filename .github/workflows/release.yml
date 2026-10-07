@@ -158,8 +158,12 @@ jobs:
   # consulted.
   #
   # The two arch builds run in parallel, so wall-clock is close to unchanged.
+  # Two variants of the image (KAIROS-T-0344): `full` carries llama.cpp and
+  # downloads the summary model at first start; `hosted` has no embedded
+  # model, for a deployment where every organization makes its summaries on
+  # a hosted provider. The hosted variant is tagged `<version>-hosted`.
   image:
-    name: build image (${{ matrix.platform }})
+    name: build image (${{ matrix.variant }}, ${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
@@ -167,9 +171,23 @@ jobs:
           - runner: ubuntu-24.04
             platform: linux/amd64
             arch: amd64
+            variant: full
+            features: embed-web,llama
           - runner: ubuntu-24.04-arm
             platform: linux/arm64
             arch: arm64
+            variant: full
+            features: embed-web,llama
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            arch: amd64
+            variant: hosted
+            features: embed-web
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+            variant: hosted
+            features: embed-web
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
@@ -206,24 +224,26 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: |
+            KAIROS_SERVER_FEATURES=${{ matrix.features }}
           # No tag here: each arch is pushed as an untagged digest, and the
           # merge job below is what gives the release its tag. Tagging both
           # would make them race, with the loser silently overwritten.
           outputs: type=image,name=ghcr.io/colliery-io/kairos,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=image-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+          cache-from: type=gha,scope=image-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.variant }}-${{ matrix.arch }}
 
       - name: Export the digest
         run: |
-          mkdir -p /tmp/digests
+          mkdir -p "/tmp/digests/${{ matrix.variant }}"
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${{ matrix.variant }}/${digest#sha256:}"
 
       - name: Upload the digest
         uses: actions/upload-artifact@v4
         with:
-          name: image-digest-${{ matrix.arch }}
-          path: /tmp/digests/*
+          name: image-digest-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/digests/${{ matrix.variant }}/*
           if-no-files-found: error
           retention-days: 1
 
@@ -238,11 +258,18 @@ jobs:
       contents: read
       packages: write
     steps:
-      - name: Download the digests
+      - name: Download the digests of the full image
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/digests
-          pattern: image-digest-*
+          path: /tmp/digests/full
+          pattern: image-digest-full-*
+          merge-multiple: true
+
+      - name: Download the digests of the hosted image
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests/hosted
+          pattern: image-digest-hosted-*
           merge-multiple: true
 
       - name: Set up Docker Buildx
@@ -255,25 +282,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create and push the manifest list
+      - name: Create and push the manifest lists
         run: |
           version="${GITHUB_REF_NAME#v}"
-          cd /tmp/digests
-          # Versioned tag only — never `latest` (KAIROS-A-0013).
-          docker buildx imagetools create \
-            -t "ghcr.io/colliery-io/kairos:${version}" \
-            $(printf 'ghcr.io/colliery-io/kairos@sha256:%s ' *)
+          # Versioned tags only — never `latest` (KAIROS-A-0013). The full
+          # image is `<version>`; the hosted image is `<version>-hosted`
+          # (KAIROS-T-0344).
+          for variant in full hosted; do
+            tag="${version}"
+            if [ "${variant}" = "hosted" ]; then tag="${version}-hosted"; fi
+            cd "/tmp/digests/${variant}"
+            docker buildx imagetools create \
+              -t "ghcr.io/colliery-io/kairos:${tag}" \
+              $(printf 'ghcr.io/colliery-io/kairos@sha256:%s ' *)
+            cd /
+          done
 
-      - name: Verify both architectures are in the manifest
+      - name: Verify both architectures are in each manifest
         # A manifest that resolves on only one arch is the bug this job
         # exists to prevent, so fail the release rather than publish it.
         run: |
           version="${GITHUB_REF_NAME#v}"
-          manifest="$(docker buildx imagetools inspect --raw "ghcr.io/colliery-io/kairos:${version}")"
-          echo "$manifest"
-          for arch in amd64 arm64; do
-            echo "$manifest" | grep -q "\"architecture\": *\"${arch}\"" \
-              || { echo "manifest is missing linux/${arch}" >&2; exit 1; }
+          for tag in "${version}" "${version}-hosted"; do
+            manifest="$(docker buildx imagetools inspect --raw "ghcr.io/colliery-io/kairos:${tag}")"
+            echo "$manifest"
+            for arch in amd64 arm64; do
+              echo "$manifest" | grep -q "\"architecture\": *\"${arch}\"" \
+                || { echo "manifest ${tag} is missing linux/${arch}" >&2; exit 1; }
+            done
           done
 
   # ---------------------------------------------------------------------

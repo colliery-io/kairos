@@ -143,6 +143,10 @@ fn start_code_index_builder(state: &AppState) {
         tracing::warn!(%reason, "the code index builder runs with no embedded model");
     }
     let set = match kairos_index::tools::ToolSet::pinned() {
+        // A server with no embedded model downloads no summary model
+        // (KAIROS-T-0344): rust-analyzer, the std source and the toolchain
+        // are enough for the structure of the indexes.
+        Ok(set) if crate::code_index::has_summarizer().is_err() => set.without_model(),
         Ok(set) => set,
         Err(e) => {
             tracing::warn!(reason = %e, "the code index builder did not start");

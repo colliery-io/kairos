@@ -51,6 +51,9 @@ pub struct Build {
     pub requested_by: Option<Uuid>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// The model that wrote the summaries of the run, as `provider/model`
+    /// (KAIROS-T-0341). None for a run that made none.
+    pub model: Option<String>,
 }
 
 #[derive(Insertable)]
@@ -103,12 +106,18 @@ pub fn set_commit(conn: &mut PgConnection, id: Uuid, commit_sha: &str) -> QueryR
 }
 
 /// End a run as `ok`, with the counts of the index that it wrote, when the
-/// run has them (an upload has none). The commit is set with [`set_commit`]
-/// before.
-pub fn end_ok(conn: &mut PgConnection, id: Uuid, counts: Option<Counts>) -> QueryResult<Build> {
+/// run has them (an upload has none), and the model that wrote its
+/// summaries. The commit is set with [`set_commit`] before.
+pub fn end_ok(
+    conn: &mut PgConnection,
+    id: Uuid,
+    counts: Option<Counts>,
+    model: Option<&str>,
+) -> QueryResult<Build> {
     diesel::update(code_index_builds::table.find(id))
         .set((
             code_index_builds::outcome.eq("ok"),
+            code_index_builds::model.eq(model),
             code_index_builds::files.eq(counts.map(|c| c.files)),
             code_index_builds::symbols.eq(counts.map(|c| c.symbols)),
             code_index_builds::edges.eq(counts.map(|c| c.edges)),
@@ -145,7 +154,7 @@ pub fn record_finished(
     conn.transaction(|conn| {
         let run = start(conn, repository_id, trigger, ref_name, requested_by)?;
         set_commit(conn, run.id, commit_sha)?;
-        end_ok(conn, run.id, counts)
+        end_ok(conn, run.id, counts, None)
     })
 }
 

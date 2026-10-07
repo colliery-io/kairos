@@ -2601,6 +2601,7 @@ dependencies = [
  "kairos-narsil",
  "llama-cpp-2",
  "prost",
+ "reqwest 0.12.28",
  "rusqlite",
  "serde",
  "serde_json",

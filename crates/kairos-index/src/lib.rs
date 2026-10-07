@@ -26,6 +26,7 @@ mod calls;
 mod duplicates;
 mod edges;
 mod extract;
+pub mod hosted;
 #[cfg(feature = "llama")]
 mod llama;
 mod query;

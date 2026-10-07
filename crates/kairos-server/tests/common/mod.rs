@@ -10,6 +10,7 @@
 //! different subset, so unused-item lints are expected noise here.
 #![allow(dead_code)]
 
+pub mod chat_http;
 pub mod git_http;
 
 use axum::Router;

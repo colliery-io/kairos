@@ -67,6 +67,9 @@ pub struct CodeIndexBuild {
     pub started_at: String,
     #[serde(default)]
     pub finished_at: Option<String>,
+    /// `provider/model` of the summaries of the run.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_code_index::CodeIndexBuildList`
@@ -167,6 +170,9 @@ pub(crate) fn run_line(run: &CodeIndexBuild) -> String {
     }
     if let Some(symbols) = run.symbols {
         parts.push(format!("{symbols} symbols"));
+    }
+    if let Some(model) = &run.model {
+        parts.push(model.clone());
     }
     parts.join(" · ")
 }

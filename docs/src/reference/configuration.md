@@ -322,6 +322,16 @@ Kairos refuses `hosted` when the organization has no hosted provider.
 Until the opt-in, the embedded model writes the summaries of the
 repository. Its code stays on the host.
 
+For a repository on a hosted provider, the builder sends `concurrency`
+requests at a time. After a 429 or a 5xx, it tries the request again, 3
+tries in all. A hosted build does not hold the CPU of the host for its
+summaries. So it does not wait for the builds of the embedded model.
+
+Each run records the model that wrote its summaries. See it with `kairos
+repos builds <slug>`, or in the panel of the repository. A server image
+with no embedded model builds only the repositories on a hosted provider.
+The other repositories get a failed run that says so.
+
 The clone fetches from the `repo_url` of the repository. For a private
 repository, set a read token on the repository (see
 [Read a private repository](../how-to/read-a-private-repository.md)). With no

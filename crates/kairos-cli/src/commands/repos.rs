@@ -644,11 +644,14 @@ impl ReposCommand {
                     let symbols = run
                         .symbols
                         .map_or_else(|| "-".to_string(), |n| n.to_string());
-                    let detail = match (&run.error, &run.finished_at) {
+                    let mut detail = match (&run.error, &run.finished_at) {
                         (Some(error), _) => error.clone(),
                         (None, Some(finished)) => format!("ended {finished}"),
                         (None, None) => "running".to_string(),
                     };
+                    if let Some(model) = &run.model {
+                        detail.push_str(&format!(" · {model}"));
+                    }
                     println!(
                         "{:<25} {:<8} {:<8} {:<12} {:<9} {}",
                         run.started_at, run.trigger, run.outcome, commit, symbols, detail

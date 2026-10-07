@@ -29,6 +29,9 @@ prost = "0.14"
 serde_json = { workspace = true }
 # The temporary folder of the SCIP run, deleted at its end.
 tempfile = "3.14.0"
+# The hosted summarizer (KAIROS-T-0341): an OpenAI-compatible chat endpoint,
+# with the blocking client that kairos-embed uses for its remote provider.
+reqwest = { workspace = true, features = ["blocking"] }
 # The download of the pinned rust-analyzer release (COLLIERY-T-1858): a
 # gzip file from GitHub. Both crates are in the workspace tree already.
 ureq = "3"

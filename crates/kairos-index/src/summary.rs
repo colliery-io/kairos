@@ -180,6 +180,19 @@ pub trait Summarizer {
     /// The summary for `request`: 1 to 3 sentences of plain text. The error
     /// text says why the model gave no summary.
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String>;
+
+    /// How many requests the summarizer takes at once (KAIROS-T-0341): 1
+    /// for a model on the CPU, more for a hosted provider.
+    fn concurrency(&self) -> usize {
+        1
+    }
+
+    /// The summaries of `requests`, one result for each, in the same order.
+    /// The default is one call after the other; a hosted summarizer sends
+    /// them at the same time.
+    fn summarize_many(&mut self, requests: &[SummaryRequest]) -> Vec<Result<String, String>> {
+        requests.iter().map(|r| self.summarize(r)).collect()
+    }
 }
 
 /// A summarizer for tests: a fixed text for each input, with no model. It
@@ -190,6 +203,11 @@ pub struct FakeSummarizer {
     /// default. A scenario with 2 models gives each fake its own name.
     pub model: String,
     pub requests: Vec<SummaryRequest>,
+    /// The requests that the fake takes at once (KAIROS-T-0341): 1 by
+    /// default.
+    pub concurrency: usize,
+    /// The size of each batch that [`Summarizer::summarize_many`] got.
+    pub batches: Vec<usize>,
 }
 
 impl Default for FakeSummarizer {
@@ -204,13 +222,30 @@ impl FakeSummarizer {
         FakeSummarizer {
             model: model.to_string(),
             requests: Vec::new(),
+            concurrency: 1,
+            batches: Vec::new(),
         }
+    }
+
+    /// A fake summarizer that takes `concurrency` requests at once.
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency.max(1);
+        self
     }
 }
 
 impl Summarizer for FakeSummarizer {
     fn model(&self) -> String {
         self.model.clone()
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn summarize_many(&mut self, requests: &[SummaryRequest]) -> Vec<Result<String, String>> {
+        self.batches.push(requests.len());
+        requests.iter().map(|r| self.summarize(r)).collect()
     }
 
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
@@ -385,7 +420,9 @@ fn run(
     let mut texts = FileTexts::new(root, &file_by_id);
     let mut report = SummaryReport::default();
 
-    // 1. The symbols.
+    // 1. The symbols. The requests go to the summarizer in batches of its
+    // concurrency (KAIROS-T-0341); a batch is written before the next.
+    let mut pending: Vec<(SummaryRequest, String)> = Vec::new();
     let mut new_symbols = 0usize;
     let mut seen: HashSet<String> = HashSet::new();
     // The key of each symbol whose summary is in the pool.
@@ -440,17 +477,17 @@ fn run(
             callees,
             children: Vec::new(),
         };
-        run_one(
-            &conn,
-            *summarizer,
-            &request,
-            format!("{}:{}", file.path, s.qualified()),
-            &mut report,
-        )?;
+        pending.push((request, format!("{}:{}", file.path, s.qualified())));
+        if pending.len() >= summarizer.concurrency().max(1) {
+            flush(&conn, *summarizer, &mut pending, &mut report)?;
+        }
         seen.insert(key.clone());
         symbol_keys.insert(s.id, key);
         new_symbols += 1;
         report.symbols.summarized += 1;
+    }
+    if let Some((summarizer, _)) = model.as_mut() {
+        flush(&conn, *summarizer, &mut pending, &mut report)?;
     }
 
     // 2. The files, from the summaries of their symbols.
@@ -494,10 +531,13 @@ fn run(
             callees: Vec::new(),
             children: lines,
         };
-        if in_pool(&conn, &key)? {
+        if in_pool(&conn, &key)? || pending.iter().any(|(r, _)| r.key == key) {
             report.files.reused += 1;
         } else if let Some((summarizer, _)) = model.as_mut() {
-            run_one(&conn, *summarizer, &request, f.path.clone(), &mut report)?;
+            pending.push((request, f.path.clone()));
+            if pending.len() >= summarizer.concurrency().max(1) {
+                flush(&conn, *summarizer, &mut pending, &mut report)?;
+            }
             report.files.summarized += 1;
         } else {
             report.files.left += 1;
@@ -505,6 +545,9 @@ fn run(
             continue;
         }
         file_keys.insert(f.path.clone(), Some(key));
+    }
+    if let Some((summarizer, _)) = model.as_mut() {
+        flush(&conn, *summarizer, &mut pending, &mut report)?;
     }
 
     // 3. The modules: each folder of summarized files, from their summaries.
@@ -536,7 +579,7 @@ fn run(
             continue;
         }
         let key = children_key(&key_model, Level::Module, "", "", &lines);
-        if in_pool(&conn, &key)? {
+        if in_pool(&conn, &key)? || pending.iter().any(|(r, _)| r.key == key) {
             report.modules.reused += 1;
         } else if let Some((summarizer, _)) = model.as_mut() {
             let request = SummaryRequest {
@@ -550,13 +593,19 @@ fn run(
                 callees: Vec::new(),
                 children: lines,
             };
-            run_one(&conn, *summarizer, &request, folder.clone(), &mut report)?;
+            pending.push((request, folder.clone()));
+            if pending.len() >= summarizer.concurrency().max(1) {
+                flush(&conn, *summarizer, &mut pending, &mut report)?;
+            }
             report.modules.summarized += 1;
         } else {
             report.modules.left += 1;
             continue;
         }
         module_keys.push((folder.clone(), key));
+    }
+    if let Some((summarizer, _)) = model.as_mut() {
+        flush(&conn, *summarizer, &mut pending, &mut report)?;
     }
 
     // 4. Link the files and the modules in scope to their summaries.
@@ -607,46 +656,58 @@ fn run(
     Ok(report)
 }
 
-/// Call the summarizer for `request` and put its summary in the pool.
-fn run_one(
+/// Send the pending requests to the summarizer as one batch, and put each
+/// summary in the pool (KAIROS-T-0341). The summaries that came back are
+/// written before an error is returned, so a stopped run keeps its work.
+/// The batch is empty afterwards.
+fn flush(
     conn: &Connection,
     summarizer: &mut dyn Summarizer,
-    request: &SummaryRequest,
-    name: String,
+    pending: &mut Vec<(SummaryRequest, String)>,
     report: &mut SummaryReport,
 ) -> Result<(), IndexError> {
+    if pending.is_empty() {
+        return Ok(());
+    }
     let started = Instant::now();
-    let text = summarizer
-        .summarize(request)
-        .map_err(|message| IndexError::Summary {
-            name: name.clone(),
-            message,
-        })?;
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        return Err(IndexError::Summary {
+    let requests: Vec<SummaryRequest> = pending.iter().map(|(r, _)| r.clone()).collect();
+    let results = summarizer.summarize_many(&requests);
+    let elapsed = started.elapsed();
+    let model = summarizer.model();
+    let batch: Vec<(SummaryRequest, String)> = std::mem::take(pending);
+    let mut first_error = None;
+    for ((request, name), result) in batch.into_iter().zip(results) {
+        let text = match result {
+            Ok(text) => text.trim().to_string(),
+            Err(message) => {
+                first_error.get_or_insert(IndexError::Summary { name, message });
+                continue;
+            }
+        };
+        if text.is_empty() {
+            first_error.get_or_insert(IndexError::Summary {
+                name,
+                message: "the summary is empty".into(),
+            });
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO summaries (key, level, summary, model) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (key) DO NOTHING",
+            params![request.key, request.level.as_str(), text, model],
+        )?;
+        report.calls.push(SummaryCall {
+            level: request.level,
+            key: request.key.clone(),
             name,
-            message: "the summary is empty".into(),
+            elapsed,
+            summary: text,
         });
     }
-    conn.execute(
-        "INSERT INTO summaries (key, level, summary, model) VALUES (?1, ?2, ?3, ?4)
-         ON CONFLICT (key) DO NOTHING",
-        params![
-            request.key,
-            request.level.as_str(),
-            text,
-            summarizer.model()
-        ],
-    )?;
-    report.calls.push(SummaryCall {
-        level: request.level,
-        key: request.key.clone(),
-        name,
-        elapsed: started.elapsed(),
-        summary: text,
-    });
-    Ok(())
+    match first_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 /// The key of a symbol summary: the hash of the model, of the tree hash of

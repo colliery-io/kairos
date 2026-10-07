@@ -112,6 +112,10 @@ pub struct CodeIndexBuild {
     /// When the run ended, RFC 3339. None while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<String>,
+    /// The model that wrote the summaries, as `provider/model`
+    /// (KAIROS-T-0341). None for a run that made none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Query of `GET /api/repositories/{slug}/code-indexes/builds`.

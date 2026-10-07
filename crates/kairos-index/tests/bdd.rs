@@ -71,6 +71,10 @@ struct IndexWorld {
     duplicates: Option<Duplicates>,
     /// The result of the last search of the code.
     search: Option<SearchResult>,
+    /// The requests that the fake summarizer takes at once (KAIROS-T-0341).
+    fake_concurrency: usize,
+    /// The size of each batch of the last summary run.
+    batches: Vec<usize>,
 }
 
 /// The rust-analyzer and the std source of the scenarios: those pinned in
@@ -153,7 +157,7 @@ impl IndexWorld {
             self.build();
         }
         let db = self.indexes.last().expect("no index was built").clone();
-        let mut fake = FakeSummarizer::named(model);
+        let mut fake = FakeSummarizer::named(model).with_concurrency(self.fake_concurrency.max(1));
         let report = summarize(
             &self.root,
             &db,
@@ -163,6 +167,7 @@ impl IndexWorld {
         )
         .unwrap_or_else(|e| panic!("{e}"));
         self.requests = fake.requests;
+        self.batches = fake.batches;
         self.summary_report = Some(report);
     }
 
@@ -1424,6 +1429,29 @@ fn find_symbol<'a>(
 #[given("the polyglot fixture and the fake summarizer")]
 fn the_fixture_and_the_fake(world: &mut IndexWorld) {
     world.root = fixture_root();
+}
+
+#[given(expr = "the polyglot fixture and a fake summarizer that takes {int} requests at once")]
+fn the_fixture_and_a_concurrent_fake(world: &mut IndexWorld, concurrency: usize) {
+    world.root = fixture_root();
+    world.fake_concurrency = concurrency;
+}
+
+#[then(expr = "the summarizer got batches of at most {int} requests, and one batch of {int}")]
+fn batches_of_at_most(world: &mut IndexWorld, most: usize, full: usize) {
+    assert!(!world.batches.is_empty(), "no batch");
+    assert!(
+        world.batches.iter().all(|n| *n <= most),
+        "a batch above {most}: {:?}",
+        world.batches
+    );
+    assert!(
+        world.batches.contains(&full),
+        "no batch of {full}: {:?}",
+        world.batches
+    );
+    // Each request went in one batch, and no request twice.
+    assert_eq!(world.batches.iter().sum::<usize>(), world.requests.len());
 }
 
 #[given("2 copies of a Rust function that differ only in whitespace and comments")]

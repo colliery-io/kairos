@@ -287,6 +287,7 @@ One run of the code index builder (KAIROS-T-0331). The trigger says what started
 | `files` | `integer`, nullable | no | The counts of the index that an `ok` run wrote. |
 | `finished_at` | `string`, nullable | no | When the run ended, RFC 3339. None while it runs. |
 | `id` | `string` | yes |  |
+| `model` | `string`, nullable | no | The model that wrote the summaries, as `provider/model` (KAIROS-T-0341). None for a run that made none. |
 | `outcome` | `string` | yes | `running`, `ok` or `failed`. |
 | `ref` | `string`, nullable | no | The branch that the run indexed, if known. |
 | `requested_by` | `string`, nullable | no | The user who asked for the run or sent the upload. None for the builder. |

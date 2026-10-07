@@ -29,6 +29,15 @@ Feature: Summaries
     Then the key of the function changes
     And the keys of its callers do not change
 
+  # KAIROS-T-0341: a hosted summarizer takes many requests at once. The run
+  # sends the requests of each level in batches of the concurrency of the
+  # summarizer, and it writes a batch before the next.
+  Scenario: The requests go to the summarizer in batches of its concurrency
+    Given the polyglot fixture and a fake summarizer that takes 4 requests at once
+    When I summarize the index
+    Then each symbol that is not test code has a summary and a vector
+    And the summarizer got batches of at most 4 requests, and one batch of 4
+
   # KAIROS-T-0338: the model is part of each key, so a change of model
   # makes new summaries and never mixes them. A link run (no summarizer)
   # uses the model that the pool records.

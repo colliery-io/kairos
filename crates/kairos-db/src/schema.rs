@@ -123,6 +123,7 @@ diesel::table! {
         requested_by -> Nullable<Uuid>,
         started_at -> Timestamptz,
         finished_at -> Nullable<Timestamptz>,
+        model -> Nullable<Text>,
     }
 }
 

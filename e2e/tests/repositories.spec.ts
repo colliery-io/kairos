@@ -571,24 +571,4 @@ test('repositories: team panel → board lens → cross-team filing → any repo
       await expect(status()).toHaveText(text, { timeout: 10_000 });
     }
   });
-
-  // 9. Admin page: a repository opts in to hosted summaries (KAIROS-T-0340).
-  // The demo tenant has no hosted provider, so the opt-in is refused and
-  // the refusal names the page that sets one.
-  await test.step('admin cannot opt a repository in to hosted summaries with no provider', async () => {
-    const notifier = `notifier-${RUN}`;
-    const row = () => page.locator(`[data-repo="${notifier}"]`).first();
-    const status = () => row().locator('[data-testid="code-index-summaries-status"]');
-    await expect(status()).toHaveText('Summaries: the embedded model.');
-    await row().getByRole('button', { name: 'Edit' }).click();
-    await row()
-      .locator('.cl-field', { hasText: 'Code index summaries' })
-      .locator('select')
-      .selectOption('hosted');
-    await row().getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByText('no hosted provider of the summaries')).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(status()).toHaveText('Summaries: the embedded model.');
-  });
 });

@@ -149,7 +149,7 @@ upgrade.
 
 ## Size for unbounded growth
 
-**Nothing prunes anything in 0.6.2.** The five retention variables are inert —
+**Nothing prunes anything in 0.7.0.** The five retention variables are inert —
 setting `KAIROS_RETENTION_MODE`, `KAIROS_ARCHIVE_TARGET` or any of the windows
 has no effect, and configuring an archive target will not reclaim a byte
 ([Configuration → Retention: recognised but

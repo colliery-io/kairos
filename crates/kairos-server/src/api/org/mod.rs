@@ -20,6 +20,7 @@
 
 pub mod admin;
 pub mod boards;
+pub mod code_index_settings;
 pub mod code_indexes;
 pub mod forge;
 pub mod members;
@@ -49,6 +50,7 @@ pub fn router() -> Router<AppState> {
         .merge(forge::router())
         .merge(repositories::router())
         .merge(code_indexes::router())
+        .merge(code_index_settings::router())
         .merge(repository_credentials::router())
         .merge(teams::router())
         .merge(team_pages::router())

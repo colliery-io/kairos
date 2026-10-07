@@ -285,6 +285,38 @@ the index after each push to the default branch.
 | `KAIROS_CODE_INDEX_POLL_SECS` | whole number | `300` | How often the builder fetches each indexed repository. `0` turns the builder off. |
 | `KAIROS_CODE_INDEX_THREADS` | whole number, 1 or more | `4` | The number of CPU threads that the summary model of the builder uses. More threads make the summaries faster, but they take CPU from the other services on the host. `0` or a value that is not a number stops the start of the server. |
 
+#### The providers of the summaries and the vectors
+
+Each organization chooses where the summaries of its code index are made.
+It also chooses where the vectors of those summaries are made. The setting
+is for the organization, not for the deployment. An organization admin sets it on the
+page Admin, Code index, or with `kairos admin code-index-settings set`. The
+REST route is `PUT /api/org/code-index-settings`. Each member can read it.
+
+| Setting | Values | Default | Description |
+|---|---|---|---|
+| `summary.provider` | `embedded`, `ollama-cloud`, `bedrock` | `embedded` | `embedded` is the model in the server. `ollama-cloud` is an OpenAI-compatible chat endpoint: it also serves a local Ollama, vLLM and OpenRouter. `bedrock` is AWS Bedrock. |
+| `summary.base_url` | URL | none | The base URL of the endpoint, for `ollama-cloud`. For example `https://ollama.com/v1`. |
+| `summary.model` | text | none | The model name (`ollama-cloud`) or the model id (`bedrock`). |
+| `summary.region` | text | none | The AWS region, for `bedrock`. |
+| `summary.secret` | text | none | The API key (`ollama-cloud`), or the AWS credentials as `<access key id>:<secret access key>` with an optional `:<session token>` (`bedrock`). |
+| `vectors.provider` | `embedded`, `remote` | `embedded` | `remote` is an OpenAI-compatible embeddings endpoint. |
+| `vectors.base_url` | URL | none | The base URL of the embeddings endpoint, for `remote`. |
+| `vectors.model` | text | none | The model name of the embeddings, for `remote`. |
+| `vectors.secret` | text | none | The API key of the embeddings endpoint. A local Ollama needs none. |
+| `concurrency` | 1 to 32 | `4` | The requests that a hosted summarizer sends at a time. |
+
+Kairos keeps each secret encrypted with `KAIROS_SECRETS_KEY`, as it keeps
+the read tokens of the repositories. No read gives a secret back: a read
+says that it is set, by whom and when. A write that does not name a secret
+keeps the stored secret. An empty secret removes it. A hosted provider
+needs its secret, its URL or region, and its model. Kairos refuses a write
+with one of them missing, and the refusal names the field.
+
+A repository uses the hosted provider only after a person opts it in
+(`code_index_summaries` of the repository). Until then its summaries come
+from the embedded model.
+
 The clone fetches from the `repo_url` of the repository. For a private
 repository, set a read token on the repository (see
 [Read a private repository](../how-to/read-a-private-repository.md)). With no

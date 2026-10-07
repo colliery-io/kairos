@@ -36,6 +36,7 @@ in *this* envelope. See [SCIM](scim.md#errors).
 | `MEMBERSHIP_REQUIRED` | 403 | Authenticated against the issuer, but not a member of this tenant | `organization` — the slug that was resolved |
 | `NOT_FOUND` | 404 | The thing the call is about does not exist | — |
 | `TENANT_NOT_FOUND` | 404 | The request host resolves to no provisioned tenant | — |
+| `TENANT_NOT_READY` | 503 | The schema of the organization did not migrate when the server started. The other organizations serve. An operator repairs the schema and runs `kairos-server migrate-tenants`; the organization then serves again within 30 seconds, with no restart | — |
 | `CONFLICT` | 409 | A state conflict. Usually optimistic concurrency: the submitted `version` is stale. Also emitted where a create collides with an existing row, or a delete is blocked by what still points at the entity | `current` — the full current entity — on a version conflict **only**; see below |
 | `VALIDATION` | 422, or **400** on `POST /api/search`. 400 or 415 for [an input that the server cannot read](#an-input-that-a-route-does-not-accept) | A body, a query or a reference is malformed, or names something that does not exist | `field`/`fields` where a specific field is at fault, plus any typed extras (e.g. `cap`, `limit`, `offset`, `depth`). `field` and `allowed` for a field that the route does not know. `parameter` and `allowed` for a query parameter that the route does not know |
 | `INTERNAL` | 500 | Server fault; the message is logged, not returned in detail | — |

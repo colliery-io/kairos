@@ -61,8 +61,14 @@ fn connect_and_migrate_public() -> Result<PgConnection, String> {
     let mut conn = kairos_db::establish_migration_connection(&database_url)
         .map_err(|e| format!("cannot reach database at DATABASE_URL: {e}"))?;
 
-    let applied = kairos_db::run_public_migrations(&mut conn)
-        .map_err(|e| format!("public schema migration failed: {e}"))?;
+    // KAIROS-T-0330: under the migration lock, so replicas that start
+    // together migrate one at a time.
+    let applied = kairos_db::with_migration_lock(&mut conn, |conn| {
+        kairos_db::run_public_migrations(conn)
+            .map_err(|e| format!("public schema migration failed: {e}"))
+            .map_err(LockedError::Message)
+    })
+    .map_err(|e| e.to_string())?;
 
     if applied.is_empty() {
         println!("public schema migrations: up to date (no pending migrations)");
@@ -255,28 +261,83 @@ fn hash_password_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn migrate_tenants(conn: &mut PgConnection) -> Result<(), String> {
-    let outcomes =
-        kairos_db::migrate_all_tenants(conn).map_err(|e| format!("migrate-tenants: {e}"))?;
-    if outcomes.is_empty() {
-        println!("no tenants provisioned - nothing to migrate");
-        return Ok(());
+/// An error inside the migration lock: the lock's own database error, or a
+/// message (KAIROS-T-0330).
+#[derive(Debug)]
+enum LockedError {
+    Database(diesel::result::Error),
+    Message(String),
+}
+
+impl From<diesel::result::Error> for LockedError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Database(e)
     }
-    for outcome in &outcomes {
-        if outcome.applied.is_empty() {
-            println!(
-                "{}: up to date (no pending tenant migrations)",
-                outcome.schema
-            );
-        } else {
-            for version in &outcome.applied {
-                println!("{}: applied tenant migration {version}", outcome.schema);
+}
+
+impl std::fmt::Display for LockedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Database(e) => write!(f, "the migration lock: {e}"),
+            Self::Message(m) => f.write_str(m),
+        }
+    }
+}
+
+/// Run the tenant migrations of each tenant under the migration lock, print
+/// what each tenant did, and give back the reports (KAIROS-T-0330). A tenant
+/// that fails does not stop the others.
+fn run_tenant_migrations(
+    conn: &mut PgConnection,
+) -> Result<Vec<kairos_db::TenantMigrationReport>, String> {
+    let reports = kairos_db::with_migration_lock(conn, kairos_db::migrate_each_tenant)
+        .map_err(|e| format!("tenant migrations: {e}"))?;
+    if reports.is_empty() {
+        println!("no tenants provisioned - nothing to migrate");
+    }
+    for report in &reports {
+        match &report.result {
+            Ok(applied) if applied.is_empty() => {
+                println!(
+                    "{}: up to date (no pending tenant migrations)",
+                    report.schema
+                );
+            }
+            Ok(applied) => {
+                for version in applied {
+                    println!("{}: applied tenant migration {version}", report.schema);
+                }
+            }
+            Err(reason) => {
+                eprintln!(
+                    "{}: tenant migration FAILED: {reason}. The tenant {:?} is refused \
+                     (503 TENANT_NOT_READY) until its schema is current.",
+                    report.schema, report.slug
+                );
             }
         }
     }
+    Ok(reports)
+}
+
+fn migrate_tenants(conn: &mut PgConnection) -> Result<(), String> {
+    let reports = run_tenant_migrations(conn)?;
+    let failed: Vec<&str> = reports
+        .iter()
+        .filter(|r| r.result.is_err())
+        .map(|r| r.slug.as_str())
+        .collect();
+    if !failed.is_empty() {
+        return Err(format!(
+            "migrate-tenants: {} of {} tenant(s) failed: {}",
+            failed.len(),
+            reports.len(),
+            failed.join(", ")
+        ));
+    }
     println!(
         "tenant migrations complete across {} tenant(s)",
-        outcomes.len()
+        reports.len()
     );
     Ok(())
 }
@@ -431,7 +492,7 @@ fn seed_demo(conn: &mut PgConnection, args: &[String]) -> Result<(), String> {
 /// The `serve` subcommand (KAIROS-T-0017): fail-fast config, tracing init
 /// per KAIROS-A-0013, then the axum serve loop on a fresh tokio runtime
 /// (main stays sync because the migration path is sync, KAIROS-T-0007).
-fn serve() -> Result<(), String> {
+fn serve(readiness: kairos_server::tenant_readiness::TenantReadiness) -> Result<(), String> {
     let config = kairos_server::config::AppConfig::from_env().map_err(|e| e.to_string())?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -454,7 +515,7 @@ fn serve() -> Result<(), String> {
     // and receiving zero posts; see the note on the dependency in Cargo.toml.
     runtime.block_on(async move {
         let _guard = kairos_server::init_tracing(&config);
-        kairos_server::app::serve(config).await
+        kairos_server::app::serve(config, readiness).await
     })
 }
 
@@ -676,8 +737,14 @@ fn run() -> Result<bool, String> {
     match subcommand {
         None => Ok(false), // fall through to placeholder output
         Some("serve") => {
+            // KAIROS-T-0330: the tenant migrations run before the server
+            // serves. A tenant that fails does not stop the server; it is
+            // refused (503 TENANT_NOT_READY) until its schema is current.
+            let reports = run_tenant_migrations(&mut conn)?;
+            let readiness =
+                kairos_server::tenant_readiness::TenantReadiness::from_reports(&reports);
             drop(conn); // the server builds its own async pool
-            serve().map(|_| true)
+            serve(readiness).map(|_| true)
         }
         Some("migrate") => Ok(true),
         Some("create-tenant") => create_tenant(&mut conn, &args[1..]).map(|_| true),

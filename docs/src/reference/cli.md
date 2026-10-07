@@ -1121,11 +1121,11 @@ two deliberate exceptions noted below.
 
 | Subcommand | What it does |
 |---|---|
-| `serve` | Run the server. What the container's entrypoint invokes. |
+| `serve` | Run the server. What the container's entrypoint invokes. Before it serves, it applies the pending public migrations, then the pending tenant migrations of each organization, under a database lock. An organization whose migration fails answers 503 `TENANT_NOT_READY` until its schema is current. |
 | `migrate` | Apply pending public migrations and exit. |
 | `create-tenant --slug <slug> [--name <name>]` | Provision an organization, its schema and its default boards. |
 | `drop-tenant --slug <slug> --confirm` | Destroy a tenant: schema CASCADE plus the organization row. Refuses without `--confirm`. **Unrecoverable.** |
-| `migrate-tenants` | Apply pending tenant migrations in every tenant schema. |
+| `migrate-tenants` | Apply pending tenant migrations in every tenant schema, under the same lock as `serve`. It goes on after an organization that fails, and exits non-zero naming each one. |
 | `list-tenants` | List provisioned tenants. |
 | `check-delivery-boards` | List each team with 2 or more live delivery boards. **Only reads.** See below. |
 | `set-password --email <email> [--password <pw>]` | Set a local account's password. See below. |

@@ -64,6 +64,7 @@ pub use migrations::{
 pub use pool::{PgPool, PoolError, TenantConnection, TenantPool};
 pub use seed::{SeedDemoReport, SeedError, seed_demo};
 pub use tenant::{
-    TenantError, TenantInfo, TenantMigrationOutcome, TenantProvisionReport, drop_tenant,
-    list_tenants, migrate_all_tenants, provision_tenant,
+    MIGRATION_LOCK_KEY, TenantError, TenantInfo, TenantMigrationOutcome, TenantMigrationReport,
+    TenantProvisionReport, drop_tenant, list_tenants, migrate_all_tenants, migrate_each_tenant,
+    provision_tenant, tenant_schema_is_current, with_migration_lock,
 };

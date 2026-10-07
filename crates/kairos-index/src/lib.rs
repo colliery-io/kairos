@@ -28,6 +28,7 @@ mod edges;
 mod extract;
 #[cfg(feature = "llama")]
 mod llama;
+mod parse_cache;
 mod query;
 pub mod rules;
 pub mod rust_analyzer;
@@ -38,7 +39,7 @@ mod summary;
 mod tokens;
 pub mod tools;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -80,6 +81,9 @@ const READ_LIMIT: u64 = 16 * 1024 * 1024;
 pub struct BuildReport {
     pub files: usize,
     pub parsed_files: usize,
+    /// The parsed files whose parse came from the parse cache of the index
+    /// (KAIROS-T-0297): their content did not change.
+    pub cached_files: usize,
     pub symbols: usize,
     pub edges: EdgeStats,
     /// The `rust-analyzer scip` run, if the tree has a Cargo workspace at
@@ -322,6 +326,8 @@ pub enum IndexError {
     Model(String),
     #[error("The index {0} is there already. Give the name of a new file.")]
     Exists(PathBuf),
+    #[error("The parse cache of the index has an error: {0}.")]
+    ParseCache(String),
 }
 
 /// Build the structure of the tree at `root` into the index at `db`.
@@ -346,7 +352,7 @@ pub fn build_structure_with(
     options: &BuildOptions,
 ) -> Result<BuildReport, IndexError> {
     let known = known_vectors_at(db)?;
-    build(root, db, Mode::Scip(options), &known)
+    build(root, db, Mode::Scip(options), &known, Parse::All)
 }
 
 /// The token vectors of the index at `db`, by tree hash, for a build that
@@ -378,6 +384,15 @@ fn known_vectors(conn: &Connection) -> Result<HashMap<String, (Vec<u32>, u32)>, 
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
+/// Which files a build parses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Parse {
+    /// Each file: a build of the whole index.
+    All,
+    /// The files that the parse cache of the index does not have: an update.
+    Changed,
+}
+
 /// Where a build gets the Rust edges.
 enum Mode<'a> {
     /// A `rust-analyzer scip` run.
@@ -397,13 +412,19 @@ pub fn update_structure(
 ) -> Result<BuildReport, IndexError> {
     let known = known_vectors_at(db)?;
     if options.rust_edges {
-        return build(root, db, Mode::Scip(&options.build), &known);
+        return build(root, db, Mode::Scip(&options.build), &known, Parse::Changed);
     }
     let conn = Connection::open(db)?;
     schema::prepare(&conn)?;
     let base = edges::BaseIndex::read(&conn)?;
     drop(conn);
-    build(root, db, Mode::Keep(std::slice::from_ref(&base)), &known)
+    build(
+        root,
+        db,
+        Mode::Keep(std::slice::from_ref(&base)),
+        &known,
+        Parse::Changed,
+    )
 }
 
 /// The files of the tree at `root` that differ from the index at `db`
@@ -433,6 +454,7 @@ fn build(
     db: &Path,
     mode: Mode<'_>,
     known: &HashMap<String, (Vec<u32>, u32)>,
+    parse: Parse,
 ) -> Result<BuildReport, IndexError> {
     if !root.is_dir() {
         return Err(IndexError::NotAFolder(root.to_path_buf()));
@@ -445,11 +467,18 @@ fn build(
     let mut report = BuildReport {
         files: 0,
         parsed_files: 0,
+        cached_files: 0,
         symbols: 0,
         edges: EdgeStats::default(),
         scip: None,
         token_vectors: TokenVectorStats::default(),
     };
+    let cache = match parse {
+        Parse::Changed => parse_cache::Reader::open(db)?,
+        Parse::All => None,
+    };
+    let mut used_keys = HashSet::new();
+    let mut fresh = Vec::new();
     let mut prepared = Vec::with_capacity(paths.len());
     for (rel, abs) in &paths {
         let file = read_file(abs)?;
@@ -476,17 +505,27 @@ fn build(
             if !file.complete || !file.utf8 {
                 parse_error = Some("the file is not complete UTF-8 text".to_string());
             } else {
-                match extract::extract(
-                    &parser,
-                    rel,
-                    language,
-                    &file.text,
-                    verdict.decision == Decision::Test,
-                    known,
-                ) {
-                    Ok(extracted) => found = Some(extracted),
-                    Err(e) => parse_error = Some(e),
+                let test_file = verdict.decision == Decision::Test;
+                let key = parse_cache::key(rel, language, test_file, &file.content_hash);
+                let cached = match &cache {
+                    Some(cache) => cache
+                        .get(&key)?
+                        .and_then(|bytes| parse_cache::decode(&bytes, known)),
+                    None => None,
+                };
+                if let Some(extracted) = cached {
+                    found = Some(extracted);
+                    report.cached_files += 1;
+                } else {
+                    match extract::extract(&parser, rel, language, &file.text, test_file, known) {
+                        Ok(extracted) => {
+                            fresh.push((key.clone(), parse_cache::encode(&extracted)?));
+                            found = Some(extracted);
+                        }
+                        Err(e) => parse_error = Some(e),
+                    }
                 }
+                used_keys.insert(key);
                 report.parsed_files += 1;
             }
         }
@@ -499,6 +538,8 @@ fn build(
             parse_error,
         });
     }
+
+    drop(cache);
 
     // 2. The SCIP index of the Cargo workspace at the root, or the SCIP
     // edges of the base indexes.
@@ -644,6 +685,7 @@ fn build(
             }
         }
     }
+    parse_cache::write(&tx, &used_keys, &fresh)?;
     tx.commit()?;
     Ok(report)
 }
@@ -1020,7 +1062,7 @@ pub fn merge(
     } else {
         Mode::Keep(&kept)
     };
-    let build = build(root, out, mode, &known)?;
+    let build = build(root, out, mode, &known, Parse::All)?;
     let summary = summarize(root, out, summarizer, embedder, &options.summarize)?;
     Ok(UpdateReport { build, summary })
 }

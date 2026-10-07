@@ -34,7 +34,8 @@ pub struct PoolRow {
 /// An index file in 2 parts.
 #[derive(Debug, Clone)]
 pub struct Split {
-    /// The gzip of the SQLite file, with an empty `summaries` table.
+    /// The gzip of the SQLite file, with an empty `summaries` table and with
+    /// no parse cache.
     pub structure_gz: Vec<u8>,
     /// The size of the SQLite file in the gzip, in bytes.
     pub structure_bytes: u64,
@@ -67,6 +68,8 @@ pub fn split(db: &Path) -> Result<Split, IndexError> {
     let keys = used_keys(&conn)?;
     let vector_model = vector_model(&conn)?;
     conn.execute("DELETE FROM summaries", [])?;
+    // The parse cache is local (KAIROS-T-0297).
+    conn.execute("DROP TABLE IF EXISTS parse_cache", [])?;
     conn.execute_batch("VACUUM")?;
     drop(conn);
 
@@ -205,6 +208,39 @@ mod tests {
              INSERT INTO pool_meta (name, value) VALUES ('vector_model', 'det/m/1');",
         )
         .unwrap();
+    }
+
+    #[test]
+    fn a_split_has_no_parse_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("in.db");
+        index_with_pool(&db);
+        Connection::open(&db)
+            .unwrap()
+            .execute(
+                "INSERT INTO parse_cache (key, extract) VALUES ('k', x'7b7d')",
+                [],
+            )
+            .unwrap();
+
+        let split = split(&db).unwrap();
+        let out = dir.path().join("out.db");
+        assemble(&split.structure_gz, split.pool, &out).unwrap();
+        let tables: i64 = Connection::open(&out)
+            .unwrap()
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'parse_cache'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tables, 0);
+        // The local index keeps its cache: the split does not change it.
+        let entries: i64 = Connection::open(&db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM parse_cache", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(entries, 1);
     }
 
     #[test]

@@ -70,3 +70,13 @@ Feature: Updates and merges
     Given a summarized index of the polyglot fixture
     When I change a file and do not commit it, and update the index
     Then the index describes the changed file
+
+  # KAIROS-T-0297: the parse cache. The edges are resolved again from all
+  # the files, so the edge from an unchanged file to a deleted function goes.
+  Scenario: An update parses only the changed files, and gives the same index as a parse of each file
+    Given a summarized index of the polyglot fixture
+    And a copy of the index with no parse cache
+    When I change the body of one Rust function and delete a TypeScript function that a file calls, and update both indexes
+    Then the update of the index with the cache parsed only the 2 changed files
+    And the update of the copy parsed each file
+    And the 2 indexes have the same symbols, edges, summary keys and modules

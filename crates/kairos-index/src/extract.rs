@@ -182,6 +182,32 @@ pub fn kind_name(kind: &SymbolKind) -> &'static str {
     }
 }
 
+/// The kind of a name that [`kind_name`] gives.
+pub fn kind_from_name(name: &str) -> Option<&'static str> {
+    const KINDS: [&str; 19] = [
+        "struct",
+        "class",
+        "enum",
+        "interface",
+        "trait",
+        "type_alias",
+        "function",
+        "method",
+        "constructor",
+        "module",
+        "namespace",
+        "package",
+        "constant",
+        "variable",
+        "field",
+        "parameter",
+        "implementation",
+        "macro",
+        "unknown",
+    ];
+    KINDS.into_iter().find(|kind| *kind == name)
+}
+
 /// The name of the smallest other symbol whose span holds this one.
 fn container_of(symbols: &[Symbol], s: &Symbol) -> Option<String> {
     symbols
@@ -285,6 +311,35 @@ fn in_rust_test_code(node: Node<'_>, source: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_kind_name_reads_back() {
+        use kairos_narsil::symbols::SymbolKind::*;
+        for kind in [
+            Struct,
+            Class,
+            Enum,
+            Interface,
+            Trait,
+            TypeAlias,
+            Function,
+            Method,
+            Constructor,
+            Module,
+            Namespace,
+            Package,
+            Constant,
+            Variable,
+            Field,
+            Parameter,
+            Implementation,
+            Macro,
+            Unknown,
+        ] {
+            assert_eq!(kind_from_name(kind_name(&kind)), Some(kind_name(&kind)));
+        }
+        assert_eq!(kind_from_name("no_such_kind"), None);
+    }
 
     fn symbols(path: &str, content: &str) -> Vec<Extracted> {
         let parser = LanguageParser::new().unwrap();

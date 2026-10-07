@@ -71,6 +71,9 @@ struct IndexWorld {
     duplicates: Option<Duplicates>,
     /// The result of the last search of the code.
     search: Option<SearchResult>,
+    /// A copy of the index with no parse cache, and the report of its
+    /// update (KAIROS-T-0297).
+    uncached: Option<(PathBuf, Option<UpdateReport>)>,
 }
 
 /// The rust-analyzer and the std source of the scenarios: those pinned in
@@ -2015,6 +2018,88 @@ fn delete_typescript(world: &mut IndexWorld) {
         "",
     );
     world.update(false);
+}
+
+#[given("a copy of the index with no parse cache")]
+fn a_copy_with_no_cache(world: &mut IndexWorld) {
+    let db = world.indexes.last().expect("no index was built");
+    let copy = db.with_file_name("uncached.sqlite");
+    fs::copy(db, &copy).expect("copy the index");
+    let conn = rusqlite::Connection::open(&copy).expect("open the copy");
+    conn.execute("DROP TABLE parse_cache", [])
+        .expect("the index has a parse cache");
+    world.uncached = Some((copy, None));
+}
+
+#[when(
+    "I change the body of one Rust function and delete a TypeScript function that a file calls, and update both indexes"
+)]
+fn change_and_update_both(world: &mut IndexWorld) {
+    edit(&world.root, "src/stack.rs", POP_BEFORE, POP_AFTER);
+    let before = world.before.as_ref().expect("no snapshot");
+    assert!(
+        before
+            .edges
+            .iter()
+            .any(|e| e.caller.file != "web/src/format.ts"
+                && e.callee.as_ref().is_some_and(|c| c.name == "formatPrice")),
+        "a file other than format.ts must call formatPrice"
+    );
+    edit(
+        &world.root,
+        "web/src/format.ts",
+        "\nexport function formatPrice(money: Money): string {\n  return `${(money.cents / 100).toFixed(2)} ${money.currency}`;\n}\n",
+        "",
+    );
+    world.update(false);
+    let cached = world.update_report.take();
+    let (copy, _) = world.uncached.take().expect("no copy of the index");
+    world.indexes.push(copy.clone());
+    world.update(false);
+    let uncached = world.update_report.take();
+    world.indexes.pop();
+    world.update_report = cached;
+    world.uncached = Some((copy, uncached));
+}
+
+#[then(expr = "the update of the index with the cache parsed only the {int} changed files")]
+fn parsed_only_the_changed(world: &mut IndexWorld, changed: usize) {
+    let build = &world.update_report.as_ref().expect("no update ran").build;
+    assert_eq!(
+        build.parsed_files - build.cached_files,
+        changed,
+        "{} files parsed, {} of them from the cache",
+        build.parsed_files,
+        build.cached_files
+    );
+}
+
+#[then("the update of the copy parsed each file")]
+fn the_copy_parsed_each_file(world: &mut IndexWorld) {
+    let (_, report) = world.uncached.as_ref().expect("no copy of the index");
+    let build = &report.as_ref().expect("the copy was not updated").build;
+    assert!(build.parsed_files > 2);
+    assert_eq!(build.cached_files, 0);
+}
+
+#[then("the 2 indexes have the same symbols, edges, summary keys and modules")]
+fn the_two_updates_agree(world: &mut IndexWorld) {
+    let cached = world.snapshot();
+    let (copy, _) = world.uncached.clone().expect("no copy of the index");
+    world.indexes.push(copy);
+    let uncached = world.snapshot();
+    world.indexes.pop();
+    assert!(
+        !cached
+            .edges
+            .iter()
+            .any(|e| e.callee.as_ref().is_some_and(|c| c.name == "formatPrice")),
+        "an edge still goes to the deleted formatPrice"
+    );
+    assert_eq!(cached.symbols, uncached.symbols);
+    assert_eq!(cached.edges, uncached.edges);
+    assert_eq!(cached.file_keys, uncached.file_keys);
+    assert_eq!(cached.modules, uncached.modules);
 }
 
 #[then("the function and its edges are not in the structure")]

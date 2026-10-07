@@ -4,7 +4,7 @@
 use tree_sitter::{Node, Tree};
 
 /// One call in the code.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CallSite {
     /// The called name: the last part of the path (`push` in `a.b.push(x)`).
     pub name: String,

@@ -459,8 +459,13 @@ fn print_structure(report: &BuildReport, started: Instant) {
     } else {
         String::new()
     };
+    let cached = if report.cached_files > 0 {
+        format!(", {} of them from the parse cache", report.cached_files)
+    } else {
+        String::new()
+    };
     println!(
-        "Structure: {} files ({} parsed), {} symbols, {} edges{kept}, in {:.1} s.",
+        "Structure: {} files ({} parsed{cached}), {} symbols, {} edges{kept}, in {:.1} s.",
         report.files,
         report.parsed_files,
         report.symbols,

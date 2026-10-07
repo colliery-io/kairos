@@ -158,11 +158,15 @@ pub fn prepare(conn: &Connection) -> Result<(), IndexError> {
         0 => {
             let tx = conn.unchecked_transaction()?;
             tx.execute_batch(SCHEMA)?;
+            tx.execute_batch(crate::parse_cache::TABLE)?;
             tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
             tx.commit()?;
             Ok(())
         }
-        SCHEMA_VERSION => Ok(()),
+        SCHEMA_VERSION => {
+            conn.execute_batch(crate::parse_cache::TABLE)?;
+            Ok(())
+        }
         found => Err(IndexError::SchemaVersion { found }),
     }
 }

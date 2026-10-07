@@ -1421,6 +1421,24 @@ impl KairosClient {
             .await
     }
 
+    /// `GET /api/repositories/{slug}/code-indexes/builds` — the runs of
+    /// the code index builder for a repository, newest first
+    /// (KAIROS-T-0331). `limit`: 20 when None, 100 at most.
+    pub async fn list_code_index_builds(
+        &self,
+        reference: &str,
+        limit: Option<i64>,
+    ) -> Result<crate::types_code_index::CodeIndexBuildList, Error> {
+        let query = match limit {
+            Some(limit) => format!("?limit={limit}"),
+            None => String::new(),
+        };
+        self.get(&format!(
+            "/api/repositories/{reference}/code-indexes/builds{query}"
+        ))
+        .await
+    }
+
     /// `PUT /api/repositories/{slug}/code-indexes/{commit}` — send the
     /// index file of a commit (the bytes of a `kairos-index` SQLite file).
     /// The answer is 201 for a new commit and 200 for a commit that had an

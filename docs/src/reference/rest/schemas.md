@@ -277,9 +277,33 @@ One indexed commit of a repository.
 
 ## CodeIndexBuild
 
-Whether the code index builder works on a repository (KAIROS-T-0318).
+One run of the code index builder (KAIROS-T-0331). The trigger says what started it: a push, a first build, a request, or an upload.
 
-One of: `on`, `off`
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `commit` | `string`, nullable | no | The commit of the run, once the fetch gave it. |
+| `edges` | `integer`, nullable | no |  |
+| `error` | `string`, nullable | no | The text of the failure, for a `failed` run. |
+| `files` | `integer`, nullable | no | The counts of the index that an `ok` run wrote. |
+| `finished_at` | `string`, nullable | no | When the run ended, RFC 3339. None while it runs. |
+| `id` | `string` | yes |  |
+| `outcome` | `string` | yes | `running`, `ok` or `failed`. |
+| `ref` | `string`, nullable | no | The branch that the run indexed, if known. |
+| `requested_by` | `string`, nullable | no | The user who asked for the run or sent the upload. None for the builder. |
+| `started_at` | `string` | yes | When the run started, RFC 3339. |
+| `summaries_made` | `integer`, nullable | no | The summaries that the run made with the model. |
+| `symbols` | `integer`, nullable | no |  |
+| `trigger` | `string` | yes | `push`, `first`, `request` or `upload`. |
+
+## CodeIndexBuildList
+
+The answer to `GET /api/repositories/{slug}/code-indexes/builds`.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `items` | array of [`CodeIndexBuild`](schemas.md#codeindexbuild) | yes | The runs, newest first. |
+| `limit` | `integer` | yes | The limit that the answer used. |
+| `total` | `integer` | yes | The runs of the repository, with those not in `items`. |
 
 ## CodeSequence
 

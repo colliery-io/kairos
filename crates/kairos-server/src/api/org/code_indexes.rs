@@ -12,6 +12,8 @@
 //! - `GET …/code-indexes/nearest?commit=`: the nearest indexed commit at or
 //!   below a commit. It reads the bare clone of the repository
 //!   ([`crate::code_index`]).
+//! - `GET …/code-indexes/builds`: the runs of the builder for the
+//!   repository, newest first (KAIROS-T-0331). An upload is a run too.
 //!
 //! Gating: reads are open tenant-wide, like the repository itself. An
 //! upload needs the right to change the repository (org admin, or
@@ -26,6 +28,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use diesel::pg::PgConnection;
 use kairos_client::types_code_index as dto;
+use kairos_db::code_index_builds::{self, Build};
 use kairos_db::code_indexes::{self, CodeIndexInfo, NewCodeIndex};
 use kairos_db::repositories;
 use serde_json::json;
@@ -58,6 +61,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/api/repositories/{slug}/code-indexes/nearest",
             get(nearest_code_index),
+        )
+        .route(
+            "/api/repositories/{slug}/code-indexes/builds",
+            get(list_code_index_builds),
         )
         .route(
             "/api/repositories/{slug}/code-indexes/{commit}",
@@ -113,6 +120,66 @@ fn dto_of(info: CodeIndexInfo) -> dto::CodeIndex {
         created_at: info.created_at.to_rfc3339(),
         updated_at: info.updated_at.to_rfc3339(),
     }
+}
+
+fn build_dto_of(run: Build) -> dto::CodeIndexBuild {
+    dto::CodeIndexBuild {
+        id: run.id.to_string(),
+        commit: run.commit_sha,
+        r#ref: run.ref_name,
+        trigger: run.trigger,
+        outcome: run.outcome,
+        error: run.error,
+        files: run.files,
+        symbols: run.symbols,
+        edges: run.edges,
+        summaries_made: run.summaries_made,
+        requested_by: run.requested_by.map(|u| u.to_string()),
+        started_at: run.started_at.to_rfc3339(),
+        finished_at: run.finished_at.map(|t| t.to_rfc3339()),
+    }
+}
+
+/// The runs of the code index builder for a repository, newest first
+/// (KAIROS-T-0331). The server keeps `limit` in the range 1 to 100, as it
+/// does for each list (COLLIERY-T-0264). With no `limit`, it gives 20.
+#[utoipa::path(
+    get,
+    path = "/api/repositories/{slug}/code-indexes/builds",
+    tag = "repositories",
+    params(
+        ("slug" = String, Path, description = "Repository slug (or UUID)"),
+        dto::CodeIndexBuildListQuery,
+    ),
+    responses(
+        (status = 200, description = "The runs, newest first", body = dto::CodeIndexBuildList),
+        (status = 404, description = "Unknown repository", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn list_code_index_builds(
+    State(state): State<AppState>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(slug): Path<String>,
+    ApiQuery(query): ApiQuery<dto::CodeIndexBuildListQuery>,
+) -> Result<Json<dto::CodeIndexBuildList>, ApiError> {
+    let limit = query
+        .limit
+        .unwrap_or(code_index_builds::DEFAULT_LIST)
+        .clamp(1, code_index_builds::MAX_LIST);
+    let (runs, total) = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let id = repository_id(conn, &slug)?;
+            let runs = code_index_builds::list(conn, id, limit).map_err(ApiError::internal)?;
+            let total = code_index_builds::count(conn, id).map_err(ApiError::internal)?;
+            Ok((runs, total))
+        })
+        .await?;
+    Ok(Json(dto::CodeIndexBuildList {
+        items: runs.into_iter().map(build_dto_of).collect(),
+        total,
+        limit,
+    }))
 }
 
 fn repository_id(conn: &mut PgConnection, slug: &str) -> Result<Uuid, ApiError> {
@@ -242,6 +309,17 @@ pub(crate) async fn upload_code_index(
             let info = code_indexes::info(conn, repo.id, &commit)
                 .map_err(ApiError::internal)?
                 .ok_or_else(|| ApiError::internal("the stored index is not there"))?;
+            // The upload is a run of the index (KAIROS-T-0331).
+            code_index_builds::record_finished(
+                conn,
+                repo.id,
+                "upload",
+                &commit,
+                info.ref_name.as_deref(),
+                Some(user),
+                None,
+            )
+            .map_err(ApiError::internal)?;
             let pool_size = code_indexes::pool_size(conn, repo.id).map_err(ApiError::internal)?;
             Ok((
                 outcome.created,

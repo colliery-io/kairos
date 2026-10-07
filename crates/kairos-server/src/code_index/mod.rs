@@ -66,6 +66,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use kairos_db::code_index_builds as runs;
 use kairos_db::models::repositories::Repository;
 use kairos_index::tools::{ToolSet, Tools};
 use kairos_index::{
@@ -769,6 +770,154 @@ impl CodeIndexService {
 }
 
 /// Store the index of `head` of `repo`, built by the builder.
+/// The counts of a run, from its report (KAIROS-T-0331).
+fn counts_of(report: &UpdateReport) -> runs::Counts {
+    let clamp = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+    runs::Counts {
+        files: clamp(report.build.files),
+        symbols: clamp(report.build.symbols),
+        edges: clamp(report.build.edges.total()),
+        summaries_made: clamp(
+            report.summary.symbols.summarized
+                + report.summary.files.summarized
+                + report.summary.modules.summarized,
+        ),
+    }
+}
+
+/// Start the record of a run (KAIROS-T-0331): a `running` row, after the
+/// stale rows of the repository are ended. None when the write fails: the
+/// failure is logged, and the build goes on with no record.
+async fn record_start(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+) -> Option<uuid::Uuid> {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let written = blocking
+        .run(tenant, move |conn| {
+            runs::end_stale(conn, repo_id).map_err(ApiError::internal)?;
+            runs::start(conn, repo_id, trigger, Some(&branch), None).map_err(ApiError::internal)
+        })
+        .await;
+    match written {
+        Ok(run) => Some(run.id),
+        Err(e) => {
+            tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index run not recorded");
+            None
+        }
+    }
+}
+
+/// Give the record of a run its commit.
+async fn record_commit(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    commit: &str,
+) {
+    let Some(id) = run else { return };
+    let commit = commit.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            runs::set_commit(conn, id, &commit).map_err(ApiError::internal)
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run commit not recorded");
+    }
+}
+
+/// End the record of a run: `ok` with the counts, or `failed` with the
+/// text.
+async fn record_end(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    result: Result<runs::Counts, &str>,
+) {
+    let Some(id) = run else { return };
+    let result = result.map_err(str::to_owned);
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            match &result {
+                Ok(counts) => runs::end_ok(conn, id, Some(*counts)),
+                Err(error) => runs::end_failed(conn, id, error),
+            }
+            .map_err(ApiError::internal)
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run end not recorded");
+    }
+}
+
+/// Record a failure that came before the run had a row: the fetch, or the
+/// choice of the base. A repeat of the newest failure adds no row
+/// ([`runs::record_failure_once`]).
+async fn record_failure_once(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+    commit: Option<&str>,
+    error: &str,
+) {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let commit = commit.map(str::to_owned);
+    let error = error.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            runs::record_failure_once(
+                conn,
+                repo_id,
+                trigger,
+                commit.as_deref(),
+                Some(&branch),
+                &error,
+            )
+            .map_err(ApiError::internal)
+        })
+        .await
+    {
+        tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index failure not recorded");
+    }
+}
+
+/// End the `running` rows of each tenant when the builder starts: the
+/// server stopped during those runs (KAIROS-T-0331).
+async fn end_stale_runs(blocking: &BlockingTenantPool) {
+    let tenants = match blocking
+        .run_public(|conn| kairos_db::list_tenants(conn).map_err(ApiError::internal))
+        .await
+    {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            tracing::warn!(error = ?e, "code index builder could not list tenants");
+            return;
+        }
+    };
+    for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
+        match blocking
+            .run(&tenant.slug, |conn| {
+                runs::end_all_stale(conn).map_err(ApiError::internal)
+            })
+            .await
+        {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!(tenant = %tenant.slug, runs = n, "code index runs ended: the server stopped during them")
+            }
+            Err(e) => {
+                tracing::warn!(tenant = %tenant.slug, error = ?e, "code index stale runs not ended")
+            }
+        }
+    }
+}
+
 async fn store_built(
     blocking: &BlockingTenantPool,
     tenant: &str,
@@ -830,7 +979,10 @@ async fn build_repository(
         ancestors,
     } = match fetch_head(blocking, service, tenant, &repo, true).await {
         Ok(fetched) => fetched,
-        Err(note) => return done(outcome, note),
+        Err(note) => {
+            record_failure_once(blocking, tenant, &repo, "push", None, &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
@@ -869,14 +1021,19 @@ async fn build_repository(
         Ok(Some(Some(base))) => base,
         Ok(Some(None)) => return done(outcome, "the head has an index".into()),
         Ok(None) => {
-            return done(
-                outcome,
-                format!("no indexed commit is within {MAX_DISTANCE} commits below the head"),
-            );
+            let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e:?}")),
+        Err(e) => {
+            let note = format!("failed: {e:?}");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.base = Some(base.commit.clone());
+    let run = record_start(blocking, tenant, &repo, "push").await;
+    record_commit(blocking, tenant, run, &head).await;
 
     // The update, off the async threads: it runs rust-analyzer and the
     // model for minutes. It holds the gate for the whole build, so a first
@@ -921,13 +1078,21 @@ async fn build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok(counts_of(&report))).await;
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
     outcome
@@ -964,7 +1129,10 @@ async fn first_build_repository(
     let Fetched { clone, head, .. } =
         match fetch_head(blocking, service, tenant, &repo, false).await {
             Ok(fetched) => fetched,
-            Err(note) => return done(outcome, note),
+            Err(note) => {
+                record_failure_once(blocking, tenant, &repo, "first", None, &note).await;
+                return done(outcome, note);
+            }
         };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
@@ -977,6 +1145,8 @@ async fn first_build_repository(
         commit = %head,
         "code index first build started"
     );
+    let run = record_start(blocking, tenant, &repo, "first").await;
+    record_commit(blocking, tenant, run, &head).await;
 
     // The build, off the async threads: it runs for hours on a large
     // repository. It takes the gate for each step, so the updates of the
@@ -1050,13 +1220,21 @@ async fn first_build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok(counts_of(&report))).await;
     remove_database(&db);
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
@@ -1094,6 +1272,7 @@ pub async fn run_builder(
         interval_secs = interval.as_secs(),
         "code index builder started"
     );
+    end_stale_runs(&blocking).await;
     let wake = tokio::sync::Notify::new();
     let updates = async {
         let mut ticker = tokio::time::interval(interval);

@@ -115,6 +115,22 @@ Each indexed commit of a repository, newest write first.
 | `200` | array of [`CodeIndex`](schemas.md#codeindex) | The indexed commits |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
 
+### `GET /api/repositories/{slug}/code-indexes/builds`
+
+The runs of the code index builder for a repository, newest first
+(KAIROS-T-0331). The server keeps `limit` in the range 1 to 100, as it
+does for each list (COLLIERY-T-0264). With no `limit`, it gives 20.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `slug` | path | yes | `string` | Repository slug (or UUID) |
+| `limit` | query | no | `integer` | The most runs in the answer: 20 when not given, 100 at most. |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`CodeIndexBuildList`](schemas.md#codeindexbuildlist) | The runs, newest first |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown repository |
+
 ### `GET /api/repositories/{slug}/code-indexes/nearest`
 
 The nearest indexed commit at or below a commit, from the bare clone of

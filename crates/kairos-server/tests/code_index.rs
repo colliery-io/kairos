@@ -1192,3 +1192,174 @@ async fn a_first_build_does_not_stop_the_updates() {
     assert!(count() >= FUNCTIONS);
     builder.abort();
 }
+
+// ===========================================================================
+// KAIROS-T-0331: each run of the builder leaves a record
+// ===========================================================================
+
+/// The runs of `payments-api`, newest first.
+async fn runs_of(w: &World) -> Vec<kairos_client::types_code_index::CodeIndexBuild> {
+    w.alice
+        .list_code_index_builds("payments-api", None)
+        .await
+        .expect("the runs list")
+        .items
+}
+
+#[tokio::test]
+async fn a_push_records_an_ok_run_and_an_upload_is_a_run() {
+    // Given an index of commit A, sent by bob
+    let w = World::new("kairos_code_index_t0331_push").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].trigger, "upload");
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
+    assert_eq!(runs[0].r#ref.as_deref(), Some("main"));
+    assert!(runs[0].requested_by.is_some(), "the uploader is recorded");
+    assert!(runs[0].finished_at.is_some());
+
+    // A pass with nothing to do leaves no row
+    w.sweep().await;
+    assert_eq!(runs_of(&w).await.len(), 1);
+
+    // When commit B is pushed and the builder runs
+    let b = commit_b(&w.git);
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().any(|o| o.report.is_some()), "{outcomes:?}");
+
+    // Then the newest run is an ok push run of commit B with the counts
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    let run = &runs[0];
+    assert_eq!(run.trigger, "push");
+    assert_eq!(run.outcome, "ok");
+    assert_eq!(run.commit.as_deref(), Some(b.as_str()));
+    assert_eq!(run.r#ref.as_deref(), Some("main"));
+    assert!(run.files.is_some_and(|n| n > 0), "{run:?}");
+    assert!(run.symbols.is_some_and(|n| n > 0), "{run:?}");
+    assert!(run.summaries_made.is_some_and(|n| n > 0), "{run:?}");
+    assert_eq!(run.error, None);
+    assert_eq!(run.requested_by, None, "the builder has no user");
+    assert!(run.finished_at.is_some());
+    assert_eq!(runs[1].trigger, "upload");
+}
+
+#[tokio::test]
+async fn a_first_build_records_a_run() {
+    let w = World::new("kairos_code_index_t0331_first").await;
+    let outcomes = w.first_builds().await;
+    assert!(outcomes[0].report.is_some(), "{outcomes:?}");
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].trigger, "first");
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].commit.as_deref(), Some(w.a.as_str()));
+    assert!(runs[0].symbols.is_some_and(|n| n > 0));
+}
+
+#[tokio::test]
+async fn a_failed_fetch_records_one_failed_run() {
+    // Given an index of commit A, and a repository that the server cannot
+    // fetch any more
+    let w = World::new("kairos_code_index_t0331_failed").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    std::fs::remove_dir_all(&w.git).expect("remove the git repository");
+
+    // When the builder runs 2 times
+    let outcomes = w.sweep().await;
+    let note = outcomes[0].note.clone().expect("a note");
+    assert!(note.starts_with("failed"), "{note}");
+    w.sweep().await;
+
+    // Then one failed run has the text of the failure, and the server is
+    // still up
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 2, "the upload and one failure: {runs:?}");
+    let run = &runs[0];
+    assert_eq!(run.trigger, "push");
+    assert_eq!(run.outcome, "failed");
+    assert_eq!(run.error.as_deref(), Some(note.as_str()));
+    assert_eq!(run.commit, None, "the fetch gave no commit");
+    assert!(run.finished_at.is_some());
+    assert!(w.alice.list_code_indexes("payments-api").await.is_ok());
+}
+
+#[tokio::test]
+async fn a_run_that_the_server_did_not_end_is_failed_at_the_next_run() {
+    // Given a run that is still `running` from a server that stopped
+    let mut w = World::new("kairos_code_index_t0331_stale").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let stale = kairos_db::code_index_builds::start(&mut w.conn, w.repo_id, "push", None, None)
+        .expect("a running row");
+
+    // When the next run of the repository starts
+    commit_b(&w.git);
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().any(|o| o.report.is_some()), "{outcomes:?}");
+
+    // Then the stale run is failed with the text, and the new run is ok
+    let runs = runs_of(&w).await;
+    assert_eq!(runs.len(), 3, "{runs:?}");
+    let old = runs
+        .iter()
+        .find(|r| r.id == stale.id.to_string())
+        .expect("the stale run is listed");
+    assert_eq!(old.outcome, "failed");
+    assert_eq!(
+        old.error.as_deref(),
+        Some(kairos_db::code_index_builds::SERVER_STOPPED)
+    );
+    assert_eq!(runs[0].outcome, "ok");
+    assert_eq!(runs[0].trigger, "push");
+}
+
+#[tokio::test]
+async fn the_runs_list_clamps_its_limit() {
+    let w = World::new("kairos_code_index_t0331_limit").await;
+    let a = w.a.clone();
+    w.bob
+        .upload_code_index("payments-api", &a, Some("main"), w.index(&a))
+        .await
+        .expect("the first index");
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", None)
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 20);
+    assert_eq!(list.total, 1);
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", Some(0))
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 1);
+    let list = w
+        .alice
+        .list_code_index_builds("payments-api", Some(500))
+        .await
+        .unwrap();
+    assert_eq!(list.limit, 100);
+    assert_eq!(list.items.len(), 1);
+    // An unknown repository
+    let err = w
+        .alice
+        .list_code_index_builds("no-such-repo", None)
+        .await
+        .expect_err("refused");
+    assert!(matches!(err, Error::NotFound { .. }), "{err}");
+}

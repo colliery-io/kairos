@@ -143,11 +143,17 @@ impl IndexWorld {
     /// Summarize the last index (build one first if there is none) with the
     /// fake summarizer and the deterministic vectors.
     fn summarize_with_fake(&mut self) {
+        self.summarize_with_model("fake/fixed");
+    }
+
+    /// [`Self::summarize_with_fake`] with a fake summarizer whose model is
+    /// `model` (KAIROS-T-0338).
+    fn summarize_with_model(&mut self, model: &str) {
         if self.indexes.is_empty() {
             self.build();
         }
         let db = self.indexes.last().expect("no index was built").clone();
-        let mut fake = FakeSummarizer::default();
+        let mut fake = FakeSummarizer::named(model);
         let report = summarize(
             &self.root,
             &db,
@@ -1454,6 +1460,125 @@ fn summarize_the_index(world: &mut IndexWorld) {
     world.summarize_with_fake();
 }
 
+#[when(expr = "I summarize the index with the fake model {string}")]
+fn summarize_with_a_model(world: &mut IndexWorld, model: String) {
+    world.summarize_with_model(&model);
+}
+
+/// The models of the pool of the last index, with the count of the rows of
+/// each (KAIROS-T-0338).
+fn pool_models(world: &IndexWorld) -> Vec<(String, i64)> {
+    let db = world.indexes.last().expect("no index was built");
+    let conn = rusqlite::Connection::open(db).expect("open the index");
+    let mut stmt = conn
+        .prepare("SELECT model, count(*) FROM summaries GROUP BY model ORDER BY model")
+        .expect("prepare");
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        .expect("query");
+    rows.collect::<Result<_, _>>().expect("read")
+}
+
+#[then(
+    "the summarizer ran for each summarizable symbol again, and the pool holds the summaries of both models"
+)]
+fn each_symbol_again_and_two_models(world: &mut IndexWorld) {
+    // One request for each distinct key: 2 symbols with the same code and
+    // the same callees share a key, and the second reuses the first.
+    let distinct: BTreeSet<String> = world
+        .symbols()
+        .iter()
+        .filter(|s| summarized(s))
+        .filter_map(|s| s.summary_key.clone())
+        .collect();
+    let ran = world.symbol_requests().len();
+    assert!(ran > 0);
+    assert_eq!(
+        ran,
+        distinct.len(),
+        "{} requests: {:?}",
+        ran,
+        world.symbol_requests()
+    );
+    let models = pool_models(world);
+    let names: Vec<&str> = models.iter().map(|(m, _)| m.as_str()).collect();
+    assert_eq!(names, ["fake/b", "fake/fixed"], "{models:?}");
+    assert!(models.iter().all(|(_, n)| *n > 0), "{models:?}");
+    let keys_now: Vec<Option<String>> = world
+        .symbols()
+        .iter()
+        .filter(|s| summarized(s))
+        .map(|s| s.summary_key.clone())
+        .collect();
+    let keys_before: Vec<Option<String>> = world
+        .symbols_before
+        .as_ref()
+        .expect("the symbols of the first run")
+        .iter()
+        .filter(|s| summarized(s))
+        .map(|s| s.summary_key.clone())
+        .collect();
+    assert!(
+        keys_now.iter().zip(&keys_before).all(|(a, b)| a != b),
+        "a key of the second model equals a key of the first"
+    );
+}
+
+#[then("each symbol has the key of the first model again")]
+fn keys_of_the_first_model(world: &mut IndexWorld) {
+    let before = world
+        .symbols_before
+        .as_ref()
+        .expect("the symbols of the first run");
+    let now = world.symbols();
+    let keys = |symbols: &[SymbolRecord]| -> Vec<(String, String, Option<String>)> {
+        symbols
+            .iter()
+            .filter(|s| summarized(s))
+            .map(|s| (s.file.clone(), s.name.clone(), s.summary_key.clone()))
+            .collect()
+    };
+    assert_eq!(keys(&now), keys(before));
+}
+
+#[when("I link the summaries of the index")]
+fn link_the_index(world: &mut IndexWorld) {
+    let db = world.indexes.last().expect("no index was built").clone();
+    let report = kairos_index::link(&world.root, &db, &SummarizeOptions::default())
+        .unwrap_or_else(|e| panic!("{e}"));
+    world.requests = Vec::new();
+    world.summary_report = Some(report);
+}
+
+#[then(expr = "each symbol has a key of the model {string}, and no summary was made")]
+fn linked_with_the_model(world: &mut IndexWorld, model: String) {
+    let report = world.summary_report.as_ref().expect("no run");
+    assert_eq!(report.symbols.summarized, 0);
+    assert_eq!(report.symbols.left, 0, "{:?}", report.symbols);
+    let db = world.indexes.last().expect("no index was built");
+    let conn = rusqlite::Connection::open(db).expect("open the index");
+    let mismatched: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM symbols s JOIN summaries p ON p.key = s.summary_key
+             WHERE s.summary_key IS NOT NULL AND p.model <> ?1",
+            [&model],
+            |r| r.get(0),
+        )
+        .expect("count");
+    assert_eq!(
+        mismatched, 0,
+        "a symbol links to a summary of another model"
+    );
+    let recorded: String = conn
+        .query_row(
+            "SELECT value FROM pool_meta WHERE name = 'summary_model'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("the pool records its model");
+    assert_eq!(recorded, model);
+}
+
 #[when("the body of a function changes and its signature stays the same")]
 fn change_a_body(world: &mut IndexWorld) {
     let path = world.root.join("src/queue.rs");
@@ -2741,6 +2866,10 @@ impl kairos_embed::EmbeddingProvider for SummaryTextVectors {
 }
 
 impl Summarizer for SameIdea {
+    fn model(&self) -> String {
+        "fake/same-idea".to_string()
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
         let group = expected_group("same-idea");
         if request.level == Level::Symbol

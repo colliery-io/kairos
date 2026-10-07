@@ -392,6 +392,10 @@ struct GatedSummarizer<'a> {
 }
 
 impl Summarizer for GatedSummarizer<'_> {
+    fn model(&self) -> String {
+        self.inner.model()
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
         let _held = self.gate.first_build();
         self.inner.summarize(request)
@@ -1492,6 +1496,7 @@ pub(crate) fn pool_row_of(row: kairos_db::code_indexes::PoolRow) -> kairos_index
         level: row.level,
         summary: row.summary,
         vector: row.vector,
+        model: row.model,
     }
 }
 
@@ -1509,6 +1514,7 @@ pub(crate) fn used_rows(
             level: row.level,
             summary: row.summary,
             vector: row.vector,
+            model: row.model,
         })
         .collect()
 }

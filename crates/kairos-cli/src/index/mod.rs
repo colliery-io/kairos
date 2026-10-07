@@ -523,6 +523,9 @@ fn status(root: &Path) -> Result<(), IndexCommandError> {
         c.module_summaries,
         c.pool
     );
+    if let Some(model) = &c.summary_model {
+        println!("Summaries model: {model}");
+    }
     if let Some(model) = &c.vector_model {
         println!("Vectors: {model}");
     }

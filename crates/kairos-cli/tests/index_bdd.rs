@@ -107,6 +107,10 @@ struct Described {
 }
 
 impl Summarizer for Described {
+    fn model(&self) -> String {
+        "fake/described".to_string()
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
         if request.level == Level::Symbol
             && let Some((_, _, text)) = DESCRIPTIONS

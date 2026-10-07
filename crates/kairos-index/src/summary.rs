@@ -171,6 +171,12 @@ impl SummaryRequest {
 /// Writes one summary. The real one runs a local model; the scenarios use
 /// [`FakeSummarizer`].
 pub trait Summarizer {
+    /// The model, as `provider/model` (KAIROS-T-0338): for example
+    /// `embedded/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M` or `ollama-cloud/gemma4:31b`.
+    /// It is part of each summary key, so a summary is reused only for the
+    /// same model, and the pool records it with each summary.
+    fn model(&self) -> String;
+
     /// The summary for `request`: 1 to 3 sentences of plain text. The error
     /// text says why the model gave no summary.
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String>;
@@ -178,12 +184,35 @@ pub trait Summarizer {
 
 /// A summarizer for tests: a fixed text for each input, with no model. It
 /// keeps each request, so that a test can see what the model would get.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FakeSummarizer {
+    /// The model name that the keys and the pool get: `fake/fixed` by
+    /// default. A scenario with 2 models gives each fake its own name.
+    pub model: String,
     pub requests: Vec<SummaryRequest>,
 }
 
+impl Default for FakeSummarizer {
+    fn default() -> Self {
+        FakeSummarizer::named("fake/fixed")
+    }
+}
+
+impl FakeSummarizer {
+    /// A fake summarizer with the model name `model`.
+    pub fn named(model: &str) -> Self {
+        FakeSummarizer {
+            model: model.to_string(),
+            requests: Vec::new(),
+        }
+    }
+}
+
 impl Summarizer for FakeSummarizer {
+    fn model(&self) -> String {
+        self.model.clone()
+    }
+
     fn summarize(&mut self, request: &SummaryRequest) -> Result<String, String> {
         let digest = hex(&Sha256::digest(request.prompt().as_bytes()));
         self.requests.push(request.clone());
@@ -330,6 +359,21 @@ fn run(
         }
         None => None,
     };
+    // The model of the keys (KAIROS-T-0338): the summarizer of this run,
+    // or, for a link run, the model of the last run that the pool records.
+    // A pool with no record (an index from before this version) links
+    // nothing: each key is new.
+    let key_model = match &model {
+        Some((summarizer, _)) => {
+            let name = summarizer.model();
+            conn.execute(
+                "INSERT OR REPLACE INTO pool_meta (name, value) VALUES ('summary_model', ?1)",
+                [&name],
+            )?;
+            name
+        }
+        None => summary_model_of(&conn)?.unwrap_or_default(),
+    };
 
     let in_scope =
         |path: &str| options.under.is_empty() || options.under.iter().any(|u| path.starts_with(u));
@@ -366,7 +410,7 @@ fn run(
                 callees.push(signature);
             }
         }
-        let key = symbol_key(&s.tree_hash, &callees);
+        let key = symbol_key(&key_model, &s.tree_hash, &callees);
         if seen.contains(&key) || in_pool(&conn, &key)? {
             seen.insert(key.clone());
             symbol_keys.insert(s.id, key);
@@ -438,7 +482,7 @@ fn run(
             continue;
         }
         let language = f.language.clone().unwrap_or_default();
-        let key = children_key(Level::File, &language, &f.path, &lines);
+        let key = children_key(&key_model, Level::File, &language, &f.path, &lines);
         let request = SummaryRequest {
             level: Level::File,
             key: key.clone(),
@@ -491,7 +535,7 @@ fn run(
             report.modules.left += 1;
             continue;
         }
-        let key = children_key(Level::Module, "", "", &lines);
+        let key = children_key(&key_model, Level::Module, "", "", &lines);
         if in_pool(&conn, &key)? {
             report.modules.reused += 1;
         } else if let Some((summarizer, _)) = model.as_mut() {
@@ -586,9 +630,14 @@ fn run_one(
         });
     }
     conn.execute(
-        "INSERT INTO summaries (key, level, summary) VALUES (?1, ?2, ?3)
+        "INSERT INTO summaries (key, level, summary, model) VALUES (?1, ?2, ?3, ?4)
          ON CONFLICT (key) DO NOTHING",
-        params![request.key, request.level.as_str(), text],
+        params![
+            request.key,
+            request.level.as_str(),
+            text,
+            summarizer.model()
+        ],
     )?;
     report.calls.push(SummaryCall {
         level: request.level,
@@ -600,13 +649,17 @@ fn run_one(
     Ok(())
 }
 
-/// The key of a symbol summary: the hash of the tree hash of the symbol and
-/// of the signatures of its callees, in the order of the calls. The
-/// signatures are compared with no formatting (see [`signature_key`]), so a
-/// formatting change gives the same key.
-fn symbol_key(tree_hash: &str, callees: &[String]) -> String {
+/// The key of a symbol summary: the hash of the model, of the tree hash of
+/// the symbol and of the signatures of its callees, in the order of the
+/// calls. The signatures are compared with no formatting (see
+/// [`signature_key`]), so a formatting change gives the same key. The model
+/// is in the key (KAIROS-T-0338), so the same code with another model is
+/// another key.
+fn symbol_key(model: &str, tree_hash: &str, callees: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"symbol");
+    hasher.update([0]);
+    hasher.update(model.as_bytes());
     hasher.update([0]);
     hasher.update(tree_hash.as_bytes());
     for callee in callees {
@@ -639,12 +692,14 @@ fn signature_key(signature: &str) -> String {
     out
 }
 
-/// The key of a file or a module summary: the hash of its level, its
-/// language, its path (a file only; empty for a module) and its child lines,
-/// in order.
-fn children_key(level: Level, language: &str, path: &str, lines: &[String]) -> String {
+/// The key of a file or a module summary: the hash of the model, its level,
+/// its language, its path (a file only; empty for a module) and its child
+/// lines, in order.
+fn children_key(model: &str, level: Level, language: &str, path: &str, lines: &[String]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(level.as_str().as_bytes());
+    hasher.update([0]);
+    hasher.update(model.as_bytes());
     hasher.update([0]);
     hasher.update(language.as_bytes());
     hasher.update([0]);
@@ -668,6 +723,18 @@ fn summary_of(conn: &Connection, key: &str) -> Result<Option<String>, IndexError
         .query_row("SELECT summary FROM summaries WHERE key = ?1", [key], |r| {
             r.get(0)
         })
+        .optional()?)
+}
+
+/// The model of the last summary run, as `pool_meta` keeps it
+/// (KAIROS-T-0338). None for a pool that no summary run wrote.
+pub(crate) fn summary_model_of(conn: &Connection) -> Result<Option<String>, IndexError> {
+    Ok(conn
+        .query_row(
+            "SELECT value FROM pool_meta WHERE name = 'summary_model'",
+            [],
+            |r| r.get(0),
+        )
         .optional()?)
 }
 
@@ -763,12 +830,20 @@ pub(crate) fn copy_pool(from: &Connection, to: &mut Connection) -> Result<(), In
                 [model],
             )?;
         }
+        // The model of the last run of `from` is the record of `to` when
+        // `to` has none (KAIROS-T-0338).
+        if let Some(summary_model) = summary_model_of(from)? {
+            tx.execute(
+                "INSERT OR IGNORE INTO pool_meta (name, value) VALUES ('summary_model', ?1)",
+                [summary_model],
+            )?;
+        }
         let mut insert = tx.prepare(
-            "INSERT INTO summaries (key, level, summary, vector) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO summaries (key, level, summary, vector, model) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT (key) DO UPDATE SET vector = excluded.vector
              WHERE summaries.vector IS NULL",
         )?;
-        let mut stmt = from.prepare("SELECT key, level, summary, vector FROM summaries")?;
+        let mut stmt = from.prepare("SELECT key, level, summary, vector, model FROM summaries")?;
         let mut rows = stmt.query([])?;
         while let Some(row) = rows.next()? {
             insert.execute(params![
@@ -776,6 +851,7 @@ pub(crate) fn copy_pool(from: &Connection, to: &mut Connection) -> Result<(), In
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, Option<Vec<u8>>>(3)?,
+                row.get::<_, String>(4)?,
             ])?;
         }
     }
@@ -993,16 +1069,46 @@ mod tests {
 
     #[test]
     fn the_key_of_a_file_depends_on_the_order_of_its_children() {
-        let a = children_key(Level::File, "rust", "a.rs", &["x".into(), "y".into()]);
-        let b = children_key(Level::File, "rust", "a.rs", &["y".into(), "x".into()]);
-        let c = children_key(Level::Module, "rust", "a.rs", &["x".into(), "y".into()]);
-        let d = children_key(Level::File, "rust", "b.rs", &["x".into(), "y".into()]);
+        let a = children_key(
+            "fake/fixed",
+            Level::File,
+            "rust",
+            "a.rs",
+            &["x".into(), "y".into()],
+        );
+        let b = children_key(
+            "fake/fixed",
+            Level::File,
+            "rust",
+            "a.rs",
+            &["y".into(), "x".into()],
+        );
+        let c = children_key(
+            "fake/fixed",
+            Level::Module,
+            "rust",
+            "a.rs",
+            &["x".into(), "y".into()],
+        );
+        let d = children_key(
+            "fake/fixed",
+            Level::File,
+            "rust",
+            "b.rs",
+            &["x".into(), "y".into()],
+        );
         assert_ne!(a, b);
         assert_ne!(a, c);
         assert_ne!(a, d, "the path is in the key of a file");
         assert_eq!(
             a,
-            children_key(Level::File, "rust", "a.rs", &["x".into(), "y".into()])
+            children_key(
+                "fake/fixed",
+                Level::File,
+                "rust",
+                "a.rs",
+                &["x".into(), "y".into()]
+            )
         );
     }
 
@@ -1022,10 +1128,10 @@ mod tests {
 
     #[test]
     fn the_key_of_a_symbol_has_the_signatures_of_its_callees() {
-        let plain = symbol_key("t", &[]);
-        let one = symbol_key("t", &["fn g(x: u32)".into()]);
-        let reformatted = symbol_key("t", &["fn g( x: u32 )".into()]);
-        let changed = symbol_key("t", &["fn g(x: u64)".into()]);
+        let plain = symbol_key("fake/fixed", "t", &[]);
+        let one = symbol_key("fake/fixed", "t", &["fn g(x: u32)".into()]);
+        let reformatted = symbol_key("fake/fixed", "t", &["fn g( x: u32 )".into()]);
+        let changed = symbol_key("fake/fixed", "t", &["fn g(x: u64)".into()]);
         assert_ne!(plain, one);
         assert_eq!(one, reformatted);
         assert_ne!(one, changed);

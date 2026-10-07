@@ -1075,6 +1075,10 @@ struct SlowSummarizer {
 }
 
 impl kairos_index::Summarizer for SlowSummarizer {
+    fn model(&self) -> String {
+        self.inner.model()
+    }
+
     fn summarize(&mut self, request: &kairos_index::SummaryRequest) -> Result<String, String> {
         if request.path.starts_with("slow") {
             std::thread::sleep(self.delay);

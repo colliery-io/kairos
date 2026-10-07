@@ -186,6 +186,9 @@ pub struct Counts {
     pub pool: usize,
     /// The model of the vectors, as `provider/model/dimension`.
     pub vector_model: Option<String>,
+    /// The model of the last summary run, as `provider/model`
+    /// (KAIROS-T-0338).
+    pub summary_model: Option<String>,
 }
 
 impl Counts {
@@ -280,7 +283,21 @@ impl Index {
             ))?,
             pool: count("SELECT count(*) FROM summaries")?,
             vector_model: self.vector_model()?,
+            summary_model: self.summary_model()?,
         })
+    }
+
+    /// The model of the last summary run of the pool, as `provider/model`
+    /// (KAIROS-T-0338).
+    pub fn summary_model(&self) -> Result<Option<String>, IndexError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM pool_meta WHERE name = 'summary_model'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// The model of the vectors of the pool, as `provider/model/dimension`.

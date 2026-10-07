@@ -29,6 +29,20 @@ Feature: Summaries
     Then the key of the function changes
     And the keys of its callers do not change
 
+  # KAIROS-T-0338: the model is part of each key, so a change of model
+  # makes new summaries and never mixes them. A link run (no summarizer)
+  # uses the model that the pool records.
+  Scenario: A summary is reused only for the same model
+    Given a summarized index
+    When I summarize the index with the fake model "fake/b"
+    Then the summarizer ran for each summarizable symbol again, and the pool holds the summaries of both models
+    When I summarize the index with the fake model "fake/fixed"
+    Then the summarizer did not run
+    And each symbol has the key of the first model again
+    When I summarize the index with the fake model "fake/b"
+    And I link the summaries of the index
+    Then each symbol has a key of the model "fake/b", and no summary was made
+
   @model @allow.skipped
   Scenario: The real model writes a summary
     Given the Qwen3-4B model file is on disk

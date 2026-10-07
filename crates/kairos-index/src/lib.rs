@@ -1050,7 +1050,7 @@ mod tests {
         build_structure(&repo, &db).unwrap();
         let conn = Connection::open(&db).unwrap();
         conn.execute(
-            "INSERT INTO summaries (key, level, summary) VALUES ('k', 'symbol', 'Does f.')",
+            "INSERT INTO summaries (key, level, summary, model) VALUES ('k', 'symbol', 'Does f.', 'fake/fixed')",
             [],
         )
         .unwrap();

@@ -597,6 +597,17 @@ changed files.
 | `--max-changed` | The most files that can change since the base index. The default is 200. |
 | `--link-only` | Do not run the summary model. The update links the summaries that are in the pool of the index, and it does not make new summaries. The background update of the Claude Code plugin uses this option. |
 
+A repository can opt in to the hosted provider of its organization
+(`code_index_summaries = hosted`). On such a repository, the update makes
+no summary, whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries
+of the pool, and its last line says so. The structure of the checkout is
+still built for the changed files. So search and the call graph are right
+on a branch before its push.
+
+The next push makes the summaries on Kairos. The CLI never has the key of
+the organization. `kairos index build` and `kairos index --full` do not ask
+Kairos. They run the model of the machine when it has one.
+
 The base is the nearest indexed commit at or below the merge base of `HEAD`
 and the default branch. If more files than the limit changed since that
 commit, the CLI builds nothing. It tells you to rebase on the default branch,

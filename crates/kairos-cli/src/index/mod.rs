@@ -301,7 +301,7 @@ fn build(root: &Path) -> Result<(), IndexCommandError> {
     let started = Instant::now();
     let report = kairos_index::build_structure_with(root, &db, &BuildOptions::default())?;
     print_structure(&report, started);
-    print_summaries(summaries::run(root, &db, false)?);
+    print_summaries(summaries::run(root, &db, None)?);
     Ok(())
 }
 
@@ -333,7 +333,13 @@ async fn update(
 
     // Where the update starts: the local index, or the base from Kairos.
     let mut download = None;
-    match (base::find(root, remote).await, &local) {
+    let found = base::find(root, remote).await;
+    // KAIROS-T-0343: a repository on a hosted provider makes its summaries
+    // on Kairos. The CLI then links the pool and runs no model, whatever
+    // KAIROS_INDEX_SUMMARIZE says. With no answer from Kairos, the CLI
+    // cannot know, and it runs as before.
+    let hosted = matches!(&found, base::Found::Base(b) if b.hosted);
+    match (found, &local) {
         (base::Found::Base(b), Local::Current(n)) if *n <= b.changed => {
             if *n > max_changed {
                 return Err(too_far(root, &b, max_changed));
@@ -387,7 +393,14 @@ async fn update(
     };
     let report = kairos_index::update_structure(root, &db, &options)?;
     print_structure(&report, started);
-    print_summaries(summaries::run(root, &db, link_only)?);
+    let no_model = if hosted {
+        Some(summaries::HOSTED)
+    } else if link_only {
+        Some(summaries::LINK_ONLY)
+    } else {
+        None
+    };
+    print_summaries(summaries::run(root, &db, no_model)?);
     Ok(())
 }
 
@@ -592,16 +605,25 @@ mod summaries {
     pub const LINK_ONLY: &str =
         "The update ran with --link-only. Run `kairos index update` to make them.";
 
+    /// Why a hosted repository made no summaries (KAIROS-T-0343).
+    pub const HOSTED: &str = "This repository makes its summaries on Kairos, with the hosted \
+                              provider of the organization. The next push updates them.";
+
     /// Link each key that the pool has, with no model (COLLIERY-T-1854). The
-    /// summarizer runs only if a key is not in the pool, and not with
-    /// `link_only` (COLLIERY-T-2529).
-    pub fn run(root: &Path, db: &Path, link_only: bool) -> Result<Outcome, IndexCommandError> {
+    /// summarizer runs only if a key is not in the pool, and not when
+    /// `no_model` gives the reason that no model runs: `--link-only`
+    /// (COLLIERY-T-2529) or a hosted repository (KAIROS-T-0343).
+    pub fn run(
+        root: &Path,
+        db: &Path,
+        no_model: Option<&str>,
+    ) -> Result<Outcome, IndexCommandError> {
         let linked = kairos_index::link(root, db, &SummarizeOptions::default())?;
         if linked.symbols.left + linked.files.left + linked.modules.left == 0 {
             return Ok(Outcome::Linked(linked));
         }
-        if link_only {
-            return Ok(Outcome::NotMade(linked, LINK_ONLY.into()));
+        if let Some(why) = no_model {
+            return Ok(Outcome::NotMade(linked, why.into()));
         }
         summarize(root, db, linked)
     }
@@ -765,11 +787,16 @@ mod tests {
         .expect("write");
         let db = root.join("index.db");
         kairos_index::build_structure(root, &db).expect("structure");
-        match summaries::run(root, &db, true).expect("run") {
+        match summaries::run(root, &db, Some(summaries::LINK_ONLY)).expect("run") {
             summaries::Outcome::NotMade(report, why) => {
                 assert_eq!(why, summaries::LINK_ONLY);
                 assert!(report.symbols.left > 0, "the symbol has no summary");
             }
+            _ => panic!("a model ran, or each summary was in the pool"),
+        }
+        // KAIROS-T-0343: a hosted repository gives its own reason.
+        match summaries::run(root, &db, Some(summaries::HOSTED)).expect("run") {
+            summaries::Outcome::NotMade(_, why) => assert_eq!(why, summaries::HOSTED),
             _ => panic!("a model ran, or each summary was in the pool"),
         }
     }

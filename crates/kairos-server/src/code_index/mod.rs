@@ -66,6 +66,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use kairos_db::code_index_builds as runs;
 use kairos_db::models::repositories::Repository;
 use kairos_index::tools::{ToolSet, Tools};
 use kairos_index::{
@@ -107,6 +108,21 @@ pub struct CodeIndexService {
     /// The last reason why the first-build lane did not build each
     /// repository, so that the log gets a reason once, not at each pass.
     notes: Mutex<HashMap<uuid::Uuid, String>>,
+    /// The builds that a person asked for (KAIROS-T-0332), in the sequence
+    /// of the requests. The builder takes them when `wake` says so.
+    requests: Mutex<std::collections::VecDeque<RebuildRequest>>,
+    /// Woken for each request.
+    wake: tokio::sync::Notify,
+}
+
+/// A build that a person asked for (KAIROS-T-0332). Its run row exists
+/// already, as `running` with `trigger = request`.
+#[derive(Debug, Clone)]
+pub struct RebuildRequest {
+    pub tenant: String,
+    pub repository_id: uuid::Uuid,
+    /// The id of the run row.
+    pub run: uuid::Uuid,
 }
 
 impl std::fmt::Debug for CodeIndexService {
@@ -130,7 +146,32 @@ impl CodeIndexService {
             secrets: None,
             gate: WorkGate::default(),
             notes: Mutex::default(),
+            requests: Mutex::default(),
+            wake: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Queue a build that a person asked for, and wake the builder.
+    pub fn request_rebuild(&self, request: RebuildRequest) {
+        self.requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(request);
+        self.wake.notify_one();
+    }
+
+    /// Take each queued request, in the sequence of the requests.
+    pub fn pending_rebuilds(&self) -> Vec<RebuildRequest> {
+        self.requests
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .drain(..)
+            .collect()
+    }
+
+    /// Woken by [`Self::request_rebuild`].
+    pub fn wake(&self) -> &tokio::sync::Notify {
+        &self.wake
     }
 
     /// The gate of the heavy steps of the builder (KAIROS-T-0318).
@@ -622,13 +663,15 @@ pub async fn first_builds(
     for (tenant, repos) in repositories_of(blocking, Pass::FirstBuilds).await {
         for repo in repos {
             let repo_id = repo.id;
-            let outcome = first_build_repository(
+            let outcome = full_build_repository(
                 blocking,
                 service,
                 &tenant,
                 repo,
                 Arc::clone(&summarizers),
                 Arc::clone(&embedder),
+                "first",
+                None,
             )
             .await;
             match (&outcome.report, &outcome.note) {
@@ -675,6 +718,68 @@ pub async fn first_builds(
             }
             outcomes.push(outcome);
         }
+    }
+    outcomes
+}
+
+/// Build the index of each repository that a person asked for
+/// (KAIROS-T-0332): a full build of the head of its default branch, as a
+/// first build, which replaces the index of that commit. One at a time, in
+/// the sequence of the requests. The run row of each request is ended with
+/// the result.
+pub async fn requested_builds(
+    blocking: &BlockingTenantPool,
+    service: &Arc<CodeIndexService>,
+    summarizers: Arc<dyn SummarizerSource>,
+    embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+) -> Vec<BuildOutcome> {
+    let mut outcomes = Vec::new();
+    for request in service.pending_rebuilds() {
+        let repo_id = request.repository_id;
+        let repo = blocking
+            .run(&request.tenant, move |conn| {
+                kairos_db::repositories::load(conn, repo_id).map_err(ApiError::internal)
+            })
+            .await;
+        let repo = match repo {
+            Ok(repo) => repo,
+            Err(e) => {
+                let note = format!("failed: the repository is not readable: {e:?}");
+                record_end(blocking, &request.tenant, Some(request.run), Err(&note)).await;
+                tracing::warn!(tenant = %request.tenant, repository = %repo_id, note = %note, "code index requested build failed");
+                continue;
+            }
+        };
+        let outcome = full_build_repository(
+            blocking,
+            service,
+            &request.tenant,
+            repo,
+            Arc::clone(&summarizers),
+            Arc::clone(&embedder),
+            "request",
+            Some(request.run),
+        )
+        .await;
+        match (&outcome.report, &outcome.note) {
+            (Some(report), _) => tracing::info!(
+                tenant = %outcome.tenant,
+                repository = %outcome.repository,
+                commit = %outcome.commit,
+                files = report.build.files,
+                symbols = report.build.symbols,
+                elapsed_secs = outcome.elapsed.as_secs_f64(),
+                "code index requested build ended"
+            ),
+            (None, Some(note)) => tracing::warn!(
+                tenant = %outcome.tenant,
+                repository = %outcome.repository,
+                note = %note,
+                "code index requested build failed"
+            ),
+            (None, None) => {}
+        }
+        outcomes.push(outcome);
     }
     outcomes
 }
@@ -769,6 +874,202 @@ impl CodeIndexService {
 }
 
 /// Store the index of `head` of `repo`, built by the builder.
+/// The counts of a run, from its report (KAIROS-T-0331).
+fn counts_of(report: &UpdateReport) -> runs::Counts {
+    let clamp = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+    runs::Counts {
+        files: clamp(report.build.files),
+        symbols: clamp(report.build.symbols),
+        edges: clamp(report.build.edges.total()),
+        summaries_made: clamp(
+            report.summary.symbols.summarized
+                + report.summary.files.summarized
+                + report.summary.modules.summarized,
+        ),
+    }
+}
+
+/// Tell the readers of a repository that a run started or ended
+/// (KAIROS-T-0333): the event `code_index_build_changed`, with the slug of
+/// the repository as its short code. Inside the transaction of the write.
+pub(crate) fn notify_run(
+    conn: &mut diesel::pg::PgConnection,
+    slug: &str,
+    actor: Option<uuid::Uuid>,
+) -> Result<(), ApiError> {
+    kairos_db::events::emit_event(
+        conn,
+        &kairos_db::events::ThinEvent {
+            event: kairos_db::events::EventKind::CodeIndexBuildChanged,
+            entity_type: "repository".to_string(),
+            short_code: slug.to_string(),
+            board_id: None,
+            column_id: None,
+            actor: actor.unwrap_or_else(uuid::Uuid::nil),
+        },
+    )
+    .map_err(ApiError::internal)
+}
+
+/// The slug of the repository of a run, for its event.
+fn slug_of_run(conn: &mut diesel::pg::PgConnection, run: &runs::Build) -> Option<String> {
+    kairos_db::repositories::load(conn, run.repository_id)
+        .ok()
+        .map(|repo| repo.slug)
+}
+
+/// Start the record of a run (KAIROS-T-0331): a `running` row, after the
+/// stale rows of the repository are ended. None when the write fails: the
+/// failure is logged, and the build goes on with no record.
+async fn record_start(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+) -> Option<uuid::Uuid> {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
+    let written = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                runs::end_stale(conn, repo_id).map_err(ApiError::internal)?;
+                let run = runs::start(conn, repo_id, trigger, Some(&branch), None)
+                    .map_err(ApiError::internal)?;
+                notify_run(conn, &slug, None)?;
+                Ok(run)
+            })
+        })
+        .await;
+    match written {
+        Ok(run) => Some(run.id),
+        Err(e) => {
+            tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index run not recorded");
+            None
+        }
+    }
+}
+
+/// Give the record of a run its commit.
+async fn record_commit(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    commit: &str,
+) {
+    let Some(id) = run else { return };
+    let commit = commit.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            runs::set_commit(conn, id, &commit).map_err(ApiError::internal)
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run commit not recorded");
+    }
+}
+
+/// End the record of a run: `ok` with the counts, or `failed` with the
+/// text.
+async fn record_end(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    run: Option<uuid::Uuid>,
+    result: Result<runs::Counts, &str>,
+) {
+    let Some(id) = run else { return };
+    let result = result.map_err(str::to_owned);
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let run = match &result {
+                    Ok(counts) => runs::end_ok(conn, id, Some(*counts)),
+                    Err(error) => runs::end_failed(conn, id, error),
+                }
+                .map_err(ApiError::internal)?;
+                if let Some(slug) = slug_of_run(conn, &run) {
+                    notify_run(conn, &slug, run.requested_by)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    {
+        tracing::warn!(tenant, error = ?e, "code index run end not recorded");
+    }
+}
+
+/// Record a failure that came before the run had a row: the fetch, or the
+/// choice of the base. A repeat of the newest failure adds no row
+/// ([`runs::record_failure_once`]).
+async fn record_failure_once(
+    blocking: &BlockingTenantPool,
+    tenant: &str,
+    repo: &Repository,
+    trigger: &'static str,
+    commit: Option<&str>,
+    error: &str,
+) {
+    let repo_id = repo.id;
+    let branch = repo.default_branch.clone();
+    let slug = repo.slug.clone();
+    let commit = commit.map(str::to_owned);
+    let error = error.to_string();
+    if let Err(e) = blocking
+        .run(tenant, move |conn| {
+            crate::api::org::run_in_transaction(conn, |conn| {
+                let written = runs::record_failure_once(
+                    conn,
+                    repo_id,
+                    trigger,
+                    commit.as_deref(),
+                    Some(&branch),
+                    &error,
+                )
+                .map_err(ApiError::internal)?;
+                if written.is_some() {
+                    notify_run(conn, &slug, None)?;
+                }
+                Ok(())
+            })
+        })
+        .await
+    {
+        tracing::warn!(tenant, repository = %repo.slug, error = ?e, "code index failure not recorded");
+    }
+}
+
+/// End the `running` rows of each tenant when the builder starts: the
+/// server stopped during those runs (KAIROS-T-0331).
+async fn end_stale_runs(blocking: &BlockingTenantPool) {
+    let tenants = match blocking
+        .run_public(|conn| kairos_db::list_tenants(conn).map_err(ApiError::internal))
+        .await
+    {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            tracing::warn!(error = ?e, "code index builder could not list tenants");
+            return;
+        }
+    };
+    for tenant in tenants.into_iter().filter(|t| t.schema_exists) {
+        match blocking
+            .run(&tenant.slug, |conn| {
+                runs::end_all_stale(conn).map_err(ApiError::internal)
+            })
+            .await
+        {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!(tenant = %tenant.slug, runs = n, "code index runs ended: the server stopped during them")
+            }
+            Err(e) => {
+                tracing::warn!(tenant = %tenant.slug, error = ?e, "code index stale runs not ended")
+            }
+        }
+    }
+}
+
 async fn store_built(
     blocking: &BlockingTenantPool,
     tenant: &str,
@@ -830,7 +1131,10 @@ async fn build_repository(
         ancestors,
     } = match fetch_head(blocking, service, tenant, &repo, true).await {
         Ok(fetched) => fetched,
-        Err(note) => return done(outcome, note),
+        Err(note) => {
+            record_failure_once(blocking, tenant, &repo, "push", None, &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
@@ -869,14 +1173,19 @@ async fn build_repository(
         Ok(Some(Some(base))) => base,
         Ok(Some(None)) => return done(outcome, "the head has an index".into()),
         Ok(None) => {
-            return done(
-                outcome,
-                format!("no indexed commit is within {MAX_DISTANCE} commits below the head"),
-            );
+            let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e:?}")),
+        Err(e) => {
+            let note = format!("failed: {e:?}");
+            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
+            return done(outcome, note);
+        }
     };
     outcome.base = Some(base.commit.clone());
+    let run = record_start(blocking, tenant, &repo, "push").await;
+    record_commit(blocking, tenant, run, &head).await;
 
     // The update, off the async threads: it runs rust-analyzer and the
     // model for minutes. It holds the gate for the whole build, so a first
@@ -921,26 +1230,41 @@ async fn build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok(counts_of(&report))).await;
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
     outcome
 }
 
-/// The first build of one repository that has no index (KAIROS-T-0318).
-async fn first_build_repository(
+/// A full build of one repository: the first build of a repository that
+/// has no index (KAIROS-T-0318, `trigger = first`), or a build that a
+/// person asked for (KAIROS-T-0332, `trigger = request`, with the run row
+/// `run` that the request made). A requested build skips the memory of
+/// the commits that failed before: the person asks for one more try.
+#[allow(clippy::too_many_arguments)]
+async fn full_build_repository(
     blocking: &BlockingTenantPool,
     service: &Arc<CodeIndexService>,
     tenant: &str,
     repo: Repository,
     summarizers: Arc<dyn SummarizerSource>,
     embedder: Arc<dyn kairos_embed::EmbeddingProvider>,
+    trigger: &'static str,
+    run: Option<uuid::Uuid>,
 ) -> BuildOutcome {
     let started = Instant::now();
     let mut outcome = BuildOutcome {
@@ -958,25 +1282,39 @@ async fn first_build_repository(
         outcome
     };
     if !repo.code_index_build_on() {
+        record_end(blocking, tenant, run, Err(OPTED_OUT)).await;
         return done(outcome, OPTED_OUT.into());
     }
 
-    let Fetched { clone, head, .. } =
-        match fetch_head(blocking, service, tenant, &repo, false).await {
-            Ok(fetched) => fetched,
-            Err(note) => return done(outcome, note),
-        };
+    let Fetched { clone, head, .. } = match fetch_head(blocking, service, tenant, &repo, false)
+        .await
+    {
+        Ok(fetched) => fetched,
+        Err(note) => {
+            match run {
+                Some(_) => record_end(blocking, tenant, run, Err(&note)).await,
+                None => record_failure_once(blocking, tenant, &repo, trigger, None, &note).await,
+            }
+            return done(outcome, note);
+        }
+    };
     outcome.commit = head.clone();
     let key = (repo.id, head.clone());
-    if service.failed_before(&key) {
+    if run.is_none() && service.failed_before(&key) {
         return done(outcome, "an earlier build of this commit failed".into());
     }
     tracing::info!(
         tenant = %tenant,
         repository = %repo.slug,
         commit = %head,
-        "code index first build started"
+        trigger,
+        "code index full build started"
     );
+    let run = match run {
+        Some(id) => Some(id),
+        None => record_start(blocking, tenant, &repo, trigger).await,
+    };
+    record_commit(blocking, tenant, run, &head).await;
 
     // The build, off the async threads: it runs for hours on a large
     // repository. It takes the gate for each step, so the updates of the
@@ -1050,13 +1388,21 @@ async fn first_build_repository(
         Ok(Ok(built)) => built,
         Ok(Err(e)) => {
             service.record_failure(key);
-            return done(outcome, format!("failed: {e}"));
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
         }
-        Err(e) => return done(outcome, format!("failed: {e}")),
+        Err(e) => {
+            let note = format!("failed: {e}");
+            record_end(blocking, tenant, run, Err(&note)).await;
+            return done(outcome, note);
+        }
     };
     if let Err(note) = store_built(blocking, tenant, &repo, head, split).await {
+        record_end(blocking, tenant, run, Err(&note)).await;
         return done(outcome, note);
     }
+    record_end(blocking, tenant, run, Ok(counts_of(&report))).await;
     remove_database(&db);
     outcome.report = Some(report);
     outcome.elapsed = started.elapsed();
@@ -1094,20 +1440,34 @@ pub async fn run_builder(
         interval_secs = interval.as_secs(),
         "code index builder started"
     );
+    end_stale_runs(&blocking).await;
     let wake = tokio::sync::Notify::new();
     let updates = async {
         let mut ticker = tokio::time::interval(interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            ticker.tick().await;
-            sweep(
-                &blocking,
-                &service,
-                Arc::clone(&summarizers),
-                Arc::clone(&embedder),
-            )
-            .await;
-            wake.notify_one();
+            // A request (KAIROS-T-0332) goes before the next sweep.
+            tokio::select! {
+                _ = ticker.tick() => {
+                    sweep(
+                        &blocking,
+                        &service,
+                        Arc::clone(&summarizers),
+                        Arc::clone(&embedder),
+                    )
+                    .await;
+                    wake.notify_one();
+                }
+                _ = service.wake().notified() => {
+                    requested_builds(
+                        &blocking,
+                        &service,
+                        Arc::clone(&summarizers),
+                        Arc::clone(&embedder),
+                    )
+                    .await;
+                }
+            }
         }
     };
     let firsts = async {

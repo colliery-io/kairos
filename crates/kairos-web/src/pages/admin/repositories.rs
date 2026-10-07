@@ -339,6 +339,8 @@ fn RepositoryRow(
     let repo_url = repo.repo_url.clone();
     let description = repo.description.clone();
     let documents_slug = repo.slug.clone();
+    let code_index_slug = repo.slug.clone();
+    let owner_team_slug = repo.team.slug.clone();
     // COLLIERY-T-3105: the status of the read token, never the token. The
     // field of the token starts empty and is cleared at each send.
     let credential_summary = repo.credential.summary();
@@ -532,6 +534,8 @@ fn RepositoryRow(
             </Text>
             <crate::pages::repositories::documents::RepositoryDocuments
                 slug=documents_slug/>
+            <crate::pages::repositories::code_index::CodeIndexPanel
+                slug=code_index_slug owner_team=owner_team_slug/>
             <Show when=move || editing.get()>
                 <Stack gap="xs">
                     <Group gap="sm" wrap=true top=true>

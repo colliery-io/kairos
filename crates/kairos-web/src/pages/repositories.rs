@@ -12,6 +12,7 @@
 //! admin directory and the team page show it for each repository.
 
 pub(crate) mod api;
+pub(crate) mod code_index;
 pub(crate) mod documents;
 
 use api::Repository;

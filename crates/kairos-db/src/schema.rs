@@ -108,6 +108,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    code_index_builds (id) {
+        id -> Uuid,
+        repository_id -> Uuid,
+        commit_sha -> Nullable<Text>,
+        ref_name -> Nullable<Text>,
+        trigger -> Text,
+        outcome -> Text,
+        error -> Nullable<Text>,
+        files -> Nullable<Int4>,
+        symbols -> Nullable<Int4>,
+        edges -> Nullable<Int4>,
+        summaries_made -> Nullable<Int4>,
+        requested_by -> Nullable<Uuid>,
+        started_at -> Timestamptz,
+        finished_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
     code_index_summaries (repository_id, key) {
         repository_id -> Uuid,
         key -> Text,
@@ -310,18 +329,6 @@ diesel::table! {
         target_id -> Uuid,
         relationship -> Text,
         created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
-    local_sessions (id) {
-        id -> Uuid,
-        user_id -> Uuid,
-        token_hash -> Text,
-        created_at -> Timestamptz,
-        expires_at -> Timestamptz,
-        last_used_at -> Nullable<Timestamptz>,
-        revoked_at -> Nullable<Timestamptz>,
     }
 }
 
@@ -585,6 +592,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     board_member_capabilities,
     board_transitions,
     boards,
+    code_index_builds,
     code_index_summaries,
     code_indexes,
     delivery_streams,
@@ -599,7 +607,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     item_links,
     item_metadata,
     item_relationships,
-    local_sessions,
     metadata_definition_scopes,
     metadata_definitions,
     metadata_enum_options,
@@ -619,6 +626,18 @@ diesel::allow_tables_to_appear_in_same_query!(
     template_metadata,
     templates,
 );
+
+diesel::table! {
+    public.local_sessions (id) {
+        id -> Uuid,
+        user_id -> Uuid,
+        token_hash -> Text,
+        created_at -> Timestamptz,
+        expires_at -> Timestamptz,
+        last_used_at -> Nullable<Timestamptz>,
+        revoked_at -> Nullable<Timestamptz>,
+    }
+}
 
 diesel::table! {
     public.organization_members (organization_id, user_id) {
@@ -711,6 +730,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(local_sessions -> users (user_id));
 diesel::joinable!(organization_members -> organizations (organization_id));
 diesel::joinable!(organization_members -> users (user_id));
 diesel::joinable!(system_metadata_definition_scopes -> system_metadata_definitions (metadata_definition_id));
@@ -719,6 +739,7 @@ diesel::joinable!(system_template_metadata -> system_metadata_definitions (metad
 diesel::joinable!(system_template_metadata -> system_templates (template_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    local_sessions,
     organization_members,
     organizations,
     system_board_defaults,

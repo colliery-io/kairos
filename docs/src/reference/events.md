@@ -56,9 +56,9 @@ One JSON object per WebSocket text message
 
 | Field | Meaning |
 |---|---|
-| `event` | One of the nine values in the table below |
-| `entity_type` | `strategy` \| `initiative` \| `task` \| `document` \| `adr` |
-| `short_code` | The affected item — re-fetch it via the REST API |
+| `event` | One of the ten values in the table below |
+| `entity_type` | `strategy` \| `initiative` \| `task` \| `document` \| `adr` \| `repository` |
+| `short_code` | The affected item — re-fetch it via the REST API. For `repository`, the slug of the repository |
 | `board_id` | The item's board (UUID); `null` for off-board items (documents, unplaced ADRs) |
 | `column_id` | The item's (new) column (UUID); omitted when not applicable |
 | `actor` | The acting user's id (UUID) |
@@ -80,6 +80,7 @@ otherwise ignore it.
 | `relationship_changed` | A relationship edge touching the item was added or removed. An `impacts` link of the item was added or removed. The owner board of a document changed |
 | `metadata_changed` | The item's metadata values changed |
 | `item_links_changed` | The item's forge links (branches, pull or merge requests) changed |
+| `code_index_build_changed` | A run of the code index builder started or ended for a repository. `entity_type` is `repository`, `short_code` is its slug, and `board_id` is `null`. Read its runs again: `GET /api/repositories/{slug}/code-indexes/builds` |
 
 Events carry **no payloads**: fetch the new state through the REST
 endpoints in the OpenAPI spec.

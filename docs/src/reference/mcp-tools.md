@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-five tools. A drift gate in the test suite
-asserts that `tools/list` returns these twenty-five and no others. The same
+twenty-six tools. A drift gate in the test suite
+asserts that `tools/list` returns these twenty-six and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -266,6 +266,32 @@ Its result is `No change to repository fidius: it has these values already.`
 Refuses: `VALIDATION` when the call has none of the three arguments.
 `NOT_FOUND` for an unknown repository. `FORBIDDEN` when the caller is not a
 member of the owner team and is not an organization admin.
+
+### `rebuild_code_index`
+
+Ask Kairos to build the code index of a repository again. The builder of
+the server makes a full index of the head of the default branch. The new
+index replaces the index of that commit.
+
+| Argument | Type | Required | Meaning |
+|---|---|---|---|
+| `repository` | string | yes | The repository, by slug or UUID. |
+
+The answer names the run. Read the runs of the repository on its page in
+the GUI, with `kairos repos builds <slug>`, or with
+`GET /api/repositories/{slug}/code-indexes/builds`.
+
+Refusals:
+
+- `CODE_INDEX_BUILD_RUNNING`: a run of the repository is active. Wait for
+  its end.
+- `CODE_INDEX_BUILD_OFF`: the repository has the builder off. Set
+  `code_index_build` to `on` with `update_repository` or `kairos repos
+  update`, then ask again.
+- `CODE_INDEX_BUILDER_OFF`: the deployment has no builder
+  (`KAIROS_CODE_INDEX_DIR` is not set).
+- `FORBIDDEN`: you are not a member of the owner team, and not an
+  organization admin.
 
 ## Reading
 

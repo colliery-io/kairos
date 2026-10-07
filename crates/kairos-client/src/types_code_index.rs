@@ -74,3 +74,63 @@ pub struct NearestCodeIndex {
     /// index.
     pub distance: usize,
 }
+
+/// One run of the code index builder (KAIROS-T-0331). The trigger says
+/// what started it: a push, a first build, a request, or an upload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CodeIndexBuild {
+    pub id: String,
+    /// The commit of the run, once the fetch gave it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    /// The branch that the run indexed, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub r#ref: Option<String>,
+    /// `push`, `first`, `request` or `upload`.
+    pub trigger: String,
+    /// `running`, `ok` or `failed`.
+    pub outcome: String,
+    /// The text of the failure, for a `failed` run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The counts of the index that an `ok` run wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbols: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edges: Option<i32>,
+    /// The summaries that the run made with the model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summaries_made: Option<i32>,
+    /// The user who asked for the run or sent the upload. None for the
+    /// builder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
+    /// When the run started, RFC 3339.
+    pub started_at: String,
+    /// When the run ended, RFC 3339. None while it runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<String>,
+}
+
+/// Query of `GET /api/repositories/{slug}/code-indexes/builds`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct CodeIndexBuildListQuery {
+    /// The most runs in the answer: 20 when not given, 100 at most.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+/// The answer to `GET /api/repositories/{slug}/code-indexes/builds`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CodeIndexBuildList {
+    /// The runs, newest first.
+    pub items: Vec<CodeIndexBuild>,
+    /// The runs of the repository, with those not in `items`.
+    pub total: i64,
+    /// The limit that the answer used.
+    pub limit: i64,
+}

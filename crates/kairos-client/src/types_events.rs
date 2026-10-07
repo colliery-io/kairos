@@ -18,7 +18,7 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ThinEvent {
     /// `item_created|item_updated|item_transitioned|item_moved|item_deleted|`
-    /// `item_restored|relationship_changed|metadata_changed|item_links_changed`.
+    /// `item_restored|relationship_changed|metadata_changed|item_links_changed|code_index_build_changed`.
     ///
     /// The authoritative list is `kairos_db::events::EventKind::as_str`; this
     /// comment is what an SDK consumer reads, so it had drifted two values

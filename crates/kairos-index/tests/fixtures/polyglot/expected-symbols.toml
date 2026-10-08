@@ -939,3 +939,32 @@ kind = "function"
 language = "typescript"
 lines = [14, 20]
 is_test = false
+
+# KAIROS-T-0349: a constant gets a summary; it is a symbol as before.
+[[symbol]]
+file = "src/checksum.rs"
+name = "SEED"
+container = ""
+kind = "constant"
+language = "rust"
+lines = [25, 25]
+is_test = false
+
+# KAIROS-T-0350: the statements of a SQL file that define a thing.
+[[symbol]]
+file = "migrations/001_payments/up.sql"
+name = "payments"
+container = ""
+kind = "table"
+language = "sql"
+lines = [2, 6]
+is_test = false
+
+[[symbol]]
+file = "migrations/001_payments/up.sql"
+name = "payments_by_day"
+container = ""
+kind = "index"
+language = "sql"
+lines = [8, 8]
+is_test = false

@@ -52,8 +52,24 @@ impl From<IndexCommandError> for CliError {
 /// tool of the Kairos server.
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
-    #[error("No index is at {0}. Run `kairos index build` in the checkout.")]
+    #[error(
+        "No index is at {0}. Call `fetch_index` with the checkout as `root`, or run `kairos index build` in the checkout."
+    )]
     NoIndex(PathBuf),
+    #[error(
+        "The server has no open checkout. Call `fetch_index` with `root`, the path of a git checkout. Give `repository`, the slug in Kairos, when the `origin` remote of the checkout is not a repository of Kairos."
+    )]
+    NoCheckout,
+    #[error("The folder {0} is not in a git checkout.")]
+    NotACheckout(PathBuf),
+    #[error(
+        "Kairos has no index for the checkout {root}, because {why}. There is no local index either. Register the repository in Kairos, and its builder makes the first index. Or run `kairos index --full` in the checkout."
+    )]
+    NoBaseIndex { root: PathBuf, why: String },
+    #[error("The download of the index of {commit} failed: {why}.")]
+    Download { commit: String, why: String },
+    #[error(transparent)]
+    Command(#[from] IndexCommandError),
     #[error("No symbol has the name {0:?}.")]
     NoSymbol(String),
     #[error("{count} symbols have the name {name:?}. Give the argument `file` to choose one.")]
@@ -89,6 +105,11 @@ impl ToolError {
     pub fn code(&self) -> &'static str {
         match self {
             ToolError::NoIndex(_) => "NO_INDEX",
+            ToolError::NoCheckout => "NO_CHECKOUT",
+            ToolError::NotACheckout(_) => "NOT_A_CHECKOUT",
+            ToolError::NoBaseIndex { .. } => "NO_BASE_INDEX",
+            ToolError::Download { .. } => "DOWNLOAD",
+            ToolError::Command(_) => "INDEX",
             ToolError::NoSymbol(_) => "NOT_FOUND",
             ToolError::Ambiguous { .. } => "AMBIGUOUS",
             ToolError::UnknownArgument { .. }

@@ -1,6 +1,6 @@
 # Configuration
 
-Every value that changes how Kairos behaves, in one place. Kairos 0.7.1.
+Every value that changes how Kairos behaves, in one place. Kairos 0.8.0.
 
 Configuration has four surfaces, and they are layered rather than alternative:
 the server reads **environment variables** only; the **Helm chart** and the
@@ -463,7 +463,7 @@ the folder. Then the server downloads nothing.
 
 ### Retention — recognised but inert
 
-**In 0.7.1 the server reads none of the five variables below, and they have no
+**In 0.8.0 the server reads none of the five variables below, and they have no
 effect.** The retention sweeper's scheduler, `spawn_retention_loop`, is not
 called anywhere in the server binary, and its own documentation records that
 wiring as a later milestone. Nothing is compacted, offloaded or pruned
@@ -661,7 +661,7 @@ the image sets it to `/var/lib/kairos/models`) and `KAIROS_EMBED_REFRESH_SECS`
 |---|---|---|---|
 | `replicaCount` | integer | `2` | Server replicas. Ignored when `autoscaling.enabled` is true. |
 | `image.repository` | string | `ghcr.io/colliery-io/kairos` | Image repository. |
-| `image.tag` | string | `""` | Empty tracks the chart's `appVersion`. An explicit value pins a published release, e.g. `"0.7.1"`. The chart never pins `latest`. |
+| `image.tag` | string | `""` | Empty tracks the chart's `appVersion`. An explicit value pins a published release, e.g. `"0.8.0"`. The chart never pins `latest`. |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
 | `imagePullSecrets` | list | `[]` | Pull secrets, e.g. `[{name: ghcr-creds}]`. |
 | `nameOverride` | string | `""` | Overrides the chart name used in resource names. |
@@ -791,7 +791,7 @@ The chart's two rendering guards:
   `database.existingSecret` is used and no Secret is rendered.
 
 Retention values left `null` or `""` are absent from the ConfigMap, which is
-moot in 0.7.1 because the server reads none of them.
+moot in 0.8.0 because the server reads none of them.
 
 ## Reference Compose deployment
 
@@ -803,7 +803,7 @@ stock `postgres:16` does not carry it. There is no bundled identity provider.
 
 | `.env` variable | Default in the example | Consumed by |
 |---|---|---|
-| `KAIROS_VERSION` | `0.7.1` | The Kairos image tag. Required — Compose fails if it is unset. |
+| `KAIROS_VERSION` | `0.8.0` | The Kairos image tag. Required — Compose fails if it is unset. |
 | `KAIROS_SITE_ADDRESS` | `kairos.example.com` | Caddy's site address. A hostname enables automatic HTTPS; `:80` is a local no-TLS trial. Required. |
 | `POSTGRES_PASSWORD` | `change-me` | The Postgres password, and the password inside the `DATABASE_URL` the Compose file composes. Required. |
 | `OIDC_ISSUER_URL` | `https://idp.example.com/` | The server, verbatim. Required. |

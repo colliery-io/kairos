@@ -12,6 +12,16 @@ Feature: Summaries
     Then each symbol that is not test code has a summary and a vector
     And no test symbol has a summary
 
+  # KAIROS-T-0349: an impl block and a constant get a summary too. The input
+  # of an impl block is its header and the declarations of its functions,
+  # not their bodies. A `mod x;` line still gets none.
+  Scenario: An impl block and a constant get a summary, a mod line gets none
+    Given the polyglot fixture and the fake summarizer
+    When I summarize the index
+    Then the impl block of Checksum in src/checksum.rs has a summary, from its header and the declaration of value, not the body
+    And the constant SEED in src/checksum.rs has a summary
+    And the mod lines of src/lib.rs have no summary
+
   Scenario: The same code gets the same key
     Given 2 copies of a Rust function that differ only in whitespace and comments
     When I summarize the index

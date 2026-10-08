@@ -403,6 +403,9 @@ pub struct BaseWorld {
     pub hash_before: String,
     /// The last run of `kairos index update`.
     pub run: Option<Output>,
+    /// KAIROS-T-0348: the folder the server started in, and its config
+    /// folder, kept for the scenario.
+    pub elsewhere: Option<(TempDir, TempDir)>,
 }
 
 impl BaseWorld {
@@ -566,6 +569,127 @@ fn a_branch(world: &mut CliWorld, changed: usize) {
     git(&root, &["add", "-A"]);
     git(&root, &["commit", "-q", "-m", "the branch"]);
     assert!(!root.join(INDEX_DB).exists());
+}
+
+/// KAIROS-T-0348: the server starts in an empty folder, as a session of a
+/// board folder does, with the deployment of the scenario and no other
+/// Kairos setting of the machine.
+#[given("a kairos-code server started in a folder that is not a checkout")]
+fn a_server_outside_a_checkout(world: &mut CliWorld) {
+    let elsewhere = TempDir::new().expect("a folder that is not a checkout");
+    let config = TempDir::new().expect("a config folder");
+    let url = world.base.url.clone();
+    let key = world.base.key.clone();
+    let agent = super::Agent::start_with_env(
+        elsewhere.path(),
+        &[
+            ("KAIROS_CONFIG_DIR", config.path().to_str().expect("utf-8")),
+            ("KAIROS_URL", &url),
+            ("KAIROS_KEY", &key),
+            ("KAIROS_MCP_KEY", ""),
+        ],
+    );
+    world.agent = Some(agent);
+    world.base.elsewhere = Some((elsewhere, config));
+}
+
+#[when("the agent calls code_search")]
+fn calls_code_search(world: &mut CliWorld) {
+    let result = world.agent.as_mut().expect("no server").call(
+        "code_search",
+        serde_json::json!({"query": "the mean of the values"}),
+    );
+    world.result = Some(result);
+}
+
+#[then("the server refuses: no checkout is open, call fetch_index")]
+fn refuses_no_checkout(world: &mut CliWorld) {
+    let r = world.result.as_ref().expect("no result");
+    assert!(r.is_error, "{}", r.text);
+    assert!(r.text.starts_with("NO_CHECKOUT: "), "{}", r.text);
+    assert!(r.text.contains("`fetch_index`"), "{}", r.text);
+    assert!(r.text.contains("`root`"), "{}", r.text);
+    assert!(!r.text.contains("kairos index build"), "{}", r.text);
+}
+
+#[when("the agent calls fetch_index with the path of the checkout")]
+fn calls_fetch_index(world: &mut CliWorld) {
+    // A folder inside the checkout, not its root: the server finds the root.
+    let inside = world.base.root().join("pkg");
+    let result = world.agent.as_mut().expect("no server").call(
+        "fetch_index",
+        serde_json::json!({"root": inside, "repository": REPOSITORY}),
+    );
+    world.result = Some(result);
+}
+
+#[then("the server says that the index of A is open, with 3 changed files")]
+fn says_open(world: &mut CliWorld) {
+    let r = world.result.as_ref().expect("no result");
+    assert!(!r.is_error, "{}", r.text);
+    let a = &world.base.kairos().a[..12];
+    assert!(
+        r.text.starts_with("The server opened the index of "),
+        "{}",
+        r.text
+    );
+    assert!(
+        r.text.contains(&format!(
+            "the index of commit {a} from Kairos, 3 files changed since it."
+        )),
+        "{}",
+        r.text
+    );
+    assert!(
+        r.text.contains("The tools answer for this checkout now."),
+        "{}",
+        r.text
+    );
+}
+
+#[then("module_map answers for the checkout")]
+fn module_map_answers(world: &mut CliWorld) {
+    let result = world
+        .agent
+        .as_mut()
+        .expect("no server")
+        .call("module_map", serde_json::json!({}));
+    assert!(!result.is_error, "{}", result.text);
+    assert!(result.text.contains("pkg/stats.py"), "{}", result.text);
+}
+
+#[then("the checkout has the index of A, updated for its changed files")]
+fn checkout_has_the_index(world: &mut CliWorld) {
+    let w = &world.base;
+    let index = w.index();
+    let files = index.files().expect("files");
+    let stats = files
+        .iter()
+        .find(|f| f.path == "pkg/stats.py")
+        .expect("pkg/stats.py");
+    let in_a = {
+        let dir = TempDir::new().expect("a folder");
+        let path = dir.path().join("a.db");
+        fs::write(&path, &w.index_a).expect("write");
+        Index::open(&path)
+            .expect("the index of A")
+            .files()
+            .expect("files")
+            .into_iter()
+            .find(|f| f.path == "pkg/stats.py")
+            .expect("pkg/stats.py in A")
+            .content_hash
+    };
+    assert_ne!(
+        stats.content_hash, in_a,
+        "the index is the index of A, not updated"
+    );
+    // The summaries of A are linked from the pool: no model ran.
+    let (with, _) = w.summarized();
+    assert!(
+        !with.is_empty(),
+        "no summary was linked from the base index"
+    );
 }
 
 #[given("a kairos binary with no summarizer")]

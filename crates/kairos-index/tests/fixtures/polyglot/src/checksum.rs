@@ -20,3 +20,6 @@ pub fn checksum(data: &[u8]) -> Checksum {
     }
     Checksum { sum }
 }
+
+/// The multiplier of the running sum (KAIROS-T-0349: a constant gets a summary).
+pub const SEED: u32 = 31;

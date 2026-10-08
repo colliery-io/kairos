@@ -218,12 +218,12 @@ fn resolve_root(arg: RootArg) -> Result<PathBuf, IndexCommandError> {
         .map_err(|_| IndexCommandError::NoRoot(root))
 }
 
-fn db_path(root: &Path) -> PathBuf {
+pub(super) fn db_path(root: &Path) -> PathBuf {
     root.join(kairos_index::INDEX_FILE)
 }
 
 /// The trimmed stdout of a git command that succeeded.
-fn git_output(root: &Path, args: &[&str]) -> Option<String> {
+pub(super) fn git_output(root: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -278,14 +278,8 @@ fn ensure_ignored(root: &Path) -> Result<Option<PathBuf>, IndexCommandError> {
 }
 
 fn prepare(root: &Path) -> Result<PathBuf, IndexCommandError> {
-    let db = db_path(root);
-    if let Some(folder) = db.parent() {
-        std::fs::create_dir_all(folder).map_err(|source| IndexCommandError::Write {
-            path: folder.to_path_buf(),
-            source,
-        })?;
-    }
-    if let Some(exclude) = ensure_ignored(root)? {
+    let (db, exclude) = prepare_quiet(root)?;
+    if let Some(exclude) = exclude {
         println!(
             "Git ignores {} now: the CLI added it to {}.",
             kairos_index::INDEX_FILE,
@@ -293,6 +287,22 @@ fn prepare(root: &Path) -> Result<PathBuf, IndexCommandError> {
         );
     }
     Ok(db)
+}
+
+/// The path of the index file, with its folder made and `.kairos/` ignored
+/// by git. The exclude file is given back when this call added the line,
+/// so that the caller can say so: the MCP server must not print
+/// (KAIROS-T-0348).
+pub(super) fn prepare_quiet(root: &Path) -> Result<(PathBuf, Option<PathBuf>), IndexCommandError> {
+    let db = db_path(root);
+    if let Some(folder) = db.parent() {
+        std::fs::create_dir_all(folder).map_err(|source| IndexCommandError::Write {
+            path: folder.to_path_buf(),
+            source,
+        })?;
+    }
+    let exclude = ensure_ignored(root)?;
+    Ok((db, exclude))
 }
 
 fn build(root: &Path) -> Result<(), IndexCommandError> {
@@ -405,7 +415,7 @@ async fn update(
 }
 
 /// Why the CLI got no base index from Kairos, as a part of a sentence.
-fn reason(found: &base::Found) -> String {
+pub(super) fn reason(found: &base::Found) -> String {
     match found {
         base::Found::Base(b) => format!("the index of {} is not used", b.short()),
         base::Found::NotSet => {
@@ -420,7 +430,7 @@ fn reason(found: &base::Found) -> String {
 }
 
 /// The rebase answer: more than `limit` files changed since the base.
-fn too_far(root: &Path, b: &base::Base, limit: usize) -> IndexCommandError {
+pub(super) fn too_far(root: &Path, b: &base::Base, limit: usize) -> IndexCommandError {
     IndexCommandError::TooFar {
         changed: b.changed,
         commit: b.short().to_string(),
@@ -433,6 +443,19 @@ fn too_far(root: &Path, b: &base::Base, limit: usize) -> IndexCommandError {
 /// Put the downloaded index at `db`. With `keep_pool`, the summaries of the
 /// local index go into it first, so that none is lost.
 fn install(db: &Path, bytes: &[u8], keep_pool: bool) -> Result<(), IndexCommandError> {
+    if let Some(warning) = install_quiet(db, bytes, keep_pool)? {
+        println!("{warning}");
+    }
+    Ok(())
+}
+
+/// [`install`] with its warning given back in place of printed
+/// (KAIROS-T-0348).
+pub(super) fn install_quiet(
+    db: &Path,
+    bytes: &[u8],
+    keep_pool: bool,
+) -> Result<Option<String>, IndexCommandError> {
     let download = db.with_extension("db.download");
     let write = |source| IndexCommandError::Write {
         path: download.clone(),
@@ -443,13 +466,17 @@ fn install(db: &Path, bytes: &[u8], keep_pool: bool) -> Result<(), IndexCommandE
         let _ = std::fs::remove_file(&download);
         return Err(e.into());
     }
+    let mut warning = None;
     if keep_pool && let Err(e) = kairos_index::store::copy_pool(db, &download) {
-        println!("The summaries of the local index are not kept: {e}");
+        warning = Some(format!(
+            "The summaries of the local index are not kept: {e}"
+        ));
     }
     std::fs::rename(&download, db).map_err(|source| IndexCommandError::Write {
         path: db.to_path_buf(),
         source,
-    })
+    })?;
+    Ok(warning)
 }
 
 fn print_structure(report: &BuildReport, started: Instant) {

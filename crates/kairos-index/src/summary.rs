@@ -32,9 +32,10 @@ use sha2::{Digest, Sha256};
 
 use crate::{IndexError, schema};
 
-/// The symbol kinds that get a summary: functions and types. A `mod x;`
-/// line, an `impl` block, a constant or a field gets none. The same kinds as
-/// the benchmark (`~/code-index-eval/bench/select_symbols.py`).
+/// The symbol kinds that get a summary: functions, types, `impl` blocks and
+/// constants (KAIROS-T-0349). A `mod x;` line or a field gets none. The input
+/// of an `impl` block is its header and the declarations of its functions,
+/// not their bodies: see [`impl_text`].
 pub const SUMMARIZED_KINDS: &[&str] = &[
     "function",
     "method",
@@ -45,6 +46,13 @@ pub const SUMMARIZED_KINDS: &[&str] = &[
     "type_alias",
     "class",
     "interface",
+    "implementation",
+    "constant",
+    // SQL (KAIROS-T-0350).
+    "table",
+    "index",
+    "view",
+    "trigger",
 ];
 
 /// The system prompt of the model comparison (`~/code-index-eval`).
@@ -129,6 +137,21 @@ impl SummaryRequest {
         match self.level {
             // The prompt of the model comparison, with the callee signatures
             // added after the code.
+            Level::Symbol if self.kind == "implementation" => format!(
+                "Summarize the {language} impl block `{}` from `{}` in 1 to 3 sentences, \
+                 from its header and the declarations of its functions below. Say which \
+                 type or trait it implements and what its functions are for. \
+                 Do not restate the name. Output only the summary.\n\n\
+                 ```{language}\n{code}\n```",
+                self.name, self.path
+            ),
+            Level::Symbol if self.kind == "constant" => format!(
+                "Summarize the {language} constant `{}` from `{}` in 1 or 2 sentences. \
+                 Say what value it holds and what the code uses it for. \
+                 Do not restate the name. Output only the summary.\n\n\
+                 ```{language}\n{code}\n```",
+                self.name, self.path
+            ),
             Level::Symbol => {
                 let noun = match self.kind.as_str() {
                     "function" | "method" | "constructor" => "function",
@@ -427,9 +450,63 @@ fn run(
     let mut seen: HashSet<String> = HashSet::new();
     // The key of each symbol whose summary is in the pool.
     let mut symbol_keys: HashMap<i64, String> = HashMap::new();
+    // The symbols of each file, for the functions inside an `impl` block.
+    let mut per_file: HashMap<i64, Vec<&Sym>> = HashMap::new();
+    for s in &symbols {
+        per_file.entry(s.file_id).or_default().push(s);
+    }
     for s in &symbols {
         let file = file_by_id[&s.file_id];
         if !s.summarized() || !in_scope(&file.path) {
+            continue;
+        }
+        // An `impl` block (KAIROS-T-0349): its input is its header and the
+        // declarations of its functions, so its key comes from that text,
+        // not from its tree hash, and a change in a body leaves it. Its
+        // calls are those of its functions, so it gets no callee list.
+        if s.kind == "implementation" {
+            let text = impl_text(
+                &mut texts,
+                s,
+                per_file.get(&s.file_id).map_or(&[], Vec::as_slice),
+            )?;
+            let key = symbol_key(&key_model, &hex(&Sha256::digest(text.as_bytes())), &[]);
+            if seen.contains(&key) || in_pool(&conn, &key)? {
+                seen.insert(key.clone());
+                symbol_keys.insert(s.id, key);
+                report.symbols.reused += 1;
+                continue;
+            }
+            let Some((summarizer, _)) = model.as_mut() else {
+                report.symbols.left += 1;
+                continue;
+            };
+            if options
+                .max_new_symbols
+                .is_some_and(|max| new_symbols >= max)
+            {
+                report.symbols.left += 1;
+                continue;
+            }
+            let request = SummaryRequest {
+                level: Level::Symbol,
+                key: key.clone(),
+                language: Some(s.language.clone()),
+                kind: s.kind.clone(),
+                name: s.name.clone(),
+                path: file.path.clone(),
+                code: Some(text),
+                callees: Vec::new(),
+                children: Vec::new(),
+            };
+            pending.push((request, format!("{}:{}", file.path, s.qualified())));
+            if pending.len() >= summarizer.concurrency().max(1) {
+                flush(&conn, *summarizer, &mut pending, &mut report)?;
+            }
+            seen.insert(key.clone());
+            symbol_keys.insert(s.id, key);
+            new_symbols += 1;
+            report.symbols.summarized += 1;
             continue;
         }
         let mut callees = Vec::new();
@@ -1066,6 +1143,31 @@ fn declaration(code: &str, language: &str) -> String {
         .join(" ")
         .trim_end_matches(';')
         .to_string()
+}
+
+/// The text of an `impl` block for its summary (KAIROS-T-0349): its header
+/// up to the opening brace, then the declaration of each function in it, no
+/// bodies. `inner` is the symbols of its file.
+fn impl_text(texts: &mut FileTexts, block: &Sym, inner: &[&Sym]) -> Result<String, IndexError> {
+    let code = texts.slice(block.file_id, block.start_byte, block.end_byte)?;
+    let header = code.split('{').next().unwrap_or(&code).trim_end();
+    let mut out = format!("{header} {{");
+    for f in inner.iter().filter(|f| {
+        f.id != block.id
+            && f.start_byte >= block.start_byte
+            && f.end_byte <= block.end_byte
+            && matches!(f.kind.as_str(), "function" | "method" | "constructor")
+    }) {
+        let signature = declaration(
+            &texts.slice(f.file_id, f.start_byte, f.end_byte)?,
+            &f.language,
+        );
+        out.push_str("\n    ");
+        out.push_str(&signature);
+        out.push(';');
+    }
+    out.push_str("\n}");
+    Ok(out)
 }
 
 fn hex(bytes: &[u8]) -> String {

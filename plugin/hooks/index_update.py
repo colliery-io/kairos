@@ -68,6 +68,24 @@ def is_wired(project):
     return os.path.isfile(os.path.join(project, ".claude", "kairos.local.md"))
 
 
+def is_checkout(project):
+    """A git checkout: `.git` is a folder, or a file in a worktree."""
+    return os.path.exists(os.path.join(project, ".git"))
+
+
+# KAIROS-T-0348: a session that starts outside a checkout (a board folder
+# with the clones below it) runs no update. The agent opens the checkout it
+# works on with the tool `fetch_index` of the server.
+NOT_A_CHECKOUT_TEXT = (
+    "Code index: this folder is not a git checkout, so the local MCP server "
+    "`kairos-code` has no index open. Call its tool `fetch_index` with `root`, "
+    "the path of the checkout you work on (the clone of the repository of your "
+    "task). It takes the nearest index from Kairos. Then use `module_map`, "
+    "`code_search`, `symbol`, `callers`, `callees` and `path` before you read "
+    "files."
+)
+
+
 def state_dir(project):
     parent = os.environ.get("KAIROS_INDEX_STATE_DIR") or os.path.join(
         os.path.expanduser("~"), ".claude", "kairos-index"
@@ -155,14 +173,27 @@ def session_text(project, log):
         lines.append(
             "This checkout has no local index yet. The update tries to download "
             "the base index from Kairos. If the log says that no base index is "
-            "available, tell the user to run `kairos index --full`."
+            "available, call `fetch_index` with this folder as `root`, or tell "
+            "the user to run `kairos index --full`."
         )
     return "\n".join(lines)
+
+
+def context(text):
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": text,
+        }
+    }
 
 
 def start(payload):
     project = project_dir()
     if shutil.which("kairos") is None or not is_wired(project):
+        return
+    if not is_checkout(project):
+        json.dump(context(NOT_A_CHECKOUT_TEXT), sys.stdout)
         return
     folder = state_dir(project)
     os.makedirs(folder, exist_ok=True)
@@ -176,14 +207,7 @@ def start(payload):
         close_fds=True,
     )
     json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "SessionStart",
-                "additionalContext": session_text(
-                    project, os.path.join(folder, "update.log")
-                ),
-            }
-        },
+        context(session_text(project, os.path.join(folder, "update.log"))),
         sys.stdout,
     )
 

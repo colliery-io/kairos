@@ -37,6 +37,7 @@ pub mod seed;
 pub mod service_accounts;
 pub mod team_pages;
 pub mod tenant;
+pub mod tls;
 
 pub use abac::{
     AbacError, authorize, check_capability, grant_capability, is_org_admin,

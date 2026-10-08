@@ -2568,10 +2568,13 @@ dependencies = [
  "diesel-async",
  "diesel_migrations",
  "kairos-core",
+ "rustls",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-postgres",
+ "tokio-rustls",
  "tracing",
  "uuid",
 ]

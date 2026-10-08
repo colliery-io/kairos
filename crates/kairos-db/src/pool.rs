@@ -38,8 +38,8 @@
 
 use std::ops::{Deref, DerefMut};
 
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
 use diesel_async::pooled_connection::bb8::{Pool, PooledConnection};
+use diesel_async::pooled_connection::{AsyncDieselConnectionManager, ManagerConfig};
 use diesel_async::{AsyncPgConnection, SimpleAsyncConnection};
 
 use crate::tenant::{is_valid_tenant_slug, tenant_schema_name};
@@ -90,9 +90,15 @@ impl std::fmt::Debug for TenantPool {
 
 impl TenantPool {
     /// Build a pool of at most `max_size` connections against
-    /// `database_url`.
+    /// `database_url`. Connections negotiate TLS as `sslmode` asks (see
+    /// [`crate::tls`]).
     pub async fn new(database_url: &str, max_size: u32) -> Result<Self, PoolError> {
-        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new(database_url);
+        let mut config = ManagerConfig::default();
+        config.custom_setup = Box::new(|url| Box::pin(crate::tls::establish(url)));
+        let manager = AsyncDieselConnectionManager::<AsyncPgConnection>::new_with_config(
+            database_url,
+            config,
+        );
         let pool = Pool::builder().max_size(max_size).build(manager).await?;
         Ok(Self { pool })
     }

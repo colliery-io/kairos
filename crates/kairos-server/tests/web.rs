@@ -94,6 +94,11 @@ async fn web_surfaces_against_live_stack() {
         format!("{ISSUER}/auth"),
         "discovery resolved against the live Dex: {config_json}"
     );
+    // Dex lists offline_access in scopes_supported, so the SPA asks for it.
+    assert_eq!(
+        config_json["scope"], "openid profile email offline_access",
+        "{config_json}"
+    );
     // KAIROS-T-0205: an OIDC-only deployment reports local_auth FALSE, so the SPA
     // renders the provider button and no password form.
     //

@@ -118,7 +118,7 @@ exactly the information a login page needs before any token exists.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | — | SPA login configuration (public): `{issuer, client_id, authorization_endpoint, api_bearer}` — the deployment issuer, the GUI's OAuth client id (KAIROS_WEB_CLIENT_ID), the issuer's authorization endpoint from OIDC discovery, and which token the SPA sends as the `/api` bearer (`access_token` default, or `id_token` for opaque-access-token issuers like Google Workspace, KAIROS-T-0054) |
+| `200` | — | SPA login configuration (public): `{issuer, client_id, authorization_endpoint, scope, api_bearer}` — the deployment issuer, the GUI's OAuth client id (KAIROS_WEB_CLIENT_ID), the issuer's authorization endpoint from OIDC discovery, the scope to request at login (`offline_access` only when the issuer's `scopes_supported` does not leave it out), and which token the SPA sends as the `/api` bearer (`access_token` default, or `id_token` for opaque-access-token issuers like Google Workspace, KAIROS-T-0054) |
 | `502` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The configured issuer is unreachable |
 
 ### `GET /api/openapi.json`

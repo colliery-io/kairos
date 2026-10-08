@@ -73,6 +73,25 @@ const RESERVED_PREFIXES: &[&str] = &[
 struct IdpEndpoints {
     authorization_endpoint: String,
     token_endpoint: String,
+    /// Absent from some discovery documents; then nothing is known and
+    /// [`login_scope`] asks for `offline_access` as before.
+    #[serde(default)]
+    scopes_supported: Option<Vec<String>>,
+}
+
+/// The scope the SPA requests at login. `offline_access` (a refresh token,
+/// for silent refresh) only when the issuer does not say it lacks it:
+/// Google lists `["openid", "email", "profile"]` and answers a request for
+/// `offline_access` with `400 invalid_scope`, so no one could sign in.
+/// Without it the session ends when the token does, and the person signs
+/// in again.
+fn login_scope(scopes_supported: Option<&[String]>) -> String {
+    let offline = scopes_supported.is_none_or(|s| s.iter().any(|x| x == "offline_access"));
+    if offline {
+        "openid profile email offline_access".to_string()
+    } else {
+        "openid profile email".to_string()
+    }
 }
 
 /// Shared context for the two auth routes: issuer + client id from
@@ -170,6 +189,9 @@ struct SpaConfig {
     client_id: String,
     /// `None` with no issuer, for the same reason.
     authorization_endpoint: Option<String>,
+    /// The scope to request at login, from [`login_scope`]. `None` with no
+    /// issuer.
+    scope: Option<String>,
     /// Which token the SPA sends as the `/api` bearer: `access_token`
     /// (default) or `id_token` (opaque-access-token issuers, T-0054).
     api_bearer: &'static str,
@@ -188,14 +210,21 @@ async fn spa_config(
     // IDP_UNREACHABLE here would be a lie — nothing is unreachable, there is simply
     // no IdP — and it would leave the SPA unable to render the login page it CAN
     // offer.
-    let authorization_endpoint = match web_auth.issuer {
-        Some(_) => Some(web_auth.endpoints().await?.authorization_endpoint.clone()),
-        None => None,
+    let (authorization_endpoint, scope) = match web_auth.issuer {
+        Some(_) => {
+            let endpoints = web_auth.endpoints().await?;
+            (
+                Some(endpoints.authorization_endpoint.clone()),
+                Some(login_scope(endpoints.scopes_supported.as_deref())),
+            )
+        }
+        None => (None, None),
     };
     Ok(Json(SpaConfig {
         issuer: web_auth.issuer.clone(),
         client_id: web_auth.client_id.clone(),
         authorization_endpoint,
+        scope,
         api_bearer: web_auth.api_bearer.as_str(),
         local_auth: state.config.local_auth,
     }))
@@ -450,6 +479,23 @@ fn asset_response(name: &str, bytes: Bytes) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `offline_access` only where the issuer does not rule it out.
+    #[test]
+    fn login_scope_follows_scopes_supported() {
+        let google: Vec<String> = ["openid", "email", "profile"].map(String::from).into();
+        assert_eq!(login_scope(Some(&google)), "openid profile email");
+
+        let dex: Vec<String> = ["openid", "email", "groups", "profile", "offline_access"]
+            .map(String::from)
+            .into();
+        assert_eq!(
+            login_scope(Some(&dex)),
+            "openid profile email offline_access"
+        );
+
+        assert_eq!(login_scope(None), "openid profile email offline_access");
+    }
 
     fn auth_code_form() -> TokenRelayForm {
         TokenRelayForm {

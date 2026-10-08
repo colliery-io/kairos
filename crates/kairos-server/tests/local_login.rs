@@ -450,6 +450,7 @@ async fn a_deployment_with_no_issuer_still_lets_people_in() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["issuer"].is_null(), "{body}");
     assert!(body["authorization_endpoint"].is_null(), "{body}");
+    assert!(body["scope"].is_null(), "{body}");
     assert_eq!(body["local_auth"], true, "{body}");
 
     // The MCP protected-resource metadata lists NO authorization server, rather

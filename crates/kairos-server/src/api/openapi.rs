@@ -332,10 +332,12 @@ fn whoami() {}
         (
             status = 200,
             description = "SPA login configuration (public): `{issuer, \
-                client_id, authorization_endpoint, api_bearer}` — the \
+                client_id, authorization_endpoint, scope, api_bearer}` — the \
                 deployment issuer, the GUI's OAuth client id \
                 (KAIROS_WEB_CLIENT_ID), the issuer's authorization endpoint \
-                from OIDC discovery, and which token the SPA sends as the \
+                from OIDC discovery, the scope to request at login \
+                (`offline_access` only when the issuer's `scopes_supported` \
+                does not leave it out), and which token the SPA sends as the \
                 `/api` bearer (`access_token` default, or `id_token` for \
                 opaque-access-token issuers like Google Workspace, \
                 KAIROS-T-0054)",

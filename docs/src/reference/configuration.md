@@ -23,7 +23,7 @@ them; their own parsing rules differ, and are stated in that section.
 
 | Variable | Type | Description |
 |---|---|---|
-| `DATABASE_URL` | Postgres connection URL | The external PostgreSQL, which is the deployment's sole state. Example: `postgres://kairos:kairos@localhost:41432/kairos`. Also read directly by every server subcommand, including `migrate`, before the rest of the configuration is resolved. |
+| `DATABASE_URL` | Postgres connection URL | The external PostgreSQL, which is the deployment's sole state. Example: `postgres://kairos:kairos@localhost:41432/kairos`. Also read directly by every server subcommand, including `migrate`, before the rest of the configuration is resolved. `sslmode` can be `disable`, `prefer` (the default) or `require`. With `prefer` or `require`, every connection uses TLS when the server offers it, and Kairos does not verify the certificate of the server. `verify-ca`, `verify-full` and `sslrootcert` are not accepted. |
 | `OIDC_ISSUER_URL` | URL | The OIDC issuer. Discovery and JWKS endpoints are derived from it. A trailing slash is stripped. **Not required when `KAIROS_LOCAL_AUTH` is on** — see below. |
 | `OIDC_AUDIENCE` | string, or comma-separated list | The `aud` claim bearer tokens must carry. A comma-separated allow-list is accepted for issuers that mint a distinct `aud` per OAuth client, such as Google Workspace; a token matching any listed audience validates. Enforced non-empty at startup. Required exactly when `OIDC_ISSUER_URL` is set. |
 

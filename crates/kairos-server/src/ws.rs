@@ -338,7 +338,7 @@ async fn run_listener(
     backoff: &mut Duration,
 ) -> Result<(), tokio_postgres::Error> {
     let (client, mut connection) =
-        tokio_postgres::connect(database_url, tokio_postgres::NoTls).await?;
+        tokio_postgres::connect(database_url, kairos_db::tls::MakeRustlsConnect::new()).await?;
 
     // `client` executes the LISTEN while `connection` is polled for it —
     // both live in this task, multiplexed by the select below. After the

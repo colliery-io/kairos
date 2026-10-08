@@ -761,7 +761,7 @@ fn each_symbol_is_complete(world: &mut IndexWorld) {
         );
         assert!(!s.kind.is_empty() && s.kind != "unknown", "{s:?}: no kind");
         assert!(
-            ["rust", "python", "typescript", "tsx", "go"].contains(&s.language.as_str()),
+            ["rust", "python", "typescript", "tsx", "go", "sql"].contains(&s.language.as_str()),
             "{s:?}: no language"
         );
         assert_eq!(s.tree_hash.len(), 64, "{s:?}: no tree hash");

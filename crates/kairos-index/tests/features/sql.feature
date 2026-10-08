@@ -6,7 +6,7 @@ Feature: SQL files are indexed
   # other symbols do.
 
   Scenario: A migration gives its table and its index as symbols
-    Given an index of the polyglot fixture
+    Given an index of the polyglot fixture with no summaries
     Then migrations/001_payments/up.sql has the language sql and no parse error
     And it has the table payments on lines 2 to 6 and the index payments_by_day on line 8
     And migrations/001_payments/down.sql has the language sql and no symbol

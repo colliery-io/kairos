@@ -3,7 +3,7 @@
 `kairos` is the command-line client. It talks to the same HTTP API as the GUI
 and the MCP server.
 
-This page describes `kairos` 0.8.1. The command tree below mirrors
+This page describes `kairos` 0.8.2. The command tree below mirrors
 `kairos --help`.
 
 ## Invocation

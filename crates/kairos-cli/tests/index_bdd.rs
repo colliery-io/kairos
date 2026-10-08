@@ -148,9 +148,18 @@ impl std::fmt::Debug for Agent {
 
 impl Agent {
     fn start(root: &Path) -> Agent {
-        let mut child = Command::new(KAIROS)
-            .args(["index", "mcp", "--root"])
-            .arg(root)
+        Self::start_with_env(root, &[])
+    }
+
+    /// [`Self::start`] with these environment variables for the server
+    /// (the Kairos deployment of a base-index scenario).
+    fn start_with_env(root: &Path, env: &[(&str, &str)]) -> Agent {
+        let mut command = Command::new(KAIROS);
+        command.args(["index", "mcp", "--root"]).arg(root);
+        for (name, value) in env {
+            command.env(name, value);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

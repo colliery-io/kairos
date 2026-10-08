@@ -63,6 +63,7 @@ class Harness(unittest.TestCase):
         self.state = os.path.join(base, "state")
         self.bin = os.path.join(base, "bin")
         os.makedirs(os.path.join(self.project, ".claude"))
+        os.makedirs(os.path.join(self.project, ".git"))
         os.makedirs(self.bin)
         self.calls = os.path.join(base, "calls.txt")
         self.wire()
@@ -201,6 +202,19 @@ class SessionStart(Harness):
         self.assertEqual(result.stdout, "")
         self.assertEqual(result.stderr, "")
         self.assertFalse(os.path.exists(self.state))
+
+    def test_a_folder_that_is_not_a_checkout_runs_no_update_and_names_fetch_index(self):
+        # KAIROS-T-0348: a session of a board folder, with the clones below it.
+        os.rmdir(os.path.join(self.project, ".git"))
+        result = self.run_hook("start", {"session_id": "s1", "source": "startup"})
+        self.assertEqual(result.returncode, 0)
+        text = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("not a git checkout", text)
+        self.assertIn("`fetch_index`", text)
+        self.assertIn("`root`", text)
+        self.assertNotIn("kairos index --full", text)
+        time.sleep(0.3)
+        self.assertEqual(self.calls_text(), "", "no update ran")
 
     def test_a_checkout_with_no_wiring_is_a_silent_no_op(self):
         os.remove(os.path.join(self.project, ".claude", "kairos.local.md"))

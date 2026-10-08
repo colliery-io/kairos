@@ -5,6 +5,12 @@
 //! Each tool call opens the index again. So a `kairos index update` that
 //! runs while the server runs is seen at the next call. The results are
 //! short texts (ASD-STE100), as the results of the Kairos server are.
+//!
+//! The checkout that the tools read is the one the server started in, when
+//! that is a git checkout. The agent can open another one, or the first one
+//! when the session started outside a checkout, with `fetch_index`: the
+//! server takes the nearest index of the repository from Kairos and updates
+//! it for the files that differ (KAIROS-T-0348).
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -12,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use kairos_embed::EmbeddingProvider;
 use kairos_index::{
     CallEdge, DEFAULT_MIN_LINES, DuplicateKind, DuplicateOptions, Index, IndexError, Lookup,
-    SearchMode, SymbolInfo,
+    SearchMode, SymbolInfo, UpdateOptions,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -37,8 +43,9 @@ pub(super) const DEFAULT_GROUPS: usize = 20;
 /// The most groups of one `duplicates`.
 pub(super) const MAX_GROUPS: usize = 200;
 
-/// Serve the code tools of the checkout at `root` on stdin and stdout until
-/// the client closes stdin.
+/// Serve the code tools on stdin and stdout until the client closes stdin.
+/// The tools read the checkout at `root` when it is one; otherwise the
+/// agent opens a checkout with `fetch_index`.
 pub async fn serve(root: PathBuf) -> Result<(), IndexCommandError> {
     let server = CodeTools::new(root)
         .serve(rmcp::transport::stdio())
@@ -57,7 +64,9 @@ type QueryEmbedder = (String, Result<Arc<dyn EmbeddingProvider>, String>);
 
 #[derive(Clone)]
 pub struct CodeTools {
-    root: PathBuf,
+    /// The open checkout: the one the server started in, or the last one
+    /// that `fetch_index` opened. `None` until a checkout is open.
+    root: Arc<Mutex<Option<PathBuf>>>,
     embedder: Arc<Mutex<Option<QueryEmbedder>>>,
     tool_router: ToolRouter<Self>,
 }
@@ -65,6 +74,16 @@ pub struct CodeTools {
 // The arguments of each tool. `deny_unknown_fields` is the rule of the
 // Kairos MCP tools: an argument that does nothing tells the agent that it
 // did something.
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct FetchIndexParams {
+    /// The path of the checkout: any folder inside a git checkout.
+    pub root: String,
+    /// The repository in Kairos, by its slug. Default: the repository whose URL is the `origin` remote of the checkout.
+    pub repository: Option<String>,
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
@@ -162,20 +181,131 @@ pub struct ModuleMapParams {
 }
 
 impl CodeTools {
+    /// The tools of `root`. A folder that is not a git checkout and has no
+    /// index opens nothing: the agent opens a checkout with `fetch_index`.
     pub fn new(root: PathBuf) -> Self {
+        let open = root.join(kairos_index::INDEX_FILE).is_file() || root.join(".git").exists();
         CodeTools {
-            root,
+            root: Arc::new(Mutex::new(open.then_some(root))),
             embedder: Arc::new(Mutex::new(None)),
             tool_router: Self::tool_router(),
         }
     }
 
+    /// The open checkout, or `None`.
+    fn root(&self) -> Option<PathBuf> {
+        self.root.lock().expect("the lock of the root").clone()
+    }
+
     fn open(&self) -> Result<Index, ToolError> {
-        let db = self.root.join(kairos_index::INDEX_FILE);
+        let root = self.root().ok_or(ToolError::NoCheckout)?;
+        let db = root.join(kairos_index::INDEX_FILE);
         if !db.is_file() {
             return Err(ToolError::NoIndex(db));
         }
         Ok(Index::open(&db)?)
+    }
+
+    /// `fetch_index`: open the checkout at `params.root`. Kairos gives the
+    /// nearest index of the repository; the server puts it at
+    /// `.kairos/index.db` of the checkout, updates the structure for the
+    /// files that differ, and links the summaries of the pool. It runs no
+    /// model. With no base from Kairos, a local index is used when there is
+    /// one.
+    async fn fetch(&self, params: FetchIndexParams) -> Result<String, ToolError> {
+        let given = PathBuf::from(&params.root);
+        let folder = given
+            .canonicalize()
+            .ok()
+            .filter(|p| p.is_dir())
+            .ok_or_else(|| ToolError::NotACheckout(given.clone()))?;
+        let root = super::git_output(&folder, &["rev-parse", "--show-toplevel"])
+            .map(PathBuf::from)
+            .ok_or_else(|| ToolError::NotACheckout(given.clone()))?;
+        let root = root.canonicalize().unwrap_or(root);
+
+        let remote = super::base::RemoteArgs {
+            repository: params.repository,
+            ..Default::default()
+        };
+        let found = super::base::find(&root, &remote).await;
+        let (db, _exclude) = super::prepare_quiet(&root)?;
+        let had_index = db.is_file();
+        let mut lines = Vec::new();
+        let mut hosted = false;
+        match found {
+            super::base::Found::Base(b) => {
+                if b.changed > super::DEFAULT_MAX_CHANGED {
+                    return Err(super::too_far(&root, &b, super::DEFAULT_MAX_CHANGED).into());
+                }
+                let bytes = b.download().await.map_err(|why| ToolError::Download {
+                    commit: b.short().to_string(),
+                    why,
+                })?;
+                if let Some(warning) = super::install_quiet(&db, &bytes, had_index)? {
+                    lines.push(warning);
+                }
+                lines.push(format!(
+                    "Repository {}: the index of commit {} from Kairos, {} changed since it.",
+                    b.repository,
+                    b.short(),
+                    plural(b.changed, "file", "files")
+                ));
+                hosted = b.hosted;
+            }
+            found => {
+                let why = super::reason(&found);
+                if !had_index {
+                    return Err(ToolError::NoBaseIndex { root, why });
+                }
+                lines.push(format!(
+                    "Kairos gave no base index, because {why}. The local index is used."
+                ));
+            }
+        }
+
+        // The update, off the async threads: it parses the changed files.
+        let (report, outcome) = {
+            let root = root.clone();
+            let db = db.clone();
+            tokio::task::spawn_blocking(move || -> Result<_, IndexCommandError> {
+                let options = UpdateOptions {
+                    rust_edges: false,
+                    ..UpdateOptions::default()
+                };
+                let report = kairos_index::update_structure(&root, &db, &options)?;
+                let no_model = if hosted {
+                    super::summaries::HOSTED
+                } else {
+                    super::summaries::LINK_ONLY
+                };
+                let outcome = super::summaries::run(&root, &db, Some(no_model))?;
+                Ok((report, outcome))
+            })
+            .await
+            .map_err(|e| IndexCommandError::Server(e.to_string()))??
+        };
+        let summary = match &outcome {
+            super::summaries::Outcome::Linked(r) | super::summaries::Outcome::NotMade(r, _) => r,
+            #[cfg(feature = "llama")]
+            super::summaries::Outcome::Made(r, _) => r,
+        };
+        let linked = summary.symbols.reused + summary.files.reused + summary.modules.reused;
+        let left = summary.symbols.left + summary.files.left + summary.modules.left;
+
+        *self.root.lock().expect("the lock of the root") = Some(root.clone());
+        lines.insert(
+            0,
+            format!("The server opened the index of {}.", display(&root)),
+        );
+        lines.push(format!(
+            "{}, {}, {} linked from the pool, {} with none. The tools answer for this checkout now.",
+            plural(report.files, "file", "files"),
+            plural(report.symbols, "symbol", "symbols"),
+            plural(linked, "summary", "summaries"),
+            left
+        ));
+        Ok(lines.join(" "))
     }
 
     /// The provider for the model of the vectors of the pool.
@@ -315,6 +445,16 @@ pub(super) fn plural(count: usize, one: &str, many: &str) -> String {
 
 #[tool_router]
 impl CodeTools {
+    #[tool(
+        description = "Open the index of a checkout. Give `root`, the path of the checkout. The server takes the nearest index of its repository from Kairos, updates it for the files that differ, and the other tools answer for this checkout. Give `repository`, the slug in Kairos, when the origin remote of the checkout is not a repository of Kairos. Call it first when the session did not start inside a checkout."
+    )]
+    async fn fetch_index(
+        &self,
+        Parameters(params): Parameters<FetchIndexParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        result(self.fetch(params).await)
+    }
+
     #[tool(
         description = "Search the code of this checkout by what it does. Give a description in plain words. The result is the best functions and types, with their files, lines and summaries. If the index has no summaries, the search reads the names, the signatures and the paths, and the result says so."
     )]
@@ -672,13 +812,18 @@ impl ServerHandler for CodeTools {
                     .with_title("Kairos code index"),
             )
             .with_instructions(format!(
-                "The code index of the checkout {}. Use these tools before you read files: \
+                "{} Use these tools before you read files: \
                  `module_map` for the map, `code_search` to find code by what it does, \
                  `symbol` for one symbol, `callers` and `callees` for the call graph, \
                  `path` for how one symbol reaches another, and `duplicates` for repeated \
-                 code. Run `kairos index update` after \
-                 you change code.",
-                display(&self.root)
+                 code. `fetch_index` opens a checkout: it takes the nearest index of the \
+                 repository from Kairos. Run `kairos index update` after you change code.",
+                match self.root() {
+                    Some(root) => format!("The code index of the checkout {}.", display(&root)),
+                    None => "The server has no open checkout: call `fetch_index` with the \
+                             path of the checkout you work on."
+                        .to_string(),
+                }
             ))
     }
 }

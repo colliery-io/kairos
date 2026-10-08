@@ -107,7 +107,10 @@ The plugin gives each session the code index of the checkout (COLLIERY-T-1855, C
 
 - **The code tools.** `.claude-plugin/plugin.json` registers the local MCP server `kairos-code`
   (stdio). It starts `bin/kairos-code`, which runs `kairos index mcp`. It gives `module_map`,
-  `code_search`, `symbol`, `callers`, `callees` and `path`. Claude Code loads it in addition to
+  `code_search`, `symbol`, `callers`, `callees`, `path` and `fetch_index`. A session that starts
+  outside a checkout (a board folder) has no index open: the agent calls `fetch_index` with the
+  path of the checkout, and the server takes the nearest index of the repository from Kairos
+  (KAIROS-T-0348). Claude Code loads it in addition to
   the `.mcp.json` of the plugin root. It is not in `plugin/.mcp.json`, because the plugin does
   not load that template. If `kairos` is not on PATH, `bin/kairos-code` is an MCP server with no
   tools (COLLIERY-T-2529). Its instructions tell the agent that `kairos` is not on PATH, and

@@ -34,6 +34,21 @@ Feature: Start from the base index
     Then the local index describes the changed file
     And the CLI says that it could not reach Kairos
 
+  # KAIROS-T-0348: a session that starts outside a checkout (a board folder
+  # with the clones below it) has no index. The agent opens the checkout
+  # with the tool `fetch_index`: the server takes the nearest index from
+  # Kairos and answers the other tools from it. No hook, no CLI command.
+  Scenario: An agent outside a checkout opens the index of a clone with fetch_index
+    Given Kairos has an index of commit A of main
+    And a checkout of a branch from A with 3 changed files and no local index
+    And a kairos-code server started in a folder that is not a checkout
+    When the agent calls code_search
+    Then the server refuses: no checkout is open, call fetch_index
+    When the agent calls fetch_index with the path of the checkout
+    Then the server says that the index of A is open, with 3 changed files
+    And module_map answers for the checkout
+    And the checkout has the index of A, updated for its changed files
+
   # KAIROS-T-0343: on a repository that opted in to the hosted provider of
   # its organization, the CLI makes no summary and never sees the key of the
   # organization. It links the pool of the base index, and the structure of

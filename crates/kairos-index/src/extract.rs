@@ -13,7 +13,8 @@ use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_macro_ranges, ru
 use crate::tokens;
 
 /// The language of a file, from its extension: the languages of the index
-/// (Rust, Python, TypeScript, Go), with the names that narsil uses.
+/// (Rust, Python, TypeScript, Go, with the names that narsil uses) and SQL
+/// (KAIROS-T-0350, read by [`crate::sql`]).
 pub fn language_of(path: &str) -> Option<&'static str> {
     let ext = path.rsplit_once('.')?.1;
     match ext {
@@ -22,6 +23,7 @@ pub fn language_of(path: &str) -> Option<&'static str> {
         "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
         "go" => Some("go"),
+        "sql" => Some("sql"),
         _ => None,
     }
 }
@@ -73,6 +75,9 @@ pub fn extract(
     test_file: bool,
     known: &HashMap<String, (Vec<u32>, u32)>,
 ) -> Result<FileExtract, String> {
+    if language == "sql" {
+        return Ok(crate::sql::extract(content, test_file));
+    }
     let parsed = parser
         .parse_file(Path::new(path), content)
         .map_err(|e| e.to_string())?;
@@ -184,7 +189,12 @@ pub fn kind_name(kind: &SymbolKind) -> &'static str {
 
 /// The kind of a name that [`kind_name`] gives.
 pub fn kind_from_name(name: &str) -> Option<&'static str> {
-    const KINDS: [&str; 19] = [
+    const KINDS: [&str; 23] = [
+        // The kinds of a SQL file (KAIROS-T-0350).
+        "table",
+        "index",
+        "view",
+        "trigger",
         "struct",
         "class",
         "enum",
@@ -267,7 +277,7 @@ fn tree_hash(language: &str, node: Node<'_>, source: &[u8]) -> String {
     hex(hasher.finalize().as_slice())
 }
 
-fn hash_text(language: &str, text: &[u8]) -> String {
+pub(crate) fn hash_text(language: &str, text: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(language.as_bytes());
     hasher.update([0]);

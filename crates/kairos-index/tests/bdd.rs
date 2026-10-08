@@ -1411,6 +1411,192 @@ fn summarized(s: &SymbolRecord) -> bool {
     !s.is_test && SUMMARIZED_KINDS.contains(&s.kind.as_str())
 }
 
+#[then(
+    "the impl block of Checksum in src/checksum.rs has a summary, from its header and the declaration of value, not the body"
+)]
+fn impl_block_has_a_summary(world: &mut IndexWorld) {
+    let symbols = world.symbols();
+    let block = symbols
+        .iter()
+        .find(|s| s.file == "src/checksum.rs" && s.kind == "implementation" && s.name == "Checksum")
+        .expect("the impl block of Checksum");
+    assert!(block.summary_key.is_some(), "{block:?}");
+    let request = world
+        .requests
+        .iter()
+        .find(|r| {
+            r.level == Level::Symbol
+                && r.kind == "implementation"
+                && r.path == "src/checksum.rs"
+                && r.name == "Checksum"
+        })
+        .expect("the request of the impl block");
+    let code = request.code.as_deref().unwrap_or("");
+    assert!(code.starts_with("impl Checksum {"), "{code}");
+    assert!(code.contains("pub fn value(&self) -> u32;"), "{code}");
+    assert!(
+        !code.contains("self.sum"),
+        "the body is in the input: {code}"
+    );
+    assert!(request.callees.is_empty(), "{:?}", request.callees);
+    assert!(
+        request.prompt().contains("impl block `Checksum`"),
+        "{}",
+        request.prompt()
+    );
+}
+
+#[then("the constant SEED in src/checksum.rs has a summary")]
+fn constant_has_a_summary(world: &mut IndexWorld) {
+    let symbols = world.symbols();
+    let seed = symbols
+        .iter()
+        .find(|s| s.file == "src/checksum.rs" && s.kind == "constant" && s.name == "SEED")
+        .expect("the constant SEED");
+    assert!(seed.summary_key.is_some(), "{seed:?}");
+    let request = world
+        .requests
+        .iter()
+        .find(|r| r.level == Level::Symbol && r.kind == "constant" && r.name == "SEED")
+        .expect("the request of SEED");
+    assert!(
+        request
+            .code
+            .as_deref()
+            .unwrap_or("")
+            .contains("pub const SEED: u32 = 31;"),
+        "{:?}",
+        request.code
+    );
+    assert!(
+        request.prompt().contains("constant `SEED`"),
+        "{}",
+        request.prompt()
+    );
+}
+
+#[then("the mod lines of src/lib.rs have no summary")]
+fn mod_lines_have_no_summary(world: &mut IndexWorld) {
+    let mods: Vec<_> = world
+        .symbols()
+        .into_iter()
+        .filter(|s| s.file == "src/lib.rs" && s.kind == "module")
+        .collect();
+    assert!(!mods.is_empty(), "src/lib.rs has no mod line in the index");
+    for m in &mods {
+        assert!(m.summary_key.is_none(), "{m:?}");
+    }
+}
+
+// ---------------------------------------------------------------- sql.feature
+
+#[then(expr = "{word} has the language sql and no parse error")]
+fn sql_file_parsed(world: &mut IndexWorld, path: String) {
+    let file = world
+        .files()
+        .into_iter()
+        .find(|f| f.path == path)
+        .unwrap_or_else(|| panic!("{path} is not in the index"));
+    assert_eq!(file.language.as_deref(), Some("sql"), "{file:?}");
+    assert_eq!(file.decision, "source", "{file:?}");
+    assert_eq!(file.parse_error, None, "{file:?}");
+}
+
+#[then("it has the table payments on lines 2 to 6 and the index payments_by_day on line 8")]
+fn sql_symbols(world: &mut IndexWorld) {
+    let symbols: Vec<_> = world
+        .symbols()
+        .into_iter()
+        .filter(|s| s.file == "migrations/001_payments/up.sql")
+        .collect();
+    let places: Vec<(String, String, u32, u32)> = symbols
+        .iter()
+        .map(|s| (s.kind.clone(), s.name.clone(), s.start_line, s.end_line))
+        .collect();
+    assert_eq!(
+        places,
+        [
+            ("table".to_string(), "payments".to_string(), 2, 6),
+            ("index".to_string(), "payments_by_day".to_string(), 8, 8),
+        ],
+        "{symbols:#?}"
+    );
+    assert_eq!(
+        symbols[0].signature.as_deref(),
+        Some("CREATE TABLE payments ("),
+        "{symbols:#?}"
+    );
+    assert!(symbols.iter().all(|s| !s.is_test), "{symbols:#?}");
+}
+
+#[then(expr = "{word} has the language sql and no symbol")]
+fn sql_file_with_no_symbol(world: &mut IndexWorld, path: String) {
+    let file = world
+        .files()
+        .into_iter()
+        .find(|f| f.path == path)
+        .unwrap_or_else(|| panic!("{path} is not in the index"));
+    assert_eq!(file.language.as_deref(), Some("sql"), "{file:?}");
+    assert_eq!(file.parse_error, None, "{file:?}");
+    assert!(
+        world.symbols().iter().all(|s| s.file != path),
+        "{path} has symbols"
+    );
+}
+
+#[then("the table payments has a summary, from its statement")]
+fn table_has_a_summary(world: &mut IndexWorld) {
+    let symbols = world.symbols();
+    let table = symbols
+        .iter()
+        .find(|s| s.kind == "table" && s.name == "payments")
+        .expect("the table payments");
+    assert!(table.summary_key.is_some(), "{table:?}");
+    let request = world
+        .requests
+        .iter()
+        .find(|r| r.level == Level::Symbol && r.kind == "table" && r.name == "payments")
+        .expect("the request of the table");
+    let code = request.code.as_deref().unwrap_or("");
+    assert!(code.starts_with("CREATE TABLE payments ("), "{code}");
+    assert!(code.contains("day   DATE NOT NULL"), "{code}");
+    assert_eq!(request.language.as_deref(), Some("sql"));
+}
+
+#[then(expr = "the module {word} has a summary")]
+fn module_has_a_summary(world: &mut IndexWorld, path: String) {
+    let request = world
+        .requests
+        .iter()
+        .find(|r| r.level == Level::Module && r.path == path);
+    assert!(
+        request.is_some(),
+        "no module summary of {path}: {:?}",
+        world
+            .requests
+            .iter()
+            .filter(|r| r.level == Level::Module)
+            .map(|r| r.path.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[then("the table payments is in the first 3 results")]
+fn table_in_the_first_results(world: &mut IndexWorld) {
+    let hits = &world.search.as_ref().expect("no search ran").hits;
+    let names: Vec<String> = hits
+        .iter()
+        .take(3)
+        .map(|h| format!("{} ({})", h.symbol.name, h.symbol.kind))
+        .collect();
+    assert!(
+        hits.iter()
+            .take(3)
+            .any(|h| h.symbol.kind == "table" && h.symbol.name == "payments"),
+        "{names:?}"
+    );
+}
+
 fn find_symbol<'a>(
     symbols: &'a [SymbolRecord],
     (file, name, container): &(String, String, String),

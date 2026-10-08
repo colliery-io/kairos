@@ -9,7 +9,7 @@ The promise is for one release: this page agrees with `tools/list`. The count
 is not a promise for later releases. A later release can add a tool or an
 argument.
 
-This page describes Kairos 0.8.1. Argument names, types and defaults are those
+This page describes Kairos 0.8.2. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
 
 ## Conventions

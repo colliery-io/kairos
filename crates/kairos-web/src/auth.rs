@@ -54,8 +54,9 @@ pub const LOGIN_PATH: &str = "/api/login";
 /// The logout endpoint of a password session (KAIROS-T-0327).
 const LOGOUT_PATH: &str = "/api/logout";
 
-/// Scopes requested at login. `offline_access` asks the issuer for a
-/// refresh token (silent refresh); the rest feed JIT provisioning (A-0010).
+/// Scopes requested at login when `/api/config` names none (an older server).
+/// `offline_access` asks the issuer for a refresh token (silent refresh); the
+/// rest feed JIT provisioning (A-0010).
 const SCOPES: &str = "openid profile email offline_access";
 
 /// Refresh the session this many seconds before the access token expires.
@@ -102,6 +103,11 @@ pub struct AuthConfig {
     /// resolved server-side). `None` with no issuer.
     #[serde(default)]
     pub authorization_endpoint: Option<String>,
+    /// The scope to request at login, chosen server-side from the issuer's
+    /// `scopes_supported` (no `offline_access` for Google). Absent on older
+    /// servers → [`SCOPES`].
+    #[serde(default)]
+    pub scope: Option<String>,
     /// Which token to send as the `/api` bearer. Absent on older servers →
     /// [`ApiBearer::AccessToken`] (backward compatible).
     #[serde(default)]
@@ -466,7 +472,7 @@ pub async fn begin_login(auth: Auth, return_to: &str) -> Result<(), String> {
         authorization_endpoint,
         url_encode(&config.client_id),
         url_encode(&redirect_uri),
-        url_encode(SCOPES),
+        url_encode(config.scope.as_deref().unwrap_or(SCOPES)),
         url_encode(&state),
         url_encode(&challenge),
     );

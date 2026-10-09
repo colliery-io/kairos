@@ -13,7 +13,7 @@ One `activity_log` row, as returned by `GET /api/activity`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and `release` are changes to the claim of a task (KAIROS-T-0359). |
+| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release|cancel|purge`. `delete` is an archive. `cancel` is the cancel of a task, with the reason in `details` (KAIROS-T-0362). `purge` is the delete of a task for good: `details` names its code and its title. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and `release` are changes to the claim of a task (KAIROS-T-0359). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
@@ -217,6 +217,16 @@ An allowed column-to-column transition edge.
 | `from_column_id` | `string` | yes | Source column (UUID). |
 | `id` | `string` | yes | Transition id (UUID) — used by `DELETE /api/boards/{id}/transitions/{transition_id}`. |
 | `to_column_id` | `string` | yes | Target column (UUID). |
+
+## CancelTaskRequest
+
+Body of `POST /api/tasks/{short_code}/cancel` (KAIROS-T-0362).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | `string` | yes | Why the task is cancelled. Must not be empty. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CascadePreviewResponse
 
@@ -1219,6 +1229,15 @@ A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the children si
 | `has_done` | `boolean` | yes | False when no board hosting the children has a done-flagged column — clients show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done`, and it reads as `false`. |
 | `total` | `integer` | yes |  |
 
+## PurgeTaskResponse
+
+Response of `POST /api/tasks/{short_code}/purge` (KAIROS-T-0362): the task that is gone for good.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The short code of the deleted task. |
+| `title` | `string` | yes | The title of the deleted task. |
+
 ## PutCodeIndexSettings
 
 Body of `PUT /api/org/code-index-settings` (an organization admin).
@@ -1728,6 +1747,7 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the task sits on (UUID). |
+| `cancellation` | [`TaskCancellation`](schemas.md#taskcancellation), nullable | no |  |
 | `claim` | [`TaskClaim`](schemas.md#taskclaim), nullable | no |  |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `content` | `string` | yes | Markdown content. |
@@ -1744,6 +1764,17 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
 | `work_class` | `string` | yes | Planned/Support lane (`planned|support`, KAIROS-T-0077) â was this work planned, or unplanned intake? Orthogonal to `task_type`. |
+
+## TaskCancellation
+
+The cancel mark of a task (KAIROS-T-0362). A cancel moves the task to the done column of its board. A move out of the done column removes the mark; the history keeps the reason.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `cancelled_at` | `string` | yes | RFC 3339. |
+| `cancelled_by` | `string` | yes | The person or the service account that cancelled the task (UUID). |
+| `cancelled_by_name` | `string` | yes | The display name of `cancelled_by`. |
+| `reason` | `string` | yes | Why the task is cancelled. |
 
 ## TaskClaim
 

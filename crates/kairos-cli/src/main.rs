@@ -865,12 +865,45 @@ mod tests {
             _ => panic!("expected strategies transition"),
         }
 
-        let cli = Cli::try_parse_from(["kairos", "adrs", "delete", "ACME-A-0001", "--confirm"])
-            .expect("adrs delete parses");
-        match cli.command {
-            Command::Adrs(AdrsCommand::Delete(args)) => assert!(args.confirm),
-            _ => panic!("expected adrs delete"),
+        // KAIROS-T-0362: the verb is `archive`, and `delete` stays as an
+        // alias of it.
+        for verb in ["archive", "delete"] {
+            let cli = Cli::try_parse_from(["kairos", "adrs", verb, "ACME-A-0001", "--confirm"])
+                .expect("adrs archive parses");
+            match cli.command {
+                Command::Adrs(AdrsCommand::Archive(args)) => assert!(args.confirm),
+                _ => panic!("expected adrs archive"),
+            }
         }
+
+        // KAIROS-T-0362: a task can be cancelled with a reason, and purged.
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "tasks",
+            "cancel",
+            "ACME-T-0001",
+            "--reason",
+            "Not needed",
+        ])
+        .expect("tasks cancel parses");
+        match cli.command {
+            Command::Tasks(TasksCommand::Cancel(args)) => assert_eq!(args.reason, "Not needed"),
+            _ => panic!("expected tasks cancel"),
+        }
+        assert!(
+            Cli::try_parse_from(["kairos", "tasks", "cancel", "ACME-T-0001"]).is_err(),
+            "a cancel needs --reason"
+        );
+        let cli = Cli::try_parse_from(["kairos", "tasks", "purge", "ACME-T-0001", "--confirm"])
+            .expect("tasks purge parses");
+        match cli.command {
+            Command::Tasks(TasksCommand::Purge(args)) => assert!(args.confirm),
+            _ => panic!("expected tasks purge"),
+        }
+        assert!(
+            Cli::try_parse_from(["kairos", "adrs", "purge", "ACME-A-0001", "--confirm"]).is_err(),
+            "only a task has purge"
+        );
 
         // Documents have no transition endpoint in S-0005 — no verb either.
         assert!(

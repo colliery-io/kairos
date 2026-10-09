@@ -6,9 +6,9 @@
 // Aurora `Modal` after the delete.
 //
 //   1. alice makes a task through the API and opens its page
-//   2. Delete opens the dialog "Delete CODE?" with the cascade preview;
+//   2. Archive opens the dialog "Archive CODE?" with the cascade preview;
 //      Escape closes it and deletes nothing
-//   3. Delete again, then "Delete (cascades)": the report says "Deleted",
+//   3. Archive again, then "Archive": the report says "Archived",
 //      and the server has put the task away
 //
 // With AURORA_REVIEW_DIR set, the dialog is saved as a screenshot in the
@@ -48,15 +48,15 @@ test('dialogs: the delete asks in a ConfirmDialog, and the report is a Modal', a
       await expect(page.locator('.kairos-editor')).toBeVisible({ timeout: 20_000 });
     });
 
-    const dialog = page.getByRole('dialog', { name: `Delete ${code}?` });
+    const dialog = page.getByRole('dialog', { name: `Archive ${code}?` });
 
-    await test.step('Delete opens the confirm dialog; Escape cancels', async () => {
-      await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await test.step('Archive opens the confirm dialog; Escape cancels', async () => {
+      await page.getByRole('button', { name: 'Archive', exact: true }).click();
       await expect(dialog).toBeVisible();
       await expect(dialog).toHaveAttribute('aria-modal', 'true');
       await expect(dialog.getByText('This cascades')).toBeVisible();
       await expect(
-        dialog.getByText('No descendants — only this item will be deleted.'),
+        dialog.getByText('Nothing is below it. Only this item goes to the archive.'),
       ).toBeVisible({ timeout: 15_000 });
       if (REVIEW_DIR) {
         for (const theme of ['light', 'dark']) {
@@ -73,14 +73,15 @@ test('dialogs: the delete asks in a ConfirmDialog, and the report is a Modal', a
       expect((await still.json()).archived_at ?? null).toBeNull();
     });
 
-    await test.step('confirm deletes, and the report shows in a Modal', async () => {
-      await page.getByRole('button', { name: 'Delete', exact: true }).click();
+    await test.step('confirm archives, and the report shows in a Modal', async () => {
+      await page.getByRole('button', { name: 'Archive', exact: true }).click();
       await expect(dialog).toBeVisible();
-      await dialog.getByRole('button', { name: 'Delete (cascades)' }).click();
-      const report = page.getByRole('dialog', { name: 'Deleted' });
+      await dialog.getByRole('button', { name: 'Archive', exact: true }).click();
+      const report = page.getByRole('dialog', { name: 'Archived' });
       await expect(report).toBeVisible({ timeout: 15_000 });
       await expect(report).toContainText(code);
-      await expect(report).toContainText('No descendants were affected.');
+      await expect(report).toContainText('Nothing below it went to the archive.');
+      await expect(report).toContainText('You can restore it.');
       await expect(report.getByRole('link', { name: 'Back to boards' })).toBeVisible();
       const gone = await fetch(`${GUI}/api/tasks/${code}`, {
         headers: { authorization: `Bearer ${alice}` },

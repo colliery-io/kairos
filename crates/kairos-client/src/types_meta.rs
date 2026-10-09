@@ -433,7 +433,7 @@ pub struct ActivityEntry {
     pub id: String,
     /// Who did it (user UUID).
     pub actor_id: String,
-    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release`.
+    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release|cancel|purge`. `delete` is an archive. `cancel` is the cancel of a task, with the reason in `details` (KAIROS-T-0362). `purge` is the delete of a task for good: `details` names its code and its title.
     /// A change to a team, a delivery stream, a membership or a user has
     /// the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and
     /// `release` are changes to the claim of a task (KAIROS-T-0359).

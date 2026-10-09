@@ -15,13 +15,16 @@
 //! - relationships summary (linked; the full explorer is T-0042's
 //!   `/search/relationships/:code`) and the history link (T-0044's
 //!   `/activity/history/:code`);
-//! - create-from-template ([`create_doc`]) and soft delete with cascade
-//!   warning ([`delete`], A-0001).
+//! - create-from-template ([`create_doc`]) and the archive (a soft
+//!   delete) with cascade warning ([`delete`], A-0001);
+//! - for a task: Cancel with a reason, and Delete for good ([`end`],
+//!   KAIROS-T-0362).
 
 pub(crate) mod api;
 mod create_doc;
 mod delete;
 mod editor;
+mod end;
 pub(crate) mod markdown;
 mod metadata;
 mod owner;
@@ -46,6 +49,7 @@ use api::{Family, ItemDetail, RelationshipGroup};
 use create_doc::CreateDocumentDialog;
 use delete::DeleteDialog;
 use editor::ContentEditor;
+use end::{CancelDialog, CancelledBanner, PurgeDialog};
 use metadata::MetadataPanel;
 use owner::{ImpactsPanel, OwnerBoardPanel};
 use teams::TeamsPanel;
@@ -219,6 +223,8 @@ fn ItemLoaded(
     let auth = use_auth();
     let create_open = RwSignal::new(false);
     let delete_open = RwSignal::new(false);
+    let cancel_open = RwSignal::new(false);
+    let purge_open = RwSignal::new(false);
 
     // Pre-compute every view input so the view! closures never capture
     // `item` itself (it is not Copy).
@@ -232,6 +238,11 @@ fn ItemLoaded(
     let history_href = format!("/activity/history/{}", item.short_code);
     let code = item.short_code.clone();
     let delete_title = item.title.clone();
+    let cancel_title = item.title.clone();
+    let purge_title = item.title.clone();
+    let cancellation = item.cancellation.clone();
+    let cancelled = cancellation.is_some();
+    let task_column = item.column_id.clone();
     let lane = item.work_class.clone();
     let repository = item.repository.as_ref().map(|r| r.slug.clone());
     let lifecycle = item.lifecycle.clone();
@@ -279,9 +290,11 @@ fn ItemLoaded(
         }
     });
     let can_restore = restore_power(family, board, created_by.clone());
+    let task_powers = task_end_powers(family, board, task_column);
 
     view! {
         <PageHeader title=header_title sub=family.label()/>
+        {cancellation.map(|mark| view! { <CancelledBanner mark/> })}
         {archived_at.map(|when| view! {
             <ArchivedBanner
                 family
@@ -331,10 +344,24 @@ fn ItemLoaded(
                         "New document"
                     </Button>
                 })}
-                <Button variant="default" size="xs" bad=true disabled=archived
+                // KAIROS-T-0362: a task can be cancelled (not when it is
+                // done) and deleted for good (board managers only).
+                {move || (task_powers.get().cancel && !archived && !cancelled).then(|| view! {
+                    <Button variant="default" size="xs"
+                        on_click=Callback::new(move |_| cancel_open.set(true))>
+                        "Cancel task"
+                    </Button>
+                })}
+                <Button variant="default" size="xs" disabled=archived
                     on_click=Callback::new(move |_| delete_open.set(true))>
-                    "Delete"
+                    "Archive"
                 </Button>
+                {move || task_powers.get().purge.then(|| view! {
+                    <Button variant="default" size="xs" bad=true
+                        on_click=Callback::new(move |_| purge_open.set(true))>
+                        "Delete"
+                    </Button>
+                })}
             </Group>
         </Group>
         <ChildrenProgressBar family code=short_code.clone()/>
@@ -385,7 +412,12 @@ fn ItemLoaded(
             </Stack>
         </div>
         <CreateDocumentDialog parent_code=code.clone() open=create_open/>
-        <DeleteDialog family code title=delete_title open=delete_open/>
+        <DeleteDialog family code=code.clone() title=delete_title open=delete_open/>
+        {(family == Family::Task).then(|| view! {
+            <CancelDialog code=code.clone() title=cancel_title open=cancel_open
+                on_cancelled=on_moved/>
+            <PurgeDialog code=code.clone() title=purge_title open=purge_open/>
+        })}
     }
 }
 
@@ -442,6 +474,58 @@ fn restore_power(
                 boards::may_edit_item(&me, created_by, None, None, required)
             }
         })
+    })
+}
+
+/// What the signed-in user may do to END a task (KAIROS-T-0362).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TaskEndPowers {
+    /// Cancel: `transition_items` on the board (the capability of a move),
+    /// and the task is not in a done column.
+    cancel: bool,
+    /// Delete for good: `manage_tasks` on the board.
+    purge: bool,
+}
+
+/// The [`TaskEndPowers`] of the page: `false` for each until whoami and
+/// the board read have resolved, and for an item that is not a task. The
+/// server stays the authority.
+fn task_end_powers(
+    family: Family,
+    board: LocalResource<Result<Option<api::BoardInfo>, ApiError>>,
+    column_id: Option<String>,
+) -> Memo<TaskEndPowers> {
+    let whoami = use_context::<LocalResource<Result<crate::api::Whoami, ApiError>>>();
+    let column_id = StoredValue::new(column_id);
+    Memo::new(move |_| {
+        if family != Family::Task {
+            return TaskEndPowers::default();
+        }
+        let Some(me) = whoami
+            .and_then(|resource| resource.get())
+            .and_then(Result::ok)
+        else {
+            return TaskEndPowers::default();
+        };
+        let Some(Ok(Some(board))) = board.get() else {
+            return TaskEndPowers::default();
+        };
+        let done = column_id.with_value(|column| {
+            board
+                .columns
+                .iter()
+                .any(|c| Some(&c.id) == column.as_ref() && c.is_done)
+        });
+        let powers = boards::board_powers(&me, &board.slug, board.team_id.as_deref(), None);
+        TaskEndPowers {
+            cancel: powers.transition && !done,
+            purge: boards::holds_capability(
+                &me,
+                Some(&board.slug),
+                board.team_id.as_deref(),
+                "manage_tasks",
+            ),
+        }
     })
 }
 

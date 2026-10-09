@@ -586,6 +586,31 @@ impl KairosClient {
             .await
     }
 
+    /// `POST /api/tasks/{short_code}/cancel` — cancel a task with a reason
+    /// (KAIROS-T-0362). The task moves to the done column of its board and
+    /// gets the cancel mark. The caller holds `transition_items` on the
+    /// board of the task.
+    pub async fn cancel_task(&self, short_code: &str, reason: &str) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/cancel"),
+            &crate::types::CancelTaskRequest {
+                reason: reason.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// `POST /api/tasks/{short_code}/purge` — delete a task for good
+    /// (KAIROS-T-0362). Nothing can bring it back. The caller holds
+    /// `manage_tasks` on the board of the task.
+    pub async fn purge_task(
+        &self,
+        short_code: &str,
+    ) -> Result<crate::types::PurgeTaskResponse, Error> {
+        self.post_empty(&format!("/api/tasks/{short_code}/purge"))
+            .await
+    }
+
     /// `PUT /api/tasks/{short_code}/repository` — set the repository the
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the

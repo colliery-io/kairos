@@ -95,6 +95,9 @@ impl IntoDto<dto::Task> for Task {
             // The same: [`crate::claims::attach_claims`] fills it
             // (KAIROS-T-0359).
             claim: None,
+            // [`crate::cancel::attach_cancellations`] fills it
+            // (KAIROS-T-0362).
+            cancellation: None,
         }
     }
 }

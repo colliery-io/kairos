@@ -911,6 +911,9 @@ struct CardModel {
     key: String,
 }
 
+/// The text of the chip of a cancelled task (KAIROS-T-0362).
+const CANCELLED_CHIP: &str = "Cancelled";
+
 /// One column's owned view model. Its `key` fingerprints identity + the
 /// transition-derived drop targets (config changes rebuild the column);
 /// the card list is NOT in the key — cards diff independently.
@@ -1014,12 +1017,16 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 )
             }));
             cards.extend(group.tasks.iter().map(|item| {
-                let meta = match item.task_type.as_str() {
+                let mut meta = match item.task_type.as_str() {
                     "bug" => vec![("bug".to_string(), token::BAD)],
                     "tech_debt" => vec![("tech debt".to_string(), token::GOLD)],
                     "support" => vec![("support".to_string(), token::GOLD)],
                     _ => Vec::new(),
                 };
+                // KAIROS-T-0362: the chip of a cancelled task, first.
+                if item.cancellation.is_some() {
+                    meta.insert(0, (CANCELLED_CHIP.to_string(), token::MUTED));
+                }
                 card(
                     EntityKind::Task,
                     &item.short_code,

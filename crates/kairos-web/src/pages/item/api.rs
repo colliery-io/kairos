@@ -178,6 +178,21 @@ pub struct ItemDetail {
     pub decision_maker: Option<String>,
     #[serde(default)]
     pub decision_date: Option<String>,
+    /// The cancel mark of a task (KAIROS-T-0362); `None` for a task that
+    /// is not cancelled, for the other families, and from an older server.
+    #[serde(default)]
+    pub cancellation: Option<Cancellation>,
+}
+
+/// mirror of: `kairos_client::types::TaskCancellation` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct Cancellation {
+    pub reason: String,
+    #[serde(default)]
+    pub cancelled_by_name: String,
+    /// RFC 3339.
+    #[serde(default)]
+    pub cancelled_at: String,
 }
 
 /// mirror of: `kairos_client::types_repositories::Impact` (partial).
@@ -218,6 +233,10 @@ pub struct BoardInfo {
 pub struct BoardColumnInfo {
     pub id: String,
     pub name: String,
+    /// The column holds finished work (`is_done`). A task in a done column
+    /// cannot be cancelled (KAIROS-T-0362).
+    #[serde(default)]
+    pub is_done: bool,
     /// Set when the column has been REMOVED from the board
     /// (KAIROS-T-0161) — only ever present because [`fetch_board`] asks
     /// for removed columns; see its docs.
@@ -998,8 +1017,42 @@ pub async fn restore_item(
     })
 }
 
-/// `DELETE /api/{family}/{short_code}` — A-0001 soft delete; the response
-/// reports the cascade.
+/// mirror of: `kairos_client::types::CancelTaskRequest`.
+#[derive(Serialize)]
+struct CancelTaskBody<'a> {
+    reason: &'a str,
+}
+
+/// `POST /api/tasks/{short_code}/cancel` — cancel a task with a reason
+/// (KAIROS-T-0362). The task moves to the done column of its board.
+/// Refusals the dialog shows inline: 422 for an empty reason or a task
+/// that is done, 403 without `transition_items`.
+pub async fn cancel_task(auth: Auth, code: &str, reason: &str) -> Result<ItemDetail, ApiError> {
+    crate::api::post_json(
+        auth,
+        &format!("/api/tasks/{code}/cancel"),
+        &CancelTaskBody { reason },
+    )
+    .await
+}
+
+/// mirror of: `kairos_client::types::PurgeTaskResponse`.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct PurgeOutcome {
+    pub short_code: String,
+    pub title: String,
+}
+
+/// `POST /api/tasks/{short_code}/purge` — delete a task for good
+/// (KAIROS-T-0362). Needs `manage_tasks` on the board of the task.
+pub async fn purge_task(auth: Auth, code: &str) -> Result<PurgeOutcome, ApiError> {
+    let path = format!("/api/tasks/{code}/purge");
+    send_json(auth, Verb::Post, &path, None::<&()>).await
+}
+
+/// `DELETE /api/{family}/{short_code}` — the archive (A-0001 soft
+/// delete); the response reports the cascade. A restore brings the item
+/// back.
 pub async fn delete_item(
     auth: Auth,
     family: Family,

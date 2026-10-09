@@ -277,6 +277,8 @@ text_enum! {
         Claim => "claim",
         HandOff => "hand_off",
         Release => "release",
+        Cancel => "cancel",
+        Purge => "purge",
     }
 }
 
@@ -418,6 +420,8 @@ mod tests {
                 "claim",
                 "hand_off",
                 "release",
+                "cancel",
+                "purge",
             ]
         );
     }

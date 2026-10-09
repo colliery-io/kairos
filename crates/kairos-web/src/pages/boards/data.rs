@@ -88,6 +88,17 @@ pub struct Task {
     /// a task with no claim, and from an older server.
     #[serde(default)]
     pub claim: Option<TaskClaim>,
+    /// The cancel mark (KAIROS-T-0362); `None` for a task that is not
+    /// cancelled, and from an older server.
+    #[serde(default)]
+    pub cancellation: Option<TaskCancellation>,
+}
+
+/// mirror of: `kairos_client::types::TaskCancellation` (partial — card
+/// fields).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TaskCancellation {
+    pub reason: String,
 }
 
 /// mirror of: `kairos_client::types::TaskClaim` (partial — card fields).
@@ -1082,6 +1093,21 @@ mod tests {
         }))
         .expect("mirror decodes");
         assert_eq!(old.claim, None);
+        assert_eq!(old.cancellation, None);
+    }
+
+    /// KAIROS-T-0362: a card task decodes its cancel mark.
+    #[test]
+    fn task_mirror_decodes_the_cancel_mark() {
+        let task: Task = serde_json::from_value(serde_json::json!({
+            "short_code": "DEMO-T-0001", "title": "T", "task_type": "task",
+            "work_class": "planned",
+            "cancellation": {"reason": "No need", "cancelled_by": "u",
+                             "cancelled_by_name": "Robin",
+                             "cancelled_at": "2026-10-09T10:00:00Z"}
+        }))
+        .expect("mirror decodes");
+        assert_eq!(task.cancellation.expect("the mark").reason, "No need");
     }
 
     /// Board level → create-flow entity kind (A-0002 one-family-per-level).

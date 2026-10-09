@@ -180,6 +180,8 @@ const ACTIONS: &[&str] = &[
     "claim",
     "hand_off",
     "release",
+    "cancel",
+    "purge",
 ];
 
 /// Map a `{PREFIX}-{LETTER}-{NNNN}` short code (S-0004) onto its API
@@ -226,7 +228,8 @@ fn format_when(rfc3339: &str) -> String {
 fn action_color(action: &str) -> &'static str {
     match action {
         "create" | "restore" => token::OK,
-        "delete" => token::BAD,
+        "delete" | "purge" => token::BAD,
+        "cancel" => token::GOLD,
         "transition" | "board_move" | "rename" => token::ICE,
         "update" => token::GOLD,
         "claim" | "hand_off" | "release" => token::OK,
@@ -1345,7 +1348,7 @@ mod tests {
     /// server (`kairos_db::models::enums::ActivityAction`).
     #[test]
     fn the_filter_has_each_action() {
-        assert_eq!(ACTIONS.len(), 18);
+        assert_eq!(ACTIONS.len(), 20);
         for action in [
             "update",
             "restore",
@@ -1355,6 +1358,8 @@ mod tests {
             "claim",
             "hand_off",
             "release",
+            "cancel",
+            "purge",
         ] {
             assert!(ACTIONS.contains(&action), "{action}");
         }

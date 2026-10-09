@@ -84,6 +84,8 @@ use crate::app::AppState;
         crate::api::tasks::move_task,
         crate::api::tasks::hand_off_task,
         crate::api::tasks::release_task,
+        crate::api::tasks::cancel_task,
+        crate::api::tasks::purge_task,
         crate::api::tasks::set_work_class,
         // Task repository binding (KAIROS-T-0104).
         crate::api::tasks::set_repository,

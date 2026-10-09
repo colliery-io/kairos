@@ -473,6 +473,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    task_cancellations (task_id) {
+        task_id -> Uuid,
+        cancelled_by -> Uuid,
+        reason -> Text,
+        cancelled_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     task_claims (task_id) {
         task_id -> Uuid,
         user_id -> Uuid,
@@ -614,6 +623,7 @@ diesel::joinable!(repositories -> teams (team_id));
 diesel::joinable!(repository_credentials -> repositories (repository_id));
 diesel::joinable!(strategies -> board_columns (column_id));
 diesel::joinable!(strategies -> boards (board_id));
+diesel::joinable!(task_cancellations -> tasks (task_id));
 diesel::joinable!(task_claims -> tasks (task_id));
 diesel::joinable!(tasks -> board_columns (column_id));
 diesel::joinable!(tasks -> boards (board_id));
@@ -661,6 +671,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     scim_tokens,
     short_code_sequences,
     strategies,
+    task_cancellations,
     task_claims,
     tasks,
     team_announcements,

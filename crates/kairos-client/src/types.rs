@@ -148,6 +148,45 @@ pub struct Task {
     /// only: a response of an older server has no `claim`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim: Option<TaskClaim>,
+    /// The cancel mark of the task (KAIROS-T-0362): who cancelled it, why,
+    /// and when. Absent when the task is not cancelled. Present on the
+    /// task endpoints and the board items. The default is for the client
+    /// only: a response of an older server has no `cancellation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancellation: Option<TaskCancellation>,
+}
+
+/// The cancel mark of a task (KAIROS-T-0362). A cancel moves the task to
+/// the done column of its board. A move out of the done column removes
+/// the mark; the history keeps the reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TaskCancellation {
+    /// Why the task is cancelled.
+    pub reason: String,
+    /// The person or the service account that cancelled the task (UUID).
+    pub cancelled_by: String,
+    /// The display name of `cancelled_by`.
+    pub cancelled_by_name: String,
+    /// RFC 3339.
+    pub cancelled_at: String,
+}
+
+/// Body of `POST /api/tasks/{short_code}/cancel` (KAIROS-T-0362).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CancelTaskRequest {
+    /// Why the task is cancelled. Must not be empty.
+    pub reason: String,
+}
+
+/// Response of `POST /api/tasks/{short_code}/purge` (KAIROS-T-0362): the
+/// task that is gone for good.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct PurgeTaskResponse {
+    /// The short code of the deleted task.
+    pub short_code: String,
+    /// The title of the deleted task.
+    pub title: String,
 }
 
 /// The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has

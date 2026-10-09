@@ -31,7 +31,9 @@ An entry has one of these actions:
 | `board_move` | A task moved to a different board. |
 | `claim` | A person moved a task to Active and got its [claim](#claim). |
 | `hand_off` | A person gave the claim of a task to a different person. |
-| `release` | The claim of a task ended. The details give the reason: a release, a move out of Active, an archive, or a service account. |
+| `release` | The claim of a task ended. The details give the reason: a release, a move out of Active, an archive, a cancel, or a service account. |
+| `cancel` | A person [cancelled](#cancel) a task. The details give the columns and the reason. |
+| `purge` | A person deleted a task for good (a [purge](#purge)). The details give the code and the title. |
 | `board_config` | A person changed the name, the slug, a column or a transition of a board. |
 | `work_class` | A task changed its lane. |
 | `lifecycle` | A document changed its [editorial lifecycle](#editorial-lifecycle). |
@@ -82,13 +84,14 @@ Two unrelated states share this word.
 
 **Sense 1 — the put-away state.** Any of the five work-item types can be put
 away: hidden from default listings, still readable, still searchable on
-request. This is what a delete does. It is a visibility default and nothing
+request. This is what an archive does (the MCP tool `delete_item`, REST
+`DELETE`, the GUI button Archive). It is a visibility default and nothing
 more: it is not a permission boundary, and whoever could read the item before
 can read it after. The three surfaces name it differently:
 
 | Surface | Name |
 |---|---|
-| GUI | "put away". A put-away item shows a gold `put away` pill and is read-only while it is put away. |
+| GUI | The button is Archive, and its confirmation says that you can restore the item. A put-away item shows a gold `put away` pill and is read-only while it is put away. |
 | REST API, MCP tools, CLI `--json` | `archived_at`, the instant it was put away, on the item; `include_deleted` on a listing or search to ask for these items; `[archived]` as the marker on a rendered row. |
 | Database | `deleted_at`. |
 
@@ -205,6 +208,20 @@ cascade: an archive of an item does not archive its documents and ADRs. A
 restore does not cascade. See
 [Archiving](../explanation/archiving.md#the-cascade-takes-only-what-the-caller-can-edit).
 
+## cancel
+
+A task that the team will not do (KAIROS-T-0362). A cancel needs a reason. The
+task moves to the [done column](#done-column) of its board, and it gets the
+mark "cancelled" with the reason. The board shows the chip "Cancelled".
+
+The
+transition rules of the board do not apply. You can cancel a task from each
+column that is not done. A cancel ends the [claim](#claim).
+
+A move of the task out of the done column removes the mark. The activity log
+keeps the row `cancel` with the reason. To cancel a task, a principal needs
+`transition_items` on the board: the capability of a move.
+
 ## claim
 
 The person who works on a task in Active (KAIROS-T-0359). A column can have
@@ -247,14 +264,20 @@ different board.
 
 ## delete
 
-Always a soft delete, and the same act as archiving in sense 1 above: the item
-is stamped, hidden from default listings, and remains readable and restorable.
-It [cascades](#cascade) through `parent` edges to each descendant that the
-caller can edit. `restore` reverses it for one item; archived descendants stay
-archived.
+Two different acts.
 
-Nothing in the product hard-deletes a work item. The one genuinely destructive
-operation is dropping a tenant.
+**The archive.** The MCP tool `delete_item` and REST `DELETE` do a soft
+delete. The CLI verb is `archive`, and `delete` is an alias of it. A soft
+delete is the same act as archiving in sense 1 above.
+
+The item is stamped, hidden from default
+listings, and remains readable and restorable. It [cascades](#cascade) through
+`parent` edges to each descendant that the caller can edit. `restore` reverses
+it for one item; archived descendants stay archived. The GUI calls this
+Archive.
+
+**The delete for good** (a [purge](#purge)). Only a task, and only by a board
+manager. The GUI calls this Delete.
 
 ## delivery board
 
@@ -454,6 +477,19 @@ change of the owner board cannot remove it.
 The change of the owner board is a move. The principal needs
 `manage_documents` on the board that owns the document now and on the new
 board. See [Capabilities](capabilities.md#who-can-change-the-owner).
+
+## purge
+
+The delete of a task for good (KAIROS-T-0362): REST
+`POST /api/tasks/{code}/purge`, MCP `purge_task`, CLI `kairos tasks purge`, and
+the GUI button Delete. Nothing can bring the task back.
+
+The purge removes the
+task, its history, its metadata, its edges, its forge links and its claim. The
+activity log keeps its rows, and gets one row `purge` with the code and the
+title. To purge a task, a principal needs `manage_tasks` on the board of the
+task. A board manager and an organization admin have it. The other destructive
+operation is dropping a tenant.
 
 ## put away
 

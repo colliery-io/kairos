@@ -556,13 +556,34 @@ pub struct RestoreItemParams {
 pub struct DeleteItemParams {
     /// The item's short code.
     pub short_code: String,
-    /// Must be true: deletion soft-deletes the item AND cascades to its
-    /// descendants via parent edges. The response lists the cascade.
+    /// Must be true: the call archives the item AND each descendant that a
+    /// parent edge connects to it. The response lists the cascade.
+    pub confirm: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct CancelItemParams {
+    /// The task's short code. The task must not be in a done column.
+    pub short_code: String,
+    /// Why the task is cancelled. Must not be empty.
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct PurgeTaskParams {
+    /// The task's current short code (a retired code is not followed).
+    pub short_code: String,
+    /// Must be true: the call deletes the task for good. You cannot undo
+    /// it.
     pub confirm: bool,
 }
 
 // ---------------------------------------------------------------------------
-// The tools (28; the list is asserted in tests/mcp.rs)
+// The tools (30; the list is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -1086,6 +1107,9 @@ impl KairosMcp {
                 kairos_db::item_teams::board_teams(conn, board.id).map_err(ApiError::internal)?;
             // KAIROS-T-0359: the claims of the tasks, one query.
             let claims = crate::claims::claim_texts(conn, &item_ids)?;
+            // KAIROS-T-0362: the cancelled tasks, one query.
+            let cancelled = kairos_db::task_cancellations::marks_of(conn, &item_ids)
+                .map_err(ApiError::internal)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -1114,10 +1138,15 @@ impl KairosMcp {
                     // tell put-away work from live work will pick one up
                     // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}{}{}{}{}\n",
+                        "- {} [{}] {}{}{}{}{}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
+                        if cancelled.contains_key(&item.id) {
+                            " [cancelled]"
+                        } else {
+                            ""
+                        },
                         claims
                             .get(&item.id)
                             .map(|(holder, _)| format!(" [claimed by {holder}]"))
@@ -1151,7 +1180,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code. A task in Active shows its claim: the person who works on it, and since when."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code. A task in Active shows its claim: the person who works on it, and since when. A cancelled task shows the mark, who cancelled it, and the reason."
     )]
     pub async fn get_item(
         &self,
@@ -1212,6 +1241,10 @@ impl KairosMcp {
             // KAIROS-T-0359: who has the task in Active.
             if item.item_type == ItemType::Task && item.archived_at.is_none() {
                 out.push_str(&crate::claims::claim_text(conn, item.id, item.column_id)?);
+            }
+            // KAIROS-T-0362: the cancel mark and its reason.
+            if item.item_type == ItemType::Task {
+                out.push_str(&crate::cancel::cancel_text(conn, item.id)?);
             }
             // COLLIERY-T-0269: the owner of a document. It is a board and
             // not a position, so the line has no column.
@@ -2334,7 +2367,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted. You can delete an item that you created, or with `manage_<type>` on its board. The cascade takes only the descendants that you can edit. It stops at a descendant that you cannot edit, and takes nothing below it. The response names each item that stays, and why."
+        description = "Archive an item by short code (the name says delete, but the item is not deleted). An archived item is hidden from boards and default searches, and it is read-only. `restore_item` brings it back. Requires confirm=true because the archive CASCADES to descendants via parent edges; the response lists each item that the cascade archived. You can archive an item that you created, or with `manage_<type>` on its board. The cascade takes only the descendants that you can edit. It stops at a descendant that you cannot edit, and takes nothing below it. The response names each item that stays, and why. To delete a task for good, use `purge_task`."
     )]
     pub async fn delete_item(
         &self,
@@ -2347,8 +2380,9 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             if !params.confirm {
                 return Err(ApiError::validation(
-                    "delete_item must have confirm=true. The delete archives the item and \
-                     each descendant that a parent edge connects to it.",
+                    "delete_item must have confirm=true. The call archives the item and \
+                     each descendant that a parent edge connects to it. A restore brings \
+                     each one back.",
                 ));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
@@ -2376,7 +2410,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade delete was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists. You can restore an item that you created, or with `manage_<type>` on its board."
+        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade archive was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists. You can restore an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn restore_item(
         &self,
@@ -2426,6 +2460,68 @@ impl KairosMcp {
                     ),
                 )),
             }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Cancel a TASK that the team will not do, with a reason. The task moves to the done column of its board and gets the mark \"cancelled\" with the reason. `get_item` and the board show the mark. The transition rules of the board do not apply: you can cancel a task from each column that is not done. A cancel ends the claim of the task. A move of the task out of the done column removes the mark; the history keeps the reason. Needs `transition_items` on the board of the task, the capability of a move. An empty reason is refused, and so is a task in a done column (TASK_DONE)."
+    )]
+    pub async fn cancel_item(
+        &self,
+        Parameters(params): Parameters<CancelItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            let Some(board_id) = item.board_id.filter(|_| item.item_type == ItemType::Task) else {
+                return Err(ApiError::validation(format!(
+                    "{} is a {}. You can cancel only a task.",
+                    item.short_code, item.item_type
+                ))
+                .with_details(serde_json::json!({ "argument": "short_code" })));
+            };
+            let cancelled =
+                crate::cancel::cancel(conn, &slug, item.id, board_id, &params.reason, user)?;
+            Ok(format!(
+                "Cancelled {}: {} -> {}.\nReason: {}\nTo undo the cancel, move the task out of \
+                 the done column.",
+                cancelled.short_code,
+                cancelled.from_column,
+                cancelled.to_column,
+                cancelled.mark.reason
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Delete a TASK for good. YOU CANNOT UNDO THIS: no restore brings the task back. Use `delete_item` to archive a task, which a restore can undo. The task can be live or archived. The purge removes the task, its history, its metadata, its edges, its forge links and its claim; the items at the other end of the edges stay. The activity log keeps a row with the code and the title. Requires confirm=true, and `manage_tasks` on the board of the task (board managers and organization admins only). Send the current code: a retired code is not followed."
+    )]
+    pub async fn purge_task(
+        &self,
+        Parameters(params): Parameters<PurgeTaskParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            if !params.confirm {
+                return Err(ApiError::validation(
+                    "purge_task must have confirm=true. The call deletes the task for good, \
+                     and you cannot undo it.",
+                )
+                .with_details(serde_json::json!({ "argument": "confirm" })));
+            }
+            let purged = crate::api::tasks::purge(conn, &slug, &params.short_code, user)?;
+            Ok(format!(
+                "Deleted {} (\"{}\") for good. No restore can bring it back.",
+                purged.short_code, purged.title
+            ))
         })
         .await
     }

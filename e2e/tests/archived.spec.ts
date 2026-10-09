@@ -130,7 +130,7 @@ test('an archived item reads, its history reads, and it can be restored', async 
   await test.step('write affordances are disabled, with the reason', async () => {
     await expect(page.getByText('read-only while put away')).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'Delete', exact: true }),
+      page.getByRole('button', { name: 'Archive', exact: true }),
     ).toBeDisabled();
     await expect(
       page.getByRole('button', { name: 'Save', exact: true }),
@@ -165,7 +165,7 @@ test('an archived item reads, its history reads, and it can be restored', async 
     ).toBeVisible();
     await expect(page.locator('[data-testid="archived-banner"]')).toHaveCount(0);
     await expect(
-      page.getByRole('button', { name: 'Delete', exact: true }),
+      page.getByRole('button', { name: 'Archive', exact: true }),
     ).toBeEnabled();
   });
 

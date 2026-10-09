@@ -234,6 +234,8 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition or be moved: an off-board ADR, and over MCP a document, which never has one | — |
 | `NOT_CLAIMABLE` | 422 | A hand-off or a release of the claim of a task that is not in a column that holds claims (Active) (KAIROS-T-0359) | — |
 | `NO_CLAIM` | 422 | A release of the claim of a task that has no claim | — |
+| `TASK_DONE` | 422 | A cancel of a task that is in a done column (KAIROS-T-0362) | — |
+| `NO_DONE_COLUMN` | 422 | A cancel of a task whose board has no done column | — |
 | `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count — and `column` (`id`, `name`) |
 | `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` and `board` (`id`, `name`, `slug`): the board that is not empty. A team of old data can have 2 or more delivery boards, and the delete of the team examines each |
 | `DUPLICATE_COLUMN_NAME` | 422 | A live column of that board already has the name | — |

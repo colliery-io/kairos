@@ -183,7 +183,9 @@ differ.
 | `move` | no | no | yes | yes | no |
 | `hand-off` | no | no | yes | no | no |
 | `release` | no | no | yes | no | no |
-| `delete` | yes | yes | yes | yes | yes |
+| `cancel` | no | no | yes | no | no |
+| `archive` (alias `delete`) | yes | yes | yes | yes | yes |
+| `purge` | no | no | yes | no | no |
 | `restore` | yes | yes | yes | yes | yes |
 
 `documents` has no `transition` verb: documents have no board placement, and
@@ -379,6 +381,22 @@ next person who moves the task to Active gets the claim. You can release a
 claim that you have. To release the claim of a different person, you need
 `transition_items` on the board of the task.
 
+### `tasks cancel`
+
+```
+kairos tasks cancel <SHORT_CODE> --reason <TEXT> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must not be in a done column. |
+| `--reason <TEXT>` | string | required | Why the task is cancelled. Must not be empty. |
+
+[Cancels](glossary.md#cancel) a task: the team will not do it. The task moves
+to the done column of its board with the mark "cancelled" and the reason.
+`tasks get` shows the mark in the line `cancelled`. A move out of the done
+column removes the mark. You need `transition_items` on the board of the task.
+
 ### `documents move`
 
 ```
@@ -406,25 +424,44 @@ Kairos moved the document ACME-D-0004 to the owner board <board-id>.
 Kairos did not change the document ACME-D-0004. Its owner board is <board-id> already.
 ```
 
-### `<noun> delete`
+### `<noun> archive`
 
 ```
-kairos <noun> delete <SHORT_CODE> --confirm [OPTIONS]
+kairos <noun> archive <SHORT_CODE> --confirm [OPTIONS]
 ```
+
+`delete` is an alias of `archive`: `kairos tasks delete ACME-T-0001 --confirm`
+archives the task.
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The item's short code. |
-| `--confirm` | flag | off | Required for the deletion to happen. Without it, nothing is deleted. |
+| `--confirm` | flag | off | Required for the archive to happen. Without it, nothing is archived. |
 
-The delete is a soft delete and cascades to the item's children. Deleted items
-are hidden from `list` unless `--include-deleted` is passed, and are recoverable
-with `restore`.
+The archive is a soft delete and cascades to the item's children. Archived
+items are hidden from `list` unless `--include-deleted` is passed, and are
+recoverable with `restore`.
 
 The cascade takes the descendants that you can edit
 ([the edit rule](capabilities.md#the-edit-rule)). It stops at a descendant that
 you cannot edit, and takes nothing below it. The command names each descendant
 that stays, and the reason. With `--json`, they are in `not_reached`.
+
+### `tasks purge`
+
+```
+kairos tasks purge <SHORT_CODE> --confirm [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's current short code. |
+| `--confirm` | flag | off | Required for the purge to happen. Without it, nothing is deleted. |
+
+Deletes a task for good (a [purge](glossary.md#purge)). **You cannot undo
+this.** No `restore` brings the task back. The task can be live or archived.
+You need `manage_tasks` on the board of the task. To keep a copy that you can
+restore, use `tasks archive`.
 
 ### `<noun> restore`
 

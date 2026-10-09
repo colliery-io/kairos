@@ -1021,6 +1021,13 @@ macro_rules! transition_item_fn {
                         actor_id,
                         "transition",
                     )?;
+                    // KAIROS-T-0362: a move out of done ends the cancel
+                    // mark.
+                    crate::task_cancellations::after_column_change(
+                        conn,
+                        item_id,
+                        to_column_id,
+                    )?;
                 }
                 // KAIROS-T-0022: thin event (new column), delivered on
                 // commit.
@@ -1163,6 +1170,9 @@ pub fn move_task_with(
             actor_id,
             "board_move",
         )?;
+        // KAIROS-T-0362: the entry column is not done (or it is, and the
+        // mark stays).
+        crate::task_cancellations::after_column_change(conn, task_id, to_column_id)?;
         let renamed = if rename {
             let target_slug = target.slug.clone();
             Some(crate::code_rename::rename_item(

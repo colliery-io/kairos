@@ -75,8 +75,16 @@ impl ServerHandler for KairosMcp {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        // KAIROS-T-0359: rmcp runs the tool in the task of the MCP session,
+        // not in the task of the HTTP request, so the scope of the tenant
+        // middleware does not reach here. Set it again from the request.
+        let agent_key = context
+            .extensions
+            .get::<Parts>()
+            .and_then(|parts| parts.extensions.get::<AuthContext>())
+            .and_then(|auth| auth.agent_key);
         let call = ToolCallContext::new(self, request, context);
-        match self.tool_router.call(call).await {
+        match crate::blocking::with_agent_key(agent_key, self.tool_router.call(call)).await {
             Ok(result) => Ok(result),
             Err(e) => super::arguments::tool_error_of(e),
         }

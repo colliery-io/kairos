@@ -14,6 +14,11 @@ action, a time, and details. An entry can name an entity: an item, a board, a
 team, a delivery stream, a membership or a repository. `GET /api/activity` and
 the Activity page of the GUI show the entries. The newest entry is first.
 
+An agent can make a change with the agent key of a person. Then the actor is
+the person, and the entry also has the key (`agent_key_id`). The GUI shows the
+actor as "Alice (agent)". The versions of the history of an item have the same
+mark.
+
 An entry has one of these actions:
 
 | Action | The change |

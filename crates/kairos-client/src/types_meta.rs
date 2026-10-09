@@ -375,6 +375,13 @@ pub struct HistoryVersion {
     pub edited_by: String,
     /// RFC 3339.
     pub edited_at: String,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Response of `GET /api/{entity_type}/{short_code}/history?version=N`:
@@ -390,6 +397,13 @@ pub struct HistorySnapshot {
     pub edited_by: String,
     /// RFC 3339.
     pub edited_at: String,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Query of `GET /api/{entity_type}/{short_code}/history`.
@@ -447,6 +461,13 @@ pub struct ActivityEntry {
     /// item, and when `entity_short_code` is null.
     #[serde(default)]
     pub entity_archived_at: Option<String>,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Query of `GET /api/activity` (S-0005: all filters combinable).

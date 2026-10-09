@@ -36,8 +36,13 @@ pub struct ThinEvent {
     /// The item's (new) column (UUID); omitted when not applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column_id: Option<String>,
-    /// The acting user's id (UUID).
+    /// The acting user's id (UUID). For a change made with the agent key
+    /// of a person, the person.
     pub actor: String,
+    /// The agent key (UUID), when an agent made the change with the agent
+    /// key of a person (KAIROS-T-0359); omitted otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_key_id: Option<String>,
     /// When the change happened (RFC 3339).
     pub occurred_at: String,
 }

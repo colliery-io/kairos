@@ -2,7 +2,8 @@
 
 Let an agent, for example Claude Code, work in Kairos as you. The agent uses an
 **agent key**. The key acts as you. The agent gets your capabilities and no
-more. The history of each item that the agent changes shows your name.
+more. The history and the activity show each change of the agent with your name
+and a mark. For example, they show "Alice (agent)".
 
 **Before you start:** you are a member of the organization. You do not need to
 be an admin.

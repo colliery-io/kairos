@@ -15,6 +15,7 @@ One `activity_log` row, as returned by `GET /api/activity`.
 |---|---|---|---|
 | `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
+| `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
 | `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |
 | `entity_id` | `string`, nullable | no | The item acted on (UUID). Null for a relationship between two items: `details` names the two. For an `impacts` link it is the document or the ADR of the link (COLLIERY-T-0269). |
@@ -784,6 +785,7 @@ One row of `GET /api/{entity_type}/{short_code}/history`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `edited_at` | `string` | yes | RFC 3339. |
 | `edited_by` | `string` | yes | Editor user id (UUID). |
 | `version` | `integer` | yes | The content version this snapshot captured. |

@@ -583,6 +583,10 @@ pub async fn fetch_cascade_preview(
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 struct ArchiveEvent {
     actor_id: String,
+    /// KAIROS-T-0359: set when an agent archived the item with the agent
+    /// key of the person.
+    #[serde(default)]
+    agent_key_id: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_org::OrgMember` (partial).
@@ -623,7 +627,10 @@ pub async fn fetch_archived_by(auth: Auth, item_id: String) -> Option<String> {
             let head = event.actor_id.get(..8).unwrap_or(&event.actor_id);
             format!("{head}…")
         });
-    Some(name)
+    Some(crate::pages::activity::with_agent_mark(
+        name,
+        event.agent_key_id.as_deref(),
+    ))
 }
 
 /// `GET /api/templates` → the picker's list: each template, page after

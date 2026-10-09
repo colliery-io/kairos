@@ -11,6 +11,10 @@
 //!  "actor": "user-uuid", "occurred_at": "2026-07-10T12:00:00Z"}
 //! ```
 //!
+//! `agent_key_id` is there only when an agent made the change with the
+//! agent key of a person (KAIROS-T-0359): `actor` is the person, and
+//! `agent_key_id` is the key ([`crate::agent_mark`]).
+//!
 //! The `tenant` field is fan-out routing metadata for the server's LISTEN
 //! side (`kairos-server/src/ws.rs`) and is stripped before the event
 //! reaches a client socket; the remaining fields are exactly the S-0005
@@ -160,6 +164,9 @@ pub struct ThinEvent {
 struct SchemaName {
     #[diesel(sql_type = Text)]
     name: String,
+    /// The agent key of the request (KAIROS-T-0359, [`crate::agent_mark`]).
+    #[diesel(sql_type = Nullable<SqlUuid>)]
+    agent_key: Option<Uuid>,
 }
 
 #[derive(QueryableByName)]
@@ -203,8 +210,11 @@ pub fn blocks_boards(
 /// PostgreSQL delivers the notification on commit and drops it on
 /// rollback, which is what makes emission post-commit (A-0005 §5).
 pub fn emit_event(conn: &mut PgConnection, event: &ThinEvent) -> Result<(), DieselError> {
-    let schema: SchemaName =
-        sql_query("SELECT COALESCE(current_schema()::text, 'public') AS name").get_result(conn)?;
+    let schema: SchemaName = sql_query(
+        "SELECT COALESCE(current_schema()::text, 'public') AS name, \
+         NULLIF(current_setting('kairos.agent_key', true), '')::uuid AS agent_key",
+    )
+    .get_result(conn)?;
     let tenant = schema
         .name
         .strip_prefix("org_")
@@ -220,6 +230,11 @@ pub fn emit_event(conn: &mut PgConnection, event: &ThinEvent) -> Result<(), Dies
         payload.insert("column_id".into(), json!(column_id));
     }
     payload.insert("actor".into(), json!(event.actor));
+    // KAIROS-T-0359: the agent key, when an agent made the change. Omitted
+    // otherwise.
+    if let Some(agent_key) = schema.agent_key {
+        payload.insert("agent_key_id".into(), json!(agent_key));
+    }
     payload.insert("occurred_at".into(), json!(Utc::now()));
     // COLLIERY-T-0233: routing metadata, stripped by the server like
     // `tenant`. Omitted when empty, which is the usual case.

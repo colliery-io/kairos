@@ -50,6 +50,7 @@ One JSON object per WebSocket text message
   "board_id": "6f1a1f9e-...",
   "column_id": "b2c3d4e5-...",
   "actor": "0a1b2c3d-...",
+  "agent_key_id": "5e6f7a8b-...",
   "occurred_at": "2026-07-10T09:15:00.123456Z"
 }
 ```
@@ -61,7 +62,8 @@ One JSON object per WebSocket text message
 | `short_code` | The affected item — re-fetch it via the REST API. For `repository`, the slug of the repository |
 | `board_id` | The item's board (UUID); `null` for off-board items (documents, unplaced ADRs) |
 | `column_id` | The item's (new) column (UUID); omitted when not applicable |
-| `actor` | The acting user's id (UUID) |
+| `actor` | The acting user's id (UUID). For a change that an agent made with the agent key of a person, the person |
+| `agent_key_id` | The agent key (UUID) of the change, when an agent made it with the agent key of a person; omitted otherwise |
 | `occurred_at` | RFC 3339 timestamp |
 
 ### The `event` vocabulary

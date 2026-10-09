@@ -52,6 +52,7 @@ impl IntoDto<dto::HistoryVersion> for ItemHistory {
             version: self.version,
             edited_by: self.edited_by.to_string(),
             edited_at: timestamp(self.edited_at),
+            agent_key_id: self.agent_key_id.map(|id| id.to_string()),
         }
     }
 }
@@ -64,6 +65,7 @@ impl IntoDto<dto::HistorySnapshot> for ItemHistory {
             content: self.content,
             edited_by: self.edited_by.to_string(),
             edited_at: timestamp(self.edited_at),
+            agent_key_id: self.agent_key_id.map(|id| id.to_string()),
         }
     }
 }
@@ -83,6 +85,7 @@ impl IntoDto<dto::ActivityEntry> for ActivityLogEntry {
             entity_short_code: None,
             entity_title: None,
             entity_archived_at: None,
+            agent_key_id: self.agent_key_id.map(|id| id.to_string()),
         }
     }
 }

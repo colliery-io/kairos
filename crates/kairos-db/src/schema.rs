@@ -24,6 +24,7 @@ diesel::table! {
         entity_type -> Nullable<Text>,
         details -> Text,
         occurred_at -> Timestamptz,
+        agent_key_id -> Nullable<Uuid>,
     }
 }
 
@@ -310,6 +311,7 @@ diesel::table! {
         content -> Text,
         edited_by -> Uuid,
         edited_at -> Timestamptz,
+        agent_key_id -> Nullable<Uuid>,
     }
 }
 
@@ -525,6 +527,7 @@ diesel::table! {
         content -> Text,
         edited_by -> Uuid,
         edited_at -> Timestamptz,
+        agent_key_id -> Nullable<Uuid>,
     }
 }
 

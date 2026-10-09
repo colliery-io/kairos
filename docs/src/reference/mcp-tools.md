@@ -414,6 +414,9 @@ An item's content version history — version, editor, timestamp, newest first.
 
 Archived items' history is returned, marked archived.
 
+A version that an agent made with the agent key of a person shows the editor
+as "Alice (agent)". A rename that an agent made has the same mark.
+
 The list of an item that a move renamed has the section **Renames**. Each
 line has the old code, the new code, the time and who did the move:
 

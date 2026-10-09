@@ -1315,7 +1315,7 @@ impl KairosMcp {
             }
 
             let limit = params.limit.unwrap_or(20).clamp(1, 200);
-            let rows: Vec<(i32, Uuid, DateTime<Utc>)> = item_history::table
+            let rows: Vec<(i32, Uuid, DateTime<Utc>, Option<Uuid>)> = item_history::table
                 .filter(item_history::item_id.eq(item.id))
                 .order(item_history::version.desc())
                 .limit(limit)
@@ -1323,10 +1323,11 @@ impl KairosMcp {
                     item_history::version,
                     item_history::edited_by,
                     item_history::edited_at,
+                    item_history::agent_key_id,
                 ))
                 .load(conn)
                 .map_err(ApiError::internal)?;
-            let editor_ids: Vec<Uuid> = rows.iter().map(|(_, editor, _)| *editor).collect();
+            let editor_ids: Vec<Uuid> = rows.iter().map(|(_, editor, _, _)| *editor).collect();
             let editors: HashMap<Uuid, String> = users::table
                 .filter(users::id.eq_any(editor_ids))
                 .select((users::id, users::display_name))
@@ -1347,11 +1348,12 @@ impl KairosMcp {
                     archived_at.format("%Y-%m-%dT%H:%M:%SZ")
                 ));
             }
-            for (version, editor, edited_at) in rows {
+            for (version, editor, edited_at, agent_key) in rows {
                 let editor = editors.get(&editor).map_or("unknown", String::as_str);
                 out.push_str(&format!(
-                    "- v{version} — {} by {editor}\n",
-                    edited_at.format("%Y-%m-%dT%H:%M:%SZ")
+                    "- v{version} — {} by {}\n",
+                    edited_at.format("%Y-%m-%dT%H:%M:%SZ"),
+                    actor_text(editor, agent_key)
                 ));
             }
             out.push_str(&rename_history(conn, item.id)?);
@@ -3172,7 +3174,7 @@ fn move_document(
 /// new code, the time and who did it. Empty when the item has none.
 fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError> {
     use kairos_db::schema::{activity_log, users};
-    let rows: Vec<(String, DateTime<Utc>, Uuid)> = activity_log::table
+    let rows: Vec<(String, DateTime<Utc>, Uuid, Option<Uuid>)> = activity_log::table
         .filter(activity_log::entity_id.eq(item_id))
         .filter(activity_log::action.eq(kairos_db::models::enums::ActivityAction::Rename))
         .order(activity_log::occurred_at.asc())
@@ -3180,13 +3182,14 @@ fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiE
             activity_log::details,
             activity_log::occurred_at,
             activity_log::actor_id,
+            activity_log::agent_key_id,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
     if rows.is_empty() {
         return Ok(String::new());
     }
-    let actor_ids: Vec<Uuid> = rows.iter().map(|(_, _, actor)| *actor).collect();
+    let actor_ids: Vec<Uuid> = rows.iter().map(|(_, _, actor, _)| *actor).collect();
     let names: HashMap<Uuid, String> = users::table
         .filter(users::id.eq_any(actor_ids))
         .select((users::id, users::display_name))
@@ -3195,16 +3198,29 @@ fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiE
         .into_iter()
         .collect();
     let mut out = "\n## Renames\n".to_string();
-    for (details, at, actor) in rows {
+    for (details, at, actor, agent_key) in rows {
         let codes: &str = details.strip_prefix("code:").unwrap_or(&details);
         let codes = codes.replace("->", " -> ");
         out.push_str(&format!(
             "- {codes} — {} by {}\n",
             at.format("%Y-%m-%dT%H:%M:%SZ"),
-            names.get(&actor).map_or("unknown", String::as_str)
+            actor_text(
+                names.get(&actor).map_or("unknown", String::as_str),
+                agent_key
+            )
         ));
     }
     Ok(out)
+}
+
+/// The name of an actor in a history or activity text: "Alice (agent)"
+/// when an agent made the change with the agent key of the person
+/// (KAIROS-T-0359), else the name.
+fn actor_text(name: &str, agent_key: Option<Uuid>) -> String {
+    match agent_key {
+        Some(_) => format!("{name} (agent)"),
+        None => name.to_string(),
+    }
 }
 
 /// The lines of a `move_item` answer for a rename (COLLIERY-T-3101).

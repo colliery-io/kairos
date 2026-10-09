@@ -420,8 +420,9 @@ fn retention_sweeper_lifecycle() {
     for (value, row) in archived.iter().zip(&expected_pruned) {
         assert_eq!(
             value.as_object().unwrap().len(),
-            7,
-            "full column fidelity: id, item_id, version, title, content, edited_by, edited_at"
+            8,
+            "full column fidelity: id, item_id, version, title, content, edited_by, edited_at, \
+             agent_key_id"
         );
         assert_eq!(value["id"].as_str().unwrap(), row.id.to_string());
         assert_eq!(value["item_id"].as_str().unwrap(), row.item_id.to_string());
@@ -433,6 +434,8 @@ fn retention_sweeper_lifecycle() {
             row.edited_by.to_string()
         );
         assert_eq!(json_ts(value, "edited_at"), row.edited_at);
+        // KAIROS-T-0359: no agent made these rows.
+        assert!(value["agent_key_id"].is_null());
     }
 
     // activity_log rows past the window: archived then deleted.
@@ -440,7 +443,7 @@ fn retention_sweeper_lifecycle() {
     assert_eq!(archived_activity.len(), 3);
     for (value, (id, details, occurred_at)) in archived_activity.iter().zip(&expected_old_activity)
     {
-        assert_eq!(value.as_object().unwrap().len(), 7);
+        assert_eq!(value.as_object().unwrap().len(), 8);
         assert_eq!(value["id"].as_str().unwrap(), id.to_string());
         assert_eq!(value["actor_id"].as_str().unwrap(), alice.to_string());
         assert_eq!(value["action"].as_str().unwrap(), "transition");
@@ -448,6 +451,7 @@ fn retention_sweeper_lifecycle() {
         assert!(value["entity_type"].is_null());
         assert_eq!(value["details"].as_str().unwrap(), details);
         assert_eq!(json_ts(value, "occurred_at"), *occurred_at);
+        assert!(value["agent_key_id"].is_null());
     }
     assert_eq!(
         old_activity_count(&mut conn, activity_cutoff),

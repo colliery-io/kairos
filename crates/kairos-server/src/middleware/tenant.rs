@@ -195,7 +195,9 @@ pub async fn require_tenant(
     // Stamp the resolved tenant onto the RESPONSE so the outer HTTP-metrics
     // layer (KAIROS-T-0049) can attribute the per-tenant counter — request
     // extensions set here are not visible to an outer layer.
-    let mut response = next.run(req).await;
+    // KAIROS-T-0359: the writes of the request record its agent key
+    // (`crate::blocking` module docs).
+    let mut response = crate::blocking::with_agent_key(auth.agent_key, next.run(req)).await;
     response.extensions_mut().insert(context);
     Ok(response)
 }

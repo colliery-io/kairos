@@ -10,6 +10,36 @@
 //! `search_path` before the closure sees the connection, so a stale path on
 //! an idle pooled connection is never observable through this API; the
 //! reset after the closure is defense-in-depth).
+//!
+//! # The agent key of the request (KAIROS-T-0359)
+//!
+//! Each checkout through [`BlockingTenantPool::run`] also sets the session
+//! setting `kairos.agent_key` (see `kairos_db::agent_mark`): the agent key
+//! of the request, or the empty string. The column default of
+//! `agent_key_id` in `activity_log`, `item_history` and
+//! `team_page_history` reads it, so each write of the request gets the
+//! mark, and no service takes it as a parameter.
+//!
+//! Why a tokio task-local and a session setting:
+//!
+//! - `run` has 130 and more call sites. A task-local ([`with_agent_key`])
+//!   carries the key from the tenant middleware to each of them without a
+//!   new argument. `run` reads it at the CALL, in the task of the request,
+//!   and moves the value into the blocking closure: the threads of the
+//!   blocking pool never read the task-local.
+//! - The value is set on EACH checkout, in the same statement as
+//!   `search_path`, and the empty string when the request has no agent
+//!   key. A pooled connection that served a request with an agent key thus
+//!   never carries the key to the next request. This is the same rule as
+//!   for `search_path`.
+//! - A session setting, not `SET LOCAL`: a closure does not always open a
+//!   transaction, and `SET LOCAL` outside one has no effect.
+//! - A background job on this pool (the code index builder, the embedding
+//!   refresher) does not run in the scope of a request. Its checkouts set
+//!   the empty string, so its writes get NULL. A task that a handler
+//!   starts with `tokio::spawn` does not get the task-local either: also
+//!   NULL. A job on a connection of its own (the retention sweep, SCIM)
+//!   never sets the setting, and the default reads NULL.
 
 use diesel::connection::SimpleConnection;
 use diesel::pg::PgConnection;
@@ -18,6 +48,28 @@ use kairos_db::tenant::{is_valid_tenant_slug, tenant_schema_name};
 use tracing::Instrument as _;
 
 use crate::error::ApiError;
+
+tokio::task_local! {
+    /// The agent key of the request in scope (KAIROS-T-0359). Set by
+    /// [`with_agent_key`]; read by [`BlockingTenantPool::run`].
+    static AGENT_KEY: Option<uuid::Uuid>;
+}
+
+/// Run `future` with `agent_key` as the agent key of the request: each
+/// [`BlockingTenantPool::run`] called in it marks its writes with the key
+/// (module docs). The tenant middleware wraps each request in it, and the
+/// MCP service wraps each tool call.
+pub async fn with_agent_key<F: std::future::Future>(
+    agent_key: Option<uuid::Uuid>,
+    future: F,
+) -> F::Output {
+    AGENT_KEY.scope(agent_key, future).await
+}
+
+/// The agent key of the request in scope, or `None` outside of a request.
+pub fn current_agent_key() -> Option<uuid::Uuid> {
+    AGENT_KEY.try_with(|key| *key).ok().flatten()
+}
 
 /// The sync pool. Cheap to clone (r2d2 pools are `Arc`s internally).
 #[derive(Clone)]
@@ -93,6 +145,8 @@ impl BlockingTenantPool {
         let invalid = (!is_valid_tenant_slug(slug))
             .then(|| format!("invalid tenant slug {slug:?} reached the blocking pool"));
         let schema = tenant_schema_name(slug);
+        // KAIROS-T-0359: read here, in the task of the request (module docs).
+        let agent_key = kairos_db::agent_mark::set_statement(current_agent_key());
         let pool = self.pool.clone();
 
         async move {
@@ -101,8 +155,10 @@ impl BlockingTenantPool {
             }
             tokio::task::spawn_blocking(move || {
                 let mut conn = pool.get().map_err(ApiError::internal)?;
-                conn.batch_execute(&format!("SET search_path TO \"{schema}\", public"))
-                    .map_err(ApiError::internal)?;
+                conn.batch_execute(&format!(
+                    "SET search_path TO \"{schema}\", public; {agent_key}"
+                ))
+                .map_err(ApiError::internal)?;
                 let result = f(&mut conn);
                 // Defense-in-depth only — see module docs.
                 let _ = conn.batch_execute("SET search_path TO public");
@@ -143,8 +199,12 @@ impl BlockingTenantPool {
         async move {
             tokio::task::spawn_blocking(move || {
                 let mut conn = pool.get().map_err(ApiError::internal)?;
-                conn.batch_execute("SET search_path TO public")
-                    .map_err(ApiError::internal)?;
+                // KAIROS-T-0359: clear the agent key, as `run` sets it.
+                conn.batch_execute(&format!(
+                    "SET search_path TO public; {}",
+                    kairos_db::agent_mark::set_statement(None)
+                ))
+                .map_err(ApiError::internal)?;
                 f(&mut conn)
             })
             .await

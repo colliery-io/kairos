@@ -7,6 +7,7 @@
 //! escape hatch for recursive-CTE traversals and the search pipeline.
 
 pub mod abac;
+pub mod agent_mark;
 pub mod api_keys;
 pub mod board_items;
 pub mod boards;

@@ -1097,6 +1097,30 @@ fn callees_have_the_macro_place(world: &mut IndexWorld) {
     );
 }
 
+#[given("the body of the macro calls boards::check_rule")]
+fn the_macro_calls_check_rule(_world: &mut IndexWorld) {
+    let boards = fixture_text("src/boards.rs");
+    let body = &boards[boards
+        .find("macro_rules! transition_fn")
+        .expect("the macro")..];
+    let body = &body[..body.find("\n}\n").expect("the end of the macro")];
+    assert!(body.contains("check_rule(id)"), "{body}");
+}
+
+#[then("the callers of check_rule include the macro transition_fn")]
+fn callers_have_the_macro(world: &mut IndexWorld) {
+    let index = world.index();
+    let id = symbol_id(&index, "check_rule", "src/boards.rs");
+    let callers = index.callers(id, true).expect("callers");
+    assert!(
+        callers.iter().any(|e| e.other.file == "src/boards.rs"
+            && e.other.name == "transition_fn"
+            && e.other.kind == "macro"
+            && e.class == "certain"),
+        "no certain caller transition_fn (macro): {callers:#?}"
+    );
+}
+
 #[then("they do not include api::transition_task")]
 fn callees_not_api(world: &mut IndexWorld) {
     let index = world.index();

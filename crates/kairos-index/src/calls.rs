@@ -77,51 +77,57 @@ pub fn rust_macro_ranges(tree: &Tree) -> Vec<(usize, usize)> {
 /// `name(`, `obj.method(` and `Type::method(` in the tokens, with no code
 /// for one library. A name in a string literal of the macro is not a call.
 /// `edges` gives such a call a name class only where SCIP resolved nothing.
+///
+/// The body (the right side of each rule) of a `macro_rules!` definition is
+/// read the same way: SCIP gives no reference there, and the call has the
+/// macro as its caller (KAIROS-T-0353). A `$name(` metavariable and a
+/// `fn name(` definition in the body are not calls.
 pub fn rust_macro_calls(tree: &Tree, source: &[u8]) -> Vec<CallSite> {
     let mut out: Vec<CallSite> = Vec::new();
     let mut cursor = tree.walk();
     let mut stack = vec![tree.root_node()];
-    let mut line_starts: Option<Vec<usize>> = None;
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(
+            source
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| **b == b'\n')
+                .map(|(i, _)| i + 1),
+        )
+        .collect();
     while let Some(node) = stack.pop() {
-        if node.kind() == "macro_invocation" {
-            let start = node.start_byte();
-            let Ok(text) = std::str::from_utf8(&source[start..node.end_byte()]) else {
+        match node.kind() {
+            "macro_invocation" => {
+                text_calls(
+                    source,
+                    node.start_byte(),
+                    node.end_byte(),
+                    &starts,
+                    false,
+                    &mut out,
+                );
                 continue;
-            };
-            let strings = string_ranges(text);
-            let starts = line_starts.get_or_insert_with(|| {
-                std::iter::once(0)
-                    .chain(
-                        source
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, b)| **b == b'\n')
-                            .map(|(i, _)| i + 1),
-                    )
-                    .collect()
-            });
-            for (offset, name) in kairos_narsil::callgraph::macro_text_calls(text) {
-                if strings.iter().any(|&(s, e)| s <= offset && offset < e) {
-                    continue;
-                }
-                let path_start = text[..offset]
-                    .rfind(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | ':' | '.')))
-                    .map_or(0, |i| i + 1);
-                let written = text[path_start..offset + name.len()]
-                    .trim_start_matches([':', '.'])
-                    .to_string();
-                let byte = start + offset;
-                let line = starts.partition_point(|&s| s <= byte);
-                out.push(CallSite {
-                    name: name.to_string(),
-                    written,
-                    start_byte: byte,
-                    end_byte: byte + name.len(),
-                    line,
-                    col: byte - starts[line - 1] + 1,
-                });
             }
-            continue;
+            "macro_definition" => {
+                let mut rules = node.walk();
+                for rule in node
+                    .children(&mut rules)
+                    .filter(|n| n.kind() == "macro_rule")
+                {
+                    if let Some(body) = rule.child_by_field_name("right") {
+                        text_calls(
+                            source,
+                            body.start_byte(),
+                            body.end_byte(),
+                            &starts,
+                            true,
+                            &mut out,
+                        );
+                    }
+                }
+                continue;
+            }
+            _ => {}
         }
         let children: Vec<Node<'_>> = node.children(&mut cursor).collect();
         stack.extend(children.into_iter().rev());
@@ -129,6 +135,55 @@ pub fn rust_macro_calls(tree: &Tree, source: &[u8]) -> Vec<CallSite> {
     out.sort_by_key(|c| c.start_byte);
     out.dedup_by_key(|c| c.start_byte);
     out
+}
+
+/// The calls in `source[start..end]`, the text of a macro. `body` is true
+/// for the body of a `macro_rules!` definition.
+fn text_calls(
+    source: &[u8],
+    start: usize,
+    end: usize,
+    starts: &[usize],
+    body: bool,
+    out: &mut Vec<CallSite>,
+) {
+    let Ok(text) = std::str::from_utf8(&source[start..end]) else {
+        return;
+    };
+    let strings = string_ranges(text);
+    for (offset, name) in kairos_narsil::callgraph::macro_text_calls(text) {
+        if strings.iter().any(|&(s, e)| s <= offset && offset < e) {
+            continue;
+        }
+        if body {
+            let before = text[..offset].trim_end();
+            if text[..offset].ends_with('$')
+                || before.ends_with("fn") && !before[..before.len() - 2].ends_with(is_ident_char)
+            {
+                continue;
+            }
+        }
+        let path_start = text[..offset]
+            .rfind(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | ':' | '.')))
+            .map_or(0, |i| i + 1);
+        let written = text[path_start..offset + name.len()]
+            .trim_start_matches([':', '.'])
+            .to_string();
+        let byte = start + offset;
+        let line = starts.partition_point(|&s| s <= byte);
+        out.push(CallSite {
+            name: name.to_string(),
+            written,
+            start_byte: byte,
+            end_byte: byte + name.len(),
+            line,
+            col: byte - starts[line - 1] + 1,
+        });
+    }
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
 }
 
 /// The byte ranges of the string literals in the text of a Rust macro:
@@ -326,6 +381,26 @@ mod tests {
                 ("new".to_string(), "Queue::new".to_string(), 2, 29),
                 ("len".to_string(), "self.items.len".to_string(), 2, 47),
                 ("k".to_string(), "k".to_string(), 3, 23),
+            ]
+        );
+    }
+
+    /// KAIROS-T-0353: the calls in the body of a `macro_rules!` definition,
+    /// with no metavariable, no `fn` definition and no call of the matcher.
+    #[test]
+    fn calls_in_a_macro_body_are_found() {
+        let parser = LanguageParser::new().unwrap();
+        let code = "macro_rules! m {\n    ($name:ident) => {\n        pub fn $name(id: u32) -> bool {\n            check(id) && $name(1) && rules::valid(id)\n        }\n    };\n}\n";
+        let tree = parser.parse_to_tree(Path::new("a.rs"), code).unwrap();
+        let got: Vec<(String, String, usize)> = rust_macro_calls(&tree, code.as_bytes())
+            .into_iter()
+            .map(|c| (c.name, c.written, c.line))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("check".to_string(), "check".to_string(), 4),
+                ("valid".to_string(), "rules::valid".to_string(), 4),
             ]
         );
     }

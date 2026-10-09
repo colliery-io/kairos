@@ -115,8 +115,17 @@ language = "rust"
 lines = [35, 38]
 is_test = true
 
-# Calls inside macro invocations (COLLIERY-T-1851). narsil gives the
-# macro_rules! definition no symbol.
+# Calls inside macro invocations (COLLIERY-T-1851). A macro_rules!
+# definition is a symbol of kind "macro" (KAIROS-T-0353).
+[[symbol]]
+file = "src/labels.rs"
+name = "quoted"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [4, 8]
+is_test = false
+
 [[symbol]]
 file = "src/labels.rs"
 name = "count_text"
@@ -776,6 +785,33 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [12, 14]
+is_test = false
+
+[[symbol]]
+file = "src/a.rs"
+name = "quoted"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [4, 8]
+is_test = false
+
+[[symbol]]
+file = "src/boards.rs"
+name = "transition_fn"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [5, 11]
+is_test = false
+
+[[symbol]]
+file = "src/boards.rs"
+name = "check_rule"
+container = ""
+kind = "function"
+language = "rust"
+lines = [17, 19]
 is_test = false
 
 [[symbol]]

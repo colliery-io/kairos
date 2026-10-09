@@ -89,6 +89,8 @@ impl LanguageParser {
                     (const_item name: (identifier) @const.name) @const.def
                     (static_item name: (identifier) @static.name) @static.def
                     (mod_item name: (identifier) @mod.name) @mod.def
+                    ; KAIROS PATCH: a macro_rules! definition, the caller of the calls in its body (KAIROS-T-0353).
+                    (macro_definition name: (identifier) @macro.name) @macro.def
                 "#,
             },
             // Python
@@ -279,6 +281,7 @@ fn parse_symbol_kind(capture_name: &str) -> SymbolKind {
         "const" | "static" => SymbolKind::Constant,
         "mod" | "module" | "namespace" => SymbolKind::Module,
         "impl" => SymbolKind::Implementation,
+        "macro" => SymbolKind::Macro,
         "var" | "arrow" => SymbolKind::Variable,
         _ => SymbolKind::Unknown,
     }

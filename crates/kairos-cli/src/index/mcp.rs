@@ -568,8 +568,15 @@ impl CodeTools {
                 described(&s)
             );
             for e in &shown {
+                // A call in the body of a macro_rules! definition: each
+                // function that the macro makes does the call (KAIROS-T-0353).
+                let made = if e.other.kind == "macro" {
+                    ": each function that the macro makes does this call"
+                } else {
+                    ""
+                };
                 out.push_str(&format!(
-                    "\n- {}, call at line {}, {}",
+                    "\n- {}, call at line {}, {}{made}",
                     described(&e.other),
                     e.line,
                     marks(e)

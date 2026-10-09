@@ -568,6 +568,15 @@ at = 7
 class = "certain"
 target = { file = "src/boards.rs", line = 13, macro = true }
 
+# A call in the body of transition_fn!: SCIP gives no reference there, so the
+# macro text gives the edge, with the macro as its caller (KAIROS-T-0353).
+[[edge]]
+caller = { file = "src/boards.rs", name = "transition_fn", line = 5 }
+at = 8
+class = "certain"
+origin = "macro-text"
+callee = { file = "src/boards.rs", name = "check_rule", line = 17 }
+
 # 2 routes from dispatch to target: direct, and indirect through relay.
 [[edge]]
 caller = { file = "src/routes.rs", name = "dispatch", line = 4 }

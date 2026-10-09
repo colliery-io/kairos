@@ -31,7 +31,7 @@ use crate::schema::SCHEMA_VERSION;
 /// Change this number when the parse of a file gives a different result
 /// with no change to the crate version, for example in a branch that changes
 /// the extraction.
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 /// The table of the cache. `CREATE ... IF NOT EXISTS`, because an index of
 /// the current schema version can be from before the cache.

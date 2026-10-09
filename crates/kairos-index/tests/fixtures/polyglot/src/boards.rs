@@ -5,9 +5,15 @@
 macro_rules! transition_fn {
     ($name:ident, $kind:literal) => {
         pub fn $name(id: u32) -> String {
-            format!("{} {id} moved", $kind)
+            format!("{} {id} moved: {}", $kind, check_rule(id))
         }
     };
 }
 
 transition_fn!(transition_task, "task");
+
+/// The check of the board rules: only the body of the macro calls it
+/// (KAIROS-T-0353).
+pub fn check_rule(id: u32) -> bool {
+    id > 0
+}

@@ -79,7 +79,9 @@ see [Configuration → Tenant resolution](../reference/configuration.md#tenant-r
   the URL over.
 - **`KAIROS_SINGLE_TENANT` set:** that one tenant is pinned and subdomain and
   header resolution are skipped entirely. A second tenant provisioned on such a
-  deployment is unreachable until the variable changes.
+  deployment is unreachable until the variable changes. You do not have to
+  provision the pinned tenant. The first deployment admin to log in creates it
+  and is its first admin. `KAIROS_SINGLE_TENANT_NAME` gives its name.
 - **Neither set:** only the `X-Tenant: acme` header resolves a tenant. The CLI
   sends it for you when you pass `--tenant acme` to `kairos login`.
 

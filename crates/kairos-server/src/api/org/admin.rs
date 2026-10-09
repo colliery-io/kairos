@@ -61,15 +61,15 @@ pub fn router(state: AppState) -> Router<AppState> {
         ))
 }
 
+/// Whether `sub` is listed in `KAIROS_DEPLOYMENT_ADMINS`.
+pub(crate) fn is_deployment_admin(config: &crate::config::AppConfig, sub: &str) -> bool {
+    config.deployment_admins.iter().any(|admin| admin == sub)
+}
+
 /// The KAIROS-T-0019 deployment-admin gate: the caller's OIDC `sub` must be
 /// listed in `KAIROS_DEPLOYMENT_ADMINS` (empty list → always 403).
 fn require_deployment_admin(state: &AppState, auth: &AuthContext) -> Result<(), ApiError> {
-    if state
-        .config
-        .deployment_admins
-        .iter()
-        .any(|sub| sub == &auth.external_id)
-    {
+    if is_deployment_admin(&state.config, &auth.external_id) {
         Ok(())
     } else {
         Err(ApiError::forbidden(
@@ -152,7 +152,7 @@ pub(crate) async fn create_tenant(
         .clone()
         .unwrap_or_else(|| auth.external_id.clone());
     let response = run_admin(&state, move |conn| {
-        use kairos_db::schema::{organization_members, organizations, users};
+        use kairos_db::schema::users;
 
         // The initial admin must already exist (JIT provisioning creates
         // users at first login) — checked before provisioning anything.
@@ -170,40 +170,70 @@ pub(crate) async fn create_tenant(
             ))
         })?;
 
-        super::run_in_transaction(conn, |conn| {
-            let report =
-                tenant::provision_tenant(conn, &body.slug, &body.name).map_err(map_tenant_error)?;
-            let org_id: Uuid = organizations::table
-                .filter(organizations::slug.eq(&body.slug))
-                .select(organizations::id)
-                .first(conn)
-                .map_err(ApiError::internal)?;
-            diesel::insert_into(organization_members::table)
-                .values(NewOrganizationMember {
-                    organization_id: org_id,
-                    user_id: admin.id,
-                    role: OrgRole::Admin,
-                })
-                .execute(conn)
-                .map_err(ApiError::internal)?;
-            Ok(dto::TenantCreatedResponse {
-                slug: report.slug,
-                schema: report.schema,
-                migrations_applied: report.migrations_applied,
-                boards_created: report.boards_created,
-                templates_copied: report.templates_copied as i64,
-                metadata_definitions_copied: report.metadata_definitions_copied as i64,
-                initial_admin: dto::TenantInitialAdmin {
-                    user_id: admin.id.to_string(),
-                    external_id: admin.external_id.clone(),
-                    email: admin.email.clone(),
-                    role: OrgRole::Admin.to_string(),
-                },
-            })
-        })
+        provision_with_admin(conn, &body.slug, &body.name, &admin)
     })
     .await?;
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// [`provision_with_admin`] for the user with the id `user_id`.
+pub(crate) fn provision_for_user(
+    conn: &mut PgConnection,
+    slug: &str,
+    name: &str,
+    user_id: Uuid,
+) -> Result<dto::TenantCreatedResponse, ApiError> {
+    use kairos_db::schema::users;
+
+    let admin: User = users::table
+        .find(user_id)
+        .select(User::as_select())
+        .first(conn)
+        .map_err(ApiError::internal)?;
+    provision_with_admin(conn, slug, name, &admin)
+}
+
+/// T-0008 provisioning plus the org-admin membership of `admin`, in one
+/// transaction. Shared by [`create_tenant`] and the single-tenant first login
+/// ([`crate::middleware::tenant`]).
+pub(crate) fn provision_with_admin(
+    conn: &mut PgConnection,
+    slug: &str,
+    name: &str,
+    admin: &User,
+) -> Result<dto::TenantCreatedResponse, ApiError> {
+    use kairos_db::schema::{organization_members, organizations};
+
+    super::run_in_transaction(conn, |conn| {
+        let report = tenant::provision_tenant(conn, slug, name).map_err(map_tenant_error)?;
+        let org_id: Uuid = organizations::table
+            .filter(organizations::slug.eq(slug))
+            .select(organizations::id)
+            .first(conn)
+            .map_err(ApiError::internal)?;
+        diesel::insert_into(organization_members::table)
+            .values(NewOrganizationMember {
+                organization_id: org_id,
+                user_id: admin.id,
+                role: OrgRole::Admin,
+            })
+            .execute(conn)
+            .map_err(ApiError::internal)?;
+        Ok(dto::TenantCreatedResponse {
+            slug: report.slug,
+            schema: report.schema,
+            migrations_applied: report.migrations_applied,
+            boards_created: report.boards_created,
+            templates_copied: report.templates_copied as i64,
+            metadata_definitions_copied: report.metadata_definitions_copied as i64,
+            initial_admin: dto::TenantInitialAdmin {
+                user_id: admin.id.to_string(),
+                external_id: admin.external_id.clone(),
+                email: admin.email.clone(),
+                role: OrgRole::Admin.to_string(),
+            },
+        })
+    })
 }
 
 /// List provisioned tenants. Deployment-admin only.

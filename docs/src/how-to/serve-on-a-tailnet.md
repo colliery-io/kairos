@@ -147,7 +147,12 @@ Sign in as the first admin, then remove the two bootstrap variables from
 
 ## Provision the tenant
 
-The tenant that `KAIROS_SINGLE_TENANT` names does not exist yet. Create it:
+The tenant that `KAIROS_SINGLE_TENANT` names does not exist yet. When a
+deployment admin logs in, the server creates it and makes that admin its first
+admin. To give it a name other than its slug, set `KAIROS_SINGLE_TENANT_NAME`
+before you log in. Nothing else is necessary.
+
+To create it before anyone logs in, use the command line:
 
 ```sh
 docker compose -f deploy/docker-compose.yaml --env-file deploy/.env exec kairos kairos-server create-tenant --slug acme --name "Acme Inc"

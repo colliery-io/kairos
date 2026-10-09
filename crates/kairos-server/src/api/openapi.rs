@@ -241,6 +241,8 @@ use crate::app::AppState;
         // set equality over the sources, not over one deployment's router.
         crate::login::login,
         crate::login::logout,
+        // A session from an OIDC login of the GUI (KAIROS-T-0364).
+        crate::login::open_session,
         // Local-account administration (KAIROS-T-0204).
         crate::api::local_accounts::create_local_account,
         crate::api::local_accounts::set_local_password,

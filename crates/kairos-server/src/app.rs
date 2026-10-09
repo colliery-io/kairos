@@ -258,20 +258,25 @@ pub fn state_with(config: AppConfig, pool: TenantPool, auth: Arc<Authenticator>)
 /// The production router: `/healthz` open; everything under `/api` behind
 /// the full auth → tenant stack.
 pub fn router(state: AppState) -> Router {
-    // Local password login (KAIROS-T-0203). Mounted only when KAIROS_LOCAL_AUTH is
-    // on, and OUTSIDE the auth stack: login holds no credential yet, and logout has
-    // to work with a session that has already expired. Off, these routes DO NOT
-    // EXIST — a deployment with an issuer has no password endpoint to attack, which
-    // is a stronger property than a handler that declines.
-    // An EMPTY router when it is off, rather than an Option, so the merge below is
-    // unconditional and there is no second assembly path to keep in step.
-    let local_auth = if state.config.local_auth {
-        // COLLIERY-T-0256: no auth, but the rule of the inputs applies.
-        crate::login::router()
-            .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
-    } else {
-        Router::new()
-    };
+    // Local password login (KAIROS-T-0203) and logout. OUTSIDE the auth stack:
+    // login holds no credential yet, and logout has to work with a session that
+    // has already expired. `/api/login` is mounted only when KAIROS_LOCAL_AUTH is
+    // on — off, it DOES NOT EXIST, so a deployment with an issuer has no password
+    // endpoint to attack. `/api/logout` is always there: an OIDC login of the GUI
+    // opens a session too (KAIROS-T-0364).
+    // COLLIERY-T-0256: no auth, but the rule of the inputs applies.
+    let local_auth = crate::login::router(state.config.local_auth)
+        .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input));
+
+    // KAIROS-T-0364: `/api/session` turns the OIDC bearer of a GUI login into a
+    // session (cookie included), so a reload keeps it. Behind auth, not the
+    // tenant: a session is of a person.
+    let open_session = crate::login::session_router()
+        .route_layer(axum_middleware::from_fn(crate::input::refuse_unknown_input))
+        .route_layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ));
 
     // KAIROS-T-0204: the org-admin surfaces for local accounts. Behind the FULL
     // auth → tenant stack, unlike login itself, and likewise absent when local auth
@@ -411,6 +416,7 @@ pub fn router(state: AppState) -> Router {
         .route("/metrics", get(crate::metrics::metrics_handler))
         // Local password login (KAIROS-T-0203), empty unless KAIROS_LOCAL_AUTH is on.
         .merge(local_auth)
+        .merge(open_session)
         .merge(local_accounts)
         .merge(protected)
         // Cross-tenant deployment-admin routes (KAIROS-T-0019): behind auth

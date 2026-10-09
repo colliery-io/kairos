@@ -5,7 +5,7 @@
 
 # Signing in
 
-Local password accounts (KAIROS-I-0018), present only on a deployment with `KAIROS_LOCAL_AUTH` on. A deployment that authenticates through an OIDC issuer has none of these routes at all — not disabled, absent. `/api/login` and `/api/logout` are unauthenticated by nature. Everything under `/api/local-accounts` is org-admin only, including the reads: a list of somebody's live sessions is a security surface rather than work content.
+Sessions, and local password accounts (KAIROS-I-0018). `/api/login` and `/api/local-accounts` are only on a deployment with `KAIROS_LOCAL_AUTH` on. `/api/session` and `/api/logout` are on each deployment (KAIROS-T-0364). `/api/login` and `/api/logout` are unauthenticated by nature. Everything under `/api/local-accounts` is org-admin only, including the reads: a list of somebody's live sessions is a security surface rather than work content.
 
 ## auth
 
@@ -44,6 +44,26 @@ token was no good would be both useless and an oracle.
 | Response | Body | Meaning |
 |---|---|---|
 | `204` | — | The session is revoked, or was not one |
+
+### `POST /api/session`
+
+`POST /api/session` — open a session from a sign-in with the identity provider.
+
+Send the OIDC token of the sign-in as `Authorization: Bearer <token>`. The
+response is the same as the response of `POST /api/login`. The body has a
+session bearer, and the cookie `kairos_session` has the session too. Thus a
+reload of the GUI keeps the session, also when the identity provider gives no
+refresh token. The session lasts `KAIROS_SESSION_TTL_SECS`, or until a logout or
+an admin revokes it.
+
+Only an OIDC bearer opens a session. The server refuses the cookie alone, a
+session bearer and an API key.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`LoginResponse`](schemas.md#loginresponse) | A session bearer |
+| `401` | — | No valid credential |
+| `403` | — | The credential is not an OIDC bearer |
 
 ## local-accounts
 

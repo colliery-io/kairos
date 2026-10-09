@@ -82,9 +82,10 @@ API keys, and the SCIM tokens for directory sync.""",
 deployment reports about itself.""",
      ["activity", "admin", "meta"]),
 
-    ("Signing in", """Local password accounts (KAIROS-I-0018), present only on a
-deployment with `KAIROS_LOCAL_AUTH` on. A deployment that authenticates through an
-OIDC issuer has none of these routes at all — not disabled, absent.
+    ("Signing in", """Sessions, and local password accounts (KAIROS-I-0018).
+`/api/login` and `/api/local-accounts` are only on a deployment with
+`KAIROS_LOCAL_AUTH` on. `/api/session` and `/api/logout` are on each deployment
+(KAIROS-T-0364).
 
 `/api/login` and `/api/logout` are unauthenticated by nature. Everything under
 `/api/local-accounts` is org-admin only, including the reads: a list of somebody's

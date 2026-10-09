@@ -332,15 +332,15 @@ async fn with_local_auth_off_there_is_no_login_endpoint() {
         StatusCode::NOT_FOUND,
         "/api/login must not exist when KAIROS_LOCAL_AUTH is off"
     );
+    // Logout stays: an OIDC login of the GUI opens a session too (KAIROS-T-0364).
     let request = Request::builder()
         .method(Method::POST)
         .uri("/api/logout")
         .body(Body::empty())
         .expect("request");
-    assert_eq!(send(&router, request).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(send(&router, request).await.0, StatusCode::NO_CONTENT);
 
-    // And a session bearer is refused rather than looked up: with local auth off
-    // there are no sessions, so the database is not asked.
+    // And a session bearer that is no session is refused.
     let token = format!("kairos_ss_{}", "a".repeat(64));
     let (status, body) = whoami(&router, &token).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body}");

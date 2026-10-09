@@ -263,6 +263,13 @@ Decisions (T-0039), with the full flow documented in `auth.rs`:
   "silent" issuer redirect into a login form on every reload. Logout
   and any failed refresh remove it. The PKCE verifier/state live in
   `sessionStorage` only between redirect-out and callback.
+- **The session cookie** (KAIROS-T-0327, KAIROS-T-0364): a password
+  login, and right after the code exchange an OIDC login (`POST
+  /api/session`), get a Kairos session. The server sets it as an
+  HttpOnly cookie, and the page keeps its bearer in memory. A reload
+  restores the session from the cookie (`GET /api/whoami` with no
+  bearer), also where the issuer gives no refresh token (Google).
+  Logout ends the session on the server and clears the cookie.
 - **Silent refresh**: timer at `expires_in − 60s` via the relay's
   refresh grant; failure clears the session (stored refresh token
   included).

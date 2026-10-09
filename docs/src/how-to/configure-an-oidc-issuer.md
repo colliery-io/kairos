@@ -104,7 +104,7 @@ audience matched, and the user was provisioned. If login fails at the issuer,
 the redirect URI is the first thing to re-check; if it fails at Kairos with a
 401, the mismatch is `OIDC_AUDIENCE`.
 
-## Two things that will not work
+## Three things that will not work
 
 **Do not plan machine access around a `client_credentials` grant.** Kairos
 issues its own API keys instead, so an issuer that lacks that grant — Dex does —
@@ -116,6 +116,15 @@ suite.** `angreal test uat` logs its personas in by driving a password form, so
 it needs Dex, or Keycloak with direct grants enabled. Google Workspace has none
 and is **not supported by that pass** — the deployment itself works; only the
 acceptance journeys cannot be run against it.
+
+**An MCP client cannot use OAuth with an issuer that has no dynamic client
+registration.** An MCP client such as Claude Code registers itself at the
+`registration_endpoint` of the authorization server (RFC 7591) before the
+browser flow. Google has none, and the client fails with "Incompatible auth
+server: does not support dynamic client registration". Connect the agent with
+an agent key of the user instead:
+[Give an agent your key](give-an-agent-your-key.md). `/kairos:bootstrap` finds
+this and chooses the agent key.
 
 Dex is the reference issuer, and `.angreal/dex/config.yaml` in the repository
 configures both clients above (plus a confidential one) — copy from it.

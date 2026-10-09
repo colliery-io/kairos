@@ -24,13 +24,24 @@ Read `issuer` and `local_auth` in the `/api/config` response. They decide the pa
 
 | `issuer` | `local_auth` | Path |
 |---|---|---|
-| a URL | `false` or absent | **OAuth.** Continue with step 2. |
+| a URL | `false` or absent | **OAuth**, if the authorization server lets the MCP client register (below). Else **agent key**. |
 | `null` | `true` | **Agent key.** OAuth is not available. Tell the user, then do [AGENT-KEY.md](AGENT-KEY.md) in place of step 2. |
-| a URL | `true` | **OAuth** is the default. The agent-key path is the alternative for an agent that must run with no browser. |
+| a URL | `true` | **OAuth** is the default, if the authorization server lets the MCP client register (below). The agent-key path is the alternative for an agent that must run with no browser. |
 
-On the OAuth path, fetch `<deployment-url>/.well-known/oauth-protected-resource/mcp` also. It is the RFC 9728 metadata that names the authorization server.
+When `issuer` is a URL, check that the MCP client can register before you choose OAuth:
 
-On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. If the `kairos` tools answer, continue with step 3.
+1. Fetch `<deployment-url>/.well-known/oauth-protected-resource/mcp`. It is the RFC 9728 metadata that names the authorization server, in `authorization_servers`.
+2. Fetch the metadata of that authorization server: `<server>/.well-known/oauth-authorization-server` (RFC 8414). If that fails, fetch `<server>/.well-known/openid-configuration`.
+3. Look for `registration_endpoint` (RFC 7591 dynamic client registration). The MCP client registers itself there before the browser flow.
+
+If there is no `registration_endpoint`, the MCP client cannot register, and the browser flow fails with "Incompatible auth server: does not support dynamic client registration". Google is such a server. Tell the user, then do [AGENT-KEY.md](AGENT-KEY.md) in place of step 2. Do not write a `kairos` entry with no `Authorization` header, and do not run `claude mcp add` for it.
+
+On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. Do not change it to OAuth and do not add a second `kairos` entry. If the `kairos` tools answer, continue with step 3. If the session has no `kairos` tools, look for the cause before you change the config:
+
+- The session did not start in the root of the repository, so it did not read `.mcp.json`. Tell the user to start Claude Code there.
+- The user did not approve the project server. Tell the user to approve `kairos` in `/mcp`.
+- `KAIROS_MCP_KEY` is not set in the session. Tell the user to set it and start a new session.
+- A `kairos` entry with no `Authorization` header in the user or local scope (`claude mcp list`) overrides the project entry. It is from an earlier OAuth attempt. Tell the user to remove it with `claude mcp remove kairos -s user` (or `-s local`).
 
 ## 2. Write the MCP config
 

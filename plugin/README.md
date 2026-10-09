@@ -24,8 +24,9 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
   (wires a repo to a deployment — detects the repository from the git remote, takes the
   team board from the team of the principal — and writes `.claude/kairos.local.md`).
   It reads `/api/config` to choose the authentication path: OAuth, or the agent key of the
-  user on a deployment with no issuer. Each person makes their own agent key with
-  `kairos keys create` and puts it in `KAIROS_MCP_KEY`; the key acts as that person
+  user on a deployment with no issuer, or with an issuer that has no dynamic client
+  registration (Google). Each person makes their own agent key with
+  `kairos keys create` or on the Agent keys page and puts it in `KAIROS_MCP_KEY`; the key acts as that person
   (KAIROS-A-0024). Do not share a service-account key for Claude Code.
 - `workflow/` — `grill-initiative` (an interview that writes each settled answer into the
   initiative or strategy at once, and never moves it), `to-initiative`, `decompose`,

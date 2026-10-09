@@ -173,6 +173,7 @@ impl Reader {
             return Ok(None);
         }
         let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.busy_timeout(crate::BUSY_TIMEOUT)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         let table: Option<String> = conn
             .query_row(

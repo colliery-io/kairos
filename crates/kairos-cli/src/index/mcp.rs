@@ -230,6 +230,14 @@ impl CodeTools {
         };
         let found = super::base::find(&root, &remote).await;
         let (db, _exclude) = super::prepare_quiet(&root)?;
+        // One process at a time (KAIROS-T-0357): another agent can fetch the
+        // index of this checkout now. The wait is off the async threads.
+        let _lock = {
+            let db = db.clone();
+            tokio::task::spawn_blocking(move || super::lock_index(&db))
+                .await
+                .map_err(|e| IndexCommandError::Server(e.to_string()))??
+        };
         let had_index = db.is_file();
         let mut lines = Vec::new();
         let mut hosted = false;

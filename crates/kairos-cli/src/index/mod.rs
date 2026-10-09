@@ -305,8 +305,34 @@ pub(super) fn prepare_quiet(root: &Path) -> Result<(PathBuf, Option<PathBuf>), I
     Ok((db, exclude))
 }
 
+/// The lock of the index of a checkout, `.kairos/index.db.lock`: one process
+/// at a time fetches, builds or updates the index. Until KAIROS-T-0357, 2
+/// agents that opened one checkout at the same time wrote the same download
+/// file and the same tables, and one got "disk I/O error" or "no such
+/// table". The lock waits for the other process; it ends when the file is
+/// dropped.
+pub(super) fn lock_index(db: &Path) -> Result<std::fs::File, IndexCommandError> {
+    let path = db.with_extension("db.lock");
+    let write = |source| IndexCommandError::Write {
+        path: path.clone(),
+        source,
+    };
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(write)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(write)?;
+    file.lock().map_err(write)?;
+    Ok(file)
+}
+
 fn build(root: &Path) -> Result<(), IndexCommandError> {
     let db = prepare(root)?;
+    let _lock = lock_index(&db)?;
     println!("Index: {}", db.display());
     let started = Instant::now();
     let report = kairos_index::build_structure_with(root, &db, &BuildOptions::default())?;
@@ -332,6 +358,7 @@ async fn update(
     remote: &base::RemoteArgs,
 ) -> Result<(), IndexCommandError> {
     let db = db_path(root);
+    let _lock = lock_index(&db)?;
     let local = if !db.is_file() {
         Local::Missing
     } else {
@@ -901,6 +928,42 @@ mod tests {
             .embed(&["the token of the second writer".to_string()])
             .expect("a vector");
         assert_eq!(vectors[0].len(), 384);
+    }
+
+    /// KAIROS-T-0357: 8 processes build the index of one checkout at the
+    /// same time, as agents that open one shared clone do. Each build waits
+    /// for the lock of the index, and each succeeds.
+    #[test]
+    fn builds_of_one_checkout_at_the_same_time_all_succeed() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path().to_path_buf();
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["init", "-q"])
+                .status()
+                .expect("git")
+                .success()
+        );
+        for n in 0..20 {
+            std::fs::write(
+                root.join(format!("m{n}.py")),
+                format!("def f{n}(x):\n    return g{n}(x)\n\ndef g{n}(x):\n    return x\n"),
+            )
+            .expect("a file");
+        }
+        let builds: Vec<_> = (0..8)
+            .map(|_| {
+                let root = root.clone();
+                std::thread::spawn(move || build(&root).map_err(|e| e.to_string()))
+            })
+            .collect();
+        for b in builds {
+            b.join().expect("the thread").expect("the build");
+        }
+        let index = Index::open(&db_path(&root)).expect("the index opens");
+        assert_eq!(index.counts().expect("counts").symbols, 40);
     }
 
     #[test]

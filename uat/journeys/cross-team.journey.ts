@@ -158,13 +158,13 @@ journey(
       const repository = page.locator('[data-testid="repository-control"]');
       await expect(repository, 'the repository is an edit').toBeVisible({ timeout: 10_000 });
       await expect(repository.getByRole('button', { name: 'Set repository' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Delete' })).toBeEnabled();
+      await expect(page.getByRole('button', { name: 'Archive', exact: true })).toBeEnabled();
       // The repository control needs whoami, so whoami has resolved: the
       // move controls are absent because she may not move, not because the
       // page is still loading.
       await expect(page.locator('.kairos-item__move'), 'no column move, no lane change').toHaveCount(0);
       await expect(page.locator('[data-testid="move-board"]'), 'no board move').toHaveCount(0);
-      return { shown: 'repository, delete, editor', hidden: 'move, lane, board' };
+      return { shown: 'repository, archive, editor', hidden: 'move, lane, board' };
     });
 
     await step(carol, 'sends a second request from platform\'s board in the GUI; it lands in the entry column, in the Support lane', async () => {

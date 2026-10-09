@@ -143,10 +143,11 @@ struct Candidate {
 }
 
 impl Candidate {
-    /// Rust, Python, TypeScript (with TSX) or Go: a `near` pair has one.
+    /// Rust, Python, TypeScript (with TSX and JavaScript) or Go: a `near`
+    /// pair has one.
     fn family(&self) -> &str {
         match self.info.language.as_str() {
-            "tsx" => "typescript",
+            "tsx" | "javascript" => "typescript",
             other => other,
         }
     }

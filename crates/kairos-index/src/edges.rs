@@ -357,25 +357,31 @@ fn is_function(kind: &str) -> bool {
     matches!(kind, "function" | "method" | "constructor")
 }
 
-/// The kinds that a name can call: in Python and TypeScript, a call of a
-/// class makes an object.
+/// The kinds that a name can call: in Python, TypeScript and JavaScript, a
+/// call of a class makes an object.
 fn is_callable(language: &str, kind: &str) -> bool {
-    is_function(kind) || (kind == "class" && matches!(language, "python" | "typescript" | "tsx"))
+    is_function(kind)
+        || (kind == "class" && matches!(language, "python" | "typescript" | "tsx" | "javascript"))
 }
 
-/// The languages whose names can call each other.
+/// The languages whose names can call each other: TypeScript, TSX and
+/// JavaScript are one family (KAIROS-T-0352).
 fn family(language: &str) -> &str {
     match language {
-        "tsx" => "typescript",
+        "tsx" | "javascript" => "typescript",
         other => other,
     }
 }
 
-/// The smallest function of `file` whose span holds `byte`.
+/// The smallest function of `file` whose span holds `byte`, or the
+/// `macro_rules!` definition that holds it: a call in the body of a macro
+/// has the macro as its caller (KAIROS-T-0353).
 fn caller_at(file: &ParsedFile<'_>, byte: usize) -> Option<i64> {
     file.symbols
         .iter()
-        .filter(|s| is_function(s.kind) && s.start_byte <= byte && byte < s.end_byte)
+        .filter(|s| {
+            (is_function(s.kind) || s.kind == "macro") && s.start_byte <= byte && byte < s.end_byte
+        })
         .min_by_key(|s| s.end_byte - s.start_byte)
         .map(|s| s.id)
 }
@@ -1053,7 +1059,14 @@ pub fn resolve(files: &[ParsedFile<'_>], rust: RustEdges<'_>) -> Resolved {
                 &mut stats,
             );
             edge.origin = "macro-text";
-            edge.scip_pending = pending && !kept.contains(&caller_id);
+            // SCIP gives no reference in the body of a macro_rules!
+            // definition, so a SCIP run does not replace such an edge
+            // (KAIROS-T-0353).
+            let in_macro_body = file
+                .symbols
+                .iter()
+                .any(|s| s.id == caller_id && s.kind == "macro");
+            edge.scip_pending = pending && !kept.contains(&caller_id) && !in_macro_body;
             stats.pending += usize::from(edge.scip_pending);
             edges.push(edge);
         }

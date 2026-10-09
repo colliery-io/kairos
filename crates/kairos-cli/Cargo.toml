@@ -36,12 +36,17 @@ kairos-embed = { path = "../kairos-embed", default-features = false }
 rmcp = { workspace = true, features = ["server", "transport-io"] }
 
 [features]
-default = []
+default = ["vectors"]
+# The local vector model (onnxruntime): `code_search` embeds the query with
+# the model of the index vectors, so the search is hybrid (KAIROS-T-0351).
+# onnxruntime has no prebuilt runtime for x86_64-apple-darwin, so the
+# release build of that target is made without it, and its search uses the
+# text of the summaries only.
+vectors = ["kairos-embed/local"]
 # The summarizer of the index: llama.cpp (built with cmake and a C++
-# compiler) and the local vector model (onnxruntime). The release build does
-# not have it, so `kairos index` makes the structure and the edges only, and
-# says that it made no summaries.
-llama = ["kairos-index/llama", "kairos-embed/local"]
+# compiler). The release build does not have it, so `kairos index` makes the
+# structure and the edges only, and says that it made no summaries.
+llama = ["kairos-index/llama", "vectors"]
 
 [dev-dependencies]
 # tests/cli_live.rs boots the production router in-process against a

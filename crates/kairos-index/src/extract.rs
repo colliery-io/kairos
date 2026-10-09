@@ -13,7 +13,8 @@ use crate::calls::{CallSite, call_sites, rust_macro_calls, rust_macro_ranges, ru
 use crate::tokens;
 
 /// The language of a file, from its extension: the languages of the index
-/// (Rust, Python, TypeScript, Go, with the names that narsil uses) and SQL
+/// (Rust, Python, TypeScript, JavaScript, Go, with the names that narsil
+/// uses) and SQL
 /// (KAIROS-T-0350, read by [`crate::sql`]).
 pub fn language_of(path: &str) -> Option<&'static str> {
     let ext = path.rsplit_once('.')?.1;
@@ -22,6 +23,7 @@ pub fn language_of(path: &str) -> Option<&'static str> {
         "py" | "pyi" => Some("python"),
         "ts" | "mts" | "cts" => Some("typescript"),
         "tsx" => Some("tsx"),
+        "js" | "mjs" | "cjs" | "jsx" => Some("javascript"),
         "go" => Some("go"),
         "sql" => Some("sql"),
         _ => None,

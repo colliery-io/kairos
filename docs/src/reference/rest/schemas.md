@@ -13,8 +13,9 @@ One `activity_log` row, as returned by `GET /api/activity`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
+| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release|cancel|purge`. `delete` is an archive. `cancel` is the cancel of a task, with the reason in `details` (KAIROS-T-0362). `purge` is the delete of a task for good: `details` names its code and its title. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and `release` are changes to the claim of a task (KAIROS-T-0359). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
+| `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
 | `entity_archived_at` | `string`, nullable | no | When the item acted on was archived (RFC 3339). Null for a live item, and when `entity_short_code` is null. |
 | `entity_id` | `string`, nullable | no | The item acted on (UUID). Null for a relationship between two items: `details` names the two. For an `impacts` link it is the document or the ADR of the link (COLLIERY-T-0269). |
@@ -124,6 +125,16 @@ One row of `GET /api/service-accounts/{id}/keys` — never a secret or hash.
 | `prefix` | `string` | yes |  |
 | `revoked_at` | `string`, nullable | no |  |
 
+## ArchiveCompletedResponse
+
+Response of `POST /api/boards/{id}/archive-completed` (KAIROS-T-0363): the tasks of the done columns that the call archived.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board_id` | `string` | yes | The board (UUID). |
+| `count` | `integer` | yes | How many tasks the call archived. |
+| `short_codes` | array of `string` | yes | The short codes of the archived tasks, sorted. |
+
 ## BlocksCounts
 
 Dependency counts behind a board card's blocked-by/blocks badges (KAIROS-T-0091).
@@ -155,6 +166,7 @@ A board column.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board_id` | `string` | yes | Owning board (UUID). |
+| `claims` | `boolean` | yes | A task that a person moves into this column gets a claim for the person (KAIROS-T-0359). The Active column of a delivery board has it. The default is for the client only: a response of an older server has no `claims`, and it reads as `false`. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Column id (UUID). |
 | `is_done` | `boolean` | yes | Occupants count as completed for children-progress rollups (KAIROS-T-0080). The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `is_done`, and it reads as `false`. |
@@ -215,6 +227,16 @@ An allowed column-to-column transition edge.
 | `from_column_id` | `string` | yes | Source column (UUID). |
 | `id` | `string` | yes | Transition id (UUID) — used by `DELETE /api/boards/{id}/transitions/{transition_id}`. |
 | `to_column_id` | `string` | yes | Target column (UUID). |
+
+## CancelTaskRequest
+
+Body of `POST /api/tasks/{short_code}/cancel` (KAIROS-T-0362).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `reason` | `string` | yes | Why the task is cancelled. Must not be empty. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## CascadePreviewResponse
 
@@ -313,6 +335,7 @@ The answer to `GET /api/org/code-index-settings`.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `concurrency` | `integer` | yes | The requests that a hosted summarizer sends at a time, 1 to 32. |
+| `default_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries of a repository that follows the organization are made: `embedded` or `hosted` (KAIROS-T-0358). |
 | `summary` | [`SummaryProviderSettings`](schemas.md#summaryprovidersettings) | yes |  |
 | `updated_at` | `string`, nullable | no |  |
 | `updated_by` | `string`, nullable | no | None when the tenant has no settings row (the defaults). |
@@ -322,7 +345,7 @@ The answer to `GET /api/org/code-index-settings`.
 
 Where the summaries of the code index of a repository are made (KAIROS-T-0340).
 
-One of: `embedded`, `hosted`
+One of: `embedded`, `hosted`, `organization`
 
 ## CodeSequence
 
@@ -777,12 +800,23 @@ Response of `GET /api/{family}/{code}/graph`.
 | `focus` | `string` | yes | The focal item's short code. |
 | `nodes` | array of [`GraphNode`](schemas.md#graphnode) | yes | Every node within `depth` hops (any relationship type, either direction), focus included at depth 0; ordered by short code. Archived nodes are present and marked (`archived_at`), never dropped. |
 
+## HandOffRequest
+
+Body of `POST /api/tasks/{short_code}/hand-off` (KAIROS-T-0359): the person who gets the claim, by user id, email or user name.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `to` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## HistoryVersion
 
 One row of `GET /api/{entity_type}/{short_code}/history`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `edited_at` | `string` | yes | RFC 3339. |
 | `edited_by` | `string` | yes | Editor user id (UUID). |
 | `version` | `integer` | yes | The content version this snapshot captured. |
@@ -1205,6 +1239,15 @@ A `(done, total)` children rollup (KAIROS-T-0080). `done` counts the children si
 | `has_done` | `boolean` | yes | False when no board hosting the children has a done-flagged column — clients show composition only, never a done fraction. The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `has_done`, and it reads as `false`. |
 | `total` | `integer` | yes |  |
 
+## PurgeTaskResponse
+
+Response of `POST /api/tasks/{short_code}/purge` (KAIROS-T-0362): the task that is gone for good.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `short_code` | `string` | yes | The short code of the deleted task. |
+| `title` | `string` | yes | The title of the deleted task. |
+
 ## PutCodeIndexSettings
 
 Body of `PUT /api/org/code-index-settings` (an organization admin).
@@ -1212,6 +1255,7 @@ Body of `PUT /api/org/code-index-settings` (an organization admin).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `concurrency` | `integer`, nullable | no | 1 to 32; 4 when not given. |
+| `default_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries), nullable | no |  |
 | `summary` | [`PutSummaryProvider`](schemas.md#putsummaryprovider) | yes |  |
 | `vectors` | [`PutVectorProvider`](schemas.md#putvectorprovider) | yes |  |
 
@@ -1241,6 +1285,26 @@ The vectors part of `PUT /api/org/code-index-settings`. The secret has the rules
 | `model` | `string`, nullable | no |  |
 | `provider` | `string` | yes |  |
 | `secret` | `string` | no |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
+## QueryVector
+
+The vector of a query, made by the model that made the vectors of the index (KAIROS-T-0360).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `model` | `string` | yes | The model of the request. |
+| `vector` | array of `number` | yes | The vector: as many numbers as the dimension of the model. |
+
+## QueryVectorRequest
+
+Body of `POST /api/code-index/query-vector` (KAIROS-T-0360): the text of a code search, and the model of the vectors of the index.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `model` | `string` | yes | The model of the vectors of the index: `<provider>/<model>/<dimension>`, for example `local/bge-small-en-v1.5-q/384`. |
+| `text` | `string` | yes | The text of the query: 1 to 2,000 characters. |
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
@@ -1339,7 +1403,8 @@ One repository, as returned by `/api/repositories` (KAIROS-T-0106).
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `code_index_build` | [`CodeIndexBuild`](schemas.md#codeindexbuild) | no | Whether the code index builder works on the repository (KAIROS-T-0318): `on` (the default) or `off`. |
-| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries of the code index of the repository are made (KAIROS-T-0340): `embedded` (the default) or `hosted`. |
+| `code_index_summaries` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries of the code index of the repository are made (KAIROS-T-0340): `embedded`, `hosted`, or `organization` (the default, KAIROS-T-0358): the default of the organization decides. |
+| `code_index_summaries_resolved` | [`CodeIndexSummaries`](schemas.md#codeindexsummaries) | no | Where the summaries are made now: `embedded` or `hosted`. For `organization`, the default of the organization (KAIROS-T-0358). |
 | `created_at` | `string` | yes | RFC 3339. |
 | `credential` | [`RepositoryCredential`](schemas.md#repositorycredential) | no | The status of the read token of the repository (COLLIERY-T-3105). It never has the token. |
 | `default_branch` | `string` | yes |  |
@@ -1712,6 +1777,8 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the task sits on (UUID). |
+| `cancellation` | [`TaskCancellation`](schemas.md#taskcancellation), nullable | no |  |
+| `claim` | [`TaskClaim`](schemas.md#taskclaim), nullable | no |  |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `content` | `string` | yes | Markdown content. |
 | `created_at` | `string` | yes | RFC 3339. |
@@ -1727,6 +1794,28 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
 | `work_class` | `string` | yes | Planned/Support lane (`planned|support`, KAIROS-T-0077) â was this work planned, or unplanned intake? Orthogonal to `task_type`. |
+
+## TaskCancellation
+
+The cancel mark of a task (KAIROS-T-0362). A cancel moves the task to the done column of its board. A move out of the done column removes the mark; the history keeps the reason.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `cancelled_at` | `string` | yes | RFC 3339. |
+| `cancelled_by` | `string` | yes | The person or the service account that cancelled the task (UUID). |
+| `cancelled_by_name` | `string` | yes | The display name of `cancelled_by`. |
+| `reason` | `string` | yes | Why the task is cancelled. |
+
+## TaskClaim
+
+The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has the task in Active. A task gets a claim when a person moves it to Active. It loses the claim when it leaves Active, at a hand-off to a different person, or at a release.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `agent` | `boolean` | no | True when the person's agent made the claim with the agent key of the person. |
+| `claimed_at` | `string` | yes | RFC 3339. |
+| `display_name` | `string` | yes | The display name of the person. |
+| `user_id` | `string` | yes | The person (UUID). |
 
 ## Team
 
@@ -1943,6 +2032,7 @@ Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set t
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `claims` | `boolean`, nullable | no | A task that a person moves into this column gets a claim for the person (KAIROS-T-0359). When the flag goes off, the claims of the tasks in the column end. |
 | `is_done` | `boolean`, nullable | no | Mark occupants as completed for children-progress rollups (KAIROS-T-0080). An explicit admin choice — the dead-end heuristic only ever suggests. |
 | `name` | `string`, nullable | no |  |
 | `position` | `integer`, nullable | no | New 0-indexed position; the other columns shift around it. |

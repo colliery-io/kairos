@@ -72,6 +72,15 @@ Feature: The call graph
     Then the callees of the function in mcp include the macro location in boards
     And they do not include api::transition_task
 
+  # KAIROS-T-0353: a call in the body of a macro_rules! macro has the macro
+  # as its caller. Until then the call had no caller and was dropped, so
+  # callers did not show it.
+  Scenario: A call in the body of a macro has the macro as its caller
+    Given the polyglot fixture, where a macro_rules! macro makes fn transition_task in module boards
+    And the body of the macro calls boards::check_rule
+    When I build the index
+    Then the callers of check_rule include the macro transition_fn
+
   Scenario: No self-edge comes from a name only
     Given the polyglot fixture, where a macro_rules! macro makes fn transition_task in module boards
     And module api has a different fn transition_task

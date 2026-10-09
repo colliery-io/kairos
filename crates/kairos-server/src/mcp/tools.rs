@@ -488,6 +488,25 @@ pub struct RebuildCodeIndexParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
+pub struct HandOffItemParams {
+    /// The task's short code. The task must be in Active.
+    pub short_code: String,
+    /// The person who gets the claim: a user id, an email or a user name
+    /// of a person of the organization.
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseItemParams {
+    /// The task's short code. The task must be in Active.
+    pub short_code: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct LinkItemsParams {
     /// Source item's short code (edge direction: source -> target).
     pub source: String,
@@ -537,13 +556,45 @@ pub struct RestoreItemParams {
 pub struct DeleteItemParams {
     /// The item's short code.
     pub short_code: String,
-    /// Must be true: deletion soft-deletes the item AND cascades to its
-    /// descendants via parent edges. The response lists the cascade.
+    /// Must be true: the call archives the item AND each descendant that a
+    /// parent edge connects to it. The response lists the cascade.
+    pub confirm: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct CancelItemParams {
+    /// The task's short code. The task must not be in a done column.
+    pub short_code: String,
+    /// Why the task is cancelled. Must not be empty.
+    pub reason: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct PurgeTaskParams {
+    /// The task's current short code (a retired code is not followed).
+    pub short_code: String,
+    /// Must be true: the call deletes the task for good. You cannot undo
+    /// it.
+    pub confirm: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveCompletedParams {
+    /// The delivery board, by slug (e.g. "platform-delivery") or UUID.
+    pub board: String,
+    /// Must be true: the call archives each task in the done columns of
+    /// the board.
     pub confirm: bool,
 }
 
 // ---------------------------------------------------------------------------
-// The tools (23; the count is asserted in tests/mcp.rs)
+// The tools (31; the list is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -767,7 +818,17 @@ impl KairosMcp {
                 rendered.credential.summary(),
                 // KAIROS-T-0340: where the summaries of the checkout come
                 // from. On `hosted`, the CLI makes none (KAIROS-T-0343).
-                rendered.code_index_summaries,
+                // KAIROS-T-0358: `organization` shows what it resolves to.
+                if rendered.code_index_summaries
+                    == kairos_client::types_repositories::CodeIndexSummaries::Organization
+                {
+                    format!(
+                        "organization ({})",
+                        rendered.code_index_summaries_resolved
+                    )
+                } else {
+                    rendered.code_index_summaries.to_string()
+                },
             );
             // No line about "stale" tasks (COLLIERY-T-0219). It counted the
             // linked tasks on a board of a team that does not own the
@@ -953,7 +1014,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. A strategy or an initiative with teams is tagged [teams: a, b]: the teams of the boards of its tasks (two levels down for a strategy), plus the teams set on it by hand (`set_team`). Optional `team` (slug or UUID) restricts the strategies and the initiatives to those of one team, and `no_team: true` to those with no team. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. A task with a claim is tagged [claimed by NAME]: the person who works on it, and \"(agent)\" when the agent of the person made the claim. A strategy or an initiative with teams is tagged [teams: a, b]: the teams of the boards of its tasks (two levels down for a strategy), plus the teams set on it by hand (`set_team`). Optional `team` (slug or UUID) restricts the strategies and the initiatives to those of one team, and `no_team: true` to those with no team. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
     )]
     pub async fn board_items(
         &self,
@@ -1055,6 +1116,11 @@ impl KairosMcp {
             // initiatives, one query for the board.
             let teams =
                 kairos_db::item_teams::board_teams(conn, board.id).map_err(ApiError::internal)?;
+            // KAIROS-T-0359: the claims of the tasks, one query.
+            let claims = crate::claims::claim_texts(conn, &item_ids)?;
+            // KAIROS-T-0362: the cancelled tasks, one query.
+            let cancelled = kairos_db::task_cancellations::marks_of(conn, &item_ids)
+                .map_err(ApiError::internal)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -1083,10 +1149,19 @@ impl KairosMcp {
                     // tell put-away work from live work will pick one up
                     // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}{}{}{}\n",
+                        "- {} [{}] {}{}{}{}{}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
+                        if cancelled.contains_key(&item.id) {
+                            " [cancelled]"
+                        } else {
+                            ""
+                        },
+                        claims
+                            .get(&item.id)
+                            .map(|(holder, _)| format!(" [claimed by {holder}]"))
+                            .unwrap_or_default(),
                         item.repository_id
                             .and_then(|id| repo_slugs.get(&id))
                             .map(|slug| format!(" [repo:{slug}]"))
@@ -1116,7 +1191,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code. A task in Active shows its claim: the person who works on it, and since when. A cancelled task shows the mark, who cancelled it, and the reason."
     )]
     pub async fn get_item(
         &self,
@@ -1173,6 +1248,14 @@ impl KairosMcp {
                 // for (KAIROS-T-0161).
                 let column = column_label(conn, column_id)?;
                 out.push_str(&format!("- board: {} / column: {column}\n", board.slug));
+            }
+            // KAIROS-T-0359: who has the task in Active.
+            if item.item_type == ItemType::Task && item.archived_at.is_none() {
+                out.push_str(&crate::claims::claim_text(conn, item.id, item.column_id)?);
+            }
+            // KAIROS-T-0362: the cancel mark and its reason.
+            if item.item_type == ItemType::Task {
+                out.push_str(&crate::cancel::cancel_text(conn, item.id)?);
             }
             // COLLIERY-T-0269: the owner of a document. It is a board and
             // not a position, so the line has no column.
@@ -1305,7 +1388,7 @@ impl KairosMcp {
             }
 
             let limit = params.limit.unwrap_or(20).clamp(1, 200);
-            let rows: Vec<(i32, Uuid, DateTime<Utc>)> = item_history::table
+            let rows: Vec<(i32, Uuid, DateTime<Utc>, Option<Uuid>)> = item_history::table
                 .filter(item_history::item_id.eq(item.id))
                 .order(item_history::version.desc())
                 .limit(limit)
@@ -1313,10 +1396,11 @@ impl KairosMcp {
                     item_history::version,
                     item_history::edited_by,
                     item_history::edited_at,
+                    item_history::agent_key_id,
                 ))
                 .load(conn)
                 .map_err(ApiError::internal)?;
-            let editor_ids: Vec<Uuid> = rows.iter().map(|(_, editor, _)| *editor).collect();
+            let editor_ids: Vec<Uuid> = rows.iter().map(|(_, editor, _, _)| *editor).collect();
             let editors: HashMap<Uuid, String> = users::table
                 .filter(users::id.eq_any(editor_ids))
                 .select((users::id, users::display_name))
@@ -1337,11 +1421,12 @@ impl KairosMcp {
                     archived_at.format("%Y-%m-%dT%H:%M:%SZ")
                 ));
             }
-            for (version, editor, edited_at) in rows {
+            for (version, editor, edited_at, agent_key) in rows {
                 let editor = editors.get(&editor).map_or("unknown", String::as_str);
                 out.push_str(&format!(
-                    "- v{version} — {} by {editor}\n",
-                    edited_at.format("%Y-%m-%dT%H:%M:%SZ")
+                    "- v{version} — {} by {}\n",
+                    edited_at.format("%Y-%m-%dT%H:%M:%SZ"),
+                    actor_text(editor, agent_key)
                 ));
             }
             out.push_str(&rename_history(conn, item.id)?);
@@ -1671,6 +1756,7 @@ impl KairosMcp {
                 "manage_tasks",
                 &item,
             )?;
+            crate::claims::note(conn, item.id, user)?;
             let from_board = board_by_ref(conn, &from_board_id.to_string())?;
             let moved = boards::move_task_with(conn, item.id, target.id, user, params.rename)
                 .map_err(map_board_error)?;
@@ -1972,7 +2058,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim."
     )]
     pub async fn transition_item(
         &self,
@@ -2009,6 +2095,9 @@ impl KairosMcp {
             )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
+            if item.item_type == ItemType::Task {
+                crate::claims::note(conn, item.id, user)?;
+            }
 
             match item.item_type {
                 ItemType::Strategy => {
@@ -2030,11 +2119,77 @@ impl KairosMcp {
                     .map(|c| c.name.clone())
                     .unwrap_or_default()
             };
-            Ok(format!(
+            let mut out = format!(
                 "Transitioned {}: {} -> {}.",
                 item.short_code,
                 name_of(from_column_id),
                 name_of(to_column_id)
+            );
+            // KAIROS-T-0359: a move into Active gives the claim.
+            if item.item_type == ItemType::Task {
+                let claim = crate::claims::claim_text(conn, item.id, Some(to_column_id))?;
+                if !claim.is_empty() {
+                    out.push('\n');
+                    out.push_str(claim.trim_end());
+                }
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Give the claim of a TASK in Active to a different person. The claim says who works on the task: the person who moved it to Active, or the person of a hand-off. `to` is a user id, an email or a user name of a person of the organization; a service account cannot have a claim. The task stays in Active. You can hand off a claim that you have, or any claim with `transition_items` on the board of the task. The answer shows the new claim."
+    )]
+    pub async fn hand_off_item(
+        &self,
+        Parameters(params): Parameters<HandOffItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_task_for_claim(conn, &params.short_code)?;
+            let board_id = item.board_id.unwrap_or_default();
+            crate::claims::require_claim_change(conn, &slug, item.id, board_id, user)?;
+            let to = crate::claims::resolve_person(conn, &slug, &params.to)?;
+            kairos_db::task_claims::hand_off(conn, item.id, to, user)
+                .map_err(crate::claims::map_claim_error)?;
+            Ok(format!(
+                "Handed off {}.\n{}",
+                item.short_code,
+                crate::claims::claim_text(conn, item.id, item.column_id)?.trim_end()
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "End the claim on a TASK in Active, and leave the task in Active free for anyone. The next person who moves the task to Active gets the claim. A claim also ends when the task leaves Active. You can release a claim that you have, or any claim with `transition_items` on the board of the task."
+    )]
+    pub async fn release_item(
+        &self,
+        Parameters(params): Parameters<ReleaseItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_task_for_claim(conn, &params.short_code)?;
+            let board_id = item.board_id.unwrap_or_default();
+            crate::claims::require_claim_change(conn, &slug, item.id, board_id, user)?;
+            let ended = kairos_db::task_claims::release(conn, item.id, user)
+                .map_err(crate::claims::map_claim_error)?;
+            let name = kairos_db::task_claims::display_names(conn, &[ended.user_id])
+                .map_err(ApiError::internal)?
+                .remove(&ended.user_id)
+                .unwrap_or_else(|| ended.user_id.to_string());
+            Ok(format!(
+                "Released {}: {name} has no claim on it now. The task stays in Active, and it \
+                 has no claim.",
+                item.short_code
             ))
         })
         .await
@@ -2223,7 +2378,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Soft-delete an item by short code. Requires confirm=true because deletion CASCADES to descendants via parent edges; the response lists everything that was cascade-deleted. You can delete an item that you created, or with `manage_<type>` on its board. The cascade takes only the descendants that you can edit. It stops at a descendant that you cannot edit, and takes nothing below it. The response names each item that stays, and why."
+        description = "Archive an item by short code (the name says delete, but the item is not deleted). An archived item is hidden from boards and default searches, and it is read-only. `restore_item` brings it back. Requires confirm=true because the archive CASCADES to descendants via parent edges; the response lists each item that the cascade archived. You can archive an item that you created, or with `manage_<type>` on its board. The cascade takes only the descendants that you can edit. It stops at a descendant that you cannot edit, and takes nothing below it. The response names each item that stays, and why. To delete a task for good, use `purge_task`."
     )]
     pub async fn delete_item(
         &self,
@@ -2236,8 +2391,9 @@ impl KairosMcp {
         self.run_tool(&tenant, move |conn| {
             if !params.confirm {
                 return Err(ApiError::validation(
-                    "delete_item must have confirm=true. The delete archives the item and \
-                     each descendant that a parent edge connects to it.",
+                    "delete_item must have confirm=true. The call archives the item and \
+                     each descendant that a parent edge connects to it. A restore brings \
+                     each one back.",
                 ));
             }
             let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
@@ -2265,7 +2421,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade delete was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists. You can restore an item that you created, or with `manage_<type>` on its board."
+        description = "Put an archived item back on its board by short code. Restores ONLY the named item: a cascade archive was an act on a subtree, so archived descendants stay archived and are listed in the response for you to restore separately. Refused (RESTORE_BLOCKED) when the item's board, column, owning team or repository has since been removed — the response names what is missing, and the item must be moved somewhere that still exists. You can restore an item that you created, or with `manage_<type>` on its board."
     )]
     pub async fn restore_item(
         &self,
@@ -2315,6 +2471,109 @@ impl KairosMcp {
                     ),
                 )),
             }
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Cancel a TASK that the team will not do, with a reason. The task moves to the done column of its board and gets the mark \"cancelled\" with the reason. `get_item` and the board show the mark. The transition rules of the board do not apply: you can cancel a task from each column that is not done. A cancel ends the claim of the task. A move of the task out of the done column removes the mark; the history keeps the reason. Needs `transition_items` on the board of the task, the capability of a move. An empty reason is refused, and so is a task in a done column (TASK_DONE)."
+    )]
+    pub async fn cancel_item(
+        &self,
+        Parameters(params): Parameters<CancelItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_item(conn, &params.short_code, Liveness::LiveOnly)?;
+            let Some(board_id) = item.board_id.filter(|_| item.item_type == ItemType::Task) else {
+                return Err(ApiError::validation(format!(
+                    "{} is a {}. You can cancel only a task.",
+                    item.short_code, item.item_type
+                ))
+                .with_details(serde_json::json!({ "argument": "short_code" })));
+            };
+            let cancelled =
+                crate::cancel::cancel(conn, &slug, item.id, board_id, &params.reason, user)?;
+            Ok(format!(
+                "Cancelled {}: {} -> {}.\nReason: {}\nTo undo the cancel, move the task out of \
+                 the done column.",
+                cancelled.short_code,
+                cancelled.from_column,
+                cancelled.to_column,
+                cancelled.mark.reason
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Delete a TASK for good. YOU CANNOT UNDO THIS: no restore brings the task back. Use `delete_item` to archive a task, which a restore can undo. The task can be live or archived. The purge removes the task, its history, its metadata, its edges, its forge links and its claim; the items at the other end of the edges stay. The activity log keeps a row with the code and the title. Requires confirm=true, and `manage_tasks` on the board of the task (board managers and organization admins only). Send the current code: a retired code is not followed."
+    )]
+    pub async fn purge_task(
+        &self,
+        Parameters(params): Parameters<PurgeTaskParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            if !params.confirm {
+                return Err(ApiError::validation(
+                    "purge_task must have confirm=true. The call deletes the task for good, \
+                     and you cannot undo it.",
+                )
+                .with_details(serde_json::json!({ "argument": "confirm" })));
+            }
+            let purged = crate::api::tasks::purge(conn, &slug, &params.short_code, user)?;
+            Ok(format!(
+                "Deleted {} (\"{}\") for good. No restore can bring it back.",
+                purged.short_code, purged.title
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Archive each task in the done columns of one delivery board (\"Archive completed\"), cancelled tasks too. Each task is archived as by `delete_item`, and `restore_item` brings back each one. One transaction: the call archives each task, or none. Requires confirm=true, and `manage_tasks` on the board. The response gives the count and the codes."
+    )]
+    pub async fn archive_completed(
+        &self,
+        Parameters(params): Parameters<ArchiveCompletedParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            if !params.confirm {
+                return Err(ApiError::validation(
+                    "archive_completed must have confirm=true. The call archives each task \
+                     in the done columns of the board. A restore brings each one back.",
+                )
+                .with_details(serde_json::json!({ "argument": "confirm" })));
+            }
+            let board = board_by_ref(conn, &params.board)?;
+            let response =
+                crate::api::org::boards::archive_completed_tasks(conn, &slug, &board, user)?;
+            Ok(if response.count == 0 {
+                format!(
+                    "The done columns of {} have no tasks. Kairos archived nothing.",
+                    board.slug
+                )
+            } else {
+                format!(
+                    "Archived {} completed task{} of {}: {}.\nTo get one back, restore it by its \
+                     short code.",
+                    response.count,
+                    if response.count == 1 { "" } else { "s" },
+                    board.slug,
+                    response.short_codes.join(", ")
+                )
+            })
         })
         .await
     }
@@ -3162,7 +3421,7 @@ fn move_document(
 /// new code, the time and who did it. Empty when the item has none.
 fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiError> {
     use kairos_db::schema::{activity_log, users};
-    let rows: Vec<(String, DateTime<Utc>, Uuid)> = activity_log::table
+    let rows: Vec<(String, DateTime<Utc>, Uuid, Option<Uuid>)> = activity_log::table
         .filter(activity_log::entity_id.eq(item_id))
         .filter(activity_log::action.eq(kairos_db::models::enums::ActivityAction::Rename))
         .order(activity_log::occurred_at.asc())
@@ -3170,13 +3429,14 @@ fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiE
             activity_log::details,
             activity_log::occurred_at,
             activity_log::actor_id,
+            activity_log::agent_key_id,
         ))
         .load(conn)
         .map_err(ApiError::internal)?;
     if rows.is_empty() {
         return Ok(String::new());
     }
-    let actor_ids: Vec<Uuid> = rows.iter().map(|(_, _, actor)| *actor).collect();
+    let actor_ids: Vec<Uuid> = rows.iter().map(|(_, _, actor, _)| *actor).collect();
     let names: HashMap<Uuid, String> = users::table
         .filter(users::id.eq_any(actor_ids))
         .select((users::id, users::display_name))
@@ -3185,16 +3445,43 @@ fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiE
         .into_iter()
         .collect();
     let mut out = "\n## Renames\n".to_string();
-    for (details, at, actor) in rows {
+    for (details, at, actor, agent_key) in rows {
         let codes: &str = details.strip_prefix("code:").unwrap_or(&details);
         let codes = codes.replace("->", " -> ");
         out.push_str(&format!(
             "- {codes} — {} by {}\n",
             at.format("%Y-%m-%dT%H:%M:%SZ"),
-            names.get(&actor).map_or("unknown", String::as_str)
+            actor_text(
+                names.get(&actor).map_or("unknown", String::as_str),
+                agent_key
+            )
         ));
     }
     Ok(out)
+}
+
+/// The live TASK of `hand_off_item` and `release_item`, or a refusal for an
+/// item that is not a task (KAIROS-T-0359).
+fn load_task_for_claim(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiError> {
+    let item = load_item(conn, short_code, Liveness::LiveOnly)?;
+    if item.item_type != ItemType::Task {
+        return Err(ApiError::validation(format!(
+            "The {} {} is not a task. Only a task has a claim.",
+            item.item_type, item.short_code
+        ))
+        .with_details(json!({ "argument": "short_code" })));
+    }
+    Ok(item)
+}
+
+/// The name of an actor in a history or activity text: "Alice (agent)"
+/// when an agent made the change with the agent key of the person
+/// (KAIROS-T-0359), else the name.
+fn actor_text(name: &str, agent_key: Option<Uuid>) -> String {
+    match agent_key {
+        Some(_) => format!("{name} (agent)"),
+        None => name.to_string(),
+    }
 }
 
 /// The lines of a `move_item` answer for a rename (COLLIERY-T-3101).

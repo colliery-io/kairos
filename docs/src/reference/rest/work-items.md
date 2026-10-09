@@ -5,7 +5,7 @@
 
 # Work items
 
-The five entity families. Every one has the same shape — list, get, create, update, delete — and the same optimistic-concurrency contract on update (KAIROS-A-0004): submit the `version` you read, and a concurrent edit gets 409 with the current entity in `details.current`.
+The five entity families. Every one has the same shape — list, get, create, update, delete — and the same optimistic-concurrency contract on update (KAIROS-A-0004): submit the `version` you read, and a concurrent edit gets 409 with the current entity in `details.current`. A write to a claimed task by a different person gets the header `Kairos-Warning: <code> claimed by <name> since <time>` (KAIROS-T-0359).
 
 ## strategies
 
@@ -283,7 +283,8 @@ Get one task by short code (open tenant-wide).
 
 ### `DELETE /api/tasks/{short_code}`
 
-Soft-delete a task (KAIROS-A-0001).
+Archive a task (a soft delete, KAIROS-A-0001). A restore brings it
+back. To delete a task for good, use `POST /api/tasks/{short_code}/purge`.
 
 The edit rule applies (COLLIERY-T-0228). The caller created the
 task, holds `manage_tasks` on its board, or is an organization admin.
@@ -294,7 +295,7 @@ task, holds `manage_tasks` on its board, or is an organization admin.
 
 | Response | Body | Meaning |
 |---|---|---|
-| `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Soft-deleted; notes the cascade |
+| `200` | [`DeleteResponse`](schemas.md#deleteresponse) | Archived; notes the cascade. A restore brings the task back |
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 
@@ -317,6 +318,59 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Refused by the edit rule: the caller did not create the item and lacks the capability |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
+
+### `POST /api/tasks/{short_code}/cancel`
+
+Cancel a task (KAIROS-T-0362): a "won't do", with a reason. The task
+moves to the done column of its board, and it gets the cancel mark
+with the reason. The transition rules of the board do not apply. You
+can cancel a task from each column that is not done. A cancel ends the
+claim of the task.
+
+A move of the task out of the done column removes the mark. The
+history keeps the reason (the activity row `cancel`).
+
+Requires `transition_items` on the board of the task, the capability
+of a move. The creator of the task gets no right here.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+Request body (required): `application/json`, [`CancelTaskRequest`](schemas.md#canceltaskrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](schemas.md#task) | Cancelled: the task is in the done column, with the mark |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing capability |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | VALIDATION (`reason` is empty; details.field names it), TASK_DONE (the task is in a done column), or NO_DONE_COLUMN (the board has no done column) |
+
+### `POST /api/tasks/{short_code}/hand-off`
+
+Give the claim of a task in Active to a person (KAIROS-T-0359,
+KAIROS-A-0024). `to` is a user id, an email or a user name of a person
+of the organization. The task stays in Active, and the person gets the
+claim. A service account cannot have a claim.
+
+The person who has the claim may hand it off. Any other caller needs
+`transition_items` on the board of the task. That capability moves the
+task into and out of Active. The creator of the task gets no right
+here.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+Request body (required): `application/json`, [`HandOffRequest`](schemas.md#handoffrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](schemas.md#task) | The person has the claim |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller does not have the claim and does not have transition_items |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The person has the claim already |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | NOT_CLAIMABLE (the task is not in Active), or VALIDATION (`to` is not a person of the organization) |
 
 ### `POST /api/tasks/{short_code}/move`
 
@@ -345,6 +399,59 @@ Request body (required): `application/json`, [`MoveTaskRequest`](schemas.md#move
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on either board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code or board |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board) |
+
+### `POST /api/tasks/{short_code}/purge`
+
+Delete a task for good (KAIROS-T-0362). Nothing can bring it back. The
+task can be live or archived.
+
+The purge removes these rows of the task:
+
+- the task, its history and its metadata;
+- its edges and its edge proposals;
+- its forge links, its embeddings and its retired codes;
+- its claim and its cancel mark.
+
+The items at the other end of the edges stay. The activity rows about
+the task stay. One new row (`purge`) names the code and the title.
+
+This is a separate route, and not a flag of `DELETE`. `DELETE`
+archives. A purge must not be one query parameter away from an
+archive.
+
+Requires `manage_tasks` on the board of the task (an organization
+admin has it). The creator of the task gets no right here. Send the
+current code. The route does not follow a retired code.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code (the current code) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`PurgeTaskResponse`](schemas.md#purgetaskresponse) | Deleted for good |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on the board of the task |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+
+### `POST /api/tasks/{short_code}/release`
+
+End the claim of a task in Active (KAIROS-T-0359, KAIROS-A-0024). The
+task stays in Active with no claim. It is free for anyone. The next
+person who moves it to Active gets the claim.
+
+The person who has the claim may release it. Any other caller needs
+`transition_items` on the board of the task. No body.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](schemas.md#task) | The task has no claim |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller does not have the claim and does not have transition_items |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | NOT_CLAIMABLE (the task is not in Active), or NO_CLAIM (the task has no claim) |
 
 ### `PUT /api/tasks/{short_code}/repository`
 

@@ -30,7 +30,7 @@ rule = "fixture-dir"
 [[file]]
 path = "python/tests/test_report.py"
 decision = "test"
-rule = "test-path"
+rule = "test-name"
 
 # --- Rust -------------------------------------------------------------------
 
@@ -115,8 +115,17 @@ language = "rust"
 lines = [35, 38]
 is_test = true
 
-# Calls inside macro invocations (COLLIERY-T-1851). narsil gives the
-# macro_rules! definition no symbol.
+# Calls inside macro invocations (COLLIERY-T-1851). A macro_rules!
+# definition is a symbol of kind "macro" (KAIROS-T-0353).
+[[symbol]]
+file = "src/labels.rs"
+name = "quoted"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [4, 8]
+is_test = false
+
 [[symbol]]
 file = "src/labels.rs"
 name = "count_text"
@@ -431,6 +440,34 @@ language = "typescript"
 lines = [13, 15]
 is_test = false
 
+# JavaScript (KAIROS-T-0352).
+[[symbol]]
+file = "web/src/ledger.js"
+name = "roundCents"
+container = ""
+kind = "function"
+language = "javascript"
+lines = [5, 7]
+is_test = false
+
+[[symbol]]
+file = "web/src/ledger.js"
+name = "Ledger"
+container = ""
+kind = "class"
+language = "javascript"
+lines = [9, 13]
+is_test = false
+
+[[symbol]]
+file = "web/src/ledger.js"
+name = "entry"
+container = "Ledger"
+kind = "method"
+language = "javascript"
+lines = [10, 12]
+is_test = false
+
 [[symbol]]
 file = "web/src/cart.ts"
 name = "Cart"
@@ -518,6 +555,8 @@ lines = [4, 6]
 is_test = false
 
 # --- Rust test crates that share a module (COLLIERY-T-1849, T-1858) ----------
+# The items of a file in tests/ that are not a #[test] are helpers, not test
+# code: the rule test-helper (KAIROS-T-0352).
 
 [[symbol]]
 file = "tests/common/mod.rs"
@@ -526,7 +565,7 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [4, 6]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/first.rs"
@@ -535,7 +574,7 @@ container = ""
 kind = "module"
 language = "rust"
 lines = [1, 1]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/first.rs"
@@ -553,7 +592,7 @@ container = ""
 kind = "module"
 language = "rust"
 lines = [1, 1]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/second.rs"
@@ -571,7 +610,7 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [8, 10]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/first.rs"
@@ -589,7 +628,7 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [4, 6]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/third.rs"
@@ -607,7 +646,7 @@ container = ""
 kind = "module"
 language = "rust"
 lines = [15, 15]
-is_test = true
+is_test = false
 
 [[symbol]]
 file = "tests/third.rs"
@@ -776,6 +815,33 @@ container = ""
 kind = "function"
 language = "rust"
 lines = [12, 14]
+is_test = false
+
+[[symbol]]
+file = "src/a.rs"
+name = "quoted"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [4, 8]
+is_test = false
+
+[[symbol]]
+file = "src/boards.rs"
+name = "transition_fn"
+container = ""
+kind = "macro"
+language = "rust"
+lines = [5, 11]
+is_test = false
+
+[[symbol]]
+file = "src/boards.rs"
+name = "check_rule"
+container = ""
+kind = "function"
+language = "rust"
+lines = [17, 19]
 is_test = false
 
 [[symbol]]

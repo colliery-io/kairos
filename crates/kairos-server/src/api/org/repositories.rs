@@ -411,6 +411,9 @@ pub(crate) fn render(
     // COLLIERY-T-3105: the status of the read token, never the token.
     let credentials =
         kairos_db::repository_credentials::statuses(conn, &ids).map_err(ApiError::internal)?;
+    // KAIROS-T-0358: where the summaries of each repository are made now.
+    let code_index_settings =
+        kairos_db::code_index_settings::load_or_default(conn).map_err(ApiError::internal)?;
 
     rows.into_iter()
         .map(|repo| {
@@ -418,6 +421,7 @@ pub(crate) fn render(
                 ApiError::internal(format!("repository {} references missing team", repo.id))
             })?;
             let (open_tasks, has_webhook) = counts.get(&repo.id).copied().unwrap_or((0, false));
+            let hosted = crate::code_index::hosted_summaries(&repo, &code_index_settings);
             Ok(dto::Repository {
                 id: repo.id.to_string(),
                 slug: repo.slug,
@@ -439,6 +443,11 @@ pub(crate) fn render(
                     .unwrap_or_default(),
                 code_index_summaries: dto::CodeIndexSummaries::parse(&repo.code_index_summaries)
                     .unwrap_or_default(),
+                code_index_summaries_resolved: if hosted {
+                    dto::CodeIndexSummaries::Hosted
+                } else {
+                    dto::CodeIndexSummaries::Embedded
+                },
                 created_at: repo.created_at.to_rfc3339(),
                 updated_at: repo.updated_at.to_rfc3339(),
             })

@@ -161,6 +161,8 @@ pub struct FileInfo {
     pub path: String,
     pub summary: Option<String>,
     pub symbols: usize,
+    /// Test code: parsed, never summarized (KAIROS-T-0352).
+    pub is_test: bool,
 }
 
 /// The counts of an index.
@@ -551,17 +553,19 @@ impl Index {
         Ok(out)
     }
 
-    /// The folders of the parsed source files, with their summaries, by
-    /// path. `under` keeps the folders whose path starts with it.
+    /// The folders of the parsed files, with their summaries, by path: the
+    /// source files and the test files, which have no summary
+    /// (KAIROS-T-0352). `under` keeps the folders whose path starts with it.
     pub fn module_map(&self, under: Option<&str>) -> Result<Vec<ModuleInfo>, IndexError> {
         let mut stmt = self.conn.prepare(
-            "SELECT f.path, m.summary, (SELECT count(*) FROM symbols s WHERE s.file_id = f.id)
+            "SELECT f.path, m.summary, (SELECT count(*) FROM symbols s WHERE s.file_id = f.id),
+                    f.decision = 'test'
              FROM files f LEFT JOIN summaries m ON m.key = f.summary_key
-             WHERE f.decision = 'source' AND f.language IS NOT NULL
+             WHERE f.decision IN ('source', 'test') AND f.language IS NOT NULL
              ORDER BY f.path",
         )?;
-        let files: Vec<(String, Option<String>, i64)> = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        let files: Vec<(String, Option<String>, i64, bool)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
             .collect::<Result<_, _>>()?;
         let mut stmt = self.conn.prepare(
             "SELECT d.path, m.summary FROM modules d JOIN summaries m ON m.key = d.summary_key",
@@ -570,7 +574,7 @@ impl Index {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
         let mut modules: BTreeMap<String, Vec<FileInfo>> = BTreeMap::new();
-        for (path, summary, symbols) in files {
+        for (path, summary, symbols, is_test) in files {
             let folder = match path.rsplit_once('/') {
                 Some((folder, _)) => folder.to_string(),
                 None => ".".to_string(),
@@ -582,6 +586,7 @@ impl Index {
                 path,
                 summary,
                 symbols: symbols as usize,
+                is_test,
             });
         }
         Ok(modules
@@ -599,8 +604,9 @@ impl Index {
     /// The text rank is BM25 on the name, the container, the signature and
     /// the summary. The vector rank is the cosine of the vector of the query
     /// against each summary vector; it needs `embedder` to have the model of
-    /// the pool. With no summary in the index, the search ranks the names,
-    /// the signatures and the paths of the functions and types.
+    /// the pool. A symbol with no summary (test code, or code that waits for
+    /// its summary) is ranked by its name, its signature and its path
+    /// (KAIROS-T-0352); with no summary in the index, each symbol is.
     pub fn search(
         &self,
         query: &str,
@@ -620,13 +626,7 @@ impl Index {
             .query_map([], |r| Ok((symbol_info(r, 0)?, r.get(11)?)))?
             .collect::<Result<_, _>>()?;
         let summarized = rows.iter().any(|(s, _)| s.summary.is_some());
-        let docs: Vec<(SymbolInfo, Option<Vec<u8>>)> = if summarized {
-            rows.into_iter()
-                .filter(|(s, _)| s.summary.is_some())
-                .collect()
-        } else {
-            rows
-        };
+        let docs = rows;
 
         let texts: Vec<Vec<String>> = docs
             .iter()
@@ -637,7 +637,7 @@ impl Index {
                     s.signature.as_deref().unwrap_or(""),
                     s.summary.as_deref().unwrap_or("")
                 );
-                if !summarized {
+                if s.summary.is_none() {
                     text.push(' ');
                     text.push_str(&s.file);
                 }
@@ -646,8 +646,9 @@ impl Index {
             .collect();
         let text_scores = bm25(&words(query), &texts);
         let mut fused: HashMap<usize, f64> = HashMap::new();
-        for (rank, (doc, _)) in ranked(&text_scores).into_iter().enumerate() {
-            *fused.entry(doc).or_default() += 1.0 / (RRF_K + rank as f64 + 1.0);
+        let text_ranks = ranked(&text_scores);
+        for (rank, (doc, _)) in text_ranks.iter().enumerate() {
+            *fused.entry(*doc).or_default() += 1.0 / (RRF_K + rank as f64 + 1.0);
         }
 
         let pool_model = self.vector_model()?;
@@ -677,14 +678,29 @@ impl Index {
             for (rank, (doc, _)) in ranked(&cosines).into_iter().enumerate() {
                 *fused.entry(doc).or_default() += 1.0 / (RRF_K + rank as f64 + 1.0);
             }
+            // A symbol with no vector (no summary: test code, or code that
+            // waits for its summary) is in the text rank only. Its text rank
+            // counts for the vector rank too, so a good name match is not
+            // below each symbol that is in both ranks (KAIROS-T-0352).
+            for (rank, (doc, _)) in text_ranks.iter().enumerate() {
+                if docs[*doc].1.is_none() {
+                    *fused.entry(*doc).or_default() += 1.0 / (RRF_K + rank as f64 + 1.0);
+                }
+            }
         }
 
-        // Test code ranks below each other symbol (COLLIERY-T-1857): with no
-        // summaries, the names of test functions often have the words of the
-        // query.
+        // With no summaries, test code ranks below each other symbol
+        // (COLLIERY-T-1857): the names of test functions often have the
+        // words of the query. With summaries, a test symbol (which has none)
+        // ranks by its own score, so the search can find it (KAIROS-T-0352).
+        let tests_last = mode == SearchMode::Names;
         let mut order: Vec<(usize, f64)> = fused.into_iter().collect();
         order.sort_by(|a, b| {
-            let (test_a, test_b) = (docs[a.0].0.is_test, docs[b.0].0.is_test);
+            let (test_a, test_b) = if tests_last {
+                (docs[a.0].0.is_test, docs[b.0].0.is_test)
+            } else {
+                (false, false)
+            };
             test_a
                 .cmp(&test_b)
                 .then(b.1.total_cmp(&a.1))

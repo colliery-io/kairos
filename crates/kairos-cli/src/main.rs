@@ -174,7 +174,7 @@ enum Command {
     /// Service accounts: machine principals authenticated by API keys
     #[command(subcommand)]
     ServiceAccounts(ServiceAccountsCommand),
-    /// API keys for a service account
+    /// Your agent keys, or the API keys of a service account
     #[command(subcommand)]
     Keys(KeysCommand),
     /// Deployment administration (tenant provisioning)
@@ -865,11 +865,59 @@ mod tests {
             _ => panic!("expected strategies transition"),
         }
 
-        let cli = Cli::try_parse_from(["kairos", "adrs", "delete", "ACME-A-0001", "--confirm"])
-            .expect("adrs delete parses");
+        // KAIROS-T-0362: the verb is `archive`, and `delete` stays as an
+        // alias of it.
+        for verb in ["archive", "delete"] {
+            let cli = Cli::try_parse_from(["kairos", "adrs", verb, "ACME-A-0001", "--confirm"])
+                .expect("adrs archive parses");
+            match cli.command {
+                Command::Adrs(AdrsCommand::Archive(args)) => assert!(args.confirm),
+                _ => panic!("expected adrs archive"),
+            }
+        }
+
+        // KAIROS-T-0362: a task can be cancelled with a reason, and purged.
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "tasks",
+            "cancel",
+            "ACME-T-0001",
+            "--reason",
+            "Not needed",
+        ])
+        .expect("tasks cancel parses");
         match cli.command {
-            Command::Adrs(AdrsCommand::Delete(args)) => assert!(args.confirm),
-            _ => panic!("expected adrs delete"),
+            Command::Tasks(TasksCommand::Cancel(args)) => assert_eq!(args.reason, "Not needed"),
+            _ => panic!("expected tasks cancel"),
+        }
+        assert!(
+            Cli::try_parse_from(["kairos", "tasks", "cancel", "ACME-T-0001"]).is_err(),
+            "a cancel needs --reason"
+        );
+        let cli = Cli::try_parse_from(["kairos", "tasks", "purge", "ACME-T-0001", "--confirm"])
+            .expect("tasks purge parses");
+        match cli.command {
+            Command::Tasks(TasksCommand::Purge(args)) => assert!(args.confirm),
+            _ => panic!("expected tasks purge"),
+        }
+        assert!(
+            Cli::try_parse_from(["kairos", "adrs", "purge", "ACME-A-0001", "--confirm"]).is_err(),
+            "only a task has purge"
+        );
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "boards",
+            "archive-completed",
+            "acme-delivery",
+            "--confirm",
+        ])
+        .expect("boards archive-completed parses");
+        match cli.command {
+            Command::Boards(BoardsCommand::ArchiveCompleted { board, confirm, .. }) => {
+                assert_eq!(board, "acme-delivery");
+                assert!(confirm);
+            }
+            _ => panic!("expected boards archive-completed"),
         }
 
         // Documents have no transition endpoint in S-0005 — no verb either.
@@ -1010,7 +1058,7 @@ mod tests {
                 expires_at,
                 ..
             }) => {
-                assert_eq!(service_account, "sa-1");
+                assert_eq!(service_account.as_deref(), Some("sa-1"));
                 assert_eq!(name, "gha");
                 assert_eq!(expires_at.as_deref(), Some("2027-01-01T00:00:00Z"));
             }
@@ -1031,5 +1079,39 @@ mod tests {
             ])
             .is_ok()
         );
+
+        // The agent keys of a person (KAIROS-T-0359): no --service-account.
+        let cli = Cli::try_parse_from(["kairos", "keys", "create", "--name", "laptop"])
+            .expect("keys create without a service account parses");
+        match cli.command {
+            Command::Keys(KeysCommand::Create {
+                service_account,
+                name,
+                expires_at,
+                ..
+            }) => {
+                assert_eq!(service_account, None);
+                assert_eq!(name, "laptop");
+                assert_eq!(expires_at, None);
+            }
+            _ => panic!("expected keys create"),
+        }
+        assert!(Cli::try_parse_from(["kairos", "keys", "list", "--json"]).is_ok());
+        let cli = Cli::try_parse_from(["kairos", "keys", "revoke", "k-1", "--confirm"])
+            .expect("keys revoke without a service account parses");
+        match cli.command {
+            Command::Keys(KeysCommand::Revoke {
+                key_id,
+                service_account,
+                confirm,
+                ..
+            }) => {
+                assert_eq!(key_id, "k-1");
+                assert_eq!(service_account, None);
+                assert!(confirm);
+            }
+            _ => panic!("expected keys revoke"),
+        }
+        assert!(Cli::try_parse_from(["kairos", "keys", "create"]).is_err());
     }
 }

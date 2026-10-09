@@ -628,8 +628,9 @@ pub const OPTED_OUT: &str = "the repository has code_index_build off";
 /// The note of an `embedded` repository on a server with no embedded model
 /// (KAIROS-T-0341, KAIROS-T-0344).
 pub const NO_EMBEDDED_MODEL: &str = "failed: This image has no embedded model. Set a hosted \
-                                      provider for the organization and opt the repository in, \
-                                      or run the image with the model.";
+                                      provider for the organization and put the repository on \
+                                      it (the default summarizer hosted, or the repository \
+                                      set to hosted), or run the image with the model.";
 
 /// What a build uses for its summaries and its vectors (KAIROS-T-0341),
 /// chosen from the settings of the tenant and the opt-in of the repository.
@@ -661,29 +662,12 @@ async fn models_for(
         })
         .await
         .map_err(|e| format!("failed: the settings of the organization are not readable: {e:?}"))?;
-    let open = |field: &str,
-                sealed: Option<kairos_db::code_index_settings::SealedSecret>|
-     -> Result<Option<String>, String> {
-        let Some(sealed) = sealed else {
-            return Ok(None);
-        };
-        let key = service.secrets_key().ok_or_else(|| {
-            "failed: the organization has a hosted provider with a secret, and this deployment \
-             has no KAIROS_SECRETS_KEY to open it"
-                .to_string()
-        })?;
-        let aad = crate::api::org::code_index_settings::settings_aad(tenant, field);
-        let plain = key
-            .open(&aad, &sealed.key_id, &sealed.nonce, &sealed.ciphertext)
-            .map_err(|e| {
-                format!("failed: the secret {field} of the organization does not open: {e:?}")
-            })?;
-        String::from_utf8(plain)
-            .map(Some)
-            .map_err(|_| format!("failed: the secret {field} is not text"))
+    let open = |field: &str, sealed: Option<kairos_db::code_index_settings::SealedSecret>| {
+        open_secret(service.secrets_key(), tenant, field, sealed)
+            .map_err(|why| format!("failed: {why}"))
     };
 
-    let hosted_summaries = repo.hosted_summaries() && settings.summary_provider != "embedded";
+    let hosted_summaries = hosted_summaries(repo, &settings);
     let summarizers: Arc<dyn SummarizerSource> = if hosted_summaries {
         let secret = open("summary.secret", settings.summary_secret())?;
         match settings.summary_provider.as_str() {
@@ -794,6 +778,32 @@ async fn models_for(
         hosted_summaries,
         hosted_vectors,
     })
+}
+
+/// Open a sealed secret of the code index settings of `tenant`
+/// (`summary.secret` or `vectors.secret`). `None` when none is stored. The
+/// error says why the secret does not open.
+pub(crate) fn open_secret(
+    key: Option<&SecretsKey>,
+    tenant: &str,
+    field: &str,
+    sealed: Option<kairos_db::code_index_settings::SealedSecret>,
+) -> Result<Option<String>, String> {
+    let Some(sealed) = sealed else {
+        return Ok(None);
+    };
+    let key = key.ok_or_else(|| {
+        "the organization has a hosted provider with a secret, and this deployment has no \
+         KAIROS_SECRETS_KEY to open it"
+            .to_string()
+    })?;
+    let aad = crate::api::org::code_index_settings::settings_aad(tenant, field);
+    let plain = key
+        .open(&aad, &sealed.key_id, &sealed.nonce, &sealed.ciphertext)
+        .map_err(|e| format!("the secret {field} of the organization does not open: {e:?}"))?;
+    String::from_utf8(plain)
+        .map(Some)
+        .map_err(|_| format!("the secret {field} is not text"))
 }
 
 /// The input of a build: the base, read from the database.
@@ -1479,10 +1489,29 @@ async fn build_repository(
             )
             .await;
         }
+        // No indexed commit is an ancestor of the head within the limit: the
+        // history was rewritten, or the index is of a commit that is gone.
+        // An update cannot start, so the head gets a full build, in place of
+        // a failed update that stays (KAIROS-T-0356).
         Ok(None) => {
-            let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
-            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
-            return done(outcome, note);
+            tracing::warn!(
+                tenant = %tenant,
+                repository = %repo.slug,
+                commit = %head,
+                limit = MAX_DISTANCE,
+                "no indexed commit is below the head: a full build"
+            );
+            return full_build_repository(
+                blocking,
+                service,
+                tenant,
+                repo,
+                summarizers,
+                embedder,
+                "push",
+                None,
+            )
+            .await;
         }
         Err(e) => {
             let note = format!("failed: {e:?}");
@@ -1838,6 +1867,18 @@ pub async fn run_builder(
         }
     };
     tokio::join!(updates, firsts);
+}
+
+/// Whether the summaries of `repo` come from the hosted provider of the
+/// tenant: its own value, or the default of the organization when it
+/// follows the organization (KAIROS-T-0358), and the tenant has a hosted
+/// provider. The ONE rule, for the builder and for the API.
+pub(crate) fn hosted_summaries(
+    repo: &Repository,
+    settings: &kairos_db::code_index_settings::Settings,
+) -> bool {
+    repo.summaries_with(&settings.default_summaries) == "hosted"
+        && settings.summary_provider != "embedded"
 }
 
 /// A pool row of the database as `kairos-index` takes it.

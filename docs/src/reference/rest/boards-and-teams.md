@@ -176,6 +176,35 @@ Request body (required): `application/json`, [`UpdateBoardRequest`](schemas.md#u
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | A live board has the slug; details.board names it |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | No field to update, BOARD_TEAM_IS_FIXED, or CODE_PREFIX_IS_FIXED |
 
+### `POST /api/boards/{id}/archive-completed`
+
+Archive each live task in the done columns of a board (KAIROS-T-0363,
+"Archive completed"). A cancelled task is in a done column, so it goes
+too. A restore brings back each task, as for each archived item.
+
+Each task goes through the one archive of the server
+(`cascade::archive_item`). Each rule of an archive of one task
+applies: the edit rule, the cascade, the claim and the history.
+
+ONE TRANSACTION: the call archives each task, or it archives none. A
+refusal of one task (a 403 of the edit rule) refuses the call.
+
+Requires `manage_tasks` on the board (an organization admin has it):
+the capability that archives each task of the board. The creator of a
+task can archive that task one at a time. A board that is not a
+delivery board holds no tasks: 422 `NOT_DELIVERY_BOARD`.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `id` | path | yes | `string` | The slug or the id (UUID) of the board |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ArchiveCompletedResponse`](schemas.md#archivecompletedresponse) | The archived tasks: the count and the codes. A count of 0 when the done columns are empty |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on the board |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown board |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | NOT_DELIVERY_BOARD |
+
 ### `PUT /api/boards/{id}/code-sequences/{item_type}`
 
 Set the number of the next code of a type on a board (COLLIERY-T-3104).
@@ -274,6 +303,11 @@ the column they were put away in. Requires `configure_boards`.
 
 Rename and/or move a column (T-0010 rules; moving reorders the board's
 columns around the new position). Requires `configure_boards`.
+
+This route also sets the flags `is_done` and `claims` (KAIROS-T-0359).
+A person who moves a task into a column with `claims` gets the claim of
+the task. When the flag goes off, the claims of the tasks in the column
+end.
 
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|

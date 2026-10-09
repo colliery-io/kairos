@@ -52,7 +52,9 @@ GROUPS = [
     ("Work items", """The five entity families. Every one has the same shape —
 list, get, create, update, delete — and the same optimistic-concurrency
 contract on update (KAIROS-A-0004): submit the `version` you read, and a
-concurrent edit gets 409 with the current entity in `details.current`.""",
+concurrent edit gets 409 with the current entity in `details.current`. A
+write to a claimed task by a different person gets the header
+`Kairos-Warning: <code> claimed by <name> since <time>` (KAIROS-T-0359).""",
      ["strategies", "initiatives", "tasks", "documents", "adrs"]),
 
     ("Across any work item", """Operations addressed by `{entity_type}` and a
@@ -72,17 +74,18 @@ structures that own boards.""",
 definitions that shape what work items can carry.""",
      ["metadata-definitions", "templates", "organization"]),
 
-    ("Machine access", """Service accounts, their API keys, and the SCIM
-tokens for directory sync.""",
-     ["service-accounts", "scim-tokens"]),
+    ("Machine access", """Agent keys of a person, service accounts and their
+API keys, and the SCIM tokens for directory sync.""",
+     ["me", "service-accounts", "scim-tokens"]),
 
     ("The deployment itself", """Activity, administration, and what the
 deployment reports about itself.""",
      ["activity", "admin", "meta"]),
 
-    ("Signing in", """Local password accounts (KAIROS-I-0018), present only on a
-deployment with `KAIROS_LOCAL_AUTH` on. A deployment that authenticates through an
-OIDC issuer has none of these routes at all — not disabled, absent.
+    ("Signing in", """Sessions, and local password accounts (KAIROS-I-0018).
+`/api/login` and `/api/local-accounts` are only on a deployment with
+`KAIROS_LOCAL_AUTH` on. `/api/session` and `/api/logout` are on each deployment
+(KAIROS-T-0364).
 
 `/api/login` and `/api/logout` are unauthenticated by nature. Everything under
 `/api/local-accounts` is org-admin only, including the reads: a list of somebody's

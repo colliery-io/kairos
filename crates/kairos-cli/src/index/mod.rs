@@ -36,6 +36,7 @@ mod arguments;
 mod base;
 mod error;
 mod mcp;
+mod query;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,6 @@ use std::process::Command;
 use std::time::Instant;
 
 use clap::Subcommand;
-use kairos_embed::EmbeddingProvider;
 use kairos_index::{
     BuildOptions, BuildReport, DuplicateKind, DuplicateOptions, Index, UpdateOptions,
 };
@@ -305,8 +305,34 @@ pub(super) fn prepare_quiet(root: &Path) -> Result<(PathBuf, Option<PathBuf>), I
     Ok((db, exclude))
 }
 
+/// The lock of the index of a checkout, `.kairos/index.db.lock`: one process
+/// at a time fetches, builds or updates the index. Until KAIROS-T-0357, 2
+/// agents that opened one checkout at the same time wrote the same download
+/// file and the same tables, and one got "disk I/O error" or "no such
+/// table". The lock waits for the other process; it ends when the file is
+/// dropped.
+pub(super) fn lock_index(db: &Path) -> Result<std::fs::File, IndexCommandError> {
+    let path = db.with_extension("db.lock");
+    let write = |source| IndexCommandError::Write {
+        path: path.clone(),
+        source,
+    };
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(write)?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(write)?;
+    file.lock().map_err(write)?;
+    Ok(file)
+}
+
 fn build(root: &Path) -> Result<(), IndexCommandError> {
     let db = prepare(root)?;
+    let _lock = lock_index(&db)?;
     println!("Index: {}", db.display());
     let started = Instant::now();
     let report = kairos_index::build_structure_with(root, &db, &BuildOptions::default())?;
@@ -332,6 +358,11 @@ async fn update(
     remote: &base::RemoteArgs,
 ) -> Result<(), IndexCommandError> {
     let db = db_path(root);
+    // The exclude line before the lock file: else git counts the lock file
+    // as a change of the tree when the CLI compares it with a base index
+    // (KAIROS-T-0357).
+    prepare(root)?;
+    let _lock = lock_index(&db)?;
     let local = if !db.is_file() {
         Local::Missing
     } else {
@@ -379,7 +410,6 @@ async fn update(
         }
     }
 
-    prepare(root)?;
     if let Some(b) = download {
         let bytes = b
             .download()
@@ -591,31 +621,6 @@ fn duplicates(
     Ok(())
 }
 
-/// The provider of the query vectors for the model of the pool
-/// (`provider/model/dimension`), or why this binary has none.
-pub(crate) fn query_embedder(model: &str) -> Result<Box<dyn EmbeddingProvider>, String> {
-    let mut parts = model.splitn(3, '/');
-    let (provider, name, dimension) = (parts.next(), parts.next(), parts.next());
-    if let (Some("deterministic"), Some(dimension)) = (provider, dimension)
-        && let Ok(dimension) = dimension.parse::<usize>()
-    {
-        let deterministic = kairos_embed::DeterministicProvider::new(dimension);
-        if Some(deterministic.model_id().model.as_str()) == name {
-            return Ok(Box::new(deterministic));
-        }
-    }
-    #[cfg(feature = "llama")]
-    if provider == Some("local") {
-        let local = summaries::local_embedder()?;
-        if local.model_id().model.as_str() == name.unwrap_or_default() {
-            return Ok(Box::new(local));
-        }
-    }
-    Err(format!(
-        "This kairos binary has no provider for the vectors of the model {model}."
-    ))
-}
-
 /// The summarizer of a build or an update.
 mod summaries {
     use std::path::Path;
@@ -674,7 +679,7 @@ mod summaries {
 
     /// The local vector model: `KAIROS_EMBED_CACHE`, else
     /// `~/.cache/kairos-index/embed`. The first run downloads it there.
-    #[cfg(feature = "llama")]
+    #[cfg(feature = "vectors")]
     pub fn local_embedder() -> Result<kairos_embed::local::LocalProvider, String> {
         use kairos_embed::local::{LocalConfig, LocalProvider};
         let cache = std::env::var_os("KAIROS_EMBED_CACHE")
@@ -833,15 +838,40 @@ mod tests {
         }
     }
 
+    /// KAIROS-T-0357: 8 processes build the index of one checkout at the
+    /// same time, as agents that open one shared clone do. Each build waits
+    /// for the lock of the index, and each succeeds.
     #[test]
-    fn the_deterministic_vectors_have_a_query_provider() {
-        let provider = query_embedder("deterministic/sha256-384/384").expect("a provider");
-        assert_eq!(provider.model_id().dimension, 384);
-        let err = query_embedder("other/model/3").err().expect("no provider");
-        assert_eq!(
-            err,
-            "This kairos binary has no provider for the vectors of the model other/model/3."
+    fn builds_of_one_checkout_at_the_same_time_all_succeed() {
+        let dir = tempfile::tempdir().expect("a folder");
+        let root = dir.path().to_path_buf();
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&root)
+                .args(["init", "-q"])
+                .status()
+                .expect("git")
+                .success()
         );
+        for n in 0..20 {
+            std::fs::write(
+                root.join(format!("m{n}.py")),
+                format!("def f{n}(x):\n    return g{n}(x)\n\ndef g{n}(x):\n    return x\n"),
+            )
+            .expect("a file");
+        }
+        let builds: Vec<_> = (0..8)
+            .map(|_| {
+                let root = root.clone();
+                std::thread::spawn(move || build(&root).map_err(|e| e.to_string()))
+            })
+            .collect();
+        for b in builds {
+            b.join().expect("the thread").expect("the build");
+        }
+        let index = Index::open(&db_path(&root)).expect("the index opens");
+        assert_eq!(index.counts().expect("counts").symbols, 40);
     }
 
     #[test]

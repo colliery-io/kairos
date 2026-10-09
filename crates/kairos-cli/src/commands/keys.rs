@@ -1,5 +1,8 @@
-//! `kairos keys` — API keys for a service account (KAIROS-A-0017 /
-//! KAIROS-T-0060). The minted key is shown ONCE; store it immediately.
+//! `kairos keys` — API keys. Without `--service-account`: your own agent keys
+//! (KAIROS-T-0359, KAIROS-A-0024). An agent key acts as you, with your
+//! capabilities. With `--service-account`: the keys of a service account
+//! (KAIROS-A-0017 / KAIROS-T-0060, org-admin). The made key is shown ONCE;
+//! store it immediately.
 
 use kairos_client::types_service_accounts::{ApiKey, CreateApiKeyRequest};
 
@@ -8,15 +11,16 @@ use crate::context::{Common, client, print_json};
 use crate::error::CliError;
 use crate::table::Table;
 
-/// API keys for a service account (org-admin operations).
+/// Your agent keys, or the API keys of a service account (org-admin).
 #[derive(clap::Subcommand, Debug)]
 pub enum KeysCommand {
-    /// Mint an API key for a service account (the raw key is shown ONCE)
+    /// Make an agent key that acts as you, or a key for a service account (the
+    /// raw key is shown ONCE)
     Create {
-        /// Service account id (UUID)
+        /// Service account id (UUID). Omit it to make your own agent key.
         #[arg(long = "service-account")]
-        service_account: String,
-        /// Operator label for the key (e.g. "gha-main")
+        service_account: Option<String>,
+        /// Label for the key (e.g. "laptop-claude-code" or "gha-main")
         #[arg(long)]
         name: String,
         /// Optional RFC 3339 expiry (e.g. 2027-01-01T00:00:00Z)
@@ -25,11 +29,12 @@ pub enum KeysCommand {
         #[command(flatten)]
         common: Common,
     },
-    /// List a service account's keys (prefixes only; never the secret)
+    /// List your agent keys, or the keys of a service account (prefixes only;
+    /// never the secret)
     List {
-        /// Service account id (UUID)
+        /// Service account id (UUID). Omit it to list your own agent keys.
         #[arg(long = "service-account")]
-        service_account: String,
+        service_account: Option<String>,
         #[command(flatten)]
         common: Common,
     },
@@ -37,9 +42,9 @@ pub enum KeysCommand {
     Revoke {
         /// Key id (UUID; see `kairos keys list`)
         key_id: String,
-        /// The service account the key belongs to
+        /// The service account of the key. Omit it to revoke your own agent key.
         #[arg(long = "service-account")]
-        service_account: String,
+        service_account: Option<String>,
         /// Actually revoke it
         #[arg(long)]
         confirm: bool,
@@ -73,18 +78,29 @@ impl KeysCommand {
                 common,
             } => {
                 let client = client(&common)?;
-                let created = client
-                    .create_api_key(&service_account, &CreateApiKeyRequest { name, expires_at })
-                    .await?;
+                let request = CreateApiKeyRequest { name, expires_at };
+                let created = match &service_account {
+                    Some(sa) => client.create_api_key(sa, &request).await?,
+                    None => client.create_agent_key(&request).await?,
+                };
                 if common.json {
                     return print_json(&created);
                 }
                 // The raw key is shown exactly once — make it unmissable.
-                println!("Kairos made an API key for the service account {service_account}.");
+                match &service_account {
+                    Some(sa) => println!("Kairos made an API key for the service account {sa}."),
+                    None => println!("Kairos made an agent key. The key acts as you."),
+                }
                 println!();
                 println!("    {}", created.key);
                 println!();
                 println!("Keep the key in a safe place now. Kairos does NOT show it again.");
+                if service_account.is_none() {
+                    println!(
+                        "Put the key in the settings of your agent. For Claude Code, set the \
+                         environment variable KAIROS_MCP_KEY. Do not put the key in a repository."
+                    );
+                }
                 Ok(())
             }
             Self::List {
@@ -92,7 +108,10 @@ impl KeysCommand {
                 common,
             } => {
                 let client = client(&common)?;
-                let list = client.list_api_keys(&service_account).await?;
+                let list = match &service_account {
+                    Some(sa) => client.list_api_keys(sa).await?,
+                    None => client.list_agent_keys().await?,
+                };
                 if common.json {
                     return print_json(&list);
                 }
@@ -112,7 +131,10 @@ impl KeysCommand {
             } => {
                 require_confirm(confirm, &format!("the API key {key_id}"))?;
                 let client = client(&common)?;
-                let deleted = client.revoke_api_key(&service_account, &key_id).await?;
+                let deleted = match &service_account {
+                    Some(sa) => client.revoke_api_key(sa, &key_id).await?,
+                    None => client.revoke_agent_key(&key_id).await?,
+                };
                 if common.json {
                     return print_json(&deleted);
                 }

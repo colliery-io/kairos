@@ -52,3 +52,6 @@ docs/book/
 # (COLLIERY-T-0229). They hold every tenant's data.
 /deploy/backups/
 crates/kairos-web/style/
+
+# The local code index of `kairos index`, its journal and its lock (KAIROS-T-0357).
+/.kairos/index.db*

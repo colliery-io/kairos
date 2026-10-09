@@ -92,6 +92,12 @@ impl IntoDto<dto::Task> for Task {
             created_at: timestamp(self.created_at),
             updated_at: timestamp(self.updated_at),
             archived_at: self.deleted_at.map(timestamp),
+            // The same: [`crate::claims::attach_claims`] fills it
+            // (KAIROS-T-0359).
+            claim: None,
+            // [`crate::cancel::attach_cancellations`] fills it
+            // (KAIROS-T-0362).
+            cancellation: None,
         }
     }
 }

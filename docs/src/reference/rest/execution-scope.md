@@ -9,6 +9,19 @@ Repositories as first-class execution scope (KAIROS-A-0019) and the git forges b
 
 ## repositories
 
+### `POST /api/code-index/query-vector`
+
+The vector of the text of a code search, made by the model of the
+vectors of the index. Each member of the organization can call it.
+
+Request body (required): `application/json`, [`QueryVectorRequest`](schemas.md#queryvectorrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`QueryVector`](schemas.md#queryvector) | The vector of the text |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The organization has no provider for the model (NO_QUERY_PROVIDER), or the model or the text is not correct (VALIDATION) |
+| `502` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The provider did not give the vector (QUERY_VECTOR_FAILED) |
+
 ### `GET /api/repositories`
 
 The repository directory (open tenant-wide), by slug. `?team=` narrows

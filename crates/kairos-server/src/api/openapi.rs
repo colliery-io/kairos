@@ -82,6 +82,10 @@ use crate::app::AppState;
         crate::api::tasks::transition_task,
         // Task board move (KAIROS-I-0012).
         crate::api::tasks::move_task,
+        crate::api::tasks::hand_off_task,
+        crate::api::tasks::release_task,
+        crate::api::tasks::cancel_task,
+        crate::api::tasks::purge_task,
         crate::api::tasks::set_work_class,
         // Task repository binding (KAIROS-T-0104).
         crate::api::tasks::set_repository,
@@ -145,6 +149,7 @@ use crate::app::AppState;
         crate::api::org::boards::update_board,
         crate::api::org::boards::delete_board,
         crate::api::org::boards::board_items,
+        crate::api::org::boards::archive_completed,
         crate::api::org::boards::set_code_sequence,
         crate::api::org::boards::list_columns,
         crate::api::org::boards::add_column,
@@ -177,6 +182,7 @@ use crate::app::AppState;
         crate::api::org::code_indexes::rebuild_code_index,
         crate::api::org::code_index_settings::get_settings,
         crate::api::org::code_index_settings::put_settings,
+        crate::api::org::code_index_query::query_vector,
         // The read token of a repository (COLLIERY-T-3105).
         crate::api::org::repository_credentials::get_credential,
         crate::api::org::repository_credentials::set_credential,
@@ -228,6 +234,10 @@ use crate::app::AppState;
         crate::service_accounts::routes::create_key,
         crate::service_accounts::routes::list_keys,
         crate::service_accounts::routes::revoke_key,
+        // The agent keys of a person (KAIROS-T-0359, KAIROS-A-0024).
+        crate::service_accounts::agent_keys::create_agent_key,
+        crate::service_accounts::agent_keys::list_agent_keys,
+        crate::service_accounts::agent_keys::revoke_agent_key,
         // Local password login (KAIROS-T-0203). Documented unconditionally even
         // though the routes are mounted only when KAIROS_LOCAL_AUTH is on: the spec
         // is the API contract, and an operator reading it needs to know the
@@ -235,6 +245,8 @@ use crate::app::AppState;
         // set equality over the sources, not over one deployment's router.
         crate::login::login,
         crate::login::logout,
+        // A session from an OIDC login of the GUI (KAIROS-T-0364).
+        crate::login::open_session,
         // Local-account administration (KAIROS-T-0204).
         crate::api::local_accounts::create_local_account,
         crate::api::local_accounts::set_local_password,

@@ -130,7 +130,7 @@ pub(crate) struct DeletedResponse {
 // helpers
 // ---------------------------------------------------------------------------
 
-fn rfc3339(ts: chrono::DateTime<chrono::Utc>) -> String {
+pub(super) fn rfc3339(ts: chrono::DateTime<chrono::Utc>) -> String {
     ts.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
 }
 
@@ -142,7 +142,23 @@ fn account_view(u: &User) -> ServiceAccountView {
     }
 }
 
-fn key_view(k: &ApiKey) -> ApiKeyView {
+/// The optional RFC 3339 `expires_at` of a key request.
+pub(super) fn parse_expiry(
+    raw: Option<&str>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>, ApiError> {
+    raw.map(|raw| {
+        chrono::DateTime::parse_from_rfc3339(raw)
+            .map(|ts| ts.with_timezone(&chrono::Utc))
+            .map_err(|e| {
+                ApiError::validation(format!(
+                    "The value of expires_at is not a timestamp: {e}. Send an RFC 3339 timestamp."
+                ))
+            })
+    })
+    .transpose()
+}
+
+pub(super) fn key_view(k: &ApiKey) -> ApiKeyView {
     ApiKeyView {
         id: k.id.to_string(),
         name: k.name.clone(),
@@ -155,7 +171,7 @@ fn key_view(k: &ApiKey) -> ApiKeyView {
 }
 
 /// One tenant `activity_log` row for a service-account/key mutation.
-fn log_activity(
+pub(super) fn log_activity(
     conn: &mut diesel::pg::PgConnection,
     actor_id: Uuid,
     action: ActivityAction,
@@ -340,14 +356,7 @@ pub(crate) async fn create_key(
     if name.is_empty() {
         return Err(ApiError::validation("The name is empty. Send a name."));
     }
-    let expires_at = match body.expires_at.as_deref() {
-        Some(raw) => Some(
-            chrono::DateTime::parse_from_rfc3339(raw)
-                .map_err(|e| ApiError::validation(format!("The value of expires_at is not a timestamp: {e}. Send an RFC 3339 timestamp.")))?
-                .with_timezone(&chrono::Utc),
-        ),
-        None => None,
-    };
+    let expires_at = parse_expiry(body.expires_at.as_deref())?;
 
     let raw_key = generate_key(&tenant.slug);
     let token_hash = hash_key(&raw_key);

@@ -80,6 +80,11 @@ pub struct TeamPageHistory {
     pub content: String,
     pub edited_by: Uuid,
     pub edited_at: DateTime<Utc>,
+    /// The agent key of the request that wrote the row (`api_keys.id`), or
+    /// `None` (KAIROS-T-0359). The actor is still the person. The column
+    /// default fills it from the session setting `kairos.agent_key`, so
+    /// the insert struct has no such field.
+    pub agent_key_id: Option<Uuid>,
 }
 
 /// Insert for [`TeamPageHistory`].

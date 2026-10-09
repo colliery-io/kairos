@@ -33,6 +33,7 @@ use serde::Deserialize;
 
 use super::arguments::{Parameters, tool_error_of};
 use super::error::{IndexCommandError, ToolError};
+use super::query::{QuerySource, ROUTE_TIMEOUT, RouteFailure};
 
 /// The results of `code_search` when the call gives no `limit`.
 const DEFAULT_LIMIT: usize = 10;
@@ -58,9 +59,10 @@ pub async fn serve(root: PathBuf) -> Result<(), IndexCommandError> {
     Ok(())
 }
 
-/// The vector provider of the queries, made on the first search that
-/// needs it: the model and the provider, or why there is none.
-type QueryEmbedder = (String, Result<Arc<dyn EmbeddingProvider>, String>);
+/// The source of the query vectors, chosen on the first search that needs
+/// it: the checkout, the model of its index, and the source
+/// (KAIROS-T-0360).
+type QueryEmbedder = (Option<PathBuf>, String, QuerySource);
 
 #[derive(Clone)]
 pub struct CodeTools {
@@ -230,6 +232,14 @@ impl CodeTools {
         };
         let found = super::base::find(&root, &remote).await;
         let (db, _exclude) = super::prepare_quiet(&root)?;
+        // One process at a time (KAIROS-T-0357): another agent can fetch the
+        // index of this checkout now. The wait is off the async threads.
+        let _lock = {
+            let db = db.clone();
+            tokio::task::spawn_blocking(move || super::lock_index(&db))
+                .await
+                .map_err(|e| IndexCommandError::Server(e.to_string()))??
+        };
         let had_index = db.is_file();
         let mut lines = Vec::new();
         let mut hosted = false;
@@ -308,17 +318,52 @@ impl CodeTools {
         Ok(lines.join(" "))
     }
 
-    /// The provider for the model of the vectors of the pool.
-    fn embedder(&self, model: &str) -> Result<Arc<dyn EmbeddingProvider>, String> {
+    /// The model of the vectors of the index of the open checkout.
+    fn vector_model(&self) -> Result<Option<String>, ToolError> {
+        Ok(self.open()?.vector_model()?)
+    }
+
+    /// The source of the query vectors for the model of the pool, kept for
+    /// the checkout and the model.
+    fn query_source(&self, model: &str) -> QuerySource {
+        let root = self.root();
         let mut cached = self.embedder.lock().expect("the lock of the embedder");
-        if let Some((cached_model, provider)) = cached.as_ref()
+        if let Some((cached_root, cached_model, source)) = cached.as_ref()
             && cached_model == model
+            && *cached_root == root
         {
-            return provider.clone();
+            return source.clone();
         }
-        let provider = super::query_embedder(model).map(Arc::from);
-        *cached = Some((model.to_string(), provider.clone()));
-        provider
+        let source = super::query::query_source(model, root.as_deref());
+        *cached = Some((root, model.to_string(), source.clone()));
+        source
+    }
+
+    /// The provider of the vector of `query`, and whether Kairos made the
+    /// vector; or why there is none. A lasting refusal of Kairos is kept as
+    /// the reason, so the next search does not ask again.
+    async fn query_provider(
+        &self,
+        model: &str,
+        query: &str,
+    ) -> Result<(Arc<dyn EmbeddingProvider>, bool), String> {
+        let source = self.query_source(model);
+        let from_kairos = matches!(source, QuerySource::Kairos(_));
+        match super::query::query_provider(&source, model, query, ROUTE_TIMEOUT).await {
+            Ok(provider) => Ok((provider, from_kairos)),
+            Err(RouteFailure::Once(why)) => Err(why),
+            Err(RouteFailure::Lasting(why)) => {
+                if from_kairos {
+                    let mut cached = self.embedder.lock().expect("the lock of the embedder");
+                    if let Some((_, cached_model, source)) = cached.as_mut()
+                        && cached_model == model
+                    {
+                        *source = QuerySource::Text(why.clone());
+                    }
+                }
+                Err(why)
+            }
+        }
     }
 }
 
@@ -462,25 +507,35 @@ impl CodeTools {
         &self,
         Parameters(params): Parameters<SearchParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
+        if !(1..=MAX_LIMIT).contains(&limit) {
+            return result(Err(ToolError::Limit(MAX_LIMIT)));
+        }
+        // The vector of the query first: Kairos can make it (KAIROS-T-0360),
+        // and the index is not held over the request.
+        let mut why_no_vectors = None;
+        let mut from_kairos = false;
+        let embedder = match self.vector_model() {
+            Err(e) => return result(Err(e)),
+            Ok(None) => None,
+            Ok(Some(model)) => match self.query_provider(&model, &params.query).await {
+                Ok((provider, kairos)) => {
+                    from_kairos = kairos;
+                    Some(provider)
+                }
+                Err(why) => {
+                    why_no_vectors = Some(why);
+                    None
+                }
+            },
+        };
         result((|| {
-            let limit = params.limit.unwrap_or(DEFAULT_LIMIT);
-            if !(1..=MAX_LIMIT).contains(&limit) {
-                return Err(ToolError::Limit(MAX_LIMIT));
-            }
             let index = self.open()?;
-            let mut why_no_vectors = None;
-            let embedder = match index.vector_model()? {
-                Some(model) => match self.embedder(&model) {
-                    Ok(provider) => Some(provider),
-                    Err(why) => {
-                        why_no_vectors = Some(why);
-                        None
-                    }
-                },
-                None => None,
-            };
             let found = index.search(&params.query, embedder.as_deref(), limit)?;
             let mut out = match found.mode {
+                SearchMode::Vectors if from_kairos => "The search used the summaries and their \
+                     vectors. Kairos made the vector of the query."
+                    .to_string(),
                 SearchMode::Vectors => {
                     "The search used the summaries and their vectors.".to_string()
                 }
@@ -508,6 +563,13 @@ impl CodeTools {
                     (Some(summary), _) => out.push_str(&format!(": {summary}")),
                     (None, Some(signature)) => out.push_str(&format!(": `{signature}`")),
                     (None, None) => {}
+                }
+                if s.summary.is_none() && found.mode != SearchMode::Names {
+                    out.push_str(if s.is_test {
+                        " (test code: no summary, found by its name and path)"
+                    } else {
+                        " (no summary yet: found by its name and path)"
+                    });
                 }
             }
             Ok(out)
@@ -568,8 +630,15 @@ impl CodeTools {
                 described(&s)
             );
             for e in &shown {
+                // A call in the body of a macro_rules! definition: each
+                // function that the macro makes does the call (KAIROS-T-0353).
+                let made = if e.other.kind == "macro" {
+                    ": each function that the macro makes does this call"
+                } else {
+                    ""
+                };
                 out.push_str(&format!(
-                    "\n- {}, call at line {}, {}",
+                    "\n- {}, call at line {}, {}{made}",
                     described(&e.other),
                     e.line,
                     marks(e)
@@ -777,8 +846,9 @@ impl CodeTools {
                     match &f.summary {
                         Some(summary) => out.push_str(&format!("\n- {}: {summary}", f.path)),
                         None => out.push_str(&format!(
-                            "\n- {} ({})",
+                            "\n- {} ({}{})",
                             f.path,
+                            if f.is_test { "test code, " } else { "" },
                             plural(f.symbols, "symbol", "symbols")
                         )),
                     }

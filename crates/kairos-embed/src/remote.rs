@@ -125,6 +125,27 @@ impl RemoteProvider {
         Ok(provider)
     }
 
+    /// A provider of a known width, with no probe request
+    /// (KAIROS-T-0360): the vector of one query is one request, not two.
+    /// The width comes from the stored model id of the vectors, and each
+    /// answer is checked against it.
+    pub fn with_dimension(config: RemoteConfig, dimension: usize) -> Result<Self, EmbedError> {
+        if dimension == 0 {
+            return Err(EmbedError::Unavailable(
+                "the width of the vectors is 0".to_string(),
+            ));
+        }
+        let client = reqwest::blocking::Client::builder()
+            .timeout(config.timeout)
+            .build()
+            .map_err(|e| EmbedError::Unavailable(format!("could not build HTTP client: {e}")))?;
+        Ok(Self {
+            client,
+            id: ModelId::new("remote", config.model.clone(), dimension),
+            config,
+        })
+    }
+
     /// One HTTP round trip, vectors restored to input order.
     fn request(&self, texts: &[String]) -> Result<Vec<Embedding>, EmbedError> {
         let url = format!("{}/embeddings", self.config.base_url.trim_end_matches('/'));

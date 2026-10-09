@@ -1,15 +1,15 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-six tools. A drift gate in the test suite
-asserts that `tools/list` returns these twenty-six and no others. The same
+thirty-one tools. A drift gate in the test suite
+asserts that `tools/list` returns these thirty-one and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
 is not a promise for later releases. A later release can add a tool or an
 argument.
 
-This page describes Kairos 0.8.2. Argument names, types and defaults are those
+This page describes Kairos 0.9.0. Argument names, types and defaults are those
 of the JSON schema the server sends in `tools/list`.
 
 ## Conventions
@@ -26,6 +26,7 @@ These hold for every tool.
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](errors.md) for what each code's `details` carries. |
 | Audit | Writes are recorded in the activity log by the same code path as the REST API. |
+| Claims | A task in Active has a [claim](glossary.md#claim): the person who works on it. A write to a task that a different person has the claim on succeeds and is recorded. The text of the tool then ends with a line: `Warning: Alice (agent) has the claim on ACME-T-0012 (since 2026-10-09T10:00:00Z). Your change is recorded.` A write by the person who has the claim, also with the agent key of the person, gets no warning. |
 
 ### Refusal codes
 
@@ -40,13 +41,17 @@ Codes an agent can receive, and what each means.
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. A document is different: see [`move_item`](#move_item). |
-| `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board. |
+| `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board, or an `archive_completed` of a board that is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
 | `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
 | `RENAME_NOT_NEEDED` | A `move_item` with `rename` to a board whose prefix the code has already. |
+| `NOT_CLAIMABLE` | A `hand_off_item` or a `release_item` of a task that is not in Active (a column that holds claims). |
+| `NO_CLAIM` | A `release_item` of a task that has no claim. |
+| `TASK_DONE` | A `cancel_item` of a task that is in a done column. |
+| `NO_DONE_COLUMN` | A `cancel_item` of a task whose board has no done column. |
 
 **Each tool refuses an argument that it does not know.** Each tool has the
 rule of the routes of the REST API, the tools that read too. The tool does not
@@ -331,6 +336,11 @@ true; otherwise it is not among the board's columns and is refused as unknown.
 A strategy or an initiative that has teams carries `[teams: a, b]`, with the
 slugs of the teams. See [the teams of an item](#the-teams-of-an-initiative-or-a-strategy).
 
+A task with a claim carries `[claimed by Alice]`, or `[claimed by Alice
+(agent)]` when the agent of the person made the claim.
+
+A [cancelled](glossary.md#cancel) task carries `[cancelled]`.
+
 A card with dependencies that count carries `[blocked by N]`, `[blocks N]`, or
 both. A `blocks` edge does not count when the item at either end is in a done
 column. It does not count when the item at the other end has the `[archived]`
@@ -361,6 +371,21 @@ not live.
 
 ```text
 - impacts: repository fidius (github colliery-io/fidius); repository old-lib (github acme/old-lib) [archived]
+```
+
+A task in Active has the line `claim`. A task in Active with no claim has the
+line too:
+
+```text
+- claim: Alice (agent) since 2026-10-09T10:00:00Z
+- claim: none. The task is free: the next person who moves it to Active gets the claim.
+```
+
+A [cancelled](glossary.md#cancel) task has the line `cancelled`, with who
+cancelled it and the reason:
+
+```text
+- cancelled: 2026-10-09T10:00:00Z by Robin. Reason: The customer does not need it.
 ```
 
 An initiative or a strategy has the line `teams` in the section of the
@@ -413,6 +438,9 @@ An item's content version history — version, editor, timestamp, newest first.
 | `version` | integer | no | — | Return that snapshot's full title and content instead of the list. |
 
 Archived items' history is returned, marked archived.
+
+A version that an agent made with the agent key of a person shows the editor
+as "Alice (agent)". A rename that an agent made has the same mark.
 
 The list of an item that a move renamed has the section **Renames**. Each
 line has the old code, the new code, the time and who did the move:
@@ -759,6 +787,12 @@ Moves an item to another column on its own board.
 Requires `transition_items` on the item's board. A transition is a move and
 not an edit. The creator of the item gets no right to move it.
 
+A person who moves a task to Active gets the [claim](glossary.md#claim) of the
+task. The answer then has the line `claim`. An agent can move the task with
+the agent key of a person. Then the claim names the person and has the mark
+`(agent)`. A service account gets no claim. The claim ends when the task
+leaves Active.
+
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
 `ITEM_NOT_ON_BOARD` for an item with no placement — documents always;
 `VALIDATION` for a column that is not on that board, listing the board's
@@ -860,6 +894,82 @@ The tool refuses with these codes:
 | `FORBIDDEN` | The caller does not hold `manage_tasks` on the two boards of a task. The caller does not hold `manage_documents` on the two boards of a document, and the message names the board. |
 | `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `NO_ENTRY_COLUMN` | For a task only. |
 | `RENAME_NOT_NEEDED` | A rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. |
+
+### `hand_off_item`
+
+Gives the [claim](glossary.md#claim) of a task in Active to a different person.
+The task stays in Active.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's short code. The task must be in Active. |
+| `to` | string | yes | — | The person who gets the claim: a user id, an email or a user name of a person of the organization. |
+
+The person who has the claim can hand it off. Any other principal needs
+`transition_items` on the board of the task. A service account cannot have a
+claim. A task in Active with no claim can get a claim by a hand-off. The answer
+has the line `claim` with the new claim.
+
+Refuses:
+
+- `NOT_FOUND` for an unknown short code or an archived task.
+- `VALIDATION` for an item that is not a task.
+- `VALIDATION` for `to` that is not a person of the organization.
+- `FORBIDDEN` without the claim and without `transition_items`.
+- `NOT_CLAIMABLE` for a task that is not in Active.
+- `CONFLICT` when the person has the claim already.
+
+### `release_item`
+
+Ends the [claim](glossary.md#claim) of a task in Active. The task stays in
+Active with no claim, free for anyone. The next person who moves the task to
+Active gets the claim.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's short code. The task must be in Active. |
+
+The person who has the claim can release it. Any other principal needs
+`transition_items` on the board of the task.
+
+Refuses:
+
+- `NOT_FOUND` for an unknown short code or an archived task.
+- `VALIDATION` for an item that is not a task.
+- `FORBIDDEN` without the claim and without `transition_items`.
+- `NOT_CLAIMABLE` for a task that is not in Active.
+- `NO_CLAIM` for a task that has no claim.
+
+### `cancel_item`
+
+[Cancels](glossary.md#cancel) a task: the team will not do it. The task moves
+to the done column of its board, and it gets the mark "cancelled" with the
+reason.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's short code. The task must not be in a done column. |
+| `reason` | string | yes | — | Why the task is cancelled. Must not be empty. |
+
+The transition rules of the board do not apply. You can cancel a task from
+each column that is not done. The done column is the first live column with
+the done flag, by position. A cancel ends the [claim](glossary.md#claim) of
+the task. The activity log gets a row `cancel` with the reason.
+
+`get_item`, `board_items` (the mark `[cancelled]`) and the board of the GUI
+show the mark. A move of the task out of the done column removes the mark. The
+activity log keeps the reason.
+
+Needs `transition_items` on the board of the task: the capability of a move.
+The creator of the task gets no right here.
+
+Refuses:
+
+- `NOT_FOUND` for an unknown short code or an archived task.
+- `VALIDATION` for an empty reason, and for an item that is not a task.
+- `FORBIDDEN` without `transition_items`.
+- `TASK_DONE` for a task in a done column.
+- `NO_DONE_COLUMN` for a board with no done column.
 
 ## Relationships
 
@@ -1037,22 +1147,33 @@ Only `parent` and `blocks` are proposable. `supports`, `informs` and `supersedes
 are editorial, cheap to undo, and remain a person's to draw with
 [`link_items`](#link_items).
 
-## Archiving
+## Archiving and deleting
+
+Three tools end an item in different ways:
+
+- `delete_item` archives an item. The name says delete, but the item is not
+  deleted: `restore_item` brings it back.
+- `cancel_item` (above) moves a task to done with a reason.
+- `purge_task` deletes a task for good. Nothing can bring it back.
+
+`archive_completed` archives each task in the done columns of a board.
 
 ### `delete_item`
 
-Soft-deletes an item. The response lists everything that was cascade-deleted,
-and names each descendant that the archive did not reach.
+Archives an item. The response lists each item that the cascade archived, and
+names each descendant that the archive did not reach. `restore_item` brings
+each one back.
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The item's short code. |
 | `confirm` | boolean | yes | — | Must be `true`. |
 
-The delete cascades through `parent` edges to each descendant that the caller
-can edit. Deleted items remain retrievable by short code and searchable with
-`include_deleted`; they are hidden from default listings. "Deleted" and
-"archived" name the same act — see the [Glossary](glossary.md).
+The archive cascades through `parent` edges to each descendant that the caller
+can edit. Archived items remain retrievable by short code and searchable with
+`include_deleted`; they are hidden from default listings. The tool keeps the
+name `delete_item` for the agents that use it. See the
+[Glossary](glossary.md#archived).
 
 The [edit rule](capabilities.md#the-edit-rule) applies to the named item, and
 then to each descendant. The rule is the same as for REST `DELETE`.
@@ -1088,7 +1209,7 @@ Puts an archived item back on its board.
 |---|---|---|---|---|
 | `short_code` | string | yes | — | The archived item's short code. |
 
-Restores only the named item. A cascade delete was an act on a subtree, so
+Restores only the named item. A cascade archive was an act on a subtree, so
 archived descendants stay archived; the response names them.
 
 The edit rule applies: a caller who can archive an item can restore it. The
@@ -1101,6 +1222,61 @@ not archived; `FORBIDDEN` when the edit rule refuses the caller;
 repository has since been removed, naming what is missing. For a document,
 the board is its owner board. The `impacts` links of an item block no
 restore.
+
+### `archive_completed`
+
+Archives each task in the done columns of one delivery board: "Archive
+completed". A [cancelled](glossary.md#cancel) task is in a done column, so it
+goes too.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `board` | string | yes | — | The delivery board, by slug or UUID. |
+| `confirm` | boolean | yes | — | Must be `true`. |
+
+Each task goes through the archive of `delete_item`. The cascade, the end of
+the claim and the activity row are the same as for one task. `restore_item`
+brings back each task. The call is one transaction: it archives each task, or
+it archives none. The output gives the count and the codes:
+
+```text
+Archived 2 completed tasks of web-delivery: WEB-T-0004, WEB-T-0007.
+To get one back, restore it by its short code.
+```
+
+Needs `manage_tasks` on the board: the capability that archives each task of
+the board.
+
+Refuses: `VALIDATION` when `confirm` is `false`; `NOT_FOUND` for an unknown
+board; `FORBIDDEN` without `manage_tasks`; `NOT_DELIVERY_BOARD` for a board
+that is not a delivery board.
+
+### `purge_task`
+
+Deletes a task for good. **You cannot undo this.** No restore brings the task
+back. To archive a task, which a restore can undo, use `delete_item`.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's current short code. A retired code is not followed. |
+| `confirm` | boolean | yes | — | Must be `true`. |
+
+The task can be live or archived. The purge removes these rows of the task:
+
+- the task, its content history and its metadata values;
+- its edges and its edge proposals;
+- its forge links, its embeddings and its retired codes;
+- its claim and its cancel mark.
+
+The items at the other end of the edges stay. The rows of the activity log
+about the task stay. The purge adds one row `purge` with the code and the
+title: `short_code:ACME-T-0012 title:Old task`.
+
+Needs `manage_tasks` on the board of the task: board managers and organization
+admins only. The creator of the task gets no right here.
+
+Refuses: `VALIDATION` when `confirm` is `false`; `NOT_FOUND` for an unknown
+short code; `FORBIDDEN` without `manage_tasks`.
 
 ## Related reading
 

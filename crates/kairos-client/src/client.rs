@@ -565,6 +565,63 @@ impl KairosClient {
         .await
     }
 
+    /// `POST /api/tasks/{short_code}/hand-off` — give the claim of a task
+    /// in Active to a person (KAIROS-T-0359). `to` is a user id, an email
+    /// or a user name of a person of the organization. The caller has the
+    /// claim, or holds `transition_items` on the board of the task.
+    pub async fn hand_off_task(&self, short_code: &str, to: &str) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/hand-off"),
+            &crate::types::HandOffRequest { to: to.to_string() },
+        )
+        .await
+    }
+
+    /// `POST /api/tasks/{short_code}/release` — end the claim of a task in
+    /// Active (KAIROS-T-0359). The task stays in Active, free for anyone.
+    /// The caller has the claim, or holds `transition_items` on the board
+    /// of the task.
+    pub async fn release_task(&self, short_code: &str) -> Result<Task, Error> {
+        self.post_empty(&format!("/api/tasks/{short_code}/release"))
+            .await
+    }
+
+    /// `POST /api/tasks/{short_code}/cancel` — cancel a task with a reason
+    /// (KAIROS-T-0362). The task moves to the done column of its board and
+    /// gets the cancel mark. The caller holds `transition_items` on the
+    /// board of the task.
+    pub async fn cancel_task(&self, short_code: &str, reason: &str) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/cancel"),
+            &crate::types::CancelTaskRequest {
+                reason: reason.to_string(),
+            },
+        )
+        .await
+    }
+
+    /// `POST /api/tasks/{short_code}/purge` — delete a task for good
+    /// (KAIROS-T-0362). Nothing can bring it back. The caller holds
+    /// `manage_tasks` on the board of the task.
+    pub async fn purge_task(
+        &self,
+        short_code: &str,
+    ) -> Result<crate::types::PurgeTaskResponse, Error> {
+        self.post_empty(&format!("/api/tasks/{short_code}/purge"))
+            .await
+    }
+
+    /// `POST /api/boards/{id}/archive-completed` — archive each task in the
+    /// done columns of a board (KAIROS-T-0363). `board` is a slug or a
+    /// UUID. The caller holds `manage_tasks` on the board.
+    pub async fn archive_completed(
+        &self,
+        board: &str,
+    ) -> Result<crate::types::ArchiveCompletedResponse, Error> {
+        self.post_empty(&format!("/api/boards/{board}/archive-completed"))
+            .await
+    }
+
     /// `PUT /api/tasks/{short_code}/repository` — set the repository the
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the
@@ -1030,6 +1087,32 @@ impl KairosClient {
         .await
     }
 
+    // -- agent keys of the caller (/api/me/agent-keys, KAIROS-T-0359) ----------
+
+    /// `POST /api/me/agent-keys` — make an agent key that acts as the caller.
+    /// The response is the only place the raw key appears.
+    pub async fn create_agent_key(
+        &self,
+        request: &crate::types_service_accounts::CreateApiKeyRequest,
+    ) -> Result<crate::types_service_accounts::ApiKeyCreated, Error> {
+        self.post_created("/api/me/agent-keys", request).await
+    }
+
+    /// `GET /api/me/agent-keys` — the caller's agent keys (never a secret).
+    pub async fn list_agent_keys(
+        &self,
+    ) -> Result<crate::types_service_accounts::ApiKeyList, Error> {
+        self.get("/api/me/agent-keys").await
+    }
+
+    /// `DELETE /api/me/agent-keys/{key_id}` — revoke one of the caller's keys.
+    pub async fn revoke_agent_key(
+        &self,
+        key_id: &str,
+    ) -> Result<crate::types_service_accounts::Deleted, Error> {
+        self.delete(&format!("/api/me/agent-keys/{key_id}")).await
+    }
+
     // -- organization membership (/api/members) --------------------------------
 
     /// `GET /api/members`.
@@ -1454,6 +1537,25 @@ impl KairosClient {
         body: &crate::types_code_index::PutCodeIndexSettings,
     ) -> Result<crate::types_code_index::CodeIndexSettings, Error> {
         self.put_ok("/api/org/code-index-settings", body).await
+    }
+
+    /// `POST /api/code-index/query-vector` — the vector of the text of a
+    /// code search, made by the model `model` of the vectors of an index
+    /// (KAIROS-T-0360). The CLI asks for it when it has no local model of
+    /// the index.
+    pub async fn query_vector(
+        &self,
+        model: &str,
+        text: &str,
+    ) -> Result<crate::types_code_index::QueryVector, Error> {
+        self.post_ok(
+            "/api/code-index/query-vector",
+            &crate::types_code_index::QueryVectorRequest {
+                model: model.to_string(),
+                text: text.to_string(),
+            },
+        )
+        .await
     }
 
     /// `POST /api/repositories/{slug}/code-indexes/rebuild` — ask the

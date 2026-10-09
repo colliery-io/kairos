@@ -85,6 +85,11 @@ pub struct BoardColumn {
     /// stays, because the archived cards still holding its FK would
     /// otherwise lose the name of the column they were put away in.
     pub deleted_at: Option<DateTime<Utc>>,
+    /// A task that a person moves into this column gets a claim for the
+    /// person, and loses it when it leaves (KAIROS-T-0359,
+    /// [`crate::task_claims`]). The seed sets it on the Active column of a
+    /// delivery board. Admin-set afterwards.
+    pub claims: bool,
 }
 
 /// Insert for [`BoardColumn`].
@@ -95,6 +100,7 @@ pub struct NewBoardColumn {
     pub name: String,
     pub position: i32,
     pub is_done: bool,
+    pub claims: bool,
 }
 
 /// Partial update for [`BoardColumn`].
@@ -104,6 +110,7 @@ pub struct BoardColumnChangeset {
     pub name: Option<String>,
     pub position: Option<i32>,
     pub is_done: Option<bool>,
+    pub claims: Option<bool>,
     pub deleted_at: Option<Option<DateTime<Utc>>>,
     pub updated_at: Option<DateTime<Utc>>,
 }

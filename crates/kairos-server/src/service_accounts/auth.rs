@@ -90,8 +90,10 @@ pub fn is_api_key(token: &str) -> bool {
 /// The uniform 401 for every API-key authentication failure mode.
 fn bad_key() -> ApiError {
     ApiError::unauthorized(
-        "The API key is not correct, or it expired, or an admin revoked it. An \
-         organization admin can make a key with POST /api/service-accounts/{id}/keys.",
+        "The API key is not correct, or it expired, or someone revoked it. Make your \
+         own agent key with POST /api/me/agent-keys (`kairos keys create`). An \
+         organization admin makes the key of a service account with \
+         POST /api/service-accounts/{id}/keys.",
     )
 }
 
@@ -104,7 +106,8 @@ pub struct ApiKeyTenant(pub String);
 /// Authenticate an API-key bearer: parse it, resolve its embedded tenant, hash
 /// it, look it up in that tenant's `api_keys`, check validity, and load the
 /// owning service-account user. Returns the [`AuthContext`] for that principal
-/// and the key's tenant slug. Every failure is the uniform [`bad_key`] 401.
+/// and the key's tenant slug. The key of a person (an agent key, KAIROS-T-0359)
+/// sets [`AuthContext::agent_key`]. Every failure is the uniform [`bad_key`] 401.
 pub async fn authenticate_api_key(
     state: &AppState,
     token: &str,
@@ -158,11 +161,15 @@ pub async fn authenticate_api_key(
         .await;
     drop(conn);
 
+    // KAIROS-T-0359: the key of a person is an agent key; it acts as the
+    // person. The key of a service account is not.
+    let agent_key = (!user.is_service_account()).then_some(row.id);
     let auth = AuthContext {
         user_id: user.id,
         external_id: user.external_id,
         email: user.email,
         display_name: user.display_name,
+        agent_key,
     };
     Ok((auth, slug))
 }

@@ -176,6 +176,7 @@ struct HistoryArchiveRow<'a> {
     content: &'a str,
     edited_by: Uuid,
     edited_at: DateTime<Utc>,
+    agent_key_id: Option<Uuid>,
 }
 
 impl<'a> From<&'a ItemHistory> for HistoryArchiveRow<'a> {
@@ -188,6 +189,7 @@ impl<'a> From<&'a ItemHistory> for HistoryArchiveRow<'a> {
             content: &row.content,
             edited_by: row.edited_by,
             edited_at: row.edited_at,
+            agent_key_id: row.agent_key_id,
         }
     }
 }
@@ -204,6 +206,7 @@ type ActivityRow = (
     Option<String>,
     String,
     DateTime<Utc>,
+    Option<Uuid>,
 );
 
 /// Full-fidelity `activity_log` archive row (every DDL column).
@@ -216,6 +219,7 @@ struct ActivityArchiveRow<'a> {
     entity_type: Option<&'a str>,
     details: &'a str,
     occurred_at: DateTime<Utc>,
+    agent_key_id: Option<Uuid>,
 }
 
 impl<'a> From<&'a ActivityRow> for ActivityArchiveRow<'a> {
@@ -228,6 +232,7 @@ impl<'a> From<&'a ActivityRow> for ActivityArchiveRow<'a> {
             entity_type: row.4.as_deref(),
             details: &row.5,
             occurred_at: row.6,
+            agent_key_id: row.7,
         }
     }
 }
@@ -369,6 +374,7 @@ fn sweep_current_schema(
             activity_log::entity_type,
             activity_log::details,
             activity_log::occurred_at,
+            activity_log::agent_key_id,
         ))
         .load(conn)?;
 

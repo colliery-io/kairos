@@ -27,9 +27,17 @@
 //!    and swaps the session via the `refresh_token` grant on the same
 //!    relay. Refresh failure clears the session — the protected shell
 //!    then redirects to login.
-//! 6. [`Auth::logout`] drops the in-memory session AND the stored refresh
+//! 6. KAIROS-T-0364: right after the code exchange, [`complete_login`]
+//!    opens a Kairos session from the OIDC token (`POST /api/session`), the
+//!    one a password login has (KAIROS-T-0327): an HttpOnly cookie, and its
+//!    bearer in memory. A reload then restores the session from the cookie,
+//!    also where the issuer gives no refresh token (Google answers a request
+//!    for `offline_access` with `invalid_scope`). An older server without the
+//!    route leaves the OIDC session as it was.
+//! 7. [`Auth::logout`] drops the in-memory session AND the stored refresh
 //!    token (a logout must not silently sign back in on reload; the IdP
-//!    session, if any, is the IdP's own concern — Kairos keeps no cookies).
+//!    session, if any, is the IdP's own concern), and ends the Kairos
+//!    session on the server, which clears its cookie.
 //!
 //! The bearer sent to `/api` is, by default, the **access token** (the dev
 //! Dex mints JWT access tokens carrying `iss`/`aud`/`exp`/`email` — exactly
@@ -53,6 +61,8 @@ pub const CONFIG_PATH: &str = "/api/config";
 pub const LOGIN_PATH: &str = "/api/login";
 /// The logout endpoint of a password session (KAIROS-T-0327).
 const LOGOUT_PATH: &str = "/api/logout";
+/// Opens a Kairos session from an OIDC login (KAIROS-T-0364).
+const SESSION_PATH: &str = "/api/session";
 
 /// Scopes requested at login when `/api/config` names none (an older server).
 /// `offline_access` asks the issuer for a refresh token (silent refresh); the
@@ -147,6 +157,17 @@ pub struct TokenResponse {
 }
 
 impl TokenResponse {
+    /// A Kairos session bearer (`kairos_ss_…`) in the shape [`Auth::install`]
+    /// takes: no refresh token and no expiry, so no refresh timer runs.
+    fn session(token: String) -> Self {
+        Self {
+            access_token: token,
+            id_token: None,
+            refresh_token: None,
+            expires_in: None,
+        }
+    }
+
     /// The token to use as the `/api` bearer for the given selection. Falls
     /// back to the access token if `id_token` was selected but the issuer
     /// returned none (e.g. a refresh response omitting it) — keeps a session
@@ -264,6 +285,12 @@ impl Auth {
     pub fn token(&self) -> Option<String> {
         self.session
             .with(|s| s.as_ref().map(|s| s.access_token.clone()))
+    }
+
+    /// The current bearer, outside a reactive context.
+    fn token_untracked(&self) -> Option<String> {
+        self.session
+            .with_untracked(|s| s.as_ref().map(|s| s.access_token.clone()))
     }
 
     /// Reactive: did the user explicitly log out (vs. never signed in /
@@ -528,7 +555,39 @@ pub async fn complete_login(auth: Auth) -> Result<String, String> {
     ]);
     let tokens = post_token(&body).await?;
     auth.install(tokens);
+    open_server_session(auth).await;
     Ok(return_to)
+}
+
+/// KAIROS-T-0364: trade the OIDC bearer of a fresh login for a Kairos session
+/// (`POST /api/session`). The server sets the HttpOnly session cookie, so a
+/// reload restores the session ([`restore_session`]) whether or not the issuer
+/// gave a refresh token. Best-effort: on any failure the OIDC session stays as
+/// it is.
+async fn open_server_session(auth: Auth) {
+    #[derive(Deserialize)]
+    struct SessionResponse {
+        token: String,
+    }
+    let Some(bearer) = auth.token_untracked().filter(|t| !t.is_empty()) else {
+        return;
+    };
+    let Ok(response) = gloo_net::http::Request::post(SESSION_PATH)
+        .header("authorization", &format!("Bearer {bearer}"))
+        .send()
+        .await
+    else {
+        return;
+    };
+    if !response.ok() {
+        return;
+    }
+    if let Ok(session) = response.json::<SessionResponse>().await {
+        // The cookie is the reload path now; a stored refresh token would only
+        // restore the IdP session beside it.
+        clear_stored_refresh();
+        auth.install(TokenResponse::session(session.token));
+    }
 }
 
 /// Where to go after a successful sign-in, consuming the stashed value.
@@ -571,9 +630,8 @@ pub fn stash_return_to(path: &str) {
 /// is the credential itself — unlike the refresh token KAIROS-T-0071 stashes, which
 /// can only be redeemed at the issuer.
 ///
-/// The consequence is real and deliberate: a page reload ends a password session and
-/// the person logs in again. That is the price of not writing a working API
-/// credential into browser storage.
+/// A reload keeps the session all the same: the server also sets it as an HttpOnly
+/// cookie, which no script can read (KAIROS-T-0327), and [`restore_session`] finds it.
 ///
 /// The server's 401 is returned VERBATIM. It is deliberately uninformative
 /// (KAIROS-T-0203) — one message for a wrong password, an unknown email and an
@@ -611,12 +669,7 @@ pub async fn password_login(auth: Auth, email: &str, password: &str) -> Result<(
     // No refresh token and no expiry: a session bearer is not refreshable, so there
     // is nothing for the refresh timer to do. `install` returns early on exactly that
     // shape, which is why this reuses it rather than reaching into the signal.
-    auth.install(TokenResponse {
-        access_token: login.token,
-        id_token: None,
-        refresh_token: None,
-        expires_in: None,
-    });
+    auth.install(TokenResponse::session(login.token));
     Ok(())
 }
 
@@ -787,6 +840,17 @@ mod tests {
         assert_eq!(full.bearer_for(ApiBearer::AccessToken), "ya29.opaque");
         // id_token mode sends the id_token (Google / opaque-access-token IdP).
         assert_eq!(full.bearer_for(ApiBearer::IdToken), "eyJ.id.jwt");
+    }
+
+    #[test]
+    fn a_session_bearer_is_sent_whichever_token_the_deployment_selects() {
+        // KAIROS-T-0364: after an OIDC login the GUI sends its Kairos session.
+        // A Google deployment selects id_token; the session has none, so the
+        // session token must still be the bearer, with no refresh to run.
+        let session = TokenResponse::session("kairos_ss_abc".to_string());
+        assert_eq!(session.bearer_for(ApiBearer::IdToken), "kairos_ss_abc");
+        assert_eq!(session.bearer_for(ApiBearer::AccessToken), "kairos_ss_abc");
+        assert!(session.refresh_token.is_none() && session.expires_in.is_none());
     }
 
     #[test]

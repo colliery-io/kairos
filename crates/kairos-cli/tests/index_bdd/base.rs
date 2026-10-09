@@ -526,6 +526,7 @@ async fn the_repository_is_hosted(world: &mut CliWorld) {
                 ..Default::default()
             },
             concurrency: None,
+            default_summaries: None,
         })
         .await
         .expect("the hosted provider of the organization");

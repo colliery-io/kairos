@@ -16,6 +16,7 @@
 //! (`team_delivery_streams`) deliberately have none.
 
 pub mod boards;
+pub mod claims;
 pub mod enums;
 pub mod forge;
 pub mod graph;
@@ -27,6 +28,7 @@ pub mod teams;
 pub mod templates;
 
 pub use boards::*;
+pub use claims::*;
 pub use enums::*;
 pub use forge::*;
 pub use graph::*;

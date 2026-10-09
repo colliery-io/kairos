@@ -1555,6 +1555,7 @@ fn hosted_settings(base_url: &str, key: &str, concurrency: i32) -> PutCodeIndexS
             ..Default::default()
         },
         concurrency: Some(concurrency),
+        default_summaries: None,
     }
 }
 
@@ -1665,6 +1666,55 @@ async fn a_hosted_repository_is_summarized_by_the_endpoint() {
     );
 }
 
+// KAIROS-T-0358: the default summarizer of the organization.
+#[tokio::test]
+async fn a_repository_that_follows_the_organization_gets_its_default() {
+    // Given a tenant on Ollama Cloud with the default hosted, a repository
+    // that follows the organization (the default of a new one) and a
+    // repository with embedded set by hand
+    let w = World::new("kairos_code_index_t0358_default").await;
+    let chat = common::chat_http::serve("ollama_t0358_key", 0).await;
+    let mut settings = hosted_settings(&chat.base_url, "ollama_t0358_key", 4);
+    settings.default_summaries = Some(CodeIndexSummaries::Hosted);
+    w.svc
+        .put_code_index_settings(&settings)
+        .await
+        .expect("the provider and the default");
+    let infra = w.work().join("platform-infra");
+    std::fs::create_dir_all(&infra).expect("the folder of platform-infra");
+    repository_at_a(&infra);
+    w.bob
+        .create_repository(&repository("platform-infra"))
+        .await
+        .expect("platform-infra");
+    w.bob
+        .update_repository(
+            "platform-infra",
+            &UpdateRepositoryRequest {
+                code_index_summaries: Some(CodeIndexSummaries::Embedded),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("embedded by hand");
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+    assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+
+    // Then the repository that follows the organization is summarized
+    // through the endpoint, and the other one by the embedded model
+    assert_eq!(
+        newest_run(&w, "payments-api").await.model.as_deref(),
+        Some("ollama-cloud/fake-model")
+    );
+    assert!(chat.requests() > 0, "the endpoint got no request");
+    assert_eq!(
+        newest_run(&w, "platform-infra").await.model.as_deref(),
+        Some("fake/fixed")
+    );
+}
+
 #[tokio::test]
 async fn a_hosted_endpoint_that_refuses_the_key_fails_the_run_and_the_next_repository_builds() {
     let w = World::new("kairos_code_index_t0341_refused").await;
@@ -1741,6 +1791,7 @@ fn bedrock_settings(base_url: &str, credentials: &str) -> PutCodeIndexSettings {
             ..Default::default()
         },
         concurrency: Some(3),
+        default_summaries: None,
     }
 }
 
@@ -1873,6 +1924,58 @@ async fn an_index_of_another_schema_version_gets_a_full_build() {
     assert_eq!(runs[0].outcome, "ok", "{runs:?}");
     assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
     assert!(runs[0].files.is_some_and(|n| n > 0), "{runs:?}");
+
+    // And the next pass has nothing to do
+    let outcomes = w.sweep().await;
+    assert!(outcomes.iter().all(|o| o.report.is_none()), "{outcomes:?}");
+}
+
+// ===========================================================================
+// Scenario: An index of a commit that is not in the history gets a full
+// build (KAIROS-T-0356)
+// ===========================================================================
+#[tokio::test]
+async fn an_index_of_a_commit_not_in_the_history_gets_a_full_build() {
+    // Given Kairos holds an index of a commit that is not an ancestor of
+    // the head, as a rewritten history leaves behind
+    let mut w = World::new("kairos_code_index_t0356_history").await;
+    let a = w.a.clone();
+    let gone = "0f37ee0a688e2ccea185b44530802349a3824a2a".to_string();
+    let file = w.index(&a);
+    let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut encoder, &file).unwrap();
+    let structure = encoder.finish().unwrap();
+    kairos_db::code_indexes::put(
+        &mut w.conn,
+        &kairos_db::code_indexes::NewCodeIndex {
+            repository_id: w.repo_id,
+            commit_sha: gone.clone(),
+            ref_name: Some("main".into()),
+            source: "upload",
+            structure,
+            structure_bytes: file.len() as i64,
+            summary_keys: 0,
+            vector_model: None,
+            created_by: None,
+        },
+        &[],
+    )
+    .expect("the index of the gone commit is stored");
+
+    // When the builder runs
+    let outcomes = w.sweep().await;
+
+    // Then the head gets a full build, in place of a failed update
+    let built: Vec<_> = outcomes.iter().filter(|o| o.report.is_some()).collect();
+    assert_eq!(built.len(), 1, "{outcomes:?}");
+    assert_eq!(built[0].commit, a);
+    assert_eq!(built[0].base, None, "a full build has no base");
+
+    // And the run row is an ok push run of the head
+    let runs = runs_of(&w).await;
+    assert_eq!(runs[0].trigger, "push", "{runs:?}");
+    assert_eq!(runs[0].outcome, "ok", "{runs:?}");
+    assert_eq!(runs[0].commit.as_deref(), Some(a.as_str()));
 
     // And the next pass has nothing to do
     let outcomes = w.sweep().await;

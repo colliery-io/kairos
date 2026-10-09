@@ -375,6 +375,13 @@ pub struct HistoryVersion {
     pub edited_by: String,
     /// RFC 3339.
     pub edited_at: String,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Response of `GET /api/{entity_type}/{short_code}/history?version=N`:
@@ -390,6 +397,13 @@ pub struct HistorySnapshot {
     pub edited_by: String,
     /// RFC 3339.
     pub edited_at: String,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Query of `GET /api/{entity_type}/{short_code}/history`.
@@ -419,9 +433,10 @@ pub struct ActivityEntry {
     pub id: String,
     /// Who did it (user UUID).
     pub actor_id: String,
-    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`.
+    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release|cancel|purge`. `delete` is an archive. `cancel` is the cancel of a task, with the reason in `details` (KAIROS-T-0362). `purge` is the delete of a task for good: `details` names its code and its title.
     /// A change to a team, a delivery stream, a membership or a user has
-    /// the action `update` (COLLIERY-T-0265).
+    /// the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and
+    /// `release` are changes to the claim of a task (KAIROS-T-0359).
     pub action: String,
     /// The item acted on (UUID). Null for a relationship between two
     /// items: `details` names the two. For an `impacts` link it is the
@@ -447,6 +462,13 @@ pub struct ActivityEntry {
     /// item, and when `entity_short_code` is null.
     #[serde(default)]
     pub entity_archived_at: Option<String>,
+    /// The agent key (UUID) of the request that made this change, when an
+    /// agent made it with the agent key of a person (KAIROS-T-0359). The
+    /// actor is still the person: show "Alice (agent)". Null for a change
+    /// made without an agent key, and for each change made before Kairos
+    /// recorded the key.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// Query of `GET /api/activity` (S-0005: all filters combinable).

@@ -17,6 +17,8 @@ pub mod api;
 pub mod app;
 pub mod blocking;
 pub mod body;
+pub mod cancel;
+pub mod claims;
 pub mod code_index;
 pub mod config;
 pub mod credentials;

@@ -28,7 +28,7 @@ use aurora_dark::components::{
     Alert, Anchor, Button, Chip, Empty, ErrorState, Group, Loading, PageHeader, Pill, Select,
     Stack, Text, TextInput, Textarea,
 };
-use aurora_dark::frame::{Card, Modal, use_toaster};
+use aurora_dark::frame::{Card, ConfirmDialog, Modal, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
@@ -897,6 +897,8 @@ struct CardModel {
     work_class: Option<String>,
     /// The bound repository's slug — tasks only (KAIROS-T-0109, A-0019).
     repository: Option<String>,
+    /// The person who has the task in Active (KAIROS-T-0359) — tasks only.
+    claim: Option<data::TaskClaim>,
     /// The slugs of the teams of a strategy or an initiative, by slug
     /// (KAIROS-T-0322): from its tasks and set by hand. Empty for the
     /// other kinds and for an item with no team.
@@ -908,6 +910,9 @@ struct CardModel {
     blocks: Option<data::BlocksCounts>,
     key: String,
 }
+
+/// The text of the chip of a cancelled task (KAIROS-T-0362).
+const CANCELLED_CHIP: &str = "Cancelled";
 
 /// One column's owned view model. Its `key` fingerprints identity + the
 /// transition-derived drop targets (config changes rebuild the column);
@@ -946,7 +951,8 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 title: &str,
                 meta: Vec<(String, &'static str)>,
                 work_class: Option<String>,
-                repository: Option<String>| {
+                repository: Option<String>,
+                claim: Option<data::TaskClaim>| {
         let progress = progress_of(short_code);
         let blocks = blocks_of(short_code);
         let teams = teams_of(short_code);
@@ -955,10 +961,11 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             short_code: short_code.to_string(),
             title: title.to_string(),
             key: format!(
-                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{teams:?}|{progress:?}|{blocks:?}"
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{claim:?}|{teams:?}|{progress:?}|{blocks:?}"
             ),
             work_class,
             repository,
+            claim,
             teams,
             progress,
             blocks,
@@ -987,6 +994,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     Vec::new(),
                     None,
                     None,
+                    None,
                 )
             }));
             cards.extend(group.initiatives.iter().map(|item| {
@@ -1005,15 +1013,20 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     meta,
                     None,
                     None,
+                    None,
                 )
             }));
             cards.extend(group.tasks.iter().map(|item| {
-                let meta = match item.task_type.as_str() {
+                let mut meta = match item.task_type.as_str() {
                     "bug" => vec![("bug".to_string(), token::BAD)],
                     "tech_debt" => vec![("tech debt".to_string(), token::GOLD)],
                     "support" => vec![("support".to_string(), token::GOLD)],
                     _ => Vec::new(),
                 };
+                // KAIROS-T-0362: the chip of a cancelled task, first.
+                if item.cancellation.is_some() {
+                    meta.insert(0, (CANCELLED_CHIP.to_string(), token::MUTED));
+                }
                 card(
                     EntityKind::Task,
                     &item.short_code,
@@ -1021,6 +1034,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     meta,
                     Some(item.work_class.clone()),
                     item.repository.as_ref().map(|r| r.slug.clone()),
+                    item.claim.clone(),
                 )
             }));
             cards.extend(group.adrs.iter().map(|item| {
@@ -1034,6 +1048,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.short_code,
                     &item.title,
                     meta,
+                    None,
                     None,
                     None,
                 )
@@ -1291,6 +1306,15 @@ fn BoardBody(
     // Modal open-state lives HERE so refetches never reset it.
     let create_open = RwSignal::new(false);
     let doc_open = RwSignal::new(false);
+    let archive_open = RwSignal::new(false);
+    // KAIROS-T-0363: the tasks that "Archive completed" takes.
+    let completed = Memo::new(move |_| {
+        model.with(|m| {
+            m.as_ref()
+                .map(|view| data::completed_task_count(&view.items))
+                .unwrap_or(0)
+        })
+    });
 
     // ---- memos over the live model (notify only on actual change) --------
     let header_text = Memo::new(move |_| {
@@ -1531,6 +1555,15 @@ fn BoardBody(
                             "New document"
                         </Button>
                     })}
+                    // KAIROS-T-0363: only for a person who may archive each
+                    // task of the board (`manage_tasks`).
+                    {move || (is_delivery && powers.get().create).then(|| view! {
+                        <Button variant="default" size="xs"
+                            disabled=Signal::derive(move || completed.get() == 0)
+                            on_click=Callback::new(move |_| archive_open.set(true))>
+                            "Archive completed"
+                        </Button>
+                    })}
                 </Group>
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
@@ -1743,6 +1776,78 @@ fn BoardBody(
             <CreateDocumentModal open=doc_open parents=doc_parents
                 board_slug=board.slug.clone() board_name=board.name.clone() on_changed/>
         })}
+        {is_delivery.then(|| view! {
+            <ArchiveCompletedDialog open=archive_open board_id=board_id.get_value()
+                count=completed on_changed/>
+        })}
+    }
+}
+
+/// The question of the "Archive completed" dialog (KAIROS-T-0363). Pure,
+/// host-tested.
+fn archive_completed_title(count: usize) -> String {
+    let tasks = if count == 1 { "task" } else { "tasks" };
+    format!("Archive {count} completed {tasks}?")
+}
+
+/// The "Archive completed" dialog (KAIROS-T-0363): the confirmation gives
+/// the count, and says that each task can be restored.
+#[component]
+fn ArchiveCompletedDialog(
+    open: RwSignal<bool>,
+    #[prop(into)] board_id: String,
+    count: Memo<usize>,
+    on_changed: Callback<()>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let toaster = use_toaster();
+    let board_id = StoredValue::new(board_id);
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
+    Effect::new(move |_| {
+        if open.get() {
+            error.set(None);
+        }
+    });
+    let confirm = Callback::new(move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result = data::archive_completed(auth, &board_id.get_value()).await;
+            busy.set(false);
+            match result {
+                Ok(outcome) => {
+                    open.set(false);
+                    toaster.success(format!(
+                        "Kairos archived {} completed {}. You can restore each one.",
+                        outcome.count,
+                        if outcome.count == 1 { "task" } else { "tasks" }
+                    ));
+                    on_changed.run(());
+                }
+                Err(e) => error.set(Some(describe(&e))),
+            }
+        });
+    });
+    view! {
+        <ConfirmDialog
+            open
+            title=Signal::derive(move || archive_completed_title(count.get()))
+            message="You can restore each one."
+            confirm_label="Archive"
+            danger=false
+            busy
+            on_confirm=confirm
+        >
+            {move || error.get().map(|message| view! {
+                <Alert title="Archive failed" color=token::BAD>
+                    <Text size="sm" dimmed=true>{message}</Text>
+                </Alert>
+            })}
+        </ConfirmDialog>
     }
 }
 
@@ -2057,12 +2162,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            repository, teams, progress, blocks, key: _,
+                                            repository, claim, teams, progress, blocks, key: _,
                                         } = card;
                                         view! {
                                             <ItemCard
                                                 kind short_code title meta work_class repository
-                                                teams progress blocks
+                                                claim teams progress blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
                                                 drag powers
@@ -2084,6 +2189,22 @@ fn LaneColumns(
 // Cards
 // ---------------------------------------------------------------------------
 
+/// The text of the claim chip of a card (KAIROS-T-0359): the name of the
+/// person, and "(agent)" when the agent of the person made the claim.
+fn claim_label(claim: &data::TaskClaim) -> String {
+    if claim.agent {
+        format!("{} (agent)", claim.display_name)
+    } else {
+        claim.display_name.clone()
+    }
+}
+
+/// The tooltip of the claim chip: who has the claim, and since when.
+fn claim_title(claim: &data::TaskClaim) -> String {
+    let since = claim.claimed_at.get(..10).unwrap_or(&claim.claimed_at);
+    format!("{} has the claim since {since}.", claim_label(claim))
+}
+
 /// One board card: short code (the detail link, KAIROS-T-0076) with its
 /// copy-link button, plain-text title, type, key metadata, and
 /// drag-and-drop between columns (KAIROS-T-0064 — draggable only when the
@@ -2101,6 +2222,9 @@ fn ItemCard(
     work_class: Option<String>,
     /// The bound repository's slug (KAIROS-T-0109) — a chip on the card.
     repository: Option<String>,
+    /// The person who has the task in Active (KAIROS-T-0359) — a chip
+    /// with the name of the person.
+    claim: Option<data::TaskClaim>,
     /// The teams of a strategy or an initiative (KAIROS-T-0322) — one pill
     /// each; none for an item with no team.
     teams: Vec<String>,
@@ -2178,6 +2302,16 @@ fn ItemCard(
                         view! {
                             <span class="kairos-card__repo" data-repo=attr>
                                 <Pill color=token::ICE>{slug}</Pill>
+                            </span>
+                        }
+                    })}
+                    {claim.map(|claim| {
+                        let label = claim_label(&claim);
+                        let tip = claim_title(&claim);
+                        let attr = claim.display_name;
+                        view! {
+                            <span class="kairos-card__claim" data-claim=attr title=tip>
+                                <Pill color=token::OK>{label}</Pill>
                             </span>
                         }
                     })}
@@ -2653,6 +2787,34 @@ fn CreateDocumentModal(
 mod tests {
     use super::*;
     use crate::pages::teams::api::Team;
+
+    /// KAIROS-T-0363: the question of "Archive completed" gives the
+    /// count.
+    #[test]
+    fn the_archive_completed_title_gives_the_count() {
+        assert_eq!(archive_completed_title(1), "Archive 1 completed task?");
+        assert_eq!(archive_completed_title(12), "Archive 12 completed tasks?");
+    }
+
+    /// KAIROS-T-0359: the claim chip names the person, and the agent.
+    #[test]
+    fn the_claim_chip_names_the_person() {
+        let claim = data::TaskClaim {
+            display_name: "Alice".to_string(),
+            agent: true,
+            claimed_at: "2026-10-09T10:00:00Z".to_string(),
+        };
+        assert_eq!(claim_label(&claim), "Alice (agent)");
+        assert_eq!(
+            claim_title(&claim),
+            "Alice (agent) has the claim since 2026-10-09."
+        );
+        let person = data::TaskClaim {
+            agent: false,
+            ..claim
+        };
+        assert_eq!(claim_label(&person), "Alice");
+    }
 
     fn board(id: &str, level: &str, team_id: Option<&str>) -> data::Board {
         data::Board {
@@ -3476,6 +3638,7 @@ mod tests {
             meta: Vec::new(),
             work_class: None,
             repository: repository.map(str::to_string),
+            claim: None,
             teams: Vec::new(),
             progress: None,
             blocks: None,

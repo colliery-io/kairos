@@ -394,6 +394,26 @@ at = 14
 class = "external"
 external = "toFixed"
 
+# JavaScript (KAIROS-T-0352): one family with TypeScript, so the call of
+# formatPrice goes to the TypeScript function.
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "roundCents", line = 5 }
+at = 6
+class = "external"
+external = "Math.round"
+
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "entry", line = 10 }
+at = 11
+class = "certain"
+callee = { file = "web/src/format.ts", name = "formatPrice", line = 13 }
+
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "entry", line = 10 }
+at = 11
+class = "certain"
+callee = { file = "web/src/ledger.js", name = "roundCents", line = 5 }
+
 # --- Go (name classes) -------------------------------------------------------
 
 [[edge]]
@@ -567,6 +587,15 @@ caller = { file = "src/mcp.rs", name = "transition_item", line = 6 }
 at = 7
 class = "certain"
 target = { file = "src/boards.rs", line = 13, macro = true }
+
+# A call in the body of transition_fn!: SCIP gives no reference there, so the
+# macro text gives the edge, with the macro as its caller (KAIROS-T-0353).
+[[edge]]
+caller = { file = "src/boards.rs", name = "transition_fn", line = 5 }
+at = 8
+class = "certain"
+origin = "macro-text"
+callee = { file = "src/boards.rs", name = "check_rule", line = 17 }
 
 # 2 routes from dispatch to target: direct, and indirect through relay.
 [[edge]]

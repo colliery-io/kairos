@@ -408,6 +408,7 @@ fn run(
     options: &SummarizeOptions,
 ) -> Result<SummaryReport, IndexError> {
     let mut conn = Connection::open(db)?;
+    conn.busy_timeout(crate::BUSY_TIMEOUT)?;
     schema::prepare(&conn)?;
     let vector_model = match &model {
         Some((_, embedder)) => {

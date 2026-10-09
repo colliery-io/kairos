@@ -290,11 +290,57 @@ away and by whom, and says it is read-only while it is. That is copy chosen to
 avoid the collision, not a third concept.
 
 There is one more piece of unfortunate vocabulary, recorded here because it is
-load bearing: on the wire and in the CLI, the verb is still "delete". It was an
-accurate name when deleting meant disappearing, and it is now actively
-misleading. Renaming it is a larger change than it looks — wire compatibility,
-GUI copy, command nouns — and it is deliberately not part of this decision. The
-glossary is the place to check which sense of a word a given surface means.
+load bearing: on the wire, the verb is still "delete". The MCP tool is
+`delete_item`, and the REST route is `DELETE`. It was an accurate name when
+deleting meant disappearing, and it became misleading. KAIROS-T-0362 changed
+what a person reads, and kept the names that programs use. Each GUI control
+that archives says **Archive**, and its confirmation says that the item can be
+restored. The CLI verb is `archive`, with `delete` as an alias. The
+descriptions of the tool and the route say archive. The glossary is the place
+to check which sense of a word a given surface means.
+
+## Two other ways to end a task
+
+An archive keeps everything, and a restore undoes it. Two other acts end a
+task, and neither one is an archive.
+
+**Cancel** is a "won't do". A task that came in, and that the team will not
+do, needs an end that says so. Before the cancel, the choices were to move it
+to done, which says the work was done, or to archive it, which hides it and
+says nothing. A cancel needs a reason. It moves the task to the done column
+with the mark "cancelled" and the reason, so the board and the history both
+say what happened. A move out of the done column removes the mark, and the
+activity log keeps the reason. The mark is a row of its own
+(`task_cancellations`), as the claim of a task is: it is a fact about the task
+in one column, and the queries of the task do not change.
+
+**Delete** is the delete for good: a purge. It is the answer to the open
+question of erasure below, for a task only. Only a person who manages the board
+of the task can do it, and the GUI asks the person to type the code of the
+task first. The purge removes the task and the rows that are about the task
+only: its history, its metadata, its edges, its forge links and its claim. The
+activity log keeps its rows, because the log is the audit of the organization,
+and the purge adds one row that names the code and the title. The retention
+sweeper does not remove items, so this is the one path that does, and a later
+sweep of archived items can call it.
+
+The two make the archive clearer, not weaker. Archive stays the default: it is
+what an end of work should almost always be, because it can be undone.
+
+## Archive completed
+
+A done column fills up. The tasks in it are finished, or cancelled, and a team
+that wants a clean board had to archive them one at a time. "Archive completed"
+(KAIROS-T-0363) archives each task in the done columns of one board in one
+call, after a confirmation that gives the count. Each task goes through the
+same archive as one task, so the cascade, the end of the claim and the history
+are the same, and a restore brings back each one.
+
+The call is one transaction: it archives each task, or none. A partial result
+would leave the board in a state that nobody asked for, and the person could
+not see which tasks went. The right is `manage_tasks` on the board: the right
+that archives each task of the board. The creator of a task can archive that
+task, but not the done column of the team.
 
 ## Alternatives, and what they would have cost
 
@@ -341,8 +387,9 @@ surface will reasonably assume the others agree, so a partial implementation
 would have been worse than none — which is why the decision was implemented
 across the API, MCP, the CLI and the GUI together rather than incrementally.
 
-And the open question is erasure, not visibility. Nothing in Kairos currently
-destroys archived content: the retention sweeper is not wired into the server
+And the open question is erasure, not visibility. For a task, a board manager
+can now delete it for good (see above). For the other item types, nothing in
+Kairos destroys archived content: the retention sweeper is not wired into the server
 at all, and even when it is, it purges history and activity rows rather than
 the archived records themselves. So archived content is permanent, and this
 decision makes that permanent *by design* rather than by accident. A tenant

@@ -1,6 +1,6 @@
 # Configuration
 
-Every value that changes how Kairos behaves, in one place. Kairos 0.8.2.
+Every value that changes how Kairos behaves, in one place. Kairos 0.9.0.
 
 Configuration has four surfaces, and they are layered rather than alternative:
 the server reads **environment variables** only; the **Helm chart** and the
@@ -306,6 +306,7 @@ REST route is `PUT /api/org/code-index-settings`. Each member can read it.
 | `vectors.model` | text | none | The model name of the embeddings, for `remote`. |
 | `vectors.secret` | text | none | The API key of the embeddings endpoint. A local Ollama needs none. |
 | `concurrency` | 1 to 32 | `4` | The requests that a hosted summarizer sends at a time. |
+| `default_summaries` | `embedded`, `hosted` | `embedded` | The summarizer of each repository that follows the organization. `hosted` needs a hosted `summary.provider`. A write that does not give it keeps the stored value. |
 
 Kairos keeps each secret encrypted with `KAIROS_SECRETS_KEY`, as it keeps
 the read tokens of the repositories. No read gives a secret back: a read
@@ -314,14 +315,31 @@ keeps the stored secret. An empty secret removes it. A hosted provider
 needs its secret, its URL or region, and its model. Kairos refuses a write
 with one of them missing, and the refusal names the field.
 
-A repository uses the hosted provider only after a person opts it in. The
-setting is `code_index_summaries` of the repository: `embedded` (the
-default) or `hosted`. A person sets it on the page Admin, Repositories. The
-command is `kairos repos update <slug> --code-index-summaries hosted`.
-Kairos refuses `hosted` when the organization has no hosted provider.
+`code_search` of the code tools compares the vector of its query with the
+vectors of the index. One model must make the two vectors. A CLI with no
+local model of the index asks Kairos for the vector: `POST
+/api/code-index/query-vector`. Kairos uses its embedded model, or the remote
+provider of the organization with its secret.
 
-Until the opt-in, the embedded model writes the summaries of the
-repository. Its code stays on the host.
+Each member can ask. The text has 1 to 2,000 characters. When the
+organization has no provider for the model, Kairos refuses the request
+(`NO_QUERY_PROVIDER`). The search then uses the text of the summaries.
+
+The setting `code_index_summaries` of a repository chooses its summarizer:
+
+- `organization` (the default of a new repository): the `default_summaries`
+  of the organization decides.
+- `embedded`: the embedded model, whatever the organization sets. The code
+  stays on the host.
+- `hosted`: the hosted provider of the organization.
+
+A person sets it on the page Admin, Repositories. The command is `kairos
+repos update <slug> --code-index-summaries <value>`. Kairos refuses `hosted`
+when the organization has no hosted provider. A repository from before
+0.9.0 keeps the value that it had.
+
+When the summarizer is the embedded model, the code of the repository stays
+on the host.
 
 For a repository on a hosted provider, the builder sends `concurrency`
 requests at a time. After a 429 or a 5xx, it tries the request again, 3
@@ -464,7 +482,7 @@ the folder. Then the server downloads nothing.
 
 ### Retention — recognised but inert
 
-**In 0.8.2 the server reads none of the five variables below, and they have no
+**In 0.9.0 the server reads none of the five variables below, and they have no
 effect.** The retention sweeper's scheduler, `spawn_retention_loop`, is not
 called anywhere in the server binary, and its own documentation records that
 wiring as a later milestone. Nothing is compacted, offloaded or pruned
@@ -662,7 +680,7 @@ the image sets it to `/var/lib/kairos/models`) and `KAIROS_EMBED_REFRESH_SECS`
 |---|---|---|---|
 | `replicaCount` | integer | `2` | Server replicas. Ignored when `autoscaling.enabled` is true. |
 | `image.repository` | string | `ghcr.io/colliery-io/kairos` | Image repository. |
-| `image.tag` | string | `""` | Empty tracks the chart's `appVersion`. An explicit value pins a published release, e.g. `"0.8.2"`. The chart never pins `latest`. |
+| `image.tag` | string | `""` | Empty tracks the chart's `appVersion`. An explicit value pins a published release, e.g. `"0.9.0"`. The chart never pins `latest`. |
 | `image.pullPolicy` | string | `IfNotPresent` | Image pull policy. |
 | `imagePullSecrets` | list | `[]` | Pull secrets, e.g. `[{name: ghcr-creds}]`. |
 | `nameOverride` | string | `""` | Overrides the chart name used in resource names. |
@@ -793,7 +811,7 @@ The chart's two rendering guards:
   `database.existingSecret` is used and no Secret is rendered.
 
 Retention values left `null` or `""` are absent from the ConfigMap, which is
-moot in 0.8.2 because the server reads none of them.
+moot in 0.9.0 because the server reads none of them.
 
 ## Reference Compose deployment
 
@@ -805,7 +823,7 @@ stock `postgres:16` does not carry it. There is no bundled identity provider.
 
 | `.env` variable | Default in the example | Consumed by |
 |---|---|---|
-| `KAIROS_VERSION` | `0.8.2` | The Kairos image tag. Required — Compose fails if it is unset. |
+| `KAIROS_VERSION` | `0.9.0` | The Kairos image tag. Required — Compose fails if it is unset. |
 | `KAIROS_SITE_ADDRESS` | `kairos.example.com` | Caddy's site address. A hostname enables automatic HTTPS; `:80` is a local no-TLS trial. Required. |
 | `POSTGRES_PASSWORD` | `change-me` | The Postgres password, and the password inside the `DATABASE_URL` the Compose file composes. Required. |
 | `OIDC_ISSUER_URL` | `https://idp.example.com/` | The server, verbatim. Required. |

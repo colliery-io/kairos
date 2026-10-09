@@ -80,6 +80,10 @@ pub struct HistoryVersion {
     pub version: i32,
     pub edited_by: String,
     pub edited_at: String,
+    /// The agent key of the change, when an agent made it with the agent
+    /// key of a person (KAIROS-T-0359). Absent from an older server.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_meta::HistorySnapshot`.
@@ -90,6 +94,10 @@ pub struct HistorySnapshot {
     pub content: String,
     pub edited_by: String,
     pub edited_at: String,
+    /// The agent key of the change, when an agent made it with the agent
+    /// key of a person (KAIROS-T-0359). Absent from an older server.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_meta::ActivityEntry`.
@@ -113,6 +121,10 @@ pub struct ActivityEntry {
     /// When the item was archived (RFC 3339), absent for a live item.
     #[serde(default)]
     pub entity_archived_at: Option<String>,
+    /// The agent key of the change, when an agent made it with the agent
+    /// key of a person (KAIROS-T-0359). Absent from an older server.
+    #[serde(default)]
+    pub agent_key_id: Option<String>,
 }
 
 /// mirror of: `kairos_client::types_org::OrgMember` (partial).
@@ -165,6 +177,11 @@ const ACTIONS: &[&str] = &[
     "restore",
     "update",
     "rename",
+    "claim",
+    "hand_off",
+    "release",
+    "cancel",
+    "purge",
 ];
 
 /// Map a `{PREFIX}-{LETTER}-{NNNN}` short code (S-0004) onto its API
@@ -211,9 +228,11 @@ fn format_when(rfc3339: &str) -> String {
 fn action_color(action: &str) -> &'static str {
     match action {
         "create" | "restore" => token::OK,
-        "delete" => token::BAD,
+        "delete" | "purge" => token::BAD,
+        "cancel" => token::GOLD,
         "transition" | "board_move" | "rename" => token::ICE,
         "update" => token::GOLD,
+        "claim" | "hand_off" | "release" => token::OK,
         "relationship_add" | "relationship_remove" => token::VIOLET,
         "capability_grant" | "capability_revoke" => token::GOLD,
         _ => token::MUTED,
@@ -320,6 +339,16 @@ fn actor_label(members: &HashMap<String, String>, actor_id: &str) -> String {
         let head = actor_id.get(..8).unwrap_or(actor_id);
         format!("{head}…")
     })
+}
+
+/// The label of an actor with the agent mark (KAIROS-T-0359): "alice
+/// (agent)" when an agent made the change with the agent key of the
+/// person, else the label as it is.
+pub fn with_agent_mark(label: String, agent_key_id: Option<&str>) -> String {
+    match agent_key_id {
+        Some(_) => format!("{label} (agent)"),
+        None => label,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -638,7 +667,10 @@ fn FeedTable(page: ListEnvelope<ActivityEntry>, names: HashMap<String, String>) 
         .into_iter()
         .map(|entry| {
             let color = action_color(&entry.action).to_string();
-            let actor = actor_label(&names, &entry.actor_id);
+            let actor = with_agent_mark(
+                actor_label(&names, &entry.actor_id),
+                entry.agent_key_id.as_deref(),
+            );
             let when = entry.occurred_at.clone();
             // COLLIERY-T-0262: the link comes from the entry. An entry
             // with no item says why it has no link.
@@ -998,10 +1030,20 @@ pub fn ItemHistoryPage() -> impl IntoView {
                 Some(Err(error)) => view! { <ErrorState error/> }.into_any(),
                 Some(Ok(None)) => ().into_any(),
                 Some(Ok(Some(snap))) => {
+                    let names = members
+                        .get()
+                        .and_then(|r| r.ok())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|m| (m.user_id, m.display_name))
+                        .collect::<HashMap<_, _>>();
                     let caption = format!(
                         "The version of {} by {}.",
                         format_when(&snap.edited_at),
-                        snap.edited_by
+                        with_agent_mark(
+                            actor_label(&names, &snap.edited_by),
+                            snap.agent_key_id.as_deref(),
+                        )
                     );
                     view! {
                         <Panel title=format!("Snapshot v{}: {}", snap.version, snap.title) caption=caption>
@@ -1071,7 +1113,10 @@ fn VersionsTable(
         .map(|row| {
             let version = row.version;
             let is_current = current == Some(version);
-            let editor = actor_label(&names, &row.edited_by);
+            let editor = with_agent_mark(
+                actor_label(&names, &row.edited_by),
+                row.agent_key_id.as_deref(),
+            );
             let when = row.edited_at.clone();
             view! {
                 <tr>
@@ -1303,8 +1348,19 @@ mod tests {
     /// server (`kairos_db::models::enums::ActivityAction`).
     #[test]
     fn the_filter_has_each_action() {
-        assert_eq!(ACTIONS.len(), 15);
-        for action in ["update", "restore", "board_move", "repository", "rename"] {
+        assert_eq!(ACTIONS.len(), 20);
+        for action in [
+            "update",
+            "restore",
+            "board_move",
+            "repository",
+            "rename",
+            "claim",
+            "hand_off",
+            "release",
+            "cancel",
+            "purge",
+        ] {
             assert!(ACTIONS.contains(&action), "{action}");
         }
     }
@@ -1519,6 +1575,27 @@ mod tests {
             ..base
         };
         assert_eq!(entity_cell(&relationship), EntityCell::Empty);
+    }
+
+    /// KAIROS-T-0359: a change made by an agent has the mark, and an entry
+    /// of an older server (no field) has none.
+    #[test]
+    fn a_change_by_an_agent_has_the_agent_mark() {
+        assert_eq!(
+            with_agent_mark("alice".to_string(), Some("5f0c")),
+            "alice (agent)"
+        );
+        assert_eq!(with_agent_mark("alice".to_string(), None), "alice");
+        let old = entry(serde_json::json!({
+            "id": "0a8e9f7d-58f7-4f6e-9f0f-4dbb1a8f3e21",
+            "actor_id": "6e4ff04d-1c92-4c66-9e46-94e0d9e0f70f",
+            "action": "update",
+            "entity_id": null,
+            "entity_type": null,
+            "details": "",
+            "occurred_at": "2026-07-14T10:00:00.000000Z"
+        }));
+        assert_eq!(old.agent_key_id, None);
     }
 
     /// Actor labels prefer the members map and degrade to a shortened id.

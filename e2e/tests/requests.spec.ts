@@ -245,7 +245,7 @@ test('requests: a member who does not manage a delivery board sends a request to
     await expect(carol.getByText(/Saved — the item is now at v/)).toBeVisible();
     expect((await readTask(GUI, alice, plain)).title).toBe(editedTitle);
     // She created it, so she can also archive it.
-    await expect(carol.getByRole('button', { name: 'Delete' })).toBeEnabled();
+    await expect(carol.getByRole('button', { name: 'Archive', exact: true })).toBeEnabled();
     await expectNoMoveControls(carol);
   });
 

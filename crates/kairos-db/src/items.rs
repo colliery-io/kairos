@@ -1883,6 +1883,8 @@ fn soft_delete_planned(
         ] {
             deleted.extend(delete_in_table(conn, &ids, actor)?);
         }
+        // KAIROS-T-0359: an archived task has no claim.
+        crate::task_claims::drop_claims(conn, &ids, actor, "archive")?;
 
         let mut cascaded_short_codes: Vec<String> = deleted
             .into_iter()

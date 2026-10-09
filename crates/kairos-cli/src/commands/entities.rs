@@ -216,6 +216,19 @@ pub struct MoveArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos tasks hand-off` (KAIROS-T-0359).
+#[derive(Args, Debug)]
+pub struct HandOffArgs {
+    /// The task's short code (e.g. ACME-T-0001). The task must be in Active
+    pub short_code: String,
+    /// The person who gets the claim: a user id, an email or a user name
+    /// of a person of the organization
+    #[arg(long = "to", value_name = "PERSON")]
+    pub to: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of `kairos documents move` (COLLIERY-T-0269).
 #[derive(Args, Debug)]
 pub struct DocumentMoveArgs {
@@ -236,16 +249,98 @@ pub struct DocumentMoveArgs {
     pub common: Common,
 }
 
-/// Arguments of the `delete` verbs (soft delete, KAIROS-A-0001 cascade).
+/// Arguments of the `archive` verbs (a soft delete, KAIROS-A-0001
+/// cascade; the old name `delete` stays as an alias).
 #[derive(Args, Debug)]
 pub struct DeleteArgs {
     /// The item's short code (e.g. ACME-T-0001)
     pub short_code: String,
-    /// Actually delete (the soft delete cascades to children)
+    /// Archive the item (the archive cascades to its children; a restore
+    /// brings each one back)
     #[arg(long)]
     pub confirm: bool,
     #[command(flatten)]
     pub common: Common,
+}
+
+/// Arguments of `kairos tasks cancel` (KAIROS-T-0362).
+#[derive(Args, Debug)]
+pub struct CancelArgs {
+    /// The task's short code (e.g. ACME-T-0001). The task must not be done
+    pub short_code: String,
+    /// Why the task is cancelled. Must not be empty
+    #[arg(long, value_name = "TEXT")]
+    pub reason: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
+/// Arguments of `kairos tasks purge` (KAIROS-T-0362).
+#[derive(Args, Debug)]
+pub struct PurgeArgs {
+    /// The task's current short code (e.g. ACME-T-0001)
+    pub short_code: String,
+    /// Delete the task for good. You cannot undo it
+    #[arg(long)]
+    pub confirm: bool,
+    #[command(flatten)]
+    pub common: Common,
+}
+
+/// The `--confirm` guard of `archive`: the text says that a restore
+/// brings the item back.
+pub fn require_archive_confirm(confirm: bool, what: &str) -> Result<(), CliError> {
+    if confirm {
+        Ok(())
+    } else {
+        Err(CliError::Failure(format!(
+            "The archive of {what} needs --confirm. Run the command again with --confirm. \
+             A restore brings the item back."
+        )))
+    }
+}
+
+/// The `--confirm` guard of `tasks purge`: the text says that nothing can
+/// bring the task back.
+pub fn require_purge_confirm(confirm: bool, what: &str) -> Result<(), CliError> {
+    if confirm {
+        Ok(())
+    } else {
+        Err(CliError::Failure(format!(
+            "The purge deletes {what} for good, and you cannot undo it. Run the command again \
+             with --confirm. To archive the task, use `kairos tasks archive`."
+        )))
+    }
+}
+
+/// `tasks cancel` output (KAIROS-T-0362).
+pub fn emit_cancelled(common: &Common, task: &Task) -> Result<(), CliError> {
+    if common.json {
+        return print_json(task);
+    }
+    match &task.cancellation {
+        Some(mark) => println!(
+            "Kairos cancelled {}. It is in the done column now.\nReason: {}",
+            task.short_code, mark.reason
+        ),
+        None => println!("Kairos cancelled {}.", task.short_code),
+    }
+    Ok(())
+}
+
+/// `tasks purge` output (KAIROS-T-0362).
+pub fn emit_purged(
+    common: &Common,
+    response: &kairos_client::types::PurgeTaskResponse,
+) -> Result<(), CliError> {
+    if common.json {
+        return print_json(response);
+    }
+    println!(
+        "Kairos deleted {} (\"{}\") for good. No restore can bring it back.",
+        response.short_code, response.title
+    );
+    Ok(())
 }
 
 /// The client-side `--confirm` guard for destructive verbs.
@@ -436,6 +531,25 @@ impl EntityView for Task {
             ("column", self.column_id.clone()),
             ("type", self.task_type.clone()),
             ("team", or_dash(&self.team_id)),
+            (
+                "claim",
+                self.claim.as_ref().map_or_else(
+                    || "-".to_string(),
+                    |c| format!("{} since {}", claim_holder(c), c.claimed_at),
+                ),
+            ),
+            (
+                "cancelled",
+                self.cancellation.as_ref().map_or_else(
+                    || "-".to_string(),
+                    |c| {
+                        format!(
+                            "{} by {}. Reason: {}",
+                            c.cancelled_at, c.cancelled_by_name, c.reason
+                        )
+                    },
+                ),
+            ),
             ("version", self.version.to_string()),
             ("created", self.created_at.clone()),
             ("updated", self.updated_at.clone()),
@@ -627,6 +741,41 @@ pub fn emit_transitioned<T: EntityView>(common: &Common, item: &T) -> Result<(),
         item.column_id().unwrap_or("-")
     );
     Ok(())
+}
+
+/// Render the claim of a task after a hand-off or a release
+/// (KAIROS-T-0359).
+pub fn emit_claim(common: &Common, task: &Task) -> Result<(), CliError> {
+    if common.json {
+        return print_json(task);
+    }
+    println!("{}", claim_line(task));
+    Ok(())
+}
+
+/// The sentence about the claim of a task.
+fn claim_line(task: &Task) -> String {
+    match &task.claim {
+        Some(claim) => format!(
+            "{} has the claim on the task {} since {}.",
+            claim_holder(claim),
+            task.short_code,
+            claim.claimed_at
+        ),
+        None => format!(
+            "The task {} has no claim. The next person who moves it to Active gets the claim.",
+            task.short_code
+        ),
+    }
+}
+
+/// "Alice (agent)" when the agent of the person made the claim.
+fn claim_holder(claim: &kairos_client::types::TaskClaim) -> String {
+    if claim.agent {
+        format!("{} (agent)", claim.display_name)
+    } else {
+        claim.display_name.clone()
+    }
 }
 
 /// Render a board move (KAIROS-I-0012). Tasks only — they are the one
@@ -985,7 +1134,9 @@ impl AdrCreateArgs {
 /// `board_move(Move) = method` adds the board move (tasks only — they are
 /// the one family on per-team boards, KAIROS-I-0012). The optional
 /// `owner_move(Move) = method` adds the move of a document to a different
-/// owner board (COLLIERY-T-0269). `list_args` is the type of the flags of
+/// owner board (COLLIERY-T-0269). The optional `claims(HandOff = method,
+/// Release = method)` adds the hand-off and the release of the claim of a
+/// task in Active (tasks only, KAIROS-T-0359). `list_args` is the type of the flags of
 /// `list`: [`ImpactListArgs`] for documents and ADRs, which have the
 /// filter `--repo`.
 macro_rules! entity_family_cli {
@@ -996,6 +1147,8 @@ macro_rules! entity_family_cli {
         $(, transition($transition_variant:ident) = $transition_fn:ident)?
         $(, board_move($move_variant:ident) = $move_fn:ident)?
         $(, owner_move($owner_variant:ident) = $owner_fn:ident)?
+        $(, claims($hand_variant:ident = $hand_fn:ident, $release_variant:ident = $release_fn:ident))?
+        $(, task_end($cancel_variant:ident = $cancel_fn:ident, $purge_variant:ident = $purge_fn:ident))?
     ) => {
         #[doc = concat!("Operations on ", $noun, "s.")]
         #[derive(clap::Subcommand, Debug)]
@@ -1028,9 +1181,29 @@ macro_rules! entity_family_cli {
             #[command(about = concat!("Move a ", $noun, " to another owner board"))]
             $owner_variant(DocumentMoveArgs),
             )?
-            #[command(about = concat!("Soft-delete a ", $noun,
-                                      " and cascade to its children (requires --confirm)"))]
-            Delete(DeleteArgs),
+            $(
+            #[command(about = concat!("Give the claim of a ", $noun,
+                                      " in Active to a different person"))]
+            $hand_variant(HandOffArgs),
+            #[command(about = concat!("End the claim of a ", $noun,
+                                      " in Active and leave it free for anyone"))]
+            $release_variant(GetArgs),
+            )?
+            $(
+            #[command(about = concat!("Cancel a ", $noun,
+                                      " with a reason: it moves to the done column, ",
+                                      "marked cancelled"))]
+            $cancel_variant(CancelArgs),
+            #[command(about = concat!("Delete a ", $noun,
+                                      " for good (requires --confirm; you cannot undo it; ",
+                                      "board managers only)"))]
+            $purge_variant(PurgeArgs),
+            )?
+            #[command(about = concat!("Archive a ", $noun,
+                                      " and its children (requires --confirm; ",
+                                      "`restore` brings it back)"),
+                      alias = "delete")]
+            Archive(DeleteArgs),
             #[command(about = concat!("Put an archived ", $noun,
                                       " back on its board (its archived children stay archived)"))]
             Restore(GetArgs),
@@ -1107,8 +1280,33 @@ macro_rules! entity_family_cli {
                         Ok(())
                     }
                     )?
-                    Self::Delete(args) => {
-                        require_confirm(args.confirm, &args.short_code)?;
+                    $(
+                    Self::$hand_variant(args) => {
+                        let client = client(&args.common)?;
+                        let task = client.$hand_fn(&args.short_code, &args.to).await?;
+                        emit_claim(&args.common, &task)
+                    }
+                    Self::$release_variant(args) => {
+                        let client = client(&args.common)?;
+                        let task = client.$release_fn(&args.short_code).await?;
+                        emit_claim(&args.common, &task)
+                    }
+                    )?
+                    $(
+                    Self::$cancel_variant(args) => {
+                        let client = client(&args.common)?;
+                        let task = client.$cancel_fn(&args.short_code, &args.reason).await?;
+                        emit_cancelled(&args.common, &task)
+                    }
+                    Self::$purge_variant(args) => {
+                        require_purge_confirm(args.confirm, &args.short_code)?;
+                        let client = client(&args.common)?;
+                        let response = client.$purge_fn(&args.short_code).await?;
+                        emit_purged(&args.common, &response)
+                    }
+                    )?
+                    Self::Archive(args) => {
+                        require_archive_confirm(args.confirm, &args.short_code)?;
                         let client = client(&args.common)?;
                         let response = client.$delete(&args.short_code).await?;
                         emit_deleted(&args.common, &response)
@@ -1164,7 +1362,9 @@ entity_family_cli!(
     delete = delete_task,
     restore = restore_task,
     transition(Transition) = transition_task,
-    board_move(Move) = move_task_with
+    board_move(Move) = move_task_with,
+    claims(HandOff = hand_off_task, Release = release_task),
+    task_end(Cancel = cancel_task, Purge = purge_task)
 );
 
 entity_family_cli!(
@@ -1338,5 +1538,18 @@ mod tests {
         assert_eq!(err.exit_code(), EXIT_FAILURE);
         assert!(err.to_string().contains("--confirm"), "{err}");
         require_confirm(true, "ACME-T-0001").expect("confirmed passes");
+    }
+
+    /// KAIROS-T-0362: the guard of `archive` says that a restore brings
+    /// the item back; the guard of `purge` says that nothing does.
+    #[test]
+    fn archive_and_purge_guards_say_what_the_verb_does() {
+        let err = require_archive_confirm(false, "ACME-T-0001").expect_err("must refuse");
+        assert!(err.to_string().contains("archive"), "{err}");
+        assert!(err.to_string().contains("restore"), "{err}");
+        require_archive_confirm(true, "ACME-T-0001").expect("confirmed passes");
+        let err = require_purge_confirm(false, "ACME-T-0001").expect_err("must refuse");
+        assert!(err.to_string().contains("cannot undo"), "{err}");
+        require_purge_confirm(true, "ACME-T-0001").expect("confirmed passes");
     }
 }

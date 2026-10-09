@@ -67,7 +67,7 @@ async function saveSettings(
 }
 
 /// On the admin page Repositories, set the summaries of the repository.
-async function setSummaries(page: Page, slug: string, value: 'embedded' | 'hosted') {
+async function setSummaries(page: Page, slug: string, value: 'embedded' | 'hosted' | 'organization') {
   await page.goto('/admin/repositories');
   const row = page.locator(`[data-repo="${slug}"]`).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
@@ -120,8 +120,10 @@ test('code index settings: the admin sets a hosted provider, and a repository op
     await expect(page.getByText('no hosted provider of the summaries')).toBeVisible({
       timeout: 10_000,
     });
+    // KAIROS-T-0358: a new repository follows the organization, and the
+    // organization has the embedded model.
     await expect(row.locator('[data-testid="code-index-summaries-status"]')).toHaveText(
-      'Summaries: the embedded model.',
+      'Summaries: the default of the organization, now the embedded model.',
     );
     await page.goto('/admin/code-index');
   });

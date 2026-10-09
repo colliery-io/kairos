@@ -111,9 +111,10 @@ pub enum ReposCommand {
         #[arg(long = "code-index-build", value_name = "ON|OFF", value_parser = ["on", "off"])]
         code_index_build: Option<String>,
         /// Where the summaries of the code index are made: embedded (the
-        /// model in the server) or hosted (the provider of the organization;
-        /// the code of each changed symbol leaves the host)
-        #[arg(long = "code-index-summaries", value_name = "EMBEDDED|HOSTED", value_parser = ["embedded", "hosted"])]
+        /// model in the server), hosted (the provider of the organization;
+        /// the code of each changed symbol leaves the host) or organization
+        /// (the default of the organization)
+        #[arg(long = "code-index-summaries", value_name = "EMBEDDED|HOSTED|ORGANIZATION", value_parser = ["embedded", "hosted", "organization"])]
         code_index_summaries: Option<String>,
         #[command(flatten)]
         common: Common,
@@ -397,7 +398,11 @@ impl ReposCommand {
                 );
                 println!("read token:     {}", detail.repository.credential.summary());
                 println!("index builder:  {}", detail.repository.code_index_build);
-                println!("summaries:      {}", detail.repository.code_index_summaries);
+                println!(
+                    "summaries:      {} (now: {})",
+                    detail.repository.code_index_summaries,
+                    detail.repository.code_index_summaries_resolved
+                );
                 println!("\nHow to work here:");
                 if detail.repository.description.trim().is_empty() {
                     println!("  (no description yet)");

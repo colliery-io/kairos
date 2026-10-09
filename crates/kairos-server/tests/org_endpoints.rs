@@ -490,6 +490,7 @@ async fn org_and_admin_endpoints_against_live_stack() {
                 name: Some("Spike 2".into()),
                 position: Some(0),
                 is_done: None,
+                claims: None,
             },
         )
         .await

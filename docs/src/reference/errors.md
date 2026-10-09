@@ -232,6 +232,10 @@ server refuses a value that is not an integer, with `VALIDATION`.
 |---|---|---|---|
 | `INVALID_TRANSITION` | 422 | The move is not an edge in the board's transition graph | `from` and `to` (`id`, `name` each) and `allowed_targets` — the columns reachable from the current one, as `id`/`name` pairs |
 | `ITEM_NOT_ON_BOARD` | 422 | The item has no board placement, so it cannot transition or be moved: an off-board ADR, and over MCP a document, which never has one | — |
+| `NOT_CLAIMABLE` | 422 | A hand-off or a release of the claim of a task that is not in a column that holds claims (Active) (KAIROS-T-0359) | — |
+| `NO_CLAIM` | 422 | A release of the claim of a task that has no claim | — |
+| `TASK_DONE` | 422 | A cancel of a task that is in a done column (KAIROS-T-0362) | — |
+| `NO_DONE_COLUMN` | 422 | A cancel of a task whose board has no done column | — |
 | `COLUMN_NOT_EMPTY` | 422 | The column still holds live items | `item_count` — live items only; archived ones do not count — and `column` (`id`, `name`) |
 | `BOARD_NOT_EMPTY` | 422 | The board still holds live items | `item_count` and `items` — the blocking short codes, **capped at 20** even when `item_count` is higher. Deleting a team adds `board_id` and `board` (`id`, `name`, `slug`): the board that is not empty. A team of old data can have 2 or more delivery boards, and the delete of the team examines each |
 | `DUPLICATE_COLUMN_NAME` | 422 | A live column of that board already has the name | — |
@@ -253,7 +257,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
-| `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
+| `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only. "Archive completed" (`POST /api/boards/{id}/archive-completed`) is for a delivery board only | — |
 | `RENAME_NOT_NEEDED` | 422 | A move with a rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. Nothing changes. Do the move with no rename | `argument`: `rename`. For a prefix, also `short_code` and `code_prefix` |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
 
@@ -284,6 +288,13 @@ refusal is `VALIDATION` with `details.field` = `board` (MCP:
 
 Note `DEFINITION_IN_USE` is **409**, not 422, unlike its neighbours — it
 reports a state conflict rather than a malformed request.
+
+### The code index
+
+| Code | Status | Meaning | `details` |
+|---|---|---|---|
+| `NO_QUERY_PROVIDER` | 422 | `POST /api/code-index/query-vector` names a model of vectors that the organization has no provider for: not the embedded model of the server, and not the remote provider of the organization. The vector provider changed after the index was made. Build the index again | `model` |
+| `QUERY_VECTOR_FAILED` | 502 | The provider of the model did not give the vector of the query: the remote endpoint failed or did not answer, its secret does not open, or the vector has a different dimension | `model` |
 
 ### Deployment and integration
 

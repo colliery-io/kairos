@@ -54,6 +54,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/boards/{id}/items", get(board_items))
         .route(
+            "/api/boards/{id}/archive-completed",
+            axum::routing::post(archive_completed),
+        )
+        .route(
             "/api/boards/{id}/code-sequences/{item_type}",
             axum::routing::put(set_code_sequence),
         )
@@ -307,6 +311,106 @@ pub(crate) async fn get_board(
         })
         .await?;
     Ok(Json(detail))
+}
+
+/// Archive each live task in the done columns of a board (KAIROS-T-0363,
+/// "Archive completed"). A cancelled task is in a done column, so it goes
+/// too. A restore brings back each task, as for each archived item.
+///
+/// Each task goes through the one archive of the server
+/// (`cascade::archive_item`). Each rule of an archive of one task
+/// applies: the edit rule, the cascade, the claim and the history.
+///
+/// ONE TRANSACTION: the call archives each task, or it archives none. A
+/// refusal of one task (a 403 of the edit rule) refuses the call.
+///
+/// Requires `manage_tasks` on the board (an organization admin has it):
+/// the capability that archives each task of the board. The creator of a
+/// task can archive that task one at a time. A board that is not a
+/// delivery board holds no tasks: 422 `NOT_DELIVERY_BOARD`.
+#[utoipa::path(
+    post,
+    path = "/api/boards/{id}/archive-completed",
+    tag = "boards",
+    params(("id" = String, Path, description = "The slug or the id (UUID) of the board")),
+    responses(
+        (status = 200, description = "The archived tasks: the count and the codes. A count of 0 when the done columns are empty", body = kairos_client::types::ArchiveCompletedResponse),
+        (status = 403, description = "Missing manage_tasks on the board", body = kairos_client::types::ErrorEnvelope),
+        (status = 404, description = "Unknown board", body = kairos_client::types::ErrorEnvelope),
+        (status = 422, description = "NOT_DELIVERY_BOARD", body = kairos_client::types::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn archive_completed(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(id): Path<String>,
+) -> Result<Json<kairos_client::types::ArchiveCompletedResponse>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let response = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let board = load_board_by_ref(conn, &id)?;
+            archive_completed_tasks(conn, &slug, &board, user)
+        })
+        .await?;
+    Ok(Json(response))
+}
+
+/// The ONE "Archive completed" of the server: REST
+/// `POST /api/boards/{id}/archive-completed` and MCP `archive_completed`
+/// ([`archive_completed`] has the rule).
+pub(crate) fn archive_completed_tasks(
+    conn: &mut PgConnection,
+    slug: &str,
+    board: &Board,
+    user: Uuid,
+) -> Result<kairos_client::types::ArchiveCompletedResponse, ApiError> {
+    if board.board_level != BoardLevel::Delivery {
+        return Err(ApiError::unprocessable(
+            "NOT_DELIVERY_BOARD",
+            format!(
+                "The board {} is not a delivery board, so it has no tasks to archive.",
+                board.slug
+            ),
+        ));
+    }
+    require_capability(conn, slug, Some(board.id), user, "manage_tasks")?;
+    run_in_transaction(conn, |conn| {
+        use kairos_db::schema::{board_columns, tasks};
+        let done: Vec<(Uuid, String)> = tasks::table
+            .inner_join(board_columns::table)
+            .filter(tasks::board_id.eq(board.id))
+            .filter(tasks::deleted_at.is_null())
+            .filter(board_columns::is_done.eq(true))
+            .order(tasks::short_code.asc())
+            .select((tasks::id, tasks::short_code))
+            .load(conn)
+            .map_err(ApiError::internal)?;
+        let mut short_codes = Vec::with_capacity(done.len());
+        for (task_id, short_code) in done {
+            // An archive of an earlier task can take this one by its
+            // cascade: then it is archived already.
+            let live: bool = diesel::select(diesel::dsl::exists(
+                tasks::table
+                    .filter(tasks::id.eq(task_id))
+                    .filter(tasks::deleted_at.is_null()),
+            ))
+            .get_result(conn)
+            .map_err(ApiError::internal)?;
+            if !live {
+                continue;
+            }
+            crate::api::cascade::archive_item(conn, slug, user, task_id, ItemType::Task)?;
+            short_codes.push(short_code);
+        }
+        Ok(kairos_client::types::ArchiveCompletedResponse {
+            board_id: board.id.to_string(),
+            count: short_codes.len() as i64,
+            short_codes,
+        })
+    })
 }
 
 /// Create a board seeded with the system default columns/transitions for
@@ -996,6 +1100,10 @@ pub(crate) async fn board_items(
                     .flat_map(|g| std::mem::take(&mut g.tasks))
                     .collect();
                 attach_repositories(conn, &mut all).map_err(ApiError::internal)?;
+                // KAIROS-T-0359: the claim of each task, in the same way.
+                crate::claims::attach_claims(conn, &mut all).map_err(ApiError::internal)?;
+                // KAIROS-T-0362: the cancel mark of each task.
+                crate::cancel::attach_cancellations(conn, &mut all).map_err(ApiError::internal)?;
                 let mut by_column: HashMap<String, Vec<kairos_client::types::Task>> =
                     HashMap::new();
                 for task in all {
@@ -1160,6 +1268,11 @@ pub(crate) async fn add_column(
 
 /// Rename and/or move a column (T-0010 rules; moving reorders the board's
 /// columns around the new position). Requires `configure_boards`.
+///
+/// This route also sets the flags `is_done` and `claims` (KAIROS-T-0359).
+/// A person who moves a task into a column with `claims` gets the claim of
+/// the task. When the flag goes off, the claims of the tasks in the column
+/// end.
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}/columns/{col_id}",
@@ -1185,10 +1298,14 @@ pub(crate) async fn update_column(
 ) -> Result<Json<dto::BoardColumn>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let column_id = parse_uuid(&col_id, "col_id")?;
-    if body.name.is_none() && body.position.is_none() && body.is_done.is_none() {
+    if body.name.is_none()
+        && body.position.is_none()
+        && body.is_done.is_none()
+        && body.claims.is_none()
+    {
         return Err(ApiError::validation(
-            "The request has no field to change. Send one or more of name, position and \
-             is_done.",
+            "The request has no field to change. Send one or more of name, position, is_done \
+             and claims.",
         ));
     }
     let user = auth.user_id;
@@ -1205,6 +1322,11 @@ pub(crate) async fn update_column(
             }
             if let Some(is_done) = body.is_done {
                 boards::set_column_done(conn, column_id, is_done, user)
+                    .map_err(map_config_error)?;
+            }
+            // KAIROS-T-0359: the same path and capability as `is_done`.
+            if let Some(claims) = body.claims {
+                boards::set_column_claims(conn, column_id, claims, user)
                     .map_err(map_config_error)?;
             }
             if let Some(position) = body.position {

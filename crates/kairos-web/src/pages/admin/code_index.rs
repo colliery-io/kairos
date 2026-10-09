@@ -60,6 +60,9 @@ pub struct CodeIndexSettings {
     pub summary: SummaryProvider,
     pub vectors: VectorProvider,
     pub concurrency: i32,
+    /// `embedded` or `hosted` (KAIROS-T-0358). An older server sends none.
+    #[serde(default = "embedded")]
+    pub default_summaries: String,
     #[serde(default)]
     pub updated_by: Option<String>,
     #[serde(default)]
@@ -72,7 +75,18 @@ struct PutSettings {
     summary: PutSummary,
     vectors: PutVectors,
     concurrency: i32,
+    default_summaries: String,
 }
+
+fn embedded() -> String {
+    "embedded".to_string()
+}
+
+/// The setting `default_summaries` (KAIROS-T-0358).
+const DEFAULT_SUMMARIES_HINT: &str = "The summarizer of each repository that follows the \
+                                      organization: embedded or hosted. A repository can set \
+                                      its own value on the page Repositories. Hosted needs a \
+                                      hosted provider of the summaries.";
 
 #[derive(Debug, Serialize)]
 struct PutSummary {
@@ -127,9 +141,9 @@ const SUMMARY_HINT: &str = "ollama-cloud needs the base URL (for example https:/
 const VECTOR_HINT: &str = "remote needs the base URL of an OpenAI-compatible embeddings endpoint \
                            and the model. A local Ollama needs no secret. A change of the vector \
                            model gives the code index new vectors over time.";
-const OPT_IN_HINT: &str = "A repository uses the hosted provider only after a person opts it \
-                           in, on the page Repositories. Until then its summaries come from the \
-                           embedded model.";
+const OPT_IN_HINT: &str = "A repository uses the hosted provider when it is set to hosted on the \
+                           page Repositories, or when it follows the organization and the default \
+                           summarizer of the repositories is hosted.";
 
 /// `/admin/code-index`.
 #[component]
@@ -180,6 +194,7 @@ fn SettingsForm(
     let vector_model = RwSignal::new(current.vectors.model.clone().unwrap_or_default());
     let vector_secret = RwSignal::new(String::new());
     let concurrency = RwSignal::new(current.concurrency.to_string());
+    let default_summaries = RwSignal::new(current.default_summaries.clone());
     let summary_secret_text = secret_text(&current.summary.secret);
     let vector_secret_text = secret_text(&current.vectors.secret);
     let summary_secret_set = current.summary.secret.set;
@@ -218,6 +233,7 @@ fn SettingsForm(
                 .trim()
                 .parse()
                 .unwrap_or(current.concurrency),
+            default_summaries: default_summaries.get_untracked(),
         };
         run_mutation(
             busy,
@@ -285,11 +301,15 @@ fn SettingsForm(
             <Stack gap="sm">
                 <Group gap="sm" wrap=true align="end">
                     <TextInput label="Requests at a time (1 to 32)" value=concurrency/>
+                    <Select label="Default summarizer of the repositories" value=default_summaries
+                        options=vec!["embedded".to_string(), "hosted".to_string()]
+                        attr:data-testid="code-index-default-summaries"/>
                     <Button on_click=Callback::new(move |_| save(false, false))
                         attr:data-testid="code-index-settings-save">
                         "Save"
                     </Button>
                 </Group>
+                <Text dimmed=true size="xs">{DEFAULT_SUMMARIES_HINT}</Text>
                 <Text dimmed=true size="xs" attr:data-testid="code-index-settings-state">{state_line}</Text>
             </Stack>
         </Panel>
@@ -331,5 +351,6 @@ mod tests {
         assert_eq!(settings.summary.model.as_deref(), Some("gemma4:31b"));
         assert!(settings.summary.secret.set);
         assert!(!settings.vectors.secret.set);
+        assert_eq!(settings.default_summaries, "embedded", "an older server");
     }
 }

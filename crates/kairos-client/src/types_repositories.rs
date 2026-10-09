@@ -168,9 +168,14 @@ pub struct Repository {
     #[serde(default)]
     pub code_index_build: CodeIndexBuild,
     /// Where the summaries of the code index of the repository are made
-    /// (KAIROS-T-0340): `embedded` (the default) or `hosted`.
+    /// (KAIROS-T-0340): `embedded`, `hosted`, or `organization` (the
+    /// default, KAIROS-T-0358): the default of the organization decides.
     #[serde(default)]
     pub code_index_summaries: CodeIndexSummaries,
+    /// Where the summaries are made now: `embedded` or `hosted`. For
+    /// `organization`, the default of the organization (KAIROS-T-0358).
+    #[serde(default)]
+    pub code_index_summaries_resolved: CodeIndexSummaries,
     /// RFC 3339.
     pub created_at: String,
     /// RFC 3339.
@@ -266,8 +271,9 @@ pub struct UpdateRepositoryRequest {
     /// error names it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_index_build: Option<CodeIndexBuild>,
-    /// `embedded` or `hosted` (KAIROS-T-0340). `hosted` is refused when the
-    /// tenant has no hosted provider (`CODE_INDEX_NO_HOSTED_PROVIDER`).
+    /// `embedded`, `hosted` (KAIROS-T-0340) or `organization`
+    /// (KAIROS-T-0358). `hosted` is refused when the tenant has no hosted
+    /// provider (`CODE_INDEX_NO_HOSTED_PROVIDER`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_index_summaries: Option<CodeIndexSummaries>,
 }
@@ -283,6 +289,10 @@ pub enum CodeIndexSummaries {
     /// The hosted provider of the tenant (`PUT /api/org/code-index-settings`).
     /// The code of each changed symbol goes to that provider.
     Hosted,
+    /// The default of the organization (`default_summaries` of
+    /// `PUT /api/org/code-index-settings`, KAIROS-T-0358). Only a
+    /// repository has this value.
+    Organization,
 }
 
 impl CodeIndexSummaries {
@@ -291,6 +301,7 @@ impl CodeIndexSummaries {
         match self {
             CodeIndexSummaries::Embedded => "embedded",
             CodeIndexSummaries::Hosted => "hosted",
+            CodeIndexSummaries::Organization => "organization",
         }
     }
 
@@ -299,6 +310,7 @@ impl CodeIndexSummaries {
         match text {
             "embedded" => Some(CodeIndexSummaries::Embedded),
             "hosted" => Some(CodeIndexSummaries::Hosted),
+            "organization" => Some(CodeIndexSummaries::Organization),
             _ => None,
         }
     }

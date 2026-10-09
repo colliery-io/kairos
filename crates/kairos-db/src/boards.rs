@@ -700,6 +700,14 @@ fn seeded_done_column(level: BoardLevel, name: &str) -> bool {
     }
 }
 
+/// Which seeded columns hold claims (KAIROS-T-0359): the Active column of
+/// a delivery board. A task that a person moves there gets a claim for the
+/// person ([`crate::task_claims`]). Applies to the system defaults only —
+/// admins own the flag afterwards.
+fn seeded_claims_column(level: BoardLevel, name: &str) -> bool {
+    level == BoardLevel::Delivery && name == "Active"
+}
+
 /// Create a board in the current tenant schema, seeding its columns and
 /// transitions from the tenant's `public.system_board_defaults` row for
 /// `level` — the ONE implementation of default-board seeding: tenant
@@ -881,6 +889,7 @@ pub fn create_board(
                     name: column.clone(),
                     position: position as i32,
                     is_done: seeded_done_column(level, column),
+                    claims: seeded_claims_column(level, column),
                 })
                 .returning(BoardColumn::as_returning())
                 .get_result(conn)?;
@@ -1003,6 +1012,23 @@ macro_rules! transition_item_fn {
                     $entity_type,
                     format!("column:{from_name}->{to_name}"),
                 )?;
+                // KAIROS-T-0359: a task in a claims column has a claim.
+                if $entity_type == "task" {
+                    crate::task_claims::after_column_change(
+                        conn,
+                        item_id,
+                        to_column_id,
+                        actor_id,
+                        "transition",
+                    )?;
+                    // KAIROS-T-0362: a move out of done ends the cancel
+                    // mark.
+                    crate::task_cancellations::after_column_change(
+                        conn,
+                        item_id,
+                        to_column_id,
+                    )?;
+                }
                 // KAIROS-T-0022: thin event (new column), delivered on
                 // commit.
                 crate::events::emit_item_event_by_id(
@@ -1135,6 +1161,18 @@ pub fn move_task_with(
             "task",
             format!("board:{from_board_id}->{to_board_id} column:{from_column_id}->{to_column_id}"),
         )?;
+        // KAIROS-T-0359: the entry column of the target board can hold
+        // claims, as a column of a transition can.
+        crate::task_claims::after_column_change(
+            conn,
+            task_id,
+            to_column_id,
+            actor_id,
+            "board_move",
+        )?;
+        // KAIROS-T-0362: the entry column is not done (or it is, and the
+        // mark stays).
+        crate::task_cancellations::after_column_change(conn, task_id, to_column_id)?;
         let renamed = if rename {
             let target_slug = target.slug.clone();
             Some(crate::code_rename::rename_item(
@@ -1271,6 +1309,8 @@ pub fn add_column(
                 // Admin-added columns start un-done; the flag is a
                 // deliberate admin choice (KAIROS-T-0080).
                 is_done: false,
+                // The same for the claims flag (KAIROS-T-0359).
+                claims: false,
             })
             .returning(BoardColumn::as_returning())
             .get_result(conn)?;
@@ -1287,8 +1327,6 @@ pub fn add_column(
     })
 }
 
-/// Rename a column (name uniqueness enforced by
-/// [`kairos_core::board::check_rename_column`]).
 /// Set a column's done flag (KAIROS-T-0080) — an explicit admin choice,
 /// logged as board configuration. Setting the current value is a no-op.
 pub fn set_column_done(
@@ -1325,6 +1363,51 @@ pub fn set_column_done(
     })
 }
 
+/// Set a column's claims flag (KAIROS-T-0359) — an explicit admin choice,
+/// logged as board configuration. A task that a person moves into a column
+/// with the flag gets a claim ([`crate::task_claims`]). When the flag goes
+/// off, the claims of the tasks in the column end. When it goes on, no
+/// task in the column gets a claim: the next person who moves a task in
+/// gets it.
+pub fn set_column_claims(
+    conn: &mut PgConnection,
+    column_id: Uuid,
+    claims: bool,
+    actor_id: Uuid,
+) -> Result<BoardColumn, BoardError> {
+    conn.transaction::<_, BoardError, _>(|conn| {
+        use crate::schema::board_columns;
+
+        let board_id = column_board_id(conn, column_id)?;
+        let (columns, _) = load_board_rules(conn, board_id)?;
+        let name = column_name(&columns, column_id)?;
+
+        let updated: BoardColumn =
+            diesel::update(board_columns::table.filter(board_columns::id.eq(column_id)))
+                .set((
+                    board_columns::claims.eq(claims),
+                    board_columns::updated_at.eq(diesel::dsl::now),
+                ))
+                .returning(BoardColumn::as_returning())
+                .get_result(conn)?;
+        if !claims {
+            crate::task_claims::drop_claims_in_column(conn, column_id, actor_id)?;
+        }
+
+        log_activity(
+            conn,
+            actor_id,
+            ActivityAction::BoardConfig,
+            Some(board_id),
+            "board",
+            format!("column_claims:{name}={claims}"),
+        )?;
+        Ok(updated)
+    })
+}
+
+/// Rename a column (name uniqueness enforced by
+/// [`kairos_core::board::check_rename_column`]).
 pub fn rename_column(
     conn: &mut PgConnection,
     column_id: Uuid,

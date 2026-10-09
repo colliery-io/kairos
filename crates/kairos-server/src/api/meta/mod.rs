@@ -97,8 +97,8 @@ pub fn require_org_admin(tenant: &TenantContext) -> Result<(), ApiError> {
         Ok(())
     } else {
         Err(ApiError::forbidden(
-            "This action requires the organization admin role. \
-             Metadata definitions and templates are configuration of the tenant.",
+            "This action requires the organization admin role. Ask an admin of the \
+             organization to do it, or to make you an admin.",
         )
         .with_details(json!({ "required_role": "admin" })))
     }

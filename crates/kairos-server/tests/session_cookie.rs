@@ -10,7 +10,8 @@
 //! - a WebSocket handshake with the cookie needs the Kairos origin too;
 //! - `POST /api/logout` with the cookie ends the session and clears the
 //!   cookie, and the cookie no longer works;
-//! - a deployment with local auth off ignores the cookie.
+//! - a deployment with local auth off still takes the cookie of a session
+//!   (an OIDC login of the GUI opens one too, KAIROS-T-0364).
 //!
 //! Runs against the LIVE compose Postgres (`angreal services up`). No Dex.
 
@@ -295,16 +296,42 @@ async fn the_password_session_is_an_http_only_cookie_against_live_stack() {
         "an ended session is refused"
     );
 
-    // --- local auth off: the cookie is not a credential ------------------
+    // --- local auth off: the cookie of a session is still a credential ---
+    // KAIROS-T-0364: an OIDC login of the GUI opens a session on a deployment
+    // with no local accounts, so the session branch does not depend on them.
+    let (status, _, body) = send(
+        &router,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/login")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({ "email": "ada@example.test", "password": PASSWORD }).to_string(),
+            ))
+            .expect("request"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let live = body["token"].as_str().expect("bearer").to_string();
     let pool = TenantPool::new(&scratch_url, 2).await.expect("pool");
     let auth = Arc::new(Authenticator::with_static_keys(ISSUER, AUDIENCE, []));
     let off = app::router(app::state_with(base_config(&scratch_url), pool, auth));
+    let (status, _, body) = send(
+        &off,
+        with_cookie(Method::GET, "/api/whoami", &live, &[], None),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
     let (status, _, _) = send(
         &off,
         with_cookie(Method::GET, "/api/whoami", &token, &[], None),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "the ended session stays ended"
+    );
 
     drop(conn);
     let mut admin = PgConnection::establish(&common::admin_database_url()).expect("admin");

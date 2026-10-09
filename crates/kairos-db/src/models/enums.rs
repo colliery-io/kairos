@@ -274,6 +274,11 @@ text_enum! {
         Restore => "restore",
         Update => "update",
         Rename => "rename",
+        Claim => "claim",
+        HandOff => "hand_off",
+        Release => "release",
+        Cancel => "cancel",
+        Purge => "purge",
     }
 }
 
@@ -412,6 +417,11 @@ mod tests {
                 "restore",
                 "update",
                 "rename",
+                "claim",
+                "hand_off",
+                "release",
+                "cancel",
+                "purge",
             ]
         );
     }

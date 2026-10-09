@@ -55,7 +55,14 @@ pub struct Settings {
     pub concurrency: i32,
     pub updated_by: Uuid,
     pub updated_at: DateTime<Utc>,
+    /// `embedded` or `hosted`: the summarizer of a repository that follows
+    /// the organization (KAIROS-T-0358). See [`DEFAULT_SUMMARIES_VALUES`].
+    pub default_summaries: String,
 }
+
+/// The values of [`Settings::default_summaries`]. The column has a CHECK
+/// with the same values.
+pub const DEFAULT_SUMMARIES_VALUES: [&str; 2] = ["embedded", "hosted"];
 
 impl Settings {
     /// The settings of a tenant with no row: the embedded model for both.
@@ -81,6 +88,7 @@ impl Settings {
             vector_secret_set_at: None,
             concurrency: DEFAULT_CONCURRENCY,
             updated_by,
+            default_summaries: "embedded".to_string(),
             updated_at: Utc::now(),
         }
     }
@@ -149,6 +157,8 @@ pub struct Update {
     pub vector_model: Option<String>,
     pub vector_secret: SecretChange,
     pub concurrency: i32,
+    /// `embedded` or `hosted` (KAIROS-T-0358).
+    pub default_summaries: String,
     pub updated_by: Uuid,
 }
 
@@ -223,6 +233,7 @@ pub fn save(conn: &mut PgConnection, update: Update) -> QueryResult<Settings> {
             concurrency: update.concurrency,
             updated_by: update.updated_by,
             updated_at: now,
+            default_summaries: update.default_summaries,
         };
         diesel::insert_into(code_index_settings::table)
             .values(&row)

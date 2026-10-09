@@ -68,6 +68,13 @@ pub struct BoardColumn {
     #[serde(default)]
     #[schema(required = true)]
     pub is_done: bool,
+    /// A task that a person moves into this column gets a claim for the
+    /// person (KAIROS-T-0359). The Active column of a delivery board has
+    /// it. The default is for the client only: a response of an older
+    /// server has no `claims`, and it reads as `false`.
+    #[serde(default)]
+    #[schema(required = true)]
+    pub claims: bool,
     /// When this column was REMOVED from its board (RFC 3339), `null`
     /// while it is part of the board (KAIROS-T-0161, KAIROS-T-0164).
     ///
@@ -490,6 +497,11 @@ pub struct UpdateColumnRequest {
     /// only ever suggests.
     #[serde(default)]
     pub is_done: Option<bool>,
+    /// A task that a person moves into this column gets a claim for the
+    /// person (KAIROS-T-0359). When the flag goes off, the claims of the
+    /// tasks in the column end.
+    #[serde(default)]
+    pub claims: Option<bool>,
 }
 
 /// Body of `POST /api/boards/{id}/transitions`.
@@ -933,6 +945,7 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: "2026-01-01T00:00:00Z".to_string(),
             is_done: false,
+            claims: false,
             removed_at: None,
         };
         let sent = serde_json::to_value(&column).expect("serializes");

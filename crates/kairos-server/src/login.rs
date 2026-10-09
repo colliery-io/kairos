@@ -7,10 +7,18 @@
 //!
 //! # Not routed unless enabled
 //!
-//! Both routes are mounted only when `KAIROS_LOCAL_AUTH` is on. Off, they do not
+//! `/api/login` is mounted only when `KAIROS_LOCAL_AUTH` is on. Off, it does not
 //! exist — a 404 from an absent route, not a 401 from a handler that declines. A
 //! deployment that authenticates through an issuer has no password endpoint to
 //! attack, and that is a stronger property than one that exists and says no.
+//!
+//! # A session from an OIDC login (KAIROS-T-0364)
+//!
+//! `POST /api/session` turns the OIDC bearer of a GUI login into a Kairos
+//! session, with the same cookie a password login sets, so that a reload keeps
+//! the session also where the issuer gives no refresh token (Google). Sessions
+//! therefore exist on each deployment, and `/api/logout` and the session branch
+//! of `require_auth` work whether or not local accounts are on.
 //!
 //! Local auth is **additive**: a deployment may have both an issuer and local
 //! accounts, and neither path knows about the other.
@@ -53,13 +61,22 @@ use crate::local_auth::{
 use crate::middleware::auth::AuthContext;
 use crate::rate_limit::{Attempt, client_addr};
 
-/// `/api/login` + `/api/logout`. Mounted by [`crate::app::router`] only when
-/// `KAIROS_LOCAL_AUTH` is on, and OUTSIDE the auth → tenant stack: login has no
-/// credential yet, and logout must work with a session that has already expired.
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/api/login", post(login))
-        .route("/api/logout", post(logout))
+/// `/api/logout`, and `/api/login` when `local_auth` (`KAIROS_LOCAL_AUTH`) is
+/// on. OUTSIDE the auth → tenant stack: login has no credential yet, and logout
+/// must work with a session that has already expired.
+pub fn router(local_auth: bool) -> Router<AppState> {
+    let router = Router::new().route("/api/logout", post(logout));
+    if local_auth {
+        router.route("/api/login", post(login))
+    } else {
+        router
+    }
+}
+
+/// `/api/session` (KAIROS-T-0364). Behind the auth layer and NOT the tenant
+/// layer: a session is of a person, not of an organization.
+pub fn session_router() -> Router<AppState> {
+    Router::new().route("/api/session", post(open_session))
 }
 
 /// `POST /api/login` body.
@@ -184,42 +201,23 @@ pub async fn login(State(state): State<AppState>, req: Request) -> Result<Respon
                 return Err(bad_login());
             }
 
-            let token = generate_session_token();
-            let expires_at = Utc::now() + ttl;
-            kairos_db::local_auth::create_session(
+            new_session(
                 conn,
-                kairos_db::local_auth::NewLocalSession {
-                    user_id: user.id,
-                    token_hash: hash_session_token(&token),
-                    expires_at,
-                },
-            )
-            .map_err(ApiError::internal)?;
-
-            Ok(LoginResponse {
-                token,
-                expires_at: expires_at.to_rfc3339(),
-                user: LoginUser {
+                ttl,
+                user.id,
+                LoginUser {
                     id: user.id.to_string(),
                     email: user.email,
                     display_name: user.display_name,
                 },
-            })
+            )
         })
         .await;
 
     match outcome {
         Ok(response) => {
             attempt.succeeded();
-            // KAIROS-T-0327: the session is also an HttpOnly cookie, so that
-            // a reload of the GUI keeps it (crate::session_cookie).
-            let cookie = crate::session_cookie::set(&response.token, state.config.session_ttl_secs);
-            Ok((
-                StatusCode::OK,
-                [(axum::http::header::SET_COOKIE, cookie)],
-                Json(response),
-            )
-                .into_response())
+            Ok(session_response(&state, response))
         }
         Err(e) => {
             // Only a rejected credential counts against the throttle. A 500 from a
@@ -231,6 +229,100 @@ pub async fn login(State(state): State<AppState>, req: Request) -> Result<Respon
             Err(e)
         }
     }
+}
+
+/// Store a new session of `user` and return the response that carries it.
+fn new_session(
+    conn: &mut diesel::PgConnection,
+    ttl: Duration,
+    user_id: uuid::Uuid,
+    user: LoginUser,
+) -> Result<LoginResponse, ApiError> {
+    let token = generate_session_token();
+    let expires_at = Utc::now() + ttl;
+    kairos_db::local_auth::create_session(
+        conn,
+        kairos_db::local_auth::NewLocalSession {
+            user_id,
+            token_hash: hash_session_token(&token),
+            expires_at,
+        },
+    )
+    .map_err(ApiError::internal)?;
+    Ok(LoginResponse {
+        token,
+        expires_at: expires_at.to_rfc3339(),
+        user,
+    })
+}
+
+/// 200 with the session in the body and, KAIROS-T-0327, as an HttpOnly
+/// cookie, so that a reload of the GUI keeps it (crate::session_cookie).
+fn session_response(state: &AppState, response: LoginResponse) -> Response {
+    let cookie = crate::session_cookie::set(&response.token, state.config.session_ttl_secs);
+    (
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie)],
+        Json(response),
+    )
+        .into_response()
+}
+
+/// `POST /api/session` — open a session from a sign-in with the identity provider.
+///
+/// Send the OIDC token of the sign-in as `Authorization: Bearer <token>`. The
+/// response is the same as the response of `POST /api/login`. The body has a
+/// session bearer, and the cookie `kairos_session` has the session too. Thus a
+/// reload of the GUI keeps the session, also when the identity provider gives no
+/// refresh token. The session lasts `KAIROS_SESSION_TTL_SECS`, or until a logout or
+/// an admin revokes it.
+///
+/// Only an OIDC bearer opens a session. The server refuses the cookie alone, a
+/// session bearer and an API key.
+//
+// NOTE: the rustdoc above is published (see `login`).
+#[utoipa::path(
+    post,
+    path = "/api/session",
+    tag = "auth",
+    responses(
+        (status = 200, description = "A session bearer", body = LoginResponse),
+        (status = 401, description = "No valid credential"),
+        (status = 403, description = "The credential is not an OIDC bearer"),
+    )
+)]
+pub async fn open_session(
+    State(state): State<AppState>,
+    axum::Extension(auth): axum::Extension<AuthContext>,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
+    let bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim);
+    let from_identity_provider = bearer.is_some_and(|token| {
+        !crate::local_auth::is_session_token(token)
+            && !crate::service_accounts::auth::is_api_key(token)
+    });
+    if !from_identity_provider {
+        return Err(ApiError::forbidden(
+            "Only the token of a sign-in with the identity provider opens a session. \
+             Send that token as the bearer.",
+        ));
+    }
+    let ttl = Duration::seconds(state.config.session_ttl_secs as i64);
+    let user_id = auth.user_id;
+    let user = LoginUser {
+        id: auth.user_id.to_string(),
+        email: auth.email,
+        display_name: auth.display_name,
+    };
+    let response = state
+        .blocking
+        .run_public(move |conn| new_session(conn, ttl, user_id, user))
+        .await?;
+    Ok(session_response(&state, response))
 }
 
 /// `POST /api/logout` — revoke the presented session, and clear the session cookie.
@@ -304,12 +396,8 @@ pub async fn logout(State(state): State<AppState>, req: Request) -> Result<Respo
 /// `last_used_at` write is best-effort and in the same closure — it is what makes
 /// a stale session visible later, and it is not worth failing a request over.
 pub async fn authenticate_session(state: &AppState, token: &str) -> Result<AuthContext, ApiError> {
-    // A deployment with local auth off has no sessions, so do not ask the database
-    // whether it has one.
-    if !state.config.local_auth {
-        return Err(bad_session());
-    }
-    // Shape first: a bearer that cannot be a session costs no query.
+    // Each deployment can have sessions: a password login, or an OIDC login of the
+    // GUI (`open_session`, KAIROS-T-0364). Shape first: a bearer that cannot be a session costs no query.
     if parse_session_token(token).is_none() {
         return Err(bad_session());
     }
@@ -345,6 +433,7 @@ pub async fn authenticate_session(state: &AppState, token: &str) -> Result<AuthC
                 external_id: user.external_id,
                 email: user.email,
                 display_name: user.display_name,
+                agent_key: None,
             })
         })
         .await

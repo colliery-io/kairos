@@ -8,6 +8,9 @@
 //! 3. An unknown value is refused and named; a value that the repository
 //!    has changes nothing.
 //! 4. A member of another team cannot set it.
+//! 5. KAIROS-T-0358: the organization admin sets the default summarizer; a
+//!    new repository follows it, a value set by hand wins, a member who is
+//!    not an admin is refused, and `hosted` needs a hosted provider.
 //!
 //! Runs against the LIVE compose stack (`angreal services up`). Owns the
 //! scratch database `kairos_repository_code_index_summaries_t0340_test`.
@@ -138,7 +141,13 @@ async fn a_repository_opts_in_to_hosted_summaries() {
         })
         .await
         .expect("payments-api");
-    assert_eq!(repo.code_index_summaries, CodeIndexSummaries::Embedded);
+    // KAIROS-T-0358: a new repository follows the organization, and the
+    // organization has the embedded model.
+    assert_eq!(repo.code_index_summaries, CodeIndexSummaries::Organization);
+    assert_eq!(
+        repo.code_index_summaries_resolved,
+        CodeIndexSummaries::Embedded
+    );
 
     // 1. No hosted provider: the opt-in is refused and names the command.
     let err = bob
@@ -177,6 +186,7 @@ async fn a_repository_opts_in_to_hosted_summaries() {
             ..Default::default()
         },
         concurrency: None,
+        default_summaries: None,
     })
     .await
     .expect("the provider");
@@ -236,4 +246,123 @@ async fn a_repository_opts_in_to_hosted_summaries() {
         .await
         .expect("back to embedded");
     assert_eq!(back.code_index_summaries, CodeIndexSummaries::Embedded);
+
+    // 5. KAIROS-T-0358: the default of the organization.
+    let ollama =
+        |default_summaries: Option<CodeIndexSummaries>, provider: &str| PutCodeIndexSettings {
+            summary: PutSummaryProvider {
+                provider: provider.into(),
+                base_url: (provider != "embedded").then(|| "https://ollama.com/v1".into()),
+                model: (provider != "embedded").then(|| "gemma4:31b".into()),
+                region: None,
+                secret: None,
+            },
+            vectors: PutVectorProvider {
+                provider: "embedded".into(),
+                ..Default::default()
+            },
+            concurrency: None,
+            default_summaries,
+        };
+    //    A member who is not an organization admin cannot set it.
+    let err = bob
+        .put_code_index_settings(&ollama(Some(CodeIndexSummaries::Hosted), "ollama-cloud"))
+        .await
+        .expect_err("bob is not an org admin");
+    assert!(matches!(err, Error::Forbidden { .. }), "{err}");
+    //    The default hosted needs a hosted provider.
+    let err = svc
+        .put_code_index_settings(&ollama(Some(CodeIndexSummaries::Hosted), "embedded"))
+        .await
+        .expect_err("no hosted provider");
+    match &err {
+        Error::Other {
+            status,
+            code,
+            details,
+            ..
+        } => {
+            assert_eq!(*status, 422);
+            assert_eq!(code, "CODE_INDEX_NO_HOSTED_PROVIDER");
+            assert_eq!(details["field"], "default_summaries");
+        }
+        other => panic!("{other}"),
+    }
+    //    The admin sets the default to hosted.
+    let settings = svc
+        .put_code_index_settings(&ollama(Some(CodeIndexSummaries::Hosted), "ollama-cloud"))
+        .await
+        .expect("the default");
+    assert_eq!(settings.default_summaries, CodeIndexSummaries::Hosted);
+    assert!(settings.summary.secret.set, "the secret stays");
+    //    A new repository builds with the hosted provider, with no change on
+    //    the repository.
+    let ledger = bob
+        .create_repository(&CreateRepositoryRequest {
+            slug: Some("ledger-api".into()),
+            forge: "github".into(),
+            repo_full_name: "acme/ledger-api".into(),
+            repo_url: "https://github.com/acme/ledger-api".into(),
+            default_branch: None,
+            team: "platform".into(),
+            description: None,
+        })
+        .await
+        .expect("ledger-api");
+    assert_eq!(
+        ledger.code_index_summaries,
+        CodeIndexSummaries::Organization
+    );
+    assert_eq!(
+        ledger.code_index_summaries_resolved,
+        CodeIndexSummaries::Hosted
+    );
+    let detail = alice
+        .get_repository("ledger-api")
+        .await
+        .expect("the detail");
+    assert_eq!(
+        detail.repository.code_index_summaries_resolved,
+        CodeIndexSummaries::Hosted
+    );
+    //    A repository with embedded set by hand keeps the embedded model.
+    let own = alice
+        .get_repository("payments-api")
+        .await
+        .expect("payments-api");
+    assert_eq!(
+        own.repository.code_index_summaries,
+        CodeIndexSummaries::Embedded
+    );
+    assert_eq!(
+        own.repository.code_index_summaries_resolved,
+        CodeIndexSummaries::Embedded
+    );
+    //    A repository goes back to the organization.
+    let follows = bob
+        .update_repository("payments-api", &summaries(CodeIndexSummaries::Organization))
+        .await
+        .expect("back to the organization");
+    assert_eq!(
+        follows.code_index_summaries_resolved,
+        CodeIndexSummaries::Hosted
+    );
+    //    A settings write with no default keeps it; then the default goes
+    //    back to embedded, and the repositories that follow change with it.
+    let kept = svc
+        .put_code_index_settings(&ollama(None, "ollama-cloud"))
+        .await
+        .expect("no default in the body");
+    assert_eq!(kept.default_summaries, CodeIndexSummaries::Hosted);
+    svc.put_code_index_settings(&ollama(Some(CodeIndexSummaries::Embedded), "ollama-cloud"))
+        .await
+        .expect("embedded");
+    let ledger = alice
+        .get_repository("ledger-api")
+        .await
+        .expect("ledger-api");
+    assert_eq!(
+        ledger.repository.code_index_summaries_resolved,
+        CodeIndexSummaries::Embedded
+    );
 }

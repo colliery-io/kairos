@@ -7,6 +7,7 @@
 //! escape hatch for recursive-CTE traversals and the search pipeline.
 
 pub mod abac;
+pub mod agent_mark;
 pub mod api_keys;
 pub mod board_items;
 pub mod boards;
@@ -26,6 +27,7 @@ pub mod migrations;
 pub mod models;
 pub mod pool;
 pub mod proposals;
+pub mod purge;
 pub mod repositories;
 pub mod repository_credentials;
 pub mod retention;
@@ -35,6 +37,8 @@ pub mod scim;
 pub mod search;
 pub mod seed;
 pub mod service_accounts;
+pub mod task_cancellations;
+pub mod task_claims;
 pub mod team_pages;
 pub mod tenant;
 pub mod tls;

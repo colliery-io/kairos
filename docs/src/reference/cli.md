@@ -3,7 +3,7 @@
 `kairos` is the command-line client. It talks to the same HTTP API as the GUI
 and the MCP server.
 
-This page describes `kairos` 0.8.2. The command tree below mirrors
+This page describes `kairos` 0.9.0. The command tree below mirrors
 `kairos --help`.
 
 ## Invocation
@@ -181,7 +181,11 @@ differ.
 | `edit` | yes | yes | yes | yes | yes |
 | `transition` | yes | yes | yes | no | yes |
 | `move` | no | no | yes | yes | no |
-| `delete` | yes | yes | yes | yes | yes |
+| `hand-off` | no | no | yes | no | no |
+| `release` | no | no | yes | no | no |
+| `cancel` | no | no | yes | no | no |
+| `archive` (alias `delete`) | yes | yes | yes | yes | yes |
+| `purge` | no | no | yes | no | no |
 | `restore` | yes | yes | yes | yes | yes |
 
 `documents` has no `transition` verb: documents have no board placement, and
@@ -326,6 +330,9 @@ A target outside the board's transition graph is rejected with 422
 `INVALID_TRANSITION`, and the rejection lists the allowed target columns by
 name and id. Not available on `documents`.
 
+A task that a person moves to Active gets the [claim](glossary.md#claim) of the
+person. `tasks get` shows it in the field `claim`.
+
 ### `tasks move`
 
 ```
@@ -342,6 +349,53 @@ The task lands in the target board's entry column and follows that board's
 team. The command needs `manage_tasks` on both boards. The task keeps its
 repository.
 See [Move work between boards](../how-to/move-work-between-boards.md).
+
+### `tasks hand-off`
+
+```
+kairos tasks hand-off <SHORT_CODE> --to <PERSON> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must be in Active. |
+| `--to <PERSON>` | string | required | The person who gets the claim: a user id, an email or a user name of a person of the organization. |
+
+Gives the [claim](glossary.md#claim) of a task in Active to a different person.
+The task stays in Active. You can hand off a claim that you have. To hand off
+the claim of a different person, you need `transition_items` on the board of
+the task. A service account cannot have a claim.
+
+### `tasks release`
+
+```
+kairos tasks release <SHORT_CODE> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must be in Active. |
+
+Ends the claim of a task in Active. The task stays in Active with no claim. The
+next person who moves the task to Active gets the claim. You can release a
+claim that you have. To release the claim of a different person, you need
+`transition_items` on the board of the task.
+
+### `tasks cancel`
+
+```
+kairos tasks cancel <SHORT_CODE> --reason <TEXT> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must not be in a done column. |
+| `--reason <TEXT>` | string | required | Why the task is cancelled. Must not be empty. |
+
+[Cancels](glossary.md#cancel) a task: the team will not do it. The task moves
+to the done column of its board with the mark "cancelled" and the reason.
+`tasks get` shows the mark in the line `cancelled`. A move out of the done
+column removes the mark. You need `transition_items` on the board of the task.
 
 ### `documents move`
 
@@ -370,25 +424,44 @@ Kairos moved the document ACME-D-0004 to the owner board <board-id>.
 Kairos did not change the document ACME-D-0004. Its owner board is <board-id> already.
 ```
 
-### `<noun> delete`
+### `<noun> archive`
 
 ```
-kairos <noun> delete <SHORT_CODE> --confirm [OPTIONS]
+kairos <noun> archive <SHORT_CODE> --confirm [OPTIONS]
 ```
+
+`delete` is an alias of `archive`: `kairos tasks delete ACME-T-0001 --confirm`
+archives the task.
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<SHORT_CODE>` | string | required | The item's short code. |
-| `--confirm` | flag | off | Required for the deletion to happen. Without it, nothing is deleted. |
+| `--confirm` | flag | off | Required for the archive to happen. Without it, nothing is archived. |
 
-The delete is a soft delete and cascades to the item's children. Deleted items
-are hidden from `list` unless `--include-deleted` is passed, and are recoverable
-with `restore`.
+The archive is a soft delete and cascades to the item's children. Archived
+items are hidden from `list` unless `--include-deleted` is passed, and are
+recoverable with `restore`.
 
 The cascade takes the descendants that you can edit
 ([the edit rule](capabilities.md#the-edit-rule)). It stops at a descendant that
 you cannot edit, and takes nothing below it. The command names each descendant
 that stays, and the reason. With `--json`, they are in `not_reached`.
+
+### `tasks purge`
+
+```
+kairos tasks purge <SHORT_CODE> --confirm [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's current short code. |
+| `--confirm` | flag | off | Required for the purge to happen. Without it, nothing is deleted. |
+
+Deletes a task for good (a [purge](glossary.md#purge)). **You cannot undo
+this.** No `restore` brings the task back. The task can be live or archived.
+You need `manage_tasks` on the board of the task. To keep a copy that you can
+restore, use `tasks archive`.
 
 ### `<noun> restore`
 
@@ -495,6 +568,22 @@ The board has 340 items. This result shows 200 (limit 200, offset 0). To read th
 
 Board capability grants are not part of the CLI surface. See
 [Capabilities and access](../explanation/capabilities-and-access.md).
+
+### `kairos boards archive-completed`
+
+```
+kairos boards archive-completed <BOARD> --confirm [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<BOARD>` | slug or UUID | required | A delivery board. |
+| `--confirm` | flag | off | Required for the archive to happen. Without it, nothing is archived. |
+
+Archives each task in the done columns of the board, cancelled tasks too. Each
+task goes through the same archive as `tasks archive`. The call archives each
+task, or none. You need `manage_tasks` on the board. The command prints the
+count and the codes. To get a task back, use `kairos tasks restore <code>`.
 
 ## Organization
 
@@ -845,7 +934,7 @@ kairos repos update <REPOSITORY> [OPTIONS]
 | `--team <TEAM>` | slug or UUID | unchanged | New owning team. Re-homes the repository. |
 | `--description <DESCRIPTION>` | string | unchanged | New description. |
 | `--code-index-build <ON\|OFF>` | `on` or `off` | unchanged | With `off`, the code index builder makes no index of the repository. Another value is refused. See [The base code index](configuration.md#stop-the-builder-for-one-repository). |
-| `--code-index-summaries <EMBEDDED\|HOSTED>` | `embedded` or `hosted` | unchanged | With `hosted`, the summaries of the repository come from the provider of the organization, and the code of each changed symbol leaves the host. Kairos refuses `hosted` when the organization has no hosted provider (`CODE_INDEX_NO_HOSTED_PROVIDER`). See [the providers](configuration.md#the-providers-of-the-summaries-and-the-vectors). |
+| `--code-index-summaries <EMBEDDED\|HOSTED\|ORGANIZATION>` | `embedded`, `hosted` or `organization` | unchanged | With `organization`, the default summarizer of the organization decides. With `hosted`, the summaries of the repository come from the provider of the organization, and the code of each changed symbol leaves the host. Kairos refuses `hosted` when the organization has no hosted provider (`CODE_INDEX_NO_HOSTED_PROVIDER`). See [the providers](configuration.md#the-providers-of-the-summaries-and-the-vectors). |
 
 Same permission gate as `create`. The rules of `--repo-url` and
 `--default-branch` are those of `create`. They apply to a value that is
@@ -1032,7 +1121,8 @@ Repositories are the codebases that tasks link to. See
 
 ## Machine access
 
-Service accounts are machine principals authenticated by API keys.
+Service accounts are machine principals authenticated by API keys. Agent keys
+act as the person who made them.
 
 ### `kairos service-accounts create`
 
@@ -1068,39 +1158,49 @@ Deletes the service account and all of its keys.
 ### `kairos keys create`
 
 ```
-kairos keys create --service-account <SERVICE_ACCOUNT> --name <NAME> [OPTIONS]
+kairos keys create --name <NAME> [--service-account <SERVICE_ACCOUNT>] [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account. |
-| `--name <NAME>` | string | required | Operator label for the key, e.g. `gha-main`. |
-| `--expires-at <EXPIRES_AT>` | RFC 3339 instant | no expiry | Expiry, e.g. `2027-01-01T00:00:00Z`. |
+| `--name <NAME>` | string | required | Label for the key, for example `laptop-claude-code` or `gha-main`. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account. Without it, the command makes an agent key for you. |
+| `--expires-at <EXPIRES_AT>` | RFC 3339 instant | no expiry | Expiry, for example `2027-01-01T00:00:00Z`. |
 
-The raw key is printed once and is not retrievable afterwards.
+Without `--service-account`, the command makes an **agent key**. An agent key acts
+as you, with your capabilities. Each member can make agent keys. Log in as
+yourself to make one: a request with an agent key cannot make an agent key. Put
+the key in the settings of the agent. For Claude Code, that is the variable
+`KAIROS_MCP_KEY`. Do not put the key in a repository. See
+[Give an agent your key](../how-to/give-an-agent-your-key.md).
+
+With `--service-account`, the command makes a key for that service account. Only
+an organization admin can do this.
+
+The command shows the raw key one time only. You cannot get it again.
 
 ### `kairos keys list`
 
 ```
-kairos keys list --service-account <SERVICE_ACCOUNT> [OPTIONS]
+kairos keys list [--service-account <SERVICE_ACCOUNT>] [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account. Without it, the command lists your agent keys. |
 
-Key prefixes only; the secret is never returned.
+The list shows the start of each key only. It never shows the secret.
 
 ### `kairos keys revoke`
 
 ```
-kairos keys revoke <KEY_ID> --service-account <SERVICE_ACCOUNT> --confirm [OPTIONS]
+kairos keys revoke <KEY_ID> [--service-account <SERVICE_ACCOUNT>] --confirm [OPTIONS]
 ```
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<KEY_ID>` | UUID | required | Key id, from `kairos keys list`. |
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account the key belongs to. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account of the key. Without it, the command revokes your agent key. |
 | `--confirm` | flag | off | Required for the revocation to happen. |
 
 ## Deployment administration

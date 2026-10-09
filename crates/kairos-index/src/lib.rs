@@ -31,6 +31,11 @@ pub mod hosted;
 #[cfg(feature = "llama")]
 mod llama;
 mod parse_cache;
+
+/// How long a connection to an index waits for the lock of another
+/// process (a build, an update, a fetch) before it fails: several agents
+/// open one checkout at the same time (KAIROS-T-0357).
+pub const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 mod query;
 pub mod rules;
 pub mod rust_analyzer;
@@ -366,6 +371,7 @@ fn known_vectors_at(db: &Path) -> Result<HashMap<String, (Vec<u32>, u32)>, Index
         return Ok(HashMap::new());
     }
     let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if version != SCHEMA_VERSION {
         return Ok(HashMap::new());
@@ -418,6 +424,7 @@ pub fn update_structure(
         return build(root, db, Mode::Scip(&options.build), &known, Parse::Changed);
     }
     let conn = Connection::open(db)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     schema::prepare(&conn)?;
     let base = edges::BaseIndex::read(&conn)?;
     drop(conn);
@@ -565,6 +572,7 @@ fn build(
 
     // 3. Write the structure.
     let mut conn = Connection::open(db)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     schema::prepare(&conn)?;
     let tx = conn.transaction()?;
     tx.execute_batch(
@@ -805,6 +813,7 @@ impl Index {
             });
         }
         let conn = Connection::open_with_flags(db, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.busy_timeout(BUSY_TIMEOUT)?;
         let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if version != SCHEMA_VERSION {
             return Err(IndexError::SchemaVersion { found: version });
@@ -1051,6 +1060,7 @@ pub fn merge(
     let mut kept = Vec::with_capacity(bases.len());
     let mut known = HashMap::new();
     let mut conn = Connection::open(out)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
     schema::prepare(&conn)?;
     for base in bases {
         // Index::open refuses a missing file or another schema version.

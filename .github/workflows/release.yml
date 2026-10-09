@@ -42,6 +42,9 @@ jobs:
             target: aarch64-apple-darwin
           - runner: macos-15-intel
             target: x86_64-apple-darwin
+            # onnxruntime has no prebuilt runtime for this target, so the
+            # binary has no local vector model (KAIROS-T-0351).
+            cargo_flags: --no-default-features
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - runner: ubuntu-24.04-arm
@@ -80,7 +83,7 @@ jobs:
           key: release-${{ matrix.target }}
 
       - name: Build kairos (release)
-        run: cargo build -p kairos-cli --release
+        run: cargo build -p kairos-cli --release ${{ matrix.cargo_flags }}
 
       - name: Verify --version matches the tag
         run: |

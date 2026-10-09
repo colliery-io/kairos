@@ -1,5 +1,6 @@
-//! Soft delete with cascade warning (KAIROS-T-0041, per KAIROS-A-0001):
-//! deleting an item cascades to ALL of its live `parent`-edge descendants,
+//! The archive (a soft delete) with cascade warning (KAIROS-T-0041, per
+//! KAIROS-A-0001; the GUI says "Archive" since KAIROS-T-0362, because a
+//! restore brings the item back): archiving an item cascades to ALL of its live `parent`-edge descendants,
 //! server-side. The confirm dialog warns with the AUTHORITATIVE transitive
 //! descendant set from the cascade-preview endpoint (KAIROS-T-0051 —
 //! `GET …/cascade-preview`, the same set the server would cascade to),
@@ -65,7 +66,7 @@ fn LeftLive(items: Vec<NotReached>, done: bool) -> impl IntoView {
     })
 }
 
-/// The delete confirm dialog. `open` is owned by the page header button.
+/// The archive confirm dialog. `open` is owned by the page header button.
 ///
 /// COLLIERY-T-1836: an Aurora `ConfirmDialog` asks first. Its impact list
 /// is the authoritative cascade preview, and the items that the archive
@@ -161,11 +162,12 @@ fn DeleteFlow(
         // ---- before: warn + confirm --------------------------------------
         <ConfirmDialog
             open
-            title=format!("Delete {}?", code.get_value())
+            title=format!("Archive {}?", code.get_value())
             message=title
             impacts
-            impacts_label="The delete also includes these live descendants:"
-            confirm_label="Delete (cascades)"
+            impacts_label="The archive also takes these live items below it:"
+            confirm_label="Archive"
+            danger=false
             busy=deleting
             size="md"
             on_confirm=confirm
@@ -174,7 +176,7 @@ fn DeleteFlow(
             notice=std::sync::Arc::new(|| view! {
                 <Alert title="This cascades" color=token::GOLD>
                     <Text size="sm" dimmed=true>
-                        "Soft-deletes this item and every live descendant under it (by parent edges, computed on the server). The full set is shown here and confirmed after deletion."
+                        "Kairos archives this item and each live item below it (by parent edges). You can restore each one later. This list shows each item, and the report after the archive shows it again."
                     </Text>
                 </Alert>
             }.into_any())
@@ -185,10 +187,10 @@ fn DeleteFlow(
                 Some(Ok(preview))
                     if preview.cascaded_short_codes.is_empty()
                         && preview.not_reached.is_empty() => view! {
-                    <Text size="sm" dimmed=true>"No descendants — only this item will be deleted."</Text>
+                    <Text size="sm" dimmed=true>"Nothing is below it. Only this item goes to the archive."</Text>
                 }.into_any(),
                 Some(Ok(preview)) if preview.cascaded_short_codes.is_empty() => view! {
-                    <Text size="sm" dimmed=true>"Only this item will be deleted."</Text>
+                    <Text size="sm" dimmed=true>"Only this item goes to the archive."</Text>
                     <LeftLive items=preview.not_reached done=false/>
                 }.into_any(),
                 Some(Ok(preview)) => view! {
@@ -196,7 +198,7 @@ fn DeleteFlow(
                 }.into_any(),
             }}
             {move || error.get().map(|message| view! {
-                <Alert title="Delete failed" color=token::BAD>
+                <Alert title="Archive failed" color=token::BAD>
                     <Text size="sm" dimmed=true>{message}</Text>
                 </Alert>
             })}
@@ -205,22 +207,22 @@ fn DeleteFlow(
         // ---- after: the server's authoritative cascade report ------------
         <Modal
             open=report_open
-            title="Deleted"
+            title="Archived"
             footer=std::sync::Arc::new(|| view! {
                 <Anchor href="/boards">"Back to boards"</Anchor>
             }.into_any())
         >
             {move || outcome.get().map(|report| view! {
                 <Group justify="between">
-                    <Text size="sm">"The server deleted the item."</Text>
+                    <Text size="sm">"Kairos archived the item. You can restore it."</Text>
                     <Pill color=token::BAD>{report.short_code.clone()}</Pill>
                 </Group>
                 <Text size="sm" dimmed=true>
                     {if report.cascade_count == 0 {
-                        "No descendants were affected.".to_string()
+                        "Nothing below it went to the archive.".to_string()
                     } else {
                         format!(
-                            "The delete cascaded to {} live descendant(s):",
+                            "The archive also took {} live item(s) below it:",
                             report.cascade_count,
                         )
                     }}

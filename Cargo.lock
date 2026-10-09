@@ -2507,7 +2507,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-cli"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "axum",
  "chrono",
@@ -2533,7 +2533,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-client"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "futures-util",
  "reqwest 0.12.28",
@@ -2547,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-core"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "serde",
@@ -2560,7 +2560,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-db"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "bb8",
  "chrono",
@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-embed"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "fastembed",
  "reqwest 0.12.28",
@@ -2594,7 +2594,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-index"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "cucumber",
@@ -2631,6 +2631,7 @@ dependencies = [
  "tracing",
  "tree-sitter",
  "tree-sitter-go",
+ "tree-sitter-javascript",
  "tree-sitter-python",
  "tree-sitter-rust",
  "tree-sitter-typescript",
@@ -2638,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-server"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "argon2",
  "axum",
@@ -2685,7 +2686,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-soak"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "chrono",
  "clap",
@@ -2699,7 +2700,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "colliery-io-aurora",
  "console_error_panic_hook",
@@ -2719,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "kairos-web-css"
-version = "0.8.2"
+version = "0.9.0"
 dependencies = [
  "colliery-io-aurora",
 ]
@@ -6010,6 +6011,16 @@ name = "tree-sitter-go"
 version = "0.23.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b13d476345220dbe600147dd444165c5791bf85ef53e28acbedd46112ee18431"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-javascript"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf40bf599e0416c16c125c3cec10ee5ddc7d1bb8b0c60fa5c4de249ad34dc1b1"
 dependencies = [
  "cc",
  "tree-sitter-language",

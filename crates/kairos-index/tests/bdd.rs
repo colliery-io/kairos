@@ -761,7 +761,16 @@ fn each_symbol_is_complete(world: &mut IndexWorld) {
         );
         assert!(!s.kind.is_empty() && s.kind != "unknown", "{s:?}: no kind");
         assert!(
-            ["rust", "python", "typescript", "tsx", "go", "sql"].contains(&s.language.as_str()),
+            [
+                "rust",
+                "python",
+                "typescript",
+                "tsx",
+                "javascript",
+                "go",
+                "sql"
+            ]
+            .contains(&s.language.as_str()),
             "{s:?}: no language"
         );
         assert_eq!(s.tree_hash.len(), 64, "{s:?}: no tree hash");
@@ -1094,6 +1103,30 @@ fn callees_have_the_macro_place(world: &mut IndexWorld) {
             && c.macro_made
             && c.class == "certain"),
         "no callee at src/boards.rs:{line}, made by a macro: {callees:#?}"
+    );
+}
+
+#[given("the body of the macro calls boards::check_rule")]
+fn the_macro_calls_check_rule(_world: &mut IndexWorld) {
+    let boards = fixture_text("src/boards.rs");
+    let body = &boards[boards
+        .find("macro_rules! transition_fn")
+        .expect("the macro")..];
+    let body = &body[..body.find("\n}\n").expect("the end of the macro")];
+    assert!(body.contains("check_rule(id)"), "{body}");
+}
+
+#[then("the callers of check_rule include the macro transition_fn")]
+fn callers_have_the_macro(world: &mut IndexWorld) {
+    let index = world.index();
+    let id = symbol_id(&index, "check_rule", "src/boards.rs");
+    let callers = index.callers(id, true).expect("callers");
+    assert!(
+        callers.iter().any(|e| e.other.file == "src/boards.rs"
+            && e.other.name == "transition_fn"
+            && e.other.kind == "macro"
+            && e.class == "certain"),
+        "no certain caller transition_fn (macro): {callers:#?}"
     );
 }
 
@@ -3620,6 +3653,24 @@ fn tests_rank_lower(world: &mut IndexWorld) {
     assert!(
         hits[first_test..].iter().all(|h| h.symbol.is_test),
         "a test function ranks above other code: {order:#?}"
+    );
+}
+
+#[then(expr = "the results have the test function {word}, with no summary")]
+fn a_test_function_is_found(world: &mut IndexWorld, name: String) {
+    let found = world.search.as_ref().expect("no search ran");
+    assert_ne!(
+        found.mode,
+        kairos_index::SearchMode::Names,
+        "the index has summaries"
+    );
+    assert!(
+        found
+            .hits
+            .iter()
+            .any(|h| h.symbol.name == name && h.symbol.is_test && h.symbol.summary.is_none()),
+        "{name} is not in the results: {:#?}",
+        found.hits
     );
 }
 

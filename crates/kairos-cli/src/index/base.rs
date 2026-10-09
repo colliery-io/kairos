@@ -181,9 +181,26 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
         commit: nearest.index.commit,
         changed,
         summaries: usize::try_from(nearest.index.summary_keys).unwrap_or(0),
-        hosted: repository.code_index_summaries
-            == kairos_client::types_repositories::CodeIndexSummaries::Hosted,
+        // KAIROS-T-0358: the value that the server resolved (a repository
+        // can follow the organization). A server from before it sends no
+        // resolved value, so its own `hosted` counts too.
+        hosted: [
+            &repository.code_index_summaries_resolved,
+            &repository.code_index_summaries,
+        ]
+        .contains(&&kairos_client::types_repositories::CodeIndexSummaries::Hosted),
     })
+}
+
+/// The client of the Kairos deployment of the checkout at `root`: the
+/// connection of [`find`], with no flags (KAIROS-T-0360). `None` when no
+/// deployment is set or the credentials do not resolve. It sends no
+/// request.
+pub fn connection(root: &Path) -> Option<KairosClient> {
+    client(&RemoteArgs::default(), &settings(root))
+        .ok()
+        .flatten()
+        .map(|(client, _)| client)
 }
 
 enum Failure {

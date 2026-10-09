@@ -1282,15 +1282,23 @@ async fn meta_endpoints_against_live_stack() {
         })
         .await
         .expect("entity_id filter");
-    assert_eq!(body.total, 4, "{body:?}");
-    assert!(
-        body.items[..3]
-            .iter()
-            .all(|item| item.action == "transition"),
+    // KAIROS-T-0359: the move into Active claims the task and the move out
+    // of it releases the claim, so the walk adds a claim and a release row.
+    assert_eq!(body.total, 6, "{body:?}");
+    let actions: Vec<&str> = body.items.iter().map(|i| i.action.as_str()).collect();
+    assert_eq!(
+        actions,
+        [
+            "transition",
+            "release",
+            "transition",
+            "claim",
+            "transition",
+            "create"
+        ],
         "{body:?}"
     );
-    assert_eq!(body.items[3].action, "create");
-    assert_eq!(body.items[3].entity_type.as_deref(), Some("task"));
+    assert_eq!(body.items[5].entity_type.as_deref(), Some("task"));
 
     // action filter: the blocks link (svc), and the parent link, the
     // informs link (COLLIERY-T-0228: a member writes it now) and the two

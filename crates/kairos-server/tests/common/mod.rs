@@ -12,6 +12,7 @@
 
 pub mod bedrock_http;
 pub mod chat_http;
+pub mod embed_http;
 pub mod git_http;
 
 use axum::Router;

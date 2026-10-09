@@ -662,26 +662,9 @@ async fn models_for(
         })
         .await
         .map_err(|e| format!("failed: the settings of the organization are not readable: {e:?}"))?;
-    let open = |field: &str,
-                sealed: Option<kairos_db::code_index_settings::SealedSecret>|
-     -> Result<Option<String>, String> {
-        let Some(sealed) = sealed else {
-            return Ok(None);
-        };
-        let key = service.secrets_key().ok_or_else(|| {
-            "failed: the organization has a hosted provider with a secret, and this deployment \
-             has no KAIROS_SECRETS_KEY to open it"
-                .to_string()
-        })?;
-        let aad = crate::api::org::code_index_settings::settings_aad(tenant, field);
-        let plain = key
-            .open(&aad, &sealed.key_id, &sealed.nonce, &sealed.ciphertext)
-            .map_err(|e| {
-                format!("failed: the secret {field} of the organization does not open: {e:?}")
-            })?;
-        String::from_utf8(plain)
-            .map(Some)
-            .map_err(|_| format!("failed: the secret {field} is not text"))
+    let open = |field: &str, sealed: Option<kairos_db::code_index_settings::SealedSecret>| {
+        open_secret(service.secrets_key(), tenant, field, sealed)
+            .map_err(|why| format!("failed: {why}"))
     };
 
     let hosted_summaries = hosted_summaries(repo, &settings);
@@ -795,6 +778,32 @@ async fn models_for(
         hosted_summaries,
         hosted_vectors,
     })
+}
+
+/// Open a sealed secret of the code index settings of `tenant`
+/// (`summary.secret` or `vectors.secret`). `None` when none is stored. The
+/// error says why the secret does not open.
+pub(crate) fn open_secret(
+    key: Option<&SecretsKey>,
+    tenant: &str,
+    field: &str,
+    sealed: Option<kairos_db::code_index_settings::SealedSecret>,
+) -> Result<Option<String>, String> {
+    let Some(sealed) = sealed else {
+        return Ok(None);
+    };
+    let key = key.ok_or_else(|| {
+        "the organization has a hosted provider with a secret, and this deployment has no \
+         KAIROS_SECRETS_KEY to open it"
+            .to_string()
+    })?;
+    let aad = crate::api::org::code_index_settings::settings_aad(tenant, field);
+    let plain = key
+        .open(&aad, &sealed.key_id, &sealed.nonce, &sealed.ciphertext)
+        .map_err(|e| format!("the secret {field} of the organization does not open: {e:?}"))?;
+    String::from_utf8(plain)
+        .map(Some)
+        .map_err(|_| format!("the secret {field} is not text"))
 }
 
 /// The input of a build: the base, read from the database.

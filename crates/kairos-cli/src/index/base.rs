@@ -192,6 +192,17 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
     })
 }
 
+/// The client of the Kairos deployment of the checkout at `root`: the
+/// connection of [`find`], with no flags (KAIROS-T-0360). `None` when no
+/// deployment is set or the credentials do not resolve. It sends no
+/// request.
+pub fn connection(root: &Path) -> Option<KairosClient> {
+    client(&RemoteArgs::default(), &settings(root))
+        .ok()
+        .flatten()
+        .map(|(client, _)| client)
+}
+
 enum Failure {
     Unreachable(String),
     Refused(String),

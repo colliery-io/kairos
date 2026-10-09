@@ -1539,6 +1539,25 @@ impl KairosClient {
         self.put_ok("/api/org/code-index-settings", body).await
     }
 
+    /// `POST /api/code-index/query-vector` — the vector of the text of a
+    /// code search, made by the model `model` of the vectors of an index
+    /// (KAIROS-T-0360). The CLI asks for it when it has no local model of
+    /// the index.
+    pub async fn query_vector(
+        &self,
+        model: &str,
+        text: &str,
+    ) -> Result<crate::types_code_index::QueryVector, Error> {
+        self.post_ok(
+            "/api/code-index/query-vector",
+            &crate::types_code_index::QueryVectorRequest {
+                model: model.to_string(),
+                text: text.to_string(),
+            },
+        )
+        .await
+    }
+
     /// `POST /api/repositories/{slug}/code-indexes/rebuild` — ask the
     /// builder of the server for a full build of the code index
     /// (KAIROS-T-0332). The answer is 202 with the `running` run.

@@ -254,3 +254,25 @@ pub struct PutCodeIndexSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_summaries: Option<crate::types_repositories::CodeIndexSummaries>,
 }
+
+/// Body of `POST /api/code-index/query-vector` (KAIROS-T-0360): the text of
+/// a code search, and the model of the vectors of the index.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct QueryVectorRequest {
+    /// The model of the vectors of the index: `<provider>/<model>/<dimension>`,
+    /// for example `local/bge-small-en-v1.5-q/384`.
+    pub model: String,
+    /// The text of the query: 1 to 2,000 characters.
+    pub text: String,
+}
+
+/// The vector of a query, made by the model that made the vectors of the
+/// index (KAIROS-T-0360).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct QueryVector {
+    /// The model of the request.
+    pub model: String,
+    /// The vector: as many numbers as the dimension of the model.
+    pub vector: Vec<f32>,
+}

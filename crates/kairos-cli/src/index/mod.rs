@@ -36,6 +36,7 @@ mod arguments;
 mod base;
 mod error;
 mod mcp;
+mod query;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,7 +44,6 @@ use std::process::Command;
 use std::time::Instant;
 
 use clap::Subcommand;
-use kairos_embed::EmbeddingProvider;
 use kairos_index::{
     BuildOptions, BuildReport, DuplicateKind, DuplicateOptions, Index, UpdateOptions,
 };
@@ -618,52 +618,6 @@ fn duplicates(
     Ok(())
 }
 
-/// The provider of the query vectors for the model of the pool
-/// (`provider/model/dimension`), or why this binary has none.
-pub(crate) fn query_embedder(model: &str) -> Result<Box<dyn EmbeddingProvider>, String> {
-    query_embedder_with(model, || {
-        #[cfg(feature = "vectors")]
-        {
-            summaries::local_embedder().map(|p| Box::new(p) as Box<dyn EmbeddingProvider>)
-        }
-        #[cfg(not(feature = "vectors"))]
-        {
-            Err(String::new())
-        }
-    })
-}
-
-/// [`query_embedder`], with the loader of the local vector model given, so
-/// a test can choose the model files.
-fn query_embedder_with(
-    model: &str,
-    #[cfg_attr(not(feature = "vectors"), allow(unused_variables))] local: impl FnOnce() -> Result<
-        Box<dyn EmbeddingProvider>,
-        String,
-    >,
-) -> Result<Box<dyn EmbeddingProvider>, String> {
-    let mut parts = model.splitn(3, '/');
-    let (provider, name, dimension) = (parts.next(), parts.next(), parts.next());
-    if let (Some("deterministic"), Some(dimension)) = (provider, dimension)
-        && let Ok(dimension) = dimension.parse::<usize>()
-    {
-        let deterministic = kairos_embed::DeterministicProvider::new(dimension);
-        if Some(deterministic.model_id().model.as_str()) == name {
-            return Ok(Box::new(deterministic));
-        }
-    }
-    #[cfg(feature = "vectors")]
-    if provider == Some("local") {
-        let local = local()?;
-        if local.model_id().model.as_str() == name.unwrap_or_default() {
-            return Ok(local);
-        }
-    }
-    Err(format!(
-        "This kairos binary has no provider for the vectors of the model {model}."
-    ))
-}
-
 /// The summarizer of a build or an update.
 mod summaries {
     use std::path::Path;
@@ -879,55 +833,6 @@ mod tests {
             summaries::Outcome::NotMade(_, why) => assert_eq!(why, summaries::HOSTED),
             _ => panic!("a model ran, or each summary was in the pool"),
         }
-    }
-
-    #[test]
-    fn the_deterministic_vectors_have_a_query_provider() {
-        let provider = query_embedder("deterministic/sha256-384/384").expect("a provider");
-        assert_eq!(provider.model_id().dimension, 384);
-        let err = query_embedder("other/model/3").err().expect("no provider");
-        assert_eq!(
-            err,
-            "This kairos binary has no provider for the vectors of the model other/model/3."
-        );
-    }
-
-    /// KAIROS-T-0351: a binary with `vectors` takes the local model for an
-    /// index of local vectors, in place of "no provider".
-    #[cfg(feature = "vectors")]
-    #[test]
-    fn the_local_vectors_have_a_query_provider() {
-        let err = query_embedder_with("local/bge-small-en-v1.5-q/384", || {
-            Err("The vector model did not start: no files.".into())
-        })
-        .err()
-        .expect("the loader failed");
-        assert_eq!(err, "The vector model did not start: no files.");
-    }
-
-    /// KAIROS-T-0351, with the real model: it loads the 65 MB model from
-    /// `target/embed-cache` (the cache of kairos-embed/tests/local_model.rs),
-    /// and downloads it when the cache is empty, so it is not in the unit
-    /// tier. Run it with `cargo test -p kairos-cli -- --ignored`.
-    #[cfg(feature = "vectors")]
-    #[test]
-    #[ignore = "loads the 65 MB vector model"]
-    fn the_local_model_embeds_a_query() {
-        let cache =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/embed-cache");
-        let provider = query_embedder_with("local/bge-small-en-v1.5-q/384", || {
-            kairos_embed::local::LocalProvider::new(&kairos_embed::local::LocalConfig {
-                cache_dir: cache,
-                allow_download: true,
-            })
-            .map(|p| Box::new(p) as Box<dyn EmbeddingProvider>)
-            .map_err(|e| e.to_string())
-        })
-        .expect("a provider");
-        let vectors = provider
-            .embed(&["the token of the second writer".to_string()])
-            .expect("a vector");
-        assert_eq!(vectors[0].len(), 384);
     }
 
     /// KAIROS-T-0357: 8 processes build the index of one checkout at the

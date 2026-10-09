@@ -182,6 +182,7 @@ use crate::app::AppState;
         crate::api::org::code_indexes::rebuild_code_index,
         crate::api::org::code_index_settings::get_settings,
         crate::api::org::code_index_settings::put_settings,
+        crate::api::org::code_index_query::query_vector,
         // The read token of a repository (COLLIERY-T-3105).
         crate::api::org::repository_credentials::get_credential,
         crate::api::org::repository_credentials::set_credential,

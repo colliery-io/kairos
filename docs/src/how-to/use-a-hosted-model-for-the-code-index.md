@@ -83,6 +83,27 @@ repos builds <slug>`, or the panel of the repository.
 whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries of the pool
 of Kairos, and it says so. The CLI never has the key of the organization.
 
+## The search of the code tools
+
+`code_search` of the code tools (`kairos index mcp`) compares the vector of
+the query with the vectors of the summaries. One model must make the two
+vectors. The CLI gets the vector of the query from the first source that it
+has:
+
+1. The local vector model of the CLI, when it is the model of the index.
+2. Kairos, when the CLI has a connection for the checkout: the connection
+   of `kairos index update`. Kairos makes the vector with the vector model
+   of the organization. So the CLI does not need the key of the provider.
+   Each search sends one short request (`POST
+   /api/code-index/query-vector`), with a time limit of 5 seconds.
+3. No vector. The search then uses the text of the summaries, and its first
+   line tells why.
+
+So with `--vector-provider remote`, the search uses vectors when the CLI
+can connect to Kairos. A CLI with no local vector model (the release build
+for Intel macOS) uses Kairos too. The text of the query goes to Kairos,
+and then to the vector provider of the organization.
+
 ## The image with no embedded model
 
 Each release has two images. `ghcr.io/colliery-io/kairos:<version>` has the

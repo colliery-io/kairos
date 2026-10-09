@@ -314,6 +314,16 @@ keeps the stored secret. An empty secret removes it. A hosted provider
 needs its secret, its URL or region, and its model. Kairos refuses a write
 with one of them missing, and the refusal names the field.
 
+`code_search` of the code tools compares the vector of its query with the
+vectors of the index. One model must make the two vectors. A CLI with no
+local model of the index asks Kairos for the vector: `POST
+/api/code-index/query-vector`. Kairos uses its embedded model, or the remote
+provider of the organization with its secret.
+
+Each member can ask. The text has 1 to 2,000 characters. When the
+organization has no provider for the model, Kairos refuses the request
+(`NO_QUERY_PROVIDER`). The search then uses the text of the summaries.
+
 The setting `code_index_summaries` of a repository chooses its summarizer:
 
 - `organization` (the default of a new repository): the `default_summaries`

@@ -1288,6 +1288,26 @@ The vectors part of `PUT /api/org/code-index-settings`. The secret has the rules
 
 The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
+## QueryVector
+
+The vector of a query, made by the model that made the vectors of the index (KAIROS-T-0360).
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `model` | `string` | yes | The model of the request. |
+| `vector` | array of `number` | yes | The vector: as many numbers as the dimension of the model. |
+
+## QueryVectorRequest
+
+Body of `POST /api/code-index/query-vector` (KAIROS-T-0360): the text of a code search, and the model of the vectors of the index.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `model` | `string` | yes | The model of the vectors of the index: `<provider>/<model>/<dimension>`, for example `local/bge-small-en-v1.5-q/384`. |
+| `text` | `string` | yes | The text of the query: 1 to 2,000 characters. |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
+
 ## RelatedItem
 
 One hydrated neighbor of an item in the relationship graph.

@@ -30,6 +30,10 @@ pub struct BoardColumn {
     pub id: String,
     pub name: String,
     pub position: i32,
+    /// The column holds finished work: "Archive completed" archives its
+    /// tasks (KAIROS-T-0363).
+    #[serde(default)]
+    pub is_done: bool,
 }
 
 /// mirror of: `kairos_client::types_org::BoardTransition` (partial).
@@ -393,6 +397,33 @@ pub async fn list_templates(auth: Auth) -> Result<Vec<Template>, ApiError> {
 }
 
 // ---- mutations --------------------------------------------------------------
+
+/// mirror of: `kairos_client::types::ArchiveCompletedResponse` (partial).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct ArchiveCompletedOutcome {
+    pub count: i64,
+}
+
+/// `POST /api/boards/{id}/archive-completed` — archive each task in the
+/// done columns of the board (KAIROS-T-0363). Needs `manage_tasks` on the
+/// board.
+pub async fn archive_completed(
+    auth: Auth,
+    board_id: &str,
+) -> Result<ArchiveCompletedOutcome, ApiError> {
+    crate::api::post_empty(auth, &format!("{}/archive-completed", board_path(board_id))).await
+}
+
+/// The number of live tasks in the done columns of the view (the tasks
+/// that "Archive completed" archives). Pure, host-tested.
+pub fn completed_task_count(items: &BoardItemsResponse) -> usize {
+    items
+        .columns
+        .iter()
+        .filter(|group| group.column.is_done)
+        .map(|group| group.tasks.len())
+        .sum()
+}
 
 /// The four board-item entity kinds (documents are off-board, S-0005).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1094,6 +1125,37 @@ mod tests {
         .expect("mirror decodes");
         assert_eq!(old.claim, None);
         assert_eq!(old.cancellation, None);
+    }
+
+    /// KAIROS-T-0363: a column decodes `is_done`, and a column of an older
+    /// server is not done. The count of "Archive completed" is the tasks
+    /// of the done columns only.
+    #[test]
+    fn completed_tasks_are_the_tasks_of_the_done_columns() {
+        let column = |name: &str, done: bool, tasks: &[&str]| {
+            serde_json::json!({
+                "column": {"id": name, "name": name, "position": 1, "is_done": done},
+                "strategies": [], "initiatives": [], "adrs": [],
+                "tasks": tasks.iter().map(|code| serde_json::json!({
+                    "short_code": code, "title": "T", "task_type": "task",
+                    "work_class": "planned"
+                })).collect::<Vec<_>>(),
+            })
+        };
+        let items: BoardItemsResponse = serde_json::from_value(serde_json::json!({
+            "board": {"id": "b", "name": "B", "slug": "b", "board_level": "delivery"},
+            "columns": [
+                column("Active", false, &["DEMO-T-0001"]),
+                column("Completed", true, &["DEMO-T-0002", "DEMO-T-0003"]),
+            ],
+            "total": 3, "limit": 200, "offset": 0
+        }))
+        .expect("items decode");
+        assert_eq!(completed_task_count(&items), 2);
+        let old: BoardColumn =
+            serde_json::from_value(serde_json::json!({"id": "c", "name": "Todo", "position": 1}))
+                .expect("column decodes");
+        assert!(!old.is_done);
     }
 
     /// KAIROS-T-0362: a card task decodes its cancel mark.

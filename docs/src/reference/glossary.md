@@ -219,7 +219,8 @@ transition rules of the board do not apply. You can cancel a task from each
 column that is not done. A cancel ends the [claim](#claim).
 
 A move of the task out of the done column removes the mark. The activity log
-keeps the row `cancel` with the reason. To cancel a task, a principal needs
+keeps the row `cancel` with the reason. "Archive completed" archives a
+cancelled task, as it archives a finished task. To cancel a task, a principal needs
 `transition_items` on the board: the capability of a move.
 
 ## claim

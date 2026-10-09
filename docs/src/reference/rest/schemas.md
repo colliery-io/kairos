@@ -125,6 +125,16 @@ One row of `GET /api/service-accounts/{id}/keys` — never a secret or hash.
 | `prefix` | `string` | yes |  |
 | `revoked_at` | `string`, nullable | no |  |
 
+## ArchiveCompletedResponse
+
+Response of `POST /api/boards/{id}/archive-completed` (KAIROS-T-0363): the tasks of the done columns that the call archived.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `board_id` | `string` | yes | The board (UUID). |
+| `count` | `integer` | yes | How many tasks the call archived. |
+| `short_codes` | array of `string` | yes | The short codes of the archived tasks, sorted. |
+
 ## BlocksCounts
 
 Dependency counts behind a board card's blocked-by/blocks badges (KAIROS-T-0091).

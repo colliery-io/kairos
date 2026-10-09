@@ -36,6 +36,19 @@ pub enum BoardsCommand {
         #[command(flatten)]
         common: Common,
     },
+    /// Archive each task in the done columns of a delivery board, cancelled
+    /// tasks too (requires --confirm). You can restore each task
+    #[command(name = "archive-completed")]
+    ArchiveCompleted {
+        /// Board slug or id (UUID)
+        #[arg(value_name = "BOARD")]
+        board: String,
+        /// Archive the tasks
+        #[arg(long)]
+        confirm: bool,
+        #[command(flatten)]
+        common: Common,
+    },
 }
 
 impl BoardsCommand {
@@ -100,6 +113,25 @@ impl BoardsCommand {
                 if let Some(note) = items.incomplete_note("use --offset") {
                     println!("{note}");
                 }
+                Ok(())
+            }
+            Self::ArchiveCompleted {
+                board,
+                confirm,
+                common,
+            } => {
+                if !confirm {
+                    return Err(CliError::Failure(format!(
+                        "The archive of the completed tasks of {board} needs --confirm. Run \
+                         the command again with --confirm."
+                    )));
+                }
+                let client = client(&common)?;
+                let response = client.archive_completed(&board).await?;
+                if common.json {
+                    return print_json(&response);
+                }
+                println!("{}", archived_completed_text(&board, &response));
                 Ok(())
             }
         }
@@ -177,5 +209,50 @@ fn teams_suffix(items: &BoardItemsResponse, short_code: &str) -> String {
                 .join(", ")
         ),
         _ => String::new(),
+    }
+}
+
+/// The text of `boards archive-completed` (KAIROS-T-0363).
+fn archived_completed_text(
+    board: &str,
+    response: &kairos_client::types::ArchiveCompletedResponse,
+) -> String {
+    if response.count == 0 {
+        return format!("The done columns of {board} have no tasks. Kairos archived nothing.");
+    }
+    format!(
+        "Kairos archived {} completed task{} of {board}: {}.\nTo get one back, run `kairos \
+         tasks restore <code>`.",
+        response.count,
+        if response.count == 1 { "" } else { "s" },
+        response.short_codes.join(", ")
+    )
+}
+
+#[cfg(test)]
+mod archive_completed_tests {
+    use super::*;
+
+    /// KAIROS-T-0363: the text gives the count and the codes, and says
+    /// how to restore.
+    #[test]
+    fn the_text_gives_the_count() {
+        let response = |codes: &[&str]| kairos_client::types::ArchiveCompletedResponse {
+            board_id: "b".into(),
+            count: codes.len() as i64,
+            short_codes: codes.iter().map(|c| c.to_string()).collect(),
+        };
+        assert_eq!(
+            archived_completed_text("acme", &response(&[])),
+            "The done columns of acme have no tasks. Kairos archived nothing."
+        );
+        let text = archived_completed_text("acme", &response(&["ACME-T-0001", "ACME-T-0002"]));
+        assert!(
+            text.starts_with(
+                "Kairos archived 2 completed tasks of acme: ACME-T-0001, ACME-T-0002."
+            ),
+            "{text}"
+        );
+        assert!(text.contains("tasks restore"), "{text}");
     }
 }

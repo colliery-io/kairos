@@ -904,6 +904,21 @@ mod tests {
             Cli::try_parse_from(["kairos", "adrs", "purge", "ACME-A-0001", "--confirm"]).is_err(),
             "only a task has purge"
         );
+        let cli = Cli::try_parse_from([
+            "kairos",
+            "boards",
+            "archive-completed",
+            "acme-delivery",
+            "--confirm",
+        ])
+        .expect("boards archive-completed parses");
+        match cli.command {
+            Command::Boards(BoardsCommand::ArchiveCompleted { board, confirm, .. }) => {
+                assert_eq!(board, "acme-delivery");
+                assert!(confirm);
+            }
+            _ => panic!("expected boards archive-completed"),
+        }
 
         // Documents have no transition endpoint in S-0005 — no verb either.
         assert!(

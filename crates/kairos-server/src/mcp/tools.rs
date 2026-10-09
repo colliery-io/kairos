@@ -582,8 +582,19 @@ pub struct PurgeTaskParams {
     pub confirm: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveCompletedParams {
+    /// The delivery board, by slug (e.g. "platform-delivery") or UUID.
+    pub board: String,
+    /// Must be true: the call archives each task in the done columns of
+    /// the board.
+    pub confirm: bool,
+}
+
 // ---------------------------------------------------------------------------
-// The tools (30; the list is asserted in tests/mcp.rs)
+// The tools (31; the list is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -2522,6 +2533,47 @@ impl KairosMcp {
                 "Deleted {} (\"{}\") for good. No restore can bring it back.",
                 purged.short_code, purged.title
             ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Archive each task in the done columns of one delivery board (\"Archive completed\"), cancelled tasks too. Each task is archived as by `delete_item`, and `restore_item` brings back each one. One transaction: the call archives each task, or none. Requires confirm=true, and `manage_tasks` on the board. The response gives the count and the codes."
+    )]
+    pub async fn archive_completed(
+        &self,
+        Parameters(params): Parameters<ArchiveCompletedParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            if !params.confirm {
+                return Err(ApiError::validation(
+                    "archive_completed must have confirm=true. The call archives each task \
+                     in the done columns of the board. A restore brings each one back.",
+                )
+                .with_details(serde_json::json!({ "argument": "confirm" })));
+            }
+            let board = board_by_ref(conn, &params.board)?;
+            let response =
+                crate::api::org::boards::archive_completed_tasks(conn, &slug, &board, user)?;
+            Ok(if response.count == 0 {
+                format!(
+                    "The done columns of {} have no tasks. Kairos archived nothing.",
+                    board.slug
+                )
+            } else {
+                format!(
+                    "Archived {} completed task{} of {}: {}.\nTo get one back, restore it by its \
+                     short code.",
+                    response.count,
+                    if response.count == 1 { "" } else { "s" },
+                    board.slug,
+                    response.short_codes.join(", ")
+                )
+            })
         })
         .await
     }

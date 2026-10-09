@@ -696,6 +696,18 @@ pub struct DeleteResponse {
     pub not_reached: Vec<NotReached>,
 }
 
+/// Response of `POST /api/boards/{id}/archive-completed` (KAIROS-T-0363):
+/// the tasks of the done columns that the call archived.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ArchiveCompletedResponse {
+    /// The board (UUID).
+    pub board_id: String,
+    /// How many tasks the call archived.
+    pub count: i64,
+    /// The short codes of the archived tasks, sorted.
+    pub short_codes: Vec<String>,
+}
+
 /// One live descendant that an archive does not reach (COLLIERY-T-0234).
 ///
 /// The archive stops at a descendant that the caller cannot edit, and

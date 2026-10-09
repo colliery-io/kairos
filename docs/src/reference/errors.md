@@ -257,7 +257,7 @@ server refuses a value that is not an integer, with `VALIDATION`.
 | Code | Status | Meaning | `details` |
 |---|---|---|---|
 | `SAME_BOARD` | 422 | The move's target is the board the item is already on | — |
-| `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only | — |
+| `NOT_DELIVERY_BOARD` | 422 | Cross-board moves are between delivery boards only. "Archive completed" (`POST /api/boards/{id}/archive-completed`) is for a delivery board only | — |
 | `RENAME_NOT_NEEDED` | 422 | A move with a rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. Nothing changes. Do the move with no rename | `argument`: `rename`. For a prefix, also `short_code` and `code_prefix` |
 | `RESTORE_BLOCKED` | 422 | The item's board, column, owning team or repository has been removed, so it has nowhere to return to. For a document, the board is its owner board | `missing` — a list naming each thing that is gone |
 

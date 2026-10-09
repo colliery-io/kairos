@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-thirty tools. A drift gate in the test suite
-asserts that `tools/list` returns these thirty and no others. The same
+thirty-one tools. A drift gate in the test suite
+asserts that `tools/list` returns these thirty-one and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -41,7 +41,7 @@ Codes an agent can receive, and what each means.
 | `INVALID_TRANSITION` | The target column is not reachable from the item's current column in the board's transition graph. The refusal enumerates the allowed target columns. |
 | `ITEM_NOT_ON_BOARD` | The item has no board placement, so it cannot be transitioned or moved. |
 | `SAME_BOARD` | A `move_item` whose target is the board the task is already on. A document is different: see [`move_item`](#move_item). |
-| `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board. |
+| `NOT_DELIVERY_BOARD` | A `move_item` whose target board is not a delivery board, or an `archive_completed` of a board that is not a delivery board. |
 | `NO_ENTRY_COLUMN` | The target delivery board has no entry column to land the task in. |
 | `RESTORE_BLOCKED` | The archived item's board, column, owning team or repository no longer exists. The refusal names what is missing. |
 | `RELATIONSHIP_RULE` | The relationship type is not allowed between those two item types. For `impacts`: the source is not a document and not an ADR. |
@@ -1156,6 +1156,8 @@ Three tools end an item in different ways:
 - `cancel_item` (above) moves a task to done with a reason.
 - `purge_task` deletes a task for good. Nothing can bring it back.
 
+`archive_completed` archives each task in the done columns of a board.
+
 ### `delete_item`
 
 Archives an item. The response lists each item that the cascade archived, and
@@ -1220,6 +1222,34 @@ not archived; `FORBIDDEN` when the edit rule refuses the caller;
 repository has since been removed, naming what is missing. For a document,
 the board is its owner board. The `impacts` links of an item block no
 restore.
+
+### `archive_completed`
+
+Archives each task in the done columns of one delivery board: "Archive
+completed". A [cancelled](glossary.md#cancel) task is in a done column, so it
+goes too.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `board` | string | yes | — | The delivery board, by slug or UUID. |
+| `confirm` | boolean | yes | — | Must be `true`. |
+
+Each task goes through the archive of `delete_item`. The cascade, the end of
+the claim and the activity row are the same as for one task. `restore_item`
+brings back each task. The call is one transaction: it archives each task, or
+it archives none. The output gives the count and the codes:
+
+```text
+Archived 2 completed tasks of web-delivery: WEB-T-0004, WEB-T-0007.
+To get one back, restore it by its short code.
+```
+
+Needs `manage_tasks` on the board: the capability that archives each task of
+the board.
+
+Refuses: `VALIDATION` when `confirm` is `false`; `NOT_FOUND` for an unknown
+board; `FORBIDDEN` without `manage_tasks`; `NOT_DELIVERY_BOARD` for a board
+that is not a delivery board.
 
 ### `purge_task`
 

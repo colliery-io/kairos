@@ -229,6 +229,7 @@ creator of the item gets no right there:
 | Change the owner board of a document | `PATCH /api/documents/{short_code}/board` | `move_item` | `manage_documents` on the two boards |
 | Cancel a task | `POST /api/tasks/{short_code}/cancel` | `cancel_item` | `transition_items` on the board |
 | Delete a task for good | `POST /api/tasks/{short_code}/purge` | `purge_task` | `manage_tasks` on the board |
+| Archive the tasks of the done columns | `POST /api/boards/{id}/archive-completed` | `archive_completed` | `manage_tasks` on the board |
 
 A team controls its own plan. A person who sends a request to a different
 team can edit the request, link it and archive it. That person cannot move it

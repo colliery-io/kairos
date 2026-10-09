@@ -611,6 +611,17 @@ impl KairosClient {
             .await
     }
 
+    /// `POST /api/boards/{id}/archive-completed` — archive each task in the
+    /// done columns of a board (KAIROS-T-0363). `board` is a slug or a
+    /// UUID. The caller holds `manage_tasks` on the board.
+    pub async fn archive_completed(
+        &self,
+        board: &str,
+    ) -> Result<crate::types::ArchiveCompletedResponse, Error> {
+        self.post_empty(&format!("/api/boards/{board}/archive-completed"))
+            .await
+    }
+
     /// `PUT /api/tasks/{short_code}/repository` — set the repository the
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the

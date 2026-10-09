@@ -569,6 +569,22 @@ The board has 340 items. This result shows 200 (limit 200, offset 0). To read th
 Board capability grants are not part of the CLI surface. See
 [Capabilities and access](../explanation/capabilities-and-access.md).
 
+### `kairos boards archive-completed`
+
+```
+kairos boards archive-completed <BOARD> --confirm [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<BOARD>` | slug or UUID | required | A delivery board. |
+| `--confirm` | flag | off | Required for the archive to happen. Without it, nothing is archived. |
+
+Archives each task in the done columns of the board, cancelled tasks too. Each
+task goes through the same archive as `tasks archive`. The call archives each
+task, or none. You need `manage_tasks` on the board. The command prints the
+count and the codes. To get a task back, use `kairos tasks restore <code>`.
+
 ## Organization
 
 ### `kairos orgs show`

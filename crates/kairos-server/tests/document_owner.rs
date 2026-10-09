@@ -2450,8 +2450,8 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
     let tools = listed["tools"].as_array().cloned().unwrap_or_default();
     // KAIROS-T-0332 added rebuild_code_index. KAIROS-T-0359 added
     // hand_off_item and release_item, and KAIROS-T-0362 added cancel_item
-    // and purge_task.
-    checks.same("H1: the number of tools", tools.len(), 30);
+    // and purge_task, and KAIROS-T-0363 added archive_completed.
+    checks.same("H1: the number of tools", tools.len(), 31);
     let schema_of = |name: &str| -> Value {
         tools
             .iter()

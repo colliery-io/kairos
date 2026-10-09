@@ -28,7 +28,7 @@ use aurora_dark::components::{
     Alert, Anchor, Button, Chip, Empty, ErrorState, Group, Loading, PageHeader, Pill, Select,
     Stack, Text, TextInput, Textarea,
 };
-use aurora_dark::frame::{Card, Modal, use_toaster};
+use aurora_dark::frame::{Card, ConfirmDialog, Modal, use_toaster};
 use aurora_dark::tokens::{ApiError, token};
 use aurora_dark::widgets::Banner;
 use leptos::prelude::*;
@@ -1306,6 +1306,15 @@ fn BoardBody(
     // Modal open-state lives HERE so refetches never reset it.
     let create_open = RwSignal::new(false);
     let doc_open = RwSignal::new(false);
+    let archive_open = RwSignal::new(false);
+    // KAIROS-T-0363: the tasks that "Archive completed" takes.
+    let completed = Memo::new(move |_| {
+        model.with(|m| {
+            m.as_ref()
+                .map(|view| data::completed_task_count(&view.items))
+                .unwrap_or(0)
+        })
+    });
 
     // ---- memos over the live model (notify only on actual change) --------
     let header_text = Memo::new(move |_| {
@@ -1546,6 +1555,15 @@ fn BoardBody(
                             "New document"
                         </Button>
                     })}
+                    // KAIROS-T-0363: only for a person who may archive each
+                    // task of the board (`manage_tasks`).
+                    {move || (is_delivery && powers.get().create).then(|| view! {
+                        <Button variant="default" size="xs"
+                            disabled=Signal::derive(move || completed.get() == 0)
+                            on_click=Callback::new(move |_| archive_open.set(true))>
+                            "Archive completed"
+                        </Button>
+                    })}
                 </Group>
             }.into_any());
             view! { <PageHeader title sub right=header_right/> }
@@ -1758,6 +1776,78 @@ fn BoardBody(
             <CreateDocumentModal open=doc_open parents=doc_parents
                 board_slug=board.slug.clone() board_name=board.name.clone() on_changed/>
         })}
+        {is_delivery.then(|| view! {
+            <ArchiveCompletedDialog open=archive_open board_id=board_id.get_value()
+                count=completed on_changed/>
+        })}
+    }
+}
+
+/// The question of the "Archive completed" dialog (KAIROS-T-0363). Pure,
+/// host-tested.
+fn archive_completed_title(count: usize) -> String {
+    let tasks = if count == 1 { "task" } else { "tasks" };
+    format!("Archive {count} completed {tasks}?")
+}
+
+/// The "Archive completed" dialog (KAIROS-T-0363): the confirmation gives
+/// the count, and says that each task can be restored.
+#[component]
+fn ArchiveCompletedDialog(
+    open: RwSignal<bool>,
+    #[prop(into)] board_id: String,
+    count: Memo<usize>,
+    on_changed: Callback<()>,
+) -> impl IntoView {
+    let auth = use_auth();
+    let toaster = use_toaster();
+    let board_id = StoredValue::new(board_id);
+    let busy = RwSignal::new(false);
+    let error = RwSignal::new(None::<String>);
+    Effect::new(move |_| {
+        if open.get() {
+            error.set(None);
+        }
+    });
+    let confirm = Callback::new(move |_| {
+        if busy.get_untracked() {
+            return;
+        }
+        busy.set(true);
+        error.set(None);
+        leptos::task::spawn_local(async move {
+            let result = data::archive_completed(auth, &board_id.get_value()).await;
+            busy.set(false);
+            match result {
+                Ok(outcome) => {
+                    open.set(false);
+                    toaster.success(format!(
+                        "Kairos archived {} completed {}. You can restore each one.",
+                        outcome.count,
+                        if outcome.count == 1 { "task" } else { "tasks" }
+                    ));
+                    on_changed.run(());
+                }
+                Err(e) => error.set(Some(describe(&e))),
+            }
+        });
+    });
+    view! {
+        <ConfirmDialog
+            open
+            title=Signal::derive(move || archive_completed_title(count.get()))
+            message="You can restore each one."
+            confirm_label="Archive"
+            danger=false
+            busy
+            on_confirm=confirm
+        >
+            {move || error.get().map(|message| view! {
+                <Alert title="Archive failed" color=token::BAD>
+                    <Text size="sm" dimmed=true>{message}</Text>
+                </Alert>
+            })}
+        </ConfirmDialog>
     }
 }
 
@@ -2697,6 +2787,14 @@ fn CreateDocumentModal(
 mod tests {
     use super::*;
     use crate::pages::teams::api::Team;
+
+    /// KAIROS-T-0363: the question of "Archive completed" gives the
+    /// count.
+    #[test]
+    fn the_archive_completed_title_gives_the_count() {
+        assert_eq!(archive_completed_title(1), "Archive 1 completed task?");
+        assert_eq!(archive_completed_title(12), "Archive 12 completed tasks?");
+    }
 
     /// KAIROS-T-0359: the claim chip names the person, and the agent.
     #[test]

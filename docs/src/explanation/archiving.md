@@ -327,6 +327,21 @@ sweep of archived items can call it.
 The two make the archive clearer, not weaker. Archive stays the default: it is
 what an end of work should almost always be, because it can be undone.
 
+## Archive completed
+
+A done column fills up. The tasks in it are finished, or cancelled, and a team
+that wants a clean board had to archive them one at a time. "Archive completed"
+(KAIROS-T-0363) archives each task in the done columns of one board in one
+call, after a confirmation that gives the count. Each task goes through the
+same archive as one task, so the cascade, the end of the claim and the history
+are the same, and a restore brings back each one.
+
+The call is one transaction: it archives each task, or none. A partial result
+would leave the board in a state that nobody asked for, and the person could
+not see which tasks went. The right is `manage_tasks` on the board: the right
+that archives each task of the board. The creator of a task can archive that
+task, but not the done column of the team.
+
 ## Alternatives, and what they would have cost
 
 Four alternatives were considered for what the state should mean.

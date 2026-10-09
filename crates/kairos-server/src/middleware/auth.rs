@@ -525,7 +525,7 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
         }
     }
 
-    diesel::insert_into(users::table)
+    let inserted = diesel::insert_into(users::table)
         .values(NewUser {
             external_id: claims.sub.clone(),
             // JIT has no SCIM payload to take a `userName` from, so it takes the
@@ -545,8 +545,26 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
         ))
         .returning(User::as_returning())
         .get_result(&mut conn)
-        .await
-        .map_err(ApiError::internal)
+        .await;
+
+    // A first login sends several requests at once, and each misses the SELECT
+    // above and inserts. `ON CONFLICT (external_id)` arbitrates on external_id
+    // only: a concurrent insert of the same subject can trip the `user_name`
+    // unique index first, which Postgres raises as an error rather than a
+    // conflict to update. The row the other request wrote is the one this one
+    // wanted, so read it.
+    match inserted {
+        Err(diesel::result::Error::DatabaseError(
+            diesel::result::DatabaseErrorKind::UniqueViolation,
+            _,
+        )) => users::table
+            .filter(users::external_id.eq(&claims.sub))
+            .select(User::as_select())
+            .first(&mut conn)
+            .await
+            .map_err(ApiError::internal),
+        other => other.map_err(ApiError::internal),
+    }
 }
 
 /// The auth layer: validate the bearer token, JIT-upsert the user, insert

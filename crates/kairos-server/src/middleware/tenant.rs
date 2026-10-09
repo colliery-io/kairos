@@ -110,6 +110,48 @@ pub fn resolve_slug(config: &AppConfig, headers: &HeaderMap) -> Result<String, A
     ))
 }
 
+/// Whether a request for the missing tenant `slug` provisions it: only the
+/// tenant `KAIROS_SINGLE_TENANT` pins, and only for a deployment admin.
+///
+/// A single-tenant deployment serves one organization and nothing works until
+/// it exists, so its first deployment admin to log in creates it and becomes
+/// its admin, rather than calling `POST /api/admin/tenants` with a hand-carried
+/// bearer token. The authority is the one that route already requires; anyone
+/// else still gets 404 `TENANT_NOT_FOUND`.
+fn provisions_on_first_login(config: &AppConfig, auth: &AuthContext, slug: &str) -> bool {
+    config.single_tenant.as_deref() == Some(slug)
+        && crate::api::org::admin::is_deployment_admin(config, &auth.external_id)
+}
+
+/// Provision the pinned tenant with the caller as its first admin. The name is
+/// `KAIROS_SINGLE_TENANT_NAME`, or the slug when that is unset.
+async fn provision_pinned_tenant(
+    state: &AppState,
+    auth: &AuthContext,
+    slug: &str,
+) -> Result<(), ApiError> {
+    let slug = slug.to_string();
+    let name = state
+        .config
+        .single_tenant_name
+        .clone()
+        .unwrap_or_else(|| slug.clone());
+    let user_id = auth.user_id;
+    let report = state
+        .blocking
+        .run_public(move |conn| {
+            crate::api::org::admin::provision_for_user(conn, &slug, &name, user_id)
+        })
+        .await?;
+    tracing::info!(
+        tenant = %report.slug,
+        user_id = %report.initial_admin.user_id,
+        "provisioned the single tenant on the first login of a deployment admin, \
+         who is its first admin"
+    );
+    Ok(())
+}
+
 /// The tenant layer: resolve the slug, load the organization, require
 /// membership, and hand the request its [`TenantContext`] + [`TenantDb`].
 pub async fn require_tenant(
@@ -154,16 +196,37 @@ pub async fn require_tenant(
     // round trip that is not there.
     let (org, role) = async {
         let mut conn = state.pool.public_conn().await.map_err(ApiError::internal)?;
-        let org: Option<Organization> = organizations::table
+        let mut org: Option<Organization> = organizations::table
             .filter(organizations::slug.eq(&slug))
             .select(Organization::as_select())
             .first(&mut conn)
             .await
             .optional()
             .map_err(ApiError::internal)?;
-        let org = org.ok_or_else(|| {
-            ApiError::tenant_not_found(format!("No organization has the slug {slug:?}."))
-        })?;
+        let mut provision_error = None;
+        if org.is_none() && provisions_on_first_login(&state.config, &auth, &slug) {
+            if let Err(e) = provision_pinned_tenant(&state, &auth, &slug).await {
+                provision_error = Some(e);
+            }
+            // Read again either way: a concurrent first request may have
+            // provisioned it, and then this one's failure does not matter.
+            org = organizations::table
+                .filter(organizations::slug.eq(&slug))
+                .select(Organization::as_select())
+                .first(&mut conn)
+                .await
+                .optional()
+                .map_err(ApiError::internal)?;
+        }
+        let org = match (org, provision_error) {
+            (Some(org), _) => org,
+            (None, Some(e)) => return Err(e),
+            (None, None) => {
+                return Err(ApiError::tenant_not_found(format!(
+                    "No organization has the slug {slug:?}."
+                )));
+            }
+        };
         let role: Option<OrgRole> = organization_members::table
             .filter(organization_members::organization_id.eq(org.id))
             .filter(organization_members::user_id.eq(auth.user_id))
@@ -224,6 +287,7 @@ mod tests {
             oidc_audience: Some("unused".to_string()),
             base_domain: base_domain.map(str::to_string),
             single_tenant: single_tenant.map(str::to_string),
+            single_tenant_name: None,
             deployment_admins: vec![],
             log_level: "info".to_string(),
             log_format: crate::config::LogFormat::Json,

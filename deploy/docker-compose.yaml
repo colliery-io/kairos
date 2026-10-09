@@ -85,6 +85,7 @@ services:
       # or pin one tenant for single-tenant installs (leave the other empty).
       KAIROS_BASE_DOMAIN: ${KAIROS_BASE_DOMAIN:-}
       KAIROS_SINGLE_TENANT: ${KAIROS_SINGLE_TENANT:-}
+      KAIROS_SINGLE_TENANT_NAME: ${KAIROS_SINGLE_TENANT_NAME:-}
       KAIROS_DEPLOYMENT_ADMINS: ${KAIROS_DEPLOYMENT_ADMINS:-}
       KAIROS_BIND_ADDR: 0.0.0.0:8080
       KAIROS_LOG_FORMAT: json

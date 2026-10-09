@@ -206,6 +206,7 @@ Secret loaded via `valueFrom`.
 | `config.retention.mode` | `KAIROS_RETENTION_MODE` | server `archive` | `archive` \| `discard` \| `off`. |
 | `config.devUi` | `KAIROS_DEV_UI` | `false` | Swagger UI; keep off in prod. |
 | `extraEnv` | (verbatim) | `[]` | Extra `EnvVar`s. |
+| `tmp.enabled` / `tmp.sizeLimit` | — | `true` / `8Gi` | emptyDir at `/tmp` (the root filesystem is read-only; the code index builder and index uploads write temporary files). |
 
 ## Probes and migrations
 

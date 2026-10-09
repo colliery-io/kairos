@@ -95,13 +95,30 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.extraVolumeMounts }}
+          {{- if or .Values.tmp.enabled .Values.extraVolumeMounts }}
           volumeMounts:
+            {{- if .Values.tmp.enabled }}
+            - name: tmp
+              mountPath: /tmp
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
-      {{- with .Values.extraVolumes }}
+      {{- if or .Values.tmp.enabled .Values.extraVolumes }}
       volumes:
+        {{- if .Values.tmp.enabled }}
+        - name: tmp
+          {{- with .Values.tmp.sizeLimit }}
+          emptyDir:
+            sizeLimit: {{ . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

@@ -1479,10 +1479,29 @@ async fn build_repository(
             )
             .await;
         }
+        // No indexed commit is an ancestor of the head within the limit: the
+        // history was rewritten, or the index is of a commit that is gone.
+        // An update cannot start, so the head gets a full build, in place of
+        // a failed update that stays (KAIROS-T-0356).
         Ok(None) => {
-            let note = format!("no indexed commit is within {MAX_DISTANCE} commits below the head");
-            record_failure_once(blocking, tenant, &repo, "push", Some(&head), &note).await;
-            return done(outcome, note);
+            tracing::warn!(
+                tenant = %tenant,
+                repository = %repo.slug,
+                commit = %head,
+                limit = MAX_DISTANCE,
+                "no indexed commit is below the head: a full build"
+            );
+            return full_build_repository(
+                blocking,
+                service,
+                tenant,
+                repo,
+                summarizers,
+                embedder,
+                "push",
+                None,
+            )
+            .await;
         }
         Err(e) => {
             let note = format!("failed: {e:?}");

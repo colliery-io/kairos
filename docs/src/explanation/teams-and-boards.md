@@ -223,6 +223,48 @@ The endpoints, their refusal codes and the exact capability names are in the
 [CLI reference](../reference/cli.md); this page is about why the rules are
 shaped the way they are.
 
+## Who works on a task: the claim
+
+A task in Active has a **claim**: the person who works on it. The claim answers
+the question a team asks of every card in Active, "who has this?", and it
+answers it without anyone having to set a field.
+
+The claim starts by itself. The person who moves a task to Active gets it. When
+an agent moves the task with the [agent key](../how-to/give-an-agent-your-key.md)
+of a person, the claim names the person and marks the agent: "Alice (agent)".
+A person is always responsible for the work, also when an agent does it. That is
+why a service account takes no claim. A service account does machine work with
+no person, so a move to Active by a service account leaves the task with no
+claim.
+
+The claim ends when the work does: the task leaves Active, to Completed, to
+Blocked, or back to Todo. It also ends at a **hand-off** to a named person, and
+at a **release**, which leaves the task in Active and free for anyone. The next
+person who moves a free task into Active gets the claim. An archive of the task
+ends its claim too.
+
+A claim does not lock the task. A different person can still change it, and the
+change is recorded as usual. The response of the change carries a warning that
+names the person who has the claim, so that nobody overwrites the work of a
+colleague or of an agent without knowing. A lock would stop the work of a team
+when the person who has the claim is away; a warning tells, and the team
+decides.
+
+Who may hand off or release a claim follows from who may move the task. The
+person who has the claim may give it to someone else or release it. Anyone with
+`transition_items` on the board may do the same, because that person may move
+the task out of Active anyway, and that ends the claim. A hand-off goes only to
+a person of the organization.
+
+Which column holds claims is a flag of the column, `claims`, next to the flag
+`is_done`. A new delivery board has it on its Active column, and an admin with
+`configure_boards` can move it. When the flag goes off, the claims of the tasks
+in that column end.
+
+The endpoints and the tools are in the [task reference](../reference/rest/work-items.md),
+the [MCP tools reference](../reference/mcp-tools.md) and the
+[CLI reference](../reference/cli.md).
+
 ## Where this comes from
 
 - [The team lifecycle: the live-only guard, and moving tasks between delivery
@@ -231,6 +273,8 @@ shaped the way they are.
 - [Teams, team types and board ownership in the data
   model](https://github.com/colliery-io/kairos/blob/main/.metis/adrs/KAIROS-A-0001.md)
   (KAIROS-A-0001).
+- A task in Active has a claim (KAIROS-T-0359, KAIROS-A-0024: a person is
+  always responsible, and a service account takes no claim).
 - A board always has a team, in two forms (COLLIERY-T-0230, a decision of the
   product owner on 2026-09-27).
 - A board owns a document (COLLIERY-T-0269, a decision of the product owner

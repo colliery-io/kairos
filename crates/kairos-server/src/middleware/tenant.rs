@@ -197,7 +197,16 @@ pub async fn require_tenant(
     // extensions set here are not visible to an outer layer.
     // KAIROS-T-0359: the writes of the request record its agent key
     // (`crate::blocking` module docs).
-    let mut response = crate::blocking::with_agent_key(auth.agent_key, next.run(req)).await;
+    // KAIROS-T-0359: a write to a task that a different person has the
+    // claim on gets the header Kairos-Warning (`crate::claims`).
+    let (mut response, warnings) = crate::claims::collect(crate::blocking::with_agent_key(
+        auth.agent_key,
+        next.run(req),
+    ))
+    .await;
+    if response.status().is_success() {
+        crate::claims::add_header(response.headers_mut(), &warnings);
+    }
     response.extensions_mut().insert(context);
     Ok(response)
 }

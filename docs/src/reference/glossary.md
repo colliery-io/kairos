@@ -29,6 +29,9 @@ An entry has one of these actions:
 | `restore` | A person restored an archived item. |
 | `transition` | An item moved to a different column of its board. |
 | `board_move` | A task moved to a different board. |
+| `claim` | A person moved a task to Active and got its [claim](#claim). |
+| `hand_off` | A person gave the claim of a task to a different person. |
+| `release` | The claim of a task ended. The details give the reason: a release, a move out of Active, an archive, or a service account. |
 | `board_config` | A person changed the name, the slug, a column or a transition of a board. |
 | `work_class` | A task changed its lane. |
 | `lifecycle` | A document changed its [editorial lifecycle](#editorial-lifecycle). |
@@ -201,6 +204,20 @@ that stays keeps its `parent` edge. `supports` edges are not part of the
 cascade: an archive of an item does not archive its documents and ADRs. A
 restore does not cascade. See
 [Archiving](../explanation/archiving.md#the-cascade-takes-only-what-the-caller-can-edit).
+
+## claim
+
+The person who works on a task in Active (KAIROS-T-0359). A column can have
+the flag `claims`. The Active column of a delivery board has it. The person who
+moves a task into such a column gets the claim.
+
+An agent can move the task with the agent key of a person. Then the claim names
+the person, and the GUI shows "Alice (agent)". A service account gets no claim.
+
+The claim ends when the task leaves Active. It also ends at a hand-off, at a
+release, and at an archive. A different person can change the task. Kairos
+records the change and gives a warning. See
+[Teams and boards](../explanation/teams-and-boards.md#who-works-on-a-task-the-claim).
 
 ## column
 

@@ -13,7 +13,7 @@ One `activity_log` row, as returned by `GET /api/activity`.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). |
+| `action` | `string` | yes | `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release`. A change to a team, a delivery stream, a membership or a user has the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and `release` are changes to the claim of a task (KAIROS-T-0359). |
 | `actor_id` | `string` | yes | Who did it (user UUID). |
 | `agent_key_id` | `string`, nullable | no | The agent key (UUID) of the request that made this change, when an agent made it with the agent key of a person (KAIROS-T-0359). The actor is still the person: show "Alice (agent)". Null for a change made without an agent key, and for each change made before Kairos recorded the key. |
 | `details` | `string` | yes | Structured context, e.g. `"column:Draft->Active"`. |
@@ -156,6 +156,7 @@ A board column.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `board_id` | `string` | yes | Owning board (UUID). |
+| `claims` | `boolean` | yes | A task that a person moves into this column gets a claim for the person (KAIROS-T-0359). The Active column of a delivery board has it. The default is for the client only: a response of an older server has no `claims`, and it reads as `false`. |
 | `created_at` | `string` | yes | RFC 3339. |
 | `id` | `string` | yes | Column id (UUID). |
 | `is_done` | `boolean` | yes | Occupants count as completed for children-progress rollups (KAIROS-T-0080). The server sends it in each response, so the schema shows it as required (COLLIERY-T-0254). The default is for the client only: a response of an older server has no `is_done`, and it reads as `false`. |
@@ -778,6 +779,16 @@ Response of `GET /api/{family}/{code}/graph`.
 | `edges` | array of [`GraphEdge`](schemas.md#graphedge) | yes | ALL edges among the returned nodes — cross-links included, not just the discovery tree. |
 | `focus` | `string` | yes | The focal item's short code. |
 | `nodes` | array of [`GraphNode`](schemas.md#graphnode) | yes | Every node within `depth` hops (any relationship type, either direction), focus included at depth 0; ordered by short code. Archived nodes are present and marked (`archived_at`), never dropped. |
+
+## HandOffRequest
+
+Body of `POST /api/tasks/{short_code}/hand-off` (KAIROS-T-0359): the person who gets the claim, by user id, email or user name.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `to` | `string` | yes |  |
+
+The server refuses a body with a field that is not in this table ([Errors](../errors.md#a-field-of-the-body)).
 
 ## HistoryVersion
 
@@ -1717,6 +1728,7 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 |---|---|---|---|
 | `archived_at` | `string`, nullable | no | When this work was put away, RFC 3339; absent while it is live. Archiving hides work from default listings and nothing more (KAIROS-A-0020) â anything serving an archived row marks it, so an auditor never mistakes it for live work. |
 | `board_id` | `string` | yes | Board the task sits on (UUID). |
+| `claim` | [`TaskClaim`](schemas.md#taskclaim), nullable | no |  |
 | `column_id` | `string` | yes | Current column (UUID). |
 | `content` | `string` | yes | Markdown content. |
 | `created_at` | `string` | yes | RFC 3339. |
@@ -1732,6 +1744,17 @@ A task/bug/tech-debt item (Flight Level 1), as returned by `/api/tasks`.
 | `updated_by` | `string` | yes | Last editor user id (UUID). |
 | `version` | `integer` | yes | Optimistic-concurrency version (KAIROS-A-0004). |
 | `work_class` | `string` | yes | Planned/Support lane (`planned|support`, KAIROS-T-0077) â was this work planned, or unplanned intake? Orthogonal to `task_type`. |
+
+## TaskClaim
+
+The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has the task in Active. A task gets a claim when a person moves it to Active. It loses the claim when it leaves Active, at a hand-off to a different person, or at a release.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `agent` | `boolean` | no | True when the person's agent made the claim with the agent key of the person. |
+| `claimed_at` | `string` | yes | RFC 3339. |
+| `display_name` | `string` | yes | The display name of the person. |
+| `user_id` | `string` | yes | The person (UUID). |
 
 ## Team
 
@@ -1948,6 +1971,7 @@ Body of `PATCH /api/boards/{id}/columns/{col_id}` — rename, move, and/or set t
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `claims` | `boolean`, nullable | no | A task that a person moves into this column gets a claim for the person (KAIROS-T-0359). When the flag goes off, the claims of the tasks in the column end. |
 | `is_done` | `boolean`, nullable | no | Mark occupants as completed for children-progress rollups (KAIROS-T-0080). An explicit admin choice — the dead-end heuristic only ever suggests. |
 | `name` | `string`, nullable | no |  |
 | `position` | `integer`, nullable | no | New 0-indexed position; the other columns shift around it. |

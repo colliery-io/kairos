@@ -147,6 +147,8 @@ impl BlockingTenantPool {
         let schema = tenant_schema_name(slug);
         // KAIROS-T-0359: read here, in the task of the request (module docs).
         let agent_key = kairos_db::agent_mark::set_statement(current_agent_key());
+        // KAIROS-T-0359: the sink of the claim warnings, read here too.
+        let sink = crate::claims::current_sink();
         let pool = self.pool.clone();
 
         async move {
@@ -159,7 +161,7 @@ impl BlockingTenantPool {
                     "SET search_path TO \"{schema}\", public; {agent_key}"
                 ))
                 .map_err(ApiError::internal)?;
-                let result = f(&mut conn);
+                let result = crate::claims::with_blocking_sink(sink, || f(&mut conn));
                 // Defense-in-depth only — see module docs.
                 let _ = conn.batch_execute("SET search_path TO public");
                 result

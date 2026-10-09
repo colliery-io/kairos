@@ -216,6 +216,19 @@ pub struct MoveArgs {
     pub common: Common,
 }
 
+/// Arguments of `kairos tasks hand-off` (KAIROS-T-0359).
+#[derive(Args, Debug)]
+pub struct HandOffArgs {
+    /// The task's short code (e.g. ACME-T-0001). The task must be in Active
+    pub short_code: String,
+    /// The person who gets the claim: a user id, an email or a user name
+    /// of a person of the organization
+    #[arg(long = "to", value_name = "PERSON")]
+    pub to: String,
+    #[command(flatten)]
+    pub common: Common,
+}
+
 /// Arguments of `kairos documents move` (COLLIERY-T-0269).
 #[derive(Args, Debug)]
 pub struct DocumentMoveArgs {
@@ -436,6 +449,13 @@ impl EntityView for Task {
             ("column", self.column_id.clone()),
             ("type", self.task_type.clone()),
             ("team", or_dash(&self.team_id)),
+            (
+                "claim",
+                self.claim.as_ref().map_or_else(
+                    || "-".to_string(),
+                    |c| format!("{} since {}", claim_holder(c), c.claimed_at),
+                ),
+            ),
             ("version", self.version.to_string()),
             ("created", self.created_at.clone()),
             ("updated", self.updated_at.clone()),
@@ -627,6 +647,41 @@ pub fn emit_transitioned<T: EntityView>(common: &Common, item: &T) -> Result<(),
         item.column_id().unwrap_or("-")
     );
     Ok(())
+}
+
+/// Render the claim of a task after a hand-off or a release
+/// (KAIROS-T-0359).
+pub fn emit_claim(common: &Common, task: &Task) -> Result<(), CliError> {
+    if common.json {
+        return print_json(task);
+    }
+    println!("{}", claim_line(task));
+    Ok(())
+}
+
+/// The sentence about the claim of a task.
+fn claim_line(task: &Task) -> String {
+    match &task.claim {
+        Some(claim) => format!(
+            "{} has the claim on the task {} since {}.",
+            claim_holder(claim),
+            task.short_code,
+            claim.claimed_at
+        ),
+        None => format!(
+            "The task {} has no claim. The next person who moves it to Active gets the claim.",
+            task.short_code
+        ),
+    }
+}
+
+/// "Alice (agent)" when the agent of the person made the claim.
+fn claim_holder(claim: &kairos_client::types::TaskClaim) -> String {
+    if claim.agent {
+        format!("{} (agent)", claim.display_name)
+    } else {
+        claim.display_name.clone()
+    }
 }
 
 /// Render a board move (KAIROS-I-0012). Tasks only — they are the one
@@ -985,7 +1040,9 @@ impl AdrCreateArgs {
 /// `board_move(Move) = method` adds the board move (tasks only — they are
 /// the one family on per-team boards, KAIROS-I-0012). The optional
 /// `owner_move(Move) = method` adds the move of a document to a different
-/// owner board (COLLIERY-T-0269). `list_args` is the type of the flags of
+/// owner board (COLLIERY-T-0269). The optional `claims(HandOff = method,
+/// Release = method)` adds the hand-off and the release of the claim of a
+/// task in Active (tasks only, KAIROS-T-0359). `list_args` is the type of the flags of
 /// `list`: [`ImpactListArgs`] for documents and ADRs, which have the
 /// filter `--repo`.
 macro_rules! entity_family_cli {
@@ -996,6 +1053,7 @@ macro_rules! entity_family_cli {
         $(, transition($transition_variant:ident) = $transition_fn:ident)?
         $(, board_move($move_variant:ident) = $move_fn:ident)?
         $(, owner_move($owner_variant:ident) = $owner_fn:ident)?
+        $(, claims($hand_variant:ident = $hand_fn:ident, $release_variant:ident = $release_fn:ident))?
     ) => {
         #[doc = concat!("Operations on ", $noun, "s.")]
         #[derive(clap::Subcommand, Debug)]
@@ -1027,6 +1085,14 @@ macro_rules! entity_family_cli {
             $(
             #[command(about = concat!("Move a ", $noun, " to another owner board"))]
             $owner_variant(DocumentMoveArgs),
+            )?
+            $(
+            #[command(about = concat!("Give the claim of a ", $noun,
+                                      " in Active to a different person"))]
+            $hand_variant(HandOffArgs),
+            #[command(about = concat!("End the claim of a ", $noun,
+                                      " in Active and leave it free for anyone"))]
+            $release_variant(GetArgs),
             )?
             #[command(about = concat!("Soft-delete a ", $noun,
                                       " and cascade to its children (requires --confirm)"))]
@@ -1107,6 +1173,18 @@ macro_rules! entity_family_cli {
                         Ok(())
                     }
                     )?
+                    $(
+                    Self::$hand_variant(args) => {
+                        let client = client(&args.common)?;
+                        let task = client.$hand_fn(&args.short_code, &args.to).await?;
+                        emit_claim(&args.common, &task)
+                    }
+                    Self::$release_variant(args) => {
+                        let client = client(&args.common)?;
+                        let task = client.$release_fn(&args.short_code).await?;
+                        emit_claim(&args.common, &task)
+                    }
+                    )?
                     Self::Delete(args) => {
                         require_confirm(args.confirm, &args.short_code)?;
                         let client = client(&args.common)?;
@@ -1164,7 +1242,8 @@ entity_family_cli!(
     delete = delete_task,
     restore = restore_task,
     transition(Transition) = transition_task,
-    board_move(Move) = move_task_with
+    board_move(Move) = move_task_with,
+    claims(HandOff = hand_off_task, Release = release_task)
 );
 
 entity_family_cli!(

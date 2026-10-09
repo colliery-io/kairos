@@ -84,8 +84,27 @@ impl ServerHandler for KairosMcp {
             .and_then(|parts| parts.extensions.get::<AuthContext>())
             .and_then(|auth| auth.agent_key);
         let call = ToolCallContext::new(self, request, context);
-        match crate::blocking::with_agent_key(agent_key, self.tool_router.call(call)).await {
-            Ok(result) => Ok(result),
+        // KAIROS-T-0359: a write to a task that a different person has the
+        // claim on gets a warning line (`crate::claims`).
+        let (result, warnings) = crate::claims::collect(crate::blocking::with_agent_key(
+            agent_key,
+            self.tool_router.call(call),
+        ))
+        .await;
+        match result {
+            Ok(mut result) => {
+                if result.is_error != Some(true) && !warnings.is_empty() {
+                    let lines: Vec<String> = warnings.iter().map(|w| w.mcp_text()).collect();
+                    match result.content.first_mut() {
+                        Some(ContentBlock::Text(text)) => {
+                            text.text.push_str("\n\n");
+                            text.text.push_str(&lines.join("\n"));
+                        }
+                        _ => result.content.push(ContentBlock::text(lines.join("\n"))),
+                    }
+                }
+                Ok(result)
+            }
             Err(e) => super::arguments::tool_error_of(e),
         }
     }

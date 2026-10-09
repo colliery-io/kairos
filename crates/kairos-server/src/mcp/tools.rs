@@ -488,6 +488,25 @@ pub struct RebuildCodeIndexParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[schemars(crate = "rmcp::schemars")]
 #[serde(deny_unknown_fields)]
+pub struct HandOffItemParams {
+    /// The task's short code. The task must be in Active.
+    pub short_code: String,
+    /// The person who gets the claim: a user id, an email or a user name
+    /// of a person of the organization.
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseItemParams {
+    /// The task's short code. The task must be in Active.
+    pub short_code: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[schemars(crate = "rmcp::schemars")]
+#[serde(deny_unknown_fields)]
 pub struct LinkItemsParams {
     /// Source item's short code (edge direction: source -> target).
     pub source: String,
@@ -543,7 +562,7 @@ pub struct DeleteItemParams {
 }
 
 // ---------------------------------------------------------------------------
-// The tools (23; the count is asserted in tests/mcp.rs)
+// The tools (28; the list is asserted in tests/mcp.rs)
 // ---------------------------------------------------------------------------
 
 #[tool_router(vis = "pub(super)")]
@@ -963,7 +982,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. A strategy or an initiative with teams is tagged [teams: a, b]: the teams of the boards of its tasks (two levels down for a strategy), plus the teams set on it by hand (`set_team`). Optional `team` (slug or UUID) restricts the strategies and the initiatives to those of one team, and `no_team: true` to those with no team. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
+        description = "List the items on a board grouped by column: short code, type, and title. `board` is a slug or UUID; optional `column` (name or UUID) restricts to one column; optional `repository` (slug or UUID) narrows the tasks to one repository — pass the repository you are checked out in to see your queue. Live cards only unless `include_deleted` is true, which adds the archived ones back in the column they were put away in, each marked [archived]. A card with open dependencies is tagged [blocked by N] and [blocks N]. A task with a claim is tagged [claimed by NAME]: the person who works on it, and \"(agent)\" when the agent of the person made the claim. A strategy or an initiative with teams is tagged [teams: a, b]: the teams of the boards of its tasks (two levels down for a strategy), plus the teams set on it by hand (`set_team`). Optional `team` (slug or UUID) restricts the strategies and the initiatives to those of one team, and `no_team: true` to those with no team. Only open `blocks` edges are counted: an edge with either end in a done column, or with an archived item at the other end, is not. The result has 200 items at most by default: optional `limit` (maximum 1000) and `offset` give a different part of the board. When the result is not the full board, its first lines say so and give the `offset` of the next part. Call the tool again with that `offset` until you have each part."
     )]
     pub async fn board_items(
         &self,
@@ -1065,6 +1084,8 @@ impl KairosMcp {
             // initiatives, one query for the board.
             let teams =
                 kairos_db::item_teams::board_teams(conn, board.id).map_err(ApiError::internal)?;
+            // KAIROS-T-0359: the claims of the tasks, one query.
+            let claims = crate::claims::claim_texts(conn, &item_ids)?;
 
             let mut out = format!(
                 "# Board {} — {} ({})\n",
@@ -1093,10 +1114,14 @@ impl KairosMcp {
                     // tell put-away work from live work will pick one up
                     // and start on it (KAIROS-A-0020 rule 2).
                     out.push_str(&format!(
-                        "- {} [{}] {}{}{}{}{}\n",
+                        "- {} [{}] {}{}{}{}{}{}\n",
                         item.short_code,
                         item.kind,
                         item.title,
+                        claims
+                            .get(&item.id)
+                            .map(|(holder, _)| format!(" [claimed by {holder}]"))
+                            .unwrap_or_default(),
                         item.repository_id
                             .and_then(|id| repo_slugs.get(&id))
                             .map(|slug| format!(" [repo:{slug}]"))
@@ -1126,7 +1151,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code."
+        description = "Full detail of one item by short code: type, board/column, version, full markdown content, metadata values, and relationships (parent chain, children, blockers, supporting docs). A blocker or blocked item in a done column is marked [done]: that edge is resolved, not open. A document shows its owner board: the board that gives the right to edit it. A document and an ADR show the repositories that they impact. An initiative and a strategy show their teams: from tasks (the boards of their tasks, two levels down for a strategy) and set by hand (`set_team`). An `impacts` link says what the item is about, and it gives no right. A retired short code finds the item, and the answer names the current code. A task in Active shows its claim: the person who works on it, and since when."
     )]
     pub async fn get_item(
         &self,
@@ -1183,6 +1208,10 @@ impl KairosMcp {
                 // for (KAIROS-T-0161).
                 let column = column_label(conn, column_id)?;
                 out.push_str(&format!("- board: {} / column: {column}\n", board.slug));
+            }
+            // KAIROS-T-0359: who has the task in Active.
+            if item.item_type == ItemType::Task && item.archived_at.is_none() {
+                out.push_str(&crate::claims::claim_text(conn, item.id, item.column_id)?);
             }
             // COLLIERY-T-0269: the owner of a document. It is a board and
             // not a position, so the line has no column.
@@ -1683,6 +1712,7 @@ impl KairosMcp {
                 "manage_tasks",
                 &item,
             )?;
+            crate::claims::note(conn, item.id, user)?;
             let from_board = board_by_ref(conn, &from_board_id.to_string())?;
             let moved = boards::move_task_with(conn, item.id, target.id, user, params.rename)
                 .map_err(map_board_error)?;
@@ -1984,7 +2014,7 @@ impl KairosMcp {
     }
 
     #[tool(
-        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it."
+        description = "Move an item to another column on its board (`to_column` is a column name or UUID). An invalid move fails with the allowed target columns enumerated — pick one and retry. Needs `transition_items` on the board. The creator of the item gets no right to move it. A task that you move to Active gets your claim: it shows that you work on it. The claim ends when the task leaves Active. A move to Active by a service account gives no claim."
     )]
     pub async fn transition_item(
         &self,
@@ -2021,6 +2051,9 @@ impl KairosMcp {
             )?;
             let columns = board_columns(conn, board_id)?;
             let to_column_id = resolve_column(&columns, &params.to_column)?;
+            if item.item_type == ItemType::Task {
+                crate::claims::note(conn, item.id, user)?;
+            }
 
             match item.item_type {
                 ItemType::Strategy => {
@@ -2042,11 +2075,77 @@ impl KairosMcp {
                     .map(|c| c.name.clone())
                     .unwrap_or_default()
             };
-            Ok(format!(
+            let mut out = format!(
                 "Transitioned {}: {} -> {}.",
                 item.short_code,
                 name_of(from_column_id),
                 name_of(to_column_id)
+            );
+            // KAIROS-T-0359: a move into Active gives the claim.
+            if item.item_type == ItemType::Task {
+                let claim = crate::claims::claim_text(conn, item.id, Some(to_column_id))?;
+                if !claim.is_empty() {
+                    out.push('\n');
+                    out.push_str(claim.trim_end());
+                }
+            }
+            Ok(out)
+        })
+        .await
+    }
+
+    #[tool(
+        description = "Give the claim of a TASK in Active to a different person. The claim says who works on the task: the person who moved it to Active, or the person of a hand-off. `to` is a user id, an email or a user name of a person of the organization; a service account cannot have a claim. The task stays in Active. You can hand off a claim that you have, or any claim with `transition_items` on the board of the task. The answer shows the new claim."
+    )]
+    pub async fn hand_off_item(
+        &self,
+        Parameters(params): Parameters<HandOffItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_task_for_claim(conn, &params.short_code)?;
+            let board_id = item.board_id.unwrap_or_default();
+            crate::claims::require_claim_change(conn, &slug, item.id, board_id, user)?;
+            let to = crate::claims::resolve_person(conn, &slug, &params.to)?;
+            kairos_db::task_claims::hand_off(conn, item.id, to, user)
+                .map_err(crate::claims::map_claim_error)?;
+            Ok(format!(
+                "Handed off {}.\n{}",
+                item.short_code,
+                crate::claims::claim_text(conn, item.id, item.column_id)?.trim_end()
+            ))
+        })
+        .await
+    }
+
+    #[tool(
+        description = "End the claim on a TASK in Active, and leave the task in Active free for anyone. The next person who moves the task to Active gets the claim. A claim also ends when the task leaves Active. You can release a claim that you have, or any claim with `transition_items` on the board of the task."
+    )]
+    pub async fn release_item(
+        &self,
+        Parameters(params): Parameters<ReleaseItemParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let (auth, tenant) = Self::caller(&context)?;
+        let user = auth.user_id;
+        let slug = tenant.slug.clone();
+        self.run_tool(&tenant, move |conn| {
+            let item = load_task_for_claim(conn, &params.short_code)?;
+            let board_id = item.board_id.unwrap_or_default();
+            crate::claims::require_claim_change(conn, &slug, item.id, board_id, user)?;
+            let ended = kairos_db::task_claims::release(conn, item.id, user)
+                .map_err(crate::claims::map_claim_error)?;
+            let name = kairos_db::task_claims::display_names(conn, &[ended.user_id])
+                .map_err(ApiError::internal)?
+                .remove(&ended.user_id)
+                .unwrap_or_else(|| ended.user_id.to_string());
+            Ok(format!(
+                "Released {}: {name} has no claim on it now. The task stays in Active, and it \
+                 has no claim.",
+                item.short_code
             ))
         })
         .await
@@ -3211,6 +3310,20 @@ fn rename_history(conn: &mut PgConnection, item_id: Uuid) -> Result<String, ApiE
         ));
     }
     Ok(out)
+}
+
+/// The live TASK of `hand_off_item` and `release_item`, or a refusal for an
+/// item that is not a task (KAIROS-T-0359).
+fn load_task_for_claim(conn: &mut PgConnection, short_code: &str) -> Result<ItemView, ApiError> {
+    let item = load_item(conn, short_code, Liveness::LiveOnly)?;
+    if item.item_type != ItemType::Task {
+        return Err(ApiError::validation(format!(
+            "The {} {} is not a task. Only a task has a claim.",
+            item.item_type, item.short_code
+        ))
+        .with_details(json!({ "argument": "short_code" })));
+    }
+    Ok(item)
 }
 
 /// The name of an actor in a history or activity text: "Alice (agent)"

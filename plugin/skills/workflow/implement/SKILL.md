@@ -23,7 +23,9 @@ Anything procedural you write while implementing — a how-to or reference page,
 
 The task must be workable: acceptance criteria present and independently verifiable, blockers resolved. When it isn't, stop, note the gap on the item, and tell the lead it needs `/kairos:triage` — surface the gap rather than quietly filling it yourself.
 
-`transition_item` to **Active** before the first change.
+`transition_item` to **Active** before the first change. The move gives the task your **claim**: the board and `get_item` show that you (or your agent) work on it. If `get_item` shows a claim of a different person, the task is theirs: ask before you start, and do not take it over. A change to a task that a different person has the claim on succeeds, and the answer ends with a `Warning:` line that names the person; stop and tell the lead.
+
+To give the task to a different person, `hand_off_item` (`to`: a user id, an email or a user name). To stop work on a task and leave it in Active for anyone, `release_item`. The claim ends by itself when the task leaves Active.
 
 ## Work
 

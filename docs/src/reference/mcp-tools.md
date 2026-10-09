@@ -1,8 +1,8 @@
 # MCP tools
 
 Kairos serves the Model Context Protocol at `/mcp`. The surface is exactly
-twenty-six tools. A drift gate in the test suite
-asserts that `tools/list` returns these twenty-six and no others. The same
+twenty-eight tools. A drift gate in the test suite
+asserts that `tools/list` returns these twenty-eight and no others. The same
 gate asserts that this page has one section for each tool.
 
 The promise is for one release: this page agrees with `tools/list`. The count
@@ -26,6 +26,7 @@ These hold for every tool.
 | Listing weight | Listings are compact: short code, title and key fields. Full markdown content arrives only from `get_item` and from `get_history` with a `version`. |
 | Errors | A refusal comes back as an MCP tool error whose text is `CODE: message`, the code being the same stable one as the REST API's error envelope. Where that code has structured `details`, a second line follows: `details: ` and the JSON object. See [Errors](errors.md) for what each code's `details` carries. |
 | Audit | Writes are recorded in the activity log by the same code path as the REST API. |
+| Claims | A task in Active has a [claim](glossary.md#claim): the person who works on it. A write to a task that a different person has the claim on succeeds and is recorded. The text of the tool then ends with a line: `Warning: Alice (agent) has the claim on ACME-T-0012 (since 2026-10-09T10:00:00Z). Your change is recorded.` A write by the person who has the claim, also with the agent key of the person, gets no warning. |
 
 ### Refusal codes
 
@@ -47,6 +48,8 @@ Codes an agent can receive, and what each means.
 | `CYCLE_DETECTED` | The edge would create a cycle. |
 | `ALREADY_LINKED` | That edge already exists. For `impacts`: the item impacts that repository already. |
 | `RENAME_NOT_NEEDED` | A `move_item` with `rename` to a board whose prefix the code has already. |
+| `NOT_CLAIMABLE` | A `hand_off_item` or a `release_item` of a task that is not in Active (a column that holds claims). |
+| `NO_CLAIM` | A `release_item` of a task that has no claim. |
 
 **Each tool refuses an argument that it does not know.** Each tool has the
 rule of the routes of the REST API, the tools that read too. The tool does not
@@ -331,6 +334,9 @@ true; otherwise it is not among the board's columns and is refused as unknown.
 A strategy or an initiative that has teams carries `[teams: a, b]`, with the
 slugs of the teams. See [the teams of an item](#the-teams-of-an-initiative-or-a-strategy).
 
+A task with a claim carries `[claimed by Alice]`, or `[claimed by Alice
+(agent)]` when the agent of the person made the claim.
+
 A card with dependencies that count carries `[blocked by N]`, `[blocks N]`, or
 both. A `blocks` edge does not count when the item at either end is in a done
 column. It does not count when the item at the other end has the `[archived]`
@@ -361,6 +367,14 @@ not live.
 
 ```text
 - impacts: repository fidius (github colliery-io/fidius); repository old-lib (github acme/old-lib) [archived]
+```
+
+A task in Active has the line `claim`. A task in Active with no claim has the
+line too:
+
+```text
+- claim: Alice (agent) since 2026-10-09T10:00:00Z
+- claim: none. The task is free: the next person who moves it to Active gets the claim.
 ```
 
 An initiative or a strategy has the line `teams` in the section of the
@@ -762,6 +776,12 @@ Moves an item to another column on its own board.
 Requires `transition_items` on the item's board. A transition is a move and
 not an edit. The creator of the item gets no right to move it.
 
+A person who moves a task to Active gets the [claim](glossary.md#claim) of the
+task. The answer then has the line `claim`. An agent can move the task with
+the agent key of a person. Then the claim names the person and has the mark
+`(agent)`. A service account gets no claim. The claim ends when the task
+leaves Active.
+
 Refuses: `NOT_FOUND` for an unknown short code or an archived item;
 `ITEM_NOT_ON_BOARD` for an item with no placement — documents always;
 `VALIDATION` for a column that is not on that board, listing the board's
@@ -863,6 +883,51 @@ The tool refuses with these codes:
 | `FORBIDDEN` | The caller does not hold `manage_tasks` on the two boards of a task. The caller does not hold `manage_documents` on the two boards of a document, and the message names the board. |
 | `SAME_BOARD`, `NOT_DELIVERY_BOARD`, `NO_ENTRY_COLUMN` | For a task only. |
 | `RENAME_NOT_NEEDED` | A rename to a board whose prefix the code has already, or a rename of a document whose owner board does not change. |
+
+### `hand_off_item`
+
+Gives the [claim](glossary.md#claim) of a task in Active to a different person.
+The task stays in Active.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's short code. The task must be in Active. |
+| `to` | string | yes | — | The person who gets the claim: a user id, an email or a user name of a person of the organization. |
+
+The person who has the claim can hand it off. Any other principal needs
+`transition_items` on the board of the task. A service account cannot have a
+claim. A task in Active with no claim can get a claim by a hand-off. The answer
+has the line `claim` with the new claim.
+
+Refuses:
+
+- `NOT_FOUND` for an unknown short code or an archived task.
+- `VALIDATION` for an item that is not a task.
+- `VALIDATION` for `to` that is not a person of the organization.
+- `FORBIDDEN` without the claim and without `transition_items`.
+- `NOT_CLAIMABLE` for a task that is not in Active.
+- `CONFLICT` when the person has the claim already.
+
+### `release_item`
+
+Ends the [claim](glossary.md#claim) of a task in Active. The task stays in
+Active with no claim, free for anyone. The next person who moves the task to
+Active gets the claim.
+
+| Argument | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `short_code` | string | yes | — | The task's short code. The task must be in Active. |
+
+The person who has the claim can release it. Any other principal needs
+`transition_items` on the board of the task.
+
+Refuses:
+
+- `NOT_FOUND` for an unknown short code or an archived task.
+- `VALIDATION` for an item that is not a task.
+- `FORBIDDEN` without the claim and without `transition_items`.
+- `NOT_CLAIMABLE` for a task that is not in Active.
+- `NO_CLAIM` for a task that has no claim.
 
 ## Relationships
 

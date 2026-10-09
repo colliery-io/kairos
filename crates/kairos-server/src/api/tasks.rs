@@ -41,6 +41,8 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/tasks/{short_code}/transition", post(transition_task))
         .route("/api/tasks/{short_code}/move", post(move_task))
+        .route("/api/tasks/{short_code}/hand-off", post(hand_off_task))
+        .route("/api/tasks/{short_code}/release", post(release_task))
         .route("/api/tasks/{short_code}/work-class", post(set_work_class))
         .route(
             "/api/tasks/{short_code}/repository",
@@ -210,6 +212,13 @@ fn load(conn: &mut PgConnection, short_code: &str, liveness: Liveness) -> Result
     super::found_or_follow_retired(conn, found, "task", short_code, liveness, load)
 }
 
+/// The task DTO of a response, with the repository and the claim
+/// (KAIROS-T-0359) embedded.
+fn embed(conn: &mut PgConnection, task: dto::Task) -> Result<dto::Task, ApiError> {
+    let task = attach_repository(conn, task).map_err(ApiError::internal)?;
+    crate::claims::attach_claim(conn, task).map_err(ApiError::internal)
+}
+
 /// List tasks (open tenant-wide, S-0005 list envelope).
 ///
 /// `?include_deleted=true` widens the listing to archived work, each row
@@ -258,6 +267,7 @@ pub(crate) async fn list_tasks(
                 .map_err(ApiError::internal)?;
             let mut items: Vec<dto::Task> = rows.into_iter().map(IntoDto::into_dto).collect();
             attach_repositories(conn, &mut items).map_err(ApiError::internal)?;
+            crate::claims::attach_claims(conn, &mut items).map_err(ApiError::internal)?;
             Ok(dto::ListEnvelope {
                 items,
                 total,
@@ -289,7 +299,7 @@ pub(crate) async fn get_task(
         .blocking
         .run(&tenant.slug, move |conn| {
             let task = load(conn, &short_code, Liveness::IncludeArchived)?.into_dto();
-            attach_repository(conn, task).map_err(ApiError::internal)
+            embed(conn, task)
         })
         .await?;
     Ok(Json(task))
@@ -373,7 +383,7 @@ pub(crate) async fn create_task(
                 user,
             )
             .map_err(map_item_error)?;
-            attach_repository(conn, created.into_dto()).map_err(ApiError::internal)
+            embed(conn, created.into_dto())
         })
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
@@ -418,7 +428,7 @@ pub(crate) async fn update_task(
             match items::update_item_content(conn, ItemType::Task, task.id, update, user) {
                 Ok(_) => {
                     let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
-                    attach_repository(conn, task).map_err(ApiError::internal)
+                    embed(conn, task)
                 }
                 Err(items::ItemError::VersionConflict {
                     expected_version,
@@ -511,9 +521,10 @@ pub(crate) async fn set_work_class(
             // The creator of an item needs this capability as all others do,
             // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
+            crate::claims::note(conn, task.id, user)?;
             let updated = items::set_task_work_class(conn, task.id, work_class, user)
                 .map_err(map_item_error)?;
-            attach_repository(conn, updated.into_dto()).map_err(ApiError::internal)
+            embed(conn, updated.into_dto())
         })
         .await?;
     Ok(Json(updated))
@@ -589,7 +600,7 @@ pub(crate) async fn set_repository(
             let task = load(conn, &short_code, Liveness::LiveOnly)?;
             require_item_edit(conn, &slug, user, task.id, ItemType::Task)?;
             let updated = link_task_to_repository(conn, task.id, body.repository.as_deref(), user)?;
-            attach_repository(conn, updated.into_dto()).map_err(ApiError::internal)
+            embed(conn, updated.into_dto())
         })
         .await?;
     Ok(Json(updated))
@@ -642,11 +653,12 @@ pub(crate) async fn move_task(
             // (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, MANAGE)?;
             require_capability(conn, &slug, Some(target), user, MANAGE)?;
+            crate::claims::note(conn, task.id, user)?;
             let moved = boards::move_task_with(conn, task.id, target, user, body.rename)
                 .map_err(map_board_error)?;
             let code = moved.rename.map_or(short_code, |rename| rename.new_code);
             let moved = load(conn, &code, Liveness::LiveOnly)?.into_dto();
-            attach_repository(conn, moved).map_err(ApiError::internal)
+            embed(conn, moved)
         })
         .await?;
     Ok(Json(moved))
@@ -686,11 +698,100 @@ pub(crate) async fn transition_task(
             // The creator of an item needs this capability as all others do,
             // because a team controls its own plan (COLLIERY-T-0218).
             require_capability(conn, &slug, Some(task.board_id), user, "transition_items")?;
+            crate::claims::note(conn, task.id, user)?;
             boards::transition_task(conn, task.id, to_column_id, user).map_err(map_board_error)?;
-            Ok(load(conn, &short_code, Liveness::LiveOnly)?.into_dto())
+            let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+            embed(conn, task)
         })
         .await?;
     Ok(Json(transitioned))
+}
+
+/// Give the claim of a task in Active to a person (KAIROS-T-0359,
+/// KAIROS-A-0024). `to` is a user id, an email or a user name of a person
+/// of the organization. The task stays in Active, and the person gets the
+/// claim. A service account cannot have a claim.
+///
+/// The person who has the claim may hand it off. Any other caller needs
+/// `transition_items` on the board of the task. That capability moves the
+/// task into and out of Active. The creator of the task gets no right
+/// here.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{short_code}/hand-off",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    request_body = dto::HandOffRequest,
+    responses(
+        (status = 200, description = "The person has the claim", body = dto::Task),
+        (status = 403, description = "The caller does not have the claim and does not have transition_items", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 409, description = "The person has the claim already", body = dto::ErrorEnvelope),
+        (status = 422, description = "NOT_CLAIMABLE (the task is not in Active), or VALIDATION (`to` is not a person of the organization)", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn hand_off_task(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+    ApiJson(body): ApiJson<dto::HandOffRequest>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let task = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            crate::claims::require_claim_change(conn, &slug, task.id, task.board_id, user)?;
+            let to = crate::claims::resolve_person(conn, &slug, &body.to)?;
+            kairos_db::task_claims::hand_off(conn, task.id, to, user)
+                .map_err(crate::claims::map_claim_error)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+            embed(conn, task)
+        })
+        .await?;
+    Ok(Json(task))
+}
+
+/// End the claim of a task in Active (KAIROS-T-0359, KAIROS-A-0024). The
+/// task stays in Active with no claim. It is free for anyone. The next
+/// person who moves it to Active gets the claim.
+///
+/// The person who has the claim may release it. Any other caller needs
+/// `transition_items` on the board of the task. No body.
+#[utoipa::path(
+    post,
+    path = "/api/tasks/{short_code}/release",
+    tag = "tasks",
+    params(("short_code" = String, Path, description = "Task short code")),
+    responses(
+        (status = 200, description = "The task has no claim", body = dto::Task),
+        (status = 403, description = "The caller does not have the claim and does not have transition_items", body = dto::ErrorEnvelope),
+        (status = 404, description = "Unknown short code", body = dto::ErrorEnvelope),
+        (status = 422, description = "NOT_CLAIMABLE (the task is not in Active), or NO_CLAIM (the task has no claim)", body = dto::ErrorEnvelope),
+    ),
+)]
+pub(crate) async fn release_task(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthContext>,
+    Extension(tenant): Extension<TenantContext>,
+    Path(short_code): Path<String>,
+) -> Result<Json<dto::Task>, ApiError> {
+    let user = auth.user_id;
+    let slug = tenant.slug.clone();
+    let task = state
+        .blocking
+        .run(&tenant.slug, move |conn| {
+            let task = load(conn, &short_code, Liveness::LiveOnly)?;
+            crate::claims::require_claim_change(conn, &slug, task.id, task.board_id, user)?;
+            kairos_db::task_claims::release(conn, task.id, user)
+                .map_err(crate::claims::map_claim_error)?;
+            let task = load(conn, &short_code, Liveness::LiveOnly)?.into_dto();
+            embed(conn, task)
+        })
+        .await?;
+    Ok(Json(task))
 }
 
 #[cfg(test)]

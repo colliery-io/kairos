@@ -433,9 +433,10 @@ pub struct ActivityEntry {
     pub id: String,
     /// Who did it (user UUID).
     pub actor_id: String,
-    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename`.
+    /// `transition|create|delete|relationship_add|relationship_remove|capability_grant|capability_revoke|board_config|work_class|lifecycle|repository|board_move|restore|update|rename|claim|hand_off|release`.
     /// A change to a team, a delivery stream, a membership or a user has
-    /// the action `update` (COLLIERY-T-0265).
+    /// the action `update` (COLLIERY-T-0265). `claim`, `hand_off` and
+    /// `release` are changes to the claim of a task (KAIROS-T-0359).
     pub action: String,
     /// The item acted on (UUID). Null for a relationship between two
     /// items: `details` names the two. For an `impacts` link it is the

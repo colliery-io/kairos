@@ -897,6 +897,8 @@ struct CardModel {
     work_class: Option<String>,
     /// The bound repository's slug — tasks only (KAIROS-T-0109, A-0019).
     repository: Option<String>,
+    /// The person who has the task in Active (KAIROS-T-0359) — tasks only.
+    claim: Option<data::TaskClaim>,
     /// The slugs of the teams of a strategy or an initiative, by slug
     /// (KAIROS-T-0322): from its tasks and set by hand. Empty for the
     /// other kinds and for an item with no team.
@@ -946,7 +948,8 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 title: &str,
                 meta: Vec<(String, &'static str)>,
                 work_class: Option<String>,
-                repository: Option<String>| {
+                repository: Option<String>,
+                claim: Option<data::TaskClaim>| {
         let progress = progress_of(short_code);
         let blocks = blocks_of(short_code);
         let teams = teams_of(short_code);
@@ -955,10 +958,11 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             short_code: short_code.to_string(),
             title: title.to_string(),
             key: format!(
-                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{teams:?}|{progress:?}|{blocks:?}"
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{claim:?}|{teams:?}|{progress:?}|{blocks:?}"
             ),
             work_class,
             repository,
+            claim,
             teams,
             progress,
             blocks,
@@ -987,6 +991,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     Vec::new(),
                     None,
                     None,
+                    None,
                 )
             }));
             cards.extend(group.initiatives.iter().map(|item| {
@@ -1005,6 +1010,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     meta,
                     None,
                     None,
+                    None,
                 )
             }));
             cards.extend(group.tasks.iter().map(|item| {
@@ -1021,6 +1027,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     meta,
                     Some(item.work_class.clone()),
                     item.repository.as_ref().map(|r| r.slug.clone()),
+                    item.claim.clone(),
                 )
             }));
             cards.extend(group.adrs.iter().map(|item| {
@@ -1034,6 +1041,7 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.short_code,
                     &item.title,
                     meta,
+                    None,
                     None,
                     None,
                 )
@@ -2057,12 +2065,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            repository, teams, progress, blocks, key: _,
+                                            repository, claim, teams, progress, blocks, key: _,
                                         } = card;
                                         view! {
                                             <ItemCard
                                                 kind short_code title meta work_class repository
-                                                teams progress blocks
+                                                claim teams progress blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
                                                 drag powers
@@ -2084,6 +2092,22 @@ fn LaneColumns(
 // Cards
 // ---------------------------------------------------------------------------
 
+/// The text of the claim chip of a card (KAIROS-T-0359): the name of the
+/// person, and "(agent)" when the agent of the person made the claim.
+fn claim_label(claim: &data::TaskClaim) -> String {
+    if claim.agent {
+        format!("{} (agent)", claim.display_name)
+    } else {
+        claim.display_name.clone()
+    }
+}
+
+/// The tooltip of the claim chip: who has the claim, and since when.
+fn claim_title(claim: &data::TaskClaim) -> String {
+    let since = claim.claimed_at.get(..10).unwrap_or(&claim.claimed_at);
+    format!("{} has the claim since {since}.", claim_label(claim))
+}
+
 /// One board card: short code (the detail link, KAIROS-T-0076) with its
 /// copy-link button, plain-text title, type, key metadata, and
 /// drag-and-drop between columns (KAIROS-T-0064 — draggable only when the
@@ -2101,6 +2125,9 @@ fn ItemCard(
     work_class: Option<String>,
     /// The bound repository's slug (KAIROS-T-0109) — a chip on the card.
     repository: Option<String>,
+    /// The person who has the task in Active (KAIROS-T-0359) — a chip
+    /// with the name of the person.
+    claim: Option<data::TaskClaim>,
     /// The teams of a strategy or an initiative (KAIROS-T-0322) — one pill
     /// each; none for an item with no team.
     teams: Vec<String>,
@@ -2178,6 +2205,16 @@ fn ItemCard(
                         view! {
                             <span class="kairos-card__repo" data-repo=attr>
                                 <Pill color=token::ICE>{slug}</Pill>
+                            </span>
+                        }
+                    })}
+                    {claim.map(|claim| {
+                        let label = claim_label(&claim);
+                        let tip = claim_title(&claim);
+                        let attr = claim.display_name;
+                        view! {
+                            <span class="kairos-card__claim" data-claim=attr title=tip>
+                                <Pill color=token::OK>{label}</Pill>
                             </span>
                         }
                     })}
@@ -2653,6 +2690,26 @@ fn CreateDocumentModal(
 mod tests {
     use super::*;
     use crate::pages::teams::api::Team;
+
+    /// KAIROS-T-0359: the claim chip names the person, and the agent.
+    #[test]
+    fn the_claim_chip_names_the_person() {
+        let claim = data::TaskClaim {
+            display_name: "Alice".to_string(),
+            agent: true,
+            claimed_at: "2026-10-09T10:00:00Z".to_string(),
+        };
+        assert_eq!(claim_label(&claim), "Alice (agent)");
+        assert_eq!(
+            claim_title(&claim),
+            "Alice (agent) has the claim since 2026-10-09."
+        );
+        let person = data::TaskClaim {
+            agent: false,
+            ..claim
+        };
+        assert_eq!(claim_label(&person), "Alice");
+    }
 
     fn board(id: &str, level: &str, team_id: Option<&str>) -> data::Board {
         data::Board {
@@ -3476,6 +3533,7 @@ mod tests {
             meta: Vec::new(),
             work_class: None,
             repository: repository.map(str::to_string),
+            claim: None,
             teams: Vec::new(),
             progress: None,
             blocks: None,

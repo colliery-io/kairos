@@ -142,6 +142,38 @@ pub struct Task {
     /// auditor never mistakes it for live work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub archived_at: Option<String>,
+    /// The claim of the task: the person who has it in Active
+    /// (KAIROS-T-0359). Absent when the task has no claim. Present on the
+    /// task endpoints and the board items. The default is for the client
+    /// only: a response of an older server has no `claim`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim: Option<TaskClaim>,
+}
+
+/// The claim of a task (KAIROS-T-0359, KAIROS-A-0024): the person who has
+/// the task in Active. A task gets a claim when a person moves it to
+/// Active. It loses the claim when it leaves Active, at a hand-off to a
+/// different person, or at a release.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct TaskClaim {
+    /// The person (UUID).
+    pub user_id: String,
+    /// The display name of the person.
+    pub display_name: String,
+    /// True when the person's agent made the claim with the agent key of
+    /// the person.
+    #[serde(default)]
+    pub agent: bool,
+    /// RFC 3339.
+    pub claimed_at: String,
+}
+
+/// Body of `POST /api/tasks/{short_code}/hand-off` (KAIROS-T-0359): the
+/// person who gets the claim, by user id, email or user name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct HandOffRequest {
+    pub to: String,
 }
 
 /// A supporting document, as returned by `/api/documents`. Documents do not

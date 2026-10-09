@@ -565,6 +565,27 @@ impl KairosClient {
         .await
     }
 
+    /// `POST /api/tasks/{short_code}/hand-off` — give the claim of a task
+    /// in Active to a person (KAIROS-T-0359). `to` is a user id, an email
+    /// or a user name of a person of the organization. The caller has the
+    /// claim, or holds `transition_items` on the board of the task.
+    pub async fn hand_off_task(&self, short_code: &str, to: &str) -> Result<Task, Error> {
+        self.post_ok(
+            &format!("/api/tasks/{short_code}/hand-off"),
+            &crate::types::HandOffRequest { to: to.to_string() },
+        )
+        .await
+    }
+
+    /// `POST /api/tasks/{short_code}/release` — end the claim of a task in
+    /// Active (KAIROS-T-0359). The task stays in Active, free for anyone.
+    /// The caller has the claim, or holds `transition_items` on the board
+    /// of the task.
+    pub async fn release_task(&self, short_code: &str) -> Result<Task, Error> {
+        self.post_empty(&format!("/api/tasks/{short_code}/release"))
+            .await
+    }
+
     /// `PUT /api/tasks/{short_code}/repository` — set the repository the
     /// task links to (slug or UUID) or clear it with `None` (KAIROS-T-0104).
     /// It can be any live repository, of any team, and the board and the

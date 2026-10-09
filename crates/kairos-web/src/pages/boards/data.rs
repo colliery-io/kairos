@@ -84,6 +84,22 @@ pub struct Task {
     /// (KAIROS-T-0104, COLLIERY-A-0023); `None` for a task with no link.
     #[serde(default)]
     pub repository: Option<RepositoryRef>,
+    /// The person who has the task in Active (KAIROS-T-0359); `None` for
+    /// a task with no claim, and from an older server.
+    #[serde(default)]
+    pub claim: Option<TaskClaim>,
+}
+
+/// mirror of: `kairos_client::types::TaskClaim` (partial — card fields).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct TaskClaim {
+    pub display_name: String,
+    /// True when the agent of the person made the claim.
+    #[serde(default)]
+    pub agent: bool,
+    /// RFC 3339.
+    #[serde(default)]
+    pub claimed_at: String,
 }
 
 /// mirror of: `kairos_client::types::Adr` (partial — card fields).
@@ -1044,6 +1060,28 @@ mod tests {
         }))
         .expect("mirror decodes");
         assert_eq!(created.short_code, "DEMO-T-0042");
+    }
+
+    /// KAIROS-T-0359: a card task decodes its claim, and a task of an
+    /// older server (no `claim`) decodes with none.
+    #[test]
+    fn task_mirror_decodes_the_claim() {
+        let task: Task = serde_json::from_value(serde_json::json!({
+            "short_code": "DEMO-T-0001", "title": "T", "task_type": "task",
+            "work_class": "planned",
+            "claim": {"user_id": "u", "display_name": "Alice", "agent": true,
+                      "claimed_at": "2026-10-09T10:00:00Z"}
+        }))
+        .expect("mirror decodes");
+        let claim = task.claim.expect("the claim");
+        assert_eq!(claim.display_name, "Alice");
+        assert!(claim.agent);
+        let old: Task = serde_json::from_value(serde_json::json!({
+            "short_code": "DEMO-T-0002", "title": "T", "task_type": "task",
+            "work_class": "planned"
+        }))
+        .expect("mirror decodes");
+        assert_eq!(old.claim, None);
     }
 
     /// Board level → create-flow entity kind (A-0002 one-family-per-level).

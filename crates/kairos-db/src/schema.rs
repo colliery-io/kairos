@@ -72,6 +72,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         is_done -> Bool,
         deleted_at -> Nullable<Timestamptz>,
+        claims -> Bool,
     }
 }
 
@@ -472,6 +473,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    task_claims (task_id) {
+        task_id -> Uuid,
+        user_id -> Uuid,
+        agent_key_id -> Nullable<Uuid>,
+        claimed_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     tasks (id) {
         id -> Uuid,
         short_code -> Text,
@@ -604,6 +614,7 @@ diesel::joinable!(repositories -> teams (team_id));
 diesel::joinable!(repository_credentials -> repositories (repository_id));
 diesel::joinable!(strategies -> board_columns (column_id));
 diesel::joinable!(strategies -> boards (board_id));
+diesel::joinable!(task_claims -> tasks (task_id));
 diesel::joinable!(tasks -> board_columns (column_id));
 diesel::joinable!(tasks -> boards (board_id));
 diesel::joinable!(tasks -> repositories (repository_id));
@@ -650,6 +661,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     scim_tokens,
     short_code_sequences,
     strategies,
+    task_claims,
     tasks,
     team_announcements,
     team_delivery_streams,

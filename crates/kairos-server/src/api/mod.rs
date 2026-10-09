@@ -365,7 +365,7 @@ pub fn require_item_edit(
     item_type: ItemType,
 ) -> Result<(), ApiError> {
     match missing_edit(conn, slug, user_id, item_id, item_type)? {
-        None => Ok(()),
+        None => note_claim(conn, user_id, (item_id, item_type)),
         Some(missing) => Err(ApiError::capability_required(
             missing.capability,
             missing.board_id,
@@ -375,6 +375,20 @@ pub fn require_item_edit(
 
 /// One end of an edge: the id and the type of the item.
 pub type EdgeEnd = (Uuid, ItemType);
+
+/// A write that the edit rule or the link rule lets through: when the item
+/// is a task that a different person has the claim on, the response gets
+/// the warning (KAIROS-T-0359, [`crate::claims::note`]).
+fn note_claim(
+    conn: &mut PgConnection,
+    user_id: Uuid,
+    (item_id, item_type): EdgeEnd,
+) -> Result<(), ApiError> {
+    if item_type == ItemType::Task {
+        crate::claims::note(conn, item_id, user_id)?;
+    }
+    Ok(())
+}
 
 /// THE LINK RULE (COLLIERY-T-0228): may this principal write this edge?
 ///
@@ -431,7 +445,8 @@ pub fn require_edge_write(
     let source = missing_edit(conn, slug, user_id, source_id, source_type)?;
     let target = missing_edit(conn, slug, user_id, target_id, target_type)?;
     if kairos_core::abac::may_write_edge(source.is_none(), target.is_none()) {
-        return Ok(());
+        note_claim(conn, user_id, (source_id, source_type))?;
+        return note_claim(conn, user_id, (target_id, target_type));
     }
     // From here the answer is a refusal, whatever follows: the text below
     // only says what is missing.

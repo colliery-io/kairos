@@ -996,6 +996,8 @@ pub(crate) async fn board_items(
                     .flat_map(|g| std::mem::take(&mut g.tasks))
                     .collect();
                 attach_repositories(conn, &mut all).map_err(ApiError::internal)?;
+                // KAIROS-T-0359: the claim of each task, in the same way.
+                crate::claims::attach_claims(conn, &mut all).map_err(ApiError::internal)?;
                 let mut by_column: HashMap<String, Vec<kairos_client::types::Task>> =
                     HashMap::new();
                 for task in all {
@@ -1160,6 +1162,11 @@ pub(crate) async fn add_column(
 
 /// Rename and/or move a column (T-0010 rules; moving reorders the board's
 /// columns around the new position). Requires `configure_boards`.
+///
+/// This route also sets the flags `is_done` and `claims` (KAIROS-T-0359).
+/// A person who moves a task into a column with `claims` gets the claim of
+/// the task. When the flag goes off, the claims of the tasks in the column
+/// end.
 #[utoipa::path(
     patch,
     path = "/api/boards/{id}/columns/{col_id}",
@@ -1185,10 +1192,14 @@ pub(crate) async fn update_column(
 ) -> Result<Json<dto::BoardColumn>, ApiError> {
     let board_id = parse_uuid(&id, "id")?;
     let column_id = parse_uuid(&col_id, "col_id")?;
-    if body.name.is_none() && body.position.is_none() && body.is_done.is_none() {
+    if body.name.is_none()
+        && body.position.is_none()
+        && body.is_done.is_none()
+        && body.claims.is_none()
+    {
         return Err(ApiError::validation(
-            "The request has no field to change. Send one or more of name, position and \
-             is_done.",
+            "The request has no field to change. Send one or more of name, position, is_done \
+             and claims.",
         ));
     }
     let user = auth.user_id;
@@ -1205,6 +1216,11 @@ pub(crate) async fn update_column(
             }
             if let Some(is_done) = body.is_done {
                 boards::set_column_done(conn, column_id, is_done, user)
+                    .map_err(map_config_error)?;
+            }
+            // KAIROS-T-0359: the same path and capability as `is_done`.
+            if let Some(claims) = body.claims {
+                boards::set_column_claims(conn, column_id, claims, user)
                     .map_err(map_config_error)?;
             }
             if let Some(position) = body.position {

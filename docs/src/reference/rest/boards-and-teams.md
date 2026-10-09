@@ -275,6 +275,11 @@ the column they were put away in. Requires `configure_boards`.
 Rename and/or move a column (T-0010 rules; moving reorders the board's
 columns around the new position). Requires `configure_boards`.
 
+This route also sets the flags `is_done` and `claims` (KAIROS-T-0359).
+A person who moves a task into a column with `claims` gets the claim of
+the task. When the flag goes off, the claims of the tasks in the column
+end.
+
 | Parameter | In | Required | Type | Description |
 |---|---|---|---|---|
 | `id` | path | yes | `string` | Board id (UUID) |

@@ -181,6 +181,8 @@ differ.
 | `edit` | yes | yes | yes | yes | yes |
 | `transition` | yes | yes | yes | no | yes |
 | `move` | no | no | yes | yes | no |
+| `hand-off` | no | no | yes | no | no |
+| `release` | no | no | yes | no | no |
 | `delete` | yes | yes | yes | yes | yes |
 | `restore` | yes | yes | yes | yes | yes |
 
@@ -326,6 +328,9 @@ A target outside the board's transition graph is rejected with 422
 `INVALID_TRANSITION`, and the rejection lists the allowed target columns by
 name and id. Not available on `documents`.
 
+A task that a person moves to Active gets the [claim](glossary.md#claim) of the
+person. `tasks get` shows it in the field `claim`.
+
 ### `tasks move`
 
 ```
@@ -342,6 +347,37 @@ The task lands in the target board's entry column and follows that board's
 team. The command needs `manage_tasks` on both boards. The task keeps its
 repository.
 See [Move work between boards](../how-to/move-work-between-boards.md).
+
+### `tasks hand-off`
+
+```
+kairos tasks hand-off <SHORT_CODE> --to <PERSON> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must be in Active. |
+| `--to <PERSON>` | string | required | The person who gets the claim: a user id, an email or a user name of a person of the organization. |
+
+Gives the [claim](glossary.md#claim) of a task in Active to a different person.
+The task stays in Active. You can hand off a claim that you have. To hand off
+the claim of a different person, you need `transition_items` on the board of
+the task. A service account cannot have a claim.
+
+### `tasks release`
+
+```
+kairos tasks release <SHORT_CODE> [OPTIONS]
+```
+
+| Argument / Option | Type | Default | Description |
+|---|---|---|---|
+| `<SHORT_CODE>` | string | required | The task's short code. The task must be in Active. |
+
+Ends the claim of a task in Active. The task stays in Active with no claim. The
+next person who moves the task to Active gets the claim. You can release a
+claim that you have. To release the claim of a different person, you need
+`transition_items` on the board of the task.
 
 ### `documents move`
 

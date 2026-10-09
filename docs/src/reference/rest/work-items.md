@@ -5,7 +5,7 @@
 
 # Work items
 
-The five entity families. Every one has the same shape — list, get, create, update, delete — and the same optimistic-concurrency contract on update (KAIROS-A-0004): submit the `version` you read, and a concurrent edit gets 409 with the current entity in `details.current`.
+The five entity families. Every one has the same shape — list, get, create, update, delete — and the same optimistic-concurrency contract on update (KAIROS-A-0004): submit the `version` you read, and a concurrent edit gets 409 with the current entity in `details.current`. A write to a claimed task by a different person gets the header `Kairos-Warning: <code> claimed by <name> since <time>` (KAIROS-T-0359).
 
 ## strategies
 
@@ -318,6 +318,32 @@ Request body (required): `application/json`, [`UpdateContentRequest`](schemas.md
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
 | `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Stale version; details.current carries the current entity |
 
+### `POST /api/tasks/{short_code}/hand-off`
+
+Give the claim of a task in Active to a person (KAIROS-T-0359,
+KAIROS-A-0024). `to` is a user id, an email or a user name of a person
+of the organization. The task stays in Active, and the person gets the
+claim. A service account cannot have a claim.
+
+The person who has the claim may hand it off. Any other caller needs
+`transition_items` on the board of the task. That capability moves the
+task into and out of Active. The creator of the task gets no right
+here.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+Request body (required): `application/json`, [`HandOffRequest`](schemas.md#handoffrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](schemas.md#task) | The person has the claim |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller does not have the claim and does not have transition_items |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The person has the claim already |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | NOT_CLAIMABLE (the task is not in Active), or VALIDATION (`to` is not a person of the organization) |
+
 ### `POST /api/tasks/{short_code}/move`
 
 Move a task to another DELIVERY board (KAIROS-I-0012): it lands in the
@@ -345,6 +371,26 @@ Request body (required): `application/json`, [`MoveTaskRequest`](schemas.md#move
 | `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Missing manage_tasks on either board |
 | `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code or board |
 | `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | SAME_BOARD | NOT_DELIVERY_BOARD | NO_ENTRY_COLUMN | RENAME_NOT_NEEDED (the code has the prefix of the target board) |
+
+### `POST /api/tasks/{short_code}/release`
+
+End the claim of a task in Active (KAIROS-T-0359, KAIROS-A-0024). The
+task stays in Active with no claim. It is free for anyone. The next
+person who moves it to Active gets the claim.
+
+The person who has the claim may release it. Any other caller needs
+`transition_items` on the board of the task. No body.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `short_code` | path | yes | `string` | Task short code |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`Task`](schemas.md#task) | The task has no claim |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller does not have the claim and does not have transition_items |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Unknown short code |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | NOT_CLAIMABLE (the task is not in Active), or NO_CLAIM (the task has no claim) |
 
 ### `PUT /api/tasks/{short_code}/repository`
 

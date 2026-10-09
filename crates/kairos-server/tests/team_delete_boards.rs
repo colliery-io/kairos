@@ -238,6 +238,7 @@ fn old_delivery_board(conn: &mut PgConnection, name: &str, slug: &str, team: Uui
             name: "Todo".into(),
             position: 0,
             is_done: false,
+            claims: false,
         })
         .execute(conn)
         .expect("inserting column");

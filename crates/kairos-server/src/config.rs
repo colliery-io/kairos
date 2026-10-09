@@ -106,6 +106,12 @@ pub struct AppConfig {
     /// when the first deployment admin to log in provisions it (the slug when
     /// unset).
     pub single_tenant_name: Option<String>,
+    /// `KAIROS_AUTO_JOIN_DOMAINS` — comma-separated email domains, lowercase,
+    /// with no `@`. A person whose issuer verifies an email at one of them
+    /// becomes a `member` of the single tenant on their first request, with no
+    /// admin step. Requires `KAIROS_SINGLE_TENANT`. Empty/unset → nobody joins
+    /// on their own.
+    pub auto_join_domains: Vec<String>,
     /// `KAIROS_DEPLOYMENT_ADMINS` — comma-separated OIDC `sub`s
     /// (`external_id`s, human users or A-0010 service accounts) allowed to
     /// call the cross-tenant `/api/admin/tenants` routes (KAIROS-T-0019).
@@ -502,6 +508,21 @@ impl AppConfig {
             }
         }
 
+        let single_tenant = get("KAIROS_SINGLE_TENANT");
+        let auto_join_domains = parse_auto_join_domains(get("KAIROS_AUTO_JOIN_DOMAINS"))?;
+        if !auto_join_domains.is_empty() && single_tenant.is_none() {
+            // Refused rather than applied to every tenant: on a multi-tenant
+            // deployment a domain does not say which organization a person
+            // belongs to, and joining all of them would hand every tenant's
+            // boards to everyone at that domain.
+            return Err(ConfigError::Invalid {
+                var: "KAIROS_AUTO_JOIN_DOMAINS",
+                message: "applies to the single tenant only; set KAIROS_SINGLE_TENANT, \
+                          or remove KAIROS_AUTO_JOIN_DOMAINS"
+                    .into(),
+            });
+        }
+
         let code_index_threads: u32 = parse_num(&get, "KAIROS_CODE_INDEX_THREADS", 4)?;
         if code_index_threads == 0 {
             return Err(ConfigError::Invalid {
@@ -527,8 +548,9 @@ impl AppConfig {
             oidc_issuer_url: oidc_issuer_url.map(|url| url.trim_end_matches('/').to_string()),
             oidc_audience,
             base_domain: get("KAIROS_BASE_DOMAIN"),
-            single_tenant: get("KAIROS_SINGLE_TENANT"),
+            single_tenant,
             single_tenant_name: get("KAIROS_SINGLE_TENANT_NAME"),
+            auto_join_domains,
             deployment_admins,
             log_level: get("KAIROS_LOG_LEVEL").unwrap_or_else(|| "info".to_string()),
             log_format,
@@ -559,6 +581,32 @@ impl AppConfig {
             bootstrap_password_hash,
         })
     }
+}
+
+/// `KAIROS_AUTO_JOIN_DOMAINS`: comma-separated, trimmed, lowercased, a
+/// leading `@` dropped. A value with an `@` inside it, or with no dot, is
+/// refused: it is an address or a typo, and matching it would be a guess.
+fn parse_auto_join_domains(raw: Option<String>) -> Result<Vec<String>, ConfigError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let mut domains = Vec::new();
+    for entry in raw.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let domain = entry
+            .strip_prefix('@')
+            .unwrap_or(entry)
+            .to_ascii_lowercase();
+        if domain.contains('@') || !domain.contains('.') || domain.starts_with('.') {
+            return Err(ConfigError::Invalid {
+                var: "KAIROS_AUTO_JOIN_DOMAINS",
+                message: format!("{entry:?} is not an email domain such as example.com"),
+            });
+        }
+        if !domains.contains(&domain) {
+            domains.push(domain);
+        }
+    }
+    Ok(domains)
 }
 
 /// Parse an optional numeric variable, or fail naming it. An empty value is
@@ -825,6 +873,62 @@ mod tests {
         assert_eq!(config.bind_addr.to_string(), "0.0.0.0:9999");
         assert_eq!(config.log_format, LogFormat::Pretty);
         assert_eq!(config.log_level, "debug");
+    }
+
+    #[test]
+    fn auto_join_domains_are_normalised() {
+        let mut vars = MINIMAL.to_vec();
+        vars.extend([
+            ("KAIROS_SINGLE_TENANT", "acme"),
+            (
+                "KAIROS_AUTO_JOIN_DOMAINS",
+                " Acme.example , @corp.acme.example,,acme.example",
+            ),
+        ]);
+        let config = AppConfig::from_lookup(lookup(&vars)).expect("valid config");
+        assert_eq!(
+            config.auto_join_domains,
+            vec!["acme.example".to_string(), "corp.acme.example".to_string()]
+        );
+    }
+
+    #[test]
+    fn auto_join_domains_default_to_none() {
+        let config = AppConfig::from_lookup(lookup(MINIMAL)).expect("valid config");
+        assert!(config.auto_join_domains.is_empty());
+    }
+
+    #[test]
+    fn auto_join_domains_need_the_single_tenant() {
+        let mut vars = MINIMAL.to_vec();
+        vars.push(("KAIROS_AUTO_JOIN_DOMAINS", "acme.example"));
+        let err = AppConfig::from_lookup(lookup(&vars)).expect_err("refused");
+        assert!(
+            matches!(
+                err,
+                ConfigError::Invalid {
+                    var: "KAIROS_AUTO_JOIN_DOMAINS",
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn auto_join_domains_refuse_an_address_or_a_typo() {
+        for bad in ["alice@acme.example", "acme", ".acme.example"] {
+            let mut vars = MINIMAL.to_vec();
+            vars.extend([
+                ("KAIROS_SINGLE_TENANT", "acme"),
+                ("KAIROS_AUTO_JOIN_DOMAINS", bad),
+            ]);
+            let err = AppConfig::from_lookup(lookup(&vars)).expect_err(bad);
+            assert!(
+                err.to_string().contains("KAIROS_AUTO_JOIN_DOMAINS"),
+                "{err}"
+            );
+        }
     }
 
     // ---------------------------------------------------------------------

@@ -400,6 +400,9 @@ misconfigured Ingress host is worse to debug than a template error.
 {{- if and (not $base) (not $single) -}}
 {{- fail "config.tenancy: set EXACTLY ONE of baseDomain (wildcard subdomain tenancy) or singleTenant (single-tenant mode) — neither is set." -}}
 {{- end -}}
+{{- if and .Values.config.tenancy.autoJoinDomains (not $single) -}}
+{{- fail "config.tenancy.autoJoinDomains needs config.tenancy.singleTenant: on a wildcard deployment a domain does not say which organization to join." -}}
+{{- end -}}
 {{- end }}
 
 {{/*

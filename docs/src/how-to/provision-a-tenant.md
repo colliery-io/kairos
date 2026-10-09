@@ -82,6 +82,10 @@ see [Configuration → Tenant resolution](../reference/configuration.md#tenant-r
   deployment is unreachable until the variable changes. You do not have to
   provision the pinned tenant. The first deployment admin to log in creates it
   and is its first admin. `KAIROS_SINGLE_TENANT_NAME` gives its name.
+
+  To let your staff join with no admin step, set `KAIROS_AUTO_JOIN_DOMAINS` to
+  the domain of their email. Each person then joins as a member when they
+  first sign in.
 - **Neither set:** only the `X-Tenant: acme` header resolves a tenant. The CLI
   sends it for you when you pass `--tenant acme` to `kairos login`.
 

@@ -126,6 +126,61 @@ fn log_membership_activity(
     Ok(())
 }
 
+/// Auto-join (`KAIROS_AUTO_JOIN_DOMAINS`, see
+/// [`crate::middleware::tenant`]): make `user_id` a `member` of `org_id`,
+/// unless a membership of theirs was removed before. A removal is an admin's
+/// (or SCIM's) decision, and joining again on the next request would quietly
+/// undo it. Returns the role held afterwards, or `None` when they stay out.
+///
+/// `conn` is pinned to the tenant, where the activity log is.
+pub(crate) fn auto_join(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    user_id: Uuid,
+    email: &str,
+) -> Result<Option<OrgRole>, ApiError> {
+    use kairos_db::schema::{activity_log, organization_members};
+
+    let removed_before: bool = diesel::select(diesel::dsl::exists(
+        activity_log::table
+            .filter(activity_log::entity_type.eq("membership"))
+            .filter(activity_log::entity_id.eq(user_id))
+            .filter(activity_log::action.eq(ActivityAction::Delete)),
+    ))
+    .get_result(conn)
+    .map_err(ApiError::internal)?;
+    if removed_before {
+        return Ok(None);
+    }
+    // DO NOTHING: concurrent first requests race to the same row, and the
+    // loser reads the winner's role below.
+    let inserted = diesel::insert_into(organization_members::table)
+        .values(NewOrganizationMember {
+            organization_id: org_id,
+            user_id,
+            role: OrgRole::Member,
+        })
+        .on_conflict_do_nothing()
+        .execute(conn)
+        .map_err(ApiError::internal)?;
+    if inserted == 1 {
+        log_membership_activity(
+            conn,
+            user_id,
+            ActivityAction::Create,
+            user_id,
+            format!("member:{email} role:member auto_join"),
+        )?;
+    }
+    organization_members::table
+        .filter(organization_members::organization_id.eq(org_id))
+        .filter(organization_members::user_id.eq(user_id))
+        .select(organization_members::role)
+        .first(conn)
+        .optional()
+        .map_err(ApiError::internal)
+}
+
 /// List the organization's members (open tenant-wide, paginated, ordered
 /// by email).
 #[utoipa::path(

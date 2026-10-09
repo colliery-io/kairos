@@ -244,6 +244,7 @@ the server working correctly.
 | `KAIROS_BASE_DOMAIN` | domain | unset | Enables Host-subdomain tenant resolution: `acme.<base>` resolves to tenant `acme`. |
 | `KAIROS_SINGLE_TENANT` | tenant slug | unset | Pins one tenant and skips subdomain and header resolution entirely. |
 | `KAIROS_SINGLE_TENANT_NAME` | string | the slug | The name of the pinned tenant. When that tenant does not exist, the first request from a principal in `KAIROS_DEPLOYMENT_ADMINS` provisions it with this name and makes that principal its first admin. A request from a different principal gets 404 `TENANT_NOT_FOUND`. |
+| `KAIROS_AUTO_JOIN_DOMAINS` | comma-separated email domains | empty | A person whose issuer verifies an email at one of these domains (`email_verified: true`) becomes a `member` of the pinned tenant on the first request, with no admin step. The match is exact, so `example.com` does not match `eu.example.com`. A person that an admin or SCIM removed from the organization does not join again, and an admin can add them back. Requires `KAIROS_SINGLE_TENANT`: the server does not start when it is set without that. An entry with an `@` or with no dot also stops the start. |
 
 Exactly one of the two applies. With neither set, only the `X-Tenant` header
 resolves a tenant.
@@ -778,6 +779,7 @@ The read-only root filesystem is compatible with a filesystem
 | `config.tenancy.baseDomain` | string | `""` | Sets `KAIROS_BASE_DOMAIN`. Emitted only when non-empty. |
 | `config.tenancy.singleTenant` | string | `""` | Sets `KAIROS_SINGLE_TENANT`. Emitted only when non-empty. |
 | `config.tenancy.singleTenantName` | string | `""` | Sets `KAIROS_SINGLE_TENANT_NAME`. Emitted only when non-empty. |
+| `config.tenancy.autoJoinDomains` | list or string | `[]` | Sets `KAIROS_AUTO_JOIN_DOMAINS`; a list is joined with commas. Emitted only when non-empty. Rendering fails when it is set without `singleTenant`. |
 | `config.deploymentAdmins` | string | `""` | Sets `KAIROS_DEPLOYMENT_ADMINS`. |
 | `config.log.level` | string | `info` | Sets `KAIROS_LOG_LEVEL`. |
 | `config.log.format` | string | `json` | Sets `KAIROS_LOG_FORMAT`. |
@@ -834,6 +836,7 @@ stock `postgres:16` does not carry it. There is no bundled identity provider.
 | `KAIROS_BASE_DOMAIN` | `kairos.example` | The server. Defaults to empty. |
 | `KAIROS_SINGLE_TENANT` | commented out | The server. Defaults to empty. |
 | `KAIROS_SINGLE_TENANT_NAME` | commented out | The server. Defaults to empty. |
+| `KAIROS_AUTO_JOIN_DOMAINS` | commented out | The server. Defaults to empty. |
 | `KAIROS_DEPLOYMENT_ADMINS` | empty | The server. Defaults to empty. |
 | `KAIROS_LOG_LEVEL` | `info` | The server. Falls back to `info`. |
 | `KAIROS_API_BEARER` | `access_token` | Nothing. Present in `.env.example` but **not forwarded** to the container by `deploy/docker-compose.yaml`. |

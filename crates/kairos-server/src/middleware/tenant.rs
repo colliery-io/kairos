@@ -152,6 +152,53 @@ async fn provision_pinned_tenant(
     Ok(())
 }
 
+/// The `KAIROS_AUTO_JOIN_DOMAINS` entry that lets this caller join the
+/// tenant `slug` on their own, if any: only the pinned single tenant, and only
+/// for an email the issuer verified on this request.
+///
+/// Without it every new person signs in, is refused with
+/// `MEMBERSHIP_REQUIRED`, waits for an org admin to add them by email, and
+/// signs in again. An organization whose issuer only admits its own staff
+/// (a Google Workspace "Internal" app, an Okta tenant) gains nothing from
+/// that step.
+fn auto_join_domain<'a>(config: &'a AppConfig, auth: &AuthContext, slug: &str) -> Option<&'a str> {
+    if !auth.email_verified || config.single_tenant.as_deref() != Some(slug) {
+        return None;
+    }
+    let (_, domain) = auth.email.rsplit_once('@')?;
+    config
+        .auto_join_domains
+        .iter()
+        .find(|d| d.eq_ignore_ascii_case(domain))
+        .map(String::as_str)
+}
+
+/// [`crate::api::org::members::auto_join`] on a connection pinned to the
+/// tenant: the caller becomes a `member`, unless they were removed before.
+async fn auto_join(
+    state: &AppState,
+    auth: &AuthContext,
+    slug: &str,
+    org_id: Uuid,
+) -> Result<Option<OrgRole>, ApiError> {
+    let user_id = auth.user_id;
+    let email = auth.email.clone();
+    let joined = state
+        .blocking
+        .run(slug, move |conn| {
+            crate::api::org::members::auto_join(conn, org_id, user_id, &email)
+        })
+        .await?;
+    if joined.is_some() {
+        tracing::info!(
+            tenant = %slug,
+            user_id = %user_id,
+            "a verified email at an auto-join domain joined the organization as a member"
+        );
+    }
+    Ok(joined)
+}
+
 /// The tenant layer: resolve the slug, load the organization, require
 /// membership, and hand the request its [`TenantContext`] + [`TenantDb`].
 pub async fn require_tenant(
@@ -235,7 +282,15 @@ pub async fn require_tenant(
             .await
             .optional()
             .map_err(ApiError::internal)?;
-        let role = role.ok_or_else(|| ApiError::membership_required(&slug))?;
+        let role = match role {
+            Some(role) => role,
+            None if auto_join_domain(&state.config, &auth, &slug).is_some() => {
+                auto_join(&state, &auth, &slug, org.id)
+                    .await?
+                    .ok_or_else(|| ApiError::membership_required(&slug))?
+            }
+            None => return Err(ApiError::membership_required(&slug)),
+        };
         Ok::<_, ApiError>((org, role))
     }
     .instrument(tenant_span)
@@ -288,6 +343,7 @@ mod tests {
             base_domain: base_domain.map(str::to_string),
             single_tenant: single_tenant.map(str::to_string),
             single_tenant_name: None,
+            auto_join_domains: vec![],
             deployment_admins: vec![],
             log_level: "info".to_string(),
             log_format: crate::config::LogFormat::Json,

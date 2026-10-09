@@ -59,6 +59,10 @@ pub struct AuthContext {
     pub email: String,
     /// The `name` claim (falls back to email when absent).
     pub display_name: String,
+    /// Whether the issuer asserted `email_verified: true` for `email` on this
+    /// request. Only an OIDC token can; a password session and an API key are
+    /// `false`. Auto-join (`KAIROS_AUTO_JOIN_DOMAINS`) trusts nothing else.
+    pub email_verified: bool,
     /// `api_keys.id` when the request authenticated with the agent key of a
     /// person (KAIROS-T-0359); `None` for OIDC, a password session, or the key
     /// of a service account. An agent key cannot make more agent keys.
@@ -691,6 +695,7 @@ pub async fn require_auth(
         external_id: user.external_id,
         email: user.email,
         display_name: user.display_name,
+        email_verified: claims.email_verified == Some(true),
         agent_key: None,
     });
     Ok(next.run(req).await)

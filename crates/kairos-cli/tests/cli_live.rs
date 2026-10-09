@@ -186,6 +186,7 @@ async fn cli_login_whoami_refresh_logout_live() {
         base_domain: Some("kairos.test".to_string()),
         single_tenant: None,
         single_tenant_name: None,
+        auto_join_domains: vec![],
         deployment_admins: vec![],
         log_level: "info".to_string(),
         log_format: LogFormat::Json,

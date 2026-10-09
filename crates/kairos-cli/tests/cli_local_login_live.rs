@@ -188,6 +188,7 @@ impl Deployment {
             base_domain: Some("kairos.test".to_string()),
             single_tenant: None,
             single_tenant_name: None,
+            auto_join_domains: vec![],
             // The first-boot admin of a deployment is a deployment admin
             // under this name (`local:<email>`); the fixture does the same.
             deployment_admins: vec![kairos_db::local_auth::local_external_id(EMAIL)],

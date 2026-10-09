@@ -433,6 +433,7 @@ pub async fn authenticate_session(state: &AppState, token: &str) -> Result<AuthC
                 external_id: user.external_id,
                 email: user.email,
                 display_name: user.display_name,
+                email_verified: false,
                 agent_key: None,
             })
         })

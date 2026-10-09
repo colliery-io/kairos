@@ -104,14 +104,18 @@ decision = "source"
 path = [".angreal/**"]
 
 [[rule]]
-id = "test-path"
-decision = "test"
-path = ["**/tests/**", "**/e2e/**", "**/uat/**", "**/__tests__/**"]
-
-[[rule]]
 id = "test-name"
 decision = "test"
 file_name = ["test_*", "*_test.*", "*.spec.*", "*.test.*", "*.journey.*", "conftest.py"]
+
+# A file in a test folder whose name is not a test name is a helper of the
+# tests (`e2e/helpers/auth.ts`): source, so it gets summaries and the search
+# finds it (KAIROS-T-0352). The test functions in it (a Rust #[test]) are
+# still test code.
+[[rule]]
+id = "test-helper"
+decision = "source"
+path = ["**/tests/**", "**/e2e/**", "**/uat/**", "**/__tests__/**"]
 
 [[rule]]
 id = "docs-dir"

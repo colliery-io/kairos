@@ -509,6 +509,13 @@ impl CodeTools {
                     (None, Some(signature)) => out.push_str(&format!(": `{signature}`")),
                     (None, None) => {}
                 }
+                if s.summary.is_none() && found.mode != SearchMode::Names {
+                    out.push_str(if s.is_test {
+                        " (test code: no summary, found by its name and path)"
+                    } else {
+                        " (no summary yet: found by its name and path)"
+                    });
+                }
             }
             Ok(out)
         })())
@@ -784,8 +791,9 @@ impl CodeTools {
                     match &f.summary {
                         Some(summary) => out.push_str(&format!("\n- {}: {summary}", f.path)),
                         None => out.push_str(&format!(
-                            "\n- {} ({})",
+                            "\n- {} ({}{})",
                             f.path,
+                            if f.is_test { "test code, " } else { "" },
                             plural(f.symbols, "symbol", "symbols")
                         )),
                     }

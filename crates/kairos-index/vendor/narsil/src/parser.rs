@@ -117,6 +117,18 @@ impl LanguageParser {
                     (enum_declaration name: (identifier) @enum.name) @enum.def
                 "#,
             },
+            // JavaScript, with JSX (KAIROS PATCH, KAIROS-T-0352)
+            LanguageConfig {
+                name: "javascript".to_string(),
+                language: tree_sitter_javascript::LANGUAGE.into(),
+                extensions: vec!["js", "mjs", "cjs", "jsx"],
+                symbol_query: r#"
+                    (function_declaration name: (identifier) @function.name) @function.def
+                    (generator_function_declaration name: (identifier) @function.name) @function.def
+                    (class_declaration name: (identifier) @class.name) @class.def
+                    (method_definition name: (property_identifier) @method.name) @method.def
+                "#,
+            },
             // TSX
             LanguageConfig {
                 name: "tsx".to_string(),

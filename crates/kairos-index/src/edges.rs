@@ -357,16 +357,18 @@ fn is_function(kind: &str) -> bool {
     matches!(kind, "function" | "method" | "constructor")
 }
 
-/// The kinds that a name can call: in Python and TypeScript, a call of a
-/// class makes an object.
+/// The kinds that a name can call: in Python, TypeScript and JavaScript, a
+/// call of a class makes an object.
 fn is_callable(language: &str, kind: &str) -> bool {
-    is_function(kind) || (kind == "class" && matches!(language, "python" | "typescript" | "tsx"))
+    is_function(kind)
+        || (kind == "class" && matches!(language, "python" | "typescript" | "tsx" | "javascript"))
 }
 
-/// The languages whose names can call each other.
+/// The languages whose names can call each other: TypeScript, TSX and
+/// JavaScript are one family (KAIROS-T-0352).
 fn family(language: &str) -> &str {
     match language {
-        "tsx" => "typescript",
+        "tsx" | "javascript" => "typescript",
         other => other,
     }
 }

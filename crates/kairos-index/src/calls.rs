@@ -247,8 +247,12 @@ fn called_name<'t>(language: &str, node: Node<'t>) -> Option<Node<'t>> {
     let function = match (language, node.kind()) {
         ("rust", "call_expression") => node.child_by_field_name("function")?,
         ("python", "call") => node.child_by_field_name("function")?,
-        ("typescript" | "tsx", "call_expression") => node.child_by_field_name("function")?,
-        ("typescript" | "tsx", "new_expression") => node.child_by_field_name("constructor")?,
+        ("typescript" | "tsx" | "javascript", "call_expression") => {
+            node.child_by_field_name("function")?
+        }
+        ("typescript" | "tsx" | "javascript", "new_expression") => {
+            node.child_by_field_name("constructor")?
+        }
         ("go", "call_expression") => node.child_by_field_name("function")?,
         _ => return None,
     };

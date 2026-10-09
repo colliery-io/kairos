@@ -394,6 +394,26 @@ at = 14
 class = "external"
 external = "toFixed"
 
+# JavaScript (KAIROS-T-0352): one family with TypeScript, so the call of
+# formatPrice goes to the TypeScript function.
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "roundCents", line = 5 }
+at = 6
+class = "external"
+external = "Math.round"
+
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "entry", line = 10 }
+at = 11
+class = "certain"
+callee = { file = "web/src/format.ts", name = "formatPrice", line = 13 }
+
+[[edge]]
+caller = { file = "web/src/ledger.js", name = "entry", line = 10 }
+at = 11
+class = "certain"
+callee = { file = "web/src/ledger.js", name = "roundCents", line = 5 }
+
 # --- Go (name classes) -------------------------------------------------------
 
 [[edge]]

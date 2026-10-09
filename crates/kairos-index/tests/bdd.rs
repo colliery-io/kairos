@@ -761,7 +761,16 @@ fn each_symbol_is_complete(world: &mut IndexWorld) {
         );
         assert!(!s.kind.is_empty() && s.kind != "unknown", "{s:?}: no kind");
         assert!(
-            ["rust", "python", "typescript", "tsx", "go", "sql"].contains(&s.language.as_str()),
+            [
+                "rust",
+                "python",
+                "typescript",
+                "tsx",
+                "javascript",
+                "go",
+                "sql"
+            ]
+            .contains(&s.language.as_str()),
             "{s:?}: no language"
         );
         assert_eq!(s.tree_hash.len(), 64, "{s:?}: no tree hash");
@@ -3644,6 +3653,24 @@ fn tests_rank_lower(world: &mut IndexWorld) {
     assert!(
         hits[first_test..].iter().all(|h| h.symbol.is_test),
         "a test function ranks above other code: {order:#?}"
+    );
+}
+
+#[then(expr = "the results have the test function {word}, with no summary")]
+fn a_test_function_is_found(world: &mut IndexWorld, name: String) {
+    let found = world.search.as_ref().expect("no search ran");
+    assert_ne!(
+        found.mode,
+        kairos_index::SearchMode::Names,
+        "the index has summaries"
+    );
+    assert!(
+        found
+            .hits
+            .iter()
+            .any(|h| h.symbol.name == name && h.symbol.is_test && h.symbol.summary.is_none()),
+        "{name} is not in the results: {:#?}",
+        found.hits
     );
 }
 

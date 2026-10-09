@@ -169,6 +169,7 @@ pub async fn authenticate_api_key(
         external_id: user.external_id,
         email: user.email,
         display_name: user.display_name,
+        email_verified: false,
         agent_key,
     };
     Ok((auth, slug))

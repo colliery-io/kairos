@@ -56,6 +56,9 @@ data:
   {{- with .Values.config.tenancy.singleTenantName }}
   KAIROS_SINGLE_TENANT_NAME: {{ . | quote }}
   {{- end }}
+  {{- with .Values.config.tenancy.autoJoinDomains }}
+  KAIROS_AUTO_JOIN_DOMAINS: {{ (kindIs "slice" .) | ternary (join "," .) . | quote }}
+  {{- end }}
   KAIROS_DEPLOYMENT_ADMINS: {{ .Values.config.deploymentAdmins | quote }}
   KAIROS_LOG_LEVEL: {{ .Values.config.log.level | quote }}
   KAIROS_LOG_FORMAT: {{ .Values.config.log.format | quote }}

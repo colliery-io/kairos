@@ -201,6 +201,11 @@ config:
     # -- KAIROS_SINGLE_TENANT_NAME — the display name singleTenant gets when the
     # first deployment admin to log in provisions it. Empty uses the slug.
     singleTenantName: ""
+    # -- KAIROS_AUTO_JOIN_DOMAINS — email domains (a list, or a comma-separated
+    # string) whose verified users join singleTenant as `member` on their first
+    # request, with no admin step. Needs singleTenant. Someone an admin removed
+    # does not join again. Empty: an admin adds every member.
+    autoJoinDomains: []
 
   # -- KAIROS_DEPLOYMENT_ADMINS — comma-separated OIDC `sub`s allowed to call
   # the cross-tenant admin routes (POST /api/admin/tenants). Set this to your

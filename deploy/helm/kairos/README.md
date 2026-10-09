@@ -185,6 +185,7 @@ Secret loaded via `valueFrom`.
 | `config.tenancy.baseDomain` | `KAIROS_BASE_DOMAIN` | `""` | Wildcard tenancy. |
 | `config.tenancy.singleTenant` | `KAIROS_SINGLE_TENANT` | `""` | Single-tenant. |
 | `config.tenancy.singleTenantName` | `KAIROS_SINGLE_TENANT_NAME` | `""` | Name the single tenant gets when its first deployment admin logs in and provisions it. Empty uses the slug. |
+| `config.tenancy.autoJoinDomains` | `KAIROS_AUTO_JOIN_DOMAINS` | `[]` | Email domains (list or comma-separated string) whose verified users join the single tenant as `member` on first sign-in. Needs `singleTenant`. |
 | `config.deploymentAdmins` | `KAIROS_DEPLOYMENT_ADMINS` | `""` | Comma-separated OIDC subs. |
 | `config.log.level` | `KAIROS_LOG_LEVEL` | `info` | |
 | `config.log.format` | `KAIROS_LOG_FORMAT` | `json` | `json` or `pretty`. |

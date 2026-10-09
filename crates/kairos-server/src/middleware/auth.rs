@@ -529,27 +529,43 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
         }
     }
 
-    let inserted = diesel::insert_into(users::table)
-        .values(NewUser {
-            external_id: claims.sub.clone(),
-            // JIT has no SCIM payload to take a `userName` from, so it takes the
-            // subject — which is exactly what SCIM served as `userName` before
-            // KAIROS-T-0184 split the two, so a JIT user looks unchanged. It is
-            // also unique for free, since `external_id` is.
-            user_name: claims.sub.clone(),
-            email,
-            display_name,
-        })
-        .on_conflict(users::external_id)
-        .do_update()
-        .set((
-            users::email.eq(excluded(users::email)),
-            users::display_name.eq(excluded(users::display_name)),
-            users::updated_at.eq(diesel::dsl::now),
-        ))
-        .returning(User::as_returning())
-        .get_result(&mut conn)
-        .await;
+    // Concurrent upserts of one subject can also deadlock: each one waits on
+    // the other's entry in one of the two unique indexes (`external_id`,
+    // `user_name`), and Postgres aborts one with "deadlock detected"
+    // (SQLSTATE 40P01). The other one commits, so the same statement run
+    // again meets that row, as a conflict to update or as the unique
+    // violation below. A few tries are enough: one round of first logins has
+    // one winner.
+    const TRIES: usize = 3;
+    let mut tries = 0;
+    let inserted = loop {
+        tries += 1;
+        let result = diesel::insert_into(users::table)
+            .values(NewUser {
+                external_id: claims.sub.clone(),
+                // JIT has no SCIM payload to take a `userName` from, so it takes
+                // the subject — which is exactly what SCIM served as `userName`
+                // before KAIROS-T-0184 split the two, so a JIT user looks
+                // unchanged. It is also unique for free, since `external_id` is.
+                user_name: claims.sub.clone(),
+                email: email.clone(),
+                display_name: display_name.clone(),
+            })
+            .on_conflict(users::external_id)
+            .do_update()
+            .set((
+                users::email.eq(excluded(users::email)),
+                users::display_name.eq(excluded(users::display_name)),
+                users::updated_at.eq(diesel::dsl::now),
+            ))
+            .returning(User::as_returning())
+            .get_result(&mut conn)
+            .await;
+        match result {
+            Err(ref e) if tries < TRIES && is_deadlock(e) => continue,
+            other => break other,
+        }
+    };
 
     // A first login sends several requests at once, and each misses the SELECT
     // above and inserts. `ON CONFLICT (external_id)` arbitrates on external_id
@@ -569,6 +585,13 @@ async fn jit_upsert_user(pool: &TenantPool, claims: &TokenClaims) -> Result<User
             .map_err(ApiError::internal),
         other => other.map_err(ApiError::internal),
     }
+}
+
+/// Whether Postgres aborted the statement to break a deadlock (SQLSTATE
+/// 40P01). Diesel has no kind for it, so the text decides.
+fn is_deadlock(e: &diesel::result::Error) -> bool {
+    matches!(e, diesel::result::Error::DatabaseError(_, info)
+        if info.message().contains("deadlock detected"))
 }
 
 /// The auth layer: validate the bearer token, JIT-upsert the user, insert

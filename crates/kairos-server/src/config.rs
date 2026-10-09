@@ -102,6 +102,10 @@ pub struct AppConfig {
     /// `KAIROS_SINGLE_TENANT` — fixed tenant slug; skips subdomain/header
     /// resolution entirely (A-0013 single-tenant mode).
     pub single_tenant: Option<String>,
+    /// `KAIROS_SINGLE_TENANT_NAME` — the display name the pinned tenant gets
+    /// when the first deployment admin to log in provisions it (the slug when
+    /// unset).
+    pub single_tenant_name: Option<String>,
     /// `KAIROS_DEPLOYMENT_ADMINS` — comma-separated OIDC `sub`s
     /// (`external_id`s, human users or A-0010 service accounts) allowed to
     /// call the cross-tenant `/api/admin/tenants` routes (KAIROS-T-0019).
@@ -524,6 +528,7 @@ impl AppConfig {
             oidc_audience,
             base_domain: get("KAIROS_BASE_DOMAIN"),
             single_tenant: get("KAIROS_SINGLE_TENANT"),
+            single_tenant_name: get("KAIROS_SINGLE_TENANT_NAME"),
             deployment_admins,
             log_level: get("KAIROS_LOG_LEVEL").unwrap_or_else(|| "info".to_string()),
             log_format,

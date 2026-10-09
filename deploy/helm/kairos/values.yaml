@@ -198,6 +198,9 @@ config:
     # resolution (evaluation installs, no wildcard DNS). Set EXACTLY ONE of
     # this or baseDomain. Leave empty when using baseDomain.
     singleTenant: ""
+    # -- KAIROS_SINGLE_TENANT_NAME — the display name singleTenant gets when the
+    # first deployment admin to log in provisions it. Empty uses the slug.
+    singleTenantName: ""
 
   # -- KAIROS_DEPLOYMENT_ADMINS — comma-separated OIDC `sub`s allowed to call
   # the cross-tenant admin routes (POST /api/admin/tenants). Set this to your

@@ -243,6 +243,7 @@ the server working correctly.
 |---|---|---|---|
 | `KAIROS_BASE_DOMAIN` | domain | unset | Enables Host-subdomain tenant resolution: `acme.<base>` resolves to tenant `acme`. |
 | `KAIROS_SINGLE_TENANT` | tenant slug | unset | Pins one tenant and skips subdomain and header resolution entirely. |
+| `KAIROS_SINGLE_TENANT_NAME` | string | the slug | The name of the pinned tenant. When that tenant does not exist, the first request from a principal in `KAIROS_DEPLOYMENT_ADMINS` provisions it with this name and makes that principal its first admin. A request from a different principal gets 404 `TENANT_NOT_FOUND`. |
 
 Exactly one of the two applies. With neither set, only the `X-Tenant` header
 resolves a tenant.
@@ -756,6 +757,7 @@ The read-only root filesystem is compatible with a filesystem
 | `config.webClientSecretExistingSecretKey` | string | `KAIROS_WEB_CLIENT_SECRET` | Key within that Secret. |
 | `config.tenancy.baseDomain` | string | `""` | Sets `KAIROS_BASE_DOMAIN`. Emitted only when non-empty. |
 | `config.tenancy.singleTenant` | string | `""` | Sets `KAIROS_SINGLE_TENANT`. Emitted only when non-empty. |
+| `config.tenancy.singleTenantName` | string | `""` | Sets `KAIROS_SINGLE_TENANT_NAME`. Emitted only when non-empty. |
 | `config.deploymentAdmins` | string | `""` | Sets `KAIROS_DEPLOYMENT_ADMINS`. |
 | `config.log.level` | string | `info` | Sets `KAIROS_LOG_LEVEL`. |
 | `config.log.format` | string | `json` | Sets `KAIROS_LOG_FORMAT`. |
@@ -811,6 +813,7 @@ stock `postgres:16` does not carry it. There is no bundled identity provider.
 | `KAIROS_WEB_CLIENT_ID` | `kairos-web` | The server. Falls back to `kairos-web`. |
 | `KAIROS_BASE_DOMAIN` | `kairos.example` | The server. Defaults to empty. |
 | `KAIROS_SINGLE_TENANT` | commented out | The server. Defaults to empty. |
+| `KAIROS_SINGLE_TENANT_NAME` | commented out | The server. Defaults to empty. |
 | `KAIROS_DEPLOYMENT_ADMINS` | empty | The server. Defaults to empty. |
 | `KAIROS_LOG_LEVEL` | `info` | The server. Falls back to `info`. |
 | `KAIROS_API_BEARER` | `access_token` | Nothing. Present in `.env.example` but **not forwarded** to the container by `deploy/docker-compose.yaml`. |

@@ -181,8 +181,14 @@ pub async fn find(root: &Path, args: &RemoteArgs) -> Found {
         commit: nearest.index.commit,
         changed,
         summaries: usize::try_from(nearest.index.summary_keys).unwrap_or(0),
-        hosted: repository.code_index_summaries
-            == kairos_client::types_repositories::CodeIndexSummaries::Hosted,
+        // KAIROS-T-0358: the value that the server resolved (a repository
+        // can follow the organization). A server from before it sends no
+        // resolved value, so its own `hosted` counts too.
+        hosted: [
+            &repository.code_index_summaries_resolved,
+            &repository.code_index_summaries,
+        ]
+        .contains(&&kairos_client::types_repositories::CodeIndexSummaries::Hosted),
     })
 }
 

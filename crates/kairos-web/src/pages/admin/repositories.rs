@@ -72,11 +72,13 @@ const URL_HINT: &str = "URL: an absolute http or https URL, with no space. Do no
                         name or a password in it, because each member can read it.";
 
 /// The setting `code_index_summaries` (KAIROS-T-0340).
-const CODE_INDEX_SUMMARIES_HINT: &str = "Code index summaries: embedded or hosted. With hosted, \
+const CODE_INDEX_SUMMARIES_HINT: &str = "Code index summaries: organization, embedded or hosted. \
+                                         With organization (the default), the default of the \
+                                         organization on the page Code index decides. With hosted, \
                                          the summaries come from the provider that the \
-                                         organization set on the page Code index, and the code of \
-                                         each changed symbol leaves the host. Kairos refuses hosted \
-                                         when the organization has no hosted provider.";
+                                         organization set, and the code of each changed symbol \
+                                         leaves the host. Kairos refuses hosted when the \
+                                         organization has no hosted provider.";
 
 /// The setting `code_index_build` (KAIROS-T-0318).
 const CODE_INDEX_BUILD_HINT: &str = "Code index builder: on or off. With off, Kairos makes no \
@@ -566,7 +568,7 @@ fn RepositoryRow(
                         <Select label="Code index builder" value=edit_code_index_build
                             options=vec!["on".to_string(), "off".to_string()]/>
                         <Select label="Code index summaries" value=edit_code_index_summaries
-                            options=vec!["embedded".to_string(), "hosted".to_string()]/>
+                            options=vec!["organization".to_string(), "embedded".to_string(), "hosted".to_string()]/>
                         <Button size="xs" on_click=Callback::new(on_save)>"Save"</Button>
                     </Group>
                     <Text dimmed=true size="xs">{URL_HINT}</Text>

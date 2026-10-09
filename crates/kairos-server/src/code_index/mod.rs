@@ -628,8 +628,9 @@ pub const OPTED_OUT: &str = "the repository has code_index_build off";
 /// The note of an `embedded` repository on a server with no embedded model
 /// (KAIROS-T-0341, KAIROS-T-0344).
 pub const NO_EMBEDDED_MODEL: &str = "failed: This image has no embedded model. Set a hosted \
-                                      provider for the organization and opt the repository in, \
-                                      or run the image with the model.";
+                                      provider for the organization and put the repository on \
+                                      it (the default summarizer hosted, or the repository \
+                                      set to hosted), or run the image with the model.";
 
 /// What a build uses for its summaries and its vectors (KAIROS-T-0341),
 /// chosen from the settings of the tenant and the opt-in of the repository.
@@ -683,7 +684,7 @@ async fn models_for(
             .map_err(|_| format!("failed: the secret {field} is not text"))
     };
 
-    let hosted_summaries = repo.hosted_summaries() && settings.summary_provider != "embedded";
+    let hosted_summaries = hosted_summaries(repo, &settings);
     let summarizers: Arc<dyn SummarizerSource> = if hosted_summaries {
         let secret = open("summary.secret", settings.summary_secret())?;
         match settings.summary_provider.as_str() {
@@ -1857,6 +1858,18 @@ pub async fn run_builder(
         }
     };
     tokio::join!(updates, firsts);
+}
+
+/// Whether the summaries of `repo` come from the hosted provider of the
+/// tenant: its own value, or the default of the organization when it
+/// follows the organization (KAIROS-T-0358), and the tenant has a hosted
+/// provider. The ONE rule, for the builder and for the API.
+pub(crate) fn hosted_summaries(
+    repo: &Repository,
+    settings: &kairos_db::code_index_settings::Settings,
+) -> bool {
+    repo.summaries_with(&settings.default_summaries) == "hosted"
+        && settings.summary_provider != "embedded"
 }
 
 /// A pool row of the database as `kairos-index` takes it.

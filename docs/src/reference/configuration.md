@@ -305,6 +305,7 @@ REST route is `PUT /api/org/code-index-settings`. Each member can read it.
 | `vectors.model` | text | none | The model name of the embeddings, for `remote`. |
 | `vectors.secret` | text | none | The API key of the embeddings endpoint. A local Ollama needs none. |
 | `concurrency` | 1 to 32 | `4` | The requests that a hosted summarizer sends at a time. |
+| `default_summaries` | `embedded`, `hosted` | `embedded` | The summarizer of each repository that follows the organization. `hosted` needs a hosted `summary.provider`. A write that does not give it keeps the stored value. |
 
 Kairos keeps each secret encrypted with `KAIROS_SECRETS_KEY`, as it keeps
 the read tokens of the repositories. No read gives a secret back: a read
@@ -313,14 +314,21 @@ keeps the stored secret. An empty secret removes it. A hosted provider
 needs its secret, its URL or region, and its model. Kairos refuses a write
 with one of them missing, and the refusal names the field.
 
-A repository uses the hosted provider only after a person opts it in. The
-setting is `code_index_summaries` of the repository: `embedded` (the
-default) or `hosted`. A person sets it on the page Admin, Repositories. The
-command is `kairos repos update <slug> --code-index-summaries hosted`.
-Kairos refuses `hosted` when the organization has no hosted provider.
+The setting `code_index_summaries` of a repository chooses its summarizer:
 
-Until the opt-in, the embedded model writes the summaries of the
-repository. Its code stays on the host.
+- `organization` (the default of a new repository): the `default_summaries`
+  of the organization decides.
+- `embedded`: the embedded model, whatever the organization sets. The code
+  stays on the host.
+- `hosted`: the hosted provider of the organization.
+
+A person sets it on the page Admin, Repositories. The command is `kairos
+repos update <slug> --code-index-summaries <value>`. Kairos refuses `hosted`
+when the organization has no hosted provider. A repository from before
+0.9.0 keeps the value that it had.
+
+When the summarizer is the embedded model, the code of the repository stays
+on the host.
 
 For a repository on a hosted provider, the builder sends `concurrency`
 requests at a time. After a 429 or a 5xx, it tries the request again, 3

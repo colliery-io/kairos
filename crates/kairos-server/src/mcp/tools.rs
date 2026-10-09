@@ -767,7 +767,17 @@ impl KairosMcp {
                 rendered.credential.summary(),
                 // KAIROS-T-0340: where the summaries of the checkout come
                 // from. On `hosted`, the CLI makes none (KAIROS-T-0343).
-                rendered.code_index_summaries,
+                // KAIROS-T-0358: `organization` shows what it resolves to.
+                if rendered.code_index_summaries
+                    == kairos_client::types_repositories::CodeIndexSummaries::Organization
+                {
+                    format!(
+                        "organization ({})",
+                        rendered.code_index_summaries_resolved
+                    )
+                } else {
+                    rendered.code_index_summaries.to_string()
+                },
             );
             // No line about "stale" tasks (COLLIERY-T-0219). It counted the
             // linked tasks on a board of a team that does not own the

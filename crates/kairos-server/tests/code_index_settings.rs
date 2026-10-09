@@ -64,6 +64,7 @@ fn ollama(secret: Option<&str>) -> PutCodeIndexSettings {
             ..Default::default()
         },
         concurrency: Some(8),
+        default_summaries: None,
     }
 }
 

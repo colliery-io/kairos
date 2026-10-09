@@ -43,9 +43,11 @@ pub struct Repository {
     /// `on` or `off` (KAIROS-T-0318). With `off`, the code index builder
     /// does nothing for the repository. See [`CODE_INDEX_BUILD_VALUES`].
     pub code_index_build: String,
-    /// `embedded` or `hosted` (KAIROS-T-0340). With `hosted`, the summaries
-    /// of the repository come from the provider of the tenant, and its code
-    /// leaves the host. See [`CODE_INDEX_SUMMARIES_VALUES`].
+    /// `embedded`, `hosted` (KAIROS-T-0340) or `organization`
+    /// (KAIROS-T-0358). With `hosted`, the summaries of the repository come
+    /// from the provider of the tenant, and its code leaves the host. With
+    /// `organization`, the default of the organization decides. See
+    /// [`CODE_INDEX_SUMMARIES_VALUES`] and [`Repository::summaries_with`].
     pub code_index_summaries: String,
 }
 
@@ -55,7 +57,7 @@ pub const CODE_INDEX_BUILD_VALUES: [&str; 2] = ["on", "off"];
 
 /// The values of [`Repository::code_index_summaries`]. The column has a
 /// CHECK with the same values.
-pub const CODE_INDEX_SUMMARIES_VALUES: [&str; 2] = ["embedded", "hosted"];
+pub const CODE_INDEX_SUMMARIES_VALUES: [&str; 3] = ["embedded", "hosted", "organization"];
 
 impl Repository {
     /// Whether the code index builder works on this repository
@@ -64,10 +66,14 @@ impl Repository {
         self.code_index_build != "off"
     }
 
-    /// Whether the summaries of this repository come from the hosted
-    /// provider of the tenant (KAIROS-T-0340).
-    pub fn hosted_summaries(&self) -> bool {
-        self.code_index_summaries == "hosted"
+    /// Where the summaries of this repository are made, `embedded` or
+    /// `hosted`: its own value, or `default` (the `default_summaries` of the
+    /// organization) when it follows the organization (KAIROS-T-0358).
+    pub fn summaries_with<'a>(&'a self, default: &'a str) -> &'a str {
+        match self.code_index_summaries.as_str() {
+            "organization" => default,
+            own => own,
+        }
     }
 }
 
@@ -99,7 +105,7 @@ pub struct RepositoryChangeset {
     pub description: Option<String>,
     /// `on` or `off` (KAIROS-T-0318).
     pub code_index_build: Option<String>,
-    /// `embedded` or `hosted` (KAIROS-T-0340).
+    /// `embedded`, `hosted` or `organization` (KAIROS-T-0340, KAIROS-T-0358).
     pub code_index_summaries: Option<String>,
     pub updated_by: Option<Uuid>,
     pub updated_at: Option<DateTime<Utc>>,

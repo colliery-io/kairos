@@ -1555,6 +1555,7 @@ fn hosted_settings(base_url: &str, key: &str, concurrency: i32) -> PutCodeIndexS
             ..Default::default()
         },
         concurrency: Some(concurrency),
+        default_summaries: None,
     }
 }
 
@@ -1665,6 +1666,55 @@ async fn a_hosted_repository_is_summarized_by_the_endpoint() {
     );
 }
 
+// KAIROS-T-0358: the default summarizer of the organization.
+#[tokio::test]
+async fn a_repository_that_follows_the_organization_gets_its_default() {
+    // Given a tenant on Ollama Cloud with the default hosted, a repository
+    // that follows the organization (the default of a new one) and a
+    // repository with embedded set by hand
+    let w = World::new("kairos_code_index_t0358_default").await;
+    let chat = common::chat_http::serve("ollama_t0358_key", 0).await;
+    let mut settings = hosted_settings(&chat.base_url, "ollama_t0358_key", 4);
+    settings.default_summaries = Some(CodeIndexSummaries::Hosted);
+    w.svc
+        .put_code_index_settings(&settings)
+        .await
+        .expect("the provider and the default");
+    let infra = w.work().join("platform-infra");
+    std::fs::create_dir_all(&infra).expect("the folder of platform-infra");
+    repository_at_a(&infra);
+    w.bob
+        .create_repository(&repository("platform-infra"))
+        .await
+        .expect("platform-infra");
+    w.bob
+        .update_repository(
+            "platform-infra",
+            &UpdateRepositoryRequest {
+                code_index_summaries: Some(CodeIndexSummaries::Embedded),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("embedded by hand");
+
+    // When the first-build lane runs
+    let outcomes = w.first_builds().await;
+    assert_eq!(outcomes.len(), 2, "{outcomes:?}");
+
+    // Then the repository that follows the organization is summarized
+    // through the endpoint, and the other one by the embedded model
+    assert_eq!(
+        newest_run(&w, "payments-api").await.model.as_deref(),
+        Some("ollama-cloud/fake-model")
+    );
+    assert!(chat.requests() > 0, "the endpoint got no request");
+    assert_eq!(
+        newest_run(&w, "platform-infra").await.model.as_deref(),
+        Some("fake/fixed")
+    );
+}
+
 #[tokio::test]
 async fn a_hosted_endpoint_that_refuses_the_key_fails_the_run_and_the_next_repository_builds() {
     let w = World::new("kairos_code_index_t0341_refused").await;
@@ -1741,6 +1791,7 @@ fn bedrock_settings(base_url: &str, credentials: &str) -> PutCodeIndexSettings {
             ..Default::default()
         },
         concurrency: Some(3),
+        default_summaries: None,
     }
 }
 

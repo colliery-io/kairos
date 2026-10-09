@@ -194,6 +194,10 @@ pub struct CodeIndexSettings {
     pub vectors: VectorProviderSettings,
     /// The requests that a hosted summarizer sends at a time, 1 to 32.
     pub concurrency: i32,
+    /// Where the summaries of a repository that follows the organization
+    /// are made: `embedded` or `hosted` (KAIROS-T-0358).
+    #[serde(default)]
+    pub default_summaries: crate::types_repositories::CodeIndexSummaries,
     /// None when the tenant has no settings row (the defaults).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_by: Option<String>,
@@ -244,4 +248,9 @@ pub struct PutCodeIndexSettings {
     /// 1 to 32; 4 when not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub concurrency: Option<i32>,
+    /// `embedded` or `hosted`: the summarizer of each repository that
+    /// follows the organization (KAIROS-T-0358). When not given, the value
+    /// stays. `hosted` needs a hosted summary provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_summaries: Option<crate::types_repositories::CodeIndexSummaries>,
 }

@@ -28,6 +28,8 @@ pub enum AdminCommand {
 /// Show or set where the code index summaries and vectors of the
 /// organization are made.
 #[derive(clap::Subcommand, Debug)]
+// `Set` has a field for each flag; clap builds the value once (KAIROS-T-0358).
+#[allow(clippy::large_enum_variant)]
 pub enum CodeIndexSettingsCommand {
     /// Show the providers and whether each secret is set
     Show {
@@ -76,6 +78,11 @@ pub enum CodeIndexSettingsCommand {
         /// The requests that a hosted summarizer sends at a time, 1 to 32
         #[arg(long)]
         concurrency: Option<i32>,
+        /// The summarizer of each repository that follows the organization:
+        /// embedded or hosted (the provider of the summaries; the code of
+        /// each changed symbol leaves the host)
+        #[arg(long, value_name = "EMBEDDED|HOSTED", value_parser = ["embedded", "hosted"])]
+        default_summaries: Option<String>,
         #[command(flatten)]
         common: Common,
     },
@@ -96,6 +103,7 @@ pub(crate) fn settings_body(
     vector_model: Option<String>,
     vector_secret: Option<Secret>,
     concurrency: Option<i32>,
+    default_summaries: Option<String>,
 ) -> PutCodeIndexSettings {
     PutCodeIndexSettings {
         summary: PutSummaryProvider {
@@ -112,6 +120,10 @@ pub(crate) fn settings_body(
             secret: vector_secret,
         },
         concurrency: Some(concurrency.unwrap_or(current.concurrency)),
+        // clap accepts only embedded and hosted. Not given: the value stays.
+        default_summaries: default_summaries
+            .as_deref()
+            .and_then(kairos_client::types_repositories::CodeIndexSummaries::parse),
     }
 }
 
@@ -144,6 +156,10 @@ fn print_settings(settings: &CodeIndexSettings) {
     }
     println!("  secret: {}", secret(&settings.vectors.secret));
     println!("Concurrency: {}", settings.concurrency);
+    println!(
+        "Default summarizer of the repositories: {}",
+        settings.default_summaries
+    );
     match (&settings.updated_by, &settings.updated_at) {
         (Some(by), Some(at)) => println!("Set by {by} at {at}."),
         _ => println!("Not set: the organization uses the embedded model."),
@@ -175,6 +191,7 @@ impl CodeIndexSettingsCommand {
                 vector_secret_stdin,
                 clear_vector_secret,
                 concurrency,
+                default_summaries,
                 common,
             } => {
                 let summary_secret = if clear_summary_secret {
@@ -211,6 +228,7 @@ impl CodeIndexSettingsCommand {
                     vector_model,
                     vector_secret,
                     concurrency,
+                    default_summaries,
                 );
                 let settings = client.put_code_index_settings(&body).await?;
                 if common.json {
@@ -370,6 +388,7 @@ mod code_index_settings_tests {
                 secret: SecretStatus::default(),
             },
             concurrency: 8,
+            default_summaries: Default::default(),
             updated_by: None,
             updated_at: None,
         }
@@ -391,7 +410,9 @@ mod code_index_settings_tests {
             Some("nomic-embed-text".into()),
             None,
             None,
+            None,
         );
+        assert_eq!(body.default_summaries, None, "no flag: the value stays");
         assert_eq!(body.summary.provider, "ollama-cloud");
         assert_eq!(
             body.summary.base_url.as_deref(),
@@ -418,9 +439,15 @@ mod code_index_settings_tests {
             None,
             None,
             Some(2),
+            Some("hosted".into()),
         );
         assert_eq!(body.summary.provider, "embedded");
         assert!(body.summary.secret.as_ref().is_some_and(|s| s.is_empty()));
         assert_eq!(body.concurrency, Some(2));
+        assert_eq!(
+            body.default_summaries,
+            Some(kairos_client::types_repositories::CodeIndexSummaries::Hosted),
+            "KAIROS-T-0358: the flag goes into the body"
+        );
     }
 }

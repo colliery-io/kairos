@@ -150,6 +150,7 @@ diesel::table! {
         concurrency -> Int4,
         updated_by -> Uuid,
         updated_at -> Timestamptz,
+        default_summaries -> Text,
     }
 }
 

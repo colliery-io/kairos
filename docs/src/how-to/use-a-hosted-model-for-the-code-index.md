@@ -15,7 +15,7 @@ For a repository on a hosted provider, each request to the provider has:
 - for a file or a folder, the summaries of its parts.
 
 Nothing else leaves the host. The whole repository stays. The key of the
-organization stays. The work of a repository that did not opt in stays.
+organization stays. The work of a repository on the embedded model stays.
 
 ## Set the provider of the organization
 
@@ -47,21 +47,37 @@ The vectors of the summaries have their own setting. `--vector-provider
 remote` with `--vector-url` and `--vector-model` sends them to an
 OpenAI-compatible embeddings endpoint. A local Ollama needs no secret.
 
-## Opt a repository in
+## Choose the repositories on the provider
 
-A repository uses the hosted provider only after a person opts it in. On
-the page Admin, Repositories, set "Code index summaries" to `hosted`. Or:
+To send all the repositories to the provider, an organization admin sets
+the default summarizer of the repositories. On the page Admin, Code index,
+set "Default summarizer of the repositories" to `hosted`. Or:
 
 ```bash
-kairos repos update <slug> --code-index-summaries hosted
+kairos admin code-index-settings set --default-summaries hosted
 ```
 
-Kairos refuses `hosted` when the organization has no hosted provider. The
-next build of the repository makes its summaries on the provider. Each run
+A new repository follows the organization. A repository from before 0.9.0
+keeps its value: set it to `organization` to follow the default.
+
+To choose for one repository, set its "Code index summaries" on the page
+Admin, Repositories, or:
+
+```bash
+# Keep the code of this repository on the host
+kairos repos update <slug> --code-index-summaries embedded
+# Follow the default of the organization again
+kairos repos update <slug> --code-index-summaries organization
+```
+
+A value set on a repository wins over the default. Kairos refuses `hosted`,
+as the default or on a repository, when the organization has no hosted
+provider. The next build of a repository on the provider makes its
+summaries there. Each run
 of the builder records the model that wrote its summaries: see `kairos
 repos builds <slug>`, or the panel of the repository.
 
-## The CLI on an opted-in repository
+## The CLI on a repository on the provider
 
 `kairos index update` in a checkout of such a repository makes no summary,
 whatever `KAIROS_INDEX_SUMMARIZE` says. It links the summaries of the pool
@@ -75,8 +91,8 @@ llama.cpp and downloads no summary model. Use it when every organization of
 the deployment is on a hosted provider. With the Helm chart, set
 `image.variant: hosted`.
 
-On the hosted image, a repository with no opt-in gets a failed run. Its
-text says: set a hosted provider and opt the repository in, or run the
+On the hosted image, a repository on the embedded model gets a failed run.
+Its text says: set a hosted provider and the repository on it, or run the
 image with the model.
 
 ## Related

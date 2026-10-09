@@ -80,6 +80,10 @@ pub(crate) fn dto_of(row: Option<Settings>) -> dto::CodeIndexSettings {
             secret: status_of(row.vector_secret_set_by, row.vector_secret_set_at),
         },
         concurrency: row.concurrency,
+        default_summaries: kairos_client::types_repositories::CodeIndexSummaries::parse(
+            &row.default_summaries,
+        )
+        .unwrap_or_default(),
         updated_by: stored.then(|| row.updated_by.to_string()),
         updated_at: stored.then(|| row.updated_at.to_rfc3339()),
     }
@@ -240,6 +244,28 @@ pub(crate) fn write_settings(
         .with_details(json!({ "field": "concurrency" })));
     }
 
+    // KAIROS-T-0358: the summarizer of a repository that follows the
+    // organization. Not given: the value stays.
+    let default_summaries = match body.default_summaries {
+        None => current
+            .as_ref()
+            .map_or_else(|| "embedded".to_string(), |c| c.default_summaries.clone()),
+        Some(kairos_client::types_repositories::CodeIndexSummaries::Organization) => {
+            return Err(ApiError::validation(
+                "default_summaries takes embedded or hosted. Only a repository takes organization.",
+            )
+            .with_details(json!({ "field": "default_summaries" })));
+        }
+        Some(value) => value.as_str().to_string(),
+    };
+    if default_summaries == "hosted" && summary.provider == "embedded" {
+        return Err(ApiError::unprocessable(
+            "CODE_INDEX_NO_HOSTED_PROVIDER",
+            "The default summarizer hosted needs a hosted provider of the summaries. Set              summary.provider to ollama-cloud or bedrock, or set default_summaries to embedded.",
+        )
+        .with_details(json!({ "field": "default_summaries" })));
+    }
+
     // The summaries.
     let (summary_base_url, summary_model, summary_region) = match summary.provider.as_str() {
         "embedded" => (None, None, None),
@@ -359,6 +385,7 @@ pub(crate) fn write_settings(
             vector_model,
             vector_secret,
             concurrency,
+            default_summaries,
             updated_by: user,
         },
     )

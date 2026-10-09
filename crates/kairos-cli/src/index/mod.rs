@@ -358,6 +358,10 @@ async fn update(
     remote: &base::RemoteArgs,
 ) -> Result<(), IndexCommandError> {
     let db = db_path(root);
+    // The exclude line before the lock file: else git counts the lock file
+    // as a change of the tree when the CLI compares it with a base index
+    // (KAIROS-T-0357).
+    prepare(root)?;
     let _lock = lock_index(&db)?;
     let local = if !db.is_file() {
         Local::Missing
@@ -406,7 +410,6 @@ async fn update(
         }
     }
 
-    prepare(root)?;
     if let Some(b) = download {
         let bytes = b
             .download()

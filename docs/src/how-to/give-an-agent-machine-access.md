@@ -4,6 +4,9 @@ Get a non-interactive client — an agent, a CI pipeline, a script — talking t
 Kairos without a person or a browser in the loop, and able to rotate its
 credential without downtime.
 
+An agent that works for you, for example Claude Code, does not need a service
+account. Give it your own agent key: see [Give an agent your key](give-an-agent-your-key.md).
+
 **Before you start:** you are an **organization admin**. To create service accounts,
 to mint keys and to revoke them are all org-admin only. Do not plan around your
 issuer's `client_credentials` grant. Kairos issues its own API keys instead, and

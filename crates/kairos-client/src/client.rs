@@ -1030,6 +1030,32 @@ impl KairosClient {
         .await
     }
 
+    // -- agent keys of the caller (/api/me/agent-keys, KAIROS-T-0359) ----------
+
+    /// `POST /api/me/agent-keys` — make an agent key that acts as the caller.
+    /// The response is the only place the raw key appears.
+    pub async fn create_agent_key(
+        &self,
+        request: &crate::types_service_accounts::CreateApiKeyRequest,
+    ) -> Result<crate::types_service_accounts::ApiKeyCreated, Error> {
+        self.post_created("/api/me/agent-keys", request).await
+    }
+
+    /// `GET /api/me/agent-keys` — the caller's agent keys (never a secret).
+    pub async fn list_agent_keys(
+        &self,
+    ) -> Result<crate::types_service_accounts::ApiKeyList, Error> {
+        self.get("/api/me/agent-keys").await
+    }
+
+    /// `DELETE /api/me/agent-keys/{key_id}` — revoke one of the caller's keys.
+    pub async fn revoke_agent_key(
+        &self,
+        key_id: &str,
+    ) -> Result<crate::types_service_accounts::Deleted, Error> {
+        self.delete(&format!("/api/me/agent-keys/{key_id}")).await
+    }
+
     // -- organization membership (/api/members) --------------------------------
 
     /// `GET /api/members`.

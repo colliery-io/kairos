@@ -26,6 +26,7 @@
 //! | `/admin/metadata`  | metadata definitions CRUD | T-0043 |
 //! | `/activity`     | activity feed        | T-0044     |
 //! | `/activity/history/:code` | item content history | T-0044 |
+//! | `/agent-keys`   | the agent keys of the person | T-0359 |
 //!
 //! Everything under the shell is auth-guarded: no session → the guard
 //! *redirects to the issuer* (A-0015 "unauthenticated hits show the login
@@ -88,6 +89,7 @@ pub fn App() -> impl IntoView {
                     </ParentRoute>
                     <Route path=path!("activity") view=pages::ActivityPage/>
                     <Route path=path!("activity/history/:code") view=pages::ItemHistoryPage/>
+                    <Route path=path!("agent-keys") view=pages::AgentKeysPage/>
                 </ParentRoute>
             </Routes>
         </Router>
@@ -133,6 +135,7 @@ fn Shell() -> impl IntoView {
                         <NavLink href="/teams" label="Teams"/>
                         <NavLink href="/search" label="Search"/>
                         <NavLink href="/activity" label="Activity"/>
+                        <NavLink href="/agent-keys" label="Agent keys"/>
                         <pages::admin::AdminNavLink/>
                         <MyTeamsNav whoami/>
                     </SideNav>

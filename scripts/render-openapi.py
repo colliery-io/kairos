@@ -72,9 +72,9 @@ structures that own boards.""",
 definitions that shape what work items can carry.""",
      ["metadata-definitions", "templates", "organization"]),
 
-    ("Machine access", """Service accounts, their API keys, and the SCIM
-tokens for directory sync.""",
-     ["service-accounts", "scim-tokens"]),
+    ("Machine access", """Agent keys of a person, service accounts and their
+API keys, and the SCIM tokens for directory sync.""",
+     ["me", "service-accounts", "scim-tokens"]),
 
     ("The deployment itself", """Activity, administration, and what the
 deployment reports about itself.""",

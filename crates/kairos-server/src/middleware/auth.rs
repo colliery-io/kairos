@@ -59,6 +59,10 @@ pub struct AuthContext {
     pub email: String,
     /// The `name` claim (falls back to email when absent).
     pub display_name: String,
+    /// `api_keys.id` when the request authenticated with the agent key of a
+    /// person (KAIROS-T-0359); `None` for OIDC, a password session, or the key
+    /// of a service account. An agent key cannot make more agent keys.
+    pub agent_key: Option<Uuid>,
 }
 
 /// The token claims this crate consumes. `iss`/`aud`/`exp` are enforced by
@@ -646,6 +650,7 @@ pub async fn require_auth(
         external_id: user.external_id,
         email: user.email,
         display_name: user.display_name,
+        agent_key: None,
     });
     Ok(next.run(req).await)
 }

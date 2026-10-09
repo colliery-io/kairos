@@ -228,6 +228,10 @@ use crate::app::AppState;
         crate::service_accounts::routes::create_key,
         crate::service_accounts::routes::list_keys,
         crate::service_accounts::routes::revoke_key,
+        // The agent keys of a person (KAIROS-T-0359, KAIROS-A-0024).
+        crate::service_accounts::agent_keys::create_agent_key,
+        crate::service_accounts::agent_keys::list_agent_keys,
+        crate::service_accounts::agent_keys::revoke_agent_key,
         // Local password login (KAIROS-T-0203). Documented unconditionally even
         // though the routes are mounted only when KAIROS_LOCAL_AUTH is on: the spec
         // is the API contract, and an operator reading it needs to know the

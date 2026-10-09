@@ -1032,7 +1032,8 @@ Repositories are the codebases that tasks link to. See
 
 ## Machine access
 
-Service accounts are machine principals authenticated by API keys.
+Service accounts are machine principals authenticated by API keys. Agent keys
+act as the person who made them.
 
 ### `kairos service-accounts create`
 
@@ -1068,39 +1069,49 @@ Deletes the service account and all of its keys.
 ### `kairos keys create`
 
 ```
-kairos keys create --service-account <SERVICE_ACCOUNT> --name <NAME> [OPTIONS]
+kairos keys create --name <NAME> [--service-account <SERVICE_ACCOUNT>] [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account. |
-| `--name <NAME>` | string | required | Operator label for the key, e.g. `gha-main`. |
-| `--expires-at <EXPIRES_AT>` | RFC 3339 instant | no expiry | Expiry, e.g. `2027-01-01T00:00:00Z`. |
+| `--name <NAME>` | string | required | Label for the key, for example `laptop-claude-code` or `gha-main`. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account. Without it, the command makes an agent key for you. |
+| `--expires-at <EXPIRES_AT>` | RFC 3339 instant | no expiry | Expiry, for example `2027-01-01T00:00:00Z`. |
 
-The raw key is printed once and is not retrievable afterwards.
+Without `--service-account`, the command makes an **agent key**. An agent key acts
+as you, with your capabilities. Each member can make agent keys. Log in as
+yourself to make one: a request with an agent key cannot make an agent key. Put
+the key in the settings of the agent. For Claude Code, that is the variable
+`KAIROS_MCP_KEY`. Do not put the key in a repository. See
+[Give an agent your key](../how-to/give-an-agent-your-key.md).
+
+With `--service-account`, the command makes a key for that service account. Only
+an organization admin can do this.
+
+The command shows the raw key one time only. You cannot get it again.
 
 ### `kairos keys list`
 
 ```
-kairos keys list --service-account <SERVICE_ACCOUNT> [OPTIONS]
+kairos keys list [--service-account <SERVICE_ACCOUNT>] [OPTIONS]
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account. Without it, the command lists your agent keys. |
 
-Key prefixes only; the secret is never returned.
+The list shows the start of each key only. It never shows the secret.
 
 ### `kairos keys revoke`
 
 ```
-kairos keys revoke <KEY_ID> --service-account <SERVICE_ACCOUNT> --confirm [OPTIONS]
+kairos keys revoke <KEY_ID> [--service-account <SERVICE_ACCOUNT>] --confirm [OPTIONS]
 ```
 
 | Argument / Option | Type | Default | Description |
 |---|---|---|---|
 | `<KEY_ID>` | UUID | required | Key id, from `kairos keys list`. |
-| `--service-account <SERVICE_ACCOUNT>` | UUID | required | The service account the key belongs to. |
+| `--service-account <SERVICE_ACCOUNT>` | UUID | none | The service account of the key. Without it, the command revokes your agent key. |
 | `--confirm` | flag | off | Required for the revocation to happen. |
 
 ## Deployment administration

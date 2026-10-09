@@ -5,7 +5,47 @@
 
 # Machine access
 
-Service accounts, their API keys, and the SCIM tokens for directory sync.
+Agent keys of a person, service accounts and their API keys, and the SCIM tokens for directory sync.
+
+## me
+
+### `GET /api/me/agent-keys`
+
+The caller's agent keys (metadata only, never a secret), newest first.
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`ApiKeyListResponse`](schemas.md#apikeylistresponse) | Key metadata (never secrets) |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller is a service account |
+
+### `POST /api/me/agent-keys`
+
+Make an agent key for the caller: return the secret ONCE, keep only its
+hash. Kairos refuses a service account, and a request made with an agent key.
+
+Request body (required): `application/json`, [`CreateApiKeyRequest`](schemas.md#createapikeyrequest)
+
+| Response | Body | Meaning |
+|---|---|---|
+| `201` | [`ApiKeyCreatedResponse`](schemas.md#apikeycreatedresponse) | Key made; the secret is shown once |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller is a service account, or the request uses an agent key |
+| `422` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Empty name or bad expiry |
+
+### `DELETE /api/me/agent-keys/{key_id}`
+
+Revoke one of the caller's agent keys (soft: `revoked_at` set). The key of
+another person, or an unknown id → 404; already revoked → 409.
+
+| Parameter | In | Required | Type | Description |
+|---|---|---|---|---|
+| `key_id` | path | yes | `string` | Agent key id (UUID) |
+
+| Response | Body | Meaning |
+|---|---|---|
+| `200` | [`DeletedResponse`](schemas.md#deletedresponse) | Key revoked |
+| `403` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller is a service account |
+| `404` | [`ErrorEnvelope`](schemas.md#errorenvelope) | The caller has no key with this id |
+| `409` | [`ErrorEnvelope`](schemas.md#errorenvelope) | Already revoked |
 
 ## service-accounts
 

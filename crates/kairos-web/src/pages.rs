@@ -287,6 +287,11 @@ pub use admin::AdminPage;
 mod activity;
 pub use activity::{ActivityPage, ItemHistoryPage};
 
+// The agent keys of the signed-in person (KAIROS-T-0359): make, list and
+// revoke the keys that let an agent act as the person.
+mod agent_keys;
+pub use agent_keys::AgentKeysPage;
+
 /// Router fallback.
 #[component]
 pub fn NotFoundPage() -> impl IntoView {

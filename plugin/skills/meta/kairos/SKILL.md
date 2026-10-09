@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 The kairos plugin's user-invoked surface. Reach for:
 
-- `/kairos:bootstrap` — first, in any repo not yet wired to a Kairos deployment (and after remote/team/board changes): configure the MCP endpoint, confirm auth (OAuth, or a service account with an API key on a deployment with no issuer), detect this repository from the git remote, discover boards, write `.claude/kairos.local.md`.
+- `/kairos:bootstrap` — first, in any repo not yet wired to a Kairos deployment (and after remote/team/board changes): configure the MCP endpoint, confirm auth (OAuth, or the agent key of the user on a deployment with no issuer), detect this repository from the git remote, discover boards, write `.claude/kairos.local.md`.
 - `/kairos:grill-me` — before building: a relentless interview that stress-tests a plan or design until shared understanding is reached.
 - `/kairos:grill-with-docs` — before building, when the design should leave a paper trail: the same relentless interview as grill-me, additionally capturing glossary terms (CONTEXT.md) and Kairos ADRs as decisions crystallise.
 - `/kairos:grill-initiative` — before building, on a Kairos initiative or strategy: `/kairos:grill-initiative <short code | "title">`. The same one-question-at-a-time interview, but each settled answer goes into the item at once, under `## Decisions (<who>, <date>)`. A title creates the initiative first. The column sets the depth (context and goals in the entry column, the design later, no grilling in a done column), and the skill never moves the item. It ends with an offer of `/kairos:decompose`, then `/kairos:grill-decomposition`.

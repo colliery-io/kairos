@@ -25,16 +25,16 @@ Read `issuer` and `local_auth` in the `/api/config` response. They decide the pa
 | `issuer` | `local_auth` | Path |
 |---|---|---|
 | a URL | `false` or absent | **OAuth.** Continue with step 2. |
-| `null` | `true` | **Service account.** OAuth is not available. Tell the user, then do [SERVICE-ACCOUNT.md](SERVICE-ACCOUNT.md) in place of step 2. |
-| a URL | `true` | **OAuth** is the default. The service-account path is the alternative for an agent that must run with no browser. |
+| `null` | `true` | **Agent key.** OAuth is not available. Tell the user, then do [AGENT-KEY.md](AGENT-KEY.md) in place of step 2. |
+| a URL | `true` | **OAuth** is the default. The agent-key path is the alternative for an agent that must run with no browser. |
 
 On the OAuth path, fetch `<deployment-url>/.well-known/oauth-protected-resource/mcp` also. It is the RFC 9728 metadata that names the authorization server.
 
-On a re-run, a `kairos` entry with an `Authorization` header shows the service-account path. If the `kairos` tools answer, continue with step 3.
+On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. If the `kairos` tools answer, continue with step 3.
 
 ## 2. Write the MCP config
 
-This step is for the OAuth path. On the service-account path, [SERVICE-ACCOUNT.md](SERVICE-ACCOUNT.md) writes the config.
+This step is for the OAuth path. On the agent-key path, [AGENT-KEY.md](AGENT-KEY.md) writes the config.
 
 Two equivalent paths — propose the project `.mcp.json` (shareable and reviewable); use `claude mcp add` instead if the user prefers per-user config:
 
@@ -67,7 +67,7 @@ On re-run, update the existing `kairos` entry's URL/headers rather than adding a
 
 On the OAuth path, authentication is client-driven: the MCP client opens the browser flow the first time it connects — the skill never handles tokens. If the `kairos` MCP tools are not available in this session yet (config just written), tell the user to run `/mcp` to connect and authenticate, then re-run `/kairos:bootstrap` to finish; the re-run picks up here.
 
-On the service-account path, the API key of a service account authenticates the client (KAIROS-A-0017). [SERVICE-ACCOUNT.md](SERVICE-ACCOUNT.md) is the only source for that path. The skill never handles the key.
+On the agent-key path, the agent key of the user authenticates the client and acts as the user (KAIROS-A-0024). [AGENT-KEY.md](AGENT-KEY.md) is the only source for that path. The skill never handles the key.
 
 Once connected:
 
@@ -139,7 +139,7 @@ From the results pick, confirming with the user whenever there is more than one 
 - **initiative board** — the default initiative-level board for new initiatives
 - **ADR board** — the ADR board of the team found above: in `my_boards`, the ADR board that names the team (`ADR board of the team <team>`). If the team has no ADR board, the ADR board of the organization. A team ADR board is for the delivery ADRs of the team (COLLIERY-T-3102).
 
-If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; on the service-account path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
+If auth is declined or fails, or there are no boards yet (fresh tenant, no memberships): keep the step 2 config, proceed to step 4 regardless, and record in the prose section what is missing and what unblocks it (authenticate via `/mcp`; on the agent-key path, set `KAIROS_MCP_KEY`; ask an org admin for team/board membership). Do not fail the bootstrap.
 
 ## 4. Write `.claude/kairos.local.md`
 
@@ -167,7 +167,7 @@ missing and what unblocks it.>
 
 Frontmatter keys are exactly: `deployment_url`, `tenant`, `repository`, `delivery_stream`, `team_board`, `initiative_board`, `adr_board`. `repository` is the slug (KAIROS-A-0019); `team_board`, `initiative_board` and `adr_board` are board **slugs** (what `board_items` resolves — never display names); `delivery_stream` and `team_board` come from the team of the principal, also when a different team owns the repository. Leave a value empty (`key:`) when undiscovered rather than omitting the key. The prose section is short: who connected, what was discovered when, anything missing.
 
-When the principal is a service account, the first line of the prose names it. It also names the person who set it up, if known:
+An agent key acts as the user, so the first line names the user, as on the OAuth path. When the principal is a service account (an older wiring), the first line names the service account. It also names the person who set it up, if known:
 
 ```markdown
 Connected as the service account claude-code (org: Acme Inc, team: platform),
@@ -184,8 +184,8 @@ Then ensure it is gitignored — it is org-specific wiring, not for the repo's h
 
 Tell the user: config path(s) written, deployment/tenant, who they are connected as, the repository matched (or why not), the boards chosen, and — if anything was skipped (offline, unauthenticated, a repository that is not in the directory, boardless) — exactly what to do to finish. Mention that from the next session on, the SessionStart hook injects this wiring and pulls this repository's queue automatically.
 
-On the service-account path, tell the user these three facts also:
+On the agent-key path, tell the user these three facts also:
 
-- The deployment shows the API key one time only.
+- The deployment shows the agent key one time only.
 - The key is in the `env` section of the user's Claude Code settings, as `KAIROS_MCP_KEY`. It is in no file of the repository.
-- To rotate the key, follow "Rotate without downtime": <https://colliery-io.github.io/kairos/how-to/give-an-agent-machine-access.html>.
+- To replace the key, make a new key with `kairos keys create`, put it in `KAIROS_MCP_KEY`, then revoke the old key with `kairos keys revoke <KEY_ID> --confirm`: <https://colliery-io.github.io/kairos/how-to/give-an-agent-your-key.html>.

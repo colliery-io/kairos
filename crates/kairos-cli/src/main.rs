@@ -174,7 +174,7 @@ enum Command {
     /// Service accounts: machine principals authenticated by API keys
     #[command(subcommand)]
     ServiceAccounts(ServiceAccountsCommand),
-    /// API keys for a service account
+    /// Your agent keys, or the API keys of a service account
     #[command(subcommand)]
     Keys(KeysCommand),
     /// Deployment administration (tenant provisioning)
@@ -1010,7 +1010,7 @@ mod tests {
                 expires_at,
                 ..
             }) => {
-                assert_eq!(service_account, "sa-1");
+                assert_eq!(service_account.as_deref(), Some("sa-1"));
                 assert_eq!(name, "gha");
                 assert_eq!(expires_at.as_deref(), Some("2027-01-01T00:00:00Z"));
             }
@@ -1031,5 +1031,39 @@ mod tests {
             ])
             .is_ok()
         );
+
+        // The agent keys of a person (KAIROS-T-0359): no --service-account.
+        let cli = Cli::try_parse_from(["kairos", "keys", "create", "--name", "laptop"])
+            .expect("keys create without a service account parses");
+        match cli.command {
+            Command::Keys(KeysCommand::Create {
+                service_account,
+                name,
+                expires_at,
+                ..
+            }) => {
+                assert_eq!(service_account, None);
+                assert_eq!(name, "laptop");
+                assert_eq!(expires_at, None);
+            }
+            _ => panic!("expected keys create"),
+        }
+        assert!(Cli::try_parse_from(["kairos", "keys", "list", "--json"]).is_ok());
+        let cli = Cli::try_parse_from(["kairos", "keys", "revoke", "k-1", "--confirm"])
+            .expect("keys revoke without a service account parses");
+        match cli.command {
+            Command::Keys(KeysCommand::Revoke {
+                key_id,
+                service_account,
+                confirm,
+                ..
+            }) => {
+                assert_eq!(key_id, "k-1");
+                assert_eq!(service_account, None);
+                assert!(confirm);
+            }
+            _ => panic!("expected keys revoke"),
+        }
+        assert!(Cli::try_parse_from(["kairos", "keys", "create"]).is_err());
     }
 }

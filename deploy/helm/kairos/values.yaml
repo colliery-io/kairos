@@ -63,8 +63,8 @@ podSecurityContext:
     type: RuntimeDefault
 
 # -- Container-level security context. Drops all capabilities, disallows
-# privilege escalation, and mounts the root filesystem read-only (the server
-# writes no local files — Postgres is the sole state, KAIROS-A-0013). If your
+# privilege escalation, and mounts the root filesystem read-only (Postgres is
+# the sole state, KAIROS-A-0013; temporary files go to the `tmp` volume). If your
 # KAIROS_ARCHIVE_TARGET is a local filesystem path, mount a writable volume via
 # extraVolumes/extraVolumeMounts and it can coexist with a read-only rootfs.
 containerSecurityContext:
@@ -450,6 +450,17 @@ embeddings:
 extraEnv: []
 #  - name: RUST_BACKTRACE
 #    value: "1"
+
+# -- A writable /tmp. The root filesystem is read-only, and the server makes
+# temporary files there: the work folders of the code index builder, index
+# uploads, and the git helper scripts. Without it those fail.
+tmp:
+  # -- Mount an emptyDir at /tmp. Turn it off only if extraVolumes and
+  # extraVolumeMounts already provide /tmp.
+  enabled: true
+  # -- The size limit of the emptyDir. A build of a large repository needs a
+  # few GiB. Empty means no limit.
+  sizeLimit: 8Gi
 
 # -- Extra volumes for the pod (e.g. a PVC for a filesystem KAIROS_ARCHIVE_TARGET).
 extraVolumes: []

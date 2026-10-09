@@ -696,6 +696,8 @@ the image sets it to `/var/lib/kairos/models`) and `KAIROS_EMBED_REFRESH_SECS`
 | `affinity` | map | `{}` | Affinity rules for pod scheduling. |
 | `topologySpreadConstraints` | list | `[]` | Topology spread constraints, e.g. spreading replicas across zones. |
 | `extraEnv` | list of EnvVar | `[]` | Appended verbatim to the container. The route for any variable the chart does not surface. |
+| `tmp.enabled` | bool | `true` | Mounts an emptyDir at `/tmp`. The root filesystem is read-only, and the code index builder, index uploads and the git helper make temporary files. Turn it off only when `extraVolumes` and `extraVolumeMounts` give `/tmp`. |
+| `tmp.sizeLimit` | quantity | `8Gi` | The size limit of that emptyDir. Empty means no limit. |
 | `extraVolumes` | list | `[]` | Extra pod volumes. |
 | `extraVolumeMounts` | list | `[]` | Extra container volume mounts. |
 
@@ -713,7 +715,7 @@ the image sets it to `/var/lib/kairos/models`) and `KAIROS_EMBED_REFRESH_SECS`
 | `podSecurityContext.fsGroup` | integer | `65532` | Pod-level security context. |
 | `podSecurityContext.seccompProfile.type` | string | `RuntimeDefault` | Pod-level seccomp profile. |
 | `containerSecurityContext.allowPrivilegeEscalation` | bool | `false` | Container-level security context. |
-| `containerSecurityContext.readOnlyRootFilesystem` | bool | `true` | Container-level security context. The server writes no local files. |
+| `containerSecurityContext.readOnlyRootFilesystem` | bool | `true` | Container-level security context. Temporary files go to the `tmp` volume. |
 | `containerSecurityContext.runAsNonRoot` | bool | `true` | Container-level security context. |
 | `containerSecurityContext.capabilities.drop` | list | `[ALL]` | Linux capabilities dropped from the container. |
 

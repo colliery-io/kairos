@@ -36,11 +36,15 @@ When `issuer` is a URL, check that the MCP client can register before you choose
 
 If there is no `registration_endpoint`, the MCP client cannot register, and the browser flow fails with "Incompatible auth server: does not support dynamic client registration". Google is such a server. Tell the user, then do [AGENT-KEY.md](AGENT-KEY.md) in place of step 2. Do not write a `kairos` entry with no `Authorization` header, and do not run `claude mcp add` for it.
 
+Before you write any MCP config, look for the `kairos` server of the plugin. It is `plugin:kairos:kairos` in `claude mcp list`, and its tools are `mcp__plugin_kairos_kairos__*`. It reads `KAIROS_URL` and `KAIROS_MCP_KEY` from the environment, and connects in each repository with no file in the repository. If it answers `whoami`, the connection is complete: write no MCP config, and continue with step 3.
+
 On a re-run, a `kairos` entry with an `Authorization` header shows the agent-key path. Do not change it to OAuth and do not add a second `kairos` entry. If the `kairos` tools answer, continue with step 3. If the session has no `kairos` tools, look for the cause before you change the config:
 
 - The session did not start in the root of the repository, so it did not read `.mcp.json`. Tell the user to start Claude Code there.
 - The user did not approve the project server. Tell the user to approve `kairos` in `/mcp`.
 - `KAIROS_MCP_KEY` is not set in the session. Tell the user to set it and start a new session.
+- The plugin server shows "Missing environment variables: KAIROS_URL". Tell the user to set `KAIROS_URL` to the deployment URL, with no `/mcp` and no trailing slash, and start a new session.
+- The plugin server and a project `kairos` entry both connect. Each tool is there 2 times. Tell the user to keep one: remove the project entry, or unset `KAIROS_URL`.
 - A `kairos` entry with no `Authorization` header in the user or local scope (`claude mcp list`) overrides the project entry. It is from an earlier OAuth attempt. Tell the user to remove it with `claude mcp remove kairos -s user` (or `-s local`).
 
 ## 2. Write the MCP config

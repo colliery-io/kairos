@@ -51,8 +51,8 @@ the per-command tables below.
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--url <URL>` | string | the only cached deployment | Deployment base URL. Required when more than one deployment is cached. |
-| `--tenant <TENANT>` | string | the tenant cached at login | Tenant slug, sent as the `X-Tenant` header. Used by deployments that resolve tenants by header rather than by host subdomain. |
+| `--url <URL>` | string | `KAIROS_URL`, then the only cached deployment | Deployment base URL. Required when more than one deployment is cached and `KAIROS_URL` is not set. |
+| `--tenant <TENANT>` | string | the tenant cached at login (none with a key) | Tenant slug, sent as the `X-Tenant` header. Used by deployments that resolve tenants by header rather than by host subdomain. |
 | `--json` | flag | off | Print the raw JSON DTO instead of the human-readable table. |
 
 `--url` values are normalized by trimming whitespace and trailing slashes, so
@@ -64,6 +64,18 @@ entry.
 A deployment lets people log in through an OIDC issuer, with local accounts, or
 with both. `kairos login` has one mode for each. Both modes write the same
 credential cache, so every other command works the same after either.
+
+A command can also use a key in place of the login.
+
+| Variable | Description |
+|---|---|
+| `KAIROS_KEY`, then `KAIROS_MCP_KEY` | An agent key (it acts as you) or a service-account key. When one is set, each command that reaches the API sends it as the bearer, and does not read the credential cache. The key wins over a login. |
+| `KAIROS_URL` | The deployment, when `--url` is not given. With a key and no URL, the CLI uses the only cached deployment. Otherwise it exits with code 2. |
+
+A key carries its tenant, so it needs no `--tenant`. A 401 for a key names the
+variable that holds it. Use a key when the issuer gives the CLI no device
+grant, for example Google. See
+[Give an agent your key](../how-to/give-an-agent-your-key.md#use-the-key-with-the-cli).
 
 ### `kairos login`
 
@@ -158,7 +170,8 @@ board capabilities the principal holds, the capabilities every member holds
 implicitly, and the caller's teams' repositories are available under `--json`
 only.
 
-`whoami` works the same with issuer tokens and with a local session. The CLI
+`whoami` works the same with issuer tokens, with a local session and with a
+key in `KAIROS_KEY` or `KAIROS_MCP_KEY`. The CLI
 does not refresh a local session. After a local session expires, each command
 that reaches the API sends no request and exits with code 2. The message is
 `The session for <URL> expired.`, and it gives the `kairos login` command

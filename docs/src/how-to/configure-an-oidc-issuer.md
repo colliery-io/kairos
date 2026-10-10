@@ -118,9 +118,8 @@ and is **not supported by that pass** — the deployment itself works; only the
 acceptance journeys cannot be run against it.
 
 **An MCP client cannot use OAuth with an issuer that has no dynamic client
-registration.** An MCP client such as Claude Code registers itself at the
-`registration_endpoint` of the authorization server (RFC 7591) before the
-browser flow. Google has none, and the client fails with "Incompatible auth
+registration.** Before the browser flow, an MCP client such as Claude Code
+registers itself at the `registration_endpoint` (RFC 7591). Google has none, and the client fails with "Incompatible auth
 server: does not support dynamic client registration". Connect the agent with
 an agent key of the user instead:
 [Give an agent your key](give-an-agent-your-key.md). `/kairos:bootstrap` finds

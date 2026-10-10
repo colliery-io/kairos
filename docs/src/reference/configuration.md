@@ -614,7 +614,7 @@ changed files.
 | Setting | Description |
 |---|---|
 | `--url`, then `KAIROS_URL`, then `deployment_url` in `.claude/kairos.local.md` | The Kairos deployment. With none of them, the CLI uses the deployment of `kairos login`. |
-| `KAIROS_KEY`, then `KAIROS_MCP_KEY` | A service-account key, sent as the bearer. With neither, the CLI uses the credentials of `kairos login`. |
+| `KAIROS_KEY`, then `KAIROS_MCP_KEY` | An agent key or a service-account key, sent as the bearer, as for each other command ([CLI → Authentication](cli.md#authentication)). With neither, the CLI uses the credentials of `kairos login`. |
 | `--repository`, then `repository` in `.claude/kairos.local.md` | The repository in Kairos. With neither, the CLI uses the repository whose `repo_url` is the `origin` remote of the checkout. |
 | `--max-changed` | The most files that can change since the base index. The default is 200. |
 | `--link-only` | Do not run the summary model. The update links the summaries that are in the pool of the index, and it does not make new summaries. The background update of the Claude Code plugin uses this option. |

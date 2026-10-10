@@ -42,15 +42,17 @@ On a deployment with an issuer, the user signs in to the web app with the issuer
 
    The option `--expires-at <RFC 3339 instant>` sets an expiry. The CLI shows the raw key (`kairos_sk_…`) one time only. The user can also make the key on the **Agent keys** page of the GUI.
 
-4. **The user stores the agent key.** The user puts the key in the `env` section of their Claude Code user settings (`~/.claude/settings.json`):
+4. **The user stores the agent key and the URL.** The user puts the key and the deployment URL in the `env` section of their Claude Code user settings (`~/.claude/settings.json`):
 
    ```json
-   { "env": { "KAIROS_MCP_KEY": "<the key>" } }
+   { "env": { "KAIROS_MCP_KEY": "<the key>", "KAIROS_URL": "https://kairos.example.com" } }
    ```
 
-   The user makes this edit. Continue when the user says that the variable is set.
+   `KAIROS_URL` has no `/mcp` and no trailing slash. The user makes this edit. Continue when the user says that the variables are set.
 
-5. **Write the MCP config.** Create or update the `kairos` entry in the project `.mcp.json`. Preserve other servers. Write `${KAIROS_MCP_KEY}` as literal text:
+5. **Use the server of the plugin.** The plugin has a `kairos` server that reads `KAIROS_URL` and `KAIROS_MCP_KEY`. It connects in each repository of the user, so this step writes no file. Go to step 7.
+
+   Write a project `.mcp.json` only when the user asks for the connection in this repository only, for example for a second deployment. Then the user does not set `KAIROS_URL`, because the plugin server and the project entry would give each tool 2 times. Create or update the `kairos` entry in the project `.mcp.json`. Preserve other servers. Write `${KAIROS_MCP_KEY}` as literal text:
 
    ```json
    {
@@ -66,6 +68,6 @@ On a deployment with an issuer, the user signs in to the web app with the issuer
 
    An agent key carries its own tenant, so the entry needs no `X-Tenant` header.
 
-6. **Offer to ignore `.mcp.json`.** The file names the deployment. Ask the user: commit the file, or add `.mcp.json` to `.gitignore`. The user decides.
+6. **Offer to ignore `.mcp.json`.** Only when step 5 wrote the file. The file names the deployment. Ask the user: commit the file, or add `.mcp.json` to `.gitignore`. The user decides.
 
-7. **Connect.** Tell the user to start a new Claude Code session in the root of the repository, so that the session reads the variable and `.mcp.json`. Then the user runs `/mcp` to connect, and runs `/kairos:bootstrap` again. The re-run continues at step 3 of [SKILL.md](SKILL.md). `whoami` names the user when the connection is correct.
+7. **Connect.** Tell the user to start a new Claude Code session in the root of the repository, so that the session reads the variables (and `.mcp.json`, if step 5 wrote it). `/mcp` shows `plugin:kairos:kairos` (or the project `kairos`) as connected. Then the user and runs `/kairos:bootstrap` again. The re-run continues at step 3 of [SKILL.md](SKILL.md). `whoami` names the user when the connection is correct.

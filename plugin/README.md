@@ -26,7 +26,8 @@ Shipped (KAIROS-T-0027..T-0034): all four buckets plus the SessionStart hook.
   It reads `/api/config` to choose the authentication path: OAuth, or the agent key of the
   user on a deployment with no issuer, or with an issuer that has no dynamic client
   registration (Google). Each person makes their own agent key with
-  `kairos keys create` or on the Agent keys page and puts it in `KAIROS_MCP_KEY`; the key acts as that person
+  `kairos keys create` or on the Agent keys page and puts it in `KAIROS_MCP_KEY`, with the
+  deployment URL in `KAIROS_URL`, for the `kairos` server of the plugin (below); the key acts as that person
   (KAIROS-A-0024). Do not share a service-account key for Claude Code.
 - `workflow/` — `grill-initiative` (an interview that writes each settled answer into the
   initiative or strategy at once, and never moves it), `to-initiative`, `decompose`,
@@ -154,6 +155,18 @@ creates, `triage` grooms the tasks that link to this repository by default, and 
 flags a change whose task links to a different repository. Work for a different team is a
 **request** to the delivery board of that team: entry column, support lane (recipe in
 `skills/workflow/implement/CROSS-TEAM-FILING.md`, which the `/kairos` router points at).
+
+## The plugin has its own `kairos` server
+
+`.claude-plugin/plugin.json` declares a `kairos` HTTP server at `${KAIROS_URL}/mcp` with the
+header `Authorization: Bearer ${KAIROS_MCP_KEY}`. A person who puts both variables in the
+`env` section of their Claude Code user settings is connected in each repository, with no
+`.mcp.json` and no `claude mcp add`; `/kairos:bootstrap` then writes only
+`.claude/kairos.local.md`. The server is for the agent-key path (KAIROS-A-0024). Its
+`Authorization` header turns off the OAuth flow of the client, so on an OAuth deployment
+leave `KAIROS_URL` unset and use a project or user entry with no header. With `KAIROS_URL`
+unset, `/mcp` shows the server as failed ("Missing environment variables"); disable it there.
+The hooks match the tools of both names (`mcp__kairos__*` and `mcp__plugin_kairos_kairos__*`).
 
 ## `.mcp.json` is a template
 

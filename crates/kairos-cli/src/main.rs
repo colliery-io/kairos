@@ -32,6 +32,7 @@
 //! Exit codes (KAIROS-A-0015): 0 success · 1 API/validation error ·
 //! 2 auth error.
 
+mod auth;
 mod commands;
 mod context;
 mod credentials;
@@ -43,7 +44,6 @@ mod provider;
 mod table;
 
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 
@@ -66,7 +66,6 @@ use index::IndexArgs;
 use kairos_client::types_auth::LoginRequest;
 use kairos_client::types_org::WhoamiResponse;
 use kairos_client::{Error as ApiError, KairosClient};
-use provider::CachedTokenProvider;
 
 #[derive(Parser)]
 #[command(
@@ -74,7 +73,10 @@ use provider::CachedTokenProvider;
     version,
     about = "The Kairos command-line interface",
     long_about = "The Kairos command-line interface (KAIROS-A-0015).\nThe exit codes are: 0 for \
-         success, 1 for an error of the API or of the input, 2 for an error of the login."
+         success, 1 for an error of the API or of the input, 2 for an error of the login.\n\n\
+         The credentials: `kairos login`, or a key in the environment. With KAIROS_KEY (else \
+         KAIROS_MCP_KEY) set to an agent key or a service-account key, each command sends that \
+         key and does not use the login. KAIROS_URL (or --url) names the deployment."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -90,7 +92,10 @@ enum Command {
         With --email, the login uses a local account. The CLI asks for the password \
         on the terminal and does not show it.\n\n\
         The password is never an argument. For a script, send it on standard input:\n  \
-        printf '%s' \"$PASSWORD\" | kairos login --url <URL> --email <EMAIL>")]
+        printf '%s' \"$PASSWORD\" | kairos login --url <URL> --email <EMAIL>\n\n\
+        With no login, the CLI can use an agent key: set KAIROS_URL and KAIROS_KEY (or \
+        KAIROS_MCP_KEY). Do this when the issuer gives the CLI no device grant, for example \
+        Google.")]
     Login {
         /// Deployment base URL (e.g. https://kairos.example.com)
         #[arg(long)]
@@ -555,16 +560,11 @@ async fn whoami(
     tenant_override: Option<String>,
     json: bool,
 ) -> Result<(), CliError> {
-    let path = credentials::credentials_path()?;
-    let store = credentials::load(&path)?;
-    let deployment = credentials::resolve_deployment(&store, url)?;
-    let entry = credentials::entry_for(&store, &deployment)?;
-
-    let provider = Arc::new(CachedTokenProvider::new(path, deployment.clone()));
-    let mut client = KairosClient::new(&deployment, provider);
-    if let Some(tenant) = tenant_override.or(entry.tenant) {
-        client = client.with_tenant(tenant);
-    }
+    let client = context::client(&context::Common {
+        url: url.map(str::to_string),
+        tenant: tenant_override,
+        json,
+    })?;
 
     let identity = client.whoami().await?;
     if json {

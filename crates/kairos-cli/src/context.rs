@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
+use crate::auth::{self, Source};
 use crate::credentials;
 use crate::error::CliError;
 use crate::provider::CachedTokenProvider;
@@ -15,7 +16,7 @@ use kairos_client::KairosClient;
 /// Flags shared by every command that talks to the API.
 #[derive(clap::Args, Debug, Default)]
 pub struct Common {
-    /// Deployment base URL (defaults to the only cached deployment)
+    /// Deployment base URL (defaults to KAIROS_URL, then the only cached deployment)
     #[arg(long)]
     pub url: Option<String>,
     /// Tenant slug override (defaults to the tenant cached at login)
@@ -26,13 +27,29 @@ pub struct Common {
     pub json: bool,
 }
 
-/// A `KairosClient` for the resolved deployment, drawing (auto-refreshing)
-/// tokens from the credential cache. Missing credentials are an auth error
-/// (exit 2) with the `kairos login` instruction.
+/// A `KairosClient` for the resolved deployment ([`auth::resolve`]): the
+/// key in the environment, else (auto-refreshing) tokens from the
+/// credential cache. Missing credentials are an auth error (exit 2) with
+/// the `kairos login` instruction.
 pub fn client(common: &Common) -> Result<KairosClient, CliError> {
     let path = credentials::credentials_path()?;
-    let store = credentials::load(&path)?;
-    let deployment = credentials::resolve_deployment(&store, common.url.as_deref())?;
+    let source = auth::resolve(common.url.as_deref(), &auth::Env::from_process(), || {
+        credentials::load(&path)
+    })?;
+    let (deployment, store) = match source {
+        Source::Key {
+            deployment,
+            var,
+            key,
+        } => {
+            let mut client = auth::key_client(&deployment, var, key);
+            if let Some(tenant) = common.tenant.clone() {
+                client = client.with_tenant(tenant);
+            }
+            return Ok(client);
+        }
+        Source::Cache { deployment, store } => (deployment, store),
+    };
     let entry = credentials::entry_for(&store, &deployment)?;
 
     let provider = Arc::new(CachedTokenProvider::new(path, deployment.clone()));

@@ -22,6 +22,9 @@ kairos whoami
 `whoami` shows your name. Log in with your own login, not with an agent key. A
 request with an agent key cannot make an agent key.
 
+Sometimes `kairos login` does not work, for example with Google as the issuer.
+Then sign in to the web app, and do step 2 on the **Agent keys** page.
+
 ## 2. Make the key
 
 Give each agent its own key. Then you can revoke one key and keep the others.
@@ -82,6 +85,24 @@ kairos keys revoke <KEY_ID> --confirm
 
 After the revocation, the key gets `401`. To replace a key, make the new key
 first. Put the new key in the settings of the agent. Then revoke the old key.
+
+## Use the key with the CLI
+
+The CLI can use the key in place of `kairos login`. This is the route when the
+issuer gives the CLI no device grant, for example Google. Keep the key in a
+file that only you can read, and not in the history of your shell:
+
+```sh
+install -m 600 /dev/null ~/.kairos-agent-key   # then paste the key into the file
+export KAIROS_URL=https://kairos.example.com
+export KAIROS_KEY="$(cat ~/.kairos-agent-key)"
+kairos whoami
+```
+
+The CLI also reads `KAIROS_MCP_KEY`, so a shell that has the variable of
+Claude Code needs only `KAIROS_URL`. When a key is set, it wins over a login.
+Unset it to use the login again. The key cannot make or revoke agent keys:
+use your login or the **Agent keys** page for that.
 
 ## What you cannot do
 

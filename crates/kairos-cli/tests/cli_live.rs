@@ -57,12 +57,44 @@ fn with_database(url: &str, db_name: &str) -> String {
     format!("{base}/{db_name}")
 }
 
+/// Run the `kairos` binary with a key in `var` and `KAIROS_URL`, and no other
+/// key in its environment; returns (exit_code, stdout, stderr).
+async fn run_cli_with_key(
+    config_dir: &std::path::Path,
+    url: &str,
+    var: &str,
+    key: &str,
+    args: &[&str],
+) -> (i32, String, String) {
+    let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
+        .args(args)
+        .env("KAIROS_CONFIG_DIR", config_dir)
+        .env_remove("KAIROS_KEY")
+        .env_remove("KAIROS_MCP_KEY")
+        .env("KAIROS_URL", url)
+        .env(var, key)
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .expect("running the kairos binary");
+    (
+        output.status.code().expect("exit code"),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 /// Run the `kairos` binary with `KAIROS_CONFIG_DIR` pointed at the test's
 /// scratch config dir; returns (exit_code, stdout, stderr).
 async fn run_cli(config_dir: &std::path::Path, args: &[&str]) -> (i32, String, String) {
     let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_kairos"))
         .args(args)
         .env("KAIROS_CONFIG_DIR", config_dir)
+        // The key of a person's own shell must not stand in for the login
+        // under test (KAIROS_KEY wins over the cache).
+        .env_remove("KAIROS_KEY")
+        .env_remove("KAIROS_MCP_KEY")
+        .env_remove("KAIROS_URL")
         .stdin(Stdio::null())
         .output()
         .await
@@ -367,6 +399,45 @@ async fn cli_login_whoami_refresh_logout_live() {
         "{stdout}"
     );
     assert!(stdout.contains("Platform"), "{stdout}");
+
+    // --- phase B2: an agent key in KAIROS_KEY stands in for the login ------
+    // A config dir with no cache: the key and KAIROS_URL are all there is.
+    let (code, stdout, stderr) = run_cli(
+        config_dir.path(),
+        &["keys", "create", "--name", "cli-live-key", "--json"],
+    )
+    .await;
+    assert_eq!(code, 0, "keys create failed: {stderr}");
+    let created: serde_json::Value = serde_json::from_str(&stdout).expect("key JSON");
+    let key = created["key"].as_str().expect("the raw key").to_string();
+    let empty_dir = tempfile::tempdir().expect("empty config dir");
+    let (code, stdout, stderr) = run_cli_with_key(
+        empty_dir.path(),
+        &base_url,
+        "KAIROS_KEY",
+        &key,
+        &["whoami", "--json"],
+    )
+    .await;
+    assert_eq!(code, 0, "whoami with KAIROS_KEY failed: {stderr}");
+    let identity: serde_json::Value = serde_json::from_str(&stdout).expect("whoami JSON");
+    assert_eq!(identity["user"]["email"], "alice@kairos.test");
+    assert!(
+        !empty_dir.path().join("credentials.json").exists(),
+        "a key must not write the cache"
+    );
+    // A key that the deployment refuses names its variable, not `kairos login`.
+    let (code, _, stderr) = run_cli_with_key(
+        empty_dir.path(),
+        &base_url,
+        "KAIROS_MCP_KEY",
+        "kairos_sk_not_a_key",
+        &["whoami"],
+    )
+    .await;
+    assert_eq!(code, 2, "a refused key is an auth error: {stderr}");
+    assert!(stderr.contains("KAIROS_MCP_KEY"), "{stderr}");
+    assert!(!stderr.contains("kairos_sk_not_a_key"), "{stderr}");
 
     // --- phase C: automatic refresh on expiry --------------------------------
     let mut cache: serde_json::Value =

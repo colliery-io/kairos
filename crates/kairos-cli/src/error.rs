@@ -42,10 +42,16 @@ impl From<ApiError> for CliError {
     /// capability (KAIROS-T-0037).
     fn from(err: ApiError) -> Self {
         match err {
-            ApiError::Unauthorized { message, .. } => CliError::Auth(format!(
-                "The deployment did not accept the token (401): {message}\n\
-                 Run `kairos login --url <deployment>` to log in again."
-            )),
+            ApiError::Unauthorized { message, .. } => match crate::auth::key_in_use() {
+                Some(var) => CliError::Auth(format!(
+                    "The deployment did not accept the key in {var} (401): {message}\n\
+                     Put a working key in {var}, or unset it to use `kairos login`."
+                )),
+                None => CliError::Auth(format!(
+                    "The deployment did not accept the token (401): {message}\n\
+                     Run `kairos login --url <deployment>` to log in again."
+                )),
+            },
             ApiError::Token(message) => CliError::Auth(message),
             ApiError::Forbidden {
                 message,

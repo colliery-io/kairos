@@ -4,8 +4,9 @@
 //! - **The connection.** The URL: `--url`, else `KAIROS_URL`, else
 //!   `deployment_url` in `.claude/kairos.local.md` of the checkout, else the
 //!   credential cache of `kairos login`. The token: `KAIROS_KEY`, else
-//!   `KAIROS_MCP_KEY` (a service-account key, as the plugin and
-//!   `scripts/render-references.sh` use), else the credential cache.
+//!   `KAIROS_MCP_KEY` (an agent key or a service-account key, as the plugin
+//!   and `scripts/render-references.sh` use), else the credential cache.
+//!   [`crate::auth`] resolves both, as for each other command.
 //! - **The repository.** `--repository`, else `repository` in
 //!   `.claude/kairos.local.md`, else the repository of Kairos whose
 //!   `repo_url` is the `origin` remote of the checkout.
@@ -24,6 +25,7 @@ use std::time::Duration;
 use kairos_client::{Error as ApiError, KairosClient};
 
 use super::git_output;
+use crate::auth::{self, Source};
 use crate::credentials;
 use crate::provider::CachedTokenProvider;
 
@@ -229,38 +231,35 @@ fn client(
     args: &RemoteArgs,
     settings: &HashMap<String, String>,
 ) -> Result<Option<(KairosClient, String)>, String> {
-    let env = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let env = auth::Env::from_process();
     let url = args
         .url
         .clone()
-        .or_else(|| env("KAIROS_URL"))
+        .or_else(|| env.url.clone())
         .or_else(|| settings.get("deployment_url").cloned());
-    let key = env("KAIROS_KEY").or_else(|| env("KAIROS_MCP_KEY"));
     let path = credentials::credentials_path().map_err(|e| e.to_string())?;
-    let store = credentials::load(&path).map_err(|e| e.to_string())?;
-
-    if let Some(key) = key {
-        let url = match url {
-            Some(url) => credentials::normalize_url(&url),
-            None => match credentials::resolve_deployment(&store, None) {
-                Ok(url) => url,
-                Err(_) => return Ok(None),
-            },
-        };
-        let mut client = KairosClient::with_static_token(&url, key);
-        if let Some(tenant) = &args.tenant {
-            client = client.with_tenant(tenant);
-        }
-        return Ok(Some((client, url)));
-    }
-    let deployment = match credentials::resolve_deployment(&store, url.as_deref()) {
-        Ok(deployment) => deployment,
+    let source = match auth::resolve(url.as_deref(), &env, || credentials::load(&path)) {
+        Ok(source) => source,
         Err(_) if url.is_none() => return Ok(None),
         Err(e) => return Err(e.to_string()),
     };
+    let (deployment, store) = match source {
+        Source::Key {
+            deployment,
+            var,
+            key,
+        } => {
+            let mut client = auth::key_client(&deployment, var, key);
+            if let Some(tenant) = &args.tenant {
+                client = client.with_tenant(tenant);
+            }
+            return Ok(Some((client, deployment)));
+        }
+        Source::Cache { deployment, store } => (deployment, store),
+    };
     let entry = credentials::entry_for(&store, &deployment).map_err(|e| {
         format!(
-            "{} Or set KAIROS_KEY to a service-account key",
+            "{} Or set KAIROS_KEY to an agent key or a service-account key",
             e.to_string().replace('\n', " ")
         )
     })?;

@@ -1,0 +1,53 @@
+# KAIROS-T-0452 probe: a temporary workflow (closed without merge). It runs
+# the test binaries that crash at exit many times, keeps core dumps and
+# prints the backtrace of each crash.
+name: segv-probe
+on:
+  pull_request:
+    paths: ['.github/workflows/segv-probe.yml']
+permissions:
+  contents: read
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
+  CARGO_PROFILE_TEST_DEBUG: "line-tables-only"
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup toolchain install
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev gdb
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: tests
+          save-if: false
+      - name: Start the compose stack
+        run: docker compose -f .angreal/docker-compose.yaml up -d --wait
+      - name: Build
+        run: cargo nextest archive -p kairos-server --test jobs --test code_index --test two_replicas --test periodic --test dispatch_rules --archive-file probe.tar.zst
+      - name: Loop under nextest with core dumps
+        run: |
+          set -u
+          ulimit -c unlimited
+          sudo sysctl -w kernel.core_pattern="$PWD/cores/core.%e.%p"
+          mkdir -p cores
+          for i in $(seq 1 25); do
+            cargo nextest run --archive-file probe.tar.zst --workspace-remap . \
+              --extract-to . --extract-overwrite --no-fail-fast --retries 0 \
+              --test-threads 8 2>&1 | grep -E "SIGSEGV|signal 11|ABORT|SIGABRT|Summary" || true
+          done
+          ls -la cores | head -20
+      - name: Backtraces
+        if: always()
+        run: |
+          for core in cores/core.*; do
+            [ -e "$core" ] || continue
+            exe="$(file "$core" | sed -n "s/.*execfn: '\([^']*\)'.*/\1/p")"
+            echo "=== $core ($exe)"
+            gdb -batch -ex "thread apply all bt 25" "$exe" "$core" 2>&1 | grep -v "^\[New LWP" | head -150
+          done

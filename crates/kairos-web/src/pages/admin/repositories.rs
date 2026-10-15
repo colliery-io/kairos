@@ -26,8 +26,8 @@
 //! clears it at each send. No response has the token.
 
 use aurora_dark::components::{
-    Anchor, Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select,
-    Stack, Text, TextInput,
+    Button, Code, Divider, Empty, ErrorState, Group, Loading, PageHeader, Panel, Select, Stack,
+    Text, TextInput,
 };
 use aurora_dark::tokens::ApiError;
 use leptos::prelude::*;
@@ -687,9 +687,9 @@ fn RepositoryRow(
             <Group justify="between" wrap=true>
                 <Group gap="sm" wrap=true>
                     <Code>{code_slug}</Code>
-                    <Anchor href=repo_url attr:target="_blank" attr:rel="noopener noreferrer">
+                    <crate::pages::repositories::RepositoryLink repo_url>
                         {name}
-                    </Anchor>
+                    </crate::pages::repositories::RepositoryLink>
                     <Text dimmed=true size="sm">{owner}</Text>
                     <Text dimmed=true size="xs">{counts}</Text>
                     {has_webhook.then(|| view! { <Code>"webhooks"</Code> })}

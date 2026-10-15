@@ -442,9 +442,9 @@ fn TeamBody(view_model: TeamView, on_changed: Callback<()>) -> impl IntoView {
                                         <Group justify="between" wrap=true>
                                             <Group gap="sm" wrap=true>
                                                 <Pill color=aurora_dark::tokens::token::ICE>{repo.slug.clone()}</Pill>
-                                                <Anchor href=repo.repo_url.clone() attr:target="_blank" attr:rel="noopener noreferrer">
+                                                <crate::pages::repositories::RepositoryLink repo_url=repo.repo_url.clone()>
                                                     {name}
-                                                </Anchor>
+                                                </crate::pages::repositories::RepositoryLink>
                                             </Group>
                                             <Group gap="sm">
                                                 <Text dimmed=true size="xs">{open}</Text>

@@ -18,6 +18,54 @@ pub(crate) mod refs;
 pub(crate) mod site;
 
 use api::Repository;
+use leptos::prelude::*;
+
+/// The URL to link a repository to its code: `repo_url` when it is an
+/// absolute `http` or `https` URL with a host, else `None`. The server
+/// checks the form of `repo_url` on each write (COLLIERY-T-0267), but the
+/// page does not trust a string that becomes an `href`: a `javascript:` URL
+/// from an old row or an older server gets no link. A repository with no
+/// URL, or an older server that sends none, is shown as text. Pure,
+/// host-tested.
+pub(crate) fn code_href(repo_url: &str) -> Option<String> {
+    let url = repo_url.trim();
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    let has_host = rest
+        .split(['/', '?', '#'])
+        .next()
+        .is_some_and(|h| !h.is_empty());
+    (has_host && !url.chars().any(char::is_whitespace)).then(|| url.to_string())
+}
+
+/// A repository name that links to the code of the repository on its forge
+/// when `repo_url` allows it ([`code_href`]), else the plain name. The
+/// link opens a new tab: the forge is not a page of this app.
+#[component]
+pub(crate) fn RepositoryLink(
+    /// The `repo_url` of the repository; empty when unknown.
+    #[prop(into)]
+    repo_url: String,
+    children: Children,
+) -> impl IntoView {
+    match code_href(&repo_url) {
+        Some(href) => view! {
+            <a
+                class="kairos-repo-link cl-anchor"
+                href=href
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open the code on the forge"
+                data-testid="repo-code-link"
+            >
+                {children()}
+            </a>
+        }
+        .into_any(),
+        None => view! { <span>{children()}</span> }.into_any(),
+    }
+}
 
 /// The options of a repository picker, as `(value, label)`: every live
 /// repository of the tenant (COLLIERY-T-0221). The value is the slug, which
@@ -192,6 +240,29 @@ mod tests {
 
     /// A repository with no forge full name shows its slug alone, then
     /// the owner when a different team owns it.
+    #[test]
+    fn a_link_to_the_code_needs_an_http_or_https_url_with_a_host() {
+        for url in [
+            "https://github.com/acme/api",
+            "http://git.example.org:8443/g/p",
+            " https://gitlab.com/g/s/p ",
+        ] {
+            assert_eq!(code_href(url).as_deref(), Some(url.trim()), "{url}");
+        }
+        for url in [
+            "",
+            "github.com/acme/api",
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "ftp://github.com/acme/api",
+            "https://",
+            "https:///acme",
+            "https://github.com/a b",
+        ] {
+            assert_eq!(code_href(url), None, "{url}");
+        }
+    }
+
     #[test]
     fn a_label_without_a_full_name_starts_with_the_slug() {
         let mut bare = repository("infra", PLATFORM);

@@ -1181,6 +1181,7 @@ The repository of an [`Impact`].
 | `forge` | `string` | yes | `github|gitlab|other`. |
 | `id` | `string` | yes | Repository id (UUID). |
 | `repo_full_name` | `string` | yes | `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
+| `repo_url` | `string` | no | The browser URL of the repository on the forge: an absolute `http` or `https` URL. The web UI links the repository to it. |
 | `slug` | `string` | yes | The slug of the repository. |
 
 ## ImpactingItem
@@ -1983,6 +1984,7 @@ The repository a task is bound to, embedded on [`super::types::Task`] so cards a
 | `forge` | `string` | yes | `github|gitlab|other`. |
 | `id` | `string` | yes | Repository id (UUID). |
 | `repo_full_name` | `string` | yes | `owner/repo` on GitHub, `group/subgroup/project` on GitLab. |
+| `repo_url` | `string` | no | The browser URL of the repository on the forge: an absolute `http` or `https` URL. The web UI links the repository to it. |
 | `slug` | `string` | yes | Tenant-unique slug — what agents and the CLI address. |
 | `team_id` | `string` | yes | Owning team (UUID). |
 

@@ -290,6 +290,7 @@ async fn task_repository_binding_against_live_stack() {
         .expect("the repository ref is embedded on create");
     assert_eq!(embedded.slug, "payments-api");
     assert_eq!(embedded.repo_full_name, "acme/payments-api");
+    assert_eq!(embedded.repo_url, "https://github.com/acme/payments-api");
     assert_eq!(embedded.team_id, platform.id);
 
     // By UUID works too.

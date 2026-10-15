@@ -22,6 +22,9 @@ pub struct RepositoryRef {
     pub slug: String,
     #[serde(default)]
     pub repo_full_name: String,
+    /// The browser URL on the forge. An older server does not send it.
+    #[serde(default)]
+    pub repo_url: String,
 }
 
 /// mirror of: `kairos_client::types_repositories::RepositoryTeam`.
@@ -520,6 +523,24 @@ mod tests {
     /// The repository mirrors decode a realistic `GET /api/repositories`
     /// row (field-name lock against the S-0005 wire shape; optional
     /// counts/flags default when absent).
+    #[test]
+    fn the_repository_ref_decodes_the_url_of_the_code() {
+        let with_url: RepositoryRef = serde_json::from_value(serde_json::json!({
+            "id": "r-1", "slug": "payments-api", "forge": "github",
+            "repo_full_name": "acme/payments-api",
+            "repo_url": "https://github.com/acme/payments-api", "team_id": "t-1"
+        }))
+        .expect("the mirror decodes");
+        assert_eq!(with_url.repo_url, "https://github.com/acme/payments-api");
+        // An older server sends no URL: the repository has no link.
+        let older: RepositoryRef = serde_json::from_value(serde_json::json!({
+            "id": "r-1", "slug": "payments-api", "forge": "github",
+            "repo_full_name": "acme/payments-api", "team_id": "t-1"
+        }))
+        .expect("the mirror decodes");
+        assert_eq!(older.repo_url, "");
+    }
+
     #[test]
     fn repository_mirrors_decode_server_shape() {
         let repo: Repository = serde_json::from_value(serde_json::json!({

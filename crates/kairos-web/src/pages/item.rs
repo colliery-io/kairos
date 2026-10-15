@@ -889,9 +889,8 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
         facts.push((task_type.clone(), token::TEAL));
     }
     // KAIROS-T-0109: the repository the task links to (COLLIERY-A-0023).
-    if let Some(repository) = &item.repository {
-        facts.push((format!("repo: {}", repository.slug), token::ICE));
-    }
+    // It is a link to the code when the server sent a usable `repo_url`.
+    let repository = item.repository.clone();
     // KAIROS-T-0077: the lane rides as a fact; Planned stays unmarked as
     // the default lane.
     if item.work_class.as_deref() == Some("support") {
@@ -916,6 +915,16 @@ fn TypeFacts(item: ItemDetail) -> impl IntoView {
         facts.push((decision_date.clone(), token::VIOLET));
     }
     view! {
+        {repository.map(|repository| {
+            let slug = repository.slug.clone();
+            view! {
+                <span data-testid="repo-fact" data-repo=slug>
+                    <repositories::RepositoryLink repo_url=repository.repo_url>
+                        <Pill color=token::ICE>{format!("repo: {}", repository.slug)}</Pill>
+                    </repositories::RepositoryLink>
+                </span>
+            }
+        })}
         {facts
             .into_iter()
             .map(|(label, color)| view! { <Pill color=color>{label}</Pill> })

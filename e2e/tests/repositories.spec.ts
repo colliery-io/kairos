@@ -119,6 +119,14 @@ test('repositories: team panel → board lens → cross-team filing → any repo
   await test.step('board cards carry repo chips; the lens narrows and lives in the URL', async () => {
     await page.goto('/boards/platform-delivery');
     await expect(page.locator('.kairos-card__repo[data-repo="payments-api"]').first()).toBeVisible();
+    // The chip links to the code on the forge, in a new tab. The card
+    // stays on the board: the link is not a route of the app.
+    const chipLink = page
+      .locator('.kairos-card__repo[data-repo="payments-api"] [data-testid="repo-code-link"]')
+      .first();
+    await expect(chipLink).toHaveAttribute('href', /^https?:\/\/.+payments-api/);
+    await expect(chipLink).toHaveAttribute('target', '_blank');
+    await expect(chipLink).toHaveAttribute('rel', /noopener/);
     const lens = page.locator('[data-testid="repo-lens"]');
     await expect(lens).toBeVisible();
     // Two platform repos are on the board → the group-by toggle is offered.
@@ -302,6 +310,10 @@ test('repositories: team panel → board lens → cross-team filing → any repo
   await test.step('the item page shows a link to a repository of a different team with no warning', async () => {
     await page.goto(`/items/${linkedAcross}`);
     await expect(page.locator('.cl-pill', { hasText: 'repo: portal-web' })).toBeVisible();
+    // The repository fact links to the code on the forge, in a new tab.
+    const factLink = page.locator('[data-testid="repo-fact"] [data-testid="repo-code-link"]');
+    await expect(factLink).toHaveAttribute('href', /^https?:\/\/.+portal-web/);
+    await expect(factLink).toHaveAttribute('target', '_blank');
     const boardPanel = panel(page, 'Board');
     await expect(boardPanel).toContainText('Platform Delivery');
     const control = page.locator('[data-testid="repository-control"]');

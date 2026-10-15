@@ -1613,6 +1613,7 @@ mod tests {
                 slug: slug.into(),
                 forge: "github".into(),
                 repo_full_name: format!("acme/{slug}"),
+                repo_url: format!("https://github.com/acme/{slug}"),
                 archived_at: archived_at.map(str::to_string),
             },
             created_at: "2026-09-29T00:00:00Z".into(),

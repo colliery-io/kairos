@@ -352,6 +352,17 @@
   text-decoration: underline;
 }
 
+/* The link of a repository to its code (the board chip, the item page, the
+   impacts). A pill inside it keeps its look; the underline shows on hover. */
+.kairos-repo-link {
+  text-decoration: none;
+}
+
+.kairos-repo-link:hover,
+.kairos-repo-link:focus-visible {
+  text-decoration: underline;
+}
+
 /* The notices above the lanes (COLLIERY-T-0232, COLLIERY-T-0261): in the
    flow of the page. A failed mutation is an Aurora toast. */
 .kairos-board__notice {

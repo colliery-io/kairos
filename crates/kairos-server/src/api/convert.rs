@@ -157,6 +157,7 @@ pub fn repository_ref(repo: &Repository) -> RepositoryRef {
         slug: repo.slug.clone(),
         forge: repo.forge.to_string(),
         repo_full_name: repo.repo_full_name.clone(),
+        repo_url: repo.repo_url.clone(),
         team_id: repo.team_id.to_string(),
     }
 }
@@ -225,6 +226,7 @@ pub fn impact(
             slug: row.slug,
             forge: row.forge,
             repo_full_name: row.repo_full_name,
+            repo_url: row.repo_url,
             archived_at: row.archived_at.map(timestamp),
         },
         created_at: timestamp(row.created_at),

@@ -969,6 +969,8 @@ struct CardModel {
     work_class: Option<String>,
     /// The bound repository's slug — tasks only (KAIROS-T-0109, A-0019).
     repository: Option<String>,
+    /// The `repo_url` of the bound repository: the chip links to it.
+    repository_url: Option<String>,
     /// The person who has the task in Active (KAIROS-T-0359) — tasks only.
     claim: Option<data::TaskClaim>,
     /// The owner of the card (KAIROS-T-0416): the person with the claim of
@@ -1052,9 +1054,13 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                 title: &str,
                 meta: Vec<(String, &'static str)>,
                 work_class: Option<String>,
-                repository: Option<String>,
+                repository: Option<(String, String)>,
                 claim: Option<data::TaskClaim>,
                 owner: Option<CardOwner>| {
+        let (repository, repository_url) = match repository {
+            Some((slug, url)) => (Some(slug), Some(url)),
+            None => (None, None),
+        };
         let progress = progress_of(short_code);
         let blocks = blocks_of(short_code);
         let teams = teams_of(short_code);
@@ -1063,10 +1069,11 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
             short_code: short_code.to_string(),
             title: title.to_string(),
             key: format!(
-                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{claim:?}|{owner:?}|{teams:?}|{progress:?}|{blocks:?}"
+                "{short_code}|{title}|{meta:?}|{work_class:?}|{repository:?}|{repository_url:?}|{claim:?}|{owner:?}|{teams:?}|{progress:?}|{blocks:?}"
             ),
             work_class,
             repository,
+            repository_url,
             claim,
             owner,
             teams,
@@ -1147,7 +1154,9 @@ fn column_models(view: &data::BoardView) -> Vec<ColumnModel> {
                     &item.title,
                     meta,
                     Some(item.work_class.clone()),
-                    item.repository.as_ref().map(|r| r.slug.clone()),
+                    item.repository
+                        .as_ref()
+                        .map(|r| (r.slug.clone(), r.repo_url.clone())),
                     item.claim.clone(),
                     item.claim.as_ref().map(CardOwner::of_claim),
                 )
@@ -2853,12 +2862,12 @@ fn LaneColumns(
                                     children=move |card: CardModel| {
                                         let CardModel {
                                             kind, short_code, title, meta, work_class,
-                                            repository, claim, owner, teams, progress, blocks, key: _,
+                                            repository, repository_url, claim, owner, teams, progress, blocks, key: _,
                                         } = card;
                                         let owner = owner.map(|owner| owner.user_id);
                                         view! {
                                             <ItemCard
-                                                kind short_code title meta work_class repository
+                                                kind short_code title meta work_class repository repository_url
                                                 claim owner teams progress blocks
                                                 targets=targets_for_cards.get_value()
                                                 source_column=column_for_cards.get_value()
@@ -2914,6 +2923,8 @@ fn ItemCard(
     work_class: Option<String>,
     /// The bound repository's slug (KAIROS-T-0109) — a chip on the card.
     repository: Option<String>,
+    /// The `repo_url` of the bound repository: the chip links to the code.
+    repository_url: Option<String>,
     /// The person who has the task in Active (KAIROS-T-0359) — a chip
     /// with the name of the person.
     claim: Option<data::TaskClaim>,
@@ -2995,9 +3006,12 @@ fn ItemCard(
                 <Group gap="xs" wrap=true>
                     {repository.map(|slug| {
                         let attr = slug.clone();
+                        let repo_url = repository_url.unwrap_or_default();
                         view! {
                             <span class="kairos-card__repo" data-repo=attr>
-                                <Pill color=token::ICE>{slug}</Pill>
+                                <repositories::RepositoryLink repo_url>
+                                    <Pill color=token::ICE>{slug}</Pill>
+                                </repositories::RepositoryLink>
                             </span>
                         }
                     })}
@@ -4432,6 +4446,7 @@ mod tests {
             meta: Vec::new(),
             work_class: None,
             repository: repository.map(str::to_string),
+            repository_url: None,
             claim: None,
             owner: None,
             teams: Vec::new(),

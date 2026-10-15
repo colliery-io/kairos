@@ -1610,9 +1610,17 @@ async fn a_document_names_its_board_and_impacts_a_repository_against_live_stack(
                 linked.target_kind.as_str(),
                 linked.repository.slug.as_str(),
                 linked.repository.repo_full_name.as_str(),
+                linked.repository.repo_url.as_str(),
                 linked.repository.archived_at,
             ),
-            ("impacts", "repository", "fidius", "acme/fidius", None),
+            (
+                "impacts",
+                "repository",
+                "fidius",
+                "acme/fidius",
+                "https://github.com/acme/fidius",
+                None,
+            ),
         );
     }
     checks.same(

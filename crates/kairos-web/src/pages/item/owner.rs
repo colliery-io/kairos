@@ -343,6 +343,7 @@ pub fn ImpactsPanel(
                 {links.get_value().into_iter().map(|impact| {
                     let slug = impact.repository.slug.clone();
                     let row = slug.clone();
+                    let repo_url = impact.repository.repo_url.clone();
                     let label = if impact.repository.repo_full_name.is_empty() {
                         slug.clone()
                     } else {
@@ -352,7 +353,9 @@ pub fn ImpactsPanel(
                     view! {
                         <Group gap="sm" justify="between" attr:data-impact=row>
                             <Group gap="sm">
-                                <Text size="sm">{label}</Text>
+                                <Text size="sm">
+                                    <repositories::RepositoryLink repo_url>{label}</repositories::RepositoryLink>
+                                </Text>
                                 {retired.then(|| view! {
                                     <Pill color=token::GOLD>"repository deleted"</Pill>
                                 })}
@@ -536,6 +539,7 @@ mod tests {
             repository: api::ImpactedRepository {
                 slug: slug.into(),
                 repo_full_name: format!("acme/{slug}"),
+                repo_url: format!("https://github.com/acme/{slug}"),
                 archived_at: archived_at.map(str::to_string),
             },
         }
@@ -575,7 +579,8 @@ mod tests {
             "impacts": [{
                 "relationship": "impacts", "target_kind": "repository",
                 "repository": {"id": "r-1", "slug": "fidius", "forge": "github",
-                               "repo_full_name": "acme/fidius"},
+                               "repo_full_name": "acme/fidius",
+                               "repo_url": "https://github.com/acme/fidius"},
                 "created_at": "2026-09-29T00:00:00Z"
             }]
         }))

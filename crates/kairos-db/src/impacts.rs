@@ -144,6 +144,8 @@ pub struct ImpactedRepository {
     pub forge: String,
     #[diesel(sql_type = Text)]
     pub repo_full_name: String,
+    #[diesel(sql_type = Text)]
+    pub repo_url: String,
     /// Set when the repository is archived. The link stays.
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub archived_at: Option<DateTime<Utc>>,
@@ -365,7 +367,8 @@ pub fn unlink(
 
 const REPOSITORIES_OF_SQL: &str = "\
     SELECT i.id AS impact_id, i.item_id, r.id AS repository_id, r.slug, \
-           r.forge::text AS forge, r.repo_full_name, r.deleted_at AS archived_at, \
+           r.forge::text AS forge, r.repo_full_name, r.repo_url, \
+           r.deleted_at AS archived_at, \
            i.created_at \
       FROM item_impacts i \
       JOIN repositories r ON r.id = i.target_id \

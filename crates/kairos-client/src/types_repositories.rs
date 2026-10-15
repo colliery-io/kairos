@@ -17,6 +17,10 @@ pub struct RepositoryRef {
     pub forge: String,
     /// `owner/repo` on GitHub, `group/subgroup/project` on GitLab.
     pub repo_full_name: String,
+    /// The browser URL of the repository on the forge: an absolute `http`
+    /// or `https` URL. The web UI links the repository to it.
+    #[serde(default)]
+    pub repo_url: String,
     /// Owning team (UUID).
     pub team_id: String,
 }
@@ -59,6 +63,10 @@ pub struct ImpactedRepository {
     pub forge: String,
     /// `owner/repo` on GitHub, `group/subgroup/project` on GitLab.
     pub repo_full_name: String,
+    /// The browser URL of the repository on the forge: an absolute `http`
+    /// or `https` URL. The web UI links the repository to it.
+    #[serde(default)]
+    pub repo_url: String,
     /// When the repository was archived, RFC 3339. Absent while the
     /// repository is live. The link stays when the repository is archived.
     #[serde(default, skip_serializing_if = "Option::is_none")]

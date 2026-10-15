@@ -249,6 +249,9 @@ pub struct ImpactedRepository {
     pub slug: String,
     #[serde(default)]
     pub repo_full_name: String,
+    /// The browser URL on the forge. An older server does not send it.
+    #[serde(default)]
+    pub repo_url: String,
     /// Set when the repository is archived. The link stays.
     #[serde(default)]
     pub archived_at: Option<String>,
